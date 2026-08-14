@@ -138,19 +138,38 @@ native window's exact compositor address before floating or resizing it. The
 PTY-reported pixel envelope is divided into an integer cell pitch plus a
 terminal-specific edge remainder. That remainder must be smaller than one cell
 and both it and the integer cell pitch must remain identical before and after
-the resize and through `idle-ready`. A nonzero remainder is accepted only when
-distinct observations prove the same affine pitch and remainder. The sealed
+the resize and through `idle-ready`. Before the first resize, the controller
+waits for two distinct, newly emitted oracle records with agreeing
+pitch/remainder observations and discards an earlier spawn fallback or
+pre-scale font metric. Re-reading the same latest JSONL record during polling
+is a no-op; duplicates and replays of already-consumed history cannot advance
+candidate, proof, resize, or release state. Unprocessed records must reach the
+oracle file in strictly increasing sequence order, because the oracle is a
+single append-only writer. An inversion, a repeated identity, or an unusable
+sequence inside that unprocessed window is unorderable evidence: the controller
+fails closed instead of selecting the largest value, so neither the
+out-of-order record nor any later agreeing record can stabilize, resize, prove,
+or release. The child emits geometry changes
+immediately and unchanged confirmation records at a fixed half-second cadence;
+the controller processes at most the newest unseen sequence per poll. Thus the
+two votes span distinct post-map controller polls without treating poll count
+as evidence. Once that model is selected, any
+pitch or remainder change fails closed. A nonzero remainder is accepted only
+when distinct observations prove the same affine pitch and remainder. The sealed
 attempt records those observations, the resize commands, and the release
 outcome for validator recomputation. The validator derives pitch from the
 ordered column/pixel and row/pixel deltas instead of trusting the recorded
 pitch. A launch first observed at exact 80x24 with a nonzero remainder uses
 one resize to perturb by one cell and one resize to return to 80x24; repeated
 polls cannot consume either command. A zero-remainder exact launch keeps the
-single-observation fast path. The outer-window correction uses the integer
-pitch, is repeated only after a new PTY geometry observation, and allows at
-most two resize commands after floating. Raw envelope pixels remain evidence, while calibration compares
-the normalized cell grid; for example, a raw 805x459 envelope with a stable 5x3
-remainder represents the same 800x456 grid as an unpadded envelope. The child
+single-observation fast path. PTY envelope deltas are device pixels; Hyprland
+outer-window sizes are logical pixels, so the controller divides each signed
+device-pixel correction by the mapped window's monitor scale before issuing an
+exact-address resize. The correction uses the integer pitch, is repeated only
+after a new PTY geometry observation, and allows at most two resize commands
+after floating. Raw envelope pixels remain evidence, while calibration compares
+the normalized cell grid; for example, a raw 805x459 envelope with a stable
+5x3 remainder represents the same 800x456 grid as an unpadded envelope. The child
 cannot emit `idle-ready` until the PTY reports exactly 80 columns by 24 rows.
 No persistent compositor rule is installed, unrelated windows cannot match the
 exact-id/address pair, and teardown removes the private edge on success,
@@ -160,7 +179,8 @@ insufficient: until an equivalent reversible startup-geometry controller
 exists, a Sway session fails the prerequisite before any terminal launch.
 
 This changes probe-attempt evidence to schema version 3, reference-readiness
-evidence to schema version 4, and diagnostic evidence to schema version 3.
+evidence to schema version 4, geometry-diagnostic evidence to schema version 4,
+and introduces calibration-diagnostic evidence schema version 1.
 Earlier schemas predate either the
 startup-geometry handshake or the stable normalized-grid evidence and are
 rejected rather than reinterpreted.
@@ -169,27 +189,49 @@ For a bounded live check before laptop execution, run:
 
 ```text
 python3 scripts/bench-protocol/w6_runner.py \
+    --calibration-diagnostic-output <calibration-diagnostic.json> \
+    --calibration-diagnostic-private-dir <new-private-dir-outside-repository> \
+    --preregistration <draft-record.json>
+
+python3 scripts/bench-protocol/w6_runner.py \
     --geometry-diagnostic-output <geometry-diagnostic.json> \
     --geometry-diagnostic-private-dir <new-private-dir-outside-repository> \
+    --calibration-diagnostic-record <calibration-diagnostic.json> \
     --preregistration <record.json>
 ```
 
-This separate diagnostic verifies the pinned artifacts, profiles, shared font,
-and Hyprland child display, then launches OdyTTY, Kitty, Ghostty, and Alacritty
-once each in that fixed order through private systemd scopes and the production
-geometry handshake. WezTerm receives no action. A public schema-version-3
-record is produced only when every native-Wayland window reaches exact 80x24,
+The calibration diagnostic verifies the immutable artifacts, profiles, shared
+font, and Hyprland child display, then executes all 168 declared settings in
+fixed implementation and profile order through private systemd scopes and the
+production scale-aware geometry handshake. Every attempt uses the corrected
+two-distinct-emission model lock and post-lock drift rejection. Its create-exclusive
+public schema-version-1 record contains every sanitized attempt, ordered-list
+digest, validator-recomputed common grid, and deterministically ranked
+selection. An incomplete set, elapsed wall bound, missing common intersection,
+or forged selection cannot validate. Failure and interruption remove only the
+empty public reservation and retain the private raw evidence.
+
+Copy the validated selections, common grid, and per-terminal envelope summaries
+into the draft. The one-shot geometry diagnostic requires the calibration
+record and refuses to construct a launcher unless those draft fields exactly
+match it. It does not search, repair, or reinterpret the draft. It launches
+OdyTTY, Kitty, Ghostty, and Alacritty once each in that fixed order through
+private systemd scopes and the production geometry handshake. WezTerm receives
+no action in either diagnostic. A public schema-version-4 record binds the
+canonical calibration-diagnostic digest and is produced only when every
+native-Wayland window reaches exact 80x24,
 records its opaque application id, raw PTY pixel envelope, normalized cell
 grid, affine envelope proof, process outcome, and successful cleanup, and every
-normalized grid equals the preregistered matched device-pixel geometry. Pin the
-resulting per-terminal pitch/remainder summaries into the fresh preregistration
-draft before reference readiness; the diagnostic does not require those
-not-yet-discovered summaries as inputs. Raw logs stay in a new
+normalized grid equals the preregistered matched device-pixel geometry. Each
+terminal's requested calibration is already evidence-backed and pinned; a
+stable observed pitch that differs from the matched grid remains an unmet
+configuration. Raw logs stay in a new
 mode-`0700` directory outside the repository and public output tree. Failure or
 interruption discards the empty public reservation and retains the private
-diagnostics. The command consumes or creates no readiness, probe,
-preregistration-anchor, rehearsal, measurement, or run identity, and it
-neither suspends Brave nor enforces CPU-noise controls.
+diagnostics. Neither command consumes or creates readiness, probe,
+preregistration-anchor, rehearsal, measurement, or run identity. Neither
+suspends Brave nor enforces CPU-noise controls. Calibration discovery
+is preparation evidence, not the official one-shot availability probe.
 
 The font is enforced separately. The runner copies the pinned, digest-verified
 DejaVu Sans Mono file into a mode-`0700` single-face Fontconfig environment.

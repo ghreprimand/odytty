@@ -55,6 +55,7 @@ IDLE_PROMPT = "odytty-bench$ "
 # Oracle record schema version, independent of the result-document schema:
 # the records are an input to a result document, not a result document.
 ORACLE_RECORD_VERSION = "1.0.0"
+GEOMETRY_CONFIRMATION_SECONDS = 0.5
 
 
 class OracleSink:
@@ -129,6 +130,20 @@ def terminal_pixel_size(descriptor: int | None = None) -> tuple[int, int] | None
     if rows <= 0 or columns <= 0 or width <= 0 or height <= 0:
         return None
     return width, height
+
+
+def geometry_observation_due(
+    geometry: dict,
+    previous_geometry: dict | None,
+    now: float,
+    last_emitted: float | None,
+) -> bool:
+    """Emit changes immediately and stable confirmations at a fixed cadence."""
+    return (
+        geometry != previous_geometry
+        or last_emitted is None
+        or now - last_emitted >= GEOMETRY_CONFIRMATION_SECONDS
+    )
 
 
 def wait_for_start_edge(path: str, sleep=time.sleep) -> None:
@@ -388,6 +403,7 @@ def run_idle(
         raise ValueError("idle duration must not be negative")
     if geometry_ready_path is not None:
         previous_geometry = None
+        last_geometry_emitted = None
         while not os.path.exists(geometry_ready_path):
             columns, rows = terminal_size()
             pixels = terminal_pixel_size()
@@ -397,9 +413,13 @@ def run_idle(
                 "content_width_device_px": pixels[0] if pixels else None,
                 "content_height_device_px": pixels[1] if pixels else None,
             }
-            if geometry != previous_geometry:
+            now = time.monotonic()
+            if geometry_observation_due(
+                geometry, previous_geometry, now, last_geometry_emitted
+            ):
                 sink.emit("geometry-observation", **geometry)
                 previous_geometry = geometry
+                last_geometry_emitted = now
             sleep(0.05)
     prompt = ("\x1b[2J\x1b[H\x1b[?25l" + IDLE_PROMPT).encode("ascii")
     columns, rows = terminal_size()
@@ -685,6 +705,36 @@ def self_test() -> list[str]:
     # W6 publishes a fixed prompt and observable no-I/O counters out of band.
     if not IDLE_PROMPT or "\n" in IDLE_PROMPT:
         failures.append("driver: W6 prompt must be one pinned static line")
+    stable_geometry = {
+        "pty_columns": 80,
+        "pty_rows": 24,
+        "content_width_device_px": 800,
+        "content_height_device_px": 480,
+    }
+    if (
+        not geometry_observation_due(stable_geometry, None, 0.0, None)
+        or geometry_observation_due(
+            stable_geometry,
+            stable_geometry,
+            GEOMETRY_CONFIRMATION_SECONDS - 0.001,
+            0.0,
+        )
+        or not geometry_observation_due(
+            stable_geometry,
+            stable_geometry,
+            GEOMETRY_CONFIRMATION_SECONDS,
+            0.0,
+        )
+        or not geometry_observation_due(
+            {**stable_geometry, "pty_columns": 81},
+            stable_geometry,
+            0.001,
+            0.0,
+        )
+    ):
+        failures.append(
+            "driver: geometry change/confirmation emission cadence drifted"
+        )
 
     # Oracle evidence is immutable: opening an existing path must fail without
     # truncating even one byte.

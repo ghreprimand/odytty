@@ -61,8 +61,13 @@ python3 scripts/bench-protocol/w6_runner.py --reference-readiness-output <readin
     --reference-readiness-private-dir <private-dir-outside-repository> \
     --preregistration <record.json>
 python3 scripts/bench-protocol/w6_runner.py \
+    --calibration-diagnostic-output <calibration-diagnostic.json> \
+    --calibration-diagnostic-private-dir <new-private-dir-outside-repository> \
+    --preregistration <draft-record.json>
+python3 scripts/bench-protocol/w6_runner.py \
     --geometry-diagnostic-output <geometry-diagnostic.json> \
     --geometry-diagnostic-private-dir <new-private-dir-outside-repository> \
+    --calibration-diagnostic-record <calibration-diagnostic.json> \
     --preregistration <record.json>
 python3 scripts/bench-protocol/w6_runner.py --probe --preregistration <record.json> \
     --reference-readiness-record <readiness.json>
@@ -70,23 +75,49 @@ python3 scripts/bench-protocol/w6_runner.py --run --preregistration <record.json
     --results-dir <public-dir> --private-evidence-dir <private-dir>
 ```
 
-`--geometry-diagnostic-output` is a bounded diagnostic-only action for the
-current Hyprland native-Wayland session. After verifying the pinned terminal
-artifacts, tracked configs, shared font, and child display, it uses private
+`--calibration-diagnostic-output` is a bounded diagnostic-only action for the
+current Hyprland native-Wayland session. It executes all 168 declared laptop
+settings in fixed implementation and profile order with the production
+scale-aware controller. Two agreeing models count only when they come from
+distinct, newly emitted oracle sequence records; polling one latest record and
+replaying already-consumed sequences are no-ops. Unprocessed records must be
+appended in strictly increasing sequence order; an inversion, a repeated
+identity, or an unusable sequence in that window fails the controller closed,
+and no later agreeing record rescues it. Its
+child emits changes immediately plus stable half-second confirmations, while
+the controller processes at most one newest unseen sequence per poll. Its
+create-exclusive schema-version-1 public record
+contains every sanitized ordered attempt, the ordered-list digests, the
+validator-recomputed exact common grid, and deterministic per-terminal
+selections. Truncation, reordering, a forged intersection, or failure to finish
+the count/wall bound cannot validate. Failure and interruption remove the
+public reservation while retaining raw logs in the new mode-`0700` private
+directory.
+
+Copy only the validated selections, common grid, and envelope-model summaries
+into the draft. `--geometry-diagnostic-output` requires that calibration record
+and refuses to construct a launcher if any pinned field differs. It is a
+bounded one-shot action for the same session. After verifying the pinned
+terminal artifacts, tracked configs, shared font, and child display, it uses private
 systemd scopes and the production startup-geometry handshake to launch exactly
 OdyTTY, Kitty, Ghostty, and Alacritty once each in that order. WezTerm is never
-launched. The create-exclusive schema-version-3 public record is written only
+launched. The create-exclusive schema-version-4 public record binds the
+canonical calibration-diagnostic digest and is written only
 when all four windows reach exact 80x24 PTY geometry and clean up; it preserves
 each raw PTY pixel envelope, normalized cell grid, and validator-recomputed
 affine proof, and requires every normalized grid to equal the preregistered
-matched device-pixel geometry. Pin the resulting per-terminal pitch/remainder
-summaries into the fresh preregistration draft before reference readiness. Raw logs remain in
-the new mode-`0700` private directory outside the repository and public output tree.
+matched device-pixel geometry. The diagnostic uses the evidence-backed
+calibration for each terminal; it does not search settings or relabel a stable
+mismatched pitch as the matched grid. Raw
+logs remain in the new mode-`0700` private directory outside the repository and
+public output tree.
 Failure or interruption removes the incomplete public reservation while
 retaining private diagnostics. This action creates or consumes no readiness,
 probe, preregistration-anchor, rehearsal, measurement, or run identity. It
 does not suspend Brave or enforce CPU-noise controls because it diagnoses only
-startup geometry.
+startup geometry. The calibration action has the same zero-consumption and
+noise-control posture; it is preparation evidence rather than the official
+availability probe.
 
 `--backend` reports whether window state can be observed on this session at
 all and whether terminal children can connect to that display. A resumed
@@ -140,9 +171,17 @@ derives the exact per-cell geometry for the 80x24 grid. Some terminals include
 a fixed sub-cell edge remainder in that envelope. The controller preserves the
 raw envelope, requires both integer cell pitch and the smaller-than-one-cell
 remainder to stay stable across its resize and `idle-ready`, and compares only
-the normalized cell grid. Nonzero remainders require distinct affine-proof
-observations, sealed resize commands, and validator recomputation within a
-two-command bound. Validation derives pitch from the ordered cell/pixel deltas.
+the normalized cell grid. Before resizing, two distinct newly emitted oracle
+records with agreeing models exclude a spawn fallback or pre-scale font
+metric; replayed records at or below the processed watermark are no-ops, while
+an unprocessed window that is not strictly increasing fails closed. The
+driver emits stable half-second confirmations and the controller processes only
+the newest unseen sequence per poll. After selection, any model change fails
+closed. Hyprland outer sizes are logical pixels, so signed PTY
+device-pixel corrections are divided by the bound monitor scale. Nonzero
+remainders require distinct affine-proof observations, sealed resize commands,
+and validator recomputation within a two-command bound. Validation derives
+pitch from the ordered cell/pixel deltas.
 A nonzero-remainder launch first observed at exact 80x24 perturbs by one cell
 and returns to 80x24 without allowing repeated polls to consume either resize;
 a zero-remainder exact launch keeps the single-observation

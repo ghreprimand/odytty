@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -92,7 +93,8 @@ GEOMETRY_RESIZE_MAX_ATTEMPTS = 2
 # Version 4 binds each reference to a validator-recomputed affine proof for
 # any terminal-specific remainder in the PTY-reported pixel envelope.
 REFERENCE_READINESS_SCHEMA_VERSION = 4
-GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION = 3
+CALIBRATION_DIAGNOSTIC_SCHEMA_VERSION = 1
+GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION = 4
 GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS = (
     "odytty",
     "kitty",
@@ -356,8 +358,33 @@ def hyprland_window_selector(address: object) -> str:
     return f"address:{address}"
 
 
+def _hyprland_window_scale(window: dict) -> float:
+    """Return the positive logical-to-device scale bound to a Hyprland window."""
+    scale = window.get("scale")
+    if (
+        not isinstance(scale, (int, float))
+        or isinstance(scale, bool)
+        or not math.isfinite(float(scale))
+        or scale <= 0
+    ):
+        return 1.0
+    return float(scale)
+
+
+def _logical_pixel_delta(device_pixel_delta: int, scale: float) -> int:
+    """Translate a signed device-pixel delta to Hyprland logical coordinates."""
+    if not isinstance(device_pixel_delta, int) or isinstance(device_pixel_delta, bool):
+        raise ValueError("device-pixel resize delta must be an integer")
+    logical = int(round(device_pixel_delta / scale))
+    if device_pixel_delta and logical == 0:
+        return 1 if device_pixel_delta > 0 else -1
+    return logical
+
+
 def parse_hyprctl_clients(
-    payload: str, active_workspaces: dict[int, int] | None = None
+    payload: str,
+    active_workspaces: dict[int, int] | None = None,
+    monitor_scales: dict[int, float] | None = None,
 ) -> list[dict]:
     """Parse `hyprctl clients -j` into normalized window records."""
     try:
@@ -390,6 +417,11 @@ def parse_hyprctl_clients(
                 "visible": visible,
                 "workspace": workspace_id,
                 "monitor": monitor,
+                "scale": (
+                    monitor_scales.get(monitor, 1.0)
+                    if monitor_scales is not None
+                    else 1.0
+                ),
                 "focused": entry.get("focusHistoryID") == 0,
                 "fullscreen": bool(entry.get("fullscreen", False)),
                 "floating": bool(entry.get("floating", False)),
@@ -1265,12 +1297,20 @@ class RealLauncher:
                     check=False,
                 )
                 active: dict[int, int] = {}
+                scales: dict[int, float] = {}
                 try:
                     for monitor in json.loads(monitors.stdout):
                         active[monitor.get("id")] = (monitor.get("activeWorkspace") or {}).get("id")
+                        scale = monitor.get("scale")
+                        if (
+                            isinstance(scale, (int, float))
+                            and not isinstance(scale, bool)
+                            and scale > 0
+                        ):
+                            scales[monitor.get("id")] = float(scale)
                 except (TypeError, ValueError):
                     return []
-                return parse_hyprctl_clients(clients.stdout, active)
+                return parse_hyprctl_clients(clients.stdout, active, scales)
             if name == "swaymsg":
                 out = subprocess.run(
                     ["swaymsg", "-t", "get_tree", "-r"],
@@ -1448,6 +1488,10 @@ class RealLauncher:
             "address": None,
             "float_requested": False,
             "last_resize_observation": None,
+            "last_geometry_sequence": 0,
+            "candidate_grid_model": None,
+            "candidate_observations": [],
+            "candidate_sequences": [],
             "grid_model": None,
             "proof_observations": [],
             "resize_commands": [],
@@ -1481,31 +1525,82 @@ class RealLauncher:
         metrics = _pty_grid_metrics(observation)
         if metrics is None:
             return False
-        grid_model = (
+        sequence = observation.get("sequence")
+        if (
+            observation.get("kind") != "geometry-observation"
+            or not isinstance(sequence, int)
+            or isinstance(sequence, bool)
+            or sequence <= 0
+            or sequence <= control["last_geometry_sequence"]
+        ):
+            return False
+        # Sequence is controller-private processing state. Public affine proof
+        # remains a projection of PTY geometry, not of poll frequency.
+        control["last_geometry_sequence"] = sequence
+        observed_model = (
             metrics["cell_width_device_px"],
             metrics["cell_height_device_px"],
             metrics["width_remainder_device_px"],
             metrics["height_remainder_device_px"],
         )
-        if control["grid_model"] is None:
-            control["grid_model"] = grid_model
-        elif control["grid_model"] != grid_model:
-            control["command_failed"] = True
-            return False
-
         proof_observation = {
             "pty_columns": metrics["columns"],
             "pty_rows": metrics["rows"],
             "reported_width_device_px": metrics["reported_width_device_px"],
             "reported_height_device_px": metrics["reported_height_device_px"],
         }
+        if control["grid_model"] is None:
+            # OdyTTY initially creates its PTY with the conservative 8x16
+            # fallback, then republishes measured GPU/font metrics and may do
+            # so once more after the compositor scale arrives. Do not freeze
+            # that pre-render envelope. A model becomes actionable only after
+            # two distinct newly emitted oracle records agree. Re-reading the
+            # same latest JSONL record during polling is a no-op and cannot
+            # advance stabilization. A later model change after lock is still
+            # a hard failure below.
+            if control["candidate_grid_model"] != observed_model:
+                control["candidate_grid_model"] = observed_model
+                control["candidate_observations"] = [proof_observation]
+                control["candidate_sequences"] = [sequence]
+            else:
+                control["candidate_sequences"].append(sequence)
+                if proof_observation not in control["candidate_observations"]:
+                    control["candidate_observations"].append(proof_observation)
+            candidate_stable = len(control["candidate_sequences"]) >= 2
+            if not candidate_stable:
+                if (
+                    window.get("floating") is not True
+                    and not control["float_requested"]
+                ):
+                    completed = self._run_geometry_command(
+                        ["hyprctl", "dispatch", "setfloating", selector]
+                    )
+                    control["float_requested"] = True
+                    control["command_failed"] = not self._geometry_command_succeeded(
+                        completed
+                    )
+                return False
+            control["grid_model"] = observed_model
+            control["proof_observations"] = [
+                dict(item) for item in control["candidate_observations"]
+            ]
+        elif control["grid_model"] != observed_model:
+            control["command_failed"] = True
+            return False
         if proof_observation in control["proof_observations"]:
             control["proof_observations"].remove(proof_observation)
         control["proof_observations"].append(proof_observation)
 
         geometry = cell_geometry_from_oracle(observation)
         if geometry is not None:
-            if not _geometry_model_proof_complete(control):
+            model = control["grid_model"]
+            needs_controlled_nonzero_proof = bool(
+                model[2] or model[3]
+            ) and not control["resize_commands"]
+            if (
+                not _geometry_model_proof_complete(control)
+                or needs_controlled_nonzero_proof
+            ):
                 if control["nonzero_exact_perturbation_started"]:
                     return False
                 if window.get("floating") is not True:
@@ -1534,8 +1629,13 @@ class RealLauncher:
                 # A nonzero remainder first observed at the target grid needs
                 # one bounded perturbation so the affine pitch/remainder model
                 # is independently proven before returning to 80x24.
-                target_width += metrics["cell_width_device_px"]
-                target_height += metrics["cell_height_device_px"]
+                scale = _hyprland_window_scale(window)
+                target_width += _logical_pixel_delta(
+                    metrics["cell_width_device_px"], scale
+                )
+                target_height += _logical_pixel_delta(
+                    metrics["cell_height_device_px"], scale
+                )
                 completed = self._run_geometry_command(
                     [
                         "hyprctl",
@@ -1598,8 +1698,13 @@ class RealLauncher:
             return False
         cell_width = metrics["cell_width_device_px"]
         cell_height = metrics["cell_height_device_px"]
-        target_width = window_width + (80 - columns) * cell_width
-        target_height = window_height + (24 - rows) * cell_height
+        scale = _hyprland_window_scale(window)
+        target_width = window_width + _logical_pixel_delta(
+            (80 - columns) * cell_width, scale
+        )
+        target_height = window_height + _logical_pixel_delta(
+            (24 - rows) * cell_height, scale
+        )
         if target_width <= 0 or target_height <= 0:
             return False
         completed = self._run_geometry_command(
@@ -2345,13 +2450,8 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
             measured_pids = cgroup_pids(cgroup) or descendant_pids(process.pid)
             window = window_for_pids(launcher.windows(), measured_pids)
             records = _read_oracle_records(launched.get("oracle_path"))
-            geometry_observation = next(
-                (
-                    entry
-                    for entry in reversed(records)
-                    if entry.get("kind") == "geometry-observation"
-                ),
-                None,
+            geometry_observations = _pending_geometry_observations(
+                records, launched
             )
             ready_record = next(
                 (entry for entry in records if entry.get("kind") == "idle-ready"), None
@@ -2360,10 +2460,11 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
             if (
                 window is not None
                 and ready_record is None
-                and geometry_observation is not None
+                and geometry_observations
                 and normalize is not None
             ):
-                normalize(launched, window, geometry_observation)
+                for geometry_observation in geometry_observations:
+                    normalize(launched, window, geometry_observation)
             if window is not None and ready_record is not None:
                 stable_ready_envelope = _geometry_control_accepts_ready_record(
                     launched, ready_record
@@ -2800,8 +2901,43 @@ def validate_reference_readiness(record: object, prereg_record: dict) -> bool:
     )
 
 
-def _geometry_diagnostic_inputs(record: dict) -> dict:
+def _calibration_diagnostic_sha256(record: object) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            record,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _public_diagnostic_record_safe(record: object) -> bool:
+    """Reject private paths, local identities, and credential-shaped text."""
+    try:
+        encoded = json.dumps(record, sort_keys=True, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return False
+    if any(pattern.search(encoded) for pattern in result_schema.FORBIDDEN_PUBLIC_PATTERNS):
+        return False
+    return all(
+        not token
+        or len(token) <= 2
+        or re.search(rf"\b{re.escape(token)}\b", encoded) is None
+        for token in (os.uname().nodename, os.environ.get("USER", ""))
+    )
+
+
+def _geometry_diagnostic_inputs(
+    record: dict, calibration_diagnostic: object
+) -> dict:
     """Return pinned inputs used by the diagnostic without consuming an identity."""
+    if not calibration_diagnostic_matches_preregistration(
+        calibration_diagnostic, record
+    ):
+        raise ValueError(
+            "geometry diagnostic requires matching calibration evidence"
+        )
     base = _reference_readiness_inputs(record)
     by_name = {
         entry.get("name"): entry for entry in record.get("implementations", [])
@@ -2810,13 +2946,350 @@ def _geometry_diagnostic_inputs(record: dict) -> dict:
         entry.pop("pty_pixel_envelope_model", None)
         entry["calibration"] = by_name[entry["name"]].get("calibration")
     base["matched_cell_geometry"] = record.get("matched_cell_geometry")
+    base["calibration_diagnostic_sha256"] = _calibration_diagnostic_sha256(
+        calibration_diagnostic
+    )
     return base
 
 
-def _geometry_diagnostic_inputs_sha256(record: dict) -> str:
+def _calibration_diagnostic_inputs(record: dict) -> dict:
+    """Bind immutable launch inputs while deliberately excluding old geometry."""
+    base = _reference_readiness_inputs(record)
+    for entry in base["implementations"]:
+        entry.pop("pty_pixel_envelope_model", None)
+    return base
+
+
+def _calibration_diagnostic_inputs_sha256(record: dict) -> str:
     return hashlib.sha256(
         json.dumps(
-            _geometry_diagnostic_inputs(record),
+            _calibration_diagnostic_inputs(record),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _diagnostic_state_record() -> dict[str, bool]:
+    """Return the invariant that diagnostic preparation consumes no run state."""
+    return {
+        "readiness": False,
+        "probe": False,
+        "preregistration_anchor": False,
+        "rehearsal": False,
+        "measurement": False,
+        "run_identity": False,
+    }
+
+
+def _calibration_intersection_selection(
+    attempts_by_name: dict[str, list[dict]],
+) -> tuple[dict, dict[str, dict]] | None:
+    """Choose the preregistered lowest-rank exact common device-pixel grid."""
+    names = list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
+    geometry_sets = [
+        {
+            json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+            for attempt in attempts_by_name.get(name, [])
+            if _valid_probe_attempt(attempt)
+            and attempt.get("window_mapped") is True
+            and attempt.get("display_path") == DISPLAY_PATH_WAYLAND
+            and attempt.get("configuration_status") != "unmet-protocol"
+            and isinstance(attempt.get("cell_geometry"), dict)
+        }
+        for name in names
+    ]
+    common = set.intersection(*geometry_sets) if geometry_sets else set()
+    if not common:
+        return None
+
+    def intersection_rank(serialized_geometry: str) -> tuple:
+        choices = []
+        for name in names:
+            candidates = [
+                attempt
+                for attempt in attempts_by_name[name]
+                if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+                == serialized_geometry
+                and _valid_probe_attempt(attempt)
+                and attempt.get("window_mapped") is True
+                and attempt.get("display_path") == DISPLAY_PATH_WAYLAND
+                and attempt.get("configuration_status") != "unmet-protocol"
+            ]
+            choices.append(
+                min(
+                    profiles.calibration_rank(name, attempt["requested_config"])
+                    for attempt in candidates
+                )
+            )
+        geometry = json.loads(serialized_geometry)
+        return (
+            sum(rank[0] for rank in choices),
+            geometry["cell_width_device_px"],
+            geometry["cell_height_device_px"],
+            serialized_geometry,
+        )
+
+    chosen_geometry = min(common, key=intersection_rank)
+    selected = {
+        name: min(
+            (
+                attempt
+                for attempt in attempts_by_name[name]
+                if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+                == chosen_geometry
+                and _valid_probe_attempt(attempt)
+                and attempt.get("window_mapped") is True
+                and attempt.get("display_path") == DISPLAY_PATH_WAYLAND
+                and attempt.get("configuration_status") != "unmet-protocol"
+            ),
+            key=lambda attempt: profiles.calibration_rank(
+                name, attempt["requested_config"]
+            ),
+        )
+        for name in names
+    }
+    return json.loads(chosen_geometry), selected
+
+
+def run_calibration_diagnostic(
+    prereg_record: dict,
+    launcher,
+    sleep=time.sleep,
+    probe_one=_probe_implementation,
+    monotonic=time.monotonic,
+) -> dict:
+    """Exhaust every declared laptop calibration without consuming run state."""
+    _calibration_diagnostic_inputs(prereg_record)
+    if getattr(launcher, "use_scope", None) is not True:
+        raise ValueError("calibration diagnostic requires private systemd scopes")
+    backend = getattr(launcher, "backend", {})
+    if backend.get("backend") != "hyprctl" or backend.get("display") != "wayland":
+        raise ValueError(
+            "calibration diagnostic requires a native Hyprland Wayland session"
+        )
+    setter = getattr(launcher, "set_calibration", None)
+    if setter is None:
+        raise ValueError("calibration diagnostic requires calibration controls")
+    names = list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
+    budget = calibration_probe_budget(names)
+    started = monotonic()
+    attempts_by_name: dict[str, list[dict]] = {}
+    completed = 0
+    for name in names:
+        attempts = []
+        for index, calibration in enumerate(
+            profiles.calibration_configurations(name)
+        ):
+            if (
+                completed >= budget["candidate_launch_bound"]
+                or monotonic() - started
+                > budget["candidate_wall_bound_seconds"]
+            ):
+                raise ValueError(
+                    "calibration diagnostic did not complete its declared search"
+                )
+            if not setter(name, calibration):
+                raise ValueError(
+                    f"calibration diagnostic could not set {name!r} candidate {index}"
+                )
+            attempts.append(
+                probe_one(
+                    name,
+                    launcher,
+                    f"calibration-diagnostic-{name}-{index}",
+                    sleep=sleep,
+                )
+            )
+            completed += 1
+            if monotonic() - started > budget["candidate_wall_bound_seconds"]:
+                raise ValueError(
+                    "calibration diagnostic exceeded its declared wall-time bound"
+                )
+        attempts_by_name[name] = attempts
+    selected_result = _calibration_intersection_selection(attempts_by_name)
+    if selected_result is None:
+        raise ValueError(
+            "complete declared calibration sets have no exact common device-pixel grid"
+        )
+    matched_cell_geometry, selected = selected_result
+    searches = [
+        {
+            "implementation": name,
+            "declared_configurations": profiles.calibration_configurations(name),
+            "attempts_sha256": _calibration_attempts_digest(attempts_by_name[name]),
+            "attempts": attempts_by_name[name],
+        }
+        for name in names
+    ]
+    selections = [
+        {
+            "implementation": name,
+            "calibration": selected[name]["requested_config"],
+            "cell_geometry": selected[name]["cell_geometry"],
+            "pty_pixel_envelope_model": _geometry_model_summary(
+                selected[name]["pty_pixel_envelope_model"]
+            ),
+            "selected_attempt_sha256": selected[name]["attempt_sha256"],
+        }
+        for name in names
+    ]
+    return {
+        "schema_version": CALIBRATION_DIAGNOSTIC_SCHEMA_VERSION,
+        "record_type": "startup-geometry-calibration-diagnostic",
+        "status": "PASS",
+        "inputs_sha256": _calibration_diagnostic_inputs_sha256(prereg_record),
+        "execution": {
+            "diagnostic_only": True,
+            "measurement": False,
+            "private_systemd_scopes": True,
+            "window_backend": "hyprctl",
+            "display_path": DISPLAY_PATH_WAYLAND,
+            "fixed_order": names,
+            "complete_declared_sets": True,
+            "candidate_launch_bound": budget["candidate_launch_bound"],
+            "candidate_wall_bound_seconds": budget[
+                "candidate_wall_bound_seconds"
+            ],
+            "brave_suspension_enforced": False,
+            "cpu_noise_controls_enforced": False,
+        },
+        "benchmark_state_consumed_or_created": _diagnostic_state_record(),
+        "matched_cell_geometry": matched_cell_geometry,
+        "selections": selections,
+        "searches": searches,
+    }
+
+
+def validate_calibration_diagnostic(record: object, prereg_record: dict) -> bool:
+    """Recompute completeness, intersection, and deterministic selection."""
+    if not isinstance(record, dict) or set(record) != {
+        "schema_version",
+        "record_type",
+        "status",
+        "inputs_sha256",
+        "execution",
+        "benchmark_state_consumed_or_created",
+        "matched_cell_geometry",
+        "selections",
+        "searches",
+    }:
+        return False
+    try:
+        inputs_sha256 = _calibration_diagnostic_inputs_sha256(prereg_record)
+    except (KeyError, TypeError, ValueError):
+        return False
+    names = list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
+    budget = calibration_probe_budget(names)
+    searches = record.get("searches")
+    selections = record.get("selections")
+    if (
+        record.get("schema_version") != CALIBRATION_DIAGNOSTIC_SCHEMA_VERSION
+        or record.get("record_type")
+        != "startup-geometry-calibration-diagnostic"
+        or record.get("status") != "PASS"
+        or record.get("inputs_sha256") != inputs_sha256
+        or record.get("execution")
+        != {
+            "diagnostic_only": True,
+            "measurement": False,
+            "private_systemd_scopes": True,
+            "window_backend": "hyprctl",
+            "display_path": DISPLAY_PATH_WAYLAND,
+            "fixed_order": names,
+            "complete_declared_sets": True,
+            "candidate_launch_bound": budget["candidate_launch_bound"],
+            "candidate_wall_bound_seconds": budget[
+                "candidate_wall_bound_seconds"
+            ],
+            "brave_suspension_enforced": False,
+            "cpu_noise_controls_enforced": False,
+        }
+        or record.get("benchmark_state_consumed_or_created")
+        != _diagnostic_state_record()
+        or not isinstance(searches, list)
+        or not isinstance(selections, list)
+        or [item.get("implementation") for item in searches] != names
+        or [item.get("implementation") for item in selections] != names
+    ):
+        return False
+    attempts_by_name: dict[str, list[dict]] = {}
+    for search, name in zip(searches, names, strict=True):
+        attempts = search.get("attempts")
+        expected = profiles.calibration_configurations(name)
+        if (
+            set(search)
+            != {
+                "implementation",
+                "declared_configurations",
+                "attempts_sha256",
+                "attempts",
+            }
+            or search.get("declared_configurations") != expected
+            or not isinstance(attempts, list)
+            or [attempt.get("requested_config") for attempt in attempts]
+            != expected
+            or not all(_valid_probe_attempt(attempt) for attempt in attempts)
+            or search.get("attempts_sha256")
+            != _calibration_attempts_digest(attempts)
+        ):
+            return False
+        attempts_by_name[name] = attempts
+    selected_result = _calibration_intersection_selection(attempts_by_name)
+    if selected_result is None:
+        return False
+    matched_cell_geometry, selected = selected_result
+    expected_selections = [
+        {
+            "implementation": name,
+            "calibration": selected[name]["requested_config"],
+            "cell_geometry": selected[name]["cell_geometry"],
+            "pty_pixel_envelope_model": _geometry_model_summary(
+                selected[name]["pty_pixel_envelope_model"]
+            ),
+            "selected_attempt_sha256": selected[name]["attempt_sha256"],
+        }
+        for name in names
+    ]
+    return (
+        record.get("matched_cell_geometry") == matched_cell_geometry
+        and selections == expected_selections
+        and _public_diagnostic_record_safe(record)
+    )
+
+
+def calibration_diagnostic_matches_preregistration(
+    record: object, prereg_record: dict
+) -> bool:
+    """Require every pinned geometry field to originate in validated evidence."""
+    if not validate_calibration_diagnostic(record, prereg_record):
+        return False
+    by_name = {
+        entry.get("name"): entry
+        for entry in prereg_record.get("implementations", [])
+    }
+    return prereg_record.get("matched_cell_geometry") == record.get(
+        "matched_cell_geometry"
+    ) and all(
+        by_name.get(selection["implementation"], {}).get("calibration")
+        == selection["calibration"]
+        and by_name[selection["implementation"]].get("cell_geometry")
+        == selection["cell_geometry"]
+        and by_name[selection["implementation"]].get(
+            "pty_pixel_envelope_model"
+        )
+        == selection["pty_pixel_envelope_model"]
+        for selection in record["selections"]
+    )
+
+
+def _geometry_diagnostic_inputs_sha256(
+    record: dict, calibration_diagnostic: object
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            _geometry_diagnostic_inputs(record, calibration_diagnostic),
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
@@ -2975,10 +3448,13 @@ def _valid_geometry_diagnostic_launch(record: object, expected_name: str) -> boo
 
 
 def run_geometry_diagnostic(
-    prereg_record: dict, launcher, sleep=time.sleep
+    prereg_record: dict,
+    calibration_diagnostic: object,
+    launcher,
+    sleep=time.sleep,
 ) -> dict:
     """Run one diagnostic-only exact-geometry launch in the fixed laptop order."""
-    _geometry_diagnostic_inputs(prereg_record)
+    _geometry_diagnostic_inputs(prereg_record, calibration_diagnostic)
     if getattr(launcher, "use_scope", None) is not True:
         raise ValueError("geometry diagnostic requires private systemd scopes")
     backend = getattr(launcher, "backend", {})
@@ -3022,7 +3498,12 @@ def run_geometry_diagnostic(
         "schema_version": GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION,
         "record_type": "startup-geometry-diagnostic",
         "status": "PASS",
-        "inputs_sha256": _geometry_diagnostic_inputs_sha256(prereg_record),
+        "inputs_sha256": _geometry_diagnostic_inputs_sha256(
+            prereg_record, calibration_diagnostic
+        ),
+        "calibration_diagnostic_sha256": _calibration_diagnostic_sha256(
+            calibration_diagnostic
+        ),
         "execution": {
             "diagnostic_only": True,
             "measurement": False,
@@ -3045,20 +3526,25 @@ def run_geometry_diagnostic(
     }
 
 
-def validate_geometry_diagnostic(record: object, prereg_record: dict) -> bool:
+def validate_geometry_diagnostic(
+    record: object, prereg_record: dict, calibration_diagnostic: object
+) -> bool:
     """Validate a public-safe successful diagnostic against its pinned inputs."""
     if not isinstance(record, dict) or set(record) != {
         "schema_version",
         "record_type",
         "status",
         "inputs_sha256",
+        "calibration_diagnostic_sha256",
         "execution",
         "benchmark_state_consumed_or_created",
         "launches",
     }:
         return False
     try:
-        inputs_sha256 = _geometry_diagnostic_inputs_sha256(prereg_record)
+        inputs_sha256 = _geometry_diagnostic_inputs_sha256(
+            prereg_record, calibration_diagnostic
+        )
     except (KeyError, TypeError, ValueError):
         return False
     launches = record.get("launches")
@@ -3068,6 +3554,8 @@ def validate_geometry_diagnostic(record: object, prereg_record: dict) -> bool:
         and record.get("record_type") == "startup-geometry-diagnostic"
         and record.get("status") == "PASS"
         and record.get("inputs_sha256") == inputs_sha256
+        and record.get("calibration_diagnostic_sha256")
+        == _calibration_diagnostic_sha256(calibration_diagnostic)
         and record.get("execution")
         == {
             "diagnostic_only": True,
@@ -3489,13 +3977,8 @@ def run_replicate(
             windows = launcher.windows()
             candidate = window_for_pids(windows, pids)
             records = _read_oracle_records(launched.get("oracle_path"))
-            geometry_observation = next(
-                (
-                    item
-                    for item in reversed(records)
-                    if item.get("kind") == "geometry-observation"
-                ),
-                None,
+            geometry_observations = _pending_geometry_observations(
+                records, launched
             )
             ready_record = next(
                 (item for item in records if item.get("kind") == "idle-ready"), None
@@ -3504,10 +3987,11 @@ def run_replicate(
             if (
                 candidate is not None
                 and ready_record is None
-                and geometry_observation is not None
+                and geometry_observations
                 and normalize is not None
             ):
-                normalize(launched, candidate, geometry_observation)
+                for geometry_observation in geometry_observations:
+                    normalize(launched, candidate, geometry_observation)
             stable_ready_envelope = (
                 _geometry_control_accepts_ready_record(launched, ready_record)
                 if ready_record is not None
@@ -3764,6 +4248,71 @@ def _read_oracle_records(path: Path | None) -> list[dict]:
         ]
     except (OSError, UnicodeError, ValueError):
         return []
+
+
+def _geometry_record_sequence(record: dict) -> int | None:
+    """Return a geometry record's positive integer sequence, else None."""
+    sequence = record.get("sequence")
+    if (
+        not isinstance(sequence, int)
+        or isinstance(sequence, bool)
+        or sequence <= 0
+    ):
+        return None
+    return sequence
+
+
+def _pending_geometry_observations(records: list[dict], launched: dict) -> list[dict]:
+    """Return only the newest emitted geometry record not yet processed.
+
+    The oracle is a single append-only writer whose sequence counter only ever
+    increases, so unprocessed geometry records must appear in the file in
+    strictly increasing sequence order. Append order is therefore evidence, not
+    a hint: a newer-looking record that arrives before an older one, a repeated
+    identity, or a record with no usable sequence means the emitted series
+    cannot be ordered, and picking the largest value there would let a stale or
+    forged record stand in for the current envelope. Any such ambiguity fails
+    closed on the controller (which then cannot stabilize, resize, prove, or
+    release) and yields no observation at all.
+
+    Records at or below the processed watermark are stale by definition; a
+    repeat of already-consumed history is a complete no-op and cannot advance
+    anything, so it neither poisons the controller nor becomes a vote.
+    """
+    control = launched.get("geometry_control")
+    observations = [
+        record for record in records if record.get("kind") == "geometry-observation"
+    ]
+    if isinstance(control, dict):
+        last_sequence = control.get("last_geometry_sequence", 0)
+        poison = control
+    else:
+        last_sequence = 0
+        poison = None
+    # The pending window is the file suffix that starts at the first record
+    # above the processed watermark. Everything before it is consumed history
+    # and is never re-examined; everything inside it must be individually
+    # usable and strictly ordered.
+    first_pending = next(
+        (
+            index
+            for index, record in enumerate(observations)
+            if (_geometry_record_sequence(record) or 0) > last_sequence
+        ),
+        None,
+    )
+    if first_pending is None:
+        return []
+    pending = observations[first_pending:]
+    previous: int | None = None
+    for record in pending:
+        sequence = _geometry_record_sequence(record)
+        if sequence is None or (previous is not None and sequence <= previous):
+            if poison is not None:
+                poison["command_failed"] = True
+            return []
+        previous = sequence
+    return pending[-1:]
 
 
 def _driver_child_pids(pids: set[int], proc_root: Path = Path("/proc")) -> set[int]:
@@ -4668,6 +5217,7 @@ def _synthetic_probe_attempt(
     *,
     font_sha256: str = "a" * 64,
     mapped: bool = True,
+    raw_geometry: dict | None = None,
 ) -> dict:
     """Build one structurally complete immutable attempt for adversarial tests."""
     font_identity = {
@@ -4687,14 +5237,15 @@ def _synthetic_probe_attempt(
         "font_sha256": font_sha256,
         "font_identity": font_identity,
     }
+    raw_source = raw_geometry or geometry
     raw = None if not mapped else (
         {
-            "pty_columns": geometry["columns"],
-            "pty_rows": geometry["rows"],
-            "content_width_device_px": geometry["content_width_device_px"],
-            "content_height_device_px": geometry["content_height_device_px"],
+            "pty_columns": raw_source["columns"],
+            "pty_rows": raw_source["rows"],
+            "content_width_device_px": raw_source["content_width_device_px"],
+            "content_height_device_px": raw_source["content_height_device_px"],
         }
-        if geometry is not None
+        if raw_source is not None
         else {
             "pty_columns": 80,
             "pty_rows": 24,
@@ -4705,7 +5256,47 @@ def _synthetic_probe_attempt(
     sanitized_argv, sanitized_environment = _synthetic_launch_controls(
         implementation, calibration
     )
-    envelope_model = _geometry_model_evidence({}, raw)
+    synthetic_launch = {}
+    raw_model = _pty_grid_model(raw)
+    if raw_model is not None and raw_model[2:] != (0, 0):
+        width, height, width_remainder, height_remainder = raw_model
+        synthetic_launch["geometry_control"] = {
+            "released": True,
+            "command_failed": False,
+            "grid_model": raw_model,
+            "proof_observations": [
+                {
+                    "pty_columns": raw["pty_columns"] + 1,
+                    "pty_rows": raw["pty_rows"] + 1,
+                    "reported_width_device_px": raw[
+                        "content_width_device_px"
+                    ]
+                    + width,
+                    "reported_height_device_px": raw[
+                        "content_height_device_px"
+                    ]
+                    + height,
+                },
+                {
+                    "pty_columns": raw["pty_columns"],
+                    "pty_rows": raw["pty_rows"],
+                    "reported_width_device_px": raw[
+                        "content_width_device_px"
+                    ],
+                    "reported_height_device_px": raw[
+                        "content_height_device_px"
+                    ],
+                },
+            ],
+            "resize_commands": [
+                {
+                    "width": raw["content_width_device_px"] - width_remainder,
+                    "height": raw["content_height_device_px"] - height_remainder,
+                }
+            ],
+            "resize_attempts": 1,
+        }
+    envelope_model = _geometry_model_evidence(synthetic_launch, raw)
     synthetic_tag = f"odytty-bench-{'0' * 24}"
     return _seal_probe_attempt(
         {
@@ -5726,6 +6317,193 @@ def self_test() -> list[str]:
             returncode = 0
             stderr = ""
 
+        def synthetic_calibration_diagnostic(
+            transient_odytty: bool,
+            target_prereg: dict | None = None,
+            target_geometry: dict | None = None,
+            fixed_remainder_for: str | None = None,
+        ) -> dict:
+            target_prereg = target_prereg or diagnostic_prereg
+            target_geometry = target_geometry or {
+                "columns": 80,
+                "rows": 24,
+                "content_width_device_px": 800,
+                "content_height_device_px": 480,
+                "cell_width_device_px": 10,
+                "cell_height_device_px": 20,
+            }
+            launcher = _ScopedDiagnosticLauncher(
+                diagnostic_behaviour,
+                root
+                / f"calibration-{transient_odytty}-{target_geometry['cell_height_device_px']}",
+            )
+            launcher.backend = {"backend": "hyprctl", "display": "wayland"}
+            call_indexes = {name: 0 for name in GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS}
+
+            def probe_one(name, active_launcher, _tag, sleep=None):
+                del sleep
+                index = call_indexes[name]
+                call_indexes[name] += 1
+                active_launcher.launches.append(name)
+                geometry = dict(target_geometry)
+                if transient_odytty and name == "odytty" and index == 0:
+                    geometry = {
+                        "columns": 80,
+                        "rows": 24,
+                        "content_width_device_px": 640,
+                        "content_height_device_px": 384,
+                        "cell_width_device_px": 8,
+                        "cell_height_device_px": 16,
+                    }
+                raw_geometry = None
+                if name == fixed_remainder_for:
+                    raw_geometry = {
+                        **geometry,
+                        "content_width_device_px": geometry[
+                            "content_width_device_px"
+                        ]
+                        + 5,
+                        "content_height_device_px": geometry[
+                            "content_height_device_px"
+                        ]
+                        + 3,
+                    }
+                return _synthetic_probe_attempt(
+                    name,
+                    active_launcher.calibration_record(name),
+                    geometry,
+                    raw_geometry=raw_geometry,
+                )
+
+            record = run_calibration_diagnostic(
+                target_prereg,
+                launcher,
+                sleep=lambda _seconds: None,
+                probe_one=probe_one,
+                monotonic=lambda: 0.0,
+            )
+            expected_launches = calibration_probe_budget(
+                list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
+            )["candidate_launch_bound"]
+            if (
+                len(launcher.launches) != expected_launches
+                or "wezterm" in launcher.launches
+            ):
+                failures.append(
+                    "calibration diagnostic: declared sets or WezTerm zero-action drifted"
+                )
+            return record
+
+        transient_calibration = synthetic_calibration_diagnostic(True)
+        if (
+            not validate_calibration_diagnostic(
+                transient_calibration, diagnostic_prereg
+            )
+            or transient_calibration["selections"][0]["calibration"]
+            == profiles.calibration_configurations("odytty")[0]
+            or transient_calibration["matched_cell_geometry"]
+            ["cell_width_device_px"]
+            != 10
+        ):
+            failures.append(
+                "calibration diagnostic: transient first geometry was selected"
+            )
+        incomplete_calibration = json.loads(json.dumps(transient_calibration))
+        incomplete_calibration["searches"][0]["attempts"].pop()
+        if validate_calibration_diagnostic(
+            incomplete_calibration, diagnostic_prereg
+        ):
+            failures.append(
+                "calibration diagnostic: incomplete declared search validated"
+            )
+        bounded_launcher = _ScopedDiagnosticLauncher(
+            diagnostic_behaviour, root / "calibration-incomplete-runtime"
+        )
+        bounded_launcher.backend = {"backend": "hyprctl", "display": "wayland"}
+        bounded_clock = iter(
+            [
+                0.0,
+                0.0,
+                float(
+                    calibration_probe_budget(
+                        list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
+                    )["candidate_wall_bound_seconds"]
+                    + 1
+                ),
+            ]
+        )
+
+        def bounded_probe(name, active_launcher, _tag, sleep=None):
+            del sleep
+            active_launcher.launches.append(name)
+            return _synthetic_probe_attempt(
+                name,
+                active_launcher.calibration_record(name),
+                diagnostic_prereg["matched_cell_geometry"],
+            )
+
+        try:
+            run_calibration_diagnostic(
+                diagnostic_prereg,
+                bounded_launcher,
+                sleep=lambda _seconds: None,
+                probe_one=bounded_probe,
+                monotonic=lambda: next(bounded_clock),
+            )
+        except ValueError:
+            if bounded_launcher.launches != ["odytty"]:
+                failures.append(
+                    "calibration diagnostic: wall-bound failure consumed extra candidates"
+                )
+        else:
+            failures.append(
+                "calibration diagnostic: incomplete wall-bounded search passed"
+            )
+        forged_intersection = json.loads(json.dumps(transient_calibration))
+        forged_intersection["matched_cell_geometry"]["cell_width_device_px"] = 11
+        if validate_calibration_diagnostic(forged_intersection, diagnostic_prereg):
+            failures.append(
+                "calibration diagnostic: forged common intersection validated"
+            )
+        consumed_calibration = json.loads(json.dumps(transient_calibration))
+        consumed_calibration["benchmark_state_consumed_or_created"][
+            "probe"
+        ] = True
+        if validate_calibration_diagnostic(
+            consumed_calibration, diagnostic_prereg
+        ):
+            failures.append(
+                "calibration diagnostic: benchmark state consumption validated"
+            )
+        pinned_from_calibration = json.loads(json.dumps(diagnostic_prereg))
+        pinned_from_calibration["matched_cell_geometry"] = transient_calibration[
+            "matched_cell_geometry"
+        ]
+        pinned_by_name = {
+            entry["name"]: entry
+            for entry in pinned_from_calibration["implementations"]
+        }
+        for selection in transient_calibration["selections"]:
+            pinned = pinned_by_name[selection["implementation"]]
+            pinned["calibration"] = selection["calibration"]
+            pinned["cell_geometry"] = selection["cell_geometry"]
+            pinned["pty_pixel_envelope_model"] = selection[
+                "pty_pixel_envelope_model"
+            ]
+        if (
+            calibration_diagnostic_matches_preregistration(
+                transient_calibration, diagnostic_prereg
+            )
+            or not calibration_diagnostic_matches_preregistration(
+                transient_calibration, pinned_from_calibration
+            )
+        ):
+            failures.append(
+                "calibration diagnostic: unproven or proven preregistration binding drifted"
+            )
+
+        stable_calibration = synthetic_calibration_diagnostic(False)
+
         class _FixedRemainderDiagnosticLauncher(_ScopedDiagnosticLauncher):
             """Exercise the real controller methods with sequenced oracle input."""
 
@@ -5764,7 +6542,14 @@ def self_test() -> list[str]:
                 )
                 ready_path = self.log_dir / f"{tag}.geometry-ready"
                 launched["oracle_path"].write_text(
-                    json.dumps({"kind": "geometry-observation", **initial}) + "\n",
+                    json.dumps(
+                        {
+                            "kind": "geometry-observation",
+                            "sequence": 1,
+                            **initial,
+                        }
+                    )
+                    + "\n",
                     encoding="utf-8",
                 )
                 launched["geometry_control"] = self.prepare_geometry_control(
@@ -5776,6 +6561,8 @@ def self_test() -> list[str]:
                     "geometry": initial,
                     "floating": False,
                     "idle_written": False,
+                    "stabilized_emitted": False,
+                    "sequence": 1,
                     "window_width": 960 if implementation == "ghostty" else 800,
                     "window_height": 1027 if implementation == "ghostty" else 456,
                 }
@@ -5786,6 +6573,22 @@ def self_test() -> list[str]:
                 for window in windows:
                     state = self.handshake_state[window["pid"]]
                     control = state["launched"]["geometry_control"]
+                    if state["floating"] and not state["stabilized_emitted"]:
+                        state["sequence"] += 1
+                        with state["launched"]["oracle_path"].open(
+                            "a", encoding="utf-8"
+                        ) as handle:
+                            handle.write(
+                                json.dumps(
+                                    {
+                                        "kind": "geometry-observation",
+                                        "sequence": state["sequence"],
+                                        **state["geometry"],
+                                    }
+                                )
+                                + "\n"
+                            )
+                        state["stabilized_emitted"] = True
                     if control["ready_path"].is_file() and not state["idle_written"]:
                         with state["launched"]["oracle_path"].open(
                             "a", encoding="utf-8"
@@ -5834,10 +6637,12 @@ def self_test() -> list[str]:
                     with state["launched"]["oracle_path"].open(
                         "a", encoding="utf-8"
                     ) as handle:
+                        state["sequence"] += 1
                         handle.write(
                             json.dumps(
                                 {
                                     "kind": "geometry-observation",
+                                    "sequence": state["sequence"],
                                     **state["geometry"],
                                 }
                             )
@@ -5861,6 +6666,7 @@ def self_test() -> list[str]:
         try:
             diagnostic = run_geometry_diagnostic(
                 diagnostic_prereg,
+                stable_calibration,
                 diagnostic_launcher,
                 sleep=lambda _seconds: None,
             )
@@ -5873,7 +6679,9 @@ def self_test() -> list[str]:
                 failures.append(
                     "geometry diagnostic: fixed order or WezTerm zero-action drifted"
                 )
-            if not validate_geometry_diagnostic(diagnostic, diagnostic_prereg):
+            if not validate_geometry_diagnostic(
+                diagnostic, diagnostic_prereg, stable_calibration
+            ):
                 failures.append("geometry diagnostic: valid record did not validate")
             padded_diagnostic = json.loads(json.dumps(diagnostic))
             padded_grid = padded_diagnostic["launches"][2]["cell_geometry"]
@@ -5884,7 +6692,7 @@ def self_test() -> list[str]:
                 "content_height_device_px"
             ] = padded_grid["content_height_device_px"] + 3
             if validate_geometry_diagnostic(
-                padded_diagnostic, diagnostic_prereg
+                padded_diagnostic, diagnostic_prereg, stable_calibration
             ):
                 failures.append(
                     "geometry diagnostic: unproved fixed-remainder PTY envelope validated"
@@ -5894,27 +6702,31 @@ def self_test() -> list[str]:
                 "content_width_device_px"
             ] += 80
             if validate_geometry_diagnostic(
-                forged_normalized, diagnostic_prereg
+                forged_normalized, diagnostic_prereg, stable_calibration
             ):
                 failures.append(
                     "geometry diagnostic: forged normalized cell grid validated"
                 )
-            for invalid_schema in (1, 2, 4):
+            for invalid_schema in (1, 2, 3, 5):
                 forged_diagnostic = json.loads(json.dumps(diagnostic))
                 forged_diagnostic["schema_version"] = invalid_schema
                 if validate_geometry_diagnostic(
-                    forged_diagnostic, diagnostic_prereg
+                    forged_diagnostic, diagnostic_prereg, stable_calibration
                 ):
                     failures.append("geometry diagnostic: forged schema validated")
             forged_diagnostic = json.loads(json.dumps(diagnostic))
             forged_diagnostic["launches"][0]["pty_geometry"]["columns"] = 94
-            if validate_geometry_diagnostic(forged_diagnostic, diagnostic_prereg):
+            if validate_geometry_diagnostic(
+                forged_diagnostic, diagnostic_prereg, stable_calibration
+            ):
                 failures.append("geometry diagnostic: non-80-column evidence validated")
             forged_diagnostic = json.loads(json.dumps(diagnostic))
             forged_diagnostic["benchmark_state_consumed_or_created"][
                 "measurement"
             ] = True
-            if validate_geometry_diagnostic(forged_diagnostic, diagnostic_prereg):
+            if validate_geometry_diagnostic(
+                forged_diagnostic, diagnostic_prereg, stable_calibration
+            ):
                 failures.append("geometry diagnostic: benchmark identity consumption validated")
 
         fixed_remainder_prereg = _fake_prereg(
@@ -5941,12 +6753,19 @@ def self_test() -> list[str]:
                     3 if implementation["name"] == "ghostty" else 0
                 ),
             }
+        fixed_remainder_calibration = synthetic_calibration_diagnostic(
+            False,
+            target_prereg=fixed_remainder_prereg,
+            target_geometry=fixed_remainder_grid,
+            fixed_remainder_for="ghostty",
+        )
         fixed_remainder_launcher = _FixedRemainderDiagnosticLauncher(
             diagnostic_behaviour, root / "fixed-remainder-production-path"
         )
         try:
             fixed_remainder_diagnostic = run_geometry_diagnostic(
                 fixed_remainder_prereg,
+                fixed_remainder_calibration,
                 fixed_remainder_launcher,
                 sleep=lambda _seconds: None,
             )
@@ -5981,7 +6800,9 @@ def self_test() -> list[str]:
                 }
                 or ghostty_launch["cell_geometry"] != fixed_remainder_grid
                 or not validate_geometry_diagnostic(
-                    fixed_remainder_diagnostic, fixed_remainder_prereg
+                    fixed_remainder_diagnostic,
+                    fixed_remainder_prereg,
+                    fixed_remainder_calibration,
                 )
                 or fixed_remainder_launcher.handshake_state
                 or list(
@@ -6001,7 +6822,9 @@ def self_test() -> list[str]:
                 "observations"
             ][0]["reported_width_device_px"] += 1
             if validate_geometry_diagnostic(
-                forged_affine_proof, fixed_remainder_prereg
+                forged_affine_proof,
+                fixed_remainder_prereg,
+                fixed_remainder_calibration,
             ):
                 failures.append(
                     "geometry diagnostic: forged affine remainder proof validated"
@@ -6010,7 +6833,10 @@ def self_test() -> list[str]:
         wrong_backend = _FakeLauncher(diagnostic_behaviour, root / "wrong-backend")
         try:
             run_geometry_diagnostic(
-                diagnostic_prereg, wrong_backend, sleep=lambda _seconds: None
+                diagnostic_prereg,
+                stable_calibration,
+                wrong_backend,
+                sleep=lambda _seconds: None,
             )
         except ValueError:
             if wrong_backend.launches:
@@ -6023,7 +6849,10 @@ def self_test() -> list[str]:
         no_scope.use_scope = False
         try:
             run_geometry_diagnostic(
-                diagnostic_prereg, no_scope, sleep=lambda _seconds: None
+                diagnostic_prereg,
+                stable_calibration,
+                no_scope,
+                sleep=lambda _seconds: None,
             )
         except ValueError:
             if no_scope.launches:
@@ -6044,6 +6873,7 @@ def self_test() -> list[str]:
         try:
             run_geometry_diagnostic(
                 diagnostic_prereg,
+                stable_calibration,
                 failed_launcher,
                 sleep=lambda _seconds: None,
             )
@@ -6069,6 +6899,7 @@ def self_test() -> list[str]:
         try:
             run_geometry_diagnostic(
                 diagnostic_prereg,
+                stable_calibration,
                 interrupted_launcher,
                 sleep=lambda _seconds: None,
             )
@@ -6154,9 +6985,31 @@ def self_test() -> list[str]:
             )
         created_sink.close()
 
+        calibration_collision_output = public / "calibration-collision.json"
+        calibration_collision_output.write_text("{}\n", encoding="utf-8")
+        calibration_collision_private = root / "calibration-collision-private"
+        try:
+            reserve_calibration_diagnostic_storage(
+                calibration_collision_output,
+                calibration_collision_private,
+                repository,
+            )
+        except ValueError:
+            if calibration_collision_private.exists():
+                failures.append(
+                    "calibration diagnostic: output collision created private storage"
+                )
+        else:
+            failures.append("calibration diagnostic: output collision was accepted")
+
         cli_prereg = root / "diagnostic-preregistration.json"
         cli_prereg.write_text(
             json.dumps(diagnostic_prereg, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        cli_calibration = root / "calibration-diagnostic.json"
+        cli_calibration.write_text(
+            json.dumps(stable_calibration, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         cli_output = root / "cli-absent-public" / "geometry.json"
@@ -6185,6 +7038,8 @@ def self_test() -> list[str]:
                         str(cli_output),
                         "--geometry-diagnostic-private-dir",
                         str(cli_private),
+                        "--calibration-diagnostic-record",
+                        str(cli_calibration),
                         "--preregistration",
                         str(cli_prereg),
                     ]
@@ -6239,6 +7094,8 @@ def self_test() -> list[str]:
                         str(cli_failure_output),
                         "--geometry-diagnostic-private-dir",
                         str(cli_failure_private),
+                        "--calibration-diagnostic-record",
+                        str(cli_calibration),
                         "--preregistration",
                         str(cli_prereg),
                     ]
@@ -6258,6 +7115,60 @@ def self_test() -> list[str]:
         ):
             failures.append(
                 "geometry diagnostic: failed CLI did not discard public output and retain private diagnostics"
+            )
+
+        calibration_interrupt_output = public / "interrupted-calibration.json"
+        calibration_interrupt_private = root / "interrupted-calibration-private"
+
+        class _CalibrationInterruptLauncher:
+            def __init__(self, *_args, **kwargs):
+                self.log_dir = kwargs["log_dir"]
+
+        def interrupt_calibration(_record, launcher):
+            launcher.log_dir.mkdir(parents=True, exist_ok=True)
+            (launcher.log_dir / "retained.raw").write_text(
+                "private diagnostic\n", encoding="utf-8"
+            )
+            raise KeyboardInterrupt
+
+        original_calibration_run = globals()["run_calibration_diagnostic"]
+        globals()["preflight_window_backend"] = lambda: (
+            {
+                "status": "available",
+                "backend": "hyprctl",
+                "display": "wayland",
+            },
+            {},
+        )
+        globals()["verify_probe_inputs"] = lambda _record, _root: None
+        globals()["RealLauncher"] = _CalibrationInterruptLauncher
+        globals()["run_calibration_diagnostic"] = interrupt_calibration
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                calibration_interrupt_status = main(
+                    [
+                        "--calibration-diagnostic-output",
+                        str(calibration_interrupt_output),
+                        "--calibration-diagnostic-private-dir",
+                        str(calibration_interrupt_private),
+                        "--preregistration",
+                        str(cli_prereg),
+                    ]
+                )
+        finally:
+            globals()["preflight_window_backend"] = original_preflight
+            globals()["verify_probe_inputs"] = original_verify
+            globals()["RealLauncher"] = original_launcher
+            globals()["run_calibration_diagnostic"] = original_calibration_run
+        if (
+            calibration_interrupt_status != 130
+            or calibration_interrupt_output.exists()
+            or not (
+                calibration_interrupt_private / "logs" / "retained.raw"
+            ).is_file()
+        ):
+            failures.append(
+                "calibration diagnostic: interruption did not discard public reservation and retain private evidence"
             )
 
     fake_which = lambda name: f"/usr/bin/{name}"  # noqa: E731 - injected lookup
@@ -6494,12 +7405,225 @@ def self_test() -> list[str]:
                 config_paths=config_paths,
             )
             self.geometry_commands: list[list[str]] = []
+            self.geometry_sequence = 0
 
         def _run_geometry_command(self, argv):
             self.geometry_commands.append(list(argv))
             return _GeometryCommandResult()
 
+        def normalize_startup_geometry(self, launched, window, observation):
+            if "sequence" not in observation:
+                self.geometry_sequence += 1
+                observation = {
+                    "kind": "geometry-observation",
+                    "sequence": self.geometry_sequence,
+                    **observation,
+                }
+            return super().normalize_startup_geometry(
+                launched, window, observation
+            )
+
     with tempfile.TemporaryDirectory() as tmp:
+        replay_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+        replay_ready = Path(tmp) / "replay-geometry-ready"
+        replay_control = replay_launcher.prepare_geometry_control(
+            geometry_tag, replay_ready
+        )
+        replay_launch = {"geometry_control": replay_control}
+        replay_window = {
+            "app_id": geometry_tag,
+            "address": "0xabc123",
+            "xwayland": False,
+            "floating": False,
+            "width": 960,
+            "height": 1027,
+        }
+        replay_geometry = {
+            "kind": "geometry-observation",
+            "sequence": 1,
+            "pty_columns": 94,
+            "pty_rows": 53,
+            "content_width_device_px": 945,
+            "content_height_device_px": 1010,
+        }
+        replay_oracle = Path(tmp) / "replay.oracle.jsonl"
+        replay_oracle.write_text(
+            json.dumps(replay_geometry) + "\n", encoding="utf-8"
+        )
+        ambiguous_duplicate = _pending_geometry_observations(
+            [replay_geometry, {**replay_geometry, "pty_rows": 54}],
+            {"geometry_control": {"last_geometry_sequence": 0}},
+        )
+        first_pending = _pending_geometry_observations(
+            _read_oracle_records(replay_oracle), replay_launch
+        )
+        for observation in first_pending:
+            RealLauncher.normalize_startup_geometry(
+                replay_launcher, replay_launch, replay_window, observation
+            )
+        replay_snapshot = {
+            key: json.loads(json.dumps(replay_control[key]))
+            for key in (
+                "last_geometry_sequence",
+                "candidate_grid_model",
+                "candidate_observations",
+                "candidate_sequences",
+                "grid_model",
+                "proof_observations",
+                "resize_commands",
+                "resize_attempts",
+                "released",
+            )
+        }
+        second_pending = _pending_geometry_observations(
+            _read_oracle_records(replay_oracle), replay_launch
+        )
+        RealLauncher.normalize_startup_geometry(
+            replay_launcher, replay_launch, replay_window, replay_geometry
+        )
+        replay_after_duplicate = {
+            key: json.loads(json.dumps(replay_control[key]))
+            for key in replay_snapshot
+        }
+        if (
+            first_pending != [replay_geometry]
+            or ambiguous_duplicate
+            or second_pending
+            or replay_snapshot != replay_after_duplicate
+            or replay_control["grid_model"] is not None
+            or replay_control["released"]
+        ):
+            failures.append(
+                "geometry control: polling one emitted record advanced stabilization"
+            )
+
+        with replay_oracle.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({**replay_geometry, "sequence": 1, "pty_rows": 54}) + "\n")
+            handle.write(json.dumps({**replay_geometry, "sequence": 0}) + "\n")
+        if _pending_geometry_observations(
+            _read_oracle_records(replay_oracle), replay_launch
+        ):
+            failures.append(
+                "geometry control: duplicate or reordered sequences were reprocessed"
+            )
+
+        replay_window["floating"] = True
+        second_emission = {**replay_geometry, "sequence": 2}
+        with replay_oracle.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(second_emission) + "\n")
+        for observation in _pending_geometry_observations(
+            _read_oracle_records(replay_oracle), replay_launch
+        ):
+            RealLauncher.normalize_startup_geometry(
+                replay_launcher, replay_launch, replay_window, observation
+            )
+        if (
+            replay_control["candidate_sequences"] != [1, 2]
+            or replay_control["grid_model"] != (10, 19, 5, 3)
+            or replay_control["resize_attempts"] != 1
+        ):
+            failures.append(
+                "geometry control: two distinct emitted records did not stabilize"
+            )
+        post_lock_drift = {
+            **replay_geometry,
+            "sequence": 3,
+            "content_width_device_px": 1039,
+        }
+        RealLauncher.normalize_startup_geometry(
+            replay_launcher, replay_launch, replay_window, post_lock_drift
+        )
+        if replay_control["command_failed"] is not True:
+            failures.append(
+                "geometry control: post-lock distinct-sequence drift did not fail closed"
+            )
+
+        # Unprocessed geometry records must reach the oracle file in strictly
+        # increasing sequence order. An inverted suffix cannot be ordered, so
+        # the controller must fail closed instead of treating the largest
+        # sequence as the current envelope: neither the inversion itself nor
+        # any later agreeing record may stabilize, resize, prove, or release.
+        inverted_orders = {
+            "descending-pair": [2, 1],
+            "late-inversion": [1, 3, 2],
+        }
+        for case, order in inverted_orders.items():
+            inverted_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+            inverted_ready = Path(tmp) / f"inverted-{case}-geometry-ready"
+            inverted_control = inverted_launcher.prepare_geometry_control(
+                geometry_tag, inverted_ready
+            )
+            inverted_launch = {"geometry_control": inverted_control}
+            inverted_window = {
+                "app_id": geometry_tag,
+                "address": "0xabc123",
+                "xwayland": False,
+                "floating": True,
+                "width": 960,
+                "height": 1027,
+            }
+            inverted_oracle = Path(tmp) / f"inverted-{case}.oracle.jsonl"
+            inverted_oracle.write_text(
+                "".join(
+                    json.dumps({**replay_geometry, "sequence": sequence}) + "\n"
+                    for sequence in order
+                ),
+                encoding="utf-8",
+            )
+            inverted_pending = _pending_geometry_observations(
+                _read_oracle_records(inverted_oracle), inverted_launch
+            )
+            for observation in inverted_pending:
+                RealLauncher.normalize_startup_geometry(
+                    inverted_launcher, inverted_launch, inverted_window, observation
+                )
+            # A later record agreeing with the inverted envelope must not
+            # rescue the run either.
+            with inverted_oracle.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {**replay_geometry, "sequence": max(order) + 1}
+                    )
+                    + "\n"
+                )
+            agreeing_pending = _pending_geometry_observations(
+                _read_oracle_records(inverted_oracle), inverted_launch
+            )
+            for observation in agreeing_pending:
+                RealLauncher.normalize_startup_geometry(
+                    inverted_launcher, inverted_launch, inverted_window, observation
+                )
+            exact_ready = {
+                "kind": "idle-ready",
+                "pty_columns": 80,
+                "pty_rows": 24,
+                "content_width_device_px": 800,
+                "content_height_device_px": 456,
+            }
+            if (
+                inverted_pending
+                or agreeing_pending
+                or inverted_control["command_failed"] is not True
+                or inverted_control["last_geometry_sequence"] != 0
+                or inverted_control["candidate_grid_model"] is not None
+                or inverted_control["candidate_sequences"] != []
+                or inverted_control["candidate_observations"] != []
+                or inverted_control["grid_model"] is not None
+                or inverted_control["proof_observations"] != []
+                or inverted_control["resize_commands"] != []
+                or inverted_control["resize_attempts"] != 0
+                or inverted_control["released"] is True
+                or inverted_launcher.geometry_commands
+                or inverted_ready.exists()
+                or _geometry_control_accepts_ready_record(
+                    inverted_launch, exact_ready
+                )
+            ):
+                failures.append(
+                    "geometry control: out-of-order emitted records "
+                    f"({case}) did not fail closed"
+                )
+
         geometry_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
         ready_path = Path(tmp) / "geometry-ready"
         control = geometry_launcher.prepare_geometry_control(geometry_tag, ready_path)
@@ -6589,9 +7713,9 @@ def self_test() -> list[str]:
 
         # A terminal first observed at exact 80x24 with a nonzero raw PTY
         # envelope residue cannot use the one-observation fast path. Perturb
-        # once, observe the affine delta, and return exactly once. Repeated
-        # compositor polls before the perturb takes effect must not consume the
-        # second and final resize command.
+        # once, observe the affine delta, and return exactly once. A newer
+        # stable confirmation before the perturb takes effect must not consume
+        # the second and final resize command.
         exact_start_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
         exact_start_ready = Path(tmp) / "exact-start-geometry-ready"
         exact_start_control = exact_start_launcher.prepare_geometry_control(
@@ -6617,7 +7741,7 @@ def self_test() -> list[str]:
         )
         if len(exact_start_launcher.geometry_commands) != command_count:
             failures.append(
-                "geometry control: repeated exact observation consumed the return resize"
+                "geometry control: stable confirmation consumed the return resize"
             )
         perturbed_geometry = {
             "pty_columns": 81,
@@ -6705,6 +7829,9 @@ def self_test() -> list[str]:
         unstable_launcher.normalize_startup_geometry(
             unstable_launch, target_window, wrong_geometry
         )
+        unstable_launcher.normalize_startup_geometry(
+            unstable_launch, target_window, wrong_geometry
+        )
         changed_remainder = dict(
             exact_geometry,
             content_width_device_px=806,
@@ -6769,6 +7896,9 @@ def self_test() -> list[str]:
         changed_pitch_launcher.normalize_startup_geometry(
             changed_pitch_launch, target_window, wrong_geometry
         )
+        changed_pitch_launcher.normalize_startup_geometry(
+            changed_pitch_launch, target_window, wrong_geometry
+        )
         changed_pitch_exact = dict(
             exact_geometry,
             content_width_device_px=885,
@@ -6783,6 +7913,116 @@ def self_test() -> list[str]:
             failures.append(
                 "geometry control: changing cell pitch with a stable remainder was accepted"
             )
+
+        # Live protocol-1.2 failure regression. These are the exact ordered
+        # observations retained from the one-shot OdyTTY diagnostic. The 8x16
+        # spawn fallback and 9x16 pre-scale metric must not freeze the model;
+        # the two distinct 14x27 observations establish the first stable
+        # affine pitch. Hyprland reports outer geometry in logical pixels, so
+        # the PTY's device-pixel delta is divided by the bound monitor scale.
+        live_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+        live_ready = Path(tmp) / "live-odytty-geometry-ready"
+        live_control = live_launcher.prepare_geometry_control(
+            geometry_tag, live_ready
+        )
+        live_launch = {"geometry_control": live_control}
+        live_window = dict(
+            target_window,
+            floating=False,
+            width=1148,
+            height=1471,
+            scale=1.67,
+        )
+        live_observations = [
+            {
+                "pty_columns": 80,
+                "pty_rows": 24,
+                "content_width_device_px": 640,
+                "content_height_device_px": 384,
+            },
+            {
+                "pty_columns": 126,
+                "pty_rows": 91,
+                "content_width_device_px": 1134,
+                "content_height_device_px": 1456,
+            },
+            {
+                "pty_columns": 134,
+                "pty_rows": 90,
+                "content_width_device_px": 1876,
+                "content_height_device_px": 2430,
+            },
+            {
+                "pty_columns": 137,
+                "pty_rows": 91,
+                "content_width_device_px": 1918,
+                "content_height_device_px": 2457,
+            },
+        ]
+        live_launcher.normalize_startup_geometry(
+            live_launch, live_window, live_observations[0]
+        )
+        live_window["floating"] = True
+        for observation in live_observations[1:]:
+            live_launcher.normalize_startup_geometry(
+                live_launch, live_window, observation
+            )
+        live_resizes = [
+            command
+            for command in live_launcher.geometry_commands
+            if "resizewindowpixel" in command
+        ]
+        if (
+            live_control.get("grid_model") != (14, 27, 0, 0)
+            or live_control.get("command_failed") is True
+            or live_resizes
+            != [
+                [
+                    "hyprctl",
+                    "dispatch",
+                    "resizewindowpixel",
+                    f"exact 670 388,{exact_selector}",
+                ]
+            ]
+        ):
+            failures.append(
+                "geometry control: live OdyTTY startup sequence did not settle and scale correctly"
+            )
+        live_exact = {
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "content_width_device_px": 1120,
+            "content_height_device_px": 648,
+        }
+        live_window.update(width=670, height=388)
+        if (
+            not live_launcher.normalize_startup_geometry(
+                live_launch, live_window, live_exact
+            )
+            or not live_ready.is_file()
+            or cell_geometry_from_oracle(live_observations[0])
+            != {
+                "columns": 80,
+                "rows": 24,
+                "content_width_device_px": 640,
+                "content_height_device_px": 384,
+                "cell_width_device_px": 8,
+                "cell_height_device_px": 16,
+            }
+            or cell_geometry_from_oracle(live_exact)
+            == {
+                "columns": 80,
+                "rows": 24,
+                "content_width_device_px": 800,
+                "content_height_device_px": 456,
+                "cell_width_device_px": 10,
+                "cell_height_device_px": 19,
+            }
+        ):
+            failures.append(
+                "geometry control: live OdyTTY evidence was allowed to satisfy the pinned 10x19 grid"
+            )
+        live_launcher.release_geometry_control(live_launch)
 
         bounded_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
         bounded_ready = Path(tmp) / "bounded-geometry-ready"
@@ -6847,6 +8087,9 @@ def self_test() -> list[str]:
             floating=True,
             width=825,
             height=479,
+        )
+        perturb_launcher.normalize_startup_geometry(
+            perturb_launch, perturb_window, exact_geometry
         )
         perturb_launcher.normalize_startup_geometry(
             perturb_launch, perturb_window, exact_geometry
@@ -7303,6 +8546,7 @@ def self_test() -> list[str]:
             ]
         ),
         {0: 1},
+        {0: 1.67},
     )
     if len(clients) != 2:
         failures.append("hyprctl parse: expected two windows")
@@ -7311,6 +8555,8 @@ def self_test() -> list[str]:
             failures.append("display path: native window misclassified")
         if classify_display_path(clients[1], "wayland") != DISPLAY_PATH_XWAYLAND:
             failures.append("display path: Xwayland window misclassified")
+        if clients[0].get("scale") != 1.67:
+            failures.append("hyprctl parse: monitor scale was not bound to the window")
     if parse_hyprctl_clients("not json") != []:
         failures.append("hyprctl parse: malformed payload must yield no windows")
 
@@ -8731,6 +9977,36 @@ def reserve_geometry_diagnostic_storage(
     return resolved_output, private_root, reservation
 
 
+def reserve_calibration_diagnostic_storage(
+    output_path: Path, private_path: Path | None, repo_root: Path
+) -> tuple[Path, Path, TextIO]:
+    """Reserve public calibration evidence and its private raw-log directory."""
+    if private_path is None:
+        raise ValueError(
+            "--calibration-diagnostic-output requires "
+            "--calibration-diagnostic-private-dir"
+        )
+    resolved_output = output_path.resolve()
+    private_root = validate_private_evidence_location(
+        private_path, resolved_output.parent, repo_root
+    )
+    if resolved_output.exists() or private_root.exists():
+        raise ValueError("calibration diagnostic target already exists")
+    reservation = resolved_output.open("x", encoding="utf-8")
+    try:
+        private_root.mkdir(parents=True, mode=0o700, exist_ok=False)
+        private_root.chmod(0o700)
+    except OSError:
+        discard_reference_readiness_reservation(resolved_output, reservation)
+        if private_root.is_dir():
+            try:
+                private_root.rmdir()
+            except OSError:
+                pass
+        raise
+    return resolved_output, private_root, reservation
+
+
 def finalize_public_evidence(
     results_dir: Path, document_path: Path, private_evidence_dir: Path
 ) -> None:
@@ -8955,6 +10231,16 @@ def main(argv: list[str] | None = None) -> int:
         help="new access-restricted readiness logs outside the repository and public evidence tree",
     )
     parser.add_argument(
+        "--calibration-diagnostic-output",
+        metavar="PATH",
+        help="write exhaustive stable calibration selection evidence",
+    )
+    parser.add_argument(
+        "--calibration-diagnostic-private-dir",
+        metavar="PATH",
+        help="new 0700 calibration raw-log directory outside the repository and public tree",
+    )
+    parser.add_argument(
         "--geometry-diagnostic-output",
         metavar="PATH",
         help="write one diagnostic-only exact startup-geometry record",
@@ -8963,6 +10249,11 @@ def main(argv: list[str] | None = None) -> int:
         "--geometry-diagnostic-private-dir",
         metavar="PATH",
         help="new 0700 diagnostic raw-log directory outside the repository and public output tree",
+    )
+    parser.add_argument(
+        "--calibration-diagnostic-record",
+        metavar="PATH",
+        help="validated calibration evidence required by the final geometry diagnostic",
     )
     parser.add_argument("--preregistration", metavar="PATH")
     parser.add_argument("--results-dir", metavar="PATH", default="bench-results")
@@ -9011,13 +10302,14 @@ def main(argv: list[str] | None = None) -> int:
             args.probe,
             args.run,
             args.reference_readiness_output,
+            args.calibration_diagnostic_output,
             args.geometry_diagnostic_output,
         )
     )
     if actions > 1:
         print(
             "select exactly one of --probe, --run, --reference-readiness-output, "
-            "or --geometry-diagnostic-output",
+            "--calibration-diagnostic-output, or --geometry-diagnostic-output",
             file=sys.stderr,
         )
         return 2
@@ -9042,7 +10334,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.preregistration:
         print(
             "--probe, --run, --reference-readiness-output, and "
-            "--geometry-diagnostic-output require --preregistration",
+            "the calibration/geometry diagnostics require --preregistration",
             file=sys.stderr,
         )
         return 2
@@ -9059,6 +10351,23 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "--geometry-diagnostic-output requires "
             "--geometry-diagnostic-private-dir",
+            file=sys.stderr,
+        )
+        return 2
+    if (
+        args.calibration_diagnostic_output
+        and not args.calibration_diagnostic_private_dir
+    ):
+        print(
+            "--calibration-diagnostic-output requires "
+            "--calibration-diagnostic-private-dir",
+            file=sys.stderr,
+        )
+        return 2
+    if args.geometry_diagnostic_output and not args.calibration_diagnostic_record:
+        print(
+            "--geometry-diagnostic-output requires "
+            "--calibration-diagnostic-record",
             file=sys.stderr,
         )
         return 2
@@ -9090,6 +10399,8 @@ def main(argv: list[str] | None = None) -> int:
         action_name = (
             "geometry diagnostic"
             if args.geometry_diagnostic_output
+            else "calibration diagnostic"
+            if args.calibration_diagnostic_output
             else "reference readiness"
             if args.reference_readiness_output
             else "probe"
@@ -9118,6 +10429,78 @@ def main(argv: list[str] | None = None) -> int:
         if entry.get("name") and isinstance(entry.get("calibration"), dict)
     }
 
+    if args.calibration_diagnostic_output:
+        if args.no_scope:
+            print(
+                "calibration diagnostic requires private systemd scopes",
+                file=sys.stderr,
+            )
+            return 2
+        if (
+            backend.get("backend") != "hyprctl"
+            or backend.get("display") != "wayland"
+        ):
+            print(
+                "calibration diagnostic requires the native Hyprland Wayland backend",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            verify_probe_inputs(prereg_record, HERE.parents[1])
+        except ValueError as error:
+            print(
+                f"calibration diagnostic input verification failed: {error}",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            output_path, private_dir, calibration_output = (
+                reserve_calibration_diagnostic_storage(
+                    Path(args.calibration_diagnostic_output),
+                    (
+                        Path(args.calibration_diagnostic_private_dir)
+                        if args.calibration_diagnostic_private_dir
+                        else None
+                    ),
+                    HERE.parents[1],
+                )
+            )
+        except (OSError, ValueError) as error:
+            print(f"invalid calibration diagnostic storage: {error}", file=sys.stderr)
+            return 1
+        try:
+            launcher = RealLauncher(
+                backend,
+                use_scope=True,
+                log_dir=private_dir / "logs",
+                config_paths=config_paths,
+                calibrations=calibrations,
+                launch_environment=launch_environment,
+                font_identity=prereg_record.get("shared_font"),
+            )
+            calibration_diagnostic = run_calibration_diagnostic(
+                prereg_record, launcher
+            )
+            if not validate_calibration_diagnostic(
+                calibration_diagnostic, prereg_record
+            ):
+                raise ValueError("completed calibration diagnostic did not validate")
+            calibration_output.write(
+                json.dumps(calibration_diagnostic, indent=2, sort_keys=True) + "\n"
+            )
+            calibration_output.close()
+        except KeyboardInterrupt:
+            discard_reference_readiness_reservation(output_path, calibration_output)
+            print("calibration diagnostic interrupted", file=sys.stderr)
+            return 130
+        except (OSError, ValueError) as error:
+            discard_reference_readiness_reservation(output_path, calibration_output)
+            print(f"calibration diagnostic failed: {error}", file=sys.stderr)
+            return 1
+        json.dump(calibration_diagnostic, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return 0
+
     if args.geometry_diagnostic_output:
         if args.no_scope:
             print(
@@ -9138,6 +10521,22 @@ def main(argv: list[str] | None = None) -> int:
             verify_probe_inputs(prereg_record, HERE.parents[1])
         except ValueError as error:
             print(f"geometry diagnostic input verification failed: {error}", file=sys.stderr)
+            return 1
+        try:
+            calibration_diagnostic = json.loads(
+                Path(args.calibration_diagnostic_record).read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as error:
+            print(f"cannot read calibration diagnostic record: {error}", file=sys.stderr)
+            return 1
+        if not calibration_diagnostic_matches_preregistration(
+            calibration_diagnostic, prereg_record
+        ):
+            print(
+                "geometry diagnostic preregistration does not exactly match "
+                "validated calibration evidence",
+                file=sys.stderr,
+            )
             return 1
         try:
             output_path, private_dir, diagnostic_output = (
@@ -9164,8 +10563,12 @@ def main(argv: list[str] | None = None) -> int:
                 launch_environment=launch_environment,
                 font_identity=prereg_record.get("shared_font"),
             )
-            diagnostic = run_geometry_diagnostic(prereg_record, launcher)
-            if not validate_geometry_diagnostic(diagnostic, prereg_record):
+            diagnostic = run_geometry_diagnostic(
+                prereg_record, calibration_diagnostic, launcher
+            )
+            if not validate_geometry_diagnostic(
+                diagnostic, prereg_record, calibration_diagnostic
+            ):
                 raise ValueError("completed geometry diagnostic did not validate")
             diagnostic_output.write(
                 json.dumps(diagnostic, indent=2, sort_keys=True) + "\n"
