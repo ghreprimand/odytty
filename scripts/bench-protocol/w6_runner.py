@@ -86,6 +86,7 @@ WINDOW_MAP_TIMEOUT_SECONDS = 20
 ORACLE_COMPLETION_TIMEOUT_SECONDS = 10
 PROBE_CHILD_SECONDS = WINDOW_MAP_TIMEOUT_SECONDS + 10
 PROBE_ATTEMPT_WALL_BOUND_SECONDS = 90
+REFERENCE_READINESS_SCHEMA_VERSION = 1
 CALIBRATION_MAX_LAUNCHES = sum(
     len(profiles.calibration_configurations(name))
     for name in sorted(profiles.CALIBRATABLE_IMPLEMENTATIONS)
@@ -1004,9 +1005,8 @@ def estimate_duration_seconds(
 
 def _font_isolation_environment(config_path: Path) -> dict[str, str]:
     return {
-        "FONTCONFIG_FILE": "/fonts.conf",
-        "FONTCONFIG_PATH": "/",
-        "FONTCONFIG_SYSROOT": str(config_path.parent),
+        "FONTCONFIG_FILE": str(config_path),
+        "FONTCONFIG_PATH": str(config_path.parent),
     }
 
 
@@ -1053,6 +1053,9 @@ def _verify_font_isolation(isolation: object) -> bool:
         or not isinstance(font_path, Path)
         or not isinstance(config_path, Path)
         or not isinstance(environment, dict)
+        or not font_path.is_absolute()
+        or not config_path.is_absolute()
+        or environment != _font_isolation_environment(config_path)
     ):
         return False
     try:
@@ -1069,11 +1072,15 @@ def _verify_font_isolation(isolation: object) -> bool:
     reported_path = None
     if len(faces) == 1:
         try:
-            reported_path = (
-                Path(environment["FONTCONFIG_SYSROOT"])
-                / Path(faces[0][0]).relative_to("/")
-            ).resolve()
-        except (KeyError, ValueError):
+            reported_path = Path(faces[0][0])
+            if not reported_path.is_absolute():
+                return False
+            reported_path = reported_path.resolve()
+            if hashlib.sha256(reported_path.read_bytes()).hexdigest() != proof[
+                "font_sha256"
+            ]:
+                return False
+        except OSError:
             return False
     return (
         len(faces) == 1
@@ -1092,13 +1099,12 @@ def _create_font_isolation(root: Path, expected_identity: object) -> dict:
     if resolved is None or resolved[1] != expected_identity:
         raise ValueError("the resolved shared-font bytes do not match preregistration")
     source_path, identity = resolved
+    root = root.resolve()
     font_directory = root / "root" / "fonts"
-    cache_directory = root / "root" / "cache"
     root.mkdir(parents=True, mode=0o700, exist_ok=False)
     root.chmod(0o700)
     font_directory.parent.mkdir(mode=0o700)
     font_directory.mkdir(mode=0o700)
-    cache_directory.mkdir(mode=0o700)
     font_path = font_directory / identity["file_name"]
     config_path = root / "root" / "fonts.conf"
     font_bytes = source_path.read_bytes()
@@ -1421,7 +1427,6 @@ class RealLauncher:
         keys = {
             "FONTCONFIG_FILE",
             "FONTCONFIG_PATH",
-            "FONTCONFIG_SYSROOT",
             "ODYTTY_FONT",
             "ODYTTY_FONT_SIZE",
             "ODYTTY_LINE_HEIGHT",
@@ -1429,12 +1434,14 @@ class RealLauncher:
         }
         repo_root = HERE.parents[1]
         font_path = str(self.font_isolation["font_path"])
-        font_sysroot = self.font_isolation["environment"]["FONTCONFIG_SYSROOT"]
+        config_path = str(self.font_isolation["config_path"])
+        isolation_root = str(self.font_isolation["config_path"].parent)
         sanitized = {}
         for key in sorted(keys & environment.keys()):
             value = environment[key]
             value = value.replace(font_path, "$FONT_ISOLATION_FILE")
-            value = value.replace(font_sysroot, "$FONT_ISOLATION_SYSROOT")
+            value = value.replace(config_path, "$FONT_ISOLATION_CONFIG")
+            value = value.replace(isolation_root, "$FONT_ISOLATION_ROOT")
             value = value.replace(str(repo_root), "$REPOSITORY")
             sanitized[key] = value
         return sanitized
@@ -1653,9 +1660,8 @@ def _valid_requested_launch_binding(
     ):
         return False
     common_environment = {
-        "FONTCONFIG_FILE": "/fonts.conf",
-        "FONTCONFIG_PATH": "/",
-        "FONTCONFIG_SYSROOT": "$FONT_ISOLATION_SYSROOT",
+        "FONTCONFIG_FILE": "$FONT_ISOLATION_CONFIG",
+        "FONTCONFIG_PATH": "$FONT_ISOLATION_ROOT",
     }
     size = f"{requested['font_size']:g}"
     if implementation == "odytty":
@@ -2239,6 +2245,135 @@ def probe_availability(
         )
         if calibrate
         else probes
+    )
+
+
+def _reference_readiness_inputs(record: dict) -> dict:
+    """Return the stable preregistration fields bound by reference readiness."""
+    implementations = record.get("implementations", [])
+    names = [entry.get("name") for entry in implementations]
+    if names != list(profiles.LAPTOP_IMPLEMENTATIONS):
+        raise ValueError(
+            "laptop readiness requires exactly odytty, kitty, ghostty, alacritty"
+        )
+    if record.get("machine_scope_exclusions") != [
+        dict(entry) for entry in profiles.LAPTOP_SCOPE_EXCLUSIONS
+    ]:
+        raise ValueError("the WezTerm laptop machine-scope exclusion is not pinned")
+    by_name = {entry["name"]: entry for entry in implementations}
+    fields = (
+        "name",
+        "artifact_sha256",
+        "config_path",
+        "config_sha256",
+        "profile_files",
+        "launch_executable",
+        "font_identity",
+    )
+    return {
+        "protocol": {
+            key: record.get("protocol", {}).get(key)
+            for key in ("version", "git_commit", "sha256")
+        },
+        "shared_font": record.get("shared_font"),
+        "implementations": [
+            {key: by_name[name].get(key) for key in fields}
+            for name in profiles.LAPTOP_IMPLEMENTATIONS
+        ],
+        "machine_scope_exclusions": [
+            dict(entry) for entry in profiles.LAPTOP_SCOPE_EXCLUSIONS
+        ],
+    }
+
+
+def _reference_readiness_inputs_sha256(record: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            _reference_readiness_inputs(record),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def run_reference_readiness(
+    prereg_record: dict, launcher, sleep=time.sleep
+) -> dict:
+    """Launch the three laptop references once without taking a measurement."""
+    _reference_readiness_inputs(prereg_record)
+    if getattr(launcher, "use_scope", None) is not True:
+        raise ValueError("reference readiness requires the prescribed private cgroup")
+    probes = []
+    setter = getattr(launcher, "set_calibration", None)
+    for name in profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS:
+        calibration = profiles.calibration_configurations(name)[0]
+        if setter is not None and not setter(name, calibration):
+            raise ValueError(f"reference readiness could not set {name!r} calibration")
+        probe = _probe_implementation(
+            name, launcher, f"reference-readiness-{name}", sleep=sleep
+        )
+        if (
+            not _valid_probe_attempt(probe)
+            or probe.get("window_mapped") is not True
+            or not isinstance(probe.get("raw_idle_ready"), dict)
+            or not isinstance(probe.get("cell_geometry"), dict)
+        ):
+            raise ValueError(
+                f"reference readiness failed for {name!r}: "
+                f"{probe.get('detail') or 'idle-ready PTY/window evidence is absent'}"
+            )
+        probes.append(probe)
+    return {
+        "schema_version": REFERENCE_READINESS_SCHEMA_VERSION,
+        "protocol_version": prereg_record.get("protocol", {}).get("version"),
+        "inputs_sha256": _reference_readiness_inputs_sha256(prereg_record),
+        "implementations": list(profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS),
+        "execution": {
+            "measurement": False,
+            "private_cgroup": True,
+            "per_reference_wall_bound_seconds": PROBE_ATTEMPT_WALL_BOUND_SECONDS,
+        },
+        "probes": probes,
+    }
+
+
+def validate_reference_readiness(record: object, prereg_record: dict) -> bool:
+    """Validate a readiness record before the one-shot calibration probe."""
+    if not isinstance(record, dict) or set(record) != {
+        "schema_version",
+        "protocol_version",
+        "inputs_sha256",
+        "implementations",
+        "execution",
+        "probes",
+    }:
+        return False
+    probes = record.get("probes")
+    return (
+        record.get("schema_version") == REFERENCE_READINESS_SCHEMA_VERSION
+        and record.get("protocol_version")
+        == prereg_record.get("protocol", {}).get("version")
+        and record.get("inputs_sha256")
+        == _reference_readiness_inputs_sha256(prereg_record)
+        and record.get("implementations")
+        == list(profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS)
+        and record.get("execution")
+        == {
+            "measurement": False,
+            "private_cgroup": True,
+            "per_reference_wall_bound_seconds": PROBE_ATTEMPT_WALL_BOUND_SECONDS,
+        }
+        and isinstance(probes, list)
+        and [probe.get("implementation") for probe in probes]
+        == list(profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS)
+        and all(
+            _valid_probe_attempt(probe)
+            and probe.get("window_mapped") is True
+            and isinstance(probe.get("raw_idle_ready"), dict)
+            and isinstance(probe.get("cell_geometry"), dict)
+            for probe in probes
+        )
     )
 
 
@@ -3406,9 +3541,8 @@ def _synthetic_launch_controls(
             argv.extend(["--config", f"font_size={size}"])
     argv.extend(["--", "$PYTHON", "$REPOSITORY/scripts/bench-protocol/driver.py"])
     environment = {
-        "FONTCONFIG_FILE": "/fonts.conf",
-        "FONTCONFIG_PATH": "/",
-        "FONTCONFIG_SYSROOT": "$FONT_ISOLATION_SYSROOT",
+        "FONTCONFIG_FILE": "$FONT_ISOLATION_CONFIG",
+        "FONTCONFIG_PATH": "$FONT_ISOLATION_ROOT",
     }
     if implementation == "odytty":
         environment.update(
@@ -3571,6 +3705,7 @@ class _FakeLauncher:
     ):
         self.behaviour = behaviour
         self.backend = {"backend": "fake", "display": "wayland"}
+        self.use_scope = True
         self.log_dir = log_dir
         self.font_identity = {
             "family": profiles.SHARED_FONT_FAMILY,
@@ -3932,6 +4067,9 @@ def _fake_prereg(
             for name in implementations
         ],
         "shared_font": shared_font,
+        "machine_scope_exclusions": [
+            dict(entry) for entry in profiles.LAPTOP_SCOPE_EXCLUSIONS
+        ],
         "configurations": ["plain"],
         "matched_cell_geometry": geometry,
         "driver": {"sha256": "f" * 64, "name": "scripts/bench-protocol/driver.py", "revision": "0" * 40},
@@ -3990,6 +4128,64 @@ def self_test() -> list[str]:
                     failures.append(
                         "font isolation: public proof leaked a path or did not revalidate"
                     )
+                if (
+                    isolation["config_path"].read_text(encoding="utf-8")
+                    != profiles.FONTCONFIG_ISOLATION_POLICY
+                    or isolation["proof"]["policy_sha256"]
+                    != profiles.FONTCONFIG_ISOLATION_POLICY_SHA256
+                    or isolation["proof"]["config_sha256"]
+                    != profiles.FONTCONFIG_ISOLATION_POLICY_SHA256
+                ):
+                    failures.append("font isolation: canonical policy digest drifted")
+                faces = _fontconfig_faces(isolation["environment"])
+                if (
+                    not isolation["font_path"].is_absolute()
+                    or not isolation["font_path"].is_file()
+                    or len(faces) != 1
+                    or not Path(faces[0][0]).is_absolute()
+                    or Path(faces[0][0]).resolve()
+                    != isolation["font_path"].resolve()
+                ):
+                    failures.append(
+                        "font isolation: Fontconfig did not return the openable private face"
+                    )
+                sanitizer = RealLauncher(
+                    {"backend": "fake"},
+                    use_scope=True,
+                    log_dir=private_root / "logs",
+                )
+                sanitizer.font_isolation = isolation
+                sanitized = sanitizer.sanitize_probe_environment(
+                    isolation["environment"]
+                )
+                if sanitized != {
+                    "FONTCONFIG_FILE": "$FONT_ISOLATION_CONFIG",
+                    "FONTCONFIG_PATH": "$FONT_ISOLATION_ROOT",
+                } or str(private_root) in json.dumps(sanitized, sort_keys=True):
+                    failures.append("font isolation: sanitized controls leaked a private root")
+                for reference in profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS:
+                    calibration = profiles.calibration_configurations(reference)[0]
+                    argv, environment = _synthetic_launch_controls(
+                        reference, calibration
+                    )
+                    if not _valid_requested_launch_binding(
+                        reference, calibration, argv, environment
+                    ):
+                        failures.append(
+                            f"font isolation: {reference} launch controls did not bind"
+                        )
+                forged_environment = dict(isolation["environment"])
+                forged_environment["FONTCONFIG_PATH"] = str(private_root / "forged")
+                forged = dict(isolation)
+                forged["environment"] = forged_environment
+                if _verify_font_isolation(forged):
+                    failures.append("font isolation: forged private path passed revalidation")
+                forged_proof = dict(isolation["proof"])
+                forged_proof["policy_sha256"] = "0" * 64
+                forged = dict(isolation)
+                forged["proof"] = forged_proof
+                if _verify_font_isolation(forged):
+                    failures.append("font isolation: forged policy digest passed revalidation")
                 isolation["font_path"].write_bytes(b"tampered-font-bytes")
                 if _verify_font_isolation(isolation):
                     failures.append("font isolation: changed font bytes passed revalidation")
@@ -4026,17 +4222,145 @@ def self_test() -> list[str]:
         "maximum_wall_bound_seconds": 17_010,
     }:
         failures.append("profiles: pre-probe worst-case budget gate drifted")
-    typical_launches = 1 + len(profiles.calibration_configurations("odytty")) + 3 * len(
-        profiles.calibration_configurations("kitty")
+    laptop_launches = sum(
+        len(profiles.calibration_configurations(name))
+        for name in profiles.LAPTOP_IMPLEMENTATIONS
     )
-    if typical_launches != 169 or typical_launches * PROBE_ATTEMPT_WALL_BOUND_SECONDS != 15_210:
-        failures.append("profiles: documented typical probe budget drifted")
+    readiness_launches = len(profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS)
+    if (
+        laptop_launches != 168
+        or laptop_launches * PROBE_ATTEMPT_WALL_BOUND_SECONDS != 15_120
+        or readiness_launches != 3
+        or (laptop_launches + readiness_launches)
+        * PROBE_ATTEMPT_WALL_BOUND_SECONDS
+        != 15_390
+    ):
+        failures.append("profiles: documented laptop preparation budget drifted")
     try:
         calibration_probe_budget(["odytty", "odytty"])
     except ValueError:
         pass
     else:
         failures.append("profiles: duplicate pre-probe candidates passed the budget gate")
+
+    with tempfile.TemporaryDirectory(prefix="w6-readiness-") as tmp:
+        root = Path(tmp)
+        laptop_prereg = _fake_prereg(list(profiles.LAPTOP_IMPLEMENTATIONS))
+        launcher = _FakeLauncher(
+            {
+                "odytty": "wayland",
+                "kitty": "wayland",
+                "ghostty": "wayland",
+                "alacritty": "wayland",
+                "wezterm": "wayland",
+            },
+            root / "logs",
+        )
+        try:
+            readiness = run_reference_readiness(
+                laptop_prereg, launcher, sleep=lambda _seconds: None
+            )
+        except ValueError as error:
+            failures.append(f"reference readiness: valid preparation failed: {error}")
+        else:
+            if launcher.launches != list(profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS):
+                failures.append(
+                    "reference readiness: launched outside Kitty/Ghostty/Alacritty scope"
+                )
+            if not validate_reference_readiness(readiness, laptop_prereg):
+                failures.append("reference readiness: valid record did not validate")
+            forged_readiness = json.loads(json.dumps(readiness))
+            forged_readiness["inputs_sha256"] = "0" * 64
+            if validate_reference_readiness(forged_readiness, laptop_prereg):
+                failures.append("reference readiness: forged input digest validated")
+            forged_readiness = json.loads(json.dumps(readiness))
+            forged_readiness["probes"][0]["sanitized_launch_environment"][
+                "FONTCONFIG_PATH"
+            ] = "/private/path"
+            forged_readiness["probes"][0] = _seal_probe_attempt(
+                forged_readiness["probes"][0]
+            )
+            if validate_reference_readiness(forged_readiness, laptop_prereg):
+                failures.append("reference readiness: forged launch path validated")
+
+        no_scope = _FakeLauncher(
+            {name: "wayland" for name in profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS},
+            root / "no-scope",
+        )
+        no_scope.use_scope = False
+        try:
+            run_reference_readiness(
+                laptop_prereg, no_scope, sleep=lambda _seconds: None
+            )
+        except ValueError:
+            if no_scope.launches:
+                failures.append("reference readiness: no-scope failure launched a terminal")
+        else:
+            failures.append("reference readiness: no-scope preparation was accepted")
+
+        failed_reference = _FakeLauncher(
+            {"kitty": "wayland", "ghostty": "no-window", "alacritty": "wayland"},
+            root / "failed-reference",
+        )
+        try:
+            run_reference_readiness(
+                laptop_prereg, failed_reference, sleep=lambda _seconds: None
+            )
+        except ValueError:
+            if failed_reference.launches != ["kitty", "ghostty"]:
+                failures.append(
+                    "reference readiness: did not stop at the first failed reference"
+                )
+        else:
+            failures.append("reference readiness: missing mapped window was accepted")
+
+        out_of_scope = _FakeLauncher(
+            {name: "wayland" for name in profiles.CONFIG_PATHS},
+            root / "out-of-scope",
+        )
+        try:
+            run_reference_readiness(
+                _fake_prereg(list(profiles.CONFIG_PATHS)),
+                out_of_scope,
+                sleep=lambda _seconds: None,
+            )
+        except ValueError:
+            if out_of_scope.launches:
+                failures.append(
+                    "reference readiness: out-of-scope record launched a terminal"
+                )
+        else:
+            failures.append("reference readiness: WezTerm-inclusive record was accepted")
+
+        location_repo = root / "repository"
+        location_public = root / "public"
+        location_repo.mkdir()
+        location_public.mkdir()
+        try:
+            accepted_private = validate_private_evidence_location(
+                root / "private", location_public, location_repo
+            )
+        except ValueError as error:
+            failures.append(f"reference readiness: valid private location failed: {error}")
+        else:
+            if accepted_private != (root / "private").resolve():
+                failures.append("reference readiness: private location did not resolve")
+        for bad_private in (
+            location_repo / "private",
+            location_public / "private",
+            location_public,
+            root,
+        ):
+            try:
+                validate_private_evidence_location(
+                    bad_private, location_public, location_repo
+                )
+            except ValueError:
+                pass
+            else:
+                failures.append(
+                    "reference readiness: unsafe private evidence location was accepted"
+                )
 
     fake_which = lambda name: f"/usr/bin/{name}"  # noqa: E731 - injected lookup
     missing_backend, missing_environment = preflight_window_backend(
@@ -5836,6 +6160,17 @@ def verify_runtime_identities(record: dict, repo_root: Path) -> None:
 
 def verify_probe_inputs(record: dict, repo_root: Path) -> None:
     """Verify every candidate binary/config pair before the one-shot probe."""
+    names = [
+        entry.get("name") for entry in record.get("implementations", [])
+    ]
+    if names != list(profiles.LAPTOP_IMPLEMENTATIONS):
+        raise ValueError(
+            "laptop probe inputs must be exactly odytty, kitty, ghostty, alacritty"
+        )
+    if record.get("machine_scope_exclusions") != [
+        dict(entry) for entry in profiles.LAPTOP_SCOPE_EXCLUSIONS
+    ]:
+        raise ValueError("WezTerm is not pinned as excluded from laptop execution scope")
     resolved_font = profiles.resolve_shared_font_identity()
     if resolved_font is None or resolved_font != record.get("shared_font"):
         raise ValueError("probe shared DejaVu Sans Mono face/file identity is not pinned")
@@ -5864,6 +6199,24 @@ def verify_probe_inputs(record: dict, repo_root: Path) -> None:
             name, calibration
         ):
             raise ValueError(f"candidate {name!r} calibration is invalid")
+
+
+def validate_private_evidence_location(
+    private_path: Path, public_path: Path, repo_root: Path
+) -> Path:
+    """Resolve a private evidence root that cannot enter public/tracked trees."""
+    private_root = private_path.resolve()
+    public_root = public_path.resolve()
+    repository = repo_root.resolve()
+    if (
+        private_root == public_root
+        or public_root in private_root.parents
+        or private_root in public_root.parents
+    ):
+        raise ValueError("private evidence must be outside the public evidence tree")
+    if private_root == repository or repository in private_root.parents:
+        raise ValueError("private evidence must be outside the repository")
+    return private_root
 
 
 def finalize_public_evidence(
@@ -6074,6 +6427,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--estimate", action="store_true", help="print the session duration estimate")
     parser.add_argument("--probe", action="store_true", help="availability probe only, no measurement")
     parser.add_argument("--run", action="store_true", help="execute a measured W6 session")
+    parser.add_argument(
+        "--reference-readiness-output",
+        metavar="PATH",
+        help="write a bounded non-measurement readiness record for laptop references",
+    )
+    parser.add_argument(
+        "--reference-readiness-record",
+        metavar="PATH",
+        help="readiness record required before the one-shot availability probe",
+    )
+    parser.add_argument(
+        "--reference-readiness-private-dir",
+        metavar="PATH",
+        help="new access-restricted readiness logs outside the repository and public evidence tree",
+    )
     parser.add_argument("--preregistration", metavar="PATH")
     parser.add_argument("--results-dir", metavar="PATH", default="bench-results")
     parser.add_argument(
@@ -6115,7 +6483,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{count} implementation(s): {seconds / 3600:.2f} h")
         return 0
 
-    if not (args.probe or args.run):
+    actions = sum(
+        bool(action)
+        for action in (args.probe, args.run, args.reference_readiness_output)
+    )
+    if actions > 1:
+        print("select exactly one of --probe, --run, or --reference-readiness-output", file=sys.stderr)
+        return 2
+    if actions == 0:
         parser.print_help()
         return 2
 
@@ -6134,10 +6509,19 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if not args.preregistration:
-        print("--probe and --run require --preregistration", file=sys.stderr)
+        print(
+            "--probe, --run, and --reference-readiness-output require --preregistration",
+            file=sys.stderr,
+        )
         return 2
     if args.run and not args.private_evidence_dir:
         print("--run requires --private-evidence-dir", file=sys.stderr)
+        return 2
+    if args.reference_readiness_output and not args.reference_readiness_private_dir:
+        print(
+            "--reference-readiness-output requires --reference-readiness-private-dir",
+            file=sys.stderr,
+        )
         return 2
 
     prereg_path = Path(args.preregistration)
@@ -6188,11 +6572,80 @@ def main(argv: list[str] | None = None) -> int:
         if entry.get("name") and isinstance(entry.get("calibration"), dict)
     }
 
+    if args.reference_readiness_output:
+        if args.no_scope:
+            print(
+                "reference readiness requires the prescribed private systemd scope",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            verify_probe_inputs(prereg_record, HERE.parents[1])
+        except ValueError as error:
+            print(f"reference readiness input verification failed: {error}", file=sys.stderr)
+            return 1
+        output_path = Path(args.reference_readiness_output)
+        private_dir = Path(args.reference_readiness_private_dir)
+        try:
+            validate_private_evidence_location(
+                private_dir, output_path.parent, HERE.parents[1]
+            )
+        except ValueError as error:
+            print(f"invalid reference readiness private directory: {error}", file=sys.stderr)
+            return 1
+        if output_path.exists() or private_dir.exists():
+            print("reference readiness target already exists; refusing to overwrite", file=sys.stderr)
+            return 1
+        try:
+            private_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
+            private_dir.chmod(0o700)
+        except OSError as error:
+            print(f"cannot create reference readiness private directory: {error}", file=sys.stderr)
+            return 1
+        launcher = RealLauncher(
+            backend,
+            use_scope=True,
+            log_dir=private_dir / "logs",
+            config_paths=config_paths,
+            calibrations=calibrations,
+            launch_environment=launch_environment,
+            font_identity=prereg_record.get("shared_font"),
+        )
+        try:
+            readiness = run_reference_readiness(prereg_record, launcher)
+            with output_path.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(readiness, indent=2, sort_keys=True) + "\n")
+        except (OSError, ValueError) as error:
+            print(f"reference readiness failed: {error}", file=sys.stderr)
+            return 1
+        json.dump(readiness, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return 0
+
     if args.probe:
         try:
             verify_probe_inputs(prereg_record, HERE.parents[1])
         except ValueError as error:
             print(f"availability probe input verification failed: {error}", file=sys.stderr)
+            return 1
+        if not args.reference_readiness_record:
+            print(
+                "--probe requires --reference-readiness-record from the bounded preparation gate",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            readiness_record = json.loads(
+                Path(args.reference_readiness_record).read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as error:
+            print(f"cannot read reference readiness record: {error}", file=sys.stderr)
+            return 1
+        if not validate_reference_readiness(readiness_record, prereg_record):
+            print(
+                "reference readiness record is invalid or does not bind these probe inputs",
+                file=sys.stderr,
+            )
             return 1
         names = [
             entry["name"]
@@ -6263,14 +6716,9 @@ def main(argv: list[str] | None = None) -> int:
 
     private_evidence_dir = Path(args.private_evidence_dir)
     try:
-        private_root = private_evidence_dir.resolve()
-        public_root = results_dir.resolve()
-        if (
-            private_root == public_root
-            or public_root in private_root.parents
-            or private_root in public_root.parents
-        ):
-            raise ValueError("private evidence must be outside the public results tree")
+        validate_private_evidence_location(
+            private_evidence_dir, results_dir, HERE.parents[1]
+        )
         private_evidence_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
         private_evidence_dir.chmod(0o700)
     except (OSError, ValueError) as error:

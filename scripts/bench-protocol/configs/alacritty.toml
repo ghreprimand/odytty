@@ -18,5 +18,4 @@ style = { shape = "Block", blinking = "Never" }
 history = 100000
 
 [bell]
-animation = "None"
 duration = 0

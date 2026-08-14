@@ -349,6 +349,9 @@ def build_record(
             "virtualized_or_remote": "no",
         },
         "shared_font": shared_font,
+        "machine_scope_exclusions": [
+            dict(entry) for entry in profiles.LAPTOP_SCOPE_EXCLUSIONS
+        ],
         "implementations": [
             {
                 "name": name,
@@ -622,6 +625,22 @@ def check_record(record: dict) -> list[str]:
     shared_font = record.get("shared_font")
     if not profiles.valid_font_identity(shared_font):
         problems.append("the exact shared DejaVu Sans Mono face/file digest is not pinned")
+    if record.get("machine_scope_exclusions") != [
+        dict(entry) for entry in profiles.LAPTOP_SCOPE_EXCLUSIONS
+    ]:
+        problems.append("the preregistered laptop machine-scope exclusion is not exact")
+    registered_names = [
+        entry.get("name") for entry in record.get("implementations", [])
+    ]
+    if registered_names != list(profiles.LAPTOP_IMPLEMENTATIONS):
+        problems.append(
+            "the laptop execution set must be exactly odytty, kitty, ghostty, alacritty"
+        )
+    excluded_names = {
+        entry["name"] for entry in profiles.LAPTOP_SCOPE_EXCLUSIONS
+    }
+    if excluded_names & set(registered_names):
+        problems.append("a machine-scope exclusion is also registered for execution")
     for entry in record.get("implementations", []):
         name = entry.get("name")
         if entry.get("availability") == "unavailable" and not entry.get("unavailable_reason"):
@@ -855,7 +874,7 @@ def self_test(repo_root: Path) -> list[str]:
         run_set_id="selftest",
         order_seed="order-seed",
         bootstrap_seed="bootstrap-seed",
-        implementations=["odytty", "ghostty"],
+        implementations=list(profiles.LAPTOP_IMPLEMENTATIONS),
         configurations=["plain"],
         probe=probe,
         allow_dirty=True,
@@ -979,6 +998,22 @@ def self_test(repo_root: Path) -> list[str]:
     problems = check_record(pinned)
     if problems:
         failures.append(f"prereg: a pinned record was refused: {problems}")
+
+    missing_scope_exclusion = json.loads(json.dumps(pinned))
+    missing_scope_exclusion.pop("machine_scope_exclusions")
+    if not any(
+        "machine-scope exclusion is not exact" in problem
+        for problem in check_record(missing_scope_exclusion)
+    ):
+        failures.append("prereg: missing laptop scope exclusion was accepted")
+
+    overlapping_scope = json.loads(json.dumps(pinned))
+    overlapping_scope["implementations"][1]["name"] = "wezterm"
+    if not any(
+        "also registered for execution" in problem
+        for problem in check_record(overlapping_scope)
+    ):
+        failures.append("prereg: excluded WezTerm was registered for execution")
 
     mismatched_font = json.loads(json.dumps(pinned))
     mismatched_font["implementations"][0]["font_identity"]["sha256"] = "b" * 64
@@ -1144,7 +1179,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-set-id")
     parser.add_argument("--order-seed")
     parser.add_argument("--bootstrap-seed")
-    parser.add_argument("--implementations", help="comma-separated names")
+    parser.add_argument(
+        "--implementations",
+        default=",".join(profiles.LAPTOP_IMPLEMENTATIONS),
+        help="comma-separated names (default: preregistered laptop comparison set)",
+    )
     parser.add_argument("--configurations", default="plain")
     parser.add_argument("--allow-dirty", action="store_true")
     parser.add_argument(
@@ -1184,11 +1223,15 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         names = [
             name.strip()
-            for name in (args.implementations or "").split(",")
+            for name in args.implementations.split(",")
             if name.strip()
         ]
-        if not names:
-            print("--generate requires --implementations", file=sys.stderr)
+        if names != list(profiles.LAPTOP_IMPLEMENTATIONS):
+            print(
+                "--generate requires the laptop execution set "
+                "odytty,kitty,ghostty,alacritty in that order",
+                file=sys.stderr,
+            )
             return 2
         record = build_record(
             repo_root,

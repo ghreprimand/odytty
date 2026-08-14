@@ -144,6 +144,15 @@ to an isolated digest-pinned font, its exact launch controls, observed PTY
 geometry, and independently recomputed selection. Version 1.0.0 evidence
 remains historical and cannot be pooled with a 1.1.0 run.
 
+The laptop run input is fixed to OdyTTY, Kitty, Ghostty, and Alacritty.
+WezTerm is recorded as `excluded-by-preregistered-machine-scope` because it is
+known nonfunctional on this machine and is never launched by this run. A
+bounded, nonmeasurement preparation gate starts the three references in the
+prescribed private cgroup and requires an idle-ready PTY plus a mapped window
+before the one-shot calibration probe. Fontconfig exposes the private copied
+font through its real openable absolute path while public evidence retains
+only path-redacted controls and deterministic policy digests.
+
 **No comparative benchmark results are published as of this entry.** The
 harness changes are infrastructure hardening toward a protocol-valid run;
 executing that run and publishing raw samples with confidence intervals

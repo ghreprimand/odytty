@@ -132,21 +132,36 @@ effective observed evidence.
 
 The font is enforced separately. The runner copies the pinned, digest-verified
 DejaVu Sans Mono file into a mode-`0700` single-face Fontconfig environment.
-OdyTTY receives that copied file through its direct `ODYTTY_FONT` control;
-reference terminals receive a `FONTCONFIG_FILE` that lists only that face.
-Each launch rechecks the copied font bytes, config bytes, single-face listing,
-family, style, face index, and file digest. Public evidence contains only the
-isolation method, counts, control names, and digests—never its private paths.
-An asserted face identity without this isolation proof fails validation.
+OdyTTY receives that copied absolute file through its direct `ODYTTY_FONT`
+control; reference terminals receive a `FONTCONFIG_FILE` whose only listed
+face resolves to the same openable absolute file. Each launch rechecks the
+canonical policy and config digests, copied font bytes, single-face listing,
+family, style, face index, and resolved file digest. Public evidence contains
+only the isolation method, counts, control names, and digests; launch records
+replace private paths with stable tokens. An asserted face identity without
+this isolation proof fails validation.
 
-The complete calibration is explicitly bounded. OdyTTY has 105 declared
-font-size/line-height settings; each reference has 21 font-size settings. A
-typical five-candidate Linux probe with four terminals mapped therefore
-performs 169 launches: 168 complete mapped settings plus the unavailable
-candidate's single bounded attempt. The all-mapped worst case performs 189.
-Each attempt has a conservative 90-second controller wall allocation, making
-the corresponding aggregate bounds 15,210 and 17,010 seconds. Reaching either
-the planned launch count or wall deadline produces
+The current laptop scope is exactly OdyTTY, Kitty, Ghostty, and Alacritty.
+WezTerm is recorded as `excluded-by-preregistered-machine-scope` because it is
+known nonfunctional on this machine, and receives zero launch, readiness,
+probe, rehearsal, measurement, and retry attempts. Generic WezTerm profile
+support remains available for a future machine-specific protocol revision.
+
+Before calibration, a bounded nonmeasurement readiness gate launches Kitty,
+Ghostty, and Alacritty once each in the prescribed private cgroup. Every
+reference must start its PTY child, produce the idle-ready evidence, and map an
+observable window. The gate binds its record to the preregistered artifacts,
+profiles, and font identity, and failure stops before the one-shot probe. Its
+raw logs use a create-only, mode-`0700` directory outside the repository and
+the public readiness-artifact tree.
+
+The complete laptop calibration is explicitly bounded. OdyTTY has 105
+declared font-size/line-height settings; each of the three references has 21
+font-size settings, for 168 probe launches. The readiness gate adds three
+bounded launches. Each attempt has a conservative 90-second controller wall
+allocation, making the probe bound 15,120 seconds and the complete preparation
+bound 171 launches / 15,390 seconds. Reaching either the planned launch count
+or wall deadline produces
 `unmet-protocol-configuration`; it never truncates the search silently.
 Mapped terminals without a common intersection are reported as
 `unmet-protocol-configuration`, distinct from an implementation that did not

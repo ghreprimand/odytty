@@ -33,14 +33,25 @@ DEFAULT_FONT_SIZE = 12.0
 CALIBRATABLE_IMPLEMENTATIONS = frozenset(
     {"odytty", "kitty", "ghostty", "alacritty", "wezterm"}
 )
+LAPTOP_IMPLEMENTATIONS = ("odytty", "kitty", "ghostty", "alacritty")
+LAPTOP_REFERENCE_IMPLEMENTATIONS = ("kitty", "ghostty", "alacritty")
+LAPTOP_SCOPE_EXCLUSIONS = (
+    {
+        "name": "wezterm",
+        "reason": "excluded-by-preregistered-machine-scope",
+        "detail": (
+            "known nonfunctional on this laptop; it is not launched, readiness-tested, "
+            "probed, rehearsed, measured, or retried"
+        ),
+    },
+)
 CALIBRATION_FONT_SIZES = tuple(value / 2 for value in range(16, 37))
 ODYTTY_CALIBRATION_LINE_HEIGHTS = (1.0, 1.25, 1.5, 1.75, 2.0)
 SHARED_FONT_FAMILY = "DejaVu Sans Mono"
 FONTCONFIG_ISOLATION_POLICY = """<?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
 <fontconfig>
-  <dir>/fonts</dir>
-  <cachedir>/cache</cachedir>
+  <dir prefix="relative">fonts</dir>
   <config><rescan><int>0</int></rescan></config>
 </fontconfig>
 """

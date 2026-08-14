@@ -43,9 +43,10 @@ Useful one-offs:
 ```text
 python3 scripts/bench-protocol/fixtures.py --digest w3
 python3 scripts/bench-protocol/collectors.py --probe
-python3 scripts/bench-protocol/ordering.py --seed <seed> --implementations odytty,ghostty --blocks 30
+python3 scripts/bench-protocol/ordering.py --seed <seed> --implementations odytty,kitty,ghostty,alacritty --blocks 30
 python3 scripts/bench-protocol/prereg.py --generate --run-set-id <id> \
-    --order-seed <seed> --bootstrap-seed <other-seed> --implementations odytty,ghostty
+    --order-seed <seed> --bootstrap-seed <other-seed> \
+    --implementations odytty,kitty,ghostty,alacritty
 python3 scripts/bench-protocol/prereg.py --check <record.json>
 python3 scripts/bench-protocol/result_schema.py --validate <result.json> \
     --preregistration <record.json>
@@ -56,7 +57,11 @@ python3 scripts/bench-protocol/result_schema.py --validate <result.json> \
 ```text
 python3 scripts/bench-protocol/w6_runner.py --backend
 python3 scripts/bench-protocol/w6_runner.py --estimate
-python3 scripts/bench-protocol/w6_runner.py --probe --preregistration <record.json>
+python3 scripts/bench-protocol/w6_runner.py --reference-readiness-output <readiness.json> \
+    --reference-readiness-private-dir <private-dir-outside-repository> \
+    --preregistration <record.json>
+python3 scripts/bench-protocol/w6_runner.py --probe --preregistration <record.json> \
+    --reference-readiness-record <readiness.json>
 python3 scripts/bench-protocol/w6_runner.py --run --preregistration <record.json> \
     --results-dir <public-dir> --private-evidence-dir <private-dir>
 ```
@@ -71,12 +76,18 @@ sockets are not candidates. A missing, stale, or ambiguous display socket
 is a controller prerequisite failure, not an implementation-availability
 result. Before publishing the preregistration, pin each implementation revision,
 artifact, and configuration digest, then use the launch recipes pinned by that
-checkout to run `--probe` once for the complete candidate set. The probe gives
-every installed recipe one bounded
+checkout to run `--probe` once for the complete in-scope candidate set. The
+probe gives every preregistered in-scope recipe one bounded
 20-second window-mapping attempt. Record its native-Wayland result, including
 the exact reason for any implementation that starts without an observable
 window, and freeze the qualified set and execution order before publishing the
-record. The canonical profiles are tracked at
+record. On this laptop the preregistered execution scope is exactly OdyTTY,
+Kitty, Ghostty, and Alacritty. WezTerm is recorded as
+`excluded-by-preregistered-machine-scope` because it is known nonfunctional on
+this machine; it receives zero launch, readiness, probe, rehearsal,
+measurement, and retry attempts. Its generic tracked profile remains available
+for a future machine-specific protocol revision. The canonical profiles are
+tracked at
 `scripts/bench-protocol/configs/odytty/odytty.conf`,
 `scripts/bench-protocol/configs/ghostty.conf`,
 `scripts/bench-protocol/configs/kitty.conf`,
@@ -110,20 +121,33 @@ environment is preserved too, and validation cross-binds requested controls to
 both argv and environment. Requested controls are not observations; only PTY
 geometry is effective observed evidence.
 
-The runner copies the digest-verified DejaVu Sans Mono file into a private,
-single-face Fontconfig environment. OdyTTY receives the copied file through
-`ODYTTY_FONT`; references see only that face through `FONTCONFIG_FILE`. Every
-launch rechecks the font and config bytes plus the one-face listing. Published
-proof includes only counts, control names, and digests. A copied face identity
-without the isolation proof fails closed, as does any changed isolation byte.
+Before the one-shot exhaustive probe, `--reference-readiness-output` launches
+Kitty, Ghostty, and Alacritty once each in the prescribed private cgroup. This
+is a bounded, nonmeasurement preparation gate: every reference must start its
+PTY child, reach the idle-ready record, and map an observable window. Failure
+stops before a probe directory is created. The resulting record binds the
+preregistered inputs and must validate through `--reference-readiness-record`;
+it never launches WezTerm. Raw readiness logs require an explicit create-only,
+mode-`0700` private directory outside both the repository and the public
+readiness-artifact tree.
 
-The exhaustive search is finite: 105 settings for OdyTTY and 21 per reference.
-A typical five-candidate probe with OdyTTY and three references mapped requires
-169 launches, including the unavailable candidate's one bounded attempt; all
-five mapped terminals require at most 189. At a conservative 90-second
-allocation per attempt their declared wall bounds are 15,210 and 17,010
-seconds. Hitting a count or time bound is an explicit protocol failure, never
-a partial search presented as complete.
+The runner copies the digest-verified DejaVu Sans Mono file into a private,
+single-face Fontconfig environment. OdyTTY receives the copied absolute file
+through `ODYTTY_FONT`; references receive a private `FONTCONFIG_FILE` whose
+single listed face resolves to that same openable absolute file. Every launch
+rechecks the canonical policy and config digests, copied font bytes, one-face
+listing, and resolved file bytes. Published proof includes only counts,
+control names, and digests; launch records replace private paths with stable
+tokens. A copied face identity without the isolation proof fails closed, as
+does any changed isolation byte, path, or digest.
+
+The exhaustive laptop search is finite: 105 settings for OdyTTY and 21 for
+each of Kitty, Ghostty, and Alacritty, for 168 probe launches. The preceding
+readiness gate adds three bounded reference launches. At a conservative
+90-second allocation per attempt, the probe bound is 15,120 seconds and the
+complete preparation bound is 171 launches / 15,390 seconds. Hitting a count
+or time bound is an explicit protocol failure, never a partial search presented
+as complete.
 
 Mapped terminals must publish the exact ordered profile setting sequence.
 Attempt and ordered-list digests are recomputed, and qualification/finalization

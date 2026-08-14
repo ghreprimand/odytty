@@ -45,10 +45,10 @@ Described only in the protocol's public environment-class terms.
 
 | Field | Class |
 | --- | --- |
-| CPU | x86-64 desktop class, 32 logical cores |
-| Memory | 64-128 GiB bucket |
-| GPU | discrete consumer class, proprietary vendor kernel driver |
-| Operating system | Linux, 7.1 series |
+| CPU | x86-64 laptop class; exact class pinned per run set |
+| Memory | exact public bucket pinned per run set |
+| GPU | exact public class pinned per run set |
+| Operating system | Linux; exact build pinned per run set |
 | Window server | Wayland compositor |
 | Power | external power, `performance` CPU frequency governor |
 | Optical apparatus | none |
@@ -99,19 +99,20 @@ requirement.
 
 ## Reference-implementation availability
 
-The protocol names Ghostty, Konsole, and Alacritty as eligible independent
-references, and requires that a missing implementation be recorded as such
-before outcomes are known — never replaced after the fact.
+The current laptop preregistration names Kitty, Ghostty, and Alacritty as its
+independent references. Scope is fixed before outcomes are known and is never
+replaced after the fact.
 
 | Reference | Status |
 | --- | --- |
-| Ghostty | available |
-| Konsole | available |
-| Alacritty | `skip` / `unavailable-implementation` — not obtainable from the configured package sources on this comparison unit |
+| Kitty | preregistered; bounded readiness required before probing |
+| Ghostty | preregistered; bounded readiness required before probing |
+| Alacritty | preregistered; bounded readiness required before probing |
+| WezTerm | `excluded-by-preregistered-machine-scope` — known nonfunctional on this laptop; zero launch attempts |
 
-Alacritty's absence is declared here and in each preregistration record rather
-than discovered mid-run, so it cannot become a post-hoc choice about which
-references appeared in a favourable comparison.
+WezTerm's exclusion is declared here and in the preregistration record rather
+than inferred from a failed probe. It is not labeled probe-unavailable and is
+not launched, readiness-tested, probed, rehearsed, measured, or retried.
 
 **Artifact class is a live conformance question for any run set.** The protocol
 prefers published release artifacts for every implementation and otherwise
