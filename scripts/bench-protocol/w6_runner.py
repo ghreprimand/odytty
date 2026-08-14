@@ -1421,6 +1421,11 @@ class RealLauncher:
             env=launch_env,
         )
 
+    @staticmethod
+    def _resolve_executable(executable: str) -> str | None:
+        """Resolve a terminal executable; isolated for hermetic launch tests."""
+        return shutil.which(executable)
+
     def prepare_geometry_control(self, window_tag: str, ready_path: Path) -> dict:
         """Create per-launch controller state without mutating the compositor."""
         if self.backend.get("backend") != "hyprctl":
@@ -1525,7 +1530,7 @@ class RealLauncher:
         recipe = LAUNCH_RECIPES.get(implementation)
         if recipe is None:
             return {"error": f"no launch recipe is defined for {implementation!r}"}
-        if shutil.which(recipe[0]) is None:
+        if self._resolve_executable(recipe[0]) is None:
             return {"error": f"{recipe[0]!r} is not installed on this host"}
         if not self.ensure_font_isolation():
             return {"error": "private single-face font isolation failed verification"}
@@ -5174,6 +5179,14 @@ def self_test() -> list[str]:
             failures.append("geometry control: wrong backend was accepted")
 
         class _InterruptedGeometryLauncher(_RecordingGeometryLauncher):
+            def __init__(self, backend_name: str, root: Path):
+                super().__init__(backend_name, root)
+                self.spawn_reached = False
+
+            @staticmethod
+            def _resolve_executable(executable: str) -> str:
+                return f"/synthetic-bin/{executable}"
+
             def ensure_font_isolation(self):
                 self.font_isolation = {
                     "environment": {},
@@ -5183,8 +5196,8 @@ def self_test() -> list[str]:
                 }
                 return True
 
-            @staticmethod
-            def _spawn_process(_argv, _handle, _launch_env):
+            def _spawn_process(self, _argv, _handle, _launch_env):
+                self.spawn_reached = True
                 raise KeyboardInterrupt
 
         interrupted = _InterruptedGeometryLauncher("hyprctl", Path(tmp) / "interrupt")
@@ -5194,6 +5207,8 @@ def self_test() -> list[str]:
             pass
         else:
             failures.append("geometry control: interrupted launch did not propagate")
+        if not interrupted.spawn_reached:
+            failures.append("geometry control: interrupted launch did not reach spawn")
         if (Path(tmp) / "interrupt" / "interrupted-launch.geometry-ready").exists():
             failures.append("geometry control: interrupted launch left handshake state")
         if interrupted.geometry_commands:
