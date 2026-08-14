@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Result-document schema and validator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.1.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.2.0).
 #
 # The protocol specifies the canonical result as UTF-8 JSON with sorted object
 # keys and a minimum shape, and it specifies exactly what validation must
@@ -52,8 +52,8 @@ from pathlib import Path
 import summaries
 import workloads
 
-SCHEMA_VERSION = "1.1.0"
-PROTOCOL_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
+PROTOCOL_VERSION = "1.2.0"
 REHEARSAL_TIMING_TOLERANCE_SECONDS = 2.0
 ENVIRONMENT_SAMPLE_PERIOD_SECONDS = 1.0
 ENVIRONMENT_SAMPLE_MAX_GAP_SECONDS = 2.0
@@ -1387,7 +1387,7 @@ def _validate_ci(value: object) -> bool:
 
 
 def canonical_w6_summaries(samples: list[dict], seed: str) -> list[dict]:
-    """Recompute the exact protocol 1.1.0 W6 summaries from raw samples."""
+    """Recompute the exact protocol 1.2.0 W6 summaries from raw samples."""
     metric_specs = {
         metric["name"]: metric
         for metric in workloads.WORKLOADS["idle-visible-10m"]["metrics"]

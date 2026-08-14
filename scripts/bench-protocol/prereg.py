@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Preregistration-record generator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.1.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.2.0).
 #
 # The protocol's first requirement is that every run set have a public
 # preregistration record committed before its first measured sample, and it
@@ -53,7 +53,7 @@ import ordering
 import profiles
 import workloads
 
-PROTOCOL_VERSION = "1.1.0"
+PROTOCOL_VERSION = "1.2.0"
 PROTOCOL_DOC = Path("docs/benchmark-protocol.md")
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 
@@ -359,6 +359,7 @@ def build_record(
                 "unavailable_reason": TODO,
                 "display_path": TODO,
                 "cell_geometry": TODO,
+                "pty_pixel_envelope_model": TODO,
                 "calibration": TODO,
                 "font_identity": shared_font,
                 "revision": TODO,
@@ -659,6 +660,45 @@ def check_record(record: dict) -> list[str]:
             problems.append(
                 f"implementation {entry.get('name')!r} lacks calibrated cell geometry"
             )
+        if entry.get("availability") == "qualified":
+            envelope = entry.get("pty_pixel_envelope_model")
+            required_envelope = {
+                "cell_width_device_px",
+                "cell_height_device_px",
+                "width_remainder_device_px",
+                "height_remainder_device_px",
+            }
+            if not isinstance(envelope, dict) or set(envelope) != required_envelope:
+                problems.append(
+                    f"implementation {entry.get('name')!r} lacks a pinned PTY pixel-envelope model"
+                )
+            else:
+                cell_width = envelope.get("cell_width_device_px")
+                cell_height = envelope.get("cell_height_device_px")
+                width_remainder = envelope.get("width_remainder_device_px")
+                height_remainder = envelope.get("height_remainder_device_px")
+                if (
+                    any(
+                        not isinstance(value, int) or isinstance(value, bool)
+                        for value in (
+                            cell_width,
+                            cell_height,
+                            width_remainder,
+                            height_remainder,
+                        )
+                    )
+                    or cell_width <= 0
+                    or cell_height <= 0
+                    or not 0 <= width_remainder < cell_width
+                    or not 0 <= height_remainder < cell_height
+                    or cell_width
+                    != entry.get("cell_geometry", {}).get("cell_width_device_px")
+                    or cell_height
+                    != entry.get("cell_geometry", {}).get("cell_height_device_px")
+                ):
+                    problems.append(
+                        f"implementation {entry.get('name')!r} has an invalid PTY pixel-envelope model"
+                    )
         if entry.get("availability") == "qualified" and not profiles.valid_calibration(
             name, entry.get("calibration")
         ):
@@ -981,6 +1021,12 @@ def self_test(repo_root: Path) -> list[str]:
         implementation["unavailable_reason"] = "not applicable"
         implementation["display_path"] = "wayland-native"
         implementation["cell_geometry"] = geometry
+        implementation["pty_pixel_envelope_model"] = {
+            "cell_width_device_px": geometry["cell_width_device_px"],
+            "cell_height_device_px": geometry["cell_height_device_px"],
+            "width_remainder_device_px": 0,
+            "height_remainder_device_px": 0,
+        }
         implementation["calibration"] = {
             "method": "canonical-profile",
             "font_size": profiles.DEFAULT_FONT_SIZE,

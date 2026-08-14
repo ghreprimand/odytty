@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Benchmark driver for the OdyTTY comparative benchmark protocol
-# (`docs/benchmark-protocol.md`, protocol version 1.1.0).
+# (`docs/benchmark-protocol.md`, protocol version 1.2.0).
 #
 # The protocol requires that all benchmark child behaviour be supplied by one
 # public, version-pinned driver that behaves identically on Linux, Windows,
@@ -112,7 +112,7 @@ def terminal_size() -> tuple[int, int]:
 
 
 def terminal_pixel_size(descriptor: int | None = None) -> tuple[int, int] | None:
-    """Return the PTY content size in device pixels when the kernel exposes it."""
+    """Return the terminal-supplied PTY pixel envelope when the kernel exposes it."""
     if os.name == "nt":
         return None
     try:
@@ -486,7 +486,7 @@ def self_test() -> list[str]:
         try:
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 640, 480))
             if terminal_pixel_size(slave) != (640, 480):
-                failures.append("driver: PTY device-pixel content geometry was not read")
+                failures.append("driver: PTY device-pixel envelope was not read")
         finally:
             os.close(master)
             os.close(slave)

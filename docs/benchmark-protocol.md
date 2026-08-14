@@ -1,11 +1,12 @@
 # OdyTTY Comparative Benchmark Protocol
 
-Protocol version: `1.1.0`
+Protocol version: `1.2.0`
 
-Version 1.1.0 changes calibration selection and availability-evidence fields.
-It requires a fresh preregistration and run-set identity. Protocol 1.0.0
-records and results remain historical evidence and are never pooled with
-1.1.0 samples.
+Version 1.2.0 separates raw PTY pixel-envelope metadata from normalized cell
+grid geometry and requires validator-recomputed affine proof for nonzero fixed
+edge remainders. It requires a fresh preregistration and run-set identity.
+Protocol 1.0.0 and 1.1.0 records and results remain historical evidence and
+are never pooled with 1.2.0 samples.
 
 This protocol defines how OdyTTY and independent terminal references are
 compared before any comparative numbers are collected. It measures complete
@@ -124,7 +125,7 @@ width-and-height intersection deterministically; no implementation is treated
 as the fixed geometry target, and a height-only estimate is not sufficient.
 Requested settings and observed PTY evidence are separate records. Each
 attempt records sanitized exact argv and launch-control environment, requested
-metric controls, raw PTY columns/rows/content pixels, derived geometry,
+metric controls, raw PTY columns/rows/pixel envelope, derived cell-grid geometry,
 process/window/display-path outcome, exit status, and an immutable attempt
 digest. Validators cross-bind every requested control to those sanitized
 launch records. Requested controls are not observations; only PTY geometry is
@@ -134,19 +135,35 @@ The Linux controller binds each real launch to a fresh opaque application id.
 On Hyprland the child reports PTY geometry out of band, then waits behind a
 private controller edge. The runner requires both that exact id and the mapped
 native window's exact compositor address before floating or resizing it. The
-outer-window correction is derived from observed cell pixels and repeated only
-after a new PTY geometry observation. The child cannot emit `idle-ready` until
-the PTY reports exactly 80 columns by 24 rows. No persistent compositor rule
-is installed, unrelated windows cannot match the exact-id/address pair, and
-teardown removes the private edge on success, failure, timeout, and
-interruption. Kitty sets `remember_window_size no` so a prior interactive size
-cannot override the profile. Sway observation alone is insufficient: until an
-equivalent reversible startup-geometry controller exists, a Sway session fails
-the prerequisite before any terminal launch.
+PTY-reported pixel envelope is divided into an integer cell pitch plus a
+terminal-specific edge remainder. That remainder must be smaller than one cell
+and both it and the integer cell pitch must remain identical before and after
+the resize and through `idle-ready`. A nonzero remainder is accepted only when
+distinct observations prove the same affine pitch and remainder. The sealed
+attempt records those observations, the resize commands, and the release
+outcome for validator recomputation. The validator derives pitch from the
+ordered column/pixel and row/pixel deltas instead of trusting the recorded
+pitch. A launch first observed at exact 80x24 with a nonzero remainder uses
+one resize to perturb by one cell and one resize to return to 80x24; repeated
+polls cannot consume either command. A zero-remainder exact launch keeps the
+single-observation fast path. The outer-window correction uses the integer
+pitch, is repeated only after a new PTY geometry observation, and allows at
+most two resize commands after floating. Raw envelope pixels remain evidence, while calibration compares
+the normalized cell grid; for example, a raw 805x459 envelope with a stable 5x3
+remainder represents the same 800x456 grid as an unpadded envelope. The child
+cannot emit `idle-ready` until the PTY reports exactly 80 columns by 24 rows.
+No persistent compositor rule is installed, unrelated windows cannot match the
+exact-id/address pair, and teardown removes the private edge on success,
+failure, timeout, and interruption. Kitty sets `remember_window_size no` so a
+prior interactive size cannot override the profile. Sway observation alone is
+insufficient: until an equivalent reversible startup-geometry controller
+exists, a Sway session fails the prerequisite before any terminal launch.
 
-This changes the reference-readiness evidence format to schema version 2.
-Schema version 1 predates the startup-geometry handshake and is rejected rather
-than interpreted under the stronger gate.
+This changes probe-attempt evidence to schema version 3, reference-readiness
+evidence to schema version 4, and diagnostic evidence to schema version 3.
+Earlier schemas predate either the
+startup-geometry handshake or the stable normalized-grid evidence and are
+rejected rather than reinterpreted.
 
 For a bounded live check before laptop execution, run:
 
@@ -160,14 +177,19 @@ python3 scripts/bench-protocol/w6_runner.py \
 This separate diagnostic verifies the pinned artifacts, profiles, shared font,
 and Hyprland child display, then launches OdyTTY, Kitty, Ghostty, and Alacritty
 once each in that fixed order through private systemd scopes and the production
-geometry handshake. WezTerm receives no action. A public schema-version-1
+geometry handshake. WezTerm receives no action. A public schema-version-3
 record is produced only when every native-Wayland window reaches exact 80x24,
-records its opaque application id, PTY content pixels, process outcome, and
-successful cleanup. Raw logs stay in a new mode-`0700` directory outside the
-repository and public output tree. Failure or interruption discards the empty
-public reservation and retains the private diagnostics. The command consumes
-or creates no readiness, probe, preregistration-anchor, rehearsal, measurement,
-or run identity, and it neither suspends Brave nor enforces CPU-noise controls.
+records its opaque application id, raw PTY pixel envelope, normalized cell
+grid, affine envelope proof, process outcome, and successful cleanup, and every
+normalized grid equals the preregistered matched device-pixel geometry. Pin the
+resulting per-terminal pitch/remainder summaries into the fresh preregistration
+draft before reference readiness; the diagnostic does not require those
+not-yet-discovered summaries as inputs. Raw logs stay in a new
+mode-`0700` directory outside the repository and public output tree. Failure or
+interruption discards the empty public reservation and retains the private
+diagnostics. The command consumes or creates no readiness, probe,
+preregistration-anchor, rehearsal, measurement, or run identity, and it
+neither suspends Brave nor enforces CPU-noise controls.
 
 The font is enforced separately. The runner copies the pinned, digest-verified
 DejaVu Sans Mono file into a mode-`0700` single-face Fontconfig environment.
@@ -217,7 +239,7 @@ pre-public exhaustive probe and the later frozen-qualified-set revalidation
 are labeled as distinct evidence modes; runtime revalidation never retries a
 preregistered unavailable implementation.
 
-This calibration procedure defines the protocol 1.1.0 selection and evidence
+This calibration procedure defines the protocol 1.2.0 selection and evidence
 contract without changing the measured quantity or relaxing matching.
 Implementations may express font size in different native units, so binding one nominal number
 or fixing one implementation as the target would not establish conformance.
@@ -537,9 +559,9 @@ shape:
 
 ```json
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "protocol": {
-    "version": "1.1.0",
+    "version": "1.2.0",
     "git_commit": "<full-sha>",
     "sha256": "<protocol-sha256>"
   },

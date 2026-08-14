@@ -1,7 +1,7 @@
 # `scripts/bench-protocol/` — comparative benchmark harness
 
 Preparation tooling for `docs/benchmark-protocol.md` (protocol version
-`1.1.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
+`1.2.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
 and cannot measure, and why.
 
 Every command here is offline, cheap, and side-effect free unless it is
@@ -75,9 +75,13 @@ current Hyprland native-Wayland session. After verifying the pinned terminal
 artifacts, tracked configs, shared font, and child display, it uses private
 systemd scopes and the production startup-geometry handshake to launch exactly
 OdyTTY, Kitty, Ghostty, and Alacritty once each in that order. WezTerm is never
-launched. The create-exclusive public record is written only when all four
-windows reach exact 80x24 PTY geometry and clean up; raw logs remain in the new
-mode-`0700` private directory outside the repository and public output tree.
+launched. The create-exclusive schema-version-3 public record is written only
+when all four windows reach exact 80x24 PTY geometry and clean up; it preserves
+each raw PTY pixel envelope, normalized cell grid, and validator-recomputed
+affine proof, and requires every normalized grid to equal the preregistered
+matched device-pixel geometry. Pin the resulting per-terminal pitch/remainder
+summaries into the fresh preregistration draft before reference readiness. Raw logs remain in
+the new mode-`0700` private directory outside the repository and public output tree.
 Failure or interruption removes the incomplete public reservation while
 retaining private diagnostics. This action creates or consumes no readiness,
 probe, preregistration-anchor, rehearsal, measurement, or run identity. It
@@ -131,8 +135,19 @@ disables its remembered window size. Sway remains observable, but the runner
 fails its prerequisite before launching a terminal because it does not yet
 have an equivalent reversible exact-startup-geometry controller there.
 
-The bounded pre-public probe also reads the PTY's content width and height in
-device pixels and derives the exact per-cell geometry for the 80x24 grid. It
+The bounded pre-public probe also reads the PTY-reported pixel envelope and
+derives the exact per-cell geometry for the 80x24 grid. Some terminals include
+a fixed sub-cell edge remainder in that envelope. The controller preserves the
+raw envelope, requires both integer cell pitch and the smaller-than-one-cell
+remainder to stay stable across its resize and `idle-ready`, and compares only
+the normalized cell grid. Nonzero remainders require distinct affine-proof
+observations, sealed resize commands, and validator recomputation within a
+two-command bound. Validation derives pitch from the ordered cell/pixel deltas.
+A nonzero-remainder launch first observed at exact 80x24 perturbs by one cell
+and returns to 80x24 without allowing repeated polls to consume either resize;
+a zero-remainder exact launch keeps the single-observation
+fast path. Each qualified implementation's envelope model is pinned in
+preregistration and rechecked before measurement. It
 probes every member of the declared bounded calibration set for every mapped
 terminal, including OdyTTY font size and line height, then deterministically
 selects one exact width-and-height intersection shared by all of them. OdyTTY
@@ -143,13 +158,14 @@ common intersection, stays mapped but records
 `unmet-protocol-configuration`; it is not relabeled unavailable or silently
 dropped.
 
-Every attempt preserves a sanitized exact argv, requested metric controls,
-separate observed idle-ready PTY columns/rows/content pixels and derived
+Probe-attempt schema version 3 preserves a sanitized exact argv, requested metric controls,
+separate observed idle-ready PTY columns/rows/raw pixel envelope and derived
 geometry, process/window/display-path outcome, exit status, and a canonical
 SHA-256 over the immutable attempt record. The sanitized launch-control
 environment is preserved too, and validation cross-binds requested controls to
 both argv and environment. Requested controls are not observations; only PTY
-geometry is effective observed evidence.
+geometry is effective observed evidence. Earlier attempt records are rejected
+rather than reinterpreted under the fixed-remainder model.
 
 Before the one-shot exhaustive probe, `--reference-readiness-output` launches
 Kitty, Ghostty, and Alacritty once each in the prescribed private cgroup. This
@@ -157,9 +173,9 @@ is a bounded, nonmeasurement preparation gate: every reference must start its
 PTY child, reach the idle-ready record, and map an observable window. Failure
 stops before a probe directory is created. The resulting record binds the
 preregistered inputs and must validate through `--reference-readiness-record`;
-schema version 2 additionally binds the startup-geometry handshake that gates
-`idle-ready` on the exact 80x24 PTY. Version 1 readiness records predate that
-evidence and are rejected. The gate never launches WezTerm. Raw readiness logs require an explicit create-only,
+schema version 4 binds the startup-geometry handshake and normalized-grid
+derivation that gate `idle-ready` on the exact 80x24 PTY. Earlier readiness
+schemas are rejected. The gate never launches WezTerm. Raw readiness logs require an explicit create-only,
 mode-`0700` private directory outside both the repository and the public
 readiness-artifact tree.
 
@@ -190,9 +206,11 @@ either stops that implementation after its one bounded initial attempt. The
 exhaustive pre-public probe and frozen qualified-only runtime revalidation are
 explicitly different evidence modes.
 
-Protocol 1.1.0 is an identity break for these selection and evidence fields.
-It requires a fresh preregistration and run identity; 1.0.0 results are never
-pooled with it. Exact font identity and matched device-pixel cells remain the
+Protocol 1.2.0 is an identity break for the PTY pixel-envelope and normalized
+cell-grid evidence model. Earlier probe, readiness, and diagnostic records are
+historical and cannot be reinterpreted under it.
+It requires a fresh preregistration and run identity; 1.0.0 and 1.1.0 results
+are never pooled with it. Exact font identity and matched device-pixel cells remain the
 underlying requirements. Available DRM GPU-memory evidence
 likewise requires one identical `drm-resident-*` region-field set for every
 qualified terminal. If that semantic set cannot be matched, GPU memory is
@@ -283,7 +301,7 @@ because each one exists to prevent a specific, tempting mistake.
    what each workload physically needs. Five of seven require optical capture,
    so they are declared `skip` / `unavailable-hardware` in preregistration
    before any sample is taken. A self-test fails if W3 or W4 ever lose that
-   requirement — throughput endpoints are optical under protocol `1.1.0`, and
+   requirement — throughput endpoints are optical under protocol `1.2.0`, and
    quietly relaxing them to software timing would be the single most damaging
    change possible to this harness's honesty.
 

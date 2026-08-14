@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # W6 (idle-visible-10m) measured-run orchestrator for the OdyTTY comparative
-# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.1.0).
+# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.2.0).
 #
 # Every other module in this directory is preparation: it computes, checks, or
 # describes, and never takes a measurement. This module is the one exception,
@@ -66,7 +66,7 @@ import summaries  # noqa: E402
 import workloads  # noqa: E402
 
 WORKLOAD = "idle-visible-10m"
-RUNNER_VERSION = "1.1.0"
+RUNNER_VERSION = "1.2.0"
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 PUBLIC_API_BASE = "https://api.github.com/repos/ghreprimand/odytty"
 PUBLIC_RAW_BASE = "https://raw.githubusercontent.com/ghreprimand/odytty"
@@ -87,10 +87,12 @@ WINDOW_MAP_TIMEOUT_SECONDS = 20
 ORACLE_COMPLETION_TIMEOUT_SECONDS = 10
 PROBE_CHILD_SECONDS = WINDOW_MAP_TIMEOUT_SECONDS + 10
 PROBE_ATTEMPT_WALL_BOUND_SECONDS = 90
-# Version 2 adds the startup-geometry handshake evidence: each reference is
-# gated until its exact 80x24 PTY geometry is observed before `idle-ready`.
-REFERENCE_READINESS_SCHEMA_VERSION = 2
-GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION = 1
+PROBE_ATTEMPT_SCHEMA_VERSION = 3
+GEOMETRY_RESIZE_MAX_ATTEMPTS = 2
+# Version 4 binds each reference to a validator-recomputed affine proof for
+# any terminal-specific remainder in the PTY-reported pixel envelope.
+REFERENCE_READINESS_SCHEMA_VERSION = 4
+GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION = 3
 GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS = (
     "odytty",
     "kitty",
@@ -1446,6 +1448,12 @@ class RealLauncher:
             "address": None,
             "float_requested": False,
             "last_resize_observation": None,
+            "grid_model": None,
+            "proof_observations": [],
+            "resize_commands": [],
+            "nonzero_exact_perturbation_started": False,
+            "resize_attempts": 0,
+            "command_failed": False,
             "released": False,
         }
 
@@ -1458,6 +1466,8 @@ class RealLauncher:
             not isinstance(control, dict)
             or window.get("app_id") != control.get("window_tag")
             or window.get("xwayland") is True
+            or control.get("command_failed") is True
+            or control.get("released") is True
         ):
             return False
         try:
@@ -1468,8 +1478,87 @@ class RealLauncher:
             control["address"] = window["address"]
         elif control["address"] != window["address"]:
             return False
+        metrics = _pty_grid_metrics(observation)
+        if metrics is None:
+            return False
+        grid_model = (
+            metrics["cell_width_device_px"],
+            metrics["cell_height_device_px"],
+            metrics["width_remainder_device_px"],
+            metrics["height_remainder_device_px"],
+        )
+        if control["grid_model"] is None:
+            control["grid_model"] = grid_model
+        elif control["grid_model"] != grid_model:
+            control["command_failed"] = True
+            return False
+
+        proof_observation = {
+            "pty_columns": metrics["columns"],
+            "pty_rows": metrics["rows"],
+            "reported_width_device_px": metrics["reported_width_device_px"],
+            "reported_height_device_px": metrics["reported_height_device_px"],
+        }
+        if proof_observation in control["proof_observations"]:
+            control["proof_observations"].remove(proof_observation)
+        control["proof_observations"].append(proof_observation)
+
         geometry = cell_geometry_from_oracle(observation)
         if geometry is not None:
+            if not _geometry_model_proof_complete(control):
+                if control["nonzero_exact_perturbation_started"]:
+                    return False
+                if window.get("floating") is not True:
+                    if control["float_requested"]:
+                        return False
+                    completed = self._run_geometry_command(
+                        ["hyprctl", "dispatch", "setfloating", selector]
+                    )
+                    control["float_requested"] = True
+                    control["command_failed"] = not self._geometry_command_succeeded(
+                        completed
+                    )
+                    return False
+                if control["resize_attempts"] >= GEOMETRY_RESIZE_MAX_ATTEMPTS:
+                    control["command_failed"] = True
+                    return False
+                target_width = window.get("width")
+                target_height = window.get("height")
+                if (
+                    not isinstance(target_width, int)
+                    or isinstance(target_width, bool)
+                    or not isinstance(target_height, int)
+                    or isinstance(target_height, bool)
+                ):
+                    return False
+                # A nonzero remainder first observed at the target grid needs
+                # one bounded perturbation so the affine pitch/remainder model
+                # is independently proven before returning to 80x24.
+                target_width += metrics["cell_width_device_px"]
+                target_height += metrics["cell_height_device_px"]
+                completed = self._run_geometry_command(
+                    [
+                        "hyprctl",
+                        "dispatch",
+                        "resizewindowpixel",
+                        f"exact {target_width} {target_height},{selector}",
+                    ]
+                )
+                control["resize_commands"].append(
+                    {"width": target_width, "height": target_height}
+                )
+                control["resize_attempts"] += 1
+                control["nonzero_exact_perturbation_started"] = True
+                control["last_resize_observation"] = (
+                    metrics["columns"],
+                    metrics["rows"],
+                    metrics["reported_width_device_px"],
+                    metrics["reported_height_device_px"],
+                )
+                control["command_failed"] = not self._geometry_command_succeeded(
+                    completed
+                )
+                return False
             ready_path = control["ready_path"]
             try:
                 with ready_path.open("xb") as handle:
@@ -1479,17 +1568,17 @@ class RealLauncher:
             control["released"] = True
             return True
 
-        columns = observation.get("pty_columns")
-        rows = observation.get("pty_rows")
-        content_width = observation.get("content_width_device_px")
-        content_height = observation.get("content_height_device_px")
+        columns = metrics["columns"]
+        rows = metrics["rows"]
+        content_width = metrics["reported_width_device_px"]
+        content_height = metrics["reported_height_device_px"]
         window_width = window.get("width")
         window_height = window.get("height")
         values = (columns, rows, content_width, content_height, window_width, window_height)
         if any(
             not isinstance(value, int) or isinstance(value, bool) or value <= 0
             for value in values
-        ) or content_width % columns or content_height % rows:
+        ):
             return False
         if window.get("floating") is not True:
             if control["float_requested"]:
@@ -1504,8 +1593,11 @@ class RealLauncher:
         signature = (columns, rows, content_width, content_height)
         if control["last_resize_observation"] == signature:
             return False
-        cell_width = content_width // columns
-        cell_height = content_height // rows
+        if control["resize_attempts"] >= GEOMETRY_RESIZE_MAX_ATTEMPTS:
+            control["command_failed"] = True
+            return False
+        cell_width = metrics["cell_width_device_px"]
+        cell_height = metrics["cell_height_device_px"]
         target_width = window_width + (80 - columns) * cell_width
         target_height = window_height + (24 - rows) * cell_height
         if target_width <= 0 or target_height <= 0:
@@ -1519,6 +1611,10 @@ class RealLauncher:
             ]
         )
         control["last_resize_observation"] = signature
+        control["resize_commands"].append(
+            {"width": target_width, "height": target_height}
+        )
+        control["resize_attempts"] += 1
         control["command_failed"] = not self._geometry_command_succeeded(completed)
         return False
 
@@ -1835,6 +1931,7 @@ def _attempt_digest(record: dict) -> str:
 
 def _seal_probe_attempt(record: dict) -> dict:
     sealed = dict(record)
+    sealed["schema_version"] = PROBE_ATTEMPT_SCHEMA_VERSION
     sealed["attempt_sha256"] = _attempt_digest(sealed)
     return sealed
 
@@ -1949,6 +2046,8 @@ def _valid_requested_launch_binding(
 def _valid_probe_attempt(record: object) -> bool:
     if not isinstance(record, dict):
         return False
+    if record.get("schema_version") != PROBE_ATTEMPT_SCHEMA_VERSION:
+        return False
     if record.get("attempt_sha256") != _attempt_digest(record):
         return False
     requested = record.get("requested_config")
@@ -1979,11 +2078,13 @@ def _valid_probe_attempt(record: object) -> bool:
             and record.get("window") is None
             and record.get("raw_idle_ready") is None
             and record.get("cell_geometry") is None
+            and record.get("pty_pixel_envelope_model") is None
             and observed
             == {
                 "evidence_source": "launch-failed-before-pty-observation",
                 "raw_idle_ready": None,
                 "cell_geometry": None,
+                "pty_pixel_envelope_model": None,
             }
             and outcome == {"started": False, "exit_status": None}
         )
@@ -2009,7 +2110,12 @@ def _valid_probe_attempt(record: object) -> bool:
     )
     if observed.get("evidence_source") != expected_source:
         return False
-    if set(observed) != {"evidence_source", "raw_idle_ready", "cell_geometry"}:
+    if set(observed) != {
+        "evidence_source",
+        "raw_idle_ready",
+        "cell_geometry",
+        "pty_pixel_envelope_model",
+    }:
         return False
     if mapped and not isinstance(raw, dict):
         return False
@@ -2024,10 +2130,18 @@ def _valid_probe_attempt(record: object) -> bool:
             "cell_geometry"
         ):
             return False
+        envelope_model = record.get("pty_pixel_envelope_model")
+        if (
+            observed.get("pty_pixel_envelope_model") != envelope_model
+            or not _valid_geometry_model_evidence(envelope_model, raw, derived)
+        ):
+            return False
     elif (
         observed.get("raw_idle_ready") is not None
         or record.get("cell_geometry") is not None
         or observed.get("cell_geometry") is not None
+        or record.get("pty_pixel_envelope_model") is not None
+        or observed.get("pty_pixel_envelope_model") is not None
     ):
         return False
     exit_status = outcome.get("exit_status")
@@ -2196,6 +2310,7 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
                 "evidence_source": "launch-failed-before-pty-observation",
                 "raw_idle_ready": None,
                 "cell_geometry": None,
+                "pty_pixel_envelope_model": None,
             },
             "font_identity": None,
             "font_isolation": None,
@@ -2203,6 +2318,7 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
             "sanitized_launch_environment": {},
             "raw_idle_ready": None,
             "cell_geometry": None,
+            "pty_pixel_envelope_model": None,
             "process_outcome": {"started": False, "exit_status": None},
         })
     process = launched["process"]
@@ -2249,8 +2365,12 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
             ):
                 normalize(launched, window, geometry_observation)
             if window is not None and ready_record is not None:
+                stable_ready_envelope = _geometry_control_accepts_ready_record(
+                    launched, ready_record
+                )
                 if (
-                    cell_geometry_from_oracle(ready_record) is not None
+                    stable_ready_envelope
+                    and cell_geometry_from_oracle(ready_record) is not None
                     and window.get("app_id") == launched.get("window_tag")
                 ):
                     release = getattr(launcher, "release_geometry_control", None)
@@ -2264,7 +2384,14 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
         raise
     gpu = read_drm_memory_bytes(measured_pids)
     exit_status = launcher.stop(launched)
-    geometry = cell_geometry_from_oracle(ready_record)
+    stable_ready_envelope = _geometry_control_accepts_ready_record(
+        launched, ready_record
+    )
+    geometry = (
+        cell_geometry_from_oracle(ready_record)
+        if stable_ready_envelope
+        else None
+    )
     launch_bound = (
         window is not None
         and isinstance(launched.get("window_tag"), str)
@@ -2276,6 +2403,9 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
         if isinstance(ready_record, dict)
         else None
     )
+    envelope_model = _geometry_model_evidence(launched, raw_idle_ready)
+    if geometry is not None and envelope_model is None:
+        geometry = None
     common = {
         "implementation": name,
         "calibration": calibration,
@@ -2288,6 +2418,7 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
             ),
             "raw_idle_ready": raw_idle_ready,
             "cell_geometry": geometry,
+            "pty_pixel_envelope_model": envelope_model,
         },
         "font_identity": launched.get("font_isolation", {}).get("font_identity"),
         "font_isolation": launched.get("font_isolation"),
@@ -2297,6 +2428,7 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
         ),
         "raw_idle_ready": raw_idle_ready,
         "cell_geometry": geometry,
+        "pty_pixel_envelope_model": envelope_model,
         "process_outcome": {
             "started": True,
             "exit_status": exit_status,
@@ -2543,6 +2675,7 @@ def _reference_readiness_inputs(record: dict) -> dict:
         "profile_files",
         "launch_executable",
         "font_identity",
+        "pty_pixel_envelope_model",
     )
     return {
         "protocol": {
@@ -2580,8 +2713,11 @@ def run_reference_readiness(
         raise ValueError("reference readiness requires the prescribed private cgroup")
     probes = []
     setter = getattr(launcher, "set_calibration", None)
+    prereg_by_name = {
+        entry.get("name"): entry for entry in prereg_record.get("implementations", [])
+    }
     for name in profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS:
-        calibration = profiles.calibration_configurations(name)[0]
+        calibration = prereg_by_name.get(name, {}).get("calibration")
         if setter is not None and not setter(name, calibration):
             raise ValueError(f"reference readiness could not set {name!r} calibration")
         probe = _probe_implementation(
@@ -2593,6 +2729,8 @@ def run_reference_readiness(
             or probe.get("display_path") != DISPLAY_PATH_WAYLAND
             or not isinstance(probe.get("raw_idle_ready"), dict)
             or not isinstance(probe.get("cell_geometry"), dict)
+            or _geometry_model_summary(probe.get("pty_pixel_envelope_model"))
+            != prereg_by_name.get(name, {}).get("pty_pixel_envelope_model")
             or probe.get("configuration_status") == "unmet-protocol"
         ):
             raise ValueError(
@@ -2626,6 +2764,9 @@ def validate_reference_readiness(record: object, prereg_record: dict) -> bool:
     }:
         return False
     probes = record.get("probes")
+    prereg_by_name = {
+        entry.get("name"): entry for entry in prereg_record.get("implementations", [])
+    }
     return (
         record.get("schema_version") == REFERENCE_READINESS_SCHEMA_VERSION
         and record.get("protocol_version")
@@ -2649,6 +2790,10 @@ def validate_reference_readiness(record: object, prereg_record: dict) -> bool:
             and probe.get("display_path") == DISPLAY_PATH_WAYLAND
             and isinstance(probe.get("raw_idle_ready"), dict)
             and isinstance(probe.get("cell_geometry"), dict)
+            and _geometry_model_summary(probe.get("pty_pixel_envelope_model"))
+            == prereg_by_name.get(probe.get("implementation"), {}).get(
+                "pty_pixel_envelope_model"
+            )
             and probe.get("configuration_status") != "unmet-protocol"
             for probe in probes
         )
@@ -2662,7 +2807,9 @@ def _geometry_diagnostic_inputs(record: dict) -> dict:
         entry.get("name"): entry for entry in record.get("implementations", [])
     }
     for entry in base["implementations"]:
+        entry.pop("pty_pixel_envelope_model", None)
         entry["calibration"] = by_name[entry["name"]].get("calibration")
+    base["matched_cell_geometry"] = record.get("matched_cell_geometry")
     return base
 
 
@@ -2722,6 +2869,8 @@ def _geometry_diagnostic_launch(
         "display_path": probe.get("display_path"),
         "window": probe.get("window"),
         "pty_geometry": pty_geometry,
+        "cell_geometry": probe.get("cell_geometry"),
+        "pty_pixel_envelope_model": probe.get("pty_pixel_envelope_model"),
         "cleanup_outcome": {
             **(cleanup if isinstance(cleanup, dict) else {}),
             "private_systemd_scope_observed": private_scope_observed,
@@ -2737,12 +2886,16 @@ def _valid_geometry_diagnostic_launch(record: object, expected_name: str) -> boo
         "display_path",
         "window",
         "pty_geometry",
+        "cell_geometry",
+        "pty_pixel_envelope_model",
         "cleanup_outcome",
         "process_outcome",
     }:
         return False
     window = record.get("window")
     geometry = record.get("pty_geometry")
+    cell_geometry = record.get("cell_geometry")
+    envelope_model = record.get("pty_pixel_envelope_model")
     process = record.get("process_outcome")
     if (
         record.get("implementation") != expected_name
@@ -2777,8 +2930,33 @@ def _valid_geometry_diagnostic_launch(record: object, expected_name: str) -> boo
                 "content_height_device_px",
             )
         )
-        or geometry["content_width_device_px"] % 80
-        or geometry["content_height_device_px"] % 24
+        or cell_geometry_from_oracle(
+            {
+                "pty_columns": geometry.get("columns"),
+                "pty_rows": geometry.get("rows"),
+                "content_width_device_px": geometry.get(
+                    "content_width_device_px"
+                ),
+                "content_height_device_px": geometry.get(
+                    "content_height_device_px"
+                ),
+            }
+        )
+        != cell_geometry
+        or not _valid_geometry_model_evidence(
+            envelope_model,
+            {
+                "pty_columns": geometry.get("columns"),
+                "pty_rows": geometry.get("rows"),
+                "content_width_device_px": geometry.get(
+                    "content_width_device_px"
+                ),
+                "content_height_device_px": geometry.get(
+                    "content_height_device_px"
+                ),
+            },
+            cell_geometry,
+        )
         or record.get("cleanup_outcome")
         != {
             "geometry_handshake_removed": True,
@@ -2811,6 +2989,9 @@ def run_geometry_diagnostic(
         for entry in prereg_record.get("implementations", [])
     }
     setter = getattr(launcher, "set_calibration", None)
+    matched_cell_geometry = prereg_record.get("matched_cell_geometry")
+    if not isinstance(matched_cell_geometry, dict):
+        raise ValueError("geometry diagnostic requires pinned matched cell geometry")
     launches = []
     for name in GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS:
         calibration = calibrations.get(name)
@@ -2828,7 +3009,10 @@ def run_geometry_diagnostic(
             observed_launcher.cleanup_outcome,
             observed_launcher.private_scope_observed,
         )
-        if not _valid_geometry_diagnostic_launch(launch, name):
+        if (
+            not _valid_geometry_diagnostic_launch(launch, name)
+            or launch.get("cell_geometry") != matched_cell_geometry
+        ):
             raise ValueError(
                 f"geometry diagnostic failed for {name!r}: "
                 f"{probe.get('detail') or 'exact 80x24 native-Wayland evidence is absent'}"
@@ -2878,6 +3062,7 @@ def validate_geometry_diagnostic(record: object, prereg_record: dict) -> bool:
     except (KeyError, TypeError, ValueError):
         return False
     launches = record.get("launches")
+    matched_cell_geometry = prereg_record.get("matched_cell_geometry")
     return (
         record.get("schema_version") == GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION
         and record.get("record_type") == "startup-geometry-diagnostic"
@@ -2905,8 +3090,10 @@ def validate_geometry_diagnostic(record: object, prereg_record: dict) -> bool:
         }
         and isinstance(launches, list)
         and len(launches) == len(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
+        and isinstance(matched_cell_geometry, dict)
         and all(
             _valid_geometry_diagnostic_launch(launch, expected)
+            and launch.get("cell_geometry") == matched_cell_geometry
             for launch, expected in zip(
                 launches, GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS, strict=True
             )
@@ -2914,8 +3101,8 @@ def validate_geometry_diagnostic(record: object, prereg_record: dict) -> bool:
     )
 
 
-def cell_geometry_from_oracle(record: dict | None) -> dict | None:
-    """Derive calibrated per-cell device pixels from PTY content geometry."""
+def _pty_grid_metrics(record: dict | None) -> dict | None:
+    """Split the PTY pixel envelope into an integer cell grid and edge remainder."""
     if not isinstance(record, dict):
         return None
     columns = record.get("pty_columns")
@@ -2923,24 +3110,327 @@ def cell_geometry_from_oracle(record: dict | None) -> dict | None:
     width = record.get("content_width_device_px")
     height = record.get("content_height_device_px")
     if (
-        (columns, rows) != (80, 24)
+        not isinstance(columns, int)
+        or isinstance(columns, bool)
+        or not isinstance(rows, int)
+        or isinstance(rows, bool)
         or not isinstance(width, int)
         or isinstance(width, bool)
         or not isinstance(height, int)
         or isinstance(height, bool)
+        or columns <= 0
+        or rows <= 0
         or width <= 0
         or height <= 0
-        or width % columns
-        or height % rows
+    ):
+        return None
+    cell_width, width_remainder = divmod(width, columns)
+    cell_height, height_remainder = divmod(height, rows)
+    # A remainder smaller than one cell is consistent with fixed terminal edge
+    # padding. Larger residue cannot be distinguished from a fractional or
+    # otherwise nonuniform grid and therefore fails closed.
+    if (
+        cell_width <= 0
+        or cell_height <= 0
+        or width_remainder >= cell_width
+        or height_remainder >= cell_height
     ):
         return None
     return {
         "columns": columns,
         "rows": rows,
-        "content_width_device_px": width,
-        "content_height_device_px": height,
-        "cell_width_device_px": width // columns,
-        "cell_height_device_px": height // rows,
+        "reported_width_device_px": width,
+        "reported_height_device_px": height,
+        "cell_width_device_px": cell_width,
+        "cell_height_device_px": cell_height,
+        "width_remainder_device_px": width_remainder,
+        "height_remainder_device_px": height_remainder,
+    }
+
+
+def _pty_grid_model(record: dict | None) -> tuple[int, int, int, int] | None:
+    """Return the stable pitch/remainder model used by the resize controller."""
+    metrics = _pty_grid_metrics(record)
+    if metrics is None:
+        return None
+    return (
+        metrics["cell_width_device_px"],
+        metrics["cell_height_device_px"],
+        metrics["width_remainder_device_px"],
+        metrics["height_remainder_device_px"],
+    )
+
+
+def _proof_observation_as_raw(record: object) -> dict | None:
+    """Translate one sanitized affine-proof observation to the raw wire shape."""
+    if not isinstance(record, dict) or set(record) != {
+        "pty_columns",
+        "pty_rows",
+        "reported_width_device_px",
+        "reported_height_device_px",
+    }:
+        return None
+    return {
+        "pty_columns": record.get("pty_columns"),
+        "pty_rows": record.get("pty_rows"),
+        "content_width_device_px": record.get("reported_width_device_px"),
+        "content_height_device_px": record.get("reported_height_device_px"),
+    }
+
+
+def _geometry_model_proof_complete(control: object) -> bool:
+    """Prove nonzero edge remainders using distinct affine observations."""
+    if not isinstance(control, dict):
+        return False
+    model = control.get("grid_model")
+    observations = control.get("proof_observations")
+    if (
+        not isinstance(model, tuple)
+        or len(model) != 4
+        or not isinstance(observations, list)
+        or not observations
+    ):
+        return False
+    cell_width, cell_height, width_remainder, height_remainder = model
+    raw_observations = [_proof_observation_as_raw(item) for item in observations]
+    if any(item is None for item in raw_observations) or any(
+        _pty_grid_model(item) != model for item in raw_observations
+    ):
+        return False
+    if width_remainder and len(
+        {item["pty_columns"] for item in raw_observations}
+    ) < 2:
+        return False
+    if height_remainder and len({item["pty_rows"] for item in raw_observations}) < 2:
+        return False
+    return (
+        isinstance(cell_width, int)
+        and not isinstance(cell_width, bool)
+        and isinstance(cell_height, int)
+        and not isinstance(cell_height, bool)
+        and isinstance(width_remainder, int)
+        and not isinstance(width_remainder, bool)
+        and isinstance(height_remainder, int)
+        and not isinstance(height_remainder, bool)
+        and cell_width > 0
+        and cell_height > 0
+        and 0 <= width_remainder < cell_width
+        and 0 <= height_remainder < cell_height
+    )
+
+
+def _geometry_model_evidence(launched: dict, raw_record: dict | None) -> dict | None:
+    """Return sealed public-safe proof of the per-launch PTY envelope model."""
+    model = _pty_grid_model(raw_record)
+    if model is None:
+        return None
+    control = launched.get("geometry_control")
+    if isinstance(control, dict):
+        if (
+            control.get("released") is not True
+            or control.get("command_failed") is True
+            or control.get("grid_model") != model
+            or not _geometry_model_proof_complete(control)
+        ):
+            return None
+        observations = [dict(item) for item in control["proof_observations"]]
+        commands = [dict(item) for item in control["resize_commands"]]
+        attempts = control.get("resize_attempts")
+    else:
+        # Hermetic/fake launchers can represent the zero-remainder fast path;
+        # live nonzero remainders always require controller observations.
+        if model[2:] != (0, 0):
+            return None
+        metrics = _pty_grid_metrics(raw_record)
+        observations = [
+            {
+                "pty_columns": metrics["columns"],
+                "pty_rows": metrics["rows"],
+                "reported_width_device_px": metrics["reported_width_device_px"],
+                "reported_height_device_px": metrics["reported_height_device_px"],
+            }
+        ]
+        commands = []
+        attempts = 0
+    return {
+        "schema_version": 1,
+        "cell_width_device_px": model[0],
+        "cell_height_device_px": model[1],
+        "width_remainder_device_px": model[2],
+        "height_remainder_device_px": model[3],
+        "observations": observations,
+        "resize_commands": commands,
+        "resize_attempts": attempts,
+        "resize_attempt_bound": GEOMETRY_RESIZE_MAX_ATTEMPTS,
+        "release_outcome": "exact-80x24",
+    }
+
+
+def _valid_geometry_model_evidence(
+    evidence: object, raw_record: dict | None, cell_geometry: dict | None
+) -> bool:
+    """Recompute the affine envelope proof instead of trusting derived fields."""
+    if not isinstance(evidence, dict) or set(evidence) != {
+        "schema_version",
+        "cell_width_device_px",
+        "cell_height_device_px",
+        "width_remainder_device_px",
+        "height_remainder_device_px",
+        "observations",
+        "resize_commands",
+        "resize_attempts",
+        "resize_attempt_bound",
+        "release_outcome",
+    }:
+        return False
+    model = (
+        evidence.get("cell_width_device_px"),
+        evidence.get("cell_height_device_px"),
+        evidence.get("width_remainder_device_px"),
+        evidence.get("height_remainder_device_px"),
+    )
+    observations = evidence.get("observations")
+    commands = evidence.get("resize_commands")
+    attempts = evidence.get("resize_attempts")
+    if (
+        evidence.get("schema_version") != 1
+        or evidence.get("resize_attempt_bound") != GEOMETRY_RESIZE_MAX_ATTEMPTS
+        or evidence.get("release_outcome") != "exact-80x24"
+        or not isinstance(observations, list)
+        or not observations
+        or len(observations) != len(
+            {json.dumps(item, sort_keys=True) for item in observations}
+        )
+        or not isinstance(commands, list)
+        or not isinstance(attempts, int)
+        or isinstance(attempts, bool)
+        or attempts != len(commands)
+        or not 0 <= attempts <= GEOMETRY_RESIZE_MAX_ATTEMPTS
+        or any(
+            not isinstance(item, dict)
+            or set(item) != {"width", "height"}
+            or any(
+                not isinstance(item.get(field), int)
+                or isinstance(item.get(field), bool)
+                or item[field] <= 0
+                for field in ("width", "height")
+            )
+            for item in commands
+        )
+    ):
+        return False
+    proof_control = {"grid_model": model, "proof_observations": observations}
+    final_raw = _proof_observation_as_raw(observations[-1])
+    raw_observations = [_proof_observation_as_raw(item) for item in observations]
+    if final_raw is None or any(item is None for item in raw_observations):
+        return False
+    cell_width, cell_height, width_remainder, height_remainder = model
+    width_deltas = [
+        (
+            final_raw["pty_columns"] - item["pty_columns"],
+            final_raw["content_width_device_px"]
+            - item["content_width_device_px"],
+        )
+        for item in raw_observations[:-1]
+        if item["pty_columns"] != final_raw["pty_columns"]
+    ]
+    height_deltas = [
+        (
+            final_raw["pty_rows"] - item["pty_rows"],
+            final_raw["content_height_device_px"]
+            - item["content_height_device_px"],
+        )
+        for item in raw_observations[:-1]
+        if item["pty_rows"] != final_raw["pty_rows"]
+    ]
+    nonzero_remainder = bool(width_remainder or height_remainder)
+    return (
+        _geometry_model_proof_complete(proof_control)
+        and final_raw == raw_record
+        and _pty_grid_model(raw_record) == model
+        and cell_geometry_from_oracle(raw_record) == cell_geometry
+        and (not width_remainder or bool(width_deltas))
+        and (not height_remainder or bool(height_deltas))
+        and all(pixel_delta == cell_delta * cell_width for cell_delta, pixel_delta in width_deltas)
+        and all(pixel_delta == cell_delta * cell_height for cell_delta, pixel_delta in height_deltas)
+        and (not nonzero_remainder or len(observations) >= 2)
+        and (not nonzero_remainder or attempts >= 1)
+        and (len(observations) > 1 or attempts == 0)
+    )
+
+
+def _geometry_model_summary(evidence: object) -> dict | None:
+    """Return the preregistrable per-terminal pitch/remainder identity."""
+    if not isinstance(evidence, dict):
+        return None
+    summary = {
+        key: evidence.get(key)
+        for key in (
+            "cell_width_device_px",
+            "cell_height_device_px",
+            "width_remainder_device_px",
+            "height_remainder_device_px",
+        )
+    }
+    values = tuple(summary.values())
+    if (
+        any(not isinstance(value, int) or isinstance(value, bool) for value in values)
+        or summary["cell_width_device_px"] <= 0
+        or summary["cell_height_device_px"] <= 0
+        or not 0
+        <= summary["width_remainder_device_px"]
+        < summary["cell_width_device_px"]
+        or not 0
+        <= summary["height_remainder_device_px"]
+        < summary["cell_height_device_px"]
+    ):
+        return None
+    return summary
+
+
+def _raw_pty_envelope(record: dict | None) -> tuple[int, int, int, int] | None:
+    """Return exact PTY rows, columns, and reported raw pixel-envelope fields."""
+    metrics = _pty_grid_metrics(record)
+    if metrics is None:
+        return None
+    return (
+        metrics["columns"],
+        metrics["rows"],
+        metrics["reported_width_device_px"],
+        metrics["reported_height_device_px"],
+    )
+
+
+def _geometry_control_accepts_ready_record(
+    launched: dict, ready_record: dict | None
+) -> bool:
+    """Require the idle-ready envelope to retain the controller's grid model."""
+    control = launched.get("geometry_control")
+    if not isinstance(control, dict):
+        return True
+    stable = (
+        control.get("released") is True
+        and control.get("command_failed") is not True
+        and control.get("grid_model") is not None
+        and _pty_grid_model(ready_record) == control.get("grid_model")
+    )
+    if not stable:
+        control["command_failed"] = True
+    return stable
+
+
+def cell_geometry_from_oracle(record: dict | None) -> dict | None:
+    """Derive the exact 80x24 cell grid from the raw PTY pixel envelope."""
+    metrics = _pty_grid_metrics(record)
+    if metrics is None or (metrics["columns"], metrics["rows"]) != (80, 24):
+        return None
+    return {
+        "columns": metrics["columns"],
+        "rows": metrics["rows"],
+        "content_width_device_px": 80 * metrics["cell_width_device_px"],
+        "content_height_device_px": 24 * metrics["cell_height_device_px"],
+        "cell_width_device_px": metrics["cell_width_device_px"],
+        "cell_height_device_px": metrics["cell_height_device_px"],
     }
 
 
@@ -2987,6 +3477,7 @@ def run_replicate(
     pids: set[int] = set()
     start_window = None
     ready_record = None
+    geometry_model_evidence = None
     try:
         for _ in range(WINDOW_MAP_TIMEOUT_SECONDS):
             cgroup = (
@@ -3017,6 +3508,16 @@ def run_replicate(
                 and normalize is not None
             ):
                 normalize(launched, candidate, geometry_observation)
+            stable_ready_envelope = (
+                _geometry_control_accepts_ready_record(launched, ready_record)
+                if ready_record is not None
+                else False
+            )
+            geometry_model_evidence = (
+                _geometry_model_evidence(launched, ready_record)
+                if stable_ready_envelope
+                else None
+            )
             ready = (
                 cgroup is not None
                 and bool(pids)
@@ -3029,6 +3530,9 @@ def run_replicate(
                 and (ready_record.get("pty_columns"), ready_record.get("pty_rows"))
                 == (80, 24)
                 and ready_record.get("prompt") == "odytty-bench$ "
+                and stable_ready_envelope
+                and _geometry_model_summary(geometry_model_evidence)
+                == expected_environment.get("pty_pixel_envelope_model")
                 and cell_geometry_from_oracle(ready_record)
                 == expected_environment.get("matched_cell_geometry")
             )
@@ -3072,6 +3576,8 @@ def run_replicate(
             and window_unobscured(window, windows) is True
             and current_start.get("prompt_sha256") == ready_record.get("prompt_sha256")
             and current_start.get("output_bytes") == ready_record.get("output_bytes")
+            and _raw_pty_envelope(current_start)
+            == _raw_pty_envelope(ready_record)
             and all(
                 window.get(field) == start_window.get(field)
                 for field in ("x", "y", "width", "height")
@@ -3189,6 +3695,8 @@ def run_replicate(
             "cell_geometry_unchanged": (
                 first is not None
                 and final is not None
+                and _raw_pty_envelope(first) == _raw_pty_envelope(ready_record)
+                and _raw_pty_envelope(final) == _raw_pty_envelope(ready_record)
                 and cell_geometry_from_oracle(first)
                 == expected_environment.get("matched_cell_geometry")
                 and cell_geometry_from_oracle(final)
@@ -3223,6 +3731,7 @@ def run_replicate(
         "cgroup_available": cgroup_available,
         "gpu_fields": sorted(gpu) if gpu is not None else [],
         "gpu_regions": gpu or {},
+        "pty_pixel_envelope_model": geometry_model_evidence,
         "peak_reset": peak_reset,
         "process_membership": "private-cgroup" if membership_proven else "unavailable",
         "invalid_reason": invalid_reason,
@@ -3347,6 +3856,12 @@ def verify_frozen_probe(record: dict, probes: list[dict]) -> tuple[list[str], li
             raise ValueError(
                 f"availability probe drift: calibrated cell geometry changed for {name!r}"
             )
+        if name in qualified and _geometry_model_summary(
+            probe.get("pty_pixel_envelope_model")
+        ) != prereg_by_name[name].get("pty_pixel_envelope_model"):
+            raise ValueError(
+                f"availability probe drift: PTY pixel-envelope model changed for {name!r}"
+            )
         if name in qualified and probe.get("calibration") != prereg_by_name[name].get(
             "calibration"
         ):
@@ -3456,7 +3971,7 @@ def assemble_replicate_samples(
     elif len(replicate.get("gpu_regions", {})) > 1:
         per_replicate_unsupported["gpu_memory"] = (
             "multiple DRM resident regions are preserved separately in raw evidence; "
-            "protocol 1.1.0 defines no valid scalar aggregation"
+            "protocol 1.2.0 defines no valid scalar aggregation"
         )
     return (
         build_samples(
@@ -3654,6 +4169,19 @@ def run_session(
         raise ValueError("live external-power state does not match preregistration")
     if frozen_environment["power_policy"] != expected_environment.get("power_policy"):
         raise ValueError("live performance policy does not match preregistration")
+    prereg_by_name = {
+        entry.get("name"): entry for entry in prereg_record.get("implementations", [])
+    }
+    expected_environments = {
+        name: {
+            **frozen_environment,
+            "matched_cell_geometry": prereg_record.get("matched_cell_geometry"),
+            "pty_pixel_envelope_model": prereg_by_name[name].get(
+                "pty_pixel_envelope_model"
+            ),
+        }
+        for name in qualified
+    }
     with (results_dir / "availability.json").open("x", encoding="utf-8") as handle:
         handle.write(
             json.dumps(
@@ -3761,7 +4289,7 @@ def run_session(
                         instrumented=False,
                         background_cpu_ceiling=background_cpu_ceiling,
                         evidence_id=f"r{block}-rehearsal-uninstrumented",
-                        expected_environment=frozen_environment,
+                        expected_environment=expected_environments[implementation],
                     )
                     replicate = run_replicate(
                         implementation,
@@ -3772,7 +4300,7 @@ def run_session(
                         sleep=sleep,
                         background_cpu_ceiling=background_cpu_ceiling,
                         evidence_id=f"r{block}-rehearsal-instrumented",
-                        expected_environment=frozen_environment,
+                        expected_environment=expected_environments[implementation],
                     )
                     baseline_seconds = float(baseline.get("elapsed_wall_seconds", 0.0))
                     instrumented_seconds = float(
@@ -3848,6 +4376,9 @@ def run_session(
                                 "child_elapsed_seconds": baseline.get(
                                     "child_elapsed_seconds"
                                 ),
+                                "pty_pixel_envelope_model": baseline.get(
+                                    "pty_pixel_envelope_model"
+                                ),
                             },
                             sort_keys=True,
                         )
@@ -3860,7 +4391,7 @@ def run_session(
                             measure_seconds, sleep=sleep, instrumented=False,
                             background_cpu_ceiling=background_cpu_ceiling,
                             evidence_id=f"b{block}-timing-a1",
-                            expected_environment=frozen_environment,
+                            expected_environment=expected_environments[implementation],
                         )
                         raw.write(
                             json.dumps(
@@ -3869,6 +4400,9 @@ def run_session(
                                     "separate_pass": "timing", "implementation": implementation,
                                     "oracle": timing["oracle"],
                                     "elapsed_wall_seconds": timing["elapsed_wall_seconds"],
+                                    "pty_pixel_envelope_model": timing.get(
+                                        "pty_pixel_envelope_model"
+                                    ),
                                 }, sort_keys=True,
                             ) + "\n"
                         )
@@ -3902,7 +4436,7 @@ def run_session(
                         sleep=sleep,
                         background_cpu_ceiling=background_cpu_ceiling,
                         evidence_id=f"b{block}-primary-a1",
-                        expected_environment=frozen_environment,
+                        expected_environment=expected_environments[implementation],
                     )
                 record = {
                     "block": block,
@@ -3915,6 +4449,9 @@ def run_session(
                     "environment_checks": replicate.get("environment_checks", []),
                     "elapsed_wall_seconds": replicate.get("elapsed_wall_seconds"),
                     "child_elapsed_seconds": replicate.get("child_elapsed_seconds"),
+                    "pty_pixel_envelope_model": replicate.get(
+                        "pty_pixel_envelope_model"
+                    ),
                 }
                 raw.write(json.dumps(record, sort_keys=True) + "\n")
                 raw.flush()
@@ -3953,7 +4490,7 @@ def run_session(
                 sleep=sleep,
                 background_cpu_ceiling=background_cpu_ceiling,
                 evidence_id=f"b{block}-replacement-a2",
-                expected_environment=frozen_environment,
+                expected_environment=expected_environments[implementation],
             )
             raw.write(
                 json.dumps(
@@ -3969,6 +4506,9 @@ def run_session(
                         "detail": replicate.get("detail"),
                         "environment_checks": replicate.get(
                             "environment_checks", []
+                        ),
+                        "pty_pixel_envelope_model": replicate.get(
+                            "pty_pixel_envelope_model"
                         ),
                     },
                     sort_keys=True,
@@ -4165,6 +4705,7 @@ def _synthetic_probe_attempt(
     sanitized_argv, sanitized_environment = _synthetic_launch_controls(
         implementation, calibration
     )
+    envelope_model = _geometry_model_evidence({}, raw)
     synthetic_tag = f"odytty-bench-{'0' * 24}"
     return _seal_probe_attempt(
         {
@@ -4186,6 +4727,7 @@ def _synthetic_probe_attempt(
                 ),
                 "raw_idle_ready": raw,
                 "cell_geometry": geometry,
+                "pty_pixel_envelope_model": envelope_model,
             },
             "font_identity": font_identity,
             "font_isolation": font_isolation,
@@ -4193,6 +4735,7 @@ def _synthetic_probe_attempt(
             "sanitized_launch_environment": sanitized_environment,
             "raw_idle_ready": raw,
             "cell_geometry": geometry,
+            "pty_pixel_envelope_model": envelope_model,
             "process_outcome": {
                 "started": True,
                 "exit_status": 0,
@@ -4221,6 +4764,7 @@ def _synthetic_launch_failure_attempt(implementation: str) -> dict:
                 "evidence_source": "launch-failed-before-pty-observation",
                 "raw_idle_ready": None,
                 "cell_geometry": None,
+                "pty_pixel_envelope_model": None,
             },
             "font_identity": None,
             "font_isolation": None,
@@ -4228,6 +4772,7 @@ def _synthetic_launch_failure_attempt(implementation: str) -> dict:
             "sanitized_launch_environment": {},
             "raw_idle_ready": None,
             "cell_geometry": None,
+            "pty_pixel_envelope_model": None,
             "process_outcome": {"started": False, "exit_status": None},
         }
     )
@@ -4587,7 +5132,7 @@ def _fake_prereg(
     }
     return {
         "record_type": "preregistration",
-        "protocol": {"version": "1.1.0", "git_commit": "0" * 40, "sha256": "a" * 64},
+        "protocol": {"version": "1.2.0", "git_commit": "0" * 40, "sha256": "a" * 64},
         "checkout": {"git_commit": "0" * 40, "dirty": False},
         "public_anchor": {
             "remote": "origin",
@@ -4631,6 +5176,16 @@ def _fake_prereg(
                 "unavailable_reason": unavailable.get(name, "not applicable"),
                 "display_path": None if name in unavailable else DISPLAY_PATH_WAYLAND,
                 "cell_geometry": None if name in unavailable else geometry,
+                "pty_pixel_envelope_model": (
+                    None
+                    if name in unavailable
+                    else {
+                        "cell_width_device_px": geometry["cell_width_device_px"],
+                        "cell_height_device_px": geometry["cell_height_device_px"],
+                        "width_remainder_device_px": 0,
+                        "height_remainder_device_px": 0,
+                    }
+                ),
                 "calibration": {
                     "method": "canonical-profile",
                     "font_size": profiles.DEFAULT_FONT_SIZE,
@@ -4852,12 +5407,24 @@ def self_test() -> list[str]:
                 )
             if not validate_reference_readiness(readiness, laptop_prereg):
                 failures.append("reference readiness: valid record did not validate")
-            legacy_readiness = json.loads(json.dumps(readiness))
-            legacy_readiness["schema_version"] = 1
-            if validate_reference_readiness(legacy_readiness, laptop_prereg):
-                failures.append(
-                    "reference readiness: legacy pre-geometry schema validated"
-                )
+            for legacy_probe_version in (1, 2):
+                legacy_probe_readiness = json.loads(json.dumps(readiness))
+                legacy_probe = legacy_probe_readiness["probes"][0]
+                legacy_probe["schema_version"] = legacy_probe_version
+                legacy_probe["attempt_sha256"] = _attempt_digest(legacy_probe)
+                if validate_reference_readiness(
+                    legacy_probe_readiness, laptop_prereg
+                ):
+                    failures.append(
+                        "reference readiness: legacy probe-attempt schema validated"
+                    )
+            for legacy_version in (1, 2, 3):
+                legacy_readiness = json.loads(json.dumps(readiness))
+                legacy_readiness["schema_version"] = legacy_version
+                if validate_reference_readiness(legacy_readiness, laptop_prereg):
+                    failures.append(
+                        "reference readiness: legacy geometry schema validated"
+                    )
             forged_readiness = json.loads(json.dumps(readiness))
             forged_readiness["inputs_sha256"] = "0" * 64
             if validate_reference_readiness(forged_readiness, laptop_prereg):
@@ -5155,6 +5722,138 @@ def self_test() -> list[str]:
             def cgroup_path(self, _launched):
                 return self.scope_dir
 
+        class _SuccessfulGeometryCommand:
+            returncode = 0
+            stderr = ""
+
+        class _FixedRemainderDiagnosticLauncher(_ScopedDiagnosticLauncher):
+            """Exercise the real controller methods with sequenced oracle input."""
+
+            prepare_geometry_control = RealLauncher.prepare_geometry_control
+            normalize_startup_geometry = RealLauncher.normalize_startup_geometry
+            release_geometry_control = RealLauncher.release_geometry_control
+            _geometry_command_succeeded = staticmethod(
+                RealLauncher._geometry_command_succeeded
+            )
+
+            def __init__(self, behaviour, log_dir):
+                super().__init__(behaviour, log_dir)
+                self.backend = {"backend": "hyprctl", "display": "wayland"}
+                self.handshake_state: dict[int, dict] = {}
+                self.geometry_commands: list[tuple[str, list[str]]] = []
+
+            def launch(self, implementation: str, seconds: int, tag: str) -> dict:
+                launched = super().launch(implementation, seconds, tag)
+                if "error" in launched:
+                    return launched
+                process = launched["process"]
+                initial = (
+                    {
+                        "pty_columns": 94,
+                        "pty_rows": 53,
+                        "content_width_device_px": 945,
+                        "content_height_device_px": 1010,
+                    }
+                    if implementation == "ghostty"
+                    else {
+                        "pty_columns": 80,
+                        "pty_rows": 24,
+                        "content_width_device_px": 800,
+                        "content_height_device_px": 456,
+                    }
+                )
+                ready_path = self.log_dir / f"{tag}.geometry-ready"
+                launched["oracle_path"].write_text(
+                    json.dumps({"kind": "geometry-observation", **initial}) + "\n",
+                    encoding="utf-8",
+                )
+                launched["geometry_control"] = self.prepare_geometry_control(
+                    launched["window_tag"], ready_path
+                )
+                self.handshake_state[process.pid] = {
+                    "implementation": implementation,
+                    "launched": launched,
+                    "geometry": initial,
+                    "floating": False,
+                    "idle_written": False,
+                    "window_width": 960 if implementation == "ghostty" else 800,
+                    "window_height": 1027 if implementation == "ghostty" else 456,
+                }
+                return launched
+
+            def windows(self) -> list[dict]:
+                windows = super().windows()
+                for window in windows:
+                    state = self.handshake_state[window["pid"]]
+                    control = state["launched"]["geometry_control"]
+                    if control["ready_path"].is_file() and not state["idle_written"]:
+                        with state["launched"]["oracle_path"].open(
+                            "a", encoding="utf-8"
+                        ) as handle:
+                            handle.write(
+                                json.dumps(
+                                    {
+                                        "kind": "idle-ready",
+                                        **state["geometry"],
+                                        "prompt": "odytty-bench$ ",
+                                        "prompt_sha256": "a" * 64,
+                                        "output_bytes": 20,
+                                    }
+                                )
+                                + "\n"
+                            )
+                        state["idle_written"] = True
+                    window.update(
+                        {
+                            "address": f"0x{window['pid']:x}",
+                            "floating": state["floating"],
+                            "width": state["window_width"],
+                            "height": state["window_height"],
+                        }
+                    )
+                return windows
+
+            def _run_geometry_command(self, argv):
+                pid = next(iter(self._live))
+                state = self.handshake_state[pid]
+                self.geometry_commands.append(
+                    (state["implementation"], list(argv))
+                )
+                if "setfloating" in argv:
+                    state["floating"] = True
+                elif "resizewindowpixel" in argv:
+                    dimensions = argv[-1].split(",", 1)[0].split()
+                    state["window_width"] = int(dimensions[1])
+                    state["window_height"] = int(dimensions[2])
+                    state["geometry"] = {
+                        "pty_columns": 80,
+                        "pty_rows": 24,
+                        "content_width_device_px": 805,
+                        "content_height_device_px": 459,
+                    }
+                    with state["launched"]["oracle_path"].open(
+                        "a", encoding="utf-8"
+                    ) as handle:
+                        handle.write(
+                            json.dumps(
+                                {
+                                    "kind": "geometry-observation",
+                                    **state["geometry"],
+                                }
+                            )
+                            + "\n"
+                        )
+                return _SuccessfulGeometryCommand()
+
+            def stop(self, launched: dict) -> int | None:
+                cleanup_ok = self.release_geometry_control(launched)
+                process = launched.get("process")
+                status = super().stop(launched)
+                launched["geometry_cleanup_ok"] = cleanup_ok
+                if process is not None:
+                    self.handshake_state.pop(process.pid, None)
+                return status
+
         diagnostic_launcher = _ScopedDiagnosticLauncher(
             diagnostic_behaviour, root / "diagnostic-logs"
         )
@@ -5176,10 +5875,37 @@ def self_test() -> list[str]:
                 )
             if not validate_geometry_diagnostic(diagnostic, diagnostic_prereg):
                 failures.append("geometry diagnostic: valid record did not validate")
-            forged_diagnostic = json.loads(json.dumps(diagnostic))
-            forged_diagnostic["schema_version"] += 1
-            if validate_geometry_diagnostic(forged_diagnostic, diagnostic_prereg):
-                failures.append("geometry diagnostic: forged schema validated")
+            padded_diagnostic = json.loads(json.dumps(diagnostic))
+            padded_grid = padded_diagnostic["launches"][2]["cell_geometry"]
+            padded_diagnostic["launches"][2]["pty_geometry"][
+                "content_width_device_px"
+            ] = padded_grid["content_width_device_px"] + 5
+            padded_diagnostic["launches"][2]["pty_geometry"][
+                "content_height_device_px"
+            ] = padded_grid["content_height_device_px"] + 3
+            if validate_geometry_diagnostic(
+                padded_diagnostic, diagnostic_prereg
+            ):
+                failures.append(
+                    "geometry diagnostic: unproved fixed-remainder PTY envelope validated"
+                )
+            forged_normalized = json.loads(json.dumps(padded_diagnostic))
+            forged_normalized["launches"][2]["cell_geometry"][
+                "content_width_device_px"
+            ] += 80
+            if validate_geometry_diagnostic(
+                forged_normalized, diagnostic_prereg
+            ):
+                failures.append(
+                    "geometry diagnostic: forged normalized cell grid validated"
+                )
+            for invalid_schema in (1, 2, 4):
+                forged_diagnostic = json.loads(json.dumps(diagnostic))
+                forged_diagnostic["schema_version"] = invalid_schema
+                if validate_geometry_diagnostic(
+                    forged_diagnostic, diagnostic_prereg
+                ):
+                    failures.append("geometry diagnostic: forged schema validated")
             forged_diagnostic = json.loads(json.dumps(diagnostic))
             forged_diagnostic["launches"][0]["pty_geometry"]["columns"] = 94
             if validate_geometry_diagnostic(forged_diagnostic, diagnostic_prereg):
@@ -5190,6 +5916,96 @@ def self_test() -> list[str]:
             ] = True
             if validate_geometry_diagnostic(forged_diagnostic, diagnostic_prereg):
                 failures.append("geometry diagnostic: benchmark identity consumption validated")
+
+        fixed_remainder_prereg = _fake_prereg(
+            list(profiles.LAPTOP_IMPLEMENTATIONS)
+        )
+        fixed_remainder_grid = {
+            "columns": 80,
+            "rows": 24,
+            "content_width_device_px": 800,
+            "content_height_device_px": 456,
+            "cell_width_device_px": 10,
+            "cell_height_device_px": 19,
+        }
+        fixed_remainder_prereg["matched_cell_geometry"] = fixed_remainder_grid
+        for implementation in fixed_remainder_prereg["implementations"]:
+            implementation["cell_geometry"] = fixed_remainder_grid
+            implementation["pty_pixel_envelope_model"] = {
+                "cell_width_device_px": 10,
+                "cell_height_device_px": 19,
+                "width_remainder_device_px": (
+                    5 if implementation["name"] == "ghostty" else 0
+                ),
+                "height_remainder_device_px": (
+                    3 if implementation["name"] == "ghostty" else 0
+                ),
+            }
+        fixed_remainder_launcher = _FixedRemainderDiagnosticLauncher(
+            diagnostic_behaviour, root / "fixed-remainder-production-path"
+        )
+        try:
+            fixed_remainder_diagnostic = run_geometry_diagnostic(
+                fixed_remainder_prereg,
+                fixed_remainder_launcher,
+                sleep=lambda _seconds: None,
+            )
+        except ValueError as error:
+            failures.append(
+                "geometry diagnostic: production fixed-remainder path failed: "
+                f"{error}"
+            )
+        else:
+            ghostty_launch = fixed_remainder_diagnostic["launches"][2]
+            ghostty_commands = [
+                command
+                for implementation, command in fixed_remainder_launcher.geometry_commands
+                if implementation == "ghostty"
+            ]
+            if (
+                fixed_remainder_launcher.launches
+                != list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
+                or "wezterm" in fixed_remainder_launcher.launches
+                or len(ghostty_commands) != 2
+                or "setfloating" not in ghostty_commands[0]
+                or "resizewindowpixel" not in ghostty_commands[1]
+                or not ghostty_commands[1][-1].startswith(
+                    "exact 820 476,address:"
+                )
+                or ghostty_launch["pty_geometry"]
+                != {
+                    "columns": 80,
+                    "rows": 24,
+                    "content_width_device_px": 805,
+                    "content_height_device_px": 459,
+                }
+                or ghostty_launch["cell_geometry"] != fixed_remainder_grid
+                or not validate_geometry_diagnostic(
+                    fixed_remainder_diagnostic, fixed_remainder_prereg
+                )
+                or fixed_remainder_launcher.handshake_state
+                or list(
+                    (root / "fixed-remainder-production-path").glob(
+                        "*.geometry-ready"
+                    )
+                )
+            ):
+                failures.append(
+                    "geometry diagnostic: Ghostty padding, next-order Alacritty, "
+                    "or zero-action evidence drifted"
+                )
+            forged_affine_proof = json.loads(
+                json.dumps(fixed_remainder_diagnostic)
+            )
+            forged_affine_proof["launches"][2]["pty_pixel_envelope_model"][
+                "observations"
+            ][0]["reported_width_device_px"] += 1
+            if validate_geometry_diagnostic(
+                forged_affine_proof, fixed_remainder_prereg
+            ):
+                failures.append(
+                    "geometry diagnostic: forged affine remainder proof validated"
+                )
 
         wrong_backend = _FakeLauncher(diagnostic_behaviour, root / "wrong-backend")
         try:
@@ -5691,8 +6507,8 @@ def self_test() -> list[str]:
         wrong_geometry = {
             "pty_columns": 94,
             "pty_rows": 53,
-            "content_width_device_px": 940,
-            "content_height_device_px": 1007,
+            "content_width_device_px": 945,
+            "content_height_device_px": 1010,
         }
         target_window = {
             "app_id": geometry_tag,
@@ -5729,17 +6545,339 @@ def self_test() -> list[str]:
         exact_geometry = {
             "pty_columns": 80,
             "pty_rows": 24,
-            "content_width_device_px": 800,
-            "content_height_device_px": 456,
+            "content_width_device_px": 805,
+            "content_height_device_px": 459,
         }
         if not geometry_launcher.normalize_startup_geometry(
             launched_control, target_window, exact_geometry
         ) or not ready_path.is_file():
-            failures.append("geometry control: exact 80x24 did not release the child")
+            failures.append(
+                "geometry control: fixed-remainder exact 80x24 did not release the child"
+            )
+        if not _geometry_control_accepts_ready_record(
+            launched_control, exact_geometry
+        ):
+            failures.append(
+                "geometry control: stable idle-ready raw envelope was rejected"
+            )
+        fixed_remainder_evidence = _geometry_model_evidence(
+            launched_control, exact_geometry
+        )
+        if not _valid_geometry_model_evidence(
+            fixed_remainder_evidence,
+            exact_geometry,
+            cell_geometry_from_oracle(exact_geometry),
+        ):
+            failures.append(
+                "geometry control: sealed fixed-remainder affine proof was rejected"
+            )
+        if cell_geometry_from_oracle(exact_geometry) != {
+            "columns": 80,
+            "rows": 24,
+            "content_width_device_px": 800,
+            "content_height_device_px": 456,
+            "cell_width_device_px": 10,
+            "cell_height_device_px": 19,
+        }:
+            failures.append(
+                "geometry control: raw fixed remainder was not separated from the cell grid"
+            )
         if not geometry_launcher.release_geometry_control(launched_control) or ready_path.exists():
             failures.append("geometry control: handshake state did not clean up")
         if any("windowrule" in command or "keyword" in command for command in geometry_launcher.geometry_commands):
             failures.append("geometry control: persistent compositor rule was installed")
+
+        # A terminal first observed at exact 80x24 with a nonzero raw PTY
+        # envelope residue cannot use the one-observation fast path. Perturb
+        # once, observe the affine delta, and return exactly once. Repeated
+        # compositor polls before the perturb takes effect must not consume the
+        # second and final resize command.
+        exact_start_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+        exact_start_ready = Path(tmp) / "exact-start-geometry-ready"
+        exact_start_control = exact_start_launcher.prepare_geometry_control(
+            geometry_tag, exact_start_ready
+        )
+        exact_start_launch = {"geometry_control": exact_start_control}
+        exact_start_window = dict(
+            target_window,
+            floating=False,
+            width=820,
+            height=476,
+        )
+        exact_start_launcher.normalize_startup_geometry(
+            exact_start_launch, exact_start_window, exact_geometry
+        )
+        exact_start_window["floating"] = True
+        exact_start_launcher.normalize_startup_geometry(
+            exact_start_launch, exact_start_window, exact_geometry
+        )
+        command_count = len(exact_start_launcher.geometry_commands)
+        exact_start_launcher.normalize_startup_geometry(
+            exact_start_launch, exact_start_window, exact_geometry
+        )
+        if len(exact_start_launcher.geometry_commands) != command_count:
+            failures.append(
+                "geometry control: repeated exact observation consumed the return resize"
+            )
+        perturbed_geometry = {
+            "pty_columns": 81,
+            "pty_rows": 25,
+            "content_width_device_px": 815,
+            "content_height_device_px": 478,
+        }
+        exact_start_window.update(width=830, height=495)
+        exact_start_launcher.normalize_startup_geometry(
+            exact_start_launch, exact_start_window, perturbed_geometry
+        )
+        exact_start_window.update(width=820, height=476)
+        if not exact_start_launcher.normalize_startup_geometry(
+            exact_start_launch, exact_start_window, exact_geometry
+        ):
+            failures.append(
+                "geometry control: exact nonzero perturb/return did not release"
+            )
+        exact_start_resizes = [
+            command
+            for command in exact_start_launcher.geometry_commands
+            if "resizewindowpixel" in command
+        ]
+        exact_start_evidence = _geometry_model_evidence(
+            exact_start_launch, exact_geometry
+        )
+        exact_start_grid = cell_geometry_from_oracle(exact_geometry)
+        if (
+            len(exact_start_resizes) != GEOMETRY_RESIZE_MAX_ATTEMPTS
+            or not exact_start_resizes[0][-1].startswith(
+                f"exact 830 495,{exact_selector}"
+            )
+            or not exact_start_resizes[1][-1].startswith(
+                f"exact 820 476,{exact_selector}"
+            )
+            or not _valid_geometry_model_evidence(
+                exact_start_evidence, exact_geometry, exact_start_grid
+            )
+        ):
+            failures.append(
+                "geometry control: exact nonzero affine proof or resize bound drifted"
+            )
+        if isinstance(exact_start_evidence, dict):
+            forged_delta = json.loads(json.dumps(exact_start_evidence))
+            forged_delta["observations"][0]["reported_width_device_px"] += 1
+            missing_pre_resize = json.loads(json.dumps(exact_start_evidence))
+            missing_pre_resize["observations"] = [
+                missing_pre_resize["observations"][-1]
+            ]
+            forged_count = json.loads(json.dumps(exact_start_evidence))
+            forged_count["resize_attempts"] -= 1
+            forged_bound = json.loads(json.dumps(exact_start_evidence))
+            forged_bound["resize_attempt_bound"] += 1
+            reversed_proof = json.loads(json.dumps(exact_start_evidence))
+            reversed_proof["observations"].reverse()
+            if any(
+                _valid_geometry_model_evidence(
+                    forged, exact_geometry, exact_start_grid
+                )
+                for forged in (
+                    forged_delta,
+                    missing_pre_resize,
+                    forged_count,
+                    forged_bound,
+                    reversed_proof,
+                )
+            ):
+                failures.append(
+                    "geometry control: tampered affine proof validated"
+                )
+        if (
+            not exact_start_launcher.release_geometry_control(exact_start_launch)
+            or exact_start_ready.exists()
+        ):
+            failures.append(
+                "geometry control: exact nonzero proof handshake did not clean up"
+            )
+
+        unstable_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+        unstable_ready = Path(tmp) / "unstable-geometry-ready"
+        unstable_control = unstable_launcher.prepare_geometry_control(
+            geometry_tag, unstable_ready
+        )
+        unstable_launch = {"geometry_control": unstable_control}
+        unstable_launcher.normalize_startup_geometry(
+            unstable_launch, target_window, wrong_geometry
+        )
+        changed_remainder = dict(
+            exact_geometry,
+            content_width_device_px=806,
+        )
+        if (
+            unstable_launcher.normalize_startup_geometry(
+                unstable_launch, target_window, changed_remainder
+            )
+            or unstable_ready.exists()
+            or unstable_control.get("command_failed") is not True
+        ):
+            failures.append(
+                "geometry control: changing pixel remainder did not fail closed"
+            )
+        excessive_remainder = {
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "content_width_device_px": 879,
+            "content_height_device_px": 456,
+        }
+        if cell_geometry_from_oracle(excessive_remainder) is not None:
+            failures.append(
+                "geometry control: excessive non-cell pixel residue was accepted"
+            )
+
+        unstable_idle_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+        unstable_idle_ready = Path(tmp) / "unstable-idle-geometry-ready"
+        unstable_idle_control = unstable_idle_launcher.prepare_geometry_control(
+            geometry_tag, unstable_idle_ready
+        )
+        unstable_idle_launch = {"geometry_control": unstable_idle_control}
+        unstable_idle_launcher.normalize_startup_geometry(
+            unstable_idle_launch, target_window, wrong_geometry
+        )
+        unstable_idle_launcher.normalize_startup_geometry(
+            unstable_idle_launch, target_window, exact_geometry
+        )
+        changed_idle_envelope = dict(
+            exact_geometry,
+            content_height_device_px=460,
+        )
+        if (
+            _geometry_control_accepts_ready_record(
+                unstable_idle_launch, changed_idle_envelope
+            )
+            or unstable_idle_control.get("command_failed") is not True
+            or not unstable_idle_launcher.release_geometry_control(
+                unstable_idle_launch
+            )
+            or unstable_idle_ready.exists()
+        ):
+            failures.append(
+                "geometry control: unstable idle-ready raw envelope or cleanup was accepted"
+            )
+
+        changed_pitch_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+        changed_pitch_ready = Path(tmp) / "changed-pitch-geometry-ready"
+        changed_pitch_control = changed_pitch_launcher.prepare_geometry_control(
+            geometry_tag, changed_pitch_ready
+        )
+        changed_pitch_launch = {"geometry_control": changed_pitch_control}
+        changed_pitch_launcher.normalize_startup_geometry(
+            changed_pitch_launch, target_window, wrong_geometry
+        )
+        changed_pitch_exact = dict(
+            exact_geometry,
+            content_width_device_px=885,
+        )
+        if (
+            changed_pitch_launcher.normalize_startup_geometry(
+                changed_pitch_launch, target_window, changed_pitch_exact
+            )
+            or changed_pitch_ready.exists()
+            or changed_pitch_control.get("command_failed") is not True
+        ):
+            failures.append(
+                "geometry control: changing cell pitch with a stable remainder was accepted"
+            )
+
+        bounded_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+        bounded_ready = Path(tmp) / "bounded-geometry-ready"
+        bounded_control = bounded_launcher.prepare_geometry_control(
+            geometry_tag, bounded_ready
+        )
+        bounded_launch = {"geometry_control": bounded_control}
+        for columns in range(94, 89, -1):
+            bounded_launcher.normalize_startup_geometry(
+                bounded_launch,
+                target_window,
+                {
+                    "pty_columns": columns,
+                    "pty_rows": 53,
+                    "content_width_device_px": columns * 10 + 5,
+                    "content_height_device_px": 53 * 19 + 3,
+                },
+            )
+        resize_commands = [
+            command
+            for command in bounded_launcher.geometry_commands
+            if "resizewindowpixel" in command
+        ]
+        if (
+            len(resize_commands) != GEOMETRY_RESIZE_MAX_ATTEMPTS
+            or bounded_control.get("resize_attempts")
+            != GEOMETRY_RESIZE_MAX_ATTEMPTS
+            or bounded_control.get("command_failed") is not True
+        ):
+            failures.append(
+                "geometry control: iterative resize command bound was not enforced"
+            )
+        if not bounded_launcher.release_geometry_control(bounded_launch):
+            failures.append("geometry control: bounded failure did not clean up")
+
+        divisible_geometry = {
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "content_width_device_px": 800,
+            "content_height_device_px": 456,
+        }
+        if cell_geometry_from_oracle(divisible_geometry) != {
+            "columns": 80,
+            "rows": 24,
+            "content_width_device_px": 800,
+            "content_height_device_px": 456,
+            "cell_width_device_px": 10,
+            "cell_height_device_px": 19,
+        }:
+            failures.append(
+                "geometry control: unpadded OdyTTY/Kitty geometry semantics changed"
+            )
+
+        perturb_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+        perturb_ready = Path(tmp) / "perturb-geometry-ready"
+        perturb_control = perturb_launcher.prepare_geometry_control(
+            geometry_tag, perturb_ready
+        )
+        perturb_launch = {"geometry_control": perturb_control}
+        perturb_window = dict(
+            target_window,
+            floating=True,
+            width=825,
+            height=479,
+        )
+        perturb_launcher.normalize_startup_geometry(
+            perturb_launch, perturb_window, exact_geometry
+        )
+        perturb_window.update(width=835, height=498)
+        perturb_geometry = {
+            "pty_columns": 81,
+            "pty_rows": 25,
+            "content_width_device_px": 815,
+            "content_height_device_px": 478,
+        }
+        perturb_launcher.normalize_startup_geometry(
+            perturb_launch, perturb_window, perturb_geometry
+        )
+        perturb_window.update(width=825, height=479)
+        if (
+            not perturb_launcher.normalize_startup_geometry(
+                perturb_launch, perturb_window, exact_geometry
+            )
+            or not perturb_ready.is_file()
+            or perturb_control.get("resize_attempts") != 2
+            or not _valid_geometry_model_evidence(
+                _geometry_model_evidence(perturb_launch, exact_geometry),
+                exact_geometry,
+                cell_geometry_from_oracle(exact_geometry),
+            )
+        ):
+            failures.append(
+                "geometry control: nonzero exact launch did not perturb, return, and seal proof"
+            )
+        perturb_launcher.release_geometry_control(perturb_launch)
 
         wrong_backend = _RecordingGeometryLauncher("swaymsg", Path(tmp))
         try:
@@ -6081,6 +7219,12 @@ def self_test() -> list[str]:
                     "content_height_device_px": 480,
                     "cell_width_device_px": 10,
                     "cell_height_device_px": 20,
+                },
+                "pty_pixel_envelope_model": {
+                    "cell_width_device_px": 10,
+                    "cell_height_device_px": 20,
+                    "width_remainder_device_px": 0,
+                    "height_remainder_device_px": 0,
                 },
             }
             result = run_replicate(
@@ -7720,7 +8864,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
         f"{PUBLIC_API_BASE}/git/ref/{encoded_ref}",
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "OdyTTY-benchmark-protocol/1.1.0",
+            "User-Agent": "OdyTTY-benchmark-protocol/1.2.0",
         },
     )
     with urllib.request.urlopen(ref_request, timeout=30) as response:
@@ -7734,7 +8878,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
     encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
     request = urllib.request.Request(
         f"{PUBLIC_RAW_BASE}/{commit}/{encoded_path}",
-        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.1.0"},
+        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.2.0"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return commit, response.read()
