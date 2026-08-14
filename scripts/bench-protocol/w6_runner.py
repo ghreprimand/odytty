@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # W6 (idle-visible-10m) measured-run orchestrator for the OdyTTY comparative
-# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.2.0).
+# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.3.0).
 #
 # Every other module in this directory is preparation: it computes, checks, or
 # describes, and never takes a measurement. This module is the one exception,
@@ -67,7 +67,7 @@ import summaries  # noqa: E402
 import workloads  # noqa: E402
 
 WORKLOAD = "idle-visible-10m"
-RUNNER_VERSION = "1.2.0"
+RUNNER_VERSION = "1.3.0"
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 PUBLIC_API_BASE = "https://api.github.com/repos/ghreprimand/odytty"
 PUBLIC_RAW_BASE = "https://raw.githubusercontent.com/ghreprimand/odytty"
@@ -94,7 +94,11 @@ GEOMETRY_RESIZE_MAX_ATTEMPTS = 2
 # any terminal-specific remainder in the PTY-reported pixel envelope.
 REFERENCE_READINESS_SCHEMA_VERSION = 4
 CALIBRATION_DIAGNOSTIC_SCHEMA_VERSION = 1
-GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION = 4
+# Version 5 binds each implementation to its OWN preregistered exact 80x24
+# device-pixel grid and drops the retired common-grid calibration binding.
+# Version 4 records are rejected rather than reinterpreted: they asserted a
+# cross-terminal equality this protocol no longer makes.
+GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION = 5
 GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS = (
     "odytty",
     "kitty",
@@ -562,9 +566,41 @@ def descendant_pids(pid: int, proc_root: Path = Path("/proc")) -> set[int]:
 # ---------------------------------------------------------------------------
 
 
+def _stable_own_geometry(probe: dict) -> bool:
+    """Return whether a probe proved this terminal's own exact 80x24 model.
+
+    Protocol 1.3.0 controls the grid per implementation. A terminal is
+    admissible when its observed grid is exactly 80x24, its content envelope
+    is exactly the integer cell pitch times that grid, and its PTY
+    pixel-envelope model reports the same pitch with a sub-cell remainder.
+    Another terminal's pitch is irrelevant here by design.
+    """
+    geometry = probe.get("cell_geometry")
+    if not profiles.exact_80x24_geometry(geometry):
+        return False
+    model = _geometry_model_summary(probe.get("pty_pixel_envelope_model"))
+    if not isinstance(model, dict):
+        return False
+    cell_width = model.get("cell_width_device_px")
+    cell_height = model.get("cell_height_device_px")
+    width_remainder = model.get("width_remainder_device_px")
+    height_remainder = model.get("height_remainder_device_px")
+    if any(
+        not isinstance(value, int) or isinstance(value, bool)
+        for value in (cell_width, cell_height, width_remainder, height_remainder)
+    ):
+        return False
+    return (
+        cell_width == geometry["cell_width_device_px"]
+        and cell_height == geometry["cell_height_device_px"]
+        and 0 <= width_remainder < cell_width
+        and 0 <= height_remainder < cell_height
+    )
+
+
 def qualify_implementations(
     probes: list[dict], allow_mixed_display_paths: bool = False,
-    require_exhaustive_calibration: bool = True,
+    require_exhaustive_calibration: bool = False,
 ) -> dict:
     """Decide, from availability probes, which implementations qualify.
 
@@ -573,6 +609,19 @@ def qualify_implementations(
     that maps only on a different display path than the rest. Both are real
     situations on a live Wayland session and both are recorded rather than
     smoothed over.
+
+    Protocol 1.3.0 admits terminals on a PER-IMPLEMENTATION grid: each mapped
+    terminal must expose its own exact 80x24 device-pixel grid together with a
+    consistent PTY pixel-envelope model. Cross-terminal pitch equality is NOT
+    required and is not checked; the exhaustive search that would have proven
+    a common grid completed on this laptop and proved none exists, so keeping
+    that equality as an admission gate would have made a protocol-valid
+    comparison unreachable rather than controlled. Shared font, shared
+    profile, shared display path, and exact 80x24 remain required.
+
+    `require_exhaustive_calibration` is retained only for the optional,
+    historical feasibility tooling that searched for a common grid. It
+    defaults off; no readiness, probe, or measured run enables it.
     """
     qualified: list[str] = []
     excluded: list[dict] = []
@@ -613,14 +662,6 @@ def qualify_implementations(
     # is deterministic rather than dependent on probe order.
     paths = [probe.get("display_path", DISPLAY_PATH_UNKNOWN) for probe in mapped]
     reference_path = None
-    reference_geometry = next(
-        (
-            probe.get("cell_geometry")
-            for probe in mapped
-            if probe.get("implementation") == "odytty"
-        ),
-        None,
-    )
     reference_font = next(
         (
             probe.get("font_identity")
@@ -672,15 +713,15 @@ def qualify_implementations(
             or probe.get("font_identity") != reference_font
             or not profiles.valid_font_isolation_proof(reference_isolation)
             or probe.get("font_isolation") != reference_isolation
-            or reference_geometry is None
-            or probe.get("cell_geometry") != reference_geometry
+            or not _stable_own_geometry(probe)
         ):
             protocol_blockers.append(
                 {
                     "implementation": probe["implementation"],
                     "reason": "unmet-protocol-configuration",
                     "detail": probe.get("detail")
-                    or "bounded calibration did not prove one exact shared device-pixel geometry",
+                    or "the probe did not prove this terminal's own exact 80x24 "
+                    "device-pixel grid on the shared font and profile",
                 }
             )
             continue
@@ -717,7 +758,14 @@ def qualify_implementations(
 
     return {
         "reference_display_path": reference_path,
-        "reference_cell_geometry": reference_geometry,
+        # Each mapped terminal's OWN observed grid is reported. There is no
+        # single reference grid under protocol 1.3.0, and the decision record
+        # deliberately shows the differences instead of hiding them behind one
+        # number.
+        "implementation_cell_geometry": {
+            probe["implementation"]: probe.get("cell_geometry")
+            for probe in mapped
+        },
         "shared_font": reference_font,
         "qualified": qualified,
         "excluded": excluded,
@@ -2736,9 +2784,15 @@ def calibrate_probe_set(
 
 
 def probe_availability(
-    implementations: list[str], launcher, sleep=time.sleep, calibrate: bool = True
+    implementations: list[str], launcher, sleep=time.sleep, calibrate: bool = False
 ) -> list[dict]:
-    """Probe each implementation and optionally search the shared geometry set."""
+    """Probe each implementation once with its preregistered calibration.
+
+    Protocol 1.3.0 takes exactly one bounded probe launch per implementation.
+    `calibrate` drives the retired common-grid search and stays off for every
+    readiness, probe, and measured path; it is retained only so the optional
+    historical feasibility tooling and its adversarial tests can still run.
+    """
     started_monotonic = time.monotonic()
     setter = getattr(launcher, "set_calibration", None)
     probes = []
@@ -2854,7 +2908,7 @@ def run_reference_readiness(
 
 
 def validate_reference_readiness(record: object, prereg_record: dict) -> bool:
-    """Validate a readiness record before the one-shot calibration probe."""
+    """Validate a readiness record before the one-shot availability probe."""
     if not isinstance(record, dict) or set(record) != {
         "schema_version",
         "protocol_version",
@@ -2928,16 +2982,15 @@ def _public_diagnostic_record_safe(record: object) -> bool:
     )
 
 
-def _geometry_diagnostic_inputs(
-    record: dict, calibration_diagnostic: object
-) -> dict:
-    """Return pinned inputs used by the diagnostic without consuming an identity."""
-    if not calibration_diagnostic_matches_preregistration(
-        calibration_diagnostic, record
-    ):
-        raise ValueError(
-            "geometry diagnostic requires matching calibration evidence"
-        )
+def _geometry_diagnostic_inputs(record: dict) -> dict:
+    """Return pinned inputs used by the diagnostic without consuming an identity.
+
+    Protocol 1.3.0 binds the diagnostic to each terminal's preregistered
+    calibration and its own device-pixel grid. It no longer requires a
+    common-grid calibration record: that search is optional historical
+    feasibility tooling and cannot succeed on this machine, so requiring it
+    here would have made the startup-geometry evidence unobtainable.
+    """
     base = _reference_readiness_inputs(record)
     by_name = {
         entry.get("name"): entry for entry in record.get("implementations", [])
@@ -2945,10 +2998,8 @@ def _geometry_diagnostic_inputs(
     for entry in base["implementations"]:
         entry.pop("pty_pixel_envelope_model", None)
         entry["calibration"] = by_name[entry["name"]].get("calibration")
-    base["matched_cell_geometry"] = record.get("matched_cell_geometry")
-    base["calibration_diagnostic_sha256"] = _calibration_diagnostic_sha256(
-        calibration_diagnostic
-    )
+        entry["cell_geometry"] = by_name[entry["name"]].get("cell_geometry")
+    base["cell_geometry_policy"] = record.get("cell_geometry_policy")
     return base
 
 
@@ -3262,16 +3313,20 @@ def validate_calibration_diagnostic(record: object, prereg_record: dict) -> bool
 def calibration_diagnostic_matches_preregistration(
     record: object, prereg_record: dict
 ) -> bool:
-    """Require every pinned geometry field to originate in validated evidence."""
+    """Require every pinned geometry field to originate in validated evidence.
+
+    Historical feasibility tooling only. Protocol 1.3.0 does not run, require,
+    or consult this binding on any readiness, probe, or measured path; it
+    exists so a common-grid search record can still be checked against a
+    preregistration that adopted its per-implementation selections.
+    """
     if not validate_calibration_diagnostic(record, prereg_record):
         return False
     by_name = {
         entry.get("name"): entry
         for entry in prereg_record.get("implementations", [])
     }
-    return prereg_record.get("matched_cell_geometry") == record.get(
-        "matched_cell_geometry"
-    ) and all(
+    return all(
         by_name.get(selection["implementation"], {}).get("calibration")
         == selection["calibration"]
         and by_name[selection["implementation"]].get("cell_geometry")
@@ -3284,12 +3339,10 @@ def calibration_diagnostic_matches_preregistration(
     )
 
 
-def _geometry_diagnostic_inputs_sha256(
-    record: dict, calibration_diagnostic: object
-) -> str:
+def _geometry_diagnostic_inputs_sha256(record: dict) -> str:
     return hashlib.sha256(
         json.dumps(
-            _geometry_diagnostic_inputs(record, calibration_diagnostic),
+            _geometry_diagnostic_inputs(record),
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
@@ -3449,12 +3502,17 @@ def _valid_geometry_diagnostic_launch(record: object, expected_name: str) -> boo
 
 def run_geometry_diagnostic(
     prereg_record: dict,
-    calibration_diagnostic: object,
     launcher,
     sleep=time.sleep,
 ) -> dict:
-    """Run one diagnostic-only exact-geometry launch in the fixed laptop order."""
-    _geometry_diagnostic_inputs(prereg_record, calibration_diagnostic)
+    """Run one diagnostic-only exact-geometry launch in the fixed laptop order.
+
+    Each terminal is launched once with its preregistered calibration and must
+    reach ITS OWN preregistered exact 80x24 device-pixel grid. The terminals
+    are not required to agree with each other; protocol 1.3.0 controls the
+    grid per implementation and publishes the differences.
+    """
+    _geometry_diagnostic_inputs(prereg_record)
     if getattr(launcher, "use_scope", None) is not True:
         raise ValueError("geometry diagnostic requires private systemd scopes")
     backend = getattr(launcher, "backend", {})
@@ -3464,10 +3522,19 @@ def run_geometry_diagnostic(
         entry.get("name"): entry.get("calibration")
         for entry in prereg_record.get("implementations", [])
     }
+    expected_geometry = {
+        entry.get("name"): entry.get("cell_geometry")
+        for entry in prereg_record.get("implementations", [])
+    }
     setter = getattr(launcher, "set_calibration", None)
-    matched_cell_geometry = prereg_record.get("matched_cell_geometry")
-    if not isinstance(matched_cell_geometry, dict):
-        raise ValueError("geometry diagnostic requires pinned matched cell geometry")
+    if any(
+        not profiles.exact_80x24_geometry(expected_geometry.get(name))
+        for name in GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS
+    ):
+        raise ValueError(
+            "geometry diagnostic requires each implementation's pinned exact "
+            "80x24 device-pixel grid"
+        )
     launches = []
     for name in GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS:
         calibration = calibrations.get(name)
@@ -3487,7 +3554,7 @@ def run_geometry_diagnostic(
         )
         if (
             not _valid_geometry_diagnostic_launch(launch, name)
-            or launch.get("cell_geometry") != matched_cell_geometry
+            or launch.get("cell_geometry") != expected_geometry[name]
         ):
             raise ValueError(
                 f"geometry diagnostic failed for {name!r}: "
@@ -3498,12 +3565,7 @@ def run_geometry_diagnostic(
         "schema_version": GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION,
         "record_type": "startup-geometry-diagnostic",
         "status": "PASS",
-        "inputs_sha256": _geometry_diagnostic_inputs_sha256(
-            prereg_record, calibration_diagnostic
-        ),
-        "calibration_diagnostic_sha256": _calibration_diagnostic_sha256(
-            calibration_diagnostic
-        ),
+        "inputs_sha256": _geometry_diagnostic_inputs_sha256(prereg_record),
         "execution": {
             "diagnostic_only": True,
             "measurement": False,
@@ -3526,36 +3588,32 @@ def run_geometry_diagnostic(
     }
 
 
-def validate_geometry_diagnostic(
-    record: object, prereg_record: dict, calibration_diagnostic: object
-) -> bool:
+def validate_geometry_diagnostic(record: object, prereg_record: dict) -> bool:
     """Validate a public-safe successful diagnostic against its pinned inputs."""
     if not isinstance(record, dict) or set(record) != {
         "schema_version",
         "record_type",
         "status",
         "inputs_sha256",
-        "calibration_diagnostic_sha256",
         "execution",
         "benchmark_state_consumed_or_created",
         "launches",
     }:
         return False
     try:
-        inputs_sha256 = _geometry_diagnostic_inputs_sha256(
-            prereg_record, calibration_diagnostic
-        )
+        inputs_sha256 = _geometry_diagnostic_inputs_sha256(prereg_record)
     except (KeyError, TypeError, ValueError):
         return False
     launches = record.get("launches")
-    matched_cell_geometry = prereg_record.get("matched_cell_geometry")
+    expected_geometry = {
+        entry.get("name"): entry.get("cell_geometry")
+        for entry in prereg_record.get("implementations", [])
+    }
     return (
         record.get("schema_version") == GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION
         and record.get("record_type") == "startup-geometry-diagnostic"
         and record.get("status") == "PASS"
         and record.get("inputs_sha256") == inputs_sha256
-        and record.get("calibration_diagnostic_sha256")
-        == _calibration_diagnostic_sha256(calibration_diagnostic)
         and record.get("execution")
         == {
             "diagnostic_only": True,
@@ -3578,10 +3636,13 @@ def validate_geometry_diagnostic(
         }
         and isinstance(launches, list)
         and len(launches) == len(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
-        and isinstance(matched_cell_geometry, dict)
+        # Each launch is checked against ITS OWN preregistered grid. There is
+        # no cross-implementation comparison: differing pitches are the
+        # expected, published outcome under protocol 1.3.0.
         and all(
-            _valid_geometry_diagnostic_launch(launch, expected)
-            and launch.get("cell_geometry") == matched_cell_geometry
+            profiles.exact_80x24_geometry(expected_geometry.get(expected))
+            and _valid_geometry_diagnostic_launch(launch, expected)
+            and launch.get("cell_geometry") == expected_geometry[expected]
             for launch, expected in zip(
                 launches, GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS, strict=True
             )
@@ -4018,7 +4079,7 @@ def run_replicate(
                 and _geometry_model_summary(geometry_model_evidence)
                 == expected_environment.get("pty_pixel_envelope_model")
                 and cell_geometry_from_oracle(ready_record)
-                == expected_environment.get("matched_cell_geometry")
+                == expected_environment.get("cell_geometry")
             )
             if ready:
                 release = getattr(launcher, "release_geometry_control", None)
@@ -4182,9 +4243,9 @@ def run_replicate(
                 and _raw_pty_envelope(first) == _raw_pty_envelope(ready_record)
                 and _raw_pty_envelope(final) == _raw_pty_envelope(ready_record)
                 and cell_geometry_from_oracle(first)
-                == expected_environment.get("matched_cell_geometry")
+                == expected_environment.get("cell_geometry")
                 and cell_geometry_from_oracle(final)
-                == expected_environment.get("matched_cell_geometry")
+                == expected_environment.get("cell_geometry")
             ),
             "static_prompt": (
                 first is not None
@@ -4417,11 +4478,15 @@ def verify_frozen_probe(record: dict, probes: list[dict]) -> tuple[list[str], li
             raise ValueError(
                 f"availability probe drift: pinned calibration changed for {name!r}"
             )
-        if name in qualified and probe.get("cell_geometry") != record.get(
-            "matched_cell_geometry"
-        ):
+        # Protocol 1.3.0 binds each terminal to ITS OWN preregistered grid
+        # (checked above). There is deliberately no cross-terminal equality
+        # check here: the exhaustive search proved no common grid exists on
+        # this machine, and inventing one would have to come from changing a
+        # terminal's profile after preregistration.
+        if name in qualified and not _stable_own_geometry(probe):
             raise ValueError(
-                f"availability probe drift: cell geometry is not matched for {name!r}"
+                f"availability probe drift: {name!r} did not prove its own exact "
+                "80x24 device-pixel grid"
             )
     if observed["excluded"]:
         raise ValueError(
@@ -4520,7 +4585,7 @@ def assemble_replicate_samples(
     elif len(replicate.get("gpu_regions", {})) > 1:
         per_replicate_unsupported["gpu_memory"] = (
             "multiple DRM resident regions are preserved separately in raw evidence; "
-            "protocol 1.2.0 defines no valid scalar aggregation"
+            "protocol 1.3.0 defines no valid scalar aggregation"
         )
     return (
         build_samples(
@@ -4559,7 +4624,15 @@ def environment_from_prereg(record: dict) -> dict:
         "compositor": source.get("compositor"),
         "power_policy": source.get("power_policy"),
         "matched_colors": record.get("matched_colors"),
-        "matched_cell_geometry": record.get("matched_cell_geometry"),
+        # Protocol 1.3.0: publish the declared policy plus every qualified
+        # terminal's own device-pixel grid. Differences between them are part
+        # of the published limitations, not something the runner equalizes.
+        "cell_geometry_policy": record.get("cell_geometry_policy"),
+        "implementation_cell_geometry": {
+            entry.get("name"): entry.get("cell_geometry")
+            for entry in record.get("implementations", [])
+            if entry.get("availability") == "qualified"
+        },
     }
 
 
@@ -4700,9 +4773,6 @@ def run_session(
     observe_environment = getattr(launcher, "environment_observation", None)
     frozen_environment = observe_environment() if observe_environment else None
     expected_environment = dict(prereg_record.get("environment_class", {}))
-    expected_environment["matched_cell_geometry"] = prereg_record.get(
-        "matched_cell_geometry"
-    )
     if not isinstance(frozen_environment, dict):
         raise ValueError("live environment controls are unavailable")
     for field in ("display_mode_signature", "external_power_state", "power_policy"):
@@ -4721,10 +4791,13 @@ def run_session(
     prereg_by_name = {
         entry.get("name"): entry for entry in prereg_record.get("implementations", [])
     }
+    # Every replicate is held to the terminal's OWN preregistered grid and
+    # pixel-envelope model for the whole run, so a terminal that silently
+    # re-lays out mid-session fails against its own registered model.
     expected_environments = {
         name: {
             **frozen_environment,
-            "matched_cell_geometry": prereg_record.get("matched_cell_geometry"),
+            "cell_geometry": prereg_by_name[name].get("cell_geometry"),
             "pty_pixel_envelope_model": prereg_by_name[name].get(
                 "pty_pixel_envelope_model"
             ),
@@ -5405,6 +5478,7 @@ class _FakeLauncher:
         environment_invalid_rehearsal_for: dict[str, str] | None = None,
         unproven_environment_invalid_rehearsal_for: dict[str, str] | None = None,
         oracle_geometry: dict[str, int] | None = None,
+        per_implementation_oracle_geometry: dict[str, dict] | None = None,
     ):
         self.behaviour = behaviour
         self.backend = {"backend": "fake", "display": "wayland"}
@@ -5446,6 +5520,12 @@ class _FakeLauncher:
             unproven_environment_invalid_rehearsal_for or {}
         )
         self._observation_ticks = 0
+        # Protocol 1.3.0 terminals report their OWN PTY pixel envelope; the
+        # fake launcher can therefore give each implementation a different one.
+        self.per_implementation_oracle_geometry = {
+            name: dict(value)
+            for name, value in (per_implementation_oracle_geometry or {}).items()
+        }
         self.oracle_geometry = dict(
             oracle_geometry
             or {
@@ -5560,7 +5640,9 @@ class _FakeLauncher:
             json.dumps(
                 {
                     "kind": "idle-ready",
-                    **self.oracle_geometry,
+                    **self.per_implementation_oracle_geometry.get(
+                        implementation, self.oracle_geometry
+                    ),
                     "prompt": "odytty-bench$ ",
                     "prompt_sha256": "a" * 64,
                     "output_bytes": 20,
@@ -5701,9 +5783,29 @@ class _FakeLauncher:
         }
 
 
+def _prereg_geometry(record: dict, name: str) -> dict | None:
+    """Return one implementation's own preregistered device-pixel grid."""
+    return next(
+        (
+            entry.get("cell_geometry")
+            for entry in record.get("implementations", [])
+            if entry.get("name") == name
+        ),
+        None,
+    )
+
+
 def _fake_prereg(
-    implementations: list[str], unavailable: dict[str, str] | None = None
+    implementations: list[str],
+    unavailable: dict[str, str] | None = None,
+    geometries: dict[str, dict] | None = None,
 ) -> dict:
+    """Build a synthetic preregistration for the self-tests.
+
+    `geometries` pins a DIFFERENT device-pixel grid per implementation. The
+    default gives every terminal the same grid only because the fake launcher
+    reports one; protocol 1.3.0 neither requires nor checks that equality.
+    """
     unavailable = unavailable or {}
     qualified = [name for name in implementations if name not in unavailable]
     geometry = {
@@ -5714,6 +5816,10 @@ def _fake_prereg(
         "cell_width_device_px": 10,
         "cell_height_device_px": 20,
     }
+    geometries = geometries or {}
+
+    def own_geometry(name: str) -> dict:
+        return geometries.get(name, geometry)
     shared_font = {
         "family": profiles.SHARED_FONT_FAMILY,
         "style": "Book",
@@ -5723,7 +5829,11 @@ def _fake_prereg(
     }
     return {
         "record_type": "preregistration",
-        "protocol": {"version": "1.2.0", "git_commit": "0" * 40, "sha256": "a" * 64},
+        "protocol": {
+            "version": result_schema.PROTOCOL_VERSION,
+            "git_commit": "0" * 40,
+            "sha256": "a" * 64,
+        },
         "checkout": {"git_commit": "0" * 40, "dirty": False},
         "public_anchor": {
             "remote": "origin",
@@ -5766,13 +5876,17 @@ def _fake_prereg(
                 "availability": "unavailable" if name in unavailable else "qualified",
                 "unavailable_reason": unavailable.get(name, "not applicable"),
                 "display_path": None if name in unavailable else DISPLAY_PATH_WAYLAND,
-                "cell_geometry": None if name in unavailable else geometry,
+                "cell_geometry": None if name in unavailable else own_geometry(name),
                 "pty_pixel_envelope_model": (
                     None
                     if name in unavailable
                     else {
-                        "cell_width_device_px": geometry["cell_width_device_px"],
-                        "cell_height_device_px": geometry["cell_height_device_px"],
+                        "cell_width_device_px": own_geometry(name)[
+                            "cell_width_device_px"
+                        ],
+                        "cell_height_device_px": own_geometry(name)[
+                            "cell_height_device_px"
+                        ],
                         "width_remainder_device_px": 0,
                         "height_remainder_device_px": 0,
                     }
@@ -5798,7 +5912,7 @@ def _fake_prereg(
             dict(entry) for entry in profiles.LAPTOP_SCOPE_EXCLUSIONS
         ],
         "configurations": ["plain"],
-        "matched_cell_geometry": geometry,
+        "cell_geometry_policy": profiles.CELL_GEOMETRY_POLICY,
         "driver": {"sha256": "f" * 64, "name": "scripts/bench-protocol/driver.py", "revision": "0" * 40},
         "orchestrator": {"sha256": "9" * 64, "name": "scripts/bench-protocol/w6_runner.py", "revision": "0" * 40},
         "collectors": [],
@@ -6439,7 +6553,7 @@ def self_test() -> list[str]:
             return _synthetic_probe_attempt(
                 name,
                 active_launcher.calibration_record(name),
-                diagnostic_prereg["matched_cell_geometry"],
+                _prereg_geometry(diagnostic_prereg, name),
             )
 
         try:
@@ -6476,9 +6590,6 @@ def self_test() -> list[str]:
                 "calibration diagnostic: benchmark state consumption validated"
             )
         pinned_from_calibration = json.loads(json.dumps(diagnostic_prereg))
-        pinned_from_calibration["matched_cell_geometry"] = transient_calibration[
-            "matched_cell_geometry"
-        ]
         pinned_by_name = {
             entry["name"]: entry
             for entry in pinned_from_calibration["implementations"]
@@ -6666,7 +6777,6 @@ def self_test() -> list[str]:
         try:
             diagnostic = run_geometry_diagnostic(
                 diagnostic_prereg,
-                stable_calibration,
                 diagnostic_launcher,
                 sleep=lambda _seconds: None,
             )
@@ -6680,7 +6790,7 @@ def self_test() -> list[str]:
                     "geometry diagnostic: fixed order or WezTerm zero-action drifted"
                 )
             if not validate_geometry_diagnostic(
-                diagnostic, diagnostic_prereg, stable_calibration
+                diagnostic, diagnostic_prereg
             ):
                 failures.append("geometry diagnostic: valid record did not validate")
             padded_diagnostic = json.loads(json.dumps(diagnostic))
@@ -6692,7 +6802,7 @@ def self_test() -> list[str]:
                 "content_height_device_px"
             ] = padded_grid["content_height_device_px"] + 3
             if validate_geometry_diagnostic(
-                padded_diagnostic, diagnostic_prereg, stable_calibration
+                padded_diagnostic, diagnostic_prereg
             ):
                 failures.append(
                     "geometry diagnostic: unproved fixed-remainder PTY envelope validated"
@@ -6702,22 +6812,22 @@ def self_test() -> list[str]:
                 "content_width_device_px"
             ] += 80
             if validate_geometry_diagnostic(
-                forged_normalized, diagnostic_prereg, stable_calibration
+                forged_normalized, diagnostic_prereg
             ):
                 failures.append(
                     "geometry diagnostic: forged normalized cell grid validated"
                 )
-            for invalid_schema in (1, 2, 3, 5):
+            for invalid_schema in (1, 2, 3, 4, 6):
                 forged_diagnostic = json.loads(json.dumps(diagnostic))
                 forged_diagnostic["schema_version"] = invalid_schema
                 if validate_geometry_diagnostic(
-                    forged_diagnostic, diagnostic_prereg, stable_calibration
+                    forged_diagnostic, diagnostic_prereg
                 ):
                     failures.append("geometry diagnostic: forged schema validated")
             forged_diagnostic = json.loads(json.dumps(diagnostic))
             forged_diagnostic["launches"][0]["pty_geometry"]["columns"] = 94
             if validate_geometry_diagnostic(
-                forged_diagnostic, diagnostic_prereg, stable_calibration
+                forged_diagnostic, diagnostic_prereg
             ):
                 failures.append("geometry diagnostic: non-80-column evidence validated")
             forged_diagnostic = json.loads(json.dumps(diagnostic))
@@ -6725,7 +6835,7 @@ def self_test() -> list[str]:
                 "measurement"
             ] = True
             if validate_geometry_diagnostic(
-                forged_diagnostic, diagnostic_prereg, stable_calibration
+                forged_diagnostic, diagnostic_prereg
             ):
                 failures.append("geometry diagnostic: benchmark identity consumption validated")
 
@@ -6740,7 +6850,6 @@ def self_test() -> list[str]:
             "cell_width_device_px": 10,
             "cell_height_device_px": 19,
         }
-        fixed_remainder_prereg["matched_cell_geometry"] = fixed_remainder_grid
         for implementation in fixed_remainder_prereg["implementations"]:
             implementation["cell_geometry"] = fixed_remainder_grid
             implementation["pty_pixel_envelope_model"] = {
@@ -6765,7 +6874,6 @@ def self_test() -> list[str]:
         try:
             fixed_remainder_diagnostic = run_geometry_diagnostic(
                 fixed_remainder_prereg,
-                fixed_remainder_calibration,
                 fixed_remainder_launcher,
                 sleep=lambda _seconds: None,
             )
@@ -6800,9 +6908,7 @@ def self_test() -> list[str]:
                 }
                 or ghostty_launch["cell_geometry"] != fixed_remainder_grid
                 or not validate_geometry_diagnostic(
-                    fixed_remainder_diagnostic,
-                    fixed_remainder_prereg,
-                    fixed_remainder_calibration,
+                    fixed_remainder_diagnostic, fixed_remainder_prereg
                 )
                 or fixed_remainder_launcher.handshake_state
                 or list(
@@ -6822,9 +6928,7 @@ def self_test() -> list[str]:
                 "observations"
             ][0]["reported_width_device_px"] += 1
             if validate_geometry_diagnostic(
-                forged_affine_proof,
-                fixed_remainder_prereg,
-                fixed_remainder_calibration,
+                forged_affine_proof, fixed_remainder_prereg
             ):
                 failures.append(
                     "geometry diagnostic: forged affine remainder proof validated"
@@ -6834,7 +6938,6 @@ def self_test() -> list[str]:
         try:
             run_geometry_diagnostic(
                 diagnostic_prereg,
-                stable_calibration,
                 wrong_backend,
                 sleep=lambda _seconds: None,
             )
@@ -6850,7 +6953,6 @@ def self_test() -> list[str]:
         try:
             run_geometry_diagnostic(
                 diagnostic_prereg,
-                stable_calibration,
                 no_scope,
                 sleep=lambda _seconds: None,
             )
@@ -6873,7 +6975,6 @@ def self_test() -> list[str]:
         try:
             run_geometry_diagnostic(
                 diagnostic_prereg,
-                stable_calibration,
                 failed_launcher,
                 sleep=lambda _seconds: None,
             )
@@ -6899,7 +7000,6 @@ def self_test() -> list[str]:
         try:
             run_geometry_diagnostic(
                 diagnostic_prereg,
-                stable_calibration,
                 interrupted_launcher,
                 sleep=lambda _seconds: None,
             )
@@ -7015,6 +7115,32 @@ def self_test() -> list[str]:
         cli_output = root / "cli-absent-public" / "geometry.json"
         cli_private = root / "cli-private"
         cli_launches = []
+        # The retired common-grid calibration binding cannot be reintroduced
+        # through the CLI: the flag is refused outright, before any backend
+        # preflight, storage reservation, or launch.
+        retired_output = root / "cli-retired-public" / "geometry.json"
+        retired_private = root / "cli-retired-private"
+        with contextlib.redirect_stderr(io.StringIO()):
+            retired_status = main(
+                [
+                    "--geometry-diagnostic-output",
+                    str(retired_output),
+                    "--geometry-diagnostic-private-dir",
+                    str(retired_private),
+                    "--calibration-diagnostic-record",
+                    str(cli_calibration),
+                    "--preregistration",
+                    str(cli_prereg),
+                ]
+            )
+        if (
+            retired_status != 2
+            or retired_output.parent.exists()
+            or retired_private.exists()
+        ):
+            failures.append(
+                "geometry diagnostic: the retired calibration binding was accepted"
+            )
         original_preflight = globals()["preflight_window_backend"]
         original_verify = globals()["verify_probe_inputs"]
         original_launcher = globals()["RealLauncher"]
@@ -7038,8 +7164,6 @@ def self_test() -> list[str]:
                         str(cli_output),
                         "--geometry-diagnostic-private-dir",
                         str(cli_private),
-                        "--calibration-diagnostic-record",
-                        str(cli_calibration),
                         "--preregistration",
                         str(cli_prereg),
                     ]
@@ -7094,8 +7218,6 @@ def self_test() -> list[str]:
                         str(cli_failure_output),
                         "--geometry-diagnostic-private-dir",
                         str(cli_failure_private),
-                        "--calibration-diagnostic-record",
-                        str(cli_calibration),
                         "--preregistration",
                         str(cli_prereg),
                     ]
@@ -8455,7 +8577,7 @@ def self_test() -> list[str]:
                 "display_mode_signature": [{"self_test": "stable"}],
                 "external_power_state": "external",
                 "power_policy": "performance",
-                "matched_cell_geometry": {
+                "cell_geometry": {
                     "columns": 80,
                     "rows": 24,
                     "content_width_device_px": 800,
@@ -8518,6 +8640,43 @@ def self_test() -> list[str]:
                 failures.append(f"timing: {label} mapping changed the child duration")
         if observed_geometry[0] != observed_geometry[1]:
             failures.append("timing: mapping delay changed calibrated geometry")
+
+    # Protocol 1.3.0 default: the probe takes exactly one bounded launch per
+    # implementation, applies no calibration override, and produces no
+    # calibration-search evidence. WezTerm is outside the laptop scope and is
+    # never named, so it is never launched.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        default_probe_launcher = _FakeLauncher(
+            {
+                "odytty": "wayland",
+                "kitty": "wayland",
+                "ghostty": "wayland",
+                "alacritty": "wayland",
+            },
+            root / "default-probe",
+        )
+        default_probes = probe_availability(
+            list(profiles.LAPTOP_IMPLEMENTATIONS),
+            default_probe_launcher,
+            sleep=lambda _seconds: None,
+        )
+        if [
+            name for name, _seconds in default_probe_launcher.launch_durations
+        ] != list(profiles.LAPTOP_IMPLEMENTATIONS):
+            failures.append(
+                "probe: the default path did not take exactly one launch per terminal"
+            )
+        if "wezterm" in default_probe_launcher.launches:
+            failures.append("probe: WezTerm was launched by the default probe path")
+        if default_probe_launcher.calibrations:
+            failures.append("probe: the default path applied a calibration override")
+        if any("calibration_attempts" in probe for probe in default_probes):
+            failures.append("probe: the default path produced calibration-search evidence")
+        if qualify_implementations(default_probes)["qualified"] != list(
+            profiles.LAPTOP_IMPLEMENTATIONS
+        ):
+            failures.append("probe: the default path did not qualify the laptop set")
 
     # Window parsing recognizes the mapped window and its display path.
     clients = parse_hyprctl_clients(
@@ -8747,12 +8906,16 @@ def self_test() -> list[str]:
         ("truncated", "reordered", "duplicate"), adversarial_lists
     ):
         altered = reseal_attempt_list(calibrated[1], attempts)
-        if not qualify_implementations([calibrated[0], altered])["protocol_blockers"]:
+        if not qualify_implementations(
+            [calibrated[0], altered], require_exhaustive_calibration=True
+        )["protocol_blockers"]:
             failures.append(f"qualification: {label} calibration list passed")
     bad_list_digest = json.loads(json.dumps(calibrated[1]))
     bad_list_digest["calibration_attempts_sha256"] = "0" * 64
     bad_list_digest = _seal_probe_attempt(bad_list_digest)
-    if not qualify_implementations([calibrated[0], bad_list_digest])["protocol_blockers"]:
+    if not qualify_implementations(
+        [calibrated[0], bad_list_digest], require_exhaustive_calibration=True
+    )["protocol_blockers"]:
         failures.append("qualification: forged ordered-list digest passed")
 
     cherry_source = kitty_attempts[0]
@@ -8766,7 +8929,9 @@ def self_test() -> list[str]:
         }
     )
     cherry_picked = _seal_probe_attempt(cherry_picked)
-    if not qualify_implementations([calibrated[0], cherry_picked])["protocol_blockers"]:
+    if not qualify_implementations(
+        [calibrated[0], cherry_picked], require_exhaustive_calibration=True
+    )["protocol_blockers"]:
         failures.append("qualification: cherry-picked noncanonical selection passed")
 
     failed_calibration = calibrate_probe_set(
@@ -8779,7 +8944,9 @@ def self_test() -> list[str]:
             geometry if name == "odytty" else different_geometry,
         ),
     )
-    failed_decision = qualify_implementations(failed_calibration)
+    failed_decision = qualify_implementations(
+        failed_calibration, require_exhaustive_calibration=True
+    )
     if not failed_decision["protocol_blockers"] or any(
         entry["implementation"] == "kitty" for entry in failed_decision["excluded"]
     ):
@@ -8793,7 +8960,9 @@ def self_test() -> list[str]:
         probe_one=matching_probe,
         started_monotonic=time.monotonic() - CALIBRATION_MAX_WALL_SECONDS - 1,
     )
-    if not qualify_implementations(expired_calibration)["protocol_blockers"] or any(
+    if not qualify_implementations(
+        expired_calibration, require_exhaustive_calibration=True
+    )["protocol_blockers"] or any(
         probe.get("calibration_budget", {}).get("completed_launches")
         != len(initial_geometry_probes)
         for probe in expired_calibration
@@ -8808,13 +8977,16 @@ def self_test() -> list[str]:
     if kitty_ignored_geometries != {json.dumps(different_geometry, sort_keys=True)}:
         failures.append("qualification: ignored overrides did not preserve observed geometry")
 
+    # Protocol 1.3.0: two terminals with DIFFERENT stable exact-80x24 grids
+    # both qualify. This is the case the retired equality gate blocked and the
+    # only case the laptop can actually produce, so it is asserted directly.
     width_only = dict(geometry)
     width_only["content_width_device_px"] = 880
     width_only["cell_width_device_px"] = 11
     height_only = dict(geometry)
     height_only["content_height_device_px"] = 528
     height_only["cell_height_device_px"] = 22
-    crossed = qualify_implementations(
+    differing = qualify_implementations(
         [
             _synthetic_probe_attempt(
                 "odytty", profiles.calibration_configurations("odytty")[0], width_only
@@ -8822,11 +8994,140 @@ def self_test() -> list[str]:
             _synthetic_probe_attempt(
                 "kitty", profiles.calibration_configurations("kitty")[0], height_only
             ),
-        ],
-        require_exhaustive_calibration=False,
+        ]
     )
-    if not crossed["protocol_blockers"]:
-        failures.append("qualification: width/height cross was accepted as exact geometry")
+    if (
+        differing["qualified"] != ["odytty", "kitty"]
+        or differing["protocol_blockers"]
+        or differing["implementation_cell_geometry"]
+        != {"odytty": width_only, "kitty": height_only}
+    ):
+        failures.append(
+            "qualification: differing stable per-terminal grids were not admitted"
+        )
+
+    # A grid whose content envelope is not exactly the cell pitch times 80x24
+    # is not a stable model for that terminal and is refused on its own terms.
+    inconsistent = dict(geometry)
+    inconsistent["cell_width_device_px"] = 11
+    off_grid = dict(geometry)
+    off_grid["columns"] = 100
+    off_grid["content_width_device_px"] = 100 * off_grid["cell_width_device_px"]
+    for label, broken in (("inconsistent", inconsistent), ("non-80x24", off_grid)):
+        broken_decision = qualify_implementations(
+            [
+                _synthetic_probe_attempt(
+                    "odytty",
+                    profiles.calibration_configurations("odytty")[0],
+                    geometry,
+                ),
+                _synthetic_probe_attempt(
+                    "kitty", profiles.calibration_configurations("kitty")[0], broken
+                ),
+            ]
+        )
+        if "kitty" in broken_decision["qualified"] or not broken_decision[
+            "protocol_blockers"
+        ]:
+            failures.append(
+                f"qualification: a {label} device-pixel grid was admitted"
+            )
+
+    # The per-implementation admission predicate is pinned directly, because
+    # at the decision layer the evidence seal already rejects most malformed
+    # grids; asserting only through the decision would let this invariant
+    # silently weaken.
+    if not _stable_own_geometry(
+        _synthetic_probe_attempt(
+            "kitty", profiles.calibration_configurations("kitty")[0], geometry
+        )
+    ):
+        failures.append("qualification: a stable exact 80x24 grid was not admitted")
+    for label, broken in (("inconsistent", inconsistent), ("non-80x24", off_grid)):
+        if _stable_own_geometry(
+            _synthetic_probe_attempt(
+                "kitty", profiles.calibration_configurations("kitty")[0], broken
+            )
+        ):
+            failures.append(
+                f"qualification: a {label} grid satisfied the per-terminal invariant"
+            )
+    contradicting_model = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    contradicting_model["pty_pixel_envelope_model"] = {
+        "cell_width_device_px": geometry["cell_width_device_px"] + 1,
+        "cell_height_device_px": geometry["cell_height_device_px"],
+        "width_remainder_device_px": 0,
+        "height_remainder_device_px": 0,
+    }
+    if _stable_own_geometry(contradicting_model):
+        failures.append(
+            "qualification: a pitch contradicting its own grid satisfied the invariant"
+        )
+    oversized_remainder = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    oversized_remainder["pty_pixel_envelope_model"] = {
+        "cell_width_device_px": geometry["cell_width_device_px"],
+        "cell_height_device_px": geometry["cell_height_device_px"],
+        "width_remainder_device_px": geometry["cell_width_device_px"],
+        "height_remainder_device_px": 0,
+    }
+    if _stable_own_geometry(oversized_remainder):
+        failures.append(
+            "qualification: a whole-cell remainder satisfied the invariant"
+        )
+    absent_model = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    absent_model["pty_pixel_envelope_model"] = None
+    if _stable_own_geometry(absent_model):
+        failures.append("qualification: an absent pixel-envelope model satisfied the invariant")
+
+    # A terminal whose reported pixel-envelope model contradicts its own grid
+    # is refused: the pitch it publishes must be the pitch it renders.
+    forged_model = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    forged_model["pty_pixel_envelope_model"] = {
+        "cell_width_device_px": geometry["cell_width_device_px"] + 1,
+        "cell_height_device_px": geometry["cell_height_device_px"],
+        "width_remainder_device_px": 0,
+        "height_remainder_device_px": 0,
+    }
+    forged_model["observed_evidence"]["pty_pixel_envelope_model"] = dict(
+        forged_model["pty_pixel_envelope_model"]
+    )
+    forged_model = _seal_probe_attempt(forged_model)
+    forged_model_decision = qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty", profiles.calibration_configurations("odytty")[0], geometry
+            ),
+            forged_model,
+        ]
+    )
+    if "kitty" in forged_model_decision["qualified"]:
+        failures.append(
+            "qualification: a pixel-envelope model contradicting its own grid passed"
+        )
+
+    missing_model = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    missing_model["pty_pixel_envelope_model"] = None
+    missing_model["observed_evidence"]["pty_pixel_envelope_model"] = None
+    missing_model = _seal_probe_attempt(missing_model)
+    if "kitty" in qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty", profiles.calibration_configurations("odytty")[0], geometry
+            ),
+            missing_model,
+        ]
+    )["qualified"]:
+        failures.append("qualification: a missing pixel-envelope model passed")
 
     mismatched_font = qualify_implementations(
         [
@@ -9288,6 +9589,153 @@ def self_test() -> list[str]:
             if token and len(token) > 2 and re.search(rf"\b{re.escape(token)}\b", text):
                 failures.append("session: machine-identifying token reached the document")
 
+    # Protocol 1.3.0 end to end: two terminals whose stable device-pixel grids
+    # DIFFER complete a measured session and publish a validating document.
+    # This is the case the retired matched-grid gate made unreachable, and the
+    # exhaustive laptop search proved it is the only case this machine offers.
+    differing_grids = {
+        "odytty": {
+            "columns": 80,
+            "rows": 24,
+            "content_width_device_px": 800,
+            "content_height_device_px": 480,
+            "cell_width_device_px": 10,
+            "cell_height_device_px": 20,
+        },
+        "kitty": {
+            "columns": 80,
+            "rows": 24,
+            "content_width_device_px": 880,
+            "content_height_device_px": 504,
+            "cell_width_device_px": 11,
+            "cell_height_device_px": 21,
+        },
+    }
+    differing_oracle = {
+        name: {
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "content_width_device_px": grid["content_width_device_px"],
+            "content_height_device_px": grid["content_height_device_px"],
+        }
+        for name, grid in differing_grids.items()
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        differing_prereg = _fake_prereg(
+            ["odytty", "kitty"], geometries=differing_grids
+        )
+        differing_launcher = _FakeLauncher(
+            {"odytty": "wayland", "kitty": "wayland"},
+            root / "logs",
+            per_implementation_oracle_geometry=differing_oracle,
+        )
+        differing_document = run_session(
+            differing_prereg,
+            "d" * 64,
+            differing_launcher,
+            root / "results",
+            {"collectors": []},
+            sleep=lambda _seconds: None,
+            runner_sha256="9" * 64,
+            prereg_anchor_commit="1" * 40,
+        )
+        differing_errors = result_schema.validate(
+            differing_document, differing_prereg
+        )
+        if differing_errors:
+            failures.append(
+                "session: differing per-terminal grids failed validation: "
+                + "; ".join(
+                    f"{error.path}: {error.message}"
+                    for error in differing_errors[:4]
+                )
+            )
+        if differing_document["environment"].get(
+            "implementation_cell_geometry"
+        ) != differing_grids or differing_document["environment"].get(
+            "cell_geometry_policy"
+        ) != profiles.CELL_GEOMETRY_POLICY:
+            failures.append(
+                "session: the published environment did not report each terminal's grid"
+            )
+        if "matched_cell_geometry" in differing_document["environment"]:
+            failures.append(
+                "session: the retired matched-grid field reached the document"
+            )
+        # Exactly one bounded probe launch per implementation: no calibration
+        # search is planned, launched, or retried on the measured path, and no
+        # calibration override is applied.
+        probe_launches = [
+            name for name, _seconds in differing_launcher.launch_durations
+        ]
+        if sorted(probe_launches) != ["kitty", "odytty"]:
+            failures.append(
+                "session: the measured path launched more than one probe per terminal"
+            )
+        if differing_launcher.calibrations:
+            failures.append("session: the measured path applied a calibration override")
+        for name, expected_environment in (
+            (entry["implementation"], entry["expected_environment"])
+            for entry in differing_launcher.replicates
+        ):
+            if expected_environment.get("cell_geometry") != differing_grids[name]:
+                failures.append(
+                    "session: a replicate was not held to its own preregistered grid"
+                )
+                break
+
+    # A terminal whose live grid or pixel-envelope model no longer matches the
+    # one it preregistered aborts the measured run rather than being measured
+    # against a different layout under the same name.
+    for label, mutate in (
+        (
+            "grid",
+            lambda record: record["implementations"][1]["cell_geometry"].update(
+                cell_width_device_px=12,
+                content_width_device_px=80 * 12,
+            ),
+        ),
+        (
+            "envelope model",
+            lambda record: record["implementations"][1][
+                "pty_pixel_envelope_model"
+            ].update(cell_width_device_px=12),
+        ),
+        (
+            "absent grid",
+            lambda record: record["implementations"][1].update(cell_geometry=None),
+        ),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            drifted_prereg = _fake_prereg(
+                ["odytty", "kitty"], geometries=differing_grids
+            )
+            mutate(drifted_prereg)
+            drifted_launcher = _FakeLauncher(
+                {"odytty": "wayland", "kitty": "wayland"},
+                root / "logs",
+                per_implementation_oracle_geometry=differing_oracle,
+            )
+            try:
+                run_session(
+                    drifted_prereg,
+                    "d" * 64,
+                    drifted_launcher,
+                    root / "results",
+                    {"collectors": []},
+                    sleep=lambda _seconds: None,
+                    runner_sha256="9" * 64,
+                    prereg_anchor_commit="1" * 40,
+                )
+            except ValueError:
+                pass
+            else:
+                failures.append(
+                    f"session: a drifted per-terminal {label} was measured anyway"
+                )
+
     # One invalid primary attempt receives one replacement, and no replacement
     # is recursively replaced.
     with tempfile.TemporaryDirectory() as tmp:
@@ -9576,15 +10024,28 @@ def self_test() -> list[str]:
         private = root / "private"
         package.mkdir()
         private.mkdir(mode=0o700)
+        # Protocol 1.3.0 publishes one bounded probe per implementation, and
+        # the availability evidence must recompute to the same decision.
+        per_implementation_probes = [
+            _synthetic_probe_attempt(
+                "odytty", profiles.calibration_configurations("odytty")[0], geometry
+            ),
+            _synthetic_probe_attempt(
+                "kitty", profiles.calibration_configurations("kitty")[0], geometry
+            ),
+        ]
+        per_implementation_budget = {
+            "planned_launches": 2,
+            "per_attempt_wall_bound_seconds": PROBE_ATTEMPT_WALL_BOUND_SECONDS,
+            "total_wall_bound_seconds": 2 * PROBE_ATTEMPT_WALL_BOUND_SECONDS,
+        }
         (package / "availability.json").write_text(
             json.dumps(
                 {
-                    "calibration_mode": "exhaustive-prepublication",
-                    "calibration_budget": calibration_probe_budget(
-                        ["odytty", "kitty"]
-                    ),
-                    "probes": calibrated,
-                    "decision": qualify_implementations(calibrated),
+                    "calibration_mode": "preregistered-per-implementation",
+                    "probe_budget": per_implementation_budget,
+                    "probes": per_implementation_probes,
+                    "decision": qualify_implementations(per_implementation_probes),
                 }
             )
             + "\n",
@@ -9597,8 +10058,58 @@ def self_test() -> list[str]:
         result_path.write_text("{}\n", encoding="utf-8")
         try:
             finalize_public_evidence(package, result_path, private)
-        except ValueError:
-            failures.append("public package: valid exhaustive calibration was rejected")
+        except ValueError as error:
+            failures.append(
+                f"public package: per-implementation availability was rejected: {error}"
+            )
+
+        # The retired common-grid search cannot back a published run set, and
+        # a decision that disagrees with the sealed probes cannot either.
+        for label, record in (
+            (
+                "retired exhaustive calibration",
+                {
+                    "calibration_mode": "exhaustive-prepublication",
+                    "calibration_budget": calibration_probe_budget(
+                        ["odytty", "kitty"]
+                    ),
+                    "probes": calibrated,
+                    "decision": qualify_implementations(calibrated),
+                },
+            ),
+            (
+                "forged per-implementation decision",
+                {
+                    "calibration_mode": "preregistered-per-implementation",
+                    "probe_budget": per_implementation_budget,
+                    "probes": per_implementation_probes,
+                    "decision": {
+                        **qualify_implementations(per_implementation_probes),
+                        "qualified": ["odytty", "kitty", "wezterm"],
+                    },
+                },
+            ),
+        ):
+            retired_package = root / f"public-{label.split()[0]}"
+            retired_package.mkdir()
+            (retired_package / "availability.json").write_text(
+                json.dumps(record) + "\n", encoding="utf-8"
+            )
+            (retired_package / "raw-samples.jsonl").write_text(
+                '{"sample":1}\n', encoding="utf-8"
+            )
+            retired_result = retired_package / "w6-results.json"
+            retired_result.write_text("{}\n", encoding="utf-8")
+            retired_private = root / f"private-{label.split()[0]}"
+            retired_private.mkdir(mode=0o700)
+            try:
+                finalize_public_evidence(
+                    retired_package, retired_result, retired_private
+                )
+            except ValueError:
+                pass
+            else:
+                failures.append(f"public package: {label} was accepted")
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -9701,19 +10212,27 @@ def self_test() -> list[str]:
         private = root / "private"
         package.mkdir()
         private.mkdir(mode=0o700)
-        truncated = reseal_attempt_list(
+        # Retired calibration-search attempts cannot be smuggled into a
+        # per-implementation availability record either.
+        smuggled = reseal_attempt_list(
             calibrated[1], calibrated[1]["calibration_attempts"][:-1]
         )
-        truncated_probes = [calibrated[0], truncated]
+        smuggled_probes = [calibrated[0], smuggled]
         (package / "availability.json").write_text(
             json.dumps(
                 {
-                    "calibration_mode": "exhaustive-prepublication",
-                    "calibration_budget": calibration_probe_budget(
-                        ["odytty", "kitty"]
-                    ),
-                    "probes": truncated_probes,
-                    "decision": qualify_implementations(truncated_probes),
+                    "calibration_mode": "preregistered-per-implementation",
+                    "probe_budget": {
+                        "planned_launches": 2,
+                        "per_attempt_wall_bound_seconds": (
+                            PROBE_ATTEMPT_WALL_BOUND_SECONDS
+                        ),
+                        "total_wall_bound_seconds": (
+                            2 * PROBE_ATTEMPT_WALL_BOUND_SECONDS
+                        ),
+                    },
+                    "probes": smuggled_probes,
+                    "decision": qualify_implementations(smuggled_probes),
                 }
             )
             + "\n",
@@ -9729,7 +10248,9 @@ def self_test() -> list[str]:
         except ValueError:
             pass
         else:
-            failures.append("public package: truncated exhaustive calibration passed")
+            failures.append(
+                "public package: smuggled calibration-search attempts passed"
+            )
 
     return failures
 
@@ -10050,15 +10571,28 @@ def finalize_public_evidence(
         raise ValueError("availability evidence contains an invalid probe outcome")
     mode = availability_record.get("calibration_mode")
     if mode == "exhaustive-prepublication":
-        if _calibrated_probe_set_failures(probes):
-            raise ValueError(
-                "availability evidence is not the exact exhaustive deterministic calibration"
-            )
-        expected_budget = calibration_probe_budget(
-            [probe.get("implementation") for probe in probes]
+        # Retired with protocol 1.2.0. A published result set may not be
+        # backed by the common-grid search: it selected each terminal's
+        # configuration to satisfy a cross-terminal equality this protocol no
+        # longer asserts, so its qualification evidence means something else.
+        raise ValueError(
+            "availability evidence binds the retired protocol 1.2.0 exhaustive "
+            "common-grid calibration"
         )
-        if availability_record.get("calibration_budget") != expected_budget:
-            raise ValueError("availability calibration budget is absent or inconsistent")
+    if mode == "preregistered-per-implementation":
+        expected_budget = {
+            "planned_launches": len(probes),
+            "per_attempt_wall_bound_seconds": PROBE_ATTEMPT_WALL_BOUND_SECONDS,
+            "total_wall_bound_seconds": (
+                len(probes) * PROBE_ATTEMPT_WALL_BOUND_SECONDS
+            ),
+        }
+        if availability_record.get("probe_budget") != expected_budget:
+            raise ValueError("availability probe budget is absent or inconsistent")
+        if any("calibration_attempts" in probe for probe in probes):
+            raise ValueError(
+                "availability evidence carries retired calibration-search attempts"
+            )
         recomputed_decision = qualify_implementations(probes)
         if availability_record.get("decision") != recomputed_decision:
             raise ValueError("availability decision does not match sealed probe evidence")
@@ -10140,7 +10674,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
         f"{PUBLIC_API_BASE}/git/ref/{encoded_ref}",
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "OdyTTY-benchmark-protocol/1.2.0",
+            "User-Agent": "OdyTTY-benchmark-protocol/1.3.0",
         },
     )
     with urllib.request.urlopen(ref_request, timeout=30) as response:
@@ -10154,7 +10688,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
     encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
     request = urllib.request.Request(
         f"{PUBLIC_RAW_BASE}/{commit}/{encoded_path}",
-        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.2.0"},
+        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.3.0"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return commit, response.read()
@@ -10253,7 +10787,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--calibration-diagnostic-record",
         metavar="PATH",
-        help="validated calibration evidence required by the final geometry diagnostic",
+        help="retired protocol 1.2.0 option; always rejected",
     )
     parser.add_argument("--preregistration", metavar="PATH")
     parser.add_argument("--results-dir", metavar="PATH", default="bench-results")
@@ -10364,10 +10898,10 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    if args.geometry_diagnostic_output and not args.calibration_diagnostic_record:
+    if args.calibration_diagnostic_record:
         print(
-            "--geometry-diagnostic-output requires "
-            "--calibration-diagnostic-record",
+            "--calibration-diagnostic-record binds the retired protocol 1.2.0 "
+            "common-grid search and is no longer accepted",
             file=sys.stderr,
         )
         return 2
@@ -10523,22 +11057,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"geometry diagnostic input verification failed: {error}", file=sys.stderr)
             return 1
         try:
-            calibration_diagnostic = json.loads(
-                Path(args.calibration_diagnostic_record).read_text(encoding="utf-8")
-            )
-        except (OSError, ValueError) as error:
-            print(f"cannot read calibration diagnostic record: {error}", file=sys.stderr)
-            return 1
-        if not calibration_diagnostic_matches_preregistration(
-            calibration_diagnostic, prereg_record
-        ):
-            print(
-                "geometry diagnostic preregistration does not exactly match "
-                "validated calibration evidence",
-                file=sys.stderr,
-            )
-            return 1
-        try:
             output_path, private_dir, diagnostic_output = (
                 reserve_geometry_diagnostic_storage(
                     Path(args.geometry_diagnostic_output),
@@ -10563,12 +11081,8 @@ def main(argv: list[str] | None = None) -> int:
                 launch_environment=launch_environment,
                 font_identity=prereg_record.get("shared_font"),
             )
-            diagnostic = run_geometry_diagnostic(
-                prereg_record, calibration_diagnostic, launcher
-            )
-            if not validate_geometry_diagnostic(
-                diagnostic, prereg_record, calibration_diagnostic
-            ):
+            diagnostic = run_geometry_diagnostic(prereg_record, launcher)
+            if not validate_geometry_diagnostic(diagnostic, prereg_record):
                 raise ValueError("completed geometry diagnostic did not validate")
             diagnostic_output.write(
                 json.dumps(diagnostic, indent=2, sort_keys=True) + "\n"
@@ -10668,22 +11182,18 @@ def main(argv: list[str] | None = None) -> int:
             for entry in prereg_record.get("implementations", [])
             if entry.get("name")
         ]
-        try:
-            probe_budget = calibration_probe_budget(names)
-        except ValueError as error:
-            print(f"availability probe budget invalid: {error}", file=sys.stderr)
-            return 1
-        if (
-            probe_budget["candidate_launch_bound"] > CALIBRATION_MAX_LAUNCHES
-            or probe_budget["candidate_wall_bound_seconds"]
-            > CALIBRATION_MAX_WALL_SECONDS
-        ):
-            print("availability probe exceeds the declared calibration budget", file=sys.stderr)
-            return 1
+        # Protocol 1.3.0 takes exactly one bounded probe launch per
+        # implementation with its preregistered calibration. No calibration
+        # search is planned, launched, or budgeted here.
+        probe_budget = {
+            "planned_launches": len(names),
+            "per_attempt_wall_bound_seconds": PROBE_ATTEMPT_WALL_BOUND_SECONDS,
+            "total_wall_bound_seconds": len(names) * PROBE_ATTEMPT_WALL_BOUND_SECONDS,
+        }
         print(
-            "availability calibration bound: "
-            f"{probe_budget['candidate_launch_bound']} launches / "
-            f"{probe_budget['candidate_wall_bound_seconds']} seconds",
+            "availability probe bound: "
+            f"{probe_budget['planned_launches']} launches / "
+            f"{probe_budget['total_wall_bound_seconds']} seconds",
             file=sys.stderr,
         )
         probe_dir = results_dir.with_name(f"{results_dir.name}-probe")
@@ -10698,14 +11208,14 @@ def main(argv: list[str] | None = None) -> int:
             launch_environment=launch_environment,
             font_identity=prereg_record.get("shared_font"),
         )
-        probes = probe_availability(names, launcher)
+        probes = probe_availability(names, launcher, calibrate=False)
         decision = qualify_implementations(
             probes, allow_mixed_display_paths=args.allow_mixed_display_paths
         )
         json.dump(
             {
-                "calibration_mode": "exhaustive-prepublication",
-                "calibration_budget": probe_budget,
+                "calibration_mode": "preregistered-per-implementation",
+                "probe_budget": probe_budget,
                 "probes": probes,
                 "decision": decision,
             },
@@ -10716,8 +11226,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write("\n")
         if decision["protocol_blockers"]:
             print(
-                "mapped terminal calibration did not meet matched device-pixel "
-                "geometry; protocol-valid comparison is blocked",
+                "a mapped terminal did not prove its own exact 80x24 "
+                "device-pixel grid; protocol-valid comparison is blocked",
                 file=sys.stderr,
             )
             return 2

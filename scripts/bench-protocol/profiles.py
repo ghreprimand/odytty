@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Canonical protocol 1.2.0 terminal profiles and launch identities."""
+"""Canonical protocol 1.3.0 terminal profiles and launch identities."""
 
 from __future__ import annotations
 
@@ -58,6 +58,59 @@ FONTCONFIG_ISOLATION_POLICY = """<?xml version="1.0"?>
 FONTCONFIG_ISOLATION_POLICY_SHA256 = hashlib.sha256(
     FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
 ).hexdigest()
+
+# Protocol 1.3.0 cell-geometry policy. Protocol 1.2.0 admitted W6 only when
+# every qualified terminal reached ONE identical device-pixel cell grid. The
+# exhaustive laptop calibration search completed every declared configuration
+# for odytty/kitty/ghostty/alacritty and proved no such common grid exists on
+# this machine, so that equality was an unsatisfiable admission gate rather
+# than a control. It is replaced by a per-implementation control: each
+# qualified terminal is normalized to exact PTY 80x24 on the shared font and
+# its canonical tracked profile, its own device-pixel cell pitch and sub-cell
+# remainder are preregistered, and that model must hold through readiness,
+# rehearsal, and every measured replicate. Cross-terminal pitch differences
+# are published as a limitation of the comparison, not equalized away.
+CELL_GEOMETRY_POLICY = "per-implementation-stable-exact-80x24"
+
+# The exact device-pixel field set every qualified implementation pins.
+REQUIRED_CELL_GEOMETRY = frozenset(
+    {
+        "columns",
+        "rows",
+        "content_width_device_px",
+        "content_height_device_px",
+        "cell_width_device_px",
+        "cell_height_device_px",
+    }
+)
+
+
+def exact_80x24_geometry(geometry: object) -> bool:
+    """Return whether one implementation's own grid is an exact 80x24 model.
+
+    This is a per-implementation invariant and is the single definition used
+    by preregistration checking, result validation, and the runner. The
+    terminal must have been normalized to exactly 80 columns by 24 rows, and
+    its reported content envelope must be exactly the integer cell pitch times
+    that grid. It says nothing about any other implementation's pitch, which
+    the protocol no longer requires to be equal.
+    """
+    if not isinstance(geometry, dict) or set(geometry) != REQUIRED_CELL_GEOMETRY:
+        return False
+    if any(
+        not isinstance(geometry[field], int) or isinstance(geometry[field], bool)
+        or geometry[field] <= 0
+        for field in REQUIRED_CELL_GEOMETRY
+    ):
+        return False
+    return (
+        geometry["columns"] == 80
+        and geometry["rows"] == 24
+        and geometry["content_width_device_px"]
+        == 80 * geometry["cell_width_device_px"]
+        and geometry["content_height_device_px"]
+        == 24 * geometry["cell_height_device_px"]
+    )
 
 
 def calibration_configurations(implementation: str) -> list[dict[str, object]]:

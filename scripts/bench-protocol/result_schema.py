@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Result-document schema and validator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.2.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.3.0).
 #
 # The protocol specifies the canonical result as UTF-8 JSON with sorted object
 # keys and a minimum shape, and it specifies exactly what validation must
@@ -49,11 +49,22 @@ import re
 import sys
 from pathlib import Path
 
+import profiles
 import summaries
 import workloads
 
-SCHEMA_VERSION = "1.2.0"
-PROTOCOL_VERSION = "1.2.0"
+# The exact-80x24 per-implementation grid rule lives in profiles.py so that
+# preregistration checking, result validation, and the runner share one
+# definition instead of three that can drift.
+_exact_80x24_geometry = profiles.exact_80x24_geometry
+
+# 1.3.0 retires the cross-terminal matched device-pixel grid: each qualified
+# implementation binds and reports its own stable exact-80x24 grid instead.
+# Documents written under 1.2.0 are rejected by version, not reinterpreted,
+# because their environment block asserts an equality this protocol no longer
+# makes and no longer verifies.
+SCHEMA_VERSION = "1.3.0"
+PROTOCOL_VERSION = "1.3.0"
 REHEARSAL_TIMING_TOLERANCE_SECONDS = 2.0
 ENVIRONMENT_SAMPLE_PERIOD_SECONDS = 1.0
 ENVIRONMENT_SAMPLE_MAX_GAP_SECONDS = 2.0
@@ -1039,26 +1050,54 @@ def validate(
             errors.append(
                 ValidationError("$.environment", "does not exactly bind preregistered fields")
             )
+        # Protocol 1.3.0: the environment publishes the declared policy and
+        # every qualified terminal's own grid. Nothing here requires two
+        # terminals to share a pitch; each must bind exactly the grid it
+        # preregistered, and each grid must be an exact 80x24 model.
         if has_w6 and actual_environment.get(
-            "matched_cell_geometry"
-        ) != preregistration.get("matched_cell_geometry"):
+            "cell_geometry_policy"
+        ) != preregistration.get("cell_geometry_policy"):
+            errors.append(
+                ValidationError(
+                    "$.environment.cell_geometry_policy",
+                    "must exactly bind the preregistered cell-geometry policy",
+                )
+            )
+        if has_w6 and "matched_cell_geometry" in actual_environment:
             errors.append(
                 ValidationError(
                     "$.environment.matched_cell_geometry",
-                    "must exactly bind the preregistered calibrated device-pixel geometry",
+                    "is a retired protocol 1.2.0 field and cannot appear",
                 )
             )
-        if has_w6 and any(
-            entry.get("cell_geometry") != preregistration.get("matched_cell_geometry")
-            for entry in preregistration.get("implementations", [])
-            if entry.get("availability") == "qualified"
-        ):
-            errors.append(
-                ValidationError(
-                    "$.implementations",
-                    "qualified implementations do not share the preregistered device-pixel geometry",
+        if has_w6:
+            expected_geometry = {
+                entry.get("name"): entry.get("cell_geometry")
+                for entry in preregistration.get("implementations", [])
+                if entry.get("availability") == "qualified"
+            }
+            if (
+                actual_environment.get("implementation_cell_geometry")
+                != expected_geometry
+            ):
+                errors.append(
+                    ValidationError(
+                        "$.environment.implementation_cell_geometry",
+                        "must exactly bind every qualified implementation's "
+                        "preregistered device-pixel grid",
+                    )
                 )
-            )
+            if any(
+                not _exact_80x24_geometry(geometry)
+                for geometry in expected_geometry.values()
+            ):
+                errors.append(
+                    ValidationError(
+                        "$.environment.implementation_cell_geometry",
+                        "every qualified implementation must bind an exact "
+                        "positive 80x24 device-pixel grid",
+                    )
+                )
         if has_w6 and any(
             entry.get("font_identity") != preregistration.get("shared_font")
             for entry in preregistration.get("implementations", [])
@@ -1387,7 +1426,7 @@ def _validate_ci(value: object) -> bool:
 
 
 def canonical_w6_summaries(samples: list[dict], seed: str) -> list[dict]:
-    """Recompute the exact protocol 1.2.0 W6 summaries from raw samples."""
+    """Recompute the exact protocol 1.3.0 W6 summaries from raw samples."""
     metric_specs = {
         metric["name"]: metric
         for metric in workloads.WORKLOADS["idle-visible-10m"]["metrics"]
@@ -1953,7 +1992,8 @@ def self_test() -> list[str]:
             "power_policy": "performance",
         }
     )
-    w6_prereg["matched_cell_geometry"] = {
+    w6_prereg["cell_geometry_policy"] = profiles.CELL_GEOMETRY_POLICY
+    w6_prereg["implementations"][0]["cell_geometry"] = {
         "columns": 80,
         "rows": 24,
         "content_width_device_px": 800,
@@ -1961,17 +2001,19 @@ def self_test() -> list[str]:
         "cell_width_device_px": 10,
         "cell_height_device_px": 20,
     }
-    w6_prereg["implementations"][0]["cell_geometry"] = w6_prereg[
-        "matched_cell_geometry"
-    ]
     w6_prereg["noise_control_attestations"] = {}
     w6_prereg["instrumentation_overhead_ceiling_percent"] = 5
     w6_prereg["background_cpu_ceiling_percent"] = 50
     w6_document = _minimal_document()
     w6_document["environment"] = dict(w6_prereg["environment_class"])
-    w6_document["environment"]["matched_cell_geometry"] = w6_prereg[
-        "matched_cell_geometry"
+    w6_document["environment"]["cell_geometry_policy"] = w6_prereg[
+        "cell_geometry_policy"
     ]
+    w6_document["environment"]["implementation_cell_geometry"] = {
+        entry["name"]: entry["cell_geometry"]
+        for entry in w6_prereg["implementations"]
+        if entry.get("availability") == "qualified"
+    }
     w6_document["samples"] = [
         _sample(
             workload="idle-visible-10m",
@@ -2039,6 +2081,54 @@ def self_test() -> list[str]:
         failures.append(
             f"schema: canonical W6 summary was rejected: {messages(w6_errors)}"
         )
+    # Protocol 1.3.0: two qualified terminals with DIFFERENT stable device-pixel
+    # grids are a valid, publishable comparison as long as each binds its own
+    # preregistered exact-80x24 model. The old schema rejected exactly this.
+    differing_prereg = json.loads(json.dumps(w6_prereg))
+    second_entry = json.loads(json.dumps(differing_prereg["implementations"][0]))
+    second_entry["name"] = "kitty"
+    second_entry["cell_geometry"] = {
+        "columns": 80,
+        "rows": 24,
+        "content_width_device_px": 880,
+        "content_height_device_px": 504,
+        "cell_width_device_px": 11,
+        "cell_height_device_px": 21,
+    }
+    differing_prereg["implementations"].append(second_entry)
+    differing_document = json.loads(json.dumps(w6_document))
+    differing_document["environment"]["implementation_cell_geometry"] = {
+        entry["name"]: entry["cell_geometry"]
+        for entry in differing_prereg["implementations"]
+    }
+    if any(
+        "cell_geometry" in error.path
+        for error in validate(differing_document, differing_prereg)
+    ):
+        failures.append(
+            "schema: differing stable per-terminal device-pixel grids were rejected"
+        )
+    missing_second = json.loads(json.dumps(differing_document))
+    missing_second["environment"]["implementation_cell_geometry"].pop("kitty")
+    if not any(
+        error.path == "$.environment.implementation_cell_geometry"
+        for error in validate(missing_second, differing_prereg)
+    ):
+        failures.append("schema: an omitted per-terminal grid was accepted")
+    off_grid_document = json.loads(json.dumps(differing_document))
+    off_grid_prereg = json.loads(json.dumps(differing_prereg))
+    for record in (
+        off_grid_prereg["implementations"][1]["cell_geometry"],
+        off_grid_document["environment"]["implementation_cell_geometry"]["kitty"],
+    ):
+        record["rows"] = 25
+        record["content_height_device_px"] = 25 * record["cell_height_device_px"]
+    if not any(
+        error.path == "$.environment.implementation_cell_geometry"
+        for error in validate(off_grid_document, off_grid_prereg)
+    ):
+        failures.append("schema: a non-80x24 per-terminal grid was accepted")
+
     mismatched_font_document = json.loads(json.dumps(w6_document))
     mismatched_font_document["implementations"][0]["font_identity"]["sha256"] = (
         "b" * 64
@@ -2311,8 +2401,22 @@ def self_test() -> list[str]:
         ("environment", lambda value: value["environment"].update(display="changed")),
         (
             "cell geometry",
-            lambda value: value["environment"]["matched_cell_geometry"].update(
-                cell_width_device_px=11
+            lambda value: value["environment"]["implementation_cell_geometry"][
+                "odytty"
+            ].update(cell_width_device_px=11),
+        ),
+        (
+            "cell geometry policy",
+            lambda value: value["environment"].update(
+                cell_geometry_policy="matched-across-implementations"
+            ),
+        ),
+        (
+            "retired matched geometry",
+            lambda value: value["environment"].update(
+                matched_cell_geometry=value["environment"][
+                    "implementation_cell_geometry"
+                ]["odytty"]
             ),
         ),
         ("unsupported", lambda value: value["unsupported"].append({"metric": "gpu_memory", "reason": "fabricated"})),

@@ -1,12 +1,31 @@
 # OdyTTY Comparative Benchmark Protocol
 
-Protocol version: `1.2.0`
+Protocol version: `1.3.0`
 
-Version 1.2.0 separates raw PTY pixel-envelope metadata from normalized cell
-grid geometry and requires validator-recomputed affine proof for nonzero fixed
-edge remainders. It requires a fresh preregistration and run-set identity.
-Protocol 1.0.0 and 1.1.0 records and results remain historical evidence and
-are never pooled with 1.2.0 samples.
+Version 1.3.0 retires the cross-terminal matched device-pixel cell grid as an
+admission requirement and replaces it with a per-implementation control. Every
+qualified terminal is still normalized to exact PTY 80x24 on identical font
+bytes, matched colors, its canonical tracked profile, the same native Wayland
+display path, and the same workload, timing, and noise controls; what changes
+is that terminals are no longer required to reach the *same* device-pixel cell
+pitch as each other. Each terminal's own pitch and sub-cell edge remainder are
+measured, preregistered, and required to hold through readiness, rehearsal,
+and every measured replicate.
+
+The reason is evidential. Version 1.2.0 admitted a comparison only when all
+four laptop terminals reached one identical device-pixel grid. The complete
+declared calibration search ran to exhaustion on the measurement machine —
+every declared configuration for OdyTTY, Kitty, Ghostty, and Alacritty — and
+found no such common grid. An admission gate that no declared configuration
+can satisfy does not control anything; it only makes a protocol-valid
+comparison unreachable. The remaining pitch difference is therefore stated as
+a limitation of the comparison (see *Cell geometry and its limitation*) rather
+than asserted away.
+
+Version 1.3.0 requires a fresh preregistration and run-set identity. Protocol
+1.0.0, 1.1.0, and 1.2.0 records and results remain historical evidence, are
+rejected by version rather than reinterpreted, and are never pooled with
+1.3.0 samples.
 
 This protocol defines how OdyTTY and independent terminal references are
 compared before any comparative numbers are collected. It measures complete
@@ -35,6 +54,9 @@ first measured sample. The record must contain:
 - every collector name, version, configuration digest, and required privilege;
 - the environment class, operating-system build, kernel, graphics driver,
   compositor or window server, display mode, and power policy;
+- the cell-geometry policy, and for every qualified implementation its own
+  exact 80x24 device-pixel cell grid and PTY pixel-envelope model
+  (pitch plus sub-cell remainder);
 - the configurations and metrics to collect, including metrics declared
   unsupported before the run;
 - the complete implementation order for every block;
@@ -101,9 +123,8 @@ All implementations in a primary run set use the same:
 
 - exact font file and SHA-256 digest;
 - font weight and style;
-- calibrated device-pixel cell width and height;
+- font size setting, from that terminal's canonical tracked profile;
 - `80` by `24` base grid and `160` by `48` expanded grid;
-- content viewport dimensions implied by those cell geometries;
 - display, scale, refresh rate, color mode, and compositor session;
 - opaque background, effects-off rendering, and no background image;
 - disabled ligatures, cursor blinking, animations, audible bell, and visual
@@ -114,15 +135,39 @@ All implementations in a primary run set use the same:
   directory class; and
 - release build class.
 
-Font size is not considered matched merely because two settings show the same
-point or pixel number. The measured cell geometry must match in device pixels.
 Window chrome is excluded from the content viewport but remains unchanged
 within a run set.
 
-Calibration therefore searches a public, version-pinned, finite setting set
-for every mapped implementation, including OdyTTY. It selects a common exact
-width-and-height intersection deterministically; no implementation is treated
-as the fixed geometry target, and a height-only estimate is not sufficient.
+### Cell geometry and its limitation
+
+The grid every terminal must reach is the *character* grid: exactly 80 columns
+by 24 rows, on identical font bytes at the same requested size, with matched
+colors and identical workload. That is what makes the compared work the same
+work.
+
+The *device-pixel* cell pitch is not required to be equal across terminals.
+Each terminal renders that 80x24 grid at whatever integer pitch its own layout
+produces, plus a sub-cell edge remainder smaller than one cell. That pitch and
+remainder are measured before preregistration, pinned in the preregistration
+record per implementation, and must hold unchanged through readiness, the
+rehearsal, and every measured replicate. A terminal that silently re-lays out
+mid-session fails against its own registered model and its run aborts.
+
+This is a real limitation and is published as one: the terminals do not paint
+an identical number of device pixels per cell, so the compared totals include
+whatever cost that difference carries. It is not corrected, scaled away, or
+hidden behind a single "matched geometry" number. The result document reports
+each qualified implementation's own grid under
+`environment.implementation_cell_geometry`, and any comparison drawn from a
+run set must be read with those grids visible.
+
+An exhaustive common-grid search over the declared configuration set remains
+available as historical feasibility tooling
+(`--calibration-diagnostic-output`). It takes no measurement and consumes no
+readiness, probe, rehearsal, or run identity. No readiness, probe, or measured
+run launches it, requires it, or consults its output; a published result set
+that cites it as its availability evidence is rejected.
+
 Requested settings and observed PTY evidence are separate records. Each
 attempt records sanitized exact argv and launch-control environment, requested
 metric controls, raw PTY columns/rows/pixel envelope, derived cell-grid geometry,
@@ -178,60 +223,62 @@ prior interactive size cannot override the profile. Sway observation alone is
 insufficient: until an equivalent reversible startup-geometry controller
 exists, a Sway session fails the prerequisite before any terminal launch.
 
-This changes probe-attempt evidence to schema version 3, reference-readiness
-evidence to schema version 4, geometry-diagnostic evidence to schema version 4,
-and introduces calibration-diagnostic evidence schema version 1.
-Earlier schemas predate either the
-startup-geometry handshake or the stable normalized-grid evidence and are
+Probe-attempt evidence is schema version 3, reference-readiness evidence is
+schema version 4, and geometry-diagnostic evidence is schema version 5.
+Calibration-diagnostic evidence (historical feasibility tooling) remains schema
+version 1. Earlier schemas predate either the startup-geometry handshake, the
+stable normalized-grid evidence, or the per-implementation grid, and are
 rejected rather than reinterpreted.
 
 For a bounded live check before laptop execution, run:
 
 ```text
 python3 scripts/bench-protocol/w6_runner.py \
-    --calibration-diagnostic-output <calibration-diagnostic.json> \
-    --calibration-diagnostic-private-dir <new-private-dir-outside-repository> \
-    --preregistration <draft-record.json>
-
-python3 scripts/bench-protocol/w6_runner.py \
     --geometry-diagnostic-output <geometry-diagnostic.json> \
     --geometry-diagnostic-private-dir <new-private-dir-outside-repository> \
-    --calibration-diagnostic-record <calibration-diagnostic.json> \
     --preregistration <record.json>
 ```
 
-The calibration diagnostic verifies the immutable artifacts, profiles, shared
-font, and Hyprland child display, then executes all 168 declared settings in
-fixed implementation and profile order through private systemd scopes and the
-production scale-aware geometry handshake. Every attempt uses the corrected
-two-distinct-emission model lock and post-lock drift rejection. Its create-exclusive
-public schema-version-1 record contains every sanitized attempt, ordered-list
-digest, validator-recomputed common grid, and deterministically ranked
-selection. An incomplete set, elapsed wall bound, missing common intersection,
-or forged selection cannot validate. Failure and interruption remove only the
-empty public reservation and retain the private raw evidence.
+The optional historical common-grid search is a separate action and is not
+part of this sequence:
 
-Copy the validated selections, common grid, and per-terminal envelope summaries
-into the draft. The one-shot geometry diagnostic requires the calibration
-record and refuses to construct a launcher unless those draft fields exactly
-match it. It does not search, repair, or reinterpret the draft. It launches
-OdyTTY, Kitty, Ghostty, and Alacritty once each in that fixed order through
-private systemd scopes and the production geometry handshake. WezTerm receives
-no action in either diagnostic. A public schema-version-4 record binds the
-canonical calibration-diagnostic digest and is produced only when every
-native-Wayland window reaches exact 80x24,
-records its opaque application id, raw PTY pixel envelope, normalized cell
-grid, affine envelope proof, process outcome, and successful cleanup, and every
-normalized grid equals the preregistered matched device-pixel geometry. Each
-terminal's requested calibration is already evidence-backed and pinned; a
-stable observed pitch that differs from the matched grid remains an unmet
-configuration. Raw logs stay in a new
-mode-`0700` directory outside the repository and public output tree. Failure or
-interruption discards the empty public reservation and retains the private
-diagnostics. Neither command consumes or creates readiness, probe,
+```text
+python3 scripts/bench-protocol/w6_runner.py \
+    --calibration-diagnostic-output <calibration-diagnostic.json> \
+    --calibration-diagnostic-private-dir <new-private-dir-outside-repository> \
+    --preregistration <draft-record.json>
+```
+
+The historical calibration diagnostic verifies the immutable artifacts,
+profiles, shared font, and Hyprland child display, then executes all 168
+declared settings in fixed implementation and profile order through private
+systemd scopes and the production scale-aware geometry handshake. Every attempt
+uses the two-distinct-emission model lock and post-lock drift rejection. Its
+create-exclusive public schema-version-1 record contains every sanitized
+attempt, ordered-list digest, validator-recomputed common grid, and
+deterministically ranked selection. An incomplete set, elapsed wall bound,
+missing common intersection, or forged selection cannot validate. On this
+machine the search completes and reports no common grid; that outcome is the
+recorded feasibility finding behind protocol 1.3.0 and blocks nothing.
+
+The one-shot geometry diagnostic launches OdyTTY, Kitty, Ghostty, and
+Alacritty once each in that fixed order through private systemd scopes and the
+production geometry handshake, using each terminal's preregistered calibration.
+It does not search, repair, or reinterpret the draft, and it neither requires
+nor consults calibration-search evidence. WezTerm receives no action in either
+diagnostic. A public schema-version-5 record is produced only when every
+native-Wayland window reaches exact 80x24, records its opaque application id,
+raw PTY pixel envelope, normalized cell grid, affine envelope proof, process
+outcome, and successful cleanup, and each normalized grid equals the grid that
+terminal itself preregistered. Terminals are compared against their own pinned
+grids, never against each other's. A stable observed pitch that differs from
+that terminal's own registered pitch remains an unmet configuration. Raw logs
+stay in a new mode-`0700` directory outside the repository and public output
+tree. Failure or interruption discards the empty public reservation and retains
+the private diagnostics. Neither command consumes or creates readiness, probe,
 preregistration-anchor, rehearsal, measurement, or run identity. Neither
-suspends Brave nor enforces CPU-noise controls. Calibration discovery
-is preparation evidence, not the official one-shot availability probe.
+suspends Brave nor enforces CPU-noise controls. Diagnostic evidence is
+preparation evidence, not the official one-shot availability probe.
 
 The font is enforced separately. The runner copies the pinned, digest-verified
 DejaVu Sans Mono file into a mode-`0700` single-face Fontconfig environment.
@@ -250,41 +297,44 @@ known nonfunctional on this machine, and receives zero launch, readiness,
 probe, rehearsal, measurement, and retry attempts. Generic WezTerm profile
 support remains available for a future machine-specific protocol revision.
 
-Before calibration, a bounded nonmeasurement readiness gate launches Kitty,
-Ghostty, and Alacritty once each in the prescribed private cgroup. Every
-reference must start its PTY child, produce the idle-ready evidence, and map an
-observable window. The gate binds its record to the preregistered artifacts,
-profiles, and font identity, and failure stops before the one-shot probe. Its
-raw logs use a create-only, mode-`0700` directory outside the repository and
-the public readiness-artifact tree.
+Before the availability probe, a bounded nonmeasurement readiness gate
+launches Kitty, Ghostty, and Alacritty once each in the prescribed private
+cgroup. Every reference must start its PTY child, produce the idle-ready
+evidence, and map an observable window. The gate binds its record to the
+preregistered artifacts, profiles, and font identity, and failure stops before
+the one-shot probe. Its raw logs use a create-only, mode-`0700` directory
+outside the repository and the public readiness-artifact tree. The readiness
+gate performs no calibration search and requires no calibration evidence.
 
-The complete laptop calibration is explicitly bounded. OdyTTY has 105
-declared font-size/line-height settings; each of the three references has 21
-font-size settings, for 168 probe launches. The readiness gate adds three
-bounded launches. Each attempt has a conservative 90-second controller wall
-allocation, making the probe bound 15,120 seconds and the complete preparation
-bound 171 launches / 15,390 seconds. Reaching either the planned launch count
-or wall deadline produces
-`unmet-protocol-configuration`; it never truncates the search silently.
-Mapped terminals without a common intersection are reported as
+The official availability probe is one bounded launch per registered
+implementation, using that implementation's preregistered calibration. It
+plans no calibration search, so its bound is the number of registered
+implementations times the conservative 90-second controller wall allocation. A
+mapped terminal that does not reach its own exact 80x24 device-pixel grid with
+a consistent pixel-envelope model is reported as
 `unmet-protocol-configuration`, distinct from an implementation that did not
-map a window.
+map a window. Availability evidence that carries calibration-search attempts,
+or that names the retired exhaustive search as its mode, cannot back a
+published run set.
 
-For every mapped terminal, published calibration attempts must equal the exact
-ordered setting sequence declared by the pinned profile—no truncation,
-reordering, duplication, or post-hoc subset is valid. Each attempt digest and
-the ordered-list digest are recomputed. Qualification and finalization
-independently recompute the common geometry, ranking, and selected source
-attempt. A launch failure or a process that never maps a window has one sealed,
-fully validated initial outcome and is not calibration-probed further. The
-pre-public exhaustive probe and the later frozen-qualified-set revalidation
-are labeled as distinct evidence modes; runtime revalidation never retries a
-preregistered unavailable implementation.
+The pre-public probe and the later frozen-qualified-set revalidation are
+labeled as distinct evidence modes; runtime revalidation never retries a
+preregistered unavailable implementation and never changes a terminal's
+calibration.
 
-This calibration procedure defines the protocol 1.2.0 selection and evidence
-contract without changing the measured quantity or relaxing matching.
-Implementations may express font size in different native units, so binding one nominal number
-or fixing one implementation as the target would not establish conformance.
+The historical calibration search remains explicitly bounded when it is run
+deliberately: OdyTTY has 105 declared font-size/line-height settings and each
+of the three references has 21 font-size settings, for 168 launches with a
+15,120-second wall bound. Its published attempts must equal the exact ordered
+setting sequence declared by the pinned profile — no truncation, reordering,
+duplication, or post-hoc subset is valid — and every attempt digest and
+ordered-list digest is recomputed on validation.
+
+Matching is not relaxed by protocol 1.3.0: the character grid, font bytes,
+colors, profile, display path, workload, timing, and noise controls are
+unchanged. Implementations express font size in different native units, so the
+device-pixel pitch each one lands on is reported per implementation rather
+than forced to a shared number that no declared configuration produces.
 
 OdyTTY's primary comparable configuration uses the plain renderer with visual
 effects off. An optional OdyTTY effects-on run may be published as a separate,
@@ -601,9 +651,9 @@ shape:
 
 ```json
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "protocol": {
-    "version": "1.2.0",
+    "version": "1.3.0",
     "git_commit": "<full-sha>",
     "sha256": "<protocol-sha256>"
   },
@@ -627,7 +677,18 @@ shape:
     "graphics_driver": "<public-version>",
     "display": "<mode>",
     "compositor": "<name-and-version>",
-    "power_policy": "<policy>"
+    "power_policy": "<policy>",
+    "cell_geometry_policy": "per-implementation-stable-exact-80x24",
+    "implementation_cell_geometry": {
+      "<terminal>": {
+        "columns": 80,
+        "rows": 24,
+        "content_width_device_px": "<80 * cell_width_device_px>",
+        "content_height_device_px": "<24 * cell_height_device_px>",
+        "cell_width_device_px": "<integer>",
+        "cell_height_device_px": "<integer>"
+      }
+    }
   },
   "implementations": [
     {
@@ -692,13 +753,17 @@ Each run set also publishes a Markdown report containing:
 
 1. protocol and preregistration identities;
 2. exact OdyTTY, reference, driver, fixture, and collector revisions;
-3. the public-safe environment class and matched configuration table;
+3. the public-safe environment class and matched configuration table,
+   including each qualified implementation's own device-pixel cell grid and an
+   explicit statement that those grids differ;
 4. commands and balanced execution order;
 5. a workload-by-implementation status matrix;
 6. separate tables for each metric with counts, summaries, confidence
    intervals, and links to raw sanitized samples;
 7. every failure, invalid attempt, skip, unsupported metric, and deviation;
-8. platform-specific semantic limitations;
+8. platform-specific semantic limitations, including the per-implementation
+   device-pixel pitch difference described under *Cell geometry and its
+   limitation*;
 9. instrumentation overhead checks; and
 10. an explicit statement that no composite winner was calculated.
 

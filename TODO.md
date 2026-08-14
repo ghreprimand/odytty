@@ -1315,6 +1315,14 @@ stay pinned to the revisions they measured.
       built (`scripts/bench-protocol/`) so measurement can start when the
       apparatus exists. Internal before/after microbenchmarks remain
       implementation measurements, not product comparisons.
+      Protocol 1.3.0 additionally records a measured feasibility finding: the
+      complete declared calibration search over OdyTTY, Kitty, Ghostty, and
+      Alacritty found no common device-pixel cell grid on the measurement
+      host, so the protocol now controls the grid per implementation — exact
+      80x24 on identical font bytes, colors, and profiles, with each
+      terminal's own pixel pitch pinned and published — and states the
+      remaining pitch difference as a limitation instead of asserting a match
+      that no declared configuration produces.
 - [ ] The external daily-driver evidence program
       (`docs/external-daily-driver.md`) remains a 1.0 gate and is unstarted.
 

@@ -1,7 +1,7 @@
 # `scripts/bench-protocol/` — comparative benchmark harness
 
 Preparation tooling for `docs/benchmark-protocol.md` (protocol version
-`1.2.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
+`1.3.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
 and cannot measure, and why.
 
 Every command here is offline, cheap, and side-effect free unless it is
@@ -61,13 +61,8 @@ python3 scripts/bench-protocol/w6_runner.py --reference-readiness-output <readin
     --reference-readiness-private-dir <private-dir-outside-repository> \
     --preregistration <record.json>
 python3 scripts/bench-protocol/w6_runner.py \
-    --calibration-diagnostic-output <calibration-diagnostic.json> \
-    --calibration-diagnostic-private-dir <new-private-dir-outside-repository> \
-    --preregistration <draft-record.json>
-python3 scripts/bench-protocol/w6_runner.py \
     --geometry-diagnostic-output <geometry-diagnostic.json> \
     --geometry-diagnostic-private-dir <new-private-dir-outside-repository> \
-    --calibration-diagnostic-record <calibration-diagnostic.json> \
     --preregistration <record.json>
 python3 scripts/bench-protocol/w6_runner.py --probe --preregistration <record.json> \
     --reference-readiness-record <readiness.json>
@@ -75,10 +70,15 @@ python3 scripts/bench-protocol/w6_runner.py --run --preregistration <record.json
     --results-dir <public-dir> --private-evidence-dir <private-dir>
 ```
 
-`--calibration-diagnostic-output` is a bounded diagnostic-only action for the
-current Hyprland native-Wayland session. It executes all 168 declared laptop
-settings in fixed implementation and profile order with the production
-scale-aware controller. Two agreeing models count only when they come from
+`--calibration-diagnostic-output` is optional historical feasibility tooling
+from protocol 1.2.0, kept because its evidence is what retired the
+cross-terminal matched grid. It is not part of the measured workflow: no
+readiness, probe, or run launches it, requires it, or reads its output, and a
+published run set that names it as its availability evidence is rejected. Run
+deliberately, it is a bounded diagnostic-only action for the current Hyprland
+native-Wayland session that executes all 168 declared laptop settings in fixed
+implementation and profile order with the production scale-aware controller.
+On this machine it completes and reports no common grid. Two agreeing models count only when they come from
 distinct, newly emitted oracle sequence records; polling one latest record and
 replaying already-consumed sequences are no-ops. Unprocessed records must be
 appended in strictly increasing sequence order; an inversion, a repeated
@@ -94,23 +94,22 @@ the count/wall bound cannot validate. Failure and interruption remove the
 public reservation while retaining raw logs in the new mode-`0700` private
 directory.
 
-Copy only the validated selections, common grid, and envelope-model summaries
-into the draft. `--geometry-diagnostic-output` requires that calibration record
-and refuses to construct a launcher if any pinned field differs. It is a
-bounded one-shot action for the same session. After verifying the pinned
-terminal artifacts, tracked configs, shared font, and child display, it uses private
-systemd scopes and the production startup-geometry handshake to launch exactly
-OdyTTY, Kitty, Ghostty, and Alacritty once each in that order. WezTerm is never
-launched. The create-exclusive schema-version-4 public record binds the
-canonical calibration-diagnostic digest and is written only
-when all four windows reach exact 80x24 PTY geometry and clean up; it preserves
-each raw PTY pixel envelope, normalized cell grid, and validator-recomputed
-affine proof, and requires every normalized grid to equal the preregistered
-matched device-pixel geometry. The diagnostic uses the evidence-backed
-calibration for each terminal; it does not search settings or relabel a stable
-mismatched pitch as the matched grid. Raw
-logs remain in the new mode-`0700` private directory outside the repository and
-public output tree.
+`--geometry-diagnostic-output` is the bounded one-shot startup-geometry
+action, and it requires no calibration-search evidence; passing the retired
+`--calibration-diagnostic-record` flag is refused outright. After verifying the
+pinned terminal artifacts, tracked configs, shared font, and child display, it
+uses private systemd scopes and the production startup-geometry handshake to
+launch exactly OdyTTY, Kitty, Ghostty, and Alacritty once each in that order
+with each terminal's preregistered calibration. WezTerm is never launched. The
+create-exclusive schema-version-5 public record is written only when all four
+windows reach exact 80x24 PTY geometry and clean up; it preserves each raw PTY
+pixel envelope, normalized cell grid, and validator-recomputed affine proof,
+and requires each normalized grid to equal the grid that terminal itself
+preregistered. Terminals are checked against their own pinned grids, never
+against each other's, so differing device-pixel pitches are expected rather
+than disqualifying; a pitch that differs from that terminal's own registered
+pitch is an unmet configuration. Raw logs remain in the new mode-`0700`
+private directory outside the repository and public output tree.
 Failure or interruption removes the incomplete public reservation while
 retaining private diagnostics. This action creates or consumes no readiness,
 probe, preregistration-anchor, rehearsal, measurement, or run identity. It
@@ -185,17 +184,19 @@ pitch from the ordered cell/pixel deltas.
 A nonzero-remainder launch first observed at exact 80x24 perturbs by one cell
 and returns to 80x24 without allowing repeated polls to consume either resize;
 a zero-remainder exact launch keeps the single-observation
-fast path. Each qualified implementation's envelope model is pinned in
-preregistration and rechecked before measurement. It
-probes every member of the declared bounded calibration set for every mapped
-terminal, including OdyTTY font size and line height, then deterministically
-selects one exact width-and-height intersection shared by all of them. OdyTTY
-is not a fixed target: its native pixel setting and the references' native
-point/DPI-resolved settings are different unit systems. A terminal whose
-kernel PTY does not expose pixel geometry, or whose cells never enter the
-common intersection, stays mapped but records
-`unmet-protocol-configuration`; it is not relabeled unavailable or silently
-dropped.
+fast path. Each qualified implementation's grid and envelope model are pinned
+in preregistration and rechecked before measurement.
+
+Protocol 1.3.0 checks that grid PER IMPLEMENTATION. One bounded probe launch
+per terminal uses that terminal's preregistered calibration, and the terminal
+qualifies when its OWN grid is exactly 80x24 with a content envelope equal to
+its integer pitch times that grid and a sub-cell remainder. Two terminals with
+different device-pixel pitches both qualify; that difference is published as a
+limitation rather than searched away, because the exhaustive search proved no
+common pitch exists on this machine. A terminal whose kernel PTY does not
+expose pixel geometry, or that does not reach its own exact 80x24 grid, stays
+mapped but records `unmet-protocol-configuration`; it is not relabeled
+unavailable or silently dropped.
 
 Probe-attempt schema version 3 preserves a sanitized exact argv, requested metric controls,
 separate observed idle-ready PTY columns/rows/raw pixel envelope and derived
@@ -206,7 +207,7 @@ both argv and environment. Requested controls are not observations; only PTY
 geometry is effective observed evidence. Earlier attempt records are rejected
 rather than reinterpreted under the fixed-remainder model.
 
-Before the one-shot exhaustive probe, `--reference-readiness-output` launches
+Before the one-shot availability probe, `--reference-readiness-output` launches
 Kitty, Ghostty, and Alacritty once each in the prescribed private cgroup. This
 is a bounded, nonmeasurement preparation gate: every reference must start its
 PTY child, reach the idle-ready record, and map an observable window. Failure
@@ -228,28 +229,28 @@ control names, and digests; launch records replace private paths with stable
 tokens. A copied face identity without the isolation proof fails closed, as
 does any changed isolation byte, path, or digest.
 
-The exhaustive laptop search is finite: 105 settings for OdyTTY and 21 for
-each of Kitty, Ghostty, and Alacritty, for 168 probe launches. The preceding
-readiness gate adds three bounded reference launches. At a conservative
-90-second allocation per attempt, the probe bound is 15,120 seconds and the
-complete preparation bound is 171 launches / 15,390 seconds. Hitting a count
-or time bound is an explicit protocol failure, never a partial search presented
-as complete.
+The measured path plans one bounded probe launch per registered
+implementation and no calibration search at all, so its bound is that launch
+count times the conservative 90-second allocation. The preceding readiness gate
+adds three bounded reference launches. Availability evidence that carries
+calibration-search attempts, or that names the retired exhaustive search as its
+mode, cannot back a published run set.
 
-Mapped terminals must publish the exact ordered profile setting sequence.
-Attempt and ordered-list digests are recomputed, and qualification/finalization
-independently recompute the geometry intersection, ranking, and selected source
-attempt. Truncated, reordered, duplicate, cherry-picked, or merely resealed
-lists fail. Launch-failure and no-window outcomes have separate sealed shapes;
-either stops that implementation after its one bounded initial attempt. The
-exhaustive pre-public probe and frozen qualified-only runtime revalidation are
-explicitly different evidence modes.
+Launch-failure and no-window outcomes have separate sealed shapes; either stops
+that implementation after its one bounded attempt. The pre-public probe and the
+frozen qualified-only runtime revalidation are explicitly different evidence
+modes. When the historical calibration search is run deliberately it remains
+finite — 105 settings for OdyTTY and 21 for each reference, 168 launches
+within 15,120 seconds — and its published attempts must equal the exact ordered
+profile setting sequence, with attempt and ordered-list digests recomputed;
+truncated, reordered, duplicate, cherry-picked, or merely resealed lists fail.
 
-Protocol 1.2.0 is an identity break for the PTY pixel-envelope and normalized
-cell-grid evidence model. Earlier probe, readiness, and diagnostic records are
-historical and cannot be reinterpreted under it.
-It requires a fresh preregistration and run identity; 1.0.0 and 1.1.0 results
-are never pooled with it. Exact font identity and matched device-pixel cells remain the
+Protocol 1.3.0 is an identity break: the cross-terminal matched device-pixel
+grid is retired in favor of a per-implementation grid, so earlier probe,
+readiness, diagnostic, and result records are historical and cannot be
+reinterpreted under it. It requires a fresh preregistration and run identity;
+1.0.0, 1.1.0, and 1.2.0 results are never pooled with it. Exact font identity,
+matched colors, matched profiles, and the exact 80x24 character grid remain the
 underlying requirements. Available DRM GPU-memory evidence
 likewise requires one identical `drm-resident-*` region-field set for every
 qualified terminal. If that semantic set cannot be matched, GPU memory is
@@ -340,7 +341,7 @@ because each one exists to prevent a specific, tempting mistake.
    what each workload physically needs. Five of seven require optical capture,
    so they are declared `skip` / `unavailable-hardware` in preregistration
    before any sample is taken. A self-test fails if W3 or W4 ever lose that
-   requirement — throughput endpoints are optical under protocol `1.2.0`, and
+   requirement — throughput endpoints are optical under protocol `1.3.0`, and
    quietly relaxing them to software timing would be the single most damaging
    change possible to this harness's honesty.
 

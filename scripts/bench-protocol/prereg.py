@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Preregistration-record generator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.2.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.3.0).
 #
 # The protocol's first requirement is that every run set have a public
 # preregistration record committed before its first measured sample, and it
@@ -53,9 +53,19 @@ import ordering
 import profiles
 import workloads
 
-PROTOCOL_VERSION = "1.2.0"
+PROTOCOL_VERSION = "1.3.0"
 PROTOCOL_DOC = Path("docs/benchmark-protocol.md")
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
+
+# The cell-geometry policy, its required field set, and the exact-80x24
+# per-implementation invariant are defined once in profiles.py so that
+# preregistration checking, result validation, and the runner cannot drift
+# apart. See profiles.CELL_GEOMETRY_POLICY for why protocol 1.3.0 retired the
+# cross-terminal matched grid. Records written under the old equality
+# semantics are rejected, never reinterpreted.
+CELL_GEOMETRY_POLICY = profiles.CELL_GEOMETRY_POLICY
+REQUIRED_CELL_GEOMETRY = profiles.REQUIRED_CELL_GEOMETRY
+exact_80x24_geometry = profiles.exact_80x24_geometry
 
 # Placeholder token written wherever an operator must supply a pinned value
 # that cannot be discovered automatically. The record is not valid while any
@@ -452,7 +462,7 @@ def build_record(
             },
         },
         "matched_colors": {"foreground": TODO, "background": TODO},
-        "matched_cell_geometry": TODO,
+        "cell_geometry_policy": CELL_GEOMETRY_POLICY,
         "noise_control_attestations": {
             "external_power": TODO,
             "fixed_performance_policy": TODO,
@@ -810,37 +820,37 @@ def check_record(record: dict) -> list[str]:
     colors = record.get("matched_colors", {})
     if not colors.get("foreground") or not colors.get("background"):
         problems.append("matched foreground and background colors are required")
-    matched_geometry = record.get("matched_cell_geometry")
-    required_geometry = {
-        "columns",
-        "rows",
-        "content_width_device_px",
-        "content_height_device_px",
-        "cell_width_device_px",
-        "cell_height_device_px",
-    }
-    if not isinstance(matched_geometry, dict) or set(matched_geometry) != required_geometry:
-        problems.append("matched calibrated device-pixel cell geometry is required")
-    else:
-        values = [matched_geometry.get(field) for field in required_geometry]
-        if (
-            matched_geometry.get("columns") != 80
-            or matched_geometry.get("rows") != 24
-            or any(not isinstance(value, int) or isinstance(value, bool) or value <= 0 for value in values)
-            or matched_geometry.get("content_width_device_px")
-            != 80 * matched_geometry.get("cell_width_device_px")
-            or matched_geometry.get("content_height_device_px")
-            != 24 * matched_geometry.get("cell_height_device_px")
-        ):
-            problems.append("matched cell geometry is not an exact positive 80x24 calibration")
-        for implementation in record.get("implementations", []):
-            if (
-                implementation.get("availability") == "qualified"
-                and implementation.get("cell_geometry") != matched_geometry
-            ):
+    # Protocol 1.3.0: the grid is controlled per implementation, not shared.
+    # A record that still carries the 1.2.0 cross-terminal grid is rejected
+    # rather than reinterpreted, because its qualification evidence was
+    # produced under an admission gate this protocol no longer applies.
+    if "matched_cell_geometry" in record:
+        problems.append(
+            "matched_cell_geometry is a retired protocol 1.2.0 field; this "
+            "record predates the per-implementation cell-geometry policy"
+        )
+    if record.get("cell_geometry_policy") != CELL_GEOMETRY_POLICY:
+        problems.append(
+            f"cell geometry policy must be pinned as {CELL_GEOMETRY_POLICY!r}"
+        )
+    for implementation in record.get("implementations", []):
+        if implementation.get("availability") != "qualified":
+            continue
+        geometry = implementation.get("cell_geometry")
+        if not isinstance(geometry, dict) or set(geometry) != REQUIRED_CELL_GEOMETRY:
+            # The missing-geometry case is already reported above; only shape
+            # errors on a present mapping are added here.
+            if isinstance(geometry, dict):
                 problems.append(
-                    f"implementation {implementation.get('name')!r} cell geometry is not matched"
+                    f"implementation {implementation.get('name')!r} cell geometry "
+                    "does not have the exact device-pixel field set"
                 )
+            continue
+        if not exact_80x24_geometry(geometry):
+            problems.append(
+                f"implementation {implementation.get('name')!r} cell geometry is "
+                "not an exact positive 80x24 device-pixel calibration"
+            )
 
     budget = record.get("run_set_time_budget_hours")
     if not isinstance(budget, (int, float)) or isinstance(budget, bool) or budget <= 0:
@@ -996,7 +1006,6 @@ def self_test(repo_root: Path) -> list[str]:
         "cell_width_device_px": 10,
         "cell_height_device_px": 20,
     }
-    pinned["matched_cell_geometry"] = geometry
     pinned["shared_font"] = {
         "family": profiles.SHARED_FONT_FAMILY,
         "style": "Book",
@@ -1016,16 +1025,33 @@ def self_test(repo_root: Path) -> list[str]:
     )
     if not any("boot/login-ready evidence" in problem for problem in check_record(invalid_settle)):
         failures.append("prereg: a measurement timestamp before boot was accepted")
-    for implementation in pinned["implementations"]:
+    # Each implementation carries its OWN stable pitch and sub-cell remainder.
+    # The pinned record deliberately gives all four different device-pixel
+    # grids: under the per-implementation policy that must be accepted, and a
+    # record that only passed when they were identical would not exercise the
+    # protocol the laptop can actually satisfy.
+    per_implementation_geometry = {}
+    for index, implementation in enumerate(pinned["implementations"]):
+        cell_width = geometry["cell_width_device_px"] + index
+        cell_height = geometry["cell_height_device_px"] + 2 * index
+        own_geometry = {
+            "columns": 80,
+            "rows": 24,
+            "content_width_device_px": 80 * cell_width,
+            "content_height_device_px": 24 * cell_height,
+            "cell_width_device_px": cell_width,
+            "cell_height_device_px": cell_height,
+        }
+        per_implementation_geometry[implementation["name"]] = own_geometry
         implementation["availability"] = "qualified"
         implementation["unavailable_reason"] = "not applicable"
         implementation["display_path"] = "wayland-native"
-        implementation["cell_geometry"] = geometry
+        implementation["cell_geometry"] = own_geometry
         implementation["pty_pixel_envelope_model"] = {
-            "cell_width_device_px": geometry["cell_width_device_px"],
-            "cell_height_device_px": geometry["cell_height_device_px"],
-            "width_remainder_device_px": 0,
-            "height_remainder_device_px": 0,
+            "cell_width_device_px": cell_width,
+            "cell_height_device_px": cell_height,
+            "width_remainder_device_px": index % cell_width,
+            "height_remainder_device_px": index % cell_height,
         }
         implementation["calibration"] = {
             "method": "canonical-profile",
@@ -1084,12 +1110,51 @@ def self_test(repo_root: Path) -> list[str]:
     ):
         failures.append("prereg: mismatched DRM resident field semantics were accepted")
 
-    mismatched_geometry = json.loads(json.dumps(pinned))
-    mismatched_geometry["implementations"][-1]["cell_geometry"][
+    # Differing per-terminal pitches are the expected case and must not be a
+    # problem by themselves; only an internally inconsistent or non-80x24 grid
+    # is. Changing one terminal's cell pitch without its content envelope
+    # breaks that terminal's own model and must be refused.
+    inconsistent_geometry = json.loads(json.dumps(pinned))
+    inconsistent_geometry["implementations"][-1]["cell_geometry"][
         "cell_width_device_px"
     ] += 1
-    if not any("cell geometry is not matched" in problem for problem in check_record(mismatched_geometry)):
-        failures.append("prereg: mismatched device-pixel cell geometry was accepted")
+    if not any(
+        "exact positive 80x24 device-pixel calibration" in problem
+        for problem in check_record(inconsistent_geometry)
+    ):
+        failures.append("prereg: an inconsistent device-pixel cell geometry was accepted")
+
+    off_grid = json.loads(json.dumps(pinned))
+    off_grid["implementations"][0]["cell_geometry"]["columns"] = 100
+    off_grid["implementations"][0]["cell_geometry"]["content_width_device_px"] = (
+        100 * off_grid["implementations"][0]["cell_geometry"]["cell_width_device_px"]
+    )
+    if not any(
+        "exact positive 80x24 device-pixel calibration" in problem
+        for problem in check_record(off_grid)
+    ):
+        failures.append("prereg: a non-80x24 grid was accepted")
+
+    retired_field = json.loads(json.dumps(pinned))
+    retired_field["matched_cell_geometry"] = geometry
+    if not any(
+        "retired protocol 1.2.0 field" in problem
+        for problem in check_record(retired_field)
+    ):
+        failures.append("prereg: a protocol 1.2.0 matched-geometry record was accepted")
+
+    unpinned_policy = json.loads(json.dumps(pinned))
+    unpinned_policy["cell_geometry_policy"] = "matched-across-implementations"
+    if not any(
+        "cell geometry policy must be pinned" in problem
+        for problem in check_record(unpinned_policy)
+    ):
+        failures.append("prereg: a foreign cell-geometry policy was accepted")
+
+    if len({json.dumps(value, sort_keys=True) for value in per_implementation_geometry.values()}) != len(
+        per_implementation_geometry
+    ):
+        failures.append("prereg: the pinned record did not exercise differing per-terminal grids")
 
     drifted_profile = json.loads(json.dumps(pinned))
     drifted_profile["implementations"][0]["config_path"] = "configs/local.conf"
