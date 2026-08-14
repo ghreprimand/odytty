@@ -60,11 +60,29 @@ python3 scripts/bench-protocol/w6_runner.py --estimate
 python3 scripts/bench-protocol/w6_runner.py --reference-readiness-output <readiness.json> \
     --reference-readiness-private-dir <private-dir-outside-repository> \
     --preregistration <record.json>
+python3 scripts/bench-protocol/w6_runner.py \
+    --geometry-diagnostic-output <geometry-diagnostic.json> \
+    --geometry-diagnostic-private-dir <new-private-dir-outside-repository> \
+    --preregistration <record.json>
 python3 scripts/bench-protocol/w6_runner.py --probe --preregistration <record.json> \
     --reference-readiness-record <readiness.json>
 python3 scripts/bench-protocol/w6_runner.py --run --preregistration <record.json> \
     --results-dir <public-dir> --private-evidence-dir <private-dir>
 ```
+
+`--geometry-diagnostic-output` is a bounded diagnostic-only action for the
+current Hyprland native-Wayland session. After verifying the pinned terminal
+artifacts, tracked configs, shared font, and child display, it uses private
+systemd scopes and the production startup-geometry handshake to launch exactly
+OdyTTY, Kitty, Ghostty, and Alacritty once each in that order. WezTerm is never
+launched. The create-exclusive public record is written only when all four
+windows reach exact 80x24 PTY geometry and clean up; raw logs remain in the new
+mode-`0700` private directory outside the repository and public output tree.
+Failure or interruption removes the incomplete public reservation while
+retaining private diagnostics. This action creates or consumes no readiness,
+probe, preregistration-anchor, rehearsal, measurement, or run identity. It
+does not suspend Brave or enforce CPU-noise controls because it diagnoses only
+startup geometry.
 
 `--backend` reports whether window state can be observed on this session at
 all and whether terminal children can connect to that display. A resumed

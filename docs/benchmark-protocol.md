@@ -148,6 +148,27 @@ This changes the reference-readiness evidence format to schema version 2.
 Schema version 1 predates the startup-geometry handshake and is rejected rather
 than interpreted under the stronger gate.
 
+For a bounded live check before laptop execution, run:
+
+```text
+python3 scripts/bench-protocol/w6_runner.py \
+    --geometry-diagnostic-output <geometry-diagnostic.json> \
+    --geometry-diagnostic-private-dir <new-private-dir-outside-repository> \
+    --preregistration <record.json>
+```
+
+This separate diagnostic verifies the pinned artifacts, profiles, shared font,
+and Hyprland child display, then launches OdyTTY, Kitty, Ghostty, and Alacritty
+once each in that fixed order through private systemd scopes and the production
+geometry handshake. WezTerm receives no action. A public schema-version-1
+record is produced only when every native-Wayland window reaches exact 80x24,
+records its opaque application id, PTY content pixels, process outcome, and
+successful cleanup. Raw logs stay in a new mode-`0700` directory outside the
+repository and public output tree. Failure or interruption discards the empty
+public reservation and retains the private diagnostics. The command consumes
+or creates no readiness, probe, preregistration-anchor, rehearsal, measurement,
+or run identity, and it neither suspends Brave nor enforces CPU-noise controls.
+
 The font is enforced separately. The runner copies the pinned, digest-verified
 DejaVu Sans Mono file into a mode-`0700` single-face Fontconfig environment.
 OdyTTY receives that copied absolute file through its direct `ODYTTY_FONT`

@@ -90,6 +90,13 @@ PROBE_ATTEMPT_WALL_BOUND_SECONDS = 90
 # Version 2 adds the startup-geometry handshake evidence: each reference is
 # gated until its exact 80x24 PTY geometry is observed before `idle-ready`.
 REFERENCE_READINESS_SCHEMA_VERSION = 2
+GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION = 1
+GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS = (
+    "odytty",
+    "kitty",
+    "ghostty",
+    "alacritty",
+)
 CALIBRATION_MAX_LAUNCHES = sum(
     len(profiles.calibration_configurations(name))
     for name in sorted(profiles.CALIBRATABLE_IMPLEMENTATIONS)
@@ -2648,6 +2655,265 @@ def validate_reference_readiness(record: object, prereg_record: dict) -> bool:
     )
 
 
+def _geometry_diagnostic_inputs(record: dict) -> dict:
+    """Return pinned inputs used by the diagnostic without consuming an identity."""
+    base = _reference_readiness_inputs(record)
+    by_name = {
+        entry.get("name"): entry for entry in record.get("implementations", [])
+    }
+    for entry in base["implementations"]:
+        entry["calibration"] = by_name[entry["name"]].get("calibration")
+    return base
+
+
+def _geometry_diagnostic_inputs_sha256(record: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            _geometry_diagnostic_inputs(record),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+class _GeometryDiagnosticLauncher:
+    """Record cleanup while delegating every launch operation unchanged."""
+
+    def __init__(self, launcher):
+        self._launcher = launcher
+        self.cleanup_outcome: dict | None = None
+        self.private_scope_observed = False
+
+    def __getattr__(self, name):
+        return getattr(self._launcher, name)
+
+    def stop(self, launched: dict) -> int | None:
+        status = self._launcher.stop(launched)
+        self.cleanup_outcome = {
+            "geometry_handshake_removed": launched.get("geometry_cleanup_ok") is True,
+        }
+        return status
+
+    def cgroup_path(self, launched: dict) -> Path | None:
+        path = self._launcher.cgroup_path(launched)
+        self.private_scope_observed |= isinstance(path, Path) and path.is_dir()
+        return path
+
+
+def _geometry_diagnostic_launch(
+    probe: dict, cleanup: object, private_scope_observed: bool
+) -> dict:
+    """Reduce a full probe to public-safe geometry diagnostic evidence."""
+    raw = probe.get("raw_idle_ready")
+    pty_geometry = (
+        {
+            "columns": raw.get("pty_columns"),
+            "rows": raw.get("pty_rows"),
+            "content_width_device_px": raw.get("content_width_device_px"),
+            "content_height_device_px": raw.get("content_height_device_px"),
+        }
+        if isinstance(raw, dict)
+        else None
+    )
+    return {
+        "implementation": probe.get("implementation"),
+        "status": "PASS",
+        "display_path": probe.get("display_path"),
+        "window": probe.get("window"),
+        "pty_geometry": pty_geometry,
+        "cleanup_outcome": {
+            **(cleanup if isinstance(cleanup, dict) else {}),
+            "private_systemd_scope_observed": private_scope_observed,
+        },
+        "process_outcome": probe.get("process_outcome"),
+    }
+
+
+def _valid_geometry_diagnostic_launch(record: object, expected_name: str) -> bool:
+    if not isinstance(record, dict) or set(record) != {
+        "implementation",
+        "status",
+        "display_path",
+        "window",
+        "pty_geometry",
+        "cleanup_outcome",
+        "process_outcome",
+    }:
+        return False
+    window = record.get("window")
+    geometry = record.get("pty_geometry")
+    process = record.get("process_outcome")
+    if (
+        record.get("implementation") != expected_name
+        or record.get("status") != "PASS"
+        or record.get("display_path") != DISPLAY_PATH_WAYLAND
+        or not isinstance(window, dict)
+        or set(window) != {"app_id", "width", "height"}
+        or re.fullmatch(r"odytty-bench-[0-9a-f]{24}", str(window.get("app_id")))
+        is None
+        or any(
+            not isinstance(window.get(field), int)
+            or isinstance(window.get(field), bool)
+            or window[field] <= 0
+            for field in ("width", "height")
+        )
+        or not isinstance(geometry, dict)
+        or set(geometry)
+        != {
+            "columns",
+            "rows",
+            "content_width_device_px",
+            "content_height_device_px",
+        }
+        or geometry.get("columns") != 80
+        or geometry.get("rows") != 24
+        or any(
+            not isinstance(geometry.get(field), int)
+            or isinstance(geometry.get(field), bool)
+            or geometry[field] <= 0
+            for field in (
+                "content_width_device_px",
+                "content_height_device_px",
+            )
+        )
+        or geometry["content_width_device_px"] % 80
+        or geometry["content_height_device_px"] % 24
+        or record.get("cleanup_outcome")
+        != {
+            "geometry_handshake_removed": True,
+            "private_systemd_scope_observed": True,
+        }
+        or not isinstance(process, dict)
+        or set(process) != {"started", "exit_status", "controller_stopped"}
+        or process.get("started") is not True
+        or process.get("controller_stopped") is not True
+    ):
+        return False
+    exit_status = process.get("exit_status")
+    return exit_status is None or (
+        isinstance(exit_status, int) and not isinstance(exit_status, bool)
+    )
+
+
+def run_geometry_diagnostic(
+    prereg_record: dict, launcher, sleep=time.sleep
+) -> dict:
+    """Run one diagnostic-only exact-geometry launch in the fixed laptop order."""
+    _geometry_diagnostic_inputs(prereg_record)
+    if getattr(launcher, "use_scope", None) is not True:
+        raise ValueError("geometry diagnostic requires private systemd scopes")
+    backend = getattr(launcher, "backend", {})
+    if backend.get("backend") != "hyprctl" or backend.get("display") != "wayland":
+        raise ValueError("geometry diagnostic requires a native Hyprland Wayland session")
+    calibrations = {
+        entry.get("name"): entry.get("calibration")
+        for entry in prereg_record.get("implementations", [])
+    }
+    setter = getattr(launcher, "set_calibration", None)
+    launches = []
+    for name in GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS:
+        calibration = calibrations.get(name)
+        if setter is None or not setter(name, calibration):
+            raise ValueError(f"geometry diagnostic could not set {name!r} calibration")
+        observed_launcher = _GeometryDiagnosticLauncher(launcher)
+        probe = _probe_implementation(
+            name,
+            observed_launcher,
+            f"geometry-diagnostic-{name}",
+            sleep=sleep,
+        )
+        launch = _geometry_diagnostic_launch(
+            probe,
+            observed_launcher.cleanup_outcome,
+            observed_launcher.private_scope_observed,
+        )
+        if not _valid_geometry_diagnostic_launch(launch, name):
+            raise ValueError(
+                f"geometry diagnostic failed for {name!r}: "
+                f"{probe.get('detail') or 'exact 80x24 native-Wayland evidence is absent'}"
+            )
+        launches.append(launch)
+    return {
+        "schema_version": GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION,
+        "record_type": "startup-geometry-diagnostic",
+        "status": "PASS",
+        "inputs_sha256": _geometry_diagnostic_inputs_sha256(prereg_record),
+        "execution": {
+            "diagnostic_only": True,
+            "measurement": False,
+            "private_systemd_scopes": True,
+            "window_backend": "hyprctl",
+            "display_path": DISPLAY_PATH_WAYLAND,
+            "fixed_order": list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS),
+            "brave_suspension_enforced": False,
+            "cpu_noise_controls_enforced": False,
+        },
+        "benchmark_state_consumed_or_created": {
+            "readiness": False,
+            "probe": False,
+            "preregistration_anchor": False,
+            "rehearsal": False,
+            "measurement": False,
+            "run_identity": False,
+        },
+        "launches": launches,
+    }
+
+
+def validate_geometry_diagnostic(record: object, prereg_record: dict) -> bool:
+    """Validate a public-safe successful diagnostic against its pinned inputs."""
+    if not isinstance(record, dict) or set(record) != {
+        "schema_version",
+        "record_type",
+        "status",
+        "inputs_sha256",
+        "execution",
+        "benchmark_state_consumed_or_created",
+        "launches",
+    }:
+        return False
+    try:
+        inputs_sha256 = _geometry_diagnostic_inputs_sha256(prereg_record)
+    except (KeyError, TypeError, ValueError):
+        return False
+    launches = record.get("launches")
+    return (
+        record.get("schema_version") == GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION
+        and record.get("record_type") == "startup-geometry-diagnostic"
+        and record.get("status") == "PASS"
+        and record.get("inputs_sha256") == inputs_sha256
+        and record.get("execution")
+        == {
+            "diagnostic_only": True,
+            "measurement": False,
+            "private_systemd_scopes": True,
+            "window_backend": "hyprctl",
+            "display_path": DISPLAY_PATH_WAYLAND,
+            "fixed_order": list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS),
+            "brave_suspension_enforced": False,
+            "cpu_noise_controls_enforced": False,
+        }
+        and record.get("benchmark_state_consumed_or_created")
+        == {
+            "readiness": False,
+            "probe": False,
+            "preregistration_anchor": False,
+            "rehearsal": False,
+            "measurement": False,
+            "run_identity": False,
+        }
+        and isinstance(launches, list)
+        and len(launches) == len(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
+        and all(
+            _valid_geometry_diagnostic_launch(launch, expected)
+            for launch, expected in zip(
+                launches, GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS, strict=True
+            )
+        )
+    )
+
+
 def cell_geometry_from_oracle(record: dict | None) -> dict | None:
     """Derive calibrated per-cell device pixels from PTY content geometry."""
     if not isinstance(record, dict):
@@ -4873,6 +5139,311 @@ def self_test() -> list[str]:
             )
         created_sink.close()
 
+    with tempfile.TemporaryDirectory(prefix="w6-geometry-diagnostic-") as tmp:
+        root = Path(tmp)
+        diagnostic_prereg = _fake_prereg(list(profiles.LAPTOP_IMPLEMENTATIONS))
+        diagnostic_behaviour = {
+            name: "wayland" for name in profiles.LAPTOP_IMPLEMENTATIONS
+        }
+
+        class _ScopedDiagnosticLauncher(_FakeLauncher):
+            def __init__(self, behaviour, log_dir):
+                super().__init__(behaviour, log_dir)
+                self.scope_dir = root / f"scope-{len(list(root.glob('scope-*')))}"
+                self.scope_dir.mkdir()
+
+            def cgroup_path(self, _launched):
+                return self.scope_dir
+
+        diagnostic_launcher = _ScopedDiagnosticLauncher(
+            diagnostic_behaviour, root / "diagnostic-logs"
+        )
+        diagnostic_launcher.backend = {"backend": "hyprctl", "display": "wayland"}
+        try:
+            diagnostic = run_geometry_diagnostic(
+                diagnostic_prereg,
+                diagnostic_launcher,
+                sleep=lambda _seconds: None,
+            )
+        except ValueError as error:
+            failures.append(f"geometry diagnostic: valid run failed: {error}")
+        else:
+            if diagnostic_launcher.launches != list(
+                GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS
+            ) or "wezterm" in diagnostic_launcher.launches:
+                failures.append(
+                    "geometry diagnostic: fixed order or WezTerm zero-action drifted"
+                )
+            if not validate_geometry_diagnostic(diagnostic, diagnostic_prereg):
+                failures.append("geometry diagnostic: valid record did not validate")
+            forged_diagnostic = json.loads(json.dumps(diagnostic))
+            forged_diagnostic["schema_version"] += 1
+            if validate_geometry_diagnostic(forged_diagnostic, diagnostic_prereg):
+                failures.append("geometry diagnostic: forged schema validated")
+            forged_diagnostic = json.loads(json.dumps(diagnostic))
+            forged_diagnostic["launches"][0]["pty_geometry"]["columns"] = 94
+            if validate_geometry_diagnostic(forged_diagnostic, diagnostic_prereg):
+                failures.append("geometry diagnostic: non-80-column evidence validated")
+            forged_diagnostic = json.loads(json.dumps(diagnostic))
+            forged_diagnostic["benchmark_state_consumed_or_created"][
+                "measurement"
+            ] = True
+            if validate_geometry_diagnostic(forged_diagnostic, diagnostic_prereg):
+                failures.append("geometry diagnostic: benchmark identity consumption validated")
+
+        wrong_backend = _FakeLauncher(diagnostic_behaviour, root / "wrong-backend")
+        try:
+            run_geometry_diagnostic(
+                diagnostic_prereg, wrong_backend, sleep=lambda _seconds: None
+            )
+        except ValueError:
+            if wrong_backend.launches:
+                failures.append("geometry diagnostic: wrong backend launched a terminal")
+        else:
+            failures.append("geometry diagnostic: wrong backend was accepted")
+
+        no_scope = _FakeLauncher(diagnostic_behaviour, root / "no-scope")
+        no_scope.backend = {"backend": "hyprctl", "display": "wayland"}
+        no_scope.use_scope = False
+        try:
+            run_geometry_diagnostic(
+                diagnostic_prereg, no_scope, sleep=lambda _seconds: None
+            )
+        except ValueError:
+            if no_scope.launches:
+                failures.append("geometry diagnostic: no-scope failure launched a terminal")
+        else:
+            failures.append("geometry diagnostic: no-scope execution was accepted")
+
+        failed_launcher = _ScopedDiagnosticLauncher(
+            {
+                "odytty": "wayland",
+                "kitty": "wayland",
+                "ghostty": "no-window",
+                "alacritty": "wayland",
+            },
+            root / "failed-sequence",
+        )
+        failed_launcher.backend = {"backend": "hyprctl", "display": "wayland"}
+        try:
+            run_geometry_diagnostic(
+                diagnostic_prereg,
+                failed_launcher,
+                sleep=lambda _seconds: None,
+            )
+        except ValueError:
+            if failed_launcher.launches != ["odytty", "kitty", "ghostty"]:
+                failures.append(
+                    "geometry diagnostic: failure did not stop the fixed sequence"
+                )
+        else:
+            failures.append("geometry diagnostic: missing window was accepted")
+
+        class _InterruptedDiagnosticLauncher(_ScopedDiagnosticLauncher):
+            def windows(self):
+                raise KeyboardInterrupt
+
+        interrupted_launcher = _InterruptedDiagnosticLauncher(
+            diagnostic_behaviour, root / "interrupted"
+        )
+        interrupted_launcher.backend = {
+            "backend": "hyprctl",
+            "display": "wayland",
+        }
+        try:
+            run_geometry_diagnostic(
+                diagnostic_prereg,
+                interrupted_launcher,
+                sleep=lambda _seconds: None,
+            )
+        except KeyboardInterrupt:
+            if interrupted_launcher.launches != ["odytty"] or interrupted_launcher._live:
+                failures.append(
+                    "geometry diagnostic: interruption did not stop and clean the launch"
+                )
+        else:
+            failures.append("geometry diagnostic: interruption did not propagate")
+
+        repository = root / "repository"
+        public = root / "public"
+        repository.mkdir()
+        public.mkdir()
+        diagnostic_output = public / "geometry.json"
+        unsafe_private = repository / "private"
+        try:
+            reserve_geometry_diagnostic_storage(
+                diagnostic_output, unsafe_private, repository
+            )
+        except ValueError:
+            if diagnostic_output.exists() or unsafe_private.exists():
+                failures.append("geometry diagnostic: unsafe path mutated state")
+        else:
+            failures.append("geometry diagnostic: repository-contained raw path passed")
+
+        collision_output = public / "collision.json"
+        collision_output.write_text("{}\n", encoding="utf-8")
+        collision_private = root / "collision-private"
+        try:
+            reserve_geometry_diagnostic_storage(
+                collision_output, collision_private, repository
+            )
+        except ValueError:
+            if collision_private.exists():
+                failures.append("geometry diagnostic: output collision created raw storage")
+        else:
+            failures.append("geometry diagnostic: output collision was accepted")
+
+        private_collision = root / "existing-private"
+        private_collision.mkdir()
+        private_collision_output = public / "private-collision.json"
+        try:
+            reserve_geometry_diagnostic_storage(
+                private_collision_output, private_collision, repository
+            )
+        except ValueError:
+            if private_collision_output.exists():
+                failures.append("geometry diagnostic: private collision reserved output")
+        else:
+            failures.append("geometry diagnostic: private collision was accepted")
+
+        absent_output = root / "absent-public" / "geometry.json"
+        absent_private = root / "absent-private"
+        try:
+            reserve_geometry_diagnostic_storage(
+                absent_output, absent_private, repository
+            )
+        except OSError:
+            if absent_output.parent.exists() or absent_private.exists():
+                failures.append(
+                    "geometry diagnostic: failed reservation mutated public/private state"
+                )
+        else:
+            failures.append("geometry diagnostic: absent public parent was accepted")
+
+        created_output, created_private, created_sink = (
+            reserve_geometry_diagnostic_storage(
+                diagnostic_output, root / "diagnostic-private", repository
+            )
+        )
+        if (
+            created_output != diagnostic_output.resolve()
+            or not created_output.is_file()
+            or created_output.stat().st_size != 0
+            or not created_private.is_dir()
+            or created_private.stat().st_mode & 0o777 != 0o700
+            or created_sink.closed
+        ):
+            failures.append(
+                "geometry diagnostic: valid reservation was not create-only/0700"
+            )
+        created_sink.close()
+
+        cli_prereg = root / "diagnostic-preregistration.json"
+        cli_prereg.write_text(
+            json.dumps(diagnostic_prereg, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        cli_output = root / "cli-absent-public" / "geometry.json"
+        cli_private = root / "cli-private"
+        cli_launches = []
+        original_preflight = globals()["preflight_window_backend"]
+        original_verify = globals()["verify_probe_inputs"]
+        original_launcher = globals()["RealLauncher"]
+        globals()["preflight_window_backend"] = lambda: (
+            {
+                "status": "available",
+                "backend": "hyprctl",
+                "display": "wayland",
+            },
+            {},
+        )
+        globals()["verify_probe_inputs"] = lambda _record, _root: None
+        globals()["RealLauncher"] = lambda *_args, **_kwargs: cli_launches.append(
+            "constructed"
+        )
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                cli_status = main(
+                    [
+                        "--geometry-diagnostic-output",
+                        str(cli_output),
+                        "--geometry-diagnostic-private-dir",
+                        str(cli_private),
+                        "--preregistration",
+                        str(cli_prereg),
+                    ]
+                )
+        finally:
+            globals()["preflight_window_backend"] = original_preflight
+            globals()["verify_probe_inputs"] = original_verify
+            globals()["RealLauncher"] = original_launcher
+        if (
+            cli_status != 1
+            or cli_output.parent.exists()
+            or cli_private.exists()
+            or cli_launches
+        ):
+            failures.append(
+                "geometry diagnostic: CLI launched or mutated before reservations"
+            )
+
+        cli_failure_output = public / "failed-geometry.json"
+        cli_failure_private = root / "cli-failure-private"
+        cli_failure_launchers = []
+
+        def diagnostic_launcher_factory(*_args, **kwargs):
+            launcher = _ScopedDiagnosticLauncher(
+                {
+                    "odytty": "wayland",
+                    "kitty": "wayland",
+                    "ghostty": "no-window",
+                    "alacritty": "wayland",
+                },
+                kwargs["log_dir"],
+            )
+            launcher.backend = {"backend": "hyprctl", "display": "wayland"}
+            cli_failure_launchers.append(launcher)
+            return launcher
+
+        globals()["preflight_window_backend"] = lambda: (
+            {
+                "status": "available",
+                "backend": "hyprctl",
+                "display": "wayland",
+            },
+            {},
+        )
+        globals()["verify_probe_inputs"] = lambda _record, _root: None
+        globals()["RealLauncher"] = diagnostic_launcher_factory
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                cli_failure_status = main(
+                    [
+                        "--geometry-diagnostic-output",
+                        str(cli_failure_output),
+                        "--geometry-diagnostic-private-dir",
+                        str(cli_failure_private),
+                        "--preregistration",
+                        str(cli_prereg),
+                    ]
+                )
+        finally:
+            globals()["preflight_window_backend"] = original_preflight
+            globals()["verify_probe_inputs"] = original_verify
+            globals()["RealLauncher"] = original_launcher
+        if (
+            cli_failure_status != 1
+            or cli_failure_output.exists()
+            or not cli_failure_private.is_dir()
+            or not any(path.is_file() for path in cli_failure_private.rglob("*"))
+            or len(cli_failure_launchers) != 1
+            or cli_failure_launchers[0].launches
+            != ["odytty", "kitty", "ghostty"]
+        ):
+            failures.append(
+                "geometry diagnostic: failed CLI did not discard public output and retain private diagnostics"
+            )
+
     fake_which = lambda name: f"/usr/bin/{name}"  # noqa: E731 - injected lookup
     missing_backend, missing_environment = preflight_window_backend(
         {
@@ -6986,6 +7557,36 @@ def reserve_reference_readiness_storage(
     return resolved_output, private_root, reservation
 
 
+def reserve_geometry_diagnostic_storage(
+    output_path: Path, private_path: Path | None, repo_root: Path
+) -> tuple[Path, Path, TextIO]:
+    """Reserve a public diagnostic sink before creating its private raw store."""
+    if private_path is None:
+        raise ValueError(
+            "--geometry-diagnostic-output requires "
+            "--geometry-diagnostic-private-dir"
+        )
+    resolved_output = output_path.resolve()
+    private_root = validate_private_evidence_location(
+        private_path, resolved_output.parent, repo_root
+    )
+    if resolved_output.exists() or private_root.exists():
+        raise ValueError("geometry diagnostic target already exists")
+    reservation = resolved_output.open("x", encoding="utf-8")
+    try:
+        private_root.mkdir(parents=True, mode=0o700, exist_ok=False)
+        private_root.chmod(0o700)
+    except OSError:
+        discard_reference_readiness_reservation(resolved_output, reservation)
+        if private_root.is_dir():
+            try:
+                private_root.rmdir()
+            except OSError:
+                pass
+        raise
+    return resolved_output, private_root, reservation
+
+
 def finalize_public_evidence(
     results_dir: Path, document_path: Path, private_evidence_dir: Path
 ) -> None:
@@ -7209,6 +7810,16 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help="new access-restricted readiness logs outside the repository and public evidence tree",
     )
+    parser.add_argument(
+        "--geometry-diagnostic-output",
+        metavar="PATH",
+        help="write one diagnostic-only exact startup-geometry record",
+    )
+    parser.add_argument(
+        "--geometry-diagnostic-private-dir",
+        metavar="PATH",
+        help="new 0700 diagnostic raw-log directory outside the repository and public output tree",
+    )
     parser.add_argument("--preregistration", metavar="PATH")
     parser.add_argument("--results-dir", metavar="PATH", default="bench-results")
     parser.add_argument(
@@ -7252,10 +7863,19 @@ def main(argv: list[str] | None = None) -> int:
 
     actions = sum(
         bool(action)
-        for action in (args.probe, args.run, args.reference_readiness_output)
+        for action in (
+            args.probe,
+            args.run,
+            args.reference_readiness_output,
+            args.geometry_diagnostic_output,
+        )
     )
     if actions > 1:
-        print("select exactly one of --probe, --run, or --reference-readiness-output", file=sys.stderr)
+        print(
+            "select exactly one of --probe, --run, --reference-readiness-output, "
+            "or --geometry-diagnostic-output",
+            file=sys.stderr,
+        )
         return 2
     if actions == 0:
         parser.print_help()
@@ -7277,7 +7897,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.preregistration:
         print(
-            "--probe, --run, and --reference-readiness-output require --preregistration",
+            "--probe, --run, --reference-readiness-output, and "
+            "--geometry-diagnostic-output require --preregistration",
             file=sys.stderr,
         )
         return 2
@@ -7287,6 +7908,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.reference_readiness_output and not args.reference_readiness_private_dir:
         print(
             "--reference-readiness-output requires --reference-readiness-private-dir",
+            file=sys.stderr,
+        )
+        return 2
+    if args.geometry_diagnostic_output and not args.geometry_diagnostic_private_dir:
+        print(
+            "--geometry-diagnostic-output requires "
+            "--geometry-diagnostic-private-dir",
             file=sys.stderr,
         )
         return 2
@@ -7312,13 +7940,20 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        # A probe takes no measurement, so it is allowed against a draft
-        # record: finding out which implementations qualify is exactly what
-        # the record needs in order to be finished.
+        # Nonmeasurement preparation and diagnostic actions may use a draft;
+        # their strict input checks below still reject every unpinned byte they
+        # depend on, while --run requires the complete public record.
+        action_name = (
+            "geometry diagnostic"
+            if args.geometry_diagnostic_output
+            else "reference readiness"
+            if args.reference_readiness_output
+            else "probe"
+        )
         print(
-            f"{len(problems)} unresolved preregistration problem(s); the probe "
-            "runs anyway because it takes no measurement, but --run will refuse "
-            "this record until they are pinned",
+            f"{len(problems)} unresolved preregistration problem(s); the "
+            f"{action_name} runs anyway because it takes no measurement, but "
+            "--run will refuse this record until they are pinned",
             file=sys.stderr,
         )
 
@@ -7338,6 +7973,71 @@ def main(argv: list[str] | None = None) -> int:
         for entry in prereg_record.get("implementations", [])
         if entry.get("name") and isinstance(entry.get("calibration"), dict)
     }
+
+    if args.geometry_diagnostic_output:
+        if args.no_scope:
+            print(
+                "geometry diagnostic requires private systemd scopes",
+                file=sys.stderr,
+            )
+            return 2
+        if (
+            backend.get("backend") != "hyprctl"
+            or backend.get("display") != "wayland"
+        ):
+            print(
+                "geometry diagnostic requires the native Hyprland Wayland backend",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            verify_probe_inputs(prereg_record, HERE.parents[1])
+        except ValueError as error:
+            print(f"geometry diagnostic input verification failed: {error}", file=sys.stderr)
+            return 1
+        try:
+            output_path, private_dir, diagnostic_output = (
+                reserve_geometry_diagnostic_storage(
+                    Path(args.geometry_diagnostic_output),
+                    (
+                        Path(args.geometry_diagnostic_private_dir)
+                        if args.geometry_diagnostic_private_dir
+                        else None
+                    ),
+                    HERE.parents[1],
+                )
+            )
+        except (OSError, ValueError) as error:
+            print(f"invalid geometry diagnostic storage: {error}", file=sys.stderr)
+            return 1
+        try:
+            launcher = RealLauncher(
+                backend,
+                use_scope=True,
+                log_dir=private_dir / "logs",
+                config_paths=config_paths,
+                calibrations=calibrations,
+                launch_environment=launch_environment,
+                font_identity=prereg_record.get("shared_font"),
+            )
+            diagnostic = run_geometry_diagnostic(prereg_record, launcher)
+            if not validate_geometry_diagnostic(diagnostic, prereg_record):
+                raise ValueError("completed geometry diagnostic did not validate")
+            diagnostic_output.write(
+                json.dumps(diagnostic, indent=2, sort_keys=True) + "\n"
+            )
+            diagnostic_output.close()
+        except KeyboardInterrupt:
+            discard_reference_readiness_reservation(output_path, diagnostic_output)
+            print("geometry diagnostic interrupted", file=sys.stderr)
+            return 130
+        except (OSError, ValueError) as error:
+            discard_reference_readiness_reservation(output_path, diagnostic_output)
+            print(f"geometry diagnostic failed: {error}", file=sys.stderr)
+            return 1
+        json.dump(diagnostic, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return 0
 
     if args.reference_readiness_output:
         if args.no_scope:
