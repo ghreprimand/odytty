@@ -2983,13 +2983,14 @@ def _public_diagnostic_record_safe(record: object) -> bool:
 
 
 def _geometry_diagnostic_inputs(record: dict) -> dict:
-    """Return pinned inputs used by the diagnostic without consuming an identity.
+    """Return immutable discovery inputs without consuming an identity.
 
-    Protocol 1.3.0 binds the diagnostic to each terminal's preregistered
-    calibration and its own device-pixel grid. It no longer requires a
-    common-grid calibration record: that search is optional historical
-    feasibility tooling and cannot succeed on this machine, so requiring it
-    here would have made the startup-geometry evidence unobtainable.
+    The diagnostic discovers each terminal's device-pixel grid and envelope
+    model, so those fields are deliberately excluded from this digest. The
+    resulting evidence is copied into the draft preregistration and then
+    revalidated by readiness, the one-shot probe, and every measured launch.
+    Artifacts, profiles, font identity, and the canonical per-terminal launch
+    calibration remain bound before the discovery launch.
     """
     base = _reference_readiness_inputs(record)
     by_name = {
@@ -2998,7 +2999,6 @@ def _geometry_diagnostic_inputs(record: dict) -> dict:
     for entry in base["implementations"]:
         entry.pop("pty_pixel_envelope_model", None)
         entry["calibration"] = by_name[entry["name"]].get("calibration")
-        entry["cell_geometry"] = by_name[entry["name"]].get("cell_geometry")
     base["cell_geometry_policy"] = record.get("cell_geometry_policy")
     return base
 
@@ -3507,10 +3507,11 @@ def run_geometry_diagnostic(
 ) -> dict:
     """Run one diagnostic-only exact-geometry launch in the fixed laptop order.
 
-    Each terminal is launched once with its preregistered calibration and must
-    reach ITS OWN preregistered exact 80x24 device-pixel grid. The terminals
-    are not required to agree with each other; protocol 1.3.0 controls the
-    grid per implementation and publishes the differences.
+    Each terminal is launched once with its canonical pinned calibration and
+    must reach its own exact 80x24 device-pixel grid. The discovered grid and
+    envelope model are copied into the preregistration draft. The terminals
+    are not required to agree with each other; protocol 1.3.0 controls and
+    publishes the geometry per implementation.
     """
     _geometry_diagnostic_inputs(prereg_record)
     if getattr(launcher, "use_scope", None) is not True:
@@ -3522,19 +3523,7 @@ def run_geometry_diagnostic(
         entry.get("name"): entry.get("calibration")
         for entry in prereg_record.get("implementations", [])
     }
-    expected_geometry = {
-        entry.get("name"): entry.get("cell_geometry")
-        for entry in prereg_record.get("implementations", [])
-    }
     setter = getattr(launcher, "set_calibration", None)
-    if any(
-        not profiles.exact_80x24_geometry(expected_geometry.get(name))
-        for name in GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS
-    ):
-        raise ValueError(
-            "geometry diagnostic requires each implementation's pinned exact "
-            "80x24 device-pixel grid"
-        )
     launches = []
     for name in GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS:
         calibration = calibrations.get(name)
@@ -3554,7 +3543,7 @@ def run_geometry_diagnostic(
         )
         if (
             not _valid_geometry_diagnostic_launch(launch, name)
-            or launch.get("cell_geometry") != expected_geometry[name]
+            or not profiles.exact_80x24_geometry(launch.get("cell_geometry"))
         ):
             raise ValueError(
                 f"geometry diagnostic failed for {name!r}: "
@@ -3588,8 +3577,13 @@ def run_geometry_diagnostic(
     }
 
 
-def validate_geometry_diagnostic(record: object, prereg_record: dict) -> bool:
-    """Validate a public-safe successful diagnostic against its pinned inputs."""
+def validate_geometry_diagnostic(
+    record: object,
+    prereg_record: dict,
+    *,
+    bind_preregistered_geometry: bool = True,
+) -> bool:
+    """Validate discovery evidence and optionally bind the copied geometry."""
     if not isinstance(record, dict) or set(record) != {
         "schema_version",
         "record_type",
@@ -3607,6 +3601,10 @@ def validate_geometry_diagnostic(record: object, prereg_record: dict) -> bool:
     launches = record.get("launches")
     expected_geometry = {
         entry.get("name"): entry.get("cell_geometry")
+        for entry in prereg_record.get("implementations", [])
+    }
+    expected_models = {
+        entry.get("name"): entry.get("pty_pixel_envelope_model")
         for entry in prereg_record.get("implementations", [])
     }
     return (
@@ -3636,13 +3634,23 @@ def validate_geometry_diagnostic(record: object, prereg_record: dict) -> bool:
         }
         and isinstance(launches, list)
         and len(launches) == len(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
-        # Each launch is checked against ITS OWN preregistered grid. There is
-        # no cross-implementation comparison: differing pitches are the
-        # expected, published outcome under protocol 1.3.0.
+        # Every discovery launch must prove its own exact 80x24 model. Once
+        # those values are copied into the preregistration, the default strict
+        # mode also binds both the grid and affine envelope model byte-for-byte.
         and all(
-            profiles.exact_80x24_geometry(expected_geometry.get(expected))
-            and _valid_geometry_diagnostic_launch(launch, expected)
-            and launch.get("cell_geometry") == expected_geometry[expected]
+            _valid_geometry_diagnostic_launch(launch, expected)
+            and profiles.exact_80x24_geometry(launch.get("cell_geometry"))
+            and (
+                not bind_preregistered_geometry
+                or (
+                    profiles.exact_80x24_geometry(expected_geometry.get(expected))
+                    and launch.get("cell_geometry") == expected_geometry[expected]
+                    and _geometry_model_summary(
+                        launch.get("pty_pixel_envelope_model")
+                    )
+                    == expected_models[expected]
+                )
+            )
             for launch, expected in zip(
                 launches, GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS, strict=True
             )
@@ -6774,9 +6782,13 @@ def self_test() -> list[str]:
             diagnostic_behaviour, root / "diagnostic-logs"
         )
         diagnostic_launcher.backend = {"backend": "hyprctl", "display": "wayland"}
+        discovery_prereg = json.loads(json.dumps(diagnostic_prereg))
+        for implementation in discovery_prereg["implementations"]:
+            implementation["cell_geometry"] = "__PIN_ME__"
+            implementation["pty_pixel_envelope_model"] = "__PIN_ME__"
         try:
             diagnostic = run_geometry_diagnostic(
-                diagnostic_prereg,
+                discovery_prereg,
                 diagnostic_launcher,
                 sleep=lambda _seconds: None,
             )
@@ -6790,9 +6802,31 @@ def self_test() -> list[str]:
                     "geometry diagnostic: fixed order or WezTerm zero-action drifted"
                 )
             if not validate_geometry_diagnostic(
+                diagnostic,
+                discovery_prereg,
+                bind_preregistered_geometry=False,
+            ):
+                failures.append(
+                    "geometry diagnostic: an unpinned discovery draft did not validate"
+                )
+            if validate_geometry_diagnostic(diagnostic, discovery_prereg):
+                failures.append(
+                    "geometry diagnostic: unpinned geometry passed strict binding"
+                )
+            if not validate_geometry_diagnostic(
                 diagnostic, diagnostic_prereg
             ):
-                failures.append("geometry diagnostic: valid record did not validate")
+                failures.append(
+                    "geometry diagnostic: copied geometry did not bind to the final draft"
+                )
+            forged_final_prereg = json.loads(json.dumps(diagnostic_prereg))
+            forged_final_prereg["implementations"][1][
+                "pty_pixel_envelope_model"
+            ]["width_remainder_device_px"] += 1
+            if validate_geometry_diagnostic(diagnostic, forged_final_prereg):
+                failures.append(
+                    "geometry diagnostic: a forged copied envelope model validated"
+                )
             padded_diagnostic = json.loads(json.dumps(diagnostic))
             padded_grid = padded_diagnostic["launches"][2]["cell_geometry"]
             padded_diagnostic["launches"][2]["pty_geometry"][
@@ -11082,7 +11116,11 @@ def main(argv: list[str] | None = None) -> int:
                 font_identity=prereg_record.get("shared_font"),
             )
             diagnostic = run_geometry_diagnostic(prereg_record, launcher)
-            if not validate_geometry_diagnostic(diagnostic, prereg_record):
+            if not validate_geometry_diagnostic(
+                diagnostic,
+                prereg_record,
+                bind_preregistered_geometry=False,
+            ):
                 raise ValueError("completed geometry diagnostic did not validate")
             diagnostic_output.write(
                 json.dumps(diagnostic, indent=2, sort_keys=True) + "\n"

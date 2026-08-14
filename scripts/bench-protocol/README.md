@@ -95,20 +95,23 @@ public reservation while retaining raw logs in the new mode-`0700` private
 directory.
 
 `--geometry-diagnostic-output` is the bounded one-shot startup-geometry
-action, and it requires no calibration-search evidence; passing the retired
-`--calibration-diagnostic-record` flag is refused outright. After verifying the
-pinned terminal artifacts, tracked configs, shared font, and child display, it
-uses private systemd scopes and the production startup-geometry handshake to
-launch exactly OdyTTY, Kitty, Ghostty, and Alacritty once each in that order
-with each terminal's preregistered calibration. WezTerm is never launched. The
+discovery action, and it requires no calibration-search evidence; passing the
+retired `--calibration-diagnostic-record` flag is refused outright. After
+verifying the pinned terminal artifacts, tracked configs, shared font, child
+display, and canonical per-terminal calibrations, it uses private systemd
+scopes and the production startup-geometry handshake to launch exactly OdyTTY,
+Kitty, Ghostty, and Alacritty once each in that order. WezTerm is never
+launched. The
 create-exclusive schema-version-5 public record is written only when all four
 windows reach exact 80x24 PTY geometry and clean up; it preserves each raw PTY
-pixel envelope, normalized cell grid, and validator-recomputed affine proof,
-and requires each normalized grid to equal the grid that terminal itself
-preregistered. Terminals are checked against their own pinned grids, never
-against each other's, so differing device-pixel pitches are expected rather
-than disqualifying; a pitch that differs from that terminal's own registered
-pitch is an unmet configuration. Raw logs remain in the new mode-`0700`
+pixel envelope, normalized cell grid, and validator-recomputed affine proof.
+Copy each observed grid and envelope model into that implementation's draft
+preregistration entry. The diagnostic digest excludes only those discovered
+values; it still binds the artifacts, profiles, font, calibrations, and policy.
+Readiness, the probe, and measurement then check each terminal against its own
+pinned grid, never against another terminal's. Differing device-pixel pitches
+are expected rather than disqualifying; a later pitch that differs from that
+terminal's registered pitch is an unmet configuration. Raw logs remain in the new mode-`0700`
 private directory outside the repository and public output tree.
 Failure or interruption removes the incomplete public reservation while
 retaining private diagnostics. This action creates or consumes no readiness,

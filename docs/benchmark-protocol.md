@@ -263,16 +263,21 @@ recorded feasibility finding behind protocol 1.3.0 and blocks nothing.
 
 The one-shot geometry diagnostic launches OdyTTY, Kitty, Ghostty, and
 Alacritty once each in that fixed order through private systemd scopes and the
-production geometry handshake, using each terminal's preregistered calibration.
-It does not search, repair, or reinterpret the draft, and it neither requires
-nor consults calibration-search evidence. WezTerm receives no action in either
-diagnostic. A public schema-version-5 record is produced only when every
+production geometry handshake, using each terminal's canonical pinned
+calibration. It discovers each terminal's grid and affine pixel-envelope model;
+those values are then copied into the preregistration draft before readiness
+or the availability probe. The diagnostic input digest deliberately excludes
+the values being discovered while still binding the artifacts, profiles, font,
+calibrations, and geometry policy. It neither requires nor consults
+calibration-search evidence. WezTerm receives no action in either diagnostic.
+A public schema-version-5 record is produced only when every
 native-Wayland window reaches exact 80x24, records its opaque application id,
 raw PTY pixel envelope, normalized cell grid, affine envelope proof, process
-outcome, and successful cleanup, and each normalized grid equals the grid that
-terminal itself preregistered. Terminals are compared against their own pinned
-grids, never against each other's. A stable observed pitch that differs from
-that terminal's own registered pitch remains an unmet configuration. Raw logs
+outcome, and successful cleanup. Once copied, readiness, the one-shot probe,
+and every measured launch require each terminal to reproduce its own recorded
+grid and model. Terminals are compared against their own pinned grids, never
+against each other's. A later stable observed pitch that differs from that
+terminal's registered pitch remains an unmet configuration. Raw logs
 stay in a new mode-`0700` directory outside the repository and public output
 tree. Failure or interruption discards the empty public reservation and retains
 the private diagnostics. Neither command consumes or creates readiness, probe,
