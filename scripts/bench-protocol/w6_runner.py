@@ -52,6 +52,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TextIO
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -2316,6 +2317,7 @@ def run_reference_readiness(
         if (
             not _valid_probe_attempt(probe)
             or probe.get("window_mapped") is not True
+            or probe.get("display_path") != DISPLAY_PATH_WAYLAND
             or not isinstance(probe.get("raw_idle_ready"), dict)
             or not isinstance(probe.get("cell_geometry"), dict)
         ):
@@ -2370,6 +2372,7 @@ def validate_reference_readiness(record: object, prereg_record: dict) -> bool:
         and all(
             _valid_probe_attempt(probe)
             and probe.get("window_mapped") is True
+            and probe.get("display_path") == DISPLAY_PATH_WAYLAND
             and isinstance(probe.get("raw_idle_ready"), dict)
             and isinstance(probe.get("cell_geometry"), dict)
             for probe in probes
@@ -4108,6 +4111,8 @@ def _fake_prereg(
 
 
 def self_test() -> list[str]:
+    import contextlib
+    import io
     import tempfile
 
     failures: list[str] = []
@@ -4282,6 +4287,13 @@ def self_test() -> list[str]:
             )
             if validate_reference_readiness(forged_readiness, laptop_prereg):
                 failures.append("reference readiness: forged launch path validated")
+            forged_readiness = json.loads(json.dumps(readiness))
+            forged_readiness["probes"][0]["display_path"] = DISPLAY_PATH_XWAYLAND
+            forged_readiness["probes"][0] = _seal_probe_attempt(
+                forged_readiness["probes"][0]
+            )
+            if validate_reference_readiness(forged_readiness, laptop_prereg):
+                failures.append("reference readiness: Xwayland evidence validated")
 
         no_scope = _FakeLauncher(
             {name: "wayland" for name in profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS},
@@ -4313,6 +4325,22 @@ def self_test() -> list[str]:
                 )
         else:
             failures.append("reference readiness: missing mapped window was accepted")
+
+        xwayland_reference = _FakeLauncher(
+            {"kitty": "xwayland", "ghostty": "wayland", "alacritty": "wayland"},
+            root / "xwayland-reference",
+        )
+        try:
+            run_reference_readiness(
+                laptop_prereg, xwayland_reference, sleep=lambda _seconds: None
+            )
+        except ValueError:
+            if xwayland_reference.launches != ["kitty"]:
+                failures.append(
+                    "reference readiness: Xwayland failure did not stop immediately"
+                )
+        else:
+            failures.append("reference readiness: Xwayland reference was accepted")
 
         out_of_scope = _FakeLauncher(
             {name: "wayland" for name in profiles.CONFIG_PATHS},
@@ -4361,6 +4389,171 @@ def self_test() -> list[str]:
                 failures.append(
                     "reference readiness: unsafe private evidence location was accepted"
                 )
+
+        readiness_output = location_public / "readiness.json"
+        with contextlib.redirect_stderr(io.StringIO()):
+            missing_private_status = main(
+                [
+                    "--reference-readiness-output",
+                    str(readiness_output),
+                    "--preregistration",
+                    str(root / "unused-preregistration.json"),
+                ]
+            )
+        if missing_private_status != 2 or readiness_output.exists():
+            failures.append(
+                "reference readiness: missing private CLI argument created state"
+            )
+        try:
+            reserve_reference_readiness_storage(
+                readiness_output, None, location_repo
+            )
+        except ValueError:
+            if readiness_output.exists():
+                failures.append(
+                    "reference readiness: missing private argument created state"
+                )
+        else:
+            failures.append("reference readiness: missing private argument was accepted")
+
+        contained_private = location_repo / "readiness-private"
+        try:
+            reserve_reference_readiness_storage(
+                readiness_output, contained_private, location_repo
+            )
+        except ValueError:
+            if readiness_output.exists() or contained_private.exists():
+                failures.append(
+                    "reference readiness: repository-contained path created state"
+                )
+        else:
+            failures.append(
+                "reference readiness: repository-contained private path was accepted"
+            )
+
+        collision_private = root / "collision-private"
+        collision_private.mkdir()
+        try:
+            reserve_reference_readiness_storage(
+                readiness_output, collision_private, location_repo
+            )
+        except ValueError:
+            pass
+        else:
+            failures.append("reference readiness: private target collision was accepted")
+
+        collision_output = location_public / "existing-readiness.json"
+        collision_output.write_text("{}\n", encoding="utf-8")
+        collision_output_private = root / "output-collision-private"
+        try:
+            reserve_reference_readiness_storage(
+                collision_output, collision_output_private, location_repo
+            )
+        except ValueError:
+            if collision_output_private.exists():
+                failures.append(
+                    "reference readiness: output collision created private state"
+                )
+        else:
+            failures.append("reference readiness: public output collision was accepted")
+
+        absent_output = root / "absent-public" / "readiness.json"
+        absent_private = root / "absent-output-private"
+        try:
+            reserve_reference_readiness_storage(
+                absent_output, absent_private, location_repo
+            )
+        except OSError:
+            if (
+                absent_output.parent.exists()
+                or absent_output.exists()
+                or absent_private.exists()
+            ):
+                failures.append(
+                    "reference readiness: absent public parent created state"
+                )
+        else:
+            failures.append("reference readiness: absent public parent was accepted")
+
+        nondirectory_parent = root / "not-a-public-directory"
+        nondirectory_parent.write_text("not a directory\n", encoding="utf-8")
+        nondirectory_output = nondirectory_parent / "readiness.json"
+        nondirectory_private = root / "nondirectory-output-private"
+        try:
+            reserve_reference_readiness_storage(
+                nondirectory_output, nondirectory_private, location_repo
+            )
+        except OSError:
+            if nondirectory_output.exists() or nondirectory_private.exists():
+                failures.append(
+                    "reference readiness: unusable public parent created state"
+                )
+        else:
+            failures.append("reference readiness: unusable public parent was accepted")
+
+        cli_prereg = root / "cli-preregistration.json"
+        cli_prereg.write_text(
+            json.dumps(laptop_prereg, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        cli_output = root / "cli-absent-public" / "readiness.json"
+        cli_private = root / "cli-private"
+        cli_launches = []
+        original_preflight = globals()["preflight_window_backend"]
+        original_verify = globals()["verify_probe_inputs"]
+        original_launcher = globals()["RealLauncher"]
+        globals()["preflight_window_backend"] = lambda: (
+            {"status": "available", "backend": "fake"},
+            {},
+        )
+        globals()["verify_probe_inputs"] = lambda _record, _root: None
+        globals()["RealLauncher"] = lambda *_args, **_kwargs: cli_launches.append(
+            "constructed"
+        )
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                cli_status = main(
+                    [
+                        "--reference-readiness-output",
+                        str(cli_output),
+                        "--reference-readiness-private-dir",
+                        str(cli_private),
+                        "--preregistration",
+                        str(cli_prereg),
+                    ]
+                )
+        finally:
+            globals()["preflight_window_backend"] = original_preflight
+            globals()["verify_probe_inputs"] = original_verify
+            globals()["RealLauncher"] = original_launcher
+        if (
+            cli_status != 1
+            or cli_output.parent.exists()
+            or cli_output.exists()
+            or cli_private.exists()
+            or cli_launches
+        ):
+            failures.append(
+                "reference readiness: CLI unusable output parent mutated state or launched"
+            )
+
+        created_output, created_private, created_sink = (
+            reserve_reference_readiness_storage(
+                readiness_output, root / "readiness-private", location_repo
+            )
+        )
+        if (
+            created_output != readiness_output.resolve()
+            or created_private != (root / "readiness-private").resolve()
+            or not created_private.is_dir()
+            or created_private.stat().st_mode & 0o777 != 0o700
+            or not created_output.is_file()
+            or created_output.stat().st_size != 0
+            or created_sink.closed
+        ):
+            failures.append(
+                "reference readiness: valid outside private root was not create-only 0700"
+            )
+        created_sink.close()
 
     fake_which = lambda name: f"/usr/bin/{name}"  # noqa: E731 - injected lookup
     missing_backend, missing_environment = preflight_window_backend(
@@ -6219,6 +6412,58 @@ def validate_private_evidence_location(
     return private_root
 
 
+def discard_reference_readiness_reservation(
+    output_path: Path, reservation: TextIO
+) -> None:
+    """Remove only the empty/public sink represented by this open handle."""
+    same_file = False
+    try:
+        descriptor = os.fstat(reservation.fileno())
+        current = output_path.stat()
+        same_file = (descriptor.st_dev, descriptor.st_ino) == (
+            current.st_dev,
+            current.st_ino,
+        )
+    except (OSError, ValueError):
+        pass
+    try:
+        reservation.close()
+    except OSError:
+        pass
+    if same_file:
+        output_path.unlink(missing_ok=True)
+
+
+def reserve_reference_readiness_storage(
+    output_path: Path, private_path: Path | None, repo_root: Path
+) -> tuple[Path, Path, TextIO]:
+    """Reserve the public sink, then create private storage before any launch."""
+    if private_path is None:
+        raise ValueError(
+            "--reference-readiness-output requires "
+            "--reference-readiness-private-dir"
+        )
+    resolved_output = output_path.resolve()
+    private_root = validate_private_evidence_location(
+        private_path, resolved_output.parent, repo_root
+    )
+    if resolved_output.exists() or private_root.exists():
+        raise ValueError("reference readiness target already exists")
+    reservation = resolved_output.open("x", encoding="utf-8")
+    try:
+        private_root.mkdir(parents=True, mode=0o700, exist_ok=False)
+        private_root.chmod(0o700)
+    except OSError:
+        discard_reference_readiness_reservation(resolved_output, reservation)
+        if private_root.is_dir():
+            try:
+                private_root.rmdir()
+            except OSError:
+                pass
+        raise
+    return resolved_output, private_root, reservation
+
+
 def finalize_public_evidence(
     results_dir: Path, document_path: Path, private_evidence_dir: Path
 ) -> None:
@@ -6584,38 +6829,40 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as error:
             print(f"reference readiness input verification failed: {error}", file=sys.stderr)
             return 1
-        output_path = Path(args.reference_readiness_output)
-        private_dir = Path(args.reference_readiness_private_dir)
         try:
-            validate_private_evidence_location(
-                private_dir, output_path.parent, HERE.parents[1]
+            output_path, private_dir, readiness_output = (
+                reserve_reference_readiness_storage(
+                    Path(args.reference_readiness_output),
+                    (
+                        Path(args.reference_readiness_private_dir)
+                        if args.reference_readiness_private_dir
+                        else None
+                    ),
+                    HERE.parents[1],
+                )
             )
-        except ValueError as error:
+        except (OSError, ValueError) as error:
             print(f"invalid reference readiness private directory: {error}", file=sys.stderr)
             return 1
-        if output_path.exists() or private_dir.exists():
-            print("reference readiness target already exists; refusing to overwrite", file=sys.stderr)
-            return 1
         try:
-            private_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
-            private_dir.chmod(0o700)
-        except OSError as error:
-            print(f"cannot create reference readiness private directory: {error}", file=sys.stderr)
-            return 1
-        launcher = RealLauncher(
-            backend,
-            use_scope=True,
-            log_dir=private_dir / "logs",
-            config_paths=config_paths,
-            calibrations=calibrations,
-            launch_environment=launch_environment,
-            font_identity=prereg_record.get("shared_font"),
-        )
-        try:
+            launcher = RealLauncher(
+                backend,
+                use_scope=True,
+                log_dir=private_dir / "logs",
+                config_paths=config_paths,
+                calibrations=calibrations,
+                launch_environment=launch_environment,
+                font_identity=prereg_record.get("shared_font"),
+            )
             readiness = run_reference_readiness(prereg_record, launcher)
-            with output_path.open("x", encoding="utf-8") as handle:
-                handle.write(json.dumps(readiness, indent=2, sort_keys=True) + "\n")
+            readiness_output.write(
+                json.dumps(readiness, indent=2, sort_keys=True) + "\n"
+            )
+            readiness_output.close()
         except (OSError, ValueError) as error:
+            discard_reference_readiness_reservation(
+                output_path, readiness_output
+            )
             print(f"reference readiness failed: {error}", file=sys.stderr)
             return 1
         json.dump(readiness, sys.stdout, indent=2, sort_keys=True)
