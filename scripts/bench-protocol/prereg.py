@@ -656,13 +656,12 @@ def check_record(record: dict) -> list[str]:
         name = entry.get("name")
         if entry.get("availability") == "unavailable" and not entry.get("unavailable_reason"):
             problems.append(f"implementation {entry.get('name')!r} lacks an unavailable reason")
-        if entry.get("availability") == "qualified" and entry.get("display_path") not in (
-            "wayland-native",
-            "xwayland",
-            "x11",
+        if (
+            entry.get("availability") == "qualified"
+            and entry.get("display_path") != "wayland-native"
         ):
             problems.append(
-                f"implementation {entry.get('name')!r} lacks a pinned display path"
+                f"implementation {entry.get('name')!r} must pin the native Wayland display path"
             )
         if entry.get("availability") == "qualified" and not isinstance(
             entry.get("cell_geometry"), dict
@@ -1093,6 +1092,14 @@ def self_test(repo_root: Path) -> list[str]:
         "shared font identity" in problem for problem in check_record(mismatched_font)
     ):
         failures.append("prereg: a mismatched implementation font digest was accepted")
+
+    non_native_display = json.loads(json.dumps(pinned))
+    non_native_display["implementations"][1]["display_path"] = "xwayland"
+    if not any(
+        "must pin the native Wayland display path" in problem
+        for problem in check_record(non_native_display)
+    ):
+        failures.append("prereg: a qualified XWayland implementation was accepted")
 
     mismatched_drm = json.loads(json.dumps(pinned))
     drm_record = next(

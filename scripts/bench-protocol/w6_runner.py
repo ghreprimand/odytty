@@ -606,9 +606,8 @@ def qualify_implementations(
 
     Pure: takes probe records, returns a decision record. The interesting
     cases are an implementation that spawns without mapping a window, and one
-    that maps only on a different display path than the rest. Both are real
-    situations on a live Wayland session and both are recorded rather than
-    smoothed over.
+    that maps only outside the required native Wayland path. Both are real
+    situations and both are recorded rather than smoothed over.
 
     Protocol 1.3.0 admits terminals on a PER-IMPLEMENTATION grid: each mapped
     terminal must expose its own exact 80x24 device-pixel grid together with a
@@ -617,7 +616,11 @@ def qualify_implementations(
     a common grid completed on this laptop and proved none exists, so keeping
     that equality as an admission gate would have made a protocol-valid
     comparison unreachable rather than controlled. Shared font, shared
-    profile, shared display path, and exact 80x24 remain required.
+    profile, native Wayland display path, and exact 80x24 remain required.
+
+    `allow_mixed_display_paths` is retained only for API compatibility with
+    older protocol callers. Protocol 1.3.0 never uses it to qualify XWayland
+    or X11 evidence.
 
     `require_exhaustive_calibration` is retained only for the optional,
     historical feasibility tooling that searched for a common grid. It
@@ -656,12 +659,10 @@ def qualify_implementations(
         else set()
     )
 
-    # The majority display path among implementations that did map defines the
-    # comparison's display path. Ties resolve to the reference implementation's
-    # path when it mapped, otherwise to the lexically first path, so the choice
-    # is deterministic rather than dependent on probe order.
-    paths = [probe.get("display_path", DISPLAY_PATH_UNKNOWN) for probe in mapped]
-    reference_path = None
+    # Protocol 1.3.0 fixes the laptop comparison to native Wayland. A unanimous
+    # XWayland/X11 probe set is still the wrong presentation path and cannot
+    # redefine the protocol by majority vote.
+    reference_path = DISPLAY_PATH_WAYLAND
     reference_font = next(
         (
             probe.get("font_identity")
@@ -678,25 +679,6 @@ def qualify_implementations(
         ),
         None,
     )
-    if paths:
-        counts: dict[str, int] = {}
-        for path in paths:
-            counts[path] = counts.get(path, 0) + 1
-        odytty_path = next(
-            (
-                probe.get("display_path")
-                for probe in mapped
-                if probe["implementation"] == "odytty"
-            ),
-            None,
-        )
-        if odytty_path is not None:
-            reference_path = odytty_path
-        else:
-            best = max(counts.values())
-            candidates = sorted(path for path, count in counts.items() if count == best)
-            reference_path = candidates[0]
-
     for probe in mapped:
         attempts = probe.get("calibration_attempts", [probe])
         evidence_invalid = (
@@ -735,26 +717,13 @@ def qualify_implementations(
             "presentation pipeline, so pooling the two would compare two "
             "quantities under one name."
         )
-        if allow_mixed_display_paths:
-            qualified.append(probe["implementation"])
-            deviations.append(
-                {
-                    "kind": "mixed-display-paths",
-                    "implementation": probe["implementation"],
-                    "detail": detail
-                    + " Included by explicit operator instruction; results for "
-                    "this implementation are not comparable on the presentation "
-                    "path and must be read with that limitation attached.",
-                }
-            )
-        else:
-            excluded.append(
-                {
-                    "implementation": probe["implementation"],
-                    "reason": "unavailable-implementation",
-                    "detail": detail,
-                }
-            )
+        excluded.append(
+            {
+                "implementation": probe["implementation"],
+                "reason": "unavailable-implementation",
+                "detail": detail,
+            }
+        )
 
     return {
         "reference_display_path": reference_path,
@@ -9267,8 +9236,8 @@ def self_test() -> list[str]:
     if not tampered_decision["protocol_blockers"]:
         failures.append("qualification: tampered immutable calibration attempt passed")
 
-    # An implementation that maps only through Xwayland is excluded by default
-    # and included only as an explicit, recorded deviation.
+    # Native Wayland is mandatory. XWayland/X11 cannot be admitted by a
+    # unanimous probe set, majority vote, or the retired opt-in flag.
     mixed = [
         _synthetic_probe_attempt("odytty", profiles.calibration_configurations("odytty")[0], geometry),
         _synthetic_probe_attempt("kitty", profiles.calibration_configurations("kitty")[0], geometry),
@@ -9284,10 +9253,35 @@ def self_test() -> list[str]:
         allow_mixed_display_paths=True,
         require_exhaustive_calibration=False,
     )
-    if "wezterm" not in permissive["qualified"]:
-        failures.append("qualification: explicit opt-in must include the implementation")
-    if not permissive["deviations"]:
-        failures.append("qualification: an opt-in mix must be recorded as a deviation")
+    if "wezterm" in permissive["qualified"] or permissive["deviations"]:
+        failures.append("qualification: retired opt-in admitted a non-Wayland path")
+
+    unanimous_xwayland = qualify_implementations(
+        [
+            _seal_probe_attempt(
+                {
+                    **_synthetic_probe_attempt(
+                        "odytty",
+                        profiles.calibration_configurations("odytty")[0],
+                        geometry,
+                    ),
+                    "display_path": DISPLAY_PATH_XWAYLAND,
+                }
+            ),
+            _seal_probe_attempt(
+                {
+                    **_synthetic_probe_attempt(
+                        "kitty",
+                        profiles.calibration_configurations("kitty")[0],
+                        geometry,
+                    ),
+                    "display_path": DISPLAY_PATH_XWAYLAND,
+                }
+            ),
+        ]
+    )
+    if unanimous_xwayland["qualified"] or len(unanimous_xwayland["excluded"]) != 2:
+        failures.append("qualification: unanimous XWayland redefined the native path")
 
     majority_mismatch = qualify_implementations(
         [
@@ -10885,11 +10879,18 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 2
 
+    if args.allow_mixed_display_paths:
+        print(
+            "--allow-mixed-display-paths is retired; protocol 1.3.0 requires "
+            "native Wayland for every qualified implementation",
+            file=sys.stderr,
+        )
+        return 2
+
     if args.run and (
         args.settle_seconds != SETTLE_SECONDS
         or args.measure_seconds != MEASURE_SECONDS
         or args.measured_blocks != MEASURED_BLOCKS
-        or args.allow_mixed_display_paths
         or args.no_scope
     ):
         print(
