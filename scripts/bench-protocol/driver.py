@@ -369,7 +369,13 @@ def run_stream(sink: OracleSink, fixture: str, await_start: bool = True) -> dict
     )
 
 
-def run_idle(sink: OracleSink, duration_seconds: float, start_path: str) -> dict:
+def run_idle(
+    sink: OracleSink,
+    duration_seconds: float,
+    start_path: str,
+    geometry_ready_path: str | None = None,
+    sleep=time.sleep,
+) -> dict:
     """W6 child: display one pinned prompt, then remain completely static.
 
     A blocking input thread observes unexpected input without polling. The
@@ -380,6 +386,21 @@ def run_idle(sink: OracleSink, duration_seconds: float, start_path: str) -> dict
     """
     if duration_seconds < 0:
         raise ValueError("idle duration must not be negative")
+    if geometry_ready_path is not None:
+        previous_geometry = None
+        while not os.path.exists(geometry_ready_path):
+            columns, rows = terminal_size()
+            pixels = terminal_pixel_size()
+            geometry = {
+                "pty_columns": columns,
+                "pty_rows": rows,
+                "content_width_device_px": pixels[0] if pixels else None,
+                "content_height_device_px": pixels[1] if pixels else None,
+            }
+            if geometry != previous_geometry:
+                sink.emit("geometry-observation", **geometry)
+                previous_geometry = geometry
+            sleep(0.05)
     prompt = ("\x1b[2J\x1b[H\x1b[?25l" + IDLE_PROMPT).encode("ascii")
     columns, rows = terminal_size()
     sys.stdout.buffer.write(prompt)
@@ -707,6 +728,10 @@ def main(argv: list[str] | None = None) -> int:
         help="create-exclusive controller start edge required by idle-visible-10m",
     )
     parser.add_argument(
+        "--geometry-ready-path",
+        help="controller edge released only after exact startup geometry is observed",
+    )
+    parser.add_argument(
         "--no-await-start",
         action="store_true",
         help=(
@@ -744,7 +769,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.workload == "idle-visible-10m":
             if not args.start_path:
                 raise ValueError("idle-visible-10m requires --start-path")
-            run_idle(sink, args.duration_seconds, args.start_path)
+            run_idle(
+                sink,
+                args.duration_seconds,
+                args.start_path,
+                geometry_ready_path=args.geometry_ready_path,
+            )
         else:
             fixture = "w3" if args.workload == "ascii-stream-64mb" else "w4"
             run_stream(sink, fixture, await_start=not args.no_await_start)

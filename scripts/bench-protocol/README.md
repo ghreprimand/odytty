@@ -101,6 +101,18 @@ value of 12 (pixels for OdyTTY and points for the reference terminals), opaque
 and ligatures, and 100,000 lines of scrollback. The runner supplies the pinned
 idle driver as the explicit child command for every recipe.
 
+On Hyprland, every launch also receives a fresh opaque `odytty-bench-*`
+application id. The child reports PTY geometry out of band and waits behind a
+private controller edge. The runner binds the mapped native window to both
+that exact id and its exact compositor address, floats only that window, and
+resizes its outer dimensions from the observed cell size until the PTY reports
+exactly 80x24. Only then may the child emit `idle-ready`. No persistent
+compositor rule is installed, and teardown removes the private edge after
+every normal, failed, timed-out, or interrupted launch. Kitty additionally
+disables its remembered window size. Sway remains observable, but the runner
+fails its prerequisite before launching a terminal because it does not yet
+have an equivalent reversible exact-startup-geometry controller there.
+
 The bounded pre-public probe also reads the PTY's content width and height in
 device pixels and derives the exact per-cell geometry for the 80x24 grid. It
 probes every member of the declared bounded calibration set for every mapped
@@ -127,7 +139,9 @@ is a bounded, nonmeasurement preparation gate: every reference must start its
 PTY child, reach the idle-ready record, and map an observable window. Failure
 stops before a probe directory is created. The resulting record binds the
 preregistered inputs and must validate through `--reference-readiness-record`;
-it never launches WezTerm. Raw readiness logs require an explicit create-only,
+schema version 2 additionally binds the startup-geometry handshake that gates
+`idle-ready` on the exact 80x24 PTY. Version 1 readiness records predate that
+evidence and are rejected. The gate never launches WezTerm. Raw readiness logs require an explicit create-only,
 mode-`0700` private directory outside both the repository and the public
 readiness-artifact tree.
 

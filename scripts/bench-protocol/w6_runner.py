@@ -87,7 +87,9 @@ WINDOW_MAP_TIMEOUT_SECONDS = 20
 ORACLE_COMPLETION_TIMEOUT_SECONDS = 10
 PROBE_CHILD_SECONDS = WINDOW_MAP_TIMEOUT_SECONDS + 10
 PROBE_ATTEMPT_WALL_BOUND_SECONDS = 90
-REFERENCE_READINESS_SCHEMA_VERSION = 1
+# Version 2 adds the startup-geometry handshake evidence: each reference is
+# gated until its exact 80x24 PTY geometry is observed before `idle-ready`.
+REFERENCE_READINESS_SCHEMA_VERSION = 2
 CALIBRATION_MAX_LAUNCHES = sum(
     len(profiles.calibration_configurations(name))
     for name in sorted(profiles.CALIBRATABLE_IMPLEMENTATIONS)
@@ -137,9 +139,14 @@ LAUNCH_RECIPES: dict[str, list[str]] = {
 DRIVER = HERE / "driver.py"
 
 
-def idle_driver_command(seconds: int, oracle_path: Path, start_path: Path) -> list[str]:
+def idle_driver_command(
+    seconds: int,
+    oracle_path: Path,
+    start_path: Path,
+    geometry_ready_path: Path | None = None,
+) -> list[str]:
     """Build the exact child command; mapping delay never changes its duration."""
-    return [
+    command = [
         sys.executable,
         str(DRIVER),
         "--workload",
@@ -151,6 +158,9 @@ def idle_driver_command(seconds: int, oracle_path: Path, start_path: Path) -> li
         "--start-path",
         str(start_path),
     ]
+    if geometry_ready_path is not None:
+        command.extend(["--geometry-ready-path", str(geometry_ready_path)])
+    return command
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +304,16 @@ def preflight_window_backend(
     backend = detect_window_backend(environ, which)
     if backend.get("status") != "available":
         return backend, {}
+    if backend.get("backend") == "swaymsg":
+        return {
+            **backend,
+            "status": "unsupported",
+            "reason": (
+                "swaymsg can observe native-Wayland windows, but this runner "
+                "does not have an equivalent reversible exact-startup-geometry "
+                "controller for Sway; no terminal is launched"
+            ),
+        }, {}
     try:
         launch_environment = resolve_child_display_environment(
             backend,
@@ -309,6 +329,22 @@ def preflight_window_backend(
             "reason": str(error),
         }, {}
     return {**backend, "launch_environment": "verified"}, launch_environment
+
+
+def benchmark_window_tag(tag: str, nonce: int | None = None) -> str:
+    """Return an opaque, per-launch app id safe for compositor selectors."""
+    if not re.fullmatch(r"[a-z0-9-]+", tag):
+        raise ValueError("benchmark launch tags may contain only lowercase ASCII and hyphens")
+    seed = f"{os.getpid()}:{time.monotonic_ns() if nonce is None else nonce}:{tag}"
+    digest = hashlib.sha256(seed.encode("ascii")).hexdigest()[:24]
+    return f"odytty-bench-{digest}"
+
+
+def hyprland_window_selector(address: object) -> str:
+    """Return an exact Hyprland address selector or reject the observation."""
+    if not isinstance(address, str) or re.fullmatch(r"0x[0-9a-fA-F]+", address) is None:
+        raise ValueError("Hyprland did not expose an exact native-window address")
+    return f"address:{address}"
 
 
 def parse_hyprctl_clients(
@@ -347,6 +383,7 @@ def parse_hyprctl_clients(
                 "monitor": monitor,
                 "focused": entry.get("focusHistoryID") == 0,
                 "fullscreen": bool(entry.get("fullscreen", False)),
+                "floating": bool(entry.get("floating", False)),
                 "x": (entry.get("at") or [None, None])[0],
                 "y": (entry.get("at") or [None, None])[1],
                 "width": size[0] if isinstance(size, list) and size else 0,
@@ -1298,7 +1335,12 @@ class RealLauncher:
             "system_cpu_ticks": _system_cpu_ticks(),
         }
 
-    def terminal_argv(self, implementation: str, child_argv: list[str]) -> list[str]:
+    def terminal_argv(
+        self,
+        implementation: str,
+        child_argv: list[str],
+        window_tag: str | None = None,
+    ) -> list[str]:
         """Assemble one immutable terminal argv around the pinned child command."""
         recipe = LAUNCH_RECIPES.get(implementation)
         if recipe is None:
@@ -1312,14 +1354,22 @@ class RealLauncher:
                     "OdyTTY config must be pinned as <base>/odytty/odytty.conf"
                 )
             configured_recipe = [recipe[0]]
+            if window_tag is not None:
+                configured_recipe.extend(["--app-id", window_tag])
         elif implementation == "kitty":
             configured_recipe = [recipe[0], "--config", str(config)]
+            if window_tag is not None:
+                configured_recipe.extend(["--class", window_tag])
         elif implementation == "alacritty":
             configured_recipe = [recipe[0], "--config-file", str(config)]
+            if window_tag is not None:
+                configured_recipe.extend(["--class", window_tag])
         elif implementation == "wezterm":
             configured_recipe = [recipe[0], "--config-file", str(config)]
         elif implementation == "ghostty":
             configured_recipe = [recipe[0], f"--config-file={config}"]
+            if window_tag is not None:
+                configured_recipe.append(f"--class={window_tag}")
         else:
             raise ValueError(
                 f"no config-injection recipe exists for {implementation!r}"
@@ -1341,6 +1391,136 @@ class RealLauncher:
         configured_recipe.extend(child_argv)
         return configured_recipe
 
+    @staticmethod
+    def _geometry_command_succeeded(completed) -> bool:
+        return (
+            completed is not None
+            and completed.returncode == 0
+            and "error" not in (completed.stderr or "").lower()
+        )
+
+    def _run_geometry_command(self, argv: list[str]):
+        try:
+            return subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    @staticmethod
+    def _spawn_process(argv: list[str], handle, launch_env: dict[str, str]):
+        return subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+            argv,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            env=launch_env,
+        )
+
+    def prepare_geometry_control(self, window_tag: str, ready_path: Path) -> dict:
+        """Create per-launch controller state without mutating the compositor."""
+        if self.backend.get("backend") != "hyprctl":
+            raise ValueError(
+                "exact startup geometry is supported only by the Hyprland controller"
+            )
+        return {
+            "backend": "hyprctl",
+            "window_tag": window_tag,
+            "ready_path": ready_path,
+            "address": None,
+            "float_requested": False,
+            "last_resize_observation": None,
+            "released": False,
+        }
+
+    def normalize_startup_geometry(
+        self, launched: dict, window: dict, observation: dict
+    ) -> bool:
+        """Float and resize only the exact mapped launch until its PTY is 80x24."""
+        control = launched.get("geometry_control")
+        if (
+            not isinstance(control, dict)
+            or window.get("app_id") != control.get("window_tag")
+            or window.get("xwayland") is True
+        ):
+            return False
+        try:
+            selector = hyprland_window_selector(window.get("address"))
+        except ValueError:
+            return False
+        if control["address"] is None:
+            control["address"] = window["address"]
+        elif control["address"] != window["address"]:
+            return False
+        geometry = cell_geometry_from_oracle(observation)
+        if geometry is not None:
+            ready_path = control["ready_path"]
+            try:
+                with ready_path.open("xb") as handle:
+                    handle.write(b"exact-80x24\n")
+            except FileExistsError:
+                return False
+            control["released"] = True
+            return True
+
+        columns = observation.get("pty_columns")
+        rows = observation.get("pty_rows")
+        content_width = observation.get("content_width_device_px")
+        content_height = observation.get("content_height_device_px")
+        window_width = window.get("width")
+        window_height = window.get("height")
+        values = (columns, rows, content_width, content_height, window_width, window_height)
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value <= 0
+            for value in values
+        ) or content_width % columns or content_height % rows:
+            return False
+        if window.get("floating") is not True:
+            if control["float_requested"]:
+                return False
+            completed = self._run_geometry_command(
+                ["hyprctl", "dispatch", "setfloating", selector]
+            )
+            control["float_requested"] = True
+            control["command_failed"] = not self._geometry_command_succeeded(completed)
+            return False
+
+        signature = (columns, rows, content_width, content_height)
+        if control["last_resize_observation"] == signature:
+            return False
+        cell_width = content_width // columns
+        cell_height = content_height // rows
+        target_width = window_width + (80 - columns) * cell_width
+        target_height = window_height + (24 - rows) * cell_height
+        if target_width <= 0 or target_height <= 0:
+            return False
+        completed = self._run_geometry_command(
+            [
+                "hyprctl",
+                "dispatch",
+                "resizewindowpixel",
+                f"exact {target_width} {target_height},{selector}",
+            ]
+        )
+        control["last_resize_observation"] = signature
+        control["command_failed"] = not self._geometry_command_succeeded(completed)
+        return False
+
+    def release_geometry_control(self, launched: dict) -> bool:
+        """Remove the private handshake edge; no compositor rule is persistent."""
+        control = launched.get("geometry_control")
+        if not isinstance(control, dict):
+            return True
+        try:
+            control["ready_path"].unlink(missing_ok=True)
+        except OSError:
+            return False
+        return True
+
     def launch(self, implementation: str, seconds: int, tag: str) -> dict:
         recipe = LAUNCH_RECIPES.get(implementation)
         if recipe is None:
@@ -1351,7 +1531,10 @@ class RealLauncher:
             return {"error": "private single-face font isolation failed verification"}
         oracle_path = self.log_dir / f"{tag}.oracle.jsonl"
         start_path = self.log_dir / f"{tag}.start"
-        idle = idle_driver_command(seconds, oracle_path, start_path)
+        geometry_ready_path = self.log_dir / f"{tag}.geometry-ready"
+        idle = idle_driver_command(
+            seconds, oracle_path, start_path, geometry_ready_path
+        )
         unit = f"odytty-bench-{tag}"
         launch_env = child_launch_environment(self.launch_environment)
         launch_env.update(self.font_isolation["environment"])
@@ -1363,7 +1546,10 @@ class RealLauncher:
             launch_env["ODYTTY_FONT_SIZE"] = f"{calibration['font_size']:g}"
             launch_env["ODYTTY_LINE_HEIGHT"] = f"{calibration.get('line_height', 1.0):g}"
         try:
-            terminal_argv = self.terminal_argv(implementation, idle)
+            window_tag = benchmark_window_tag(tag)
+            terminal_argv = self.terminal_argv(
+                implementation, idle, window_tag=window_tag
+            )
         except ValueError as error:
             return {"error": str(error)}
         scope_runtime = (
@@ -1382,20 +1568,29 @@ class RealLauncher:
         sanitized_launch_environment = self.sanitize_probe_environment(launch_env)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         out_path = self.log_dir / f"{tag}.out"
-        if oracle_path.exists() or start_path.exists():
-            return {"error": "immutable oracle or start-edge evidence path already exists"}
+        if oracle_path.exists() or start_path.exists() or geometry_ready_path.exists():
+            return {
+                "error": "immutable oracle, geometry, or start-edge evidence path already exists"
+            }
         try:
             handle = out_path.open("xb")
         except FileExistsError:
             return {"error": f"immutable output evidence path already exists: {out_path.name}"}
         try:
-            process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-                argv, stdout=handle, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                env=launch_env,
+            geometry_control = self.prepare_geometry_control(
+                window_tag, geometry_ready_path
             )
-        except OSError as error:
+        except ValueError as error:
             handle.close()
-            return {"error": f"launch failed: {error}"}
+            return {"error": str(error)}
+        try:
+            process = self._spawn_process(argv, handle, launch_env)
+        except BaseException as error:
+            handle.close()
+            self.release_geometry_control({"geometry_control": geometry_control})
+            if isinstance(error, OSError):
+                return {"error": f"launch failed: {error}"}
+            raise
         return {
             "process": process,
             "output_path": out_path,
@@ -1407,6 +1602,8 @@ class RealLauncher:
             "sanitized_launch_environment": sanitized_launch_environment,
             "requested_config": self.calibration_record(implementation),
             "font_isolation": dict(self.font_isolation["proof"]),
+            "window_tag": window_tag,
+            "geometry_control": geometry_control,
         }
 
     def sanitize_probe_argv(self, argv: list[str]) -> list[str]:
@@ -1473,17 +1670,20 @@ class RealLauncher:
 
     def stop(self, launched: dict) -> int | None:
         process = launched.get("process")
-        if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=15)
-        handle = launched.get("handle")
-        if handle is not None:
-            handle.close()
-        return process.poll() if process is not None else None
+        try:
+            if process is not None and process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=15)
+            return process.poll() if process is not None else None
+        finally:
+            handle = launched.get("handle")
+            if handle is not None:
+                handle.close()
+            launched["geometry_cleanup_ok"] = self.release_geometry_control(launched)
 
 
 def _thermal_throttle_count() -> int | None:
@@ -1647,6 +1847,7 @@ def _valid_requested_launch_binding(
     requested: dict,
     argv: object,
     environment: object,
+    window_app_id: object = None,
 ) -> bool:
     """Bind requested controls to the sanitized argv and launch environment."""
     if (
@@ -1680,7 +1881,7 @@ def _valid_requested_launch_binding(
 
     config = f"$REPOSITORY/{profiles.CONFIG_PATHS[implementation]}"
     required = {
-        "odytty": ["odytty", "-e"],
+        "odytty": ["odytty"],
         "kitty": ["kitty", "--config", config],
         "ghostty": ["ghostty", f"--config-file={config}"],
         "alacritty": ["alacritty", "--config-file", config],
@@ -1688,8 +1889,28 @@ def _valid_requested_launch_binding(
     }[implementation]
     if not _contains_exact_subsequence(argv, required):
         return False
+    if implementation != "wezterm":
+        if implementation in {"odytty", "kitty", "alacritty"}:
+            identity_flag = "--app-id" if implementation == "odytty" else "--class"
+            identities = [
+                argv[index + 1]
+                for index, argument in enumerate(argv[:-1])
+                if argument == identity_flag
+            ]
+        else:
+            identities = [
+                argument.removeprefix("--class=")
+                for argument in argv
+                if argument.startswith("--class=")
+            ]
+        if (
+            len(identities) != 1
+            or re.fullmatch(r"odytty-bench-[0-9a-f]{24}", identities[0]) is None
+            or (window_app_id is not None and identities[0] != window_app_id)
+        ):
+            return False
     if implementation == "odytty":
-        return True
+        return argv.count("-e") == 1
     if implementation == "ghostty":
         observed_overrides = [
             [argument] for argument in argv if argument.startswith("--font-size=")
@@ -1764,6 +1985,7 @@ def _valid_probe_attempt(record: object) -> bool:
             requested,
             record.get("sanitized_argv"),
             record.get("sanitized_launch_environment"),
+            (record.get("window") or {}).get("app_id"),
         )
     ):
         return False
@@ -1978,32 +2200,65 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
     measured_pids: set[int] = set()
     probe_started = time.monotonic()
     production_clock = sleep is time.sleep
-    for _ in range(WINDOW_MAP_TIMEOUT_SECONDS):
-        if production_clock:
-            remaining = WINDOW_MAP_TIMEOUT_SECONDS - (time.monotonic() - probe_started)
-            if remaining <= 0:
+    try:
+        for _ in range(WINDOW_MAP_TIMEOUT_SECONDS):
+            if production_clock:
+                remaining = WINDOW_MAP_TIMEOUT_SECONDS - (time.monotonic() - probe_started)
+                if remaining <= 0:
+                    break
+                sleep(min(1, remaining))
+            else:
+                sleep(1)
+            cgroup = (
+                cgroup_resolver(launched)
+                if cgroup_resolver
+                else cgroup_of_pid(process.pid)
+            )
+            measured_pids = cgroup_pids(cgroup) or descendant_pids(process.pid)
+            window = window_for_pids(launcher.windows(), measured_pids)
+            records = _read_oracle_records(launched.get("oracle_path"))
+            geometry_observation = next(
+                (
+                    entry
+                    for entry in reversed(records)
+                    if entry.get("kind") == "geometry-observation"
+                ),
+                None,
+            )
+            ready_record = next(
+                (entry for entry in records if entry.get("kind") == "idle-ready"), None
+            )
+            normalize = getattr(launcher, "normalize_startup_geometry", None)
+            if (
+                window is not None
+                and ready_record is None
+                and geometry_observation is not None
+                and normalize is not None
+            ):
+                normalize(launched, window, geometry_observation)
+            if window is not None and ready_record is not None:
+                if (
+                    cell_geometry_from_oracle(ready_record) is not None
+                    and window.get("app_id") == launched.get("window_tag")
+                ):
+                    release = getattr(launcher, "release_geometry_control", None)
+                    if release is not None:
+                        release(launched)
                 break
-            sleep(min(1, remaining))
-        else:
-            sleep(1)
-        cgroup = (
-            cgroup_resolver(launched)
-            if cgroup_resolver
-            else cgroup_of_pid(process.pid)
-        )
-        measured_pids = cgroup_pids(cgroup) or descendant_pids(process.pid)
-        window = window_for_pids(launcher.windows(), measured_pids)
-        records = _read_oracle_records(launched.get("oracle_path"))
-        ready_record = next(
-            (entry for entry in records if entry.get("kind") == "idle-ready"), None
-        )
-        if window is not None and ready_record is not None:
-            break
-        if production_clock and time.monotonic() - probe_started >= WINDOW_MAP_TIMEOUT_SECONDS:
-            break
+            if production_clock and time.monotonic() - probe_started >= WINDOW_MAP_TIMEOUT_SECONDS:
+                break
+    except BaseException:
+        launcher.stop(launched)
+        raise
     gpu = read_drm_memory_bytes(measured_pids)
     exit_status = launcher.stop(launched)
     geometry = cell_geometry_from_oracle(ready_record)
+    launch_bound = (
+        window is not None
+        and isinstance(launched.get("window_tag"), str)
+        and window.get("app_id") == launched.get("window_tag")
+    )
+    cleanup_ok = launched.get("geometry_cleanup_ok", True) is True
     raw_idle_ready = (
         {field: ready_record.get(field) for field in PROBE_RAW_IDLE_FIELDS}
         if isinstance(ready_record, dict)
@@ -2061,9 +2316,15 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
         **(
             {
                 "configuration_status": "unmet-protocol",
-                "detail": "mapped viewport did not expose exact 80x24 device-pixel geometry",
+                "detail": (
+                    "mapped viewport did not expose exact 80x24 device-pixel geometry"
+                    if geometry is None
+                    else "mapped window did not retain the exact per-launch application id"
+                    if not launch_bound
+                    else "temporary compositor geometry state did not clean up"
+                ),
             }
-            if geometry is None
+            if geometry is None or not launch_bound or not cleanup_ok
             else {}
         ),
     }
@@ -2320,6 +2581,7 @@ def run_reference_readiness(
             or probe.get("display_path") != DISPLAY_PATH_WAYLAND
             or not isinstance(probe.get("raw_idle_ready"), dict)
             or not isinstance(probe.get("cell_geometry"), dict)
+            or probe.get("configuration_status") == "unmet-protocol"
         ):
             raise ValueError(
                 f"reference readiness failed for {name!r}: "
@@ -2375,6 +2637,7 @@ def validate_reference_readiness(record: object, prereg_record: dict) -> bool:
             and probe.get("display_path") == DISPLAY_PATH_WAYLAND
             and isinstance(probe.get("raw_idle_ready"), dict)
             and isinstance(probe.get("cell_geometry"), dict)
+            and probe.get("configuration_status") != "unmet-protocol"
             for probe in probes
         )
     )
@@ -2453,43 +2716,68 @@ def run_replicate(
     pids: set[int] = set()
     start_window = None
     ready_record = None
-    for _ in range(WINDOW_MAP_TIMEOUT_SECONDS):
-        cgroup = (
-            cgroup_resolver(launched)
-            if cgroup_resolver
-            else cgroup_of_pid(process.pid)
-        )
-        pids = cgroup_pids(cgroup) or set()
-        windows = launcher.windows()
-        candidate = window_for_pids(windows, pids)
-        records = _read_oracle_records(launched.get("oracle_path"))
-        ready_record = next(
-            (item for item in records if item.get("kind") == "idle-ready"), None
-        )
-        ready = (
-            cgroup is not None
-            and bool(pids)
-            and bool(_driver_child_pids(pids))
-            and candidate is not None
-            and candidate.get("focused") is True
-            and window_unobscured(candidate, windows) is True
-            and ready_record is not None
-            and (ready_record.get("pty_columns"), ready_record.get("pty_rows")) == (80, 24)
-            and ready_record.get("prompt") == "odytty-bench$ "
-            and cell_geometry_from_oracle(ready_record)
-            == expected_environment.get("matched_cell_geometry")
-        )
-        if ready:
-            start_window = candidate
-            break
-        sleep(1)
+    try:
+        for _ in range(WINDOW_MAP_TIMEOUT_SECONDS):
+            cgroup = (
+                cgroup_resolver(launched)
+                if cgroup_resolver
+                else cgroup_of_pid(process.pid)
+            )
+            pids = cgroup_pids(cgroup) or set()
+            windows = launcher.windows()
+            candidate = window_for_pids(windows, pids)
+            records = _read_oracle_records(launched.get("oracle_path"))
+            geometry_observation = next(
+                (
+                    item
+                    for item in reversed(records)
+                    if item.get("kind") == "geometry-observation"
+                ),
+                None,
+            )
+            ready_record = next(
+                (item for item in records if item.get("kind") == "idle-ready"), None
+            )
+            normalize = getattr(launcher, "normalize_startup_geometry", None)
+            if (
+                candidate is not None
+                and ready_record is None
+                and geometry_observation is not None
+                and normalize is not None
+            ):
+                normalize(launched, candidate, geometry_observation)
+            ready = (
+                cgroup is not None
+                and bool(pids)
+                and bool(_driver_child_pids(pids))
+                and candidate is not None
+                and candidate.get("app_id") == launched.get("window_tag")
+                and candidate.get("focused") is True
+                and window_unobscured(candidate, windows) is True
+                and ready_record is not None
+                and (ready_record.get("pty_columns"), ready_record.get("pty_rows"))
+                == (80, 24)
+                and ready_record.get("prompt") == "odytty-bench$ "
+                and cell_geometry_from_oracle(ready_record)
+                == expected_environment.get("matched_cell_geometry")
+            )
+            if ready:
+                release = getattr(launcher, "release_geometry_control", None)
+                if release is None or release(launched):
+                    start_window = candidate
+                    break
+            sleep(1)
+    except BaseException:
+        launcher.stop(launched)
+        raise
     if start_window is None or ready_record is None:
         launcher.stop(launched)
         return {
             "implementation": implementation, "block": block, "reading": {},
             "oracle": evaluate_idle_oracle({"process_alive": process.poll() is None}),
             "detail": "pre-settle readiness gate did not observe the pinned driver, "
-            "private cgroup, focused unobscured 80x24 viewport, and idle-start prompt",
+            "private cgroup, exact launch identity, focused unobscured 80x24 "
+            "viewport, cleaned geometry control, and idle-start prompt",
             "invalid_reason": "controller-loss",
         }
 
@@ -3519,17 +3807,20 @@ def run_session(
 
 
 def _synthetic_launch_controls(
-    implementation: str, calibration: dict
+    implementation: str,
+    calibration: dict,
+    window_tag: str | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     config = f"$REPOSITORY/{profiles.CONFIG_PATHS[implementation]}"
+    tag = window_tag or f"odytty-bench-{'0' * 24}"
     if implementation == "odytty":
-        argv = ["odytty", "-e"]
+        argv = ["odytty", "--app-id", tag, "-e"]
     elif implementation == "kitty":
-        argv = ["kitty", "--config", config]
+        argv = ["kitty", "--config", config, "--class", tag]
     elif implementation == "ghostty":
-        argv = ["ghostty", f"--config-file={config}"]
+        argv = ["ghostty", f"--config-file={config}", f"--class={tag}"]
     elif implementation == "alacritty":
-        argv = ["alacritty", "--config-file", config]
+        argv = ["alacritty", "--config-file", config, "--class", tag]
     elif implementation == "wezterm":
         argv = ["wezterm", "--config-file", config]
     size = f"{calibration['font_size']:g}"
@@ -3603,13 +3894,14 @@ def _synthetic_probe_attempt(
     sanitized_argv, sanitized_environment = _synthetic_launch_controls(
         implementation, calibration
     )
+    synthetic_tag = f"odytty-bench-{'0' * 24}"
     return _seal_probe_attempt(
         {
             "implementation": implementation,
             "window_mapped": mapped,
             "display_path": DISPLAY_PATH_WAYLAND if mapped else None,
             "window": (
-                {"app_id": implementation, "width": 800, "height": 480}
+                {"app_id": synthetic_tag, "width": 800, "height": 480}
                 if mapped
                 else None
             ),
@@ -3705,6 +3997,7 @@ class _FakeLauncher:
         unproven_invalid_rehearsal_for: set[str] | None = None,
         environment_invalid_rehearsal_for: dict[str, str] | None = None,
         unproven_environment_invalid_rehearsal_for: dict[str, str] | None = None,
+        oracle_geometry: dict[str, int] | None = None,
     ):
         self.behaviour = behaviour
         self.backend = {"backend": "fake", "display": "wayland"}
@@ -3730,6 +4023,7 @@ class _FakeLauncher:
         self.calibrations: dict[str, dict] = {}
         self._next_pid = 1000
         self._live: dict[int, str] = {}
+        self._window_tags: dict[int, str] = {}
         self.launches: list[str] = []
         self.launch_durations: list[tuple[str, int]] = []
         self.replicates: list[dict] = []
@@ -3745,6 +4039,15 @@ class _FakeLauncher:
             unproven_environment_invalid_rehearsal_for or {}
         )
         self._observation_ticks = 0
+        self.oracle_geometry = dict(
+            oracle_geometry
+            or {
+                "pty_columns": 80,
+                "pty_rows": 24,
+                "content_width_device_px": 800,
+                "content_height_device_px": 480,
+            }
+        )
 
     def set_calibration(self, implementation: str, calibration: dict) -> bool:
         if not profiles.valid_calibration(implementation, calibration):
@@ -3812,7 +4115,7 @@ class _FakeLauncher:
         return [
             {
                 "pid": pid,
-                "app_id": name,
+                "app_id": self._window_tags[pid],
                 "title": name,
                 "xwayland": self.behaviour.get(name) == "xwayland",
                 "mapped": self.behaviour.get(name) != "no-window",
@@ -3838,6 +4141,8 @@ class _FakeLauncher:
         self._next_pid += 1
         pid = self._next_pid
         self._live[pid] = implementation
+        window_tag = benchmark_window_tag(tag, nonce=pid)
+        self._window_tags[pid] = window_tag
         self.log_dir.mkdir(parents=True, exist_ok=True)
         out_path = self.log_dir / f"{tag}.out"
         oracle_path = self.log_dir / f"{tag}.oracle.jsonl"
@@ -3848,10 +4153,7 @@ class _FakeLauncher:
             json.dumps(
                 {
                     "kind": "idle-ready",
-                    "pty_columns": 80,
-                    "pty_rows": 24,
-                    "content_width_device_px": 800,
-                    "content_height_device_px": 480,
+                    **self.oracle_geometry,
                     "prompt": "odytty-bench$ ",
                     "prompt_sha256": "a" * 64,
                     "output_bytes": 20,
@@ -3861,7 +4163,9 @@ class _FakeLauncher:
             encoding="utf-8",
         )
         sanitized_argv, sanitized_environment = _synthetic_launch_controls(
-            implementation, self.calibration_record(implementation)
+            implementation,
+            self.calibration_record(implementation),
+            window_tag=window_tag,
         )
         return {
             "process": _FakeProcess(pid),
@@ -3873,12 +4177,15 @@ class _FakeLauncher:
             "sanitized_launch_environment": sanitized_environment,
             "requested_config": self.calibration_record(implementation),
             "font_isolation": self.font_isolation_proof,
+            "window_tag": window_tag,
+            "geometry_cleanup_ok": True,
         }
 
     def stop(self, launched: dict) -> int | None:
         process = launched.get("process")
         if process is not None:
             self._live.pop(process.pid, None)
+            self._window_tags.pop(process.pid, None)
             process.terminate()
         return process.poll() if process is not None else None
 
@@ -4274,6 +4581,12 @@ def self_test() -> list[str]:
                 )
             if not validate_reference_readiness(readiness, laptop_prereg):
                 failures.append("reference readiness: valid record did not validate")
+            legacy_readiness = json.loads(json.dumps(readiness))
+            legacy_readiness["schema_version"] = 1
+            if validate_reference_readiness(legacy_readiness, laptop_prereg):
+                failures.append(
+                    "reference readiness: legacy pre-geometry schema validated"
+                )
             forged_readiness = json.loads(json.dumps(readiness))
             forged_readiness["inputs_sha256"] = "0" * 64
             if validate_reference_readiness(forged_readiness, laptop_prereg):
@@ -4760,6 +5073,198 @@ def self_test() -> list[str]:
     if LAUNCH_RECIPES != frozen_recipes:
         failures.append("launch argv: assembly mutated LAUNCH_RECIPES")
 
+    # Startup geometry is controlled only through an opaque exact app id and
+    # the mapped native window's exact compositor address. No persistent rule
+    # is installed, so interrupted attempts cannot contaminate later launches.
+    geometry_tag = benchmark_window_tag("kitty-r7", nonce=7)
+    try:
+        exact_selector = hyprland_window_selector("0xabc123")
+    except ValueError:
+        failures.append("geometry control: exact address selector was rejected")
+        exact_selector = "address:0xabc123"
+    try:
+        hyprland_window_selector("class:kitty")
+    except ValueError:
+        pass
+    else:
+        failures.append("geometry control: a broad class selector was accepted")
+
+    class _GeometryCommandResult:
+        returncode = 0
+        stderr = ""
+
+    class _RecordingGeometryLauncher(RealLauncher):
+        def __init__(self, backend_name: str, root: Path):
+            super().__init__(
+                {"backend": backend_name, "display": "wayland"},
+                use_scope=False,
+                log_dir=root,
+                config_paths=config_paths,
+            )
+            self.geometry_commands: list[list[str]] = []
+
+        def _run_geometry_command(self, argv):
+            self.geometry_commands.append(list(argv))
+            return _GeometryCommandResult()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        geometry_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+        ready_path = Path(tmp) / "geometry-ready"
+        control = geometry_launcher.prepare_geometry_control(geometry_tag, ready_path)
+        launched_control = {"geometry_control": control}
+        wrong_geometry = {
+            "pty_columns": 94,
+            "pty_rows": 53,
+            "content_width_device_px": 940,
+            "content_height_device_px": 1007,
+        }
+        target_window = {
+            "app_id": geometry_tag,
+            "address": "0xabc123",
+            "xwayland": False,
+            "floating": False,
+            "width": 960,
+            "height": 1027,
+        }
+        geometry_launcher.normalize_startup_geometry(
+            launched_control, target_window, wrong_geometry
+        )
+        target_window["floating"] = True
+        geometry_launcher.normalize_startup_geometry(
+            launched_control, target_window, wrong_geometry
+        )
+        if geometry_launcher.geometry_commands != [
+            ["hyprctl", "dispatch", "setfloating", exact_selector],
+            [
+                "hyprctl",
+                "dispatch",
+                "resizewindowpixel",
+                f"exact 820 476,{exact_selector}",
+            ],
+        ]:
+            failures.append("geometry control: 94x53 did not normalize by exact address")
+        unrelated = dict(target_window, app_id="unrelated")
+        command_count = len(geometry_launcher.geometry_commands)
+        geometry_launcher.normalize_startup_geometry(
+            launched_control, unrelated, wrong_geometry
+        )
+        if len(geometry_launcher.geometry_commands) != command_count:
+            failures.append("geometry control: unrelated window was mutated")
+        exact_geometry = {
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "content_width_device_px": 800,
+            "content_height_device_px": 456,
+        }
+        if not geometry_launcher.normalize_startup_geometry(
+            launched_control, target_window, exact_geometry
+        ) or not ready_path.is_file():
+            failures.append("geometry control: exact 80x24 did not release the child")
+        if not geometry_launcher.release_geometry_control(launched_control) or ready_path.exists():
+            failures.append("geometry control: handshake state did not clean up")
+        if any("windowrule" in command or "keyword" in command for command in geometry_launcher.geometry_commands):
+            failures.append("geometry control: persistent compositor rule was installed")
+
+        wrong_backend = _RecordingGeometryLauncher("swaymsg", Path(tmp))
+        try:
+            wrong_backend.prepare_geometry_control(geometry_tag, ready_path)
+        except ValueError:
+            pass
+        else:
+            failures.append("geometry control: wrong backend was accepted")
+
+        class _InterruptedGeometryLauncher(_RecordingGeometryLauncher):
+            def ensure_font_isolation(self):
+                self.font_isolation = {
+                    "environment": {},
+                    "font_path": Path(tmp) / "font.ttf",
+                    "config_path": Path(tmp) / "fonts.conf",
+                    "proof": {},
+                }
+                return True
+
+            @staticmethod
+            def _spawn_process(_argv, _handle, _launch_env):
+                raise KeyboardInterrupt
+
+        interrupted = _InterruptedGeometryLauncher("hyprctl", Path(tmp) / "interrupt")
+        try:
+            interrupted.launch("odytty", 1, "interrupted-launch")
+        except KeyboardInterrupt:
+            pass
+        else:
+            failures.append("geometry control: interrupted launch did not propagate")
+        if (Path(tmp) / "interrupt" / "interrupted-launch.geometry-ready").exists():
+            failures.append("geometry control: interrupted launch left handshake state")
+        if interrupted.geometry_commands:
+            failures.append("geometry control: interrupted launch mutated the compositor")
+
+    sway_backend, sway_environment = preflight_window_backend(
+        {"SWAYSOCK": "/run/user/self-test/sway-ipc.sock"}, fake_which
+    )
+    if (
+        sway_backend.get("status") != "unsupported"
+        or "exact-startup-geometry" not in sway_backend.get("reason", "")
+        or sway_environment
+    ):
+        failures.append("geometry control: Sway did not fail the prerequisite honestly")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        wrong_grid_launcher = _FakeLauncher(
+            {"kitty": "wayland"},
+            Path(tmp),
+            oracle_geometry={
+                "pty_columns": 94,
+                "pty_rows": 53,
+                "content_width_device_px": 940,
+                "content_height_device_px": 1007,
+            },
+        )
+        wrong_grid = _probe_implementation(
+            "kitty", wrong_grid_launcher, "wrong-grid", sleep=lambda _seconds: None
+        )
+        if (
+            wrong_grid.get("configuration_status") != "unmet-protocol"
+            or wrong_grid.get("raw_idle_ready", {}).get("pty_columns") != 94
+            or wrong_grid_launcher._live
+        ):
+            failures.append("geometry control: a reproduced 94x53 launch was accepted")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        interrupted_probe = _FakeLauncher({"kitty": "wayland"}, Path(tmp))
+        try:
+            _probe_implementation(
+                "kitty",
+                interrupted_probe,
+                "interrupted-probe",
+                sleep=lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt()),
+            )
+        except KeyboardInterrupt:
+            pass
+        else:
+            failures.append("geometry control: interrupted probe did not propagate")
+        if interrupted_probe._live or interrupted_probe._window_tags:
+            failures.append("geometry control: interrupted probe left launch state")
+
+    exact_binding = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0],
+        {
+            "columns": 80,
+            "rows": 24,
+            "content_width_device_px": 800,
+            "content_height_device_px": 480,
+            "cell_width_device_px": 10,
+            "cell_height_device_px": 20,
+        },
+    )
+    exact_binding["sanitized_argv"] = [
+        argument.replace("odytty-bench-" + "0" * 24, "odytty-bench-" + "1" * 24)
+        for argument in exact_binding["sanitized_argv"]
+    ]
+    exact_binding = _seal_probe_attempt(exact_binding)
+    if _valid_probe_attempt(exact_binding):
+        failures.append("geometry control: wrong exact launch identity was accepted")
+
     for duration in (REHEARSAL_SECONDS, SETTLE_SECONDS + MEASURE_SECONDS):
         command = idle_driver_command(duration, Path("oracle"), Path("start"))
         duration_index = command.index("--duration-seconds") + 1
@@ -4909,6 +5414,7 @@ def self_test() -> list[str]:
                 os.close(slave)
                 self.process = process
                 self.master = master
+                self.window_tag = benchmark_window_tag(tag, nonce=1)
                 (self.cgroup / "cgroup.procs").write_text(
                     f"{process.pid}\n", encoding="ascii"
                 )
@@ -4926,6 +5432,7 @@ def self_test() -> list[str]:
                     "oracle_path": oracle,
                     "start_path": start,
                     "handle": None,
+                    "window_tag": self.window_tag,
                 }
 
             def cgroup_path(self, _launched):
@@ -4938,7 +5445,7 @@ def self_test() -> list[str]:
                 return [
                     {
                         "pid": self.process.pid,
-                        "app_id": "odytty",
+                        "app_id": self.window_tag,
                         "mapped": True,
                         "visible": True,
                         "workspace": 1,

@@ -130,6 +130,24 @@ digest. Validators cross-bind every requested control to those sanitized
 launch records. Requested controls are not observations; only PTY geometry is
 effective observed evidence.
 
+The Linux controller binds each real launch to a fresh opaque application id.
+On Hyprland the child reports PTY geometry out of band, then waits behind a
+private controller edge. The runner requires both that exact id and the mapped
+native window's exact compositor address before floating or resizing it. The
+outer-window correction is derived from observed cell pixels and repeated only
+after a new PTY geometry observation. The child cannot emit `idle-ready` until
+the PTY reports exactly 80 columns by 24 rows. No persistent compositor rule
+is installed, unrelated windows cannot match the exact-id/address pair, and
+teardown removes the private edge on success, failure, timeout, and
+interruption. Kitty sets `remember_window_size no` so a prior interactive size
+cannot override the profile. Sway observation alone is insufficient: until an
+equivalent reversible startup-geometry controller exists, a Sway session fails
+the prerequisite before any terminal launch.
+
+This changes the reference-readiness evidence format to schema version 2.
+Schema version 1 predates the startup-geometry handshake and is rejected rather
+than interpreted under the stronger gate.
+
 The font is enforced separately. The runner copies the pinned, digest-verified
 DejaVu Sans Mono file into a mode-`0700` single-face Fontconfig environment.
 OdyTTY receives that copied absolute file through its direct `ODYTTY_FONT`
