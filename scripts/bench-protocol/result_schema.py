@@ -1177,43 +1177,10 @@ def validate(
             if isinstance(sample, dict)
             and sample.get("workload") == "idle-visible-10m"
         ]
-        w6_metrics = {
-            metric
-            for workload in preregistration.get("workloads", [])
-            if workload.get("name") == "idle-visible-10m"
-            for metric in workload.get("metrics", [])
-        }
-        if qualified and w6_metrics and not w6:
-            errors.append(
-                ValidationError(
-                    "$.samples", "qualified W6 implementations require canonical samples"
-                )
-            )
-        configurations = preregistration.get("configurations", [])
-        primary_identities = {
-            (
-                sample.get("implementation"),
-                sample.get("configuration"),
-                sample.get("metric"),
-                sample.get("block"),
-            )
-            for sample in w6
-            if sample.get("attempt") == 1
-        }
-        expected_primary = {
-            (implementation, configuration, metric, block)
-            for implementation in qualified
-            for configuration in configurations
-            for metric in w6_metrics
-            for block in range(1, 6)
-        }
-        if expected_primary - primary_identities:
-            errors.append(
-                ValidationError(
-                    "$.samples",
-                    "canonical W6 evidence omits one or more preregistered primary attempts",
-                )
-            )
+        # Missing primary identities are an execution outcome, not a malformed
+        # document.  `canonical_w6_incomplete_reasons` below binds every absent
+        # attempt into the public incomplete result and prevents a false
+        # complete status.
         identities = {
             (
                 sample.get("implementation"),

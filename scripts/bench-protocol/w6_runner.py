@@ -513,9 +513,24 @@ def window_for_pids(windows: list[dict], pids: set[int]) -> dict | None:
 
 
 def window_unobscured(target: dict, windows: list[dict]) -> bool | None:
-    """Conservatively prove that no other mapped client overlaps `target`."""
+    """Prove the focused target is the foreground normal client.
+
+    Geometry overlap alone is not obscuration: tiled or floating clients
+    behind the focused window commonly occupy the same coordinates.  The
+    supported compositor snapshot identifies the foreground normal client via
+    its unique focus position.  Conflicting focused clients fail closed.
+    """
     if target.get("visible") is not True:
         return None
+    focused = [
+        window
+        for window in windows
+        if window.get("mapped")
+        and window.get("visible") is True
+        and window.get("focused") is True
+    ]
+    if target.get("focused") is True:
+        return len(focused) == 1 and focused[0] is target
     keys = ("x", "y", "width", "height")
     if any(not isinstance(target.get(key), int) for key in keys):
         return None
@@ -815,13 +830,17 @@ def cgroup_of_pid(pid: int, proc_root: Path = Path("/proc")) -> Path | None:
 
 
 def cgroup_pids(cgroup: Path | None) -> set[int] | None:
-    """Read membership from the private measurement cgroup itself."""
+    """Read membership from the private measurement cgroup subtree."""
     if cgroup is None:
         return None
+    members: set[int] = set()
     try:
-        return {int(value) for value in (cgroup / "cgroup.procs").read_text().split()}
+        paths = [cgroup / "cgroup.procs", *cgroup.glob("**/cgroup.procs")]
+        for path in paths:
+            members.update(int(value) for value in path.read_text().split())
     except (OSError, ValueError):
         return None
+    return members
 
 
 def reset_memory_peak(cgroup: Path | None) -> bool:
@@ -4266,8 +4285,10 @@ def run_replicate(
     cgroup = None
     pids: set[int] = set()
     start_window = None
+    candidate = None
     ready_record = None
     geometry_model_evidence = None
+    stable_ready_envelope = False
     try:
         for _ in range(WINDOW_MAP_TIMEOUT_SECONDS):
             cgroup = (
@@ -4332,11 +4353,46 @@ def run_replicate(
     except BaseException:
         launcher.stop(launched)
         raise
+    process_alive = process.poll() is None
+    readiness_checks = {
+        "process_alive": process_alive,
+        "private_cgroup": cgroup is not None,
+        "process_tree_nonempty": bool(pids),
+        "driver_child_alive": bool(_driver_child_pids(pids)),
+        "window_mapped": candidate is not None,
+        "launch_identity": (
+            candidate is not None
+            and candidate.get("app_id") == launched.get("window_tag")
+        ),
+        "window_focused": candidate is not None and candidate.get("focused") is True,
+        "window_unobscured": (
+            candidate is not None and window_unobscured(candidate, windows) is True
+        ),
+        "idle_ready_record": ready_record is not None,
+        "preregistered_grid": registered_grid is not None,
+        "pty_grid_as_registered": (
+            ready_record is not None
+            and registered_grid is not None
+            and (ready_record.get("pty_columns"), ready_record.get("pty_rows"))
+            == registered_grid
+        ),
+        "stable_ready_envelope": stable_ready_envelope,
+        "geometry_model_as_registered": (
+            _geometry_model_summary(geometry_model_evidence)
+            == expected_environment.get("pty_pixel_envelope_model")
+        ),
+        "cell_geometry_as_registered": (
+            ready_record is not None
+            and cell_geometry_from_oracle(ready_record)
+            == expected_environment.get("cell_geometry")
+        ),
+    }
     if start_window is None or ready_record is None:
         launcher.stop(launched)
         return {
             "implementation": implementation, "block": block, "reading": {},
-            "oracle": evaluate_idle_oracle({"process_alive": process.poll() is None}),
+            "oracle": evaluate_idle_oracle({"process_alive": process_alive}),
+            "readiness_checks": readiness_checks,
             "detail": "pre-settle readiness gate did not observe the pinned driver, "
             "private cgroup, exact launch identity, focused unobscured viewport "
             "at the preregistered grid, cleaned geometry control, and idle-start "
@@ -4379,7 +4435,8 @@ def run_replicate(
             "implementation": implementation,
             "block": block,
             "reading": {},
-            "oracle": evaluate_idle_oracle({"process_alive": process.poll() is None}),
+            "oracle": evaluate_idle_oracle({"process_alive": process_alive}),
+            "readiness_checks": {**readiness_checks, "start_edge_path_available": False},
             "detail": "controller start-edge path was unavailable",
             "invalid_reason": "controller-loss",
         }
@@ -4388,12 +4445,14 @@ def run_replicate(
         with start_path.open("x", encoding="ascii") as handle:
             handle.write("start\n")
     except OSError:
+        process_alive = process.poll() is None
         launcher.stop(launched)
         return {
             "implementation": implementation,
             "block": block,
             "reading": {},
-            "oracle": evaluate_idle_oracle({"process_alive": process.poll() is None}),
+            "oracle": evaluate_idle_oracle({"process_alive": process_alive}),
+            "readiness_checks": {**readiness_checks, "start_edge_created": False},
             "detail": "controller start edge could not be created exclusively",
             "invalid_reason": "controller-loss",
         }
@@ -5126,6 +5185,7 @@ def run_session(
     overhead_results: list[dict] = []
     separate_passes: set[str] = set()
     separate_timing_results: list[dict] = []
+    rehearsal_invalid = False
     session_started = monotonic()
     raw_path = results_dir / "raw-samples.jsonl"
     with raw_path.open("x", encoding="utf-8") as raw:
@@ -5240,6 +5300,8 @@ def run_session(
                     overhead_entry.update(derived)
                     if not overhead_entry["pass"]:
                         separate_passes.add(implementation)
+                    if overhead_entry["valid"] is not True:
+                        rehearsal_invalid = True
                     overhead_results.append(overhead_entry)
                     raw.write(
                         json.dumps(
@@ -5252,6 +5314,11 @@ def run_session(
                                 "elapsed_wall_seconds": baseline_seconds,
                                 "child_elapsed_seconds": baseline.get(
                                     "child_elapsed_seconds"
+                                ),
+                                "detail": baseline.get("detail"),
+                                "invalid_reason": baseline.get("invalid_reason"),
+                                "readiness_checks": baseline.get(
+                                    "readiness_checks"
                                 ),
                                 "pty_pixel_envelope_model": baseline.get(
                                     "pty_pixel_envelope_model"
@@ -5276,15 +5343,31 @@ def run_session(
                                     "block": block, "rehearsal": False,
                                     "separate_pass": "timing", "implementation": implementation,
                                     "oracle": timing["oracle"],
-                                    "elapsed_wall_seconds": timing["elapsed_wall_seconds"],
+                                    "elapsed_wall_seconds": timing.get(
+                                        "elapsed_wall_seconds"
+                                    ),
+                                    "detail": timing.get("detail"),
+                                    "invalid_reason": timing.get("invalid_reason"),
+                                    "readiness_checks": timing.get(
+                                        "readiness_checks"
+                                    ),
                                     "pty_pixel_envelope_model": timing.get(
                                         "pty_pixel_envelope_model"
                                     ),
                                 }, sort_keys=True,
                             ) + "\n"
                         )
-                        timing_pass = timing["oracle"]["pass"] and not timing.get(
-                            "invalid_reason"
+                        timing_seconds = timing.get("elapsed_wall_seconds")
+                        timing_duration_valid = (
+                            isinstance(timing_seconds, (int, float))
+                            and not isinstance(timing_seconds, bool)
+                            and math.isfinite(timing_seconds)
+                            and timing_seconds >= 0
+                        )
+                        timing_pass = (
+                            timing_duration_valid
+                            and timing["oracle"]["pass"]
+                            and not timing.get("invalid_reason")
                         )
                         separate_timing_results.append(
                             {
@@ -5323,6 +5406,7 @@ def run_session(
                     "gpu_regions": replicate.get("gpu_regions", {}),
                     "oracle": replicate["oracle"],
                     "detail": replicate.get("detail"),
+                    "readiness_checks": replicate.get("readiness_checks"),
                     "environment_checks": replicate.get("environment_checks", []),
                     "elapsed_wall_seconds": replicate.get("elapsed_wall_seconds"),
                     "child_elapsed_seconds": replicate.get("child_elapsed_seconds"),
@@ -5351,6 +5435,14 @@ def run_session(
                     failures.append(failure)
                 if any(sample.get("status") == "invalid" for sample in built):
                     replacements.append((block, implementation))
+
+            # An invalid paired rehearsal makes this run set irrecoverably
+            # incomplete.  Finish and publish that evidence without spending
+            # hours on measured attempts that cannot repair it.  A valid
+            # rehearsal whose overhead merely exceeds the ceiling still
+            # proceeds through the preregistered separate-pass path.
+            if rehearsal and rehearsal_invalid:
+                break
 
         # One replacement is permitted for each invalid attempt, after the
         # frozen balanced sequence. A replacement is never recursively replaced.
@@ -5729,6 +5821,8 @@ class _FakeLauncher:
         log_dir: Path,
         invalid_once: set[tuple[str, int]] | None = None,
         invalid_rehearsal_for: set[str] | None = None,
+        excess_rehearsal_overhead_for: set[str] | None = None,
+        failed_separate_timing_for: set[str] | None = None,
         unproven_invalid_rehearsal_for: set[str] | None = None,
         environment_invalid_rehearsal_for: dict[str, str] | None = None,
         unproven_environment_invalid_rehearsal_for: dict[str, str] | None = None,
@@ -5765,6 +5859,10 @@ class _FakeLauncher:
         self.replicates: list[dict] = []
         self.invalid_once = set(invalid_once or set())
         self.invalid_rehearsal_for = set(invalid_rehearsal_for or set())
+        self.excess_rehearsal_overhead_for = set(
+            excess_rehearsal_overhead_for or set()
+        )
+        self.failed_separate_timing_for = set(failed_separate_timing_for or set())
         self.unproven_invalid_rehearsal_for = set(
             unproven_invalid_rehearsal_for or set()
         )
@@ -5944,6 +6042,32 @@ class _FakeLauncher:
         expected_environment: dict | None,
     ) -> dict:
         self.launches.append(implementation)
+        if (
+            not instrumented
+            and settle_seconds == SETTLE_SECONDS
+            and measure_seconds == MEASURE_SECONDS
+            and implementation in self.failed_separate_timing_for
+        ):
+            self.replicates.append(
+                {
+                    "implementation": implementation,
+                    "block": block,
+                    "settle_seconds": settle_seconds,
+                    "measure_seconds": measure_seconds,
+                    "instrumented": instrumented,
+                    "invalid_reason": "controller-loss",
+                    "evidence_id": evidence_id,
+                    "expected_environment": expected_environment,
+                }
+            )
+            return {
+                "implementation": implementation,
+                "block": block,
+                "reading": {},
+                "oracle": evaluate_idle_oracle({"process_alive": False}),
+                "detail": "synthetic pre-settle readiness failure",
+                "invalid_reason": "controller-loss",
+            }
         invalid_reason = None
         environment_evidence_reason = None
         invalid_key = (implementation, block)
@@ -5988,6 +6112,14 @@ class _FakeLauncher:
             }
         )
         elapsed_seconds = float(settle_seconds + measure_seconds)
+        child_elapsed_seconds = elapsed_seconds
+        if (
+            instrumented
+            and settle_seconds == 0
+            and measure_seconds == REHEARSAL_SECONDS
+            and implementation in self.excess_rehearsal_overhead_for
+        ):
+            elapsed_seconds += 2.0
         if (
             invalid_reason == "controller-loss"
             and measure_seconds == REHEARSAL_SECONDS
@@ -6025,9 +6157,9 @@ class _FakeLauncher:
                 "measure_seconds": measure_seconds,
             },
             "elapsed_wall_seconds": elapsed_seconds,
-            "child_elapsed_seconds": elapsed_seconds,
+            "child_elapsed_seconds": child_elapsed_seconds,
             "child_started_monotonic": 1000.0,
-            "child_completed_monotonic": 1000.0 + elapsed_seconds,
+            "child_completed_monotonic": 1000.0 + child_elapsed_seconds,
             "instrumented": instrumented,
             "invalid_reason": invalid_reason,
             "environment_checks": self.rehearsal_environment_checks(
@@ -9134,6 +9266,32 @@ def self_test() -> list[str]:
             ).exists():
                 failures.append("controller: teardown did not exercise collected cgroup loss")
 
+        class _UnmappedControllerPathLauncher(_ControllerPathLauncher):
+            def windows(self):
+                return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = _UnmappedControllerPathLauncher(Path(tmp))
+            result = run_replicate(
+                "odytty",
+                1,
+                controller,
+                0,
+                1,
+                sleep=lambda _seconds: None,
+                instrumented=True,
+                evidence_id="controller-readiness-failure",
+                expected_environment=expected,
+            )
+            if (
+                result["oracle"]["checks"].get("process_alive") is not True
+                or result.get("readiness_checks", {}).get("process_alive") is not True
+                or result.get("readiness_checks", {}).get("window_mapped") is not False
+            ):
+                failures.append(
+                    "controller: readiness failure sampled process state after teardown"
+                )
+
     class _DelayedMappingLauncher(_FakeLauncher):
         def __init__(self, delay_polls: int, log_dir: Path):
             super().__init__({"odytty": "wayland"}, log_dir)
@@ -9266,8 +9424,11 @@ def self_test() -> list[str]:
         failures.append("visibility: inactive-workspace window falsely obscured target")
     overlap_clients[1]["workspace"] = 1
     overlap_clients[1]["visible"] = True
+    if window_unobscured(overlap_clients[0], overlap_clients) is not True:
+        failures.append("visibility: background overlap falsely obscured focused target")
+    overlap_clients[1]["focused"] = True
     if window_unobscured(overlap_clients[0], overlap_clients) is not False:
-        failures.append("visibility: active-workspace overlap was not detected")
+        failures.append("visibility: conflicting foreground clients were accepted")
 
     # An implementation that starts without mapping a window during its one
     # bounded probe is excluded, not measured.
@@ -10105,9 +10266,12 @@ def self_test() -> list[str]:
     with tempfile.TemporaryDirectory() as tmp:
         cgroup = Path(tmp)
         (cgroup / "cgroup.procs").write_text("41\n42\n", encoding="ascii")
+        nested = cgroup / "app-child"
+        nested.mkdir()
+        (nested / "cgroup.procs").write_text("43\n", encoding="ascii")
         (cgroup / "memory.peak").write_text("1234\n", encoding="ascii")
-        if cgroup_pids(cgroup) != {41, 42}:
-            failures.append("cgroup: membership was not read from cgroup.procs")
+        if cgroup_pids(cgroup) != {41, 42, 43}:
+            failures.append("cgroup: subtree membership was not read completely")
         if not reset_memory_peak(cgroup) or (cgroup / "memory.peak").read_text(
             encoding="ascii"
         ) != "0\n":
@@ -10235,10 +10399,7 @@ def self_test() -> list[str]:
             failures.append("session: paired instrumentation overhead was not published")
         incomplete = json.loads(json.dumps(document))
         incomplete["samples"] = incomplete["samples"][1:]
-        if not any(
-            "omits" in error.message
-            for error in result_schema.validate(incomplete, prereg)
-        ):
+        if not result_schema.validate(incomplete, prereg):
             failures.append("session: missing canonical evidence passed validation")
 
         # Nothing machine-identifying reaches the document. Word-boundary
@@ -10533,8 +10694,9 @@ def self_test() -> list[str]:
         if "b2-primary-a1" not in ids or "b2-replacement-a2" not in ids:
             failures.append("session: primary and replacement evidence identities collided")
 
-    # An invalid rehearsal makes the whole run set incomplete even when every
-    # measured attempt and its separate timing pass succeeds.
+    # An invalid rehearsal makes the whole run set incomplete and stops before
+    # measured work.  Once the paired determination is invalid, later samples
+    # cannot repair this run identity and must not consume hours unnecessarily.
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         prereg = _fake_prereg(["odytty"])
@@ -10558,8 +10720,71 @@ def self_test() -> list[str]:
             for reason in document["run_set"].get("incomplete_reasons", [])
         ):
             failures.append("session: invalid rehearsal was reported as complete")
+        if any(
+            entry["settle_seconds"] == SETTLE_SECONDS
+            and entry["measure_seconds"] == MEASURE_SECONDS
+            for entry in launcher.replicates
+        ):
+            failures.append("session: invalid rehearsal still launched measured work")
+        if document["run_set"]["separate_timing_passes"]:
+            failures.append("session: invalid rehearsal launched a separate timing pass")
         if result_schema.validate(document, prereg):
             failures.append("session: valid incomplete rehearsal evidence was rejected")
+
+    # A sparse early-failure record in a valid separate timing pass is retained
+    # as explicit incomplete evidence.  It must not raise KeyError or acquire a
+    # fabricated duration/pass result.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        prereg = _fake_prereg(["odytty"])
+        prereg["instrumentation_overhead_ceiling_percent"] = 1
+        launcher = _FakeLauncher(
+            {"odytty": "wayland"},
+            root / "logs",
+            excess_rehearsal_overhead_for={"odytty"},
+            failed_separate_timing_for={"odytty"},
+        )
+        document = run_session(
+            prereg,
+            "d" * 64,
+            launcher,
+            root / "results",
+            {"collectors": []},
+            sleep=lambda _seconds: None,
+            runner_sha256="9" * 64,
+            prereg_anchor_commit="1" * 40,
+        )
+        if document["run_set"]["status"] != "incomplete" or not any(
+            reason.get("code") == "missing-or-failed-separate-timing-passes"
+            for reason in document["run_set"].get("incomplete_reasons", [])
+        ):
+            failures.append("session: failed separate timing was not explicit")
+        timing_records = document["run_set"]["separate_timing_passes"]
+        if not timing_records or timing_records[0].get("pass") is not False:
+            failures.append("session: sparse separate timing failure acquired a pass")
+        raw_records = [
+            json.loads(line)
+            for line in (root / "results" / "raw-samples.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        sparse = next(
+            (
+                entry
+                for entry in raw_records
+                if entry.get("separate_pass") == "timing"
+            ),
+            None,
+        )
+        if (
+            sparse is None
+            or sparse.get("elapsed_wall_seconds") is not None
+            or sparse.get("invalid_reason") != "controller-loss"
+            or sparse.get("detail") != "synthetic pre-settle readiness failure"
+        ):
+            failures.append("session: sparse timing failure was not preserved verbatim")
+        if result_schema.validate(document, prereg):
+            failures.append("session: sparse timing failure evidence did not validate")
 
     # Each environmental invalid reason must be recoverable from the raw
     # per-side observations and remain an explicit incomplete result.
