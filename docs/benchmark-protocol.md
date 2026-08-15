@@ -1,14 +1,18 @@
 # OdyTTY Comparative Benchmark Protocol
 
-Protocol version: `1.3.0`
+Protocol version: `1.4.0`
 
-Version 1.3.0 retires the cross-terminal matched device-pixel cell grid as an
-admission requirement and replaces it with a per-implementation control. Every
-qualified terminal is still normalized to exact PTY 80x24 on identical font
-bytes, matched colors, its canonical tracked profile, the same native Wayland
-display path, and the same workload, timing, and noise controls; what changes
-is that terminals are no longer required to reach the *same* device-pixel cell
-pitch as each other. Each terminal's own pitch and sub-cell edge remainder are
+Version 1.3.0 retired the cross-terminal matched device-pixel cell grid as an
+admission requirement and replaced it with a per-implementation exact-80x24
+control. Version 1.4.0 keeps the per-implementation model but makes 80x24 a
+normalization target instead of an admission gate. Every qualified terminal is
+driven toward PTY 80x24 on identical font bytes, matched
+colors, its canonical tracked profile, the same native Wayland display path,
+and the same workload, timing, and noise controls; what changes is that
+terminals are no longer required to reach the *same* device-pixel cell pitch
+as each other, and 80x24 itself is a normalization target rather than a
+pass/fail admission gate (see *Cell geometry: a target, not an admission
+gate*). Each terminal's own grid, pitch, and sub-cell edge remainder are
 measured, preregistered, and required to hold through readiness, rehearsal,
 and every measured replicate.
 
@@ -19,13 +23,13 @@ every declared configuration for OdyTTY, Kitty, Ghostty, and Alacritty — and
 found no such common grid. An admission gate that no declared configuration
 can satisfy does not control anything; it only makes a protocol-valid
 comparison unreachable. The remaining pitch difference is therefore stated as
-a limitation of the comparison (see *Cell geometry and its limitation*) rather
+a limitation of the comparison (see *Cell geometry: a target, not an admission gate*) rather
 than asserted away.
 
-Version 1.3.0 requires a fresh preregistration and run-set identity. Protocol
-1.0.0, 1.1.0, and 1.2.0 records and results remain historical evidence, are
+Version 1.4.0 requires a fresh preregistration and run-set identity. Protocol
+1.0.0, 1.1.0, 1.2.0, and 1.3.0 records and results remain historical evidence, are
 rejected by version rather than reinterpreted, and are never pooled with
-1.3.0 samples.
+1.4.0 samples.
 
 This protocol defines how OdyTTY and independent terminal references are
 compared before any comparative numbers are collected. It measures complete
@@ -54,9 +58,10 @@ first measured sample. The record must contain:
 - every collector name, version, configuration digest, and required privilege;
 - the environment class, operating-system build, kernel, graphics driver,
   compositor or window server, display mode, and power policy;
-- the cell-geometry policy, and for every qualified implementation its own
-  exact 80x24 device-pixel cell grid and PTY pixel-envelope model
-  (pitch plus sub-cell remainder);
+- the cell-geometry policy, the normalization target grid, and for every
+  qualified implementation its own stable device-pixel cell grid, its PTY
+  pixel-envelope model (pitch plus sub-cell remainder), and whether that grid
+  reached the target;
 - the configurations and metrics to collect, including metrics declared
   unsupported before the run;
 - the complete implementation order for every block;
@@ -138,28 +143,52 @@ All implementations in a primary run set use the same:
 Window chrome is excluded from the content viewport but remains unchanged
 within a run set.
 
-### Cell geometry and its limitation
+### Cell geometry: a target, not an admission gate
 
-The grid every terminal must reach is the *character* grid: exactly 80 columns
-by 24 rows, on identical font bytes at the same requested size, with matched
-colors and identical workload. That is what makes the compared work the same
-work.
+80 columns by 24 rows is the **normalization target**. Every terminal is
+configured to request it, and the controller drives toward it within a bounded
+budget. Whether each terminal arrived there is measured, recorded per
+implementation, and published — it is not a pass/fail condition for being
+compared.
 
-The *device-pixel* cell pitch is not required to be equal across terminals.
-Each terminal renders that 80x24 grid at whatever integer pitch its own layout
-produces, plus a sub-cell edge remainder smaller than one cell. That pitch and
-remainder are measured before preregistration, pinned in the preregistration
-record per implementation, and must hold unchanged through readiness, the
-rehearsal, and every measured replicate. A terminal that silently re-lays out
-mid-session fails against its own registered model and its run aborts.
+What is actually required of a qualified terminal:
 
-This is a real limitation and is published as one: the terminals do not paint
-an identical number of device pixels per cell, so the compared totals include
-whatever cost that difference carries. It is not corrected, scaled away, or
-hidden behind a single "matched geometry" number. The result document reports
-each qualified implementation's own grid under
-`environment.implementation_cell_geometry`, and any comparison drawn from a
-run set must be read with those grids visible.
+- it launches, maps a window on the native Wayland path, and completes the
+  startup handshake;
+- it reports a **stable, self-consistent** grid: the content envelope is
+  exactly the integer cell pitch times the observed rows and columns, plus a
+  sub-cell edge remainder smaller than one cell;
+- that grid and envelope model are pinned in the preregistration and hold
+  unchanged through readiness, the rehearsal, and every measured replicate —
+  a terminal that silently re-lays out mid-session fails against its own
+  registered model and its run aborts;
+- the font bytes, requested font size, colors, canonical tracked profile,
+  workload, timing, and noise controls are shared.
+
+A terminal that reproducibly settles at a different stable grid is still a
+real product configuration under the shared controls, and it is measured with
+its **actual rows, columns, and content pixels recorded**. Refusing it would
+discard evidence rather than control for anything, and would let one
+terminal's startup sizing end the whole comparison.
+
+This is a real limitation and is published as one, in two parts. First, the
+terminals do not paint an identical number of device pixels per cell, so the
+compared totals include whatever cost that difference carries. Second, when a
+terminal did not reach the target cell count, it is not running the same cell
+count as the others at all. Neither is corrected, scaled away, or hidden
+behind a single "matched geometry" number. The result document reports the
+target under `environment.target_grid` and every qualified implementation's
+own grid under `environment.implementation_cell_geometry`, and any terminal
+that missed the target must be named in an `off-target-cell-grid` limitation.
+A run set that contains an off-target grid without that disclosure does not
+validate. Any comparison drawn from a run set must be read with those grids
+visible.
+
+Preparation is rerunnable. The startup-geometry diagnostic launches every
+terminal in the fixed order, records all of them, and only then reports a
+verdict, so one terminal's miss or failure never hides the others' evidence.
+It consumes no readiness, probe, preregistration-anchor, rehearsal, or
+measurement identity, so it can be repeated until measurement begins.
 
 An exhaustive common-grid search over the declared configuration set remains
 available as historical feasibility tooling
@@ -204,10 +233,13 @@ when distinct observations prove the same affine pitch and remainder. The sealed
 attempt records those observations, the resize commands, and the release
 outcome for validator recomputation. The validator derives pitch from the
 ordered column/pixel and row/pixel deltas instead of trusting the recorded
-pitch. A launch first observed at exact 80x24 with a nonzero remainder uses
-one resize to perturb by one cell and one resize to return to 80x24; repeated
-polls cannot consume either command. A zero-remainder exact launch keeps the
-single-observation fast path. PTY envelope deltas are device pixels; Hyprland
+pitch. A launch first observed at the target grid with a nonzero remainder
+uses one resize to perturb by one cell and one resize to return to the target;
+repeated polls cannot consume either command. A zero-remainder launch already
+at the target keeps the single-observation fast path. The resize budget is
+hard-bounded: when it is spent, or when the compositor stops moving the grid,
+the controller releases the child at its stable observed grid and records that
+the target was not reached, rather than failing the preparation run. PTY envelope deltas are device pixels; Hyprland
 outer-window sizes are logical pixels, so the controller divides each signed
 device-pixel correction by the mapped window's monitor scale before issuing an
 exact-address resize. The correction uses the integer pitch, is repeated only
@@ -259,7 +291,7 @@ attempt, ordered-list digest, validator-recomputed common grid, and
 deterministically ranked selection. An incomplete set, elapsed wall bound,
 missing common intersection, or forged selection cannot validate. On this
 machine the search completes and reports no common grid; that outcome is the
-recorded feasibility finding behind protocol 1.3.0 and blocks nothing.
+recorded feasibility finding behind protocol 1.4.0 and blocks nothing.
 
 The one-shot geometry diagnostic launches OdyTTY, Kitty, Ghostty, and
 Alacritty once each in that fixed order through private systemd scopes and the
@@ -270,10 +302,15 @@ or the availability probe. The diagnostic input digest deliberately excludes
 the values being discovered while still binding the artifacts, profiles, font,
 calibrations, and geometry policy. It neither requires nor consults
 calibration-search evidence. WezTerm receives no action in either diagnostic.
-A public schema-version-5 record is produced only when every
-native-Wayland window reaches exact 80x24, records its opaque application id,
-raw PTY pixel envelope, normalized cell grid, affine envelope proof, process
-outcome, and successful cleanup. Once copied, readiness, the one-shot probe,
+Every terminal in the fixed order is launched and recorded before any verdict
+is reported, so one terminal's miss never hides another's evidence. A public
+schema-version-6 record is produced when every native-Wayland window maps,
+completes the handshake, and yields a stable self-consistent grid; each launch
+records its opaque application id, raw PTY pixel envelope, normalized cell
+grid, whether it reached the target grid, affine envelope proof, process
+outcome, and successful cleanup. Missing the target grid is recorded, not
+fatal. The diagnostic consumes no run identity and is safe to rerun until
+measurement begins. Once copied, readiness, the one-shot probe,
 and every measured launch require each terminal to reproduce its own recorded
 grid and model. Terminals are compared against their own pinned grids, never
 against each other's. A later stable observed pitch that differs from that
@@ -315,10 +352,11 @@ The official availability probe is one bounded launch per registered
 implementation, using that implementation's preregistered calibration. It
 plans no calibration search, so its bound is the number of registered
 implementations times the conservative 90-second controller wall allocation. A
-mapped terminal that does not reach its own exact 80x24 device-pixel grid with
-a consistent pixel-envelope model is reported as
+mapped terminal that does not expose a stable self-consistent device-pixel
+grid with a matching pixel-envelope model is reported as
 `unmet-protocol-configuration`, distinct from an implementation that did not
-map a window. Availability evidence that carries calibration-search attempts,
+map a window. Settling away from the target grid is neither of those: it is
+recorded, published, and disclosed as a limitation. Availability evidence that carries calibration-search attempts,
 or that names the retired exhaustive search as its mode, cannot back a
 published run set.
 
@@ -335,11 +373,14 @@ setting sequence declared by the pinned profile — no truncation, reordering,
 duplication, or post-hoc subset is valid — and every attempt digest and
 ordered-list digest is recomputed on validation.
 
-Matching is not relaxed by protocol 1.3.0: the character grid, font bytes,
-colors, profile, display path, workload, timing, and noise controls are
-unchanged. Implementations express font size in different native units, so the
-device-pixel pitch each one lands on is reported per implementation rather
-than forced to a shared number that no declared configuration produces.
+The shared controls are not relaxed by protocol 1.4.0: font bytes, requested
+font size, colors, profile, display path, workload, timing, and noise controls
+are unchanged. The target character grid is also unchanged, but the observed
+grid is published per implementation because terminal and compositor sizing
+may not reach that target. Implementations express font size in different
+native units, so the device-pixel pitch each one lands on is likewise reported
+per implementation rather than forced to a shared number that no declared
+configuration produces.
 
 OdyTTY's primary comparable configuration uses the plain renderer with visual
 effects off. An optional OdyTTY effects-on run may be published as a separate,
@@ -665,9 +706,9 @@ shape:
 
 ```json
 {
-  "schema_version": "1.3.0",
+  "schema_version": "1.4.0",
   "protocol": {
-    "version": "1.3.0",
+    "version": "1.4.0",
     "git_commit": "<full-sha>",
     "sha256": "<protocol-sha256>"
   },
@@ -692,13 +733,14 @@ shape:
     "display": "<mode>",
     "compositor": "<name-and-version>",
     "power_policy": "<policy>",
-    "cell_geometry_policy": "per-implementation-stable-exact-80x24",
+    "cell_geometry_policy": "per-implementation-stable-observed-grid",
+    "target_grid": {"columns": 80, "rows": 24},
     "implementation_cell_geometry": {
       "<terminal>": {
-        "columns": 80,
-        "rows": 24,
-        "content_width_device_px": "<80 * cell_width_device_px>",
-        "content_height_device_px": "<24 * cell_height_device_px>",
+        "columns": "<observed integer>",
+        "rows": "<observed integer>",
+        "content_width_device_px": "<columns * cell_width_device_px>",
+        "content_height_device_px": "<rows * cell_height_device_px>",
         "cell_width_device_px": "<integer>",
         "cell_height_device_px": "<integer>"
       }
@@ -768,16 +810,18 @@ Each run set also publishes a Markdown report containing:
 1. protocol and preregistration identities;
 2. exact OdyTTY, reference, driver, fixture, and collector revisions;
 3. the public-safe environment class and matched configuration table,
-   including each qualified implementation's own device-pixel cell grid and an
-   explicit statement that those grids differ;
+   including the normalization target grid, each qualified implementation's
+   own observed device-pixel cell grid, and an explicit statement of which
+   terminals reached the target and where the grids differ;
 4. commands and balanced execution order;
 5. a workload-by-implementation status matrix;
 6. separate tables for each metric with counts, summaries, confidence
    intervals, and links to raw sanitized samples;
 7. every failure, invalid attempt, skip, unsupported metric, and deviation;
 8. platform-specific semantic limitations, including the per-implementation
-   device-pixel pitch difference described under *Cell geometry and its
-   limitation*;
+   device-pixel pitch difference and any terminal that did not reach the
+   target cell grid, both described under *Cell geometry: a target, not an
+   admission gate*;
 9. instrumentation overhead checks; and
 10. an explicit statement that no composite winner was calculated.
 

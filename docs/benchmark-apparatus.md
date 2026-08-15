@@ -1,6 +1,6 @@
 # Comparative Benchmark Apparatus and Availability
 
-Companion to `docs/benchmark-protocol.md` (protocol version `1.3.0`).
+Companion to `docs/benchmark-protocol.md` (protocol version `1.4.0`).
 
 The protocol defines how OdyTTY and independent terminal references are
 compared. This document records what the current comparison unit can actually
@@ -58,7 +58,7 @@ Storage class, display mode, exact driver version, compositor version, and
 thermal policy are pinned per run set in that run set's preregistration record
 rather than fixed here, because they can change between run sets.
 
-### Cell geometry: matched character grid, unmatched device-pixel pitch
+### Cell geometry: shared controls, unmatched device-pixel pitch, target grid
 
 This comparison unit **cannot** put every qualified terminal on one identical
 device-pixel cell grid. The complete declared calibration search ran to
@@ -66,19 +66,39 @@ exhaustion here — all 168 declared configurations across OdyTTY, Kitty,
 Ghostty, and Alacritty — and found no common exact grid. That is a measured
 property of these terminals on this machine, not an unattempted step.
 
-What the unit **can** match is the character grid and everything upstream of
-it: exactly 80x24, identical DejaVu Sans Mono bytes at the same requested
-size, matched colors, each terminal's canonical tracked profile, the same
-native Wayland display path, and the same workload, timing, and noise
-controls. Protocol 1.3.0 measures and pins each terminal's own device-pixel
-pitch and sub-cell remainder instead, and requires that model to hold
-unchanged across readiness, rehearsal, and every measured replicate.
+It also **cannot guarantee** that every terminal reaches the 80x24 target cell
+count. Terminals differ in how they honor a requested startup size, and the
+compositor has the final say: Hyprland tiles new windows to the layout, so a
+terminal's own initial sizing can be overridden before the controller ever
+sees the window. The controller floats the exact bound window and applies a
+bounded pixel correction toward the target, but that budget is finite and the
+compositor is not obliged to land on it.
 
-The consequence for reading results: the terminals do not paint the same
-number of device pixels per cell, so any published total carries whatever cost
-that difference implies. Result documents publish every qualified
-implementation's grid, and the run set's report states the difference
-explicitly rather than presenting one "matched geometry" figure.
+Ghostty is the concrete case. Its `window-width`/`window-height` are terminal
+grid cells, and its documentation records that on Linux/GTK the computed
+window size does not account for window decorations, so the requested grid is
+only honored with decorations disabled. The tracked profile therefore sets
+`window-decoration = none` alongside the 80/24 cell request and zero padding,
+so the terminal sizes itself natively instead of depending on post-map pixel
+coercion. A regression asserts those settings stay in the profile.
+
+What the unit **does** match, for every terminal: identical DejaVu Sans Mono
+bytes at the same requested size, matched colors, each terminal's canonical
+tracked profile, the same native Wayland display path, and the same workload,
+timing, and noise controls. Protocol 1.4.0 measures and pins each terminal's
+own observed grid, device-pixel pitch, and sub-cell remainder, and requires
+that model to hold unchanged across readiness, rehearsal, and every measured
+replicate.
+
+The consequence for reading results, in two parts. The terminals do not paint
+the same number of device pixels per cell, so any published total carries
+whatever cost that difference implies. And where a terminal did not reach the
+target cell count, it is not running the same cell count as the others at all.
+Result documents publish the target grid and every qualified implementation's
+observed grid, an off-target terminal must be named in an
+`off-target-cell-grid` limitation for the run set to validate, and the report
+states both differences explicitly rather than presenting one "matched
+geometry" figure.
 
 ## Workload availability
 
@@ -104,14 +124,14 @@ wrong later:
 1. **Throughput is optically gated too.** W3 and W4 are not exempt from the
    apparatus requirement merely because their metric is a duration rather than
    a latency. There is no protocol-conforming "at least we can publish
-   throughput" fallback under version `1.3.0`.
+   throughput" fallback under version `1.4.0`.
 2. **No software-timed substitute is published under a protocol workload
    name.** Timing the same interval from inside the driver measures a
    different quantity: it excludes compositor and scanout, and it moves the
    boundary inside the implementation. Such a tier would require a new
    protocol version that defines it and forbids pooling its results with
    optical-tier results. It is not a shortcut that can be taken inside version
-   `1.3.0`.
+   `1.4.0`.
 
 The harness enforces this in code rather than in prose alone: the workload
 catalogue carries each workload's apparatus requirement as data, the

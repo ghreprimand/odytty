@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Preregistration-record generator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.3.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.4.0).
 #
 # The protocol's first requirement is that every run set have a public
 # preregistration record committed before its first measured sample, and it
@@ -54,19 +54,21 @@ import ordering
 import profiles
 import workloads
 
-PROTOCOL_VERSION = "1.3.0"
+PROTOCOL_VERSION = "1.4.0"
 PROTOCOL_DOC = Path("docs/benchmark-protocol.md")
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 
-# The cell-geometry policy, its required field set, and the exact-80x24
-# per-implementation invariant are defined once in profiles.py so that
+# The cell-geometry policy, its required field set, stable-grid invariant, and
+# target-grid classifier are defined once in profiles.py so that
 # preregistration checking, result validation, and the runner cannot drift
-# apart. See profiles.CELL_GEOMETRY_POLICY for why protocol 1.3.0 retired the
-# cross-terminal matched grid. Records written under the old equality
-# semantics are rejected, never reinterpreted.
+# apart. See profiles.CELL_GEOMETRY_POLICY for why protocol 1.4.0 replaced the
+# exact-80x24 admission gate. Records written under earlier geometry semantics
+# are rejected, never reinterpreted.
 CELL_GEOMETRY_POLICY = profiles.CELL_GEOMETRY_POLICY
 REQUIRED_CELL_GEOMETRY = profiles.REQUIRED_CELL_GEOMETRY
-exact_80x24_geometry = profiles.exact_80x24_geometry
+stable_cell_geometry = profiles.stable_cell_geometry
+matches_target_grid = profiles.matches_target_grid
+TARGET_GRID = profiles.TARGET_GRID
 
 # Placeholder token written wherever an operator must supply a pinned value
 # that cannot be discovered automatically. The record is not valid while any
@@ -377,6 +379,7 @@ def build_record(
                 "unavailable_reason": TODO,
                 "display_path": TODO,
                 "cell_geometry": TODO,
+                "target_grid_met": TODO,
                 "pty_pixel_envelope_model": TODO,
                 "calibration": TODO,
                 "font_identity": shared_font,
@@ -471,6 +474,7 @@ def build_record(
         },
         "matched_colors": {"foreground": TODO, "background": TODO},
         "cell_geometry_policy": CELL_GEOMETRY_POLICY,
+        "target_grid": {"columns": TARGET_GRID[0], "rows": TARGET_GRID[1]},
         "noise_control_attestations": {
             "external_power": TODO,
             "fixed_performance_policy": TODO,
@@ -827,7 +831,7 @@ def check_record(record: dict) -> list[str]:
     colors = record.get("matched_colors", {})
     if not colors.get("foreground") or not colors.get("background"):
         problems.append("matched foreground and background colors are required")
-    # Protocol 1.3.0: the grid is controlled per implementation, not shared.
+    # Protocol 1.4.0: the grid is controlled per implementation, not shared.
     # A record that still carries the 1.2.0 cross-terminal grid is rejected
     # rather than reinterpreted, because its qualification evidence was
     # produced under an admission gate this protocol no longer applies.
@@ -836,6 +840,11 @@ def check_record(record: dict) -> list[str]:
             "matched_cell_geometry is a retired protocol 1.2.0 field; this "
             "record predates the per-implementation cell-geometry policy"
         )
+    if record.get("target_grid") != {
+        "columns": TARGET_GRID[0],
+        "rows": TARGET_GRID[1],
+    }:
+        problems.append("the normalization target grid is not pinned")
     if record.get("cell_geometry_policy") != CELL_GEOMETRY_POLICY:
         problems.append(
             f"cell geometry policy must be pinned as {CELL_GEOMETRY_POLICY!r}"
@@ -853,10 +862,19 @@ def check_record(record: dict) -> list[str]:
                     "does not have the exact device-pixel field set"
                 )
             continue
-        if not exact_80x24_geometry(geometry):
+        if not stable_cell_geometry(geometry):
             problems.append(
                 f"implementation {implementation.get('name')!r} cell geometry is "
-                "not an exact positive 80x24 device-pixel calibration"
+                "not a self-consistent positive device-pixel grid"
+            )
+            continue
+        # The target grid is recorded per implementation, never enforced. A
+        # terminal that stabilized elsewhere is measured and published with
+        # that fact attached, so the record must state which it was.
+        if implementation.get("target_grid_met") is not matches_target_grid(geometry):
+            problems.append(
+                f"implementation {implementation.get('name')!r} does not record "
+                "whether its observed grid reached the target"
             )
 
     budget = record.get("run_set_time_budget_hours")
@@ -1208,6 +1226,7 @@ def self_test(repo_root: Path) -> list[str]:
         implementation["unavailable_reason"] = "not applicable"
         implementation["display_path"] = "wayland-native"
         implementation["cell_geometry"] = own_geometry
+        implementation["target_grid_met"] = matches_target_grid(own_geometry)
         implementation["pty_pixel_envelope_model"] = {
             "cell_width_device_px": cell_width,
             "cell_height_device_px": cell_height,
@@ -1280,29 +1299,56 @@ def self_test(repo_root: Path) -> list[str]:
         failures.append("prereg: mismatched DRM resident field semantics were accepted")
 
     # Differing per-terminal pitches are the expected case and must not be a
-    # problem by themselves; only an internally inconsistent or non-80x24 grid
-    # is. Changing one terminal's cell pitch without its content envelope
-    # breaks that terminal's own model and must be refused.
+    # problem by themselves; only an internally inconsistent grid is. Changing
+    # one terminal's cell pitch without its content envelope breaks that
+    # terminal's own model and must be refused.
     inconsistent_geometry = json.loads(json.dumps(pinned))
     inconsistent_geometry["implementations"][-1]["cell_geometry"][
         "cell_width_device_px"
     ] += 1
     if not any(
-        "exact positive 80x24 device-pixel calibration" in problem
+        "self-consistent positive device-pixel grid" in problem
         for problem in check_record(inconsistent_geometry)
     ):
         failures.append("prereg: an inconsistent device-pixel cell geometry was accepted")
 
-    off_grid = json.loads(json.dumps(pinned))
-    off_grid["implementations"][0]["cell_geometry"]["columns"] = 100
-    off_grid["implementations"][0]["cell_geometry"]["content_width_device_px"] = (
-        100 * off_grid["implementations"][0]["cell_geometry"]["cell_width_device_px"]
+    # A stable grid that missed the normalization target is ACCEPTED, because
+    # the target is a target. What the record must not do is misreport whether
+    # the target was reached.
+    off_target = json.loads(json.dumps(pinned))
+    off_target_geometry = off_target["implementations"][0]["cell_geometry"]
+    off_target_geometry["columns"] = 94
+    off_target_geometry["rows"] = 53
+    off_target_geometry["content_width_device_px"] = (
+        94 * off_target_geometry["cell_width_device_px"]
     )
+    off_target_geometry["content_height_device_px"] = (
+        53 * off_target_geometry["cell_height_device_px"]
+    )
+    off_target["implementations"][0]["pty_pixel_envelope_model"].update(
+        cell_width_device_px=off_target_geometry["cell_width_device_px"],
+        cell_height_device_px=off_target_geometry["cell_height_device_px"],
+    )
+    off_target["implementations"][0]["target_grid_met"] = False
+    if check_record(off_target):
+        failures.append(
+            f"prereg: a stable off-target grid was refused: {check_record(off_target)}"
+        )
+    misreported = json.loads(json.dumps(off_target))
+    misreported["implementations"][0]["target_grid_met"] = True
     if not any(
-        "exact positive 80x24 device-pixel calibration" in problem
-        for problem in check_record(off_grid)
+        "whether its observed grid reached the target" in problem
+        for problem in check_record(misreported)
     ):
-        failures.append("prereg: a non-80x24 grid was accepted")
+        failures.append("prereg: a misreported target-grid outcome was accepted")
+
+    unpinned_target = json.loads(json.dumps(pinned))
+    unpinned_target.pop("target_grid")
+    if not any(
+        "normalization target grid is not pinned" in problem
+        for problem in check_record(unpinned_target)
+    ):
+        failures.append("prereg: an unpinned normalization target was accepted")
 
     retired_field = json.loads(json.dumps(pinned))
     retired_field["matched_cell_geometry"] = geometry

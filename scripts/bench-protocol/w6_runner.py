@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # W6 (idle-visible-10m) measured-run orchestrator for the OdyTTY comparative
-# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.3.0).
+# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.4.0).
 #
 # Every other module in this directory is preparation: it computes, checks, or
 # describes, and never takes a measurement. This module is the one exception,
@@ -67,7 +67,7 @@ import summaries  # noqa: E402
 import workloads  # noqa: E402
 
 WORKLOAD = "idle-visible-10m"
-RUNNER_VERSION = "1.3.0"
+RUNNER_VERSION = "1.4.0"
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 PUBLIC_API_BASE = "https://api.github.com/repos/ghreprimand/odytty"
 PUBLIC_RAW_BASE = "https://raw.githubusercontent.com/ghreprimand/odytty"
@@ -94,11 +94,13 @@ GEOMETRY_RESIZE_MAX_ATTEMPTS = 2
 # any terminal-specific remainder in the PTY-reported pixel envelope.
 REFERENCE_READINESS_SCHEMA_VERSION = 4
 CALIBRATION_DIAGNOSTIC_SCHEMA_VERSION = 1
-# Version 5 binds each implementation to its OWN preregistered exact 80x24
-# device-pixel grid and drops the retired common-grid calibration binding.
-# Version 4 records are rejected rather than reinterpreted: they asserted a
-# cross-terminal equality this protocol no longer makes.
-GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION = 5
+# Version 6 records every terminal's OWN observed grid plus whether it reached
+# the normalization target, and no longer refuses evidence from a terminal
+# that stabilized elsewhere. Versions 4 and 5 are rejected rather than
+# reinterpreted: 4 asserted a cross-terminal equality this protocol no longer
+# makes, and 5 could only exist when every terminal hit the target, so its
+# silence about off-target grids cannot be read as a claim that none existed.
+GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION = 6
 GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS = (
     "odytty",
     "kitty",
@@ -567,16 +569,21 @@ def descendant_pids(pid: int, proc_root: Path = Path("/proc")) -> set[int]:
 
 
 def _stable_own_geometry(probe: dict) -> bool:
-    """Return whether a probe proved this terminal's own exact 80x24 model.
+    """Return whether a probe proved this terminal's own stable grid model.
 
-    Protocol 1.3.0 controls the grid per implementation. A terminal is
-    admissible when its observed grid is exactly 80x24, its content envelope
-    is exactly the integer cell pitch times that grid, and its PTY
-    pixel-envelope model reports the same pitch with a sub-cell remainder.
-    Another terminal's pitch is irrelevant here by design.
+    A terminal is admissible when its observed grid is self-consistent — the
+    content envelope is exactly the integer cell pitch times the observed
+    rows and columns — and its PTY pixel-envelope model reports that same
+    pitch with a sub-cell remainder.
+
+    Reaching the target cell count is NOT required. A terminal that
+    reproducibly settles at its own grid is a real product configuration and
+    is measured with its actual rows/columns/content pixels recorded and
+    disclosed; refusing it would discard evidence rather than control for
+    anything. Another terminal's pitch is irrelevant here by design.
     """
     geometry = probe.get("cell_geometry")
-    if not profiles.exact_80x24_geometry(geometry):
+    if not profiles.stable_cell_geometry(geometry):
         return False
     model = _geometry_model_summary(probe.get("pty_pixel_envelope_model"))
     if not isinstance(model, dict):
@@ -609,17 +616,18 @@ def qualify_implementations(
     that maps only outside the required native Wayland path. Both are real
     situations and both are recorded rather than smoothed over.
 
-    Protocol 1.3.0 admits terminals on a PER-IMPLEMENTATION grid: each mapped
-    terminal must expose its own exact 80x24 device-pixel grid together with a
+    Protocol 1.4.0 admits terminals on a PER-IMPLEMENTATION grid: each mapped
+    terminal must expose its own stable device-pixel grid together with a
     consistent PTY pixel-envelope model. Cross-terminal pitch equality is NOT
     required and is not checked; the exhaustive search that would have proven
     a common grid completed on this laptop and proved none exists, so keeping
     that equality as an admission gate would have made a protocol-valid
     comparison unreachable rather than controlled. Shared font, shared
-    profile, native Wayland display path, and exact 80x24 remain required.
+    profile, and native Wayland display path remain required; the target cell
+    count is recorded and disclosed rather than enforced.
 
     `allow_mixed_display_paths` is retained only for API compatibility with
-    older protocol callers. Protocol 1.3.0 never uses it to qualify XWayland
+    older protocol callers. Protocol 1.4.0 never uses it to qualify XWayland
     or X11 evidence.
 
     `require_exhaustive_calibration` is retained only for the optional,
@@ -659,7 +667,7 @@ def qualify_implementations(
         else set()
     )
 
-    # Protocol 1.3.0 fixes the laptop comparison to native Wayland. A unanimous
+    # Protocol 1.4.0 fixes the laptop comparison to native Wayland. A unanimous
     # XWayland/X11 probe set is still the wrong presentation path and cannot
     # redefine the protocol by majority vote.
     reference_path = DISPLAY_PATH_WAYLAND
@@ -702,7 +710,7 @@ def qualify_implementations(
                     "implementation": probe["implementation"],
                     "reason": "unmet-protocol-configuration",
                     "detail": probe.get("detail")
-                    or "the probe did not prove this terminal's own exact 80x24 "
+                    or "the probe did not prove this terminal's own stable "
                     "device-pixel grid on the shared font and profile",
                 }
             )
@@ -728,7 +736,7 @@ def qualify_implementations(
     return {
         "reference_display_path": reference_path,
         # Each mapped terminal's OWN observed grid is reported. There is no
-        # single reference grid under protocol 1.3.0, and the decision record
+        # single reference grid under protocol 1.4.0, and the decision record
         # deliberately shows the differences instead of hiding them behind one
         # number.
         "implementation_cell_geometry": {
@@ -1011,7 +1019,7 @@ def evaluate_idle_oracle(observation: dict) -> dict:
         "window_still_mapped": observation.get("window_still_mapped"),
         "window_focused": observation.get("window_focused"),
         "window_unobscured": observation.get("window_unobscured"),
-        "pty_80x24": observation.get("pty_80x24"),
+        "pty_grid_as_registered": observation.get("pty_grid_as_registered"),
         "cell_geometry_unchanged": observation.get("cell_geometry_unchanged"),
         "static_prompt": observation.get("static_prompt"),
         "viewport_unchanged": observation.get("viewport_unchanged"),
@@ -1515,6 +1523,9 @@ class RealLauncher:
             "resize_attempts": 0,
             "command_failed": False,
             "released": False,
+            # Whether normalization actually reached the target grid. A False
+            # here is a recorded, publishable outcome — not a failure.
+            "target_grid_reached": None,
         }
 
     def normalize_startup_geometry(
@@ -1607,8 +1618,13 @@ class RealLauncher:
             control["proof_observations"].remove(proof_observation)
         control["proof_observations"].append(proof_observation)
 
+        # Branch on reaching the normalization TARGET, not merely on having a
+        # derivable grid. Every terminal now yields a grid model at whatever
+        # size it settled on; only a terminal actually at the target takes the
+        # proof-and-release path below.
         geometry = cell_geometry_from_oracle(observation)
-        if geometry is not None:
+        at_target = profiles.matches_target_grid(geometry)
+        if at_target:
             model = control["grid_model"]
             needs_controlled_nonzero_proof = bool(
                 model[2] or model[3]
@@ -1675,14 +1691,7 @@ class RealLauncher:
                     completed
                 )
                 return False
-            ready_path = control["ready_path"]
-            try:
-                with ready_path.open("xb") as handle:
-                    handle.write(b"exact-80x24\n")
-            except FileExistsError:
-                return False
-            control["released"] = True
-            return True
+            return self._release_geometry_child(control, metrics, at_target=True)
 
         columns = metrics["columns"]
         rows = metrics["rows"]
@@ -1708,10 +1717,13 @@ class RealLauncher:
 
         signature = (columns, rows, content_width, content_height)
         if control["last_resize_observation"] == signature:
-            return False
+            # The compositor honored the resize but the grid did not move, so
+            # this terminal's startup sizing is what it is. Release at the
+            # stable observed grid and record the miss instead of ending the
+            # workflow: a reproducible off-target grid is measurable evidence.
+            return self._release_geometry_child(control, metrics, at_target=False)
         if control["resize_attempts"] >= GEOMETRY_RESIZE_MAX_ATTEMPTS:
-            control["command_failed"] = True
-            return False
+            return self._release_geometry_child(control, metrics, at_target=False)
         cell_width = metrics["cell_width_device_px"]
         cell_height = metrics["cell_height_device_px"]
         scale = _hyprland_window_scale(window)
@@ -1738,6 +1750,33 @@ class RealLauncher:
         control["resize_attempts"] += 1
         control["command_failed"] = not self._geometry_command_succeeded(completed)
         return False
+
+    def _release_geometry_child(
+        self, control: dict, metrics: dict, *, at_target: bool
+    ) -> bool:
+        """Release the child at its stable grid and record the target outcome.
+
+        Releasing off-target is deliberate. The normalization target is a
+        target: once the bounded resize budget is spent, or the compositor
+        stops moving the grid, the terminal has shown its reproducible startup
+        geometry. Ending the workflow there would discard a real product
+        configuration and burn the preparation run; releasing lets the grid be
+        measured and published with the miss disclosed.
+        """
+        ready_path = control["ready_path"]
+        marker = (
+            b"exact-80x24\n"
+            if at_target
+            else f"stable-{metrics['columns']}x{metrics['rows']}\n".encode("ascii")
+        )
+        try:
+            with ready_path.open("xb") as handle:
+                handle.write(marker)
+        except FileExistsError:
+            return False
+        control["released"] = True
+        control["target_grid_reached"] = at_target
+        return True
 
     def release_geometry_control(self, launched: dict) -> bool:
         """Remove the private handshake edge; no compositor rule is persistent."""
@@ -2578,7 +2617,7 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
             {
                 "configuration_status": "unmet-protocol",
                 "detail": (
-                    "mapped viewport did not expose exact 80x24 device-pixel geometry"
+                    "mapped viewport did not expose a stable device-pixel grid"
                     if geometry is None
                     else "mapped window did not retain the exact per-launch application id"
                     if not launch_bound
@@ -2756,7 +2795,7 @@ def probe_availability(
 ) -> list[dict]:
     """Probe each implementation once with its preregistered calibration.
 
-    Protocol 1.3.0 takes exactly one bounded probe launch per implementation.
+    Protocol 1.4.0 takes exactly one bounded probe launch per implementation.
     `calibrate` drives the retired common-grid search and stays off for every
     readiness, probe, and measured path; it is retained only so the optional
     historical feasibility tooling and its adversarial tests can still run.
@@ -3283,7 +3322,7 @@ def calibration_diagnostic_matches_preregistration(
 ) -> bool:
     """Require every pinned geometry field to originate in validated evidence.
 
-    Historical feasibility tooling only. Protocol 1.3.0 does not run, require,
+    Historical feasibility tooling only. Protocol 1.4.0 does not run, require,
     or consult this binding on any readiness, probe, or measured path; it
     exists so a common-grid search record can still be checked against a
     preregistration that adopted its per-implementation selections.
@@ -3364,6 +3403,9 @@ def _geometry_diagnostic_launch(
         "window": probe.get("window"),
         "pty_geometry": pty_geometry,
         "cell_geometry": probe.get("cell_geometry"),
+        # Recorded, never gating: whether this terminal reached the requested
+        # cell count. Set by the diagnostic once the grid is known stable.
+        "target_grid_met": profiles.matches_target_grid(probe.get("cell_geometry")),
         "pty_pixel_envelope_model": probe.get("pty_pixel_envelope_model"),
         "cleanup_outcome": {
             **(cleanup if isinstance(cleanup, dict) else {}),
@@ -3381,6 +3423,7 @@ def _valid_geometry_diagnostic_launch(record: object, expected_name: str) -> boo
         "window",
         "pty_geometry",
         "cell_geometry",
+        "target_grid_met",
         "pty_pixel_envelope_model",
         "cleanup_outcome",
         "process_outcome",
@@ -3413,8 +3456,11 @@ def _valid_geometry_diagnostic_launch(record: object, expected_name: str) -> boo
             "content_width_device_px",
             "content_height_device_px",
         }
-        or geometry.get("columns") != 80
-        or geometry.get("rows") != 24
+        # The raw PTY grid is recorded at whatever the terminal reported. The
+        # target cell count is a separate, disclosed fact (`target_grid_met`),
+        # not a validity condition for the evidence.
+        or record.get("target_grid_met")
+        is not profiles.matches_target_grid(cell_geometry)
         or any(
             not isinstance(geometry.get(field), int)
             or isinstance(geometry.get(field), bool)
@@ -3475,11 +3521,22 @@ def run_geometry_diagnostic(
 ) -> dict:
     """Run one diagnostic-only exact-geometry launch in the fixed laptop order.
 
-    Each terminal is launched once with its canonical pinned calibration and
-    must reach its own exact 80x24 device-pixel grid. The discovered grid and
-    envelope model are copied into the preregistration draft. The terminals
-    are not required to agree with each other; protocol 1.3.0 controls and
-    publishes the geometry per implementation.
+    Every terminal is launched once with its canonical pinned calibration and
+    its own stable grid is recorded. ALL FOUR are collected: a terminal that
+    settles away from the normalization target does not stop the sequence,
+    because the point of this diagnostic is to discover what each terminal
+    actually does, and stopping early would hide the other terminals' results
+    behind the first mismatch.
+
+    Only a launch that fails to map, fails the handshake, or produces no
+    stable self-consistent grid is a failure. Whether each terminal reached
+    the target cell count is recorded per launch as `target_grid_met` and
+    published. The discovered grids and envelope models are copied into the
+    preregistration draft. Terminals are not required to agree with each
+    other.
+
+    The diagnostic consumes no readiness, probe, anchor, rehearsal, or
+    measurement identity, so it is safe to rerun until measurement begins.
     """
     _geometry_diagnostic_inputs(prereg_record)
     if getattr(launcher, "use_scope", None) is not True:
@@ -3493,6 +3550,7 @@ def run_geometry_diagnostic(
     }
     setter = getattr(launcher, "set_calibration", None)
     launches = []
+    failed: list[dict] = []
     for name in GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS:
         calibration = calibrations.get(name)
         if setter is None or not setter(name, calibration):
@@ -3511,13 +3569,29 @@ def run_geometry_diagnostic(
         )
         if (
             not _valid_geometry_diagnostic_launch(launch, name)
-            or not profiles.exact_80x24_geometry(launch.get("cell_geometry"))
+            or not profiles.stable_cell_geometry(launch.get("cell_geometry"))
         ):
-            raise ValueError(
-                f"geometry diagnostic failed for {name!r}: "
-                f"{probe.get('detail') or 'exact 80x24 native-Wayland evidence is absent'}"
+            failed.append(
+                {
+                    "implementation": name,
+                    "detail": probe.get("detail")
+                    or "no stable native-Wayland device-pixel grid was observed",
+                }
             )
+            continue
+        launch["target_grid_met"] = profiles.matches_target_grid(
+            launch.get("cell_geometry")
+        )
         launches.append(launch)
+    # Every terminal is attempted before any verdict, so one terminal missing
+    # the target — or failing outright — never hides the others' evidence.
+    if failed:
+        raise ValueError(
+            "geometry diagnostic could not observe a stable grid for: "
+            + "; ".join(
+                f"{entry['implementation']}: {entry['detail']}" for entry in failed
+            )
+        )
     return {
         "schema_version": GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION,
         "record_type": "startup-geometry-diagnostic",
@@ -3532,15 +3606,17 @@ def run_geometry_diagnostic(
             "fixed_order": list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS),
             "brave_suspension_enforced": False,
             "cpu_noise_controls_enforced": False,
+            # Every terminal is launched and recorded before any verdict, and
+            # nothing here consumes run state, so a rerun is always safe until
+            # measurement begins.
+            "all_implementations_attempted": True,
+            "rerunnable": True,
         },
-        "benchmark_state_consumed_or_created": {
-            "readiness": False,
-            "probe": False,
-            "preregistration_anchor": False,
-            "rehearsal": False,
-            "measurement": False,
-            "run_identity": False,
+        "target_grid": {
+            "columns": profiles.TARGET_GRID[0],
+            "rows": profiles.TARGET_GRID[1],
         },
+        "benchmark_state_consumed_or_created": _diagnostic_state_record(),
         "launches": launches,
     }
 
@@ -3558,6 +3634,7 @@ def validate_geometry_diagnostic(
         "status",
         "inputs_sha256",
         "execution",
+        "target_grid",
         "benchmark_state_consumed_or_created",
         "launches",
     }:
@@ -3590,28 +3667,26 @@ def validate_geometry_diagnostic(
             "fixed_order": list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS),
             "brave_suspension_enforced": False,
             "cpu_noise_controls_enforced": False,
+            "all_implementations_attempted": True,
+            "rerunnable": True,
         }
+        and record.get("target_grid")
+        == {"columns": profiles.TARGET_GRID[0], "rows": profiles.TARGET_GRID[1]}
         and record.get("benchmark_state_consumed_or_created")
-        == {
-            "readiness": False,
-            "probe": False,
-            "preregistration_anchor": False,
-            "rehearsal": False,
-            "measurement": False,
-            "run_identity": False,
-        }
+        == _diagnostic_state_record()
         and isinstance(launches, list)
         and len(launches) == len(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
-        # Every discovery launch must prove its own exact 80x24 model. Once
-        # those values are copied into the preregistration, the default strict
-        # mode also binds both the grid and affine envelope model byte-for-byte.
+        # Every discovery launch must prove its own STABLE model; reaching the
+        # target cell count is recorded, not required. Once those values are
+        # copied into the preregistration, the default strict mode also binds
+        # both the grid and affine envelope model byte-for-byte.
         and all(
             _valid_geometry_diagnostic_launch(launch, expected)
-            and profiles.exact_80x24_geometry(launch.get("cell_geometry"))
+            and profiles.stable_cell_geometry(launch.get("cell_geometry"))
             and (
                 not bind_preregistered_geometry
                 or (
-                    profiles.exact_80x24_geometry(expected_geometry.get(expected))
+                    profiles.stable_cell_geometry(expected_geometry.get(expected))
                     and launch.get("cell_geometry") == expected_geometry[expected]
                     and _geometry_model_summary(
                         launch.get("pty_pixel_envelope_model")
@@ -3945,15 +4020,24 @@ def _geometry_control_accepts_ready_record(
 
 
 def cell_geometry_from_oracle(record: dict | None) -> dict | None:
-    """Derive the exact 80x24 cell grid from the raw PTY pixel envelope."""
+    """Derive the observed cell grid from the raw PTY pixel envelope.
+
+    The grid is derived at whatever rows and columns the terminal actually
+    reported. The normalization target is recorded separately; it is not a
+    precondition for having a usable geometry model.
+    """
     metrics = _pty_grid_metrics(record)
-    if metrics is None or (metrics["columns"], metrics["rows"]) != (80, 24):
+    if metrics is None:
         return None
     return {
         "columns": metrics["columns"],
         "rows": metrics["rows"],
-        "content_width_device_px": 80 * metrics["cell_width_device_px"],
-        "content_height_device_px": 24 * metrics["cell_height_device_px"],
+        "content_width_device_px": (
+            metrics["columns"] * metrics["cell_width_device_px"]
+        ),
+        "content_height_device_px": (
+            metrics["rows"] * metrics["cell_height_device_px"]
+        ),
         "cell_width_device_px": metrics["cell_width_device_px"],
         "cell_height_device_px": metrics["cell_height_device_px"],
     }
@@ -3984,6 +4068,16 @@ def run_replicate(
             evidence_id,
             expected_environment,
         )
+    # This terminal's OWN preregistered grid. Every readiness and oracle check
+    # below compares against it rather than a fixed cell count, so a terminal
+    # whose stable grid is not the normalization target is still measured
+    # correctly — and any mid-run relayout still fails.
+    registered_geometry = (expected_environment or {}).get("cell_geometry")
+    registered_grid = (
+        (registered_geometry["columns"], registered_geometry["rows"])
+        if profiles.stable_cell_geometry(registered_geometry)
+        else None
+    )
     tag = f"{implementation}-{evidence_id}"
     child_duration = settle_seconds + measure_seconds
     launched = launcher.launch(implementation, child_duration, tag)
@@ -4048,8 +4142,9 @@ def run_replicate(
                 and candidate.get("focused") is True
                 and window_unobscured(candidate, windows) is True
                 and ready_record is not None
+                and registered_grid is not None
                 and (ready_record.get("pty_columns"), ready_record.get("pty_rows"))
-                == (80, 24)
+                == registered_grid
                 and ready_record.get("prompt") == "odytty-bench$ "
                 and stable_ready_envelope
                 and _geometry_model_summary(geometry_model_evidence)
@@ -4207,11 +4302,19 @@ def run_replicate(
             "window_still_mapped": end_window is not None,
             "window_focused": continuous_viewport_ok,
             "window_unobscured": continuous_viewport_ok,
-            "pty_80x24": (
+            # The terminal must hold the grid IT preregistered for the whole
+            # replicate, not a fixed literal: a terminal whose stable grid is
+            # not the normalization target is measured against its own
+            # registered grid, and a terminal that silently re-lays out
+            # mid-run fails here.
+            "pty_grid_as_registered": (
                 first is not None
                 and final is not None
-                and (first.get("pty_columns"), first.get("pty_rows")) == (80, 24)
-                and (final.get("pty_columns"), final.get("pty_rows")) == (80, 24)
+                and registered_grid is not None
+                and (first.get("pty_columns"), first.get("pty_rows"))
+                == registered_grid
+                and (final.get("pty_columns"), final.get("pty_rows"))
+                == registered_grid
             ),
             "cell_geometry_unchanged": (
                 first is not None
@@ -4454,7 +4557,7 @@ def verify_frozen_probe(record: dict, probes: list[dict]) -> tuple[list[str], li
             raise ValueError(
                 f"availability probe drift: pinned calibration changed for {name!r}"
             )
-        # Protocol 1.3.0 binds each terminal to ITS OWN preregistered grid
+        # Protocol 1.4.0 binds each terminal to ITS OWN preregistered grid
         # (checked above). There is deliberately no cross-terminal equality
         # check here: the exhaustive search proved no common grid exists on
         # this machine, and inventing one would have to come from changing a
@@ -4561,7 +4664,7 @@ def assemble_replicate_samples(
     elif len(replicate.get("gpu_regions", {})) > 1:
         per_replicate_unsupported["gpu_memory"] = (
             "multiple DRM resident regions are preserved separately in raw evidence; "
-            "protocol 1.3.0 defines no valid scalar aggregation"
+            "protocol 1.4.0 defines no valid scalar aggregation"
         )
     return (
         build_samples(
@@ -4600,10 +4703,14 @@ def environment_from_prereg(record: dict) -> dict:
         "compositor": source.get("compositor"),
         "power_policy": source.get("power_policy"),
         "matched_colors": record.get("matched_colors"),
-        # Protocol 1.3.0: publish the declared policy plus every qualified
+        # Protocol 1.4.0: publish the declared policy plus every qualified
         # terminal's own device-pixel grid. Differences between them are part
         # of the published limitations, not something the runner equalizes.
         "cell_geometry_policy": record.get("cell_geometry_policy"),
+        # The normalization target and each terminal's actual grid are both
+        # published, so a reader can see which terminals reached the requested
+        # cell count without consulting the preregistration.
+        "target_grid": record.get("target_grid"),
         "implementation_cell_geometry": {
             entry.get("name"): entry.get("cell_geometry")
             for entry in record.get("implementations", [])
@@ -5496,7 +5603,7 @@ class _FakeLauncher:
             unproven_environment_invalid_rehearsal_for or {}
         )
         self._observation_ticks = 0
-        # Protocol 1.3.0 terminals report their OWN PTY pixel envelope; the
+        # Protocol 1.4.0 terminals report their OWN PTY pixel envelope; the
         # fake launcher can therefore give each implementation a different one.
         self.per_implementation_oracle_geometry = {
             name: dict(value)
@@ -5728,7 +5835,7 @@ class _FakeLauncher:
                         "window_still_mapped",
                         "window_focused",
                         "window_unobscured",
-                        "pty_80x24",
+                        "pty_grid_as_registered",
                         "cell_geometry_unchanged",
                         "static_prompt",
                         "viewport_unchanged",
@@ -5780,7 +5887,7 @@ def _fake_prereg(
 
     `geometries` pins a DIFFERENT device-pixel grid per implementation. The
     default gives every terminal the same grid only because the fake launcher
-    reports one; protocol 1.3.0 neither requires nor checks that equality.
+    reports one; protocol 1.4.0 neither requires nor checks that equality.
     """
     unavailable = unavailable or {}
     qualified = [name for name in implementations if name not in unavailable]
@@ -5853,6 +5960,11 @@ def _fake_prereg(
                 "unavailable_reason": unavailable.get(name, "not applicable"),
                 "display_path": None if name in unavailable else DISPLAY_PATH_WAYLAND,
                 "cell_geometry": None if name in unavailable else own_geometry(name),
+                "target_grid_met": (
+                    None
+                    if name in unavailable
+                    else profiles.matches_target_grid(own_geometry(name))
+                ),
                 "pty_pixel_envelope_model": (
                     None
                     if name in unavailable
@@ -5889,6 +6001,10 @@ def _fake_prereg(
         ],
         "configurations": ["plain"],
         "cell_geometry_policy": profiles.CELL_GEOMETRY_POLICY,
+        "target_grid": {
+            "columns": profiles.TARGET_GRID[0],
+            "rows": profiles.TARGET_GRID[1],
+        },
         "driver": {"sha256": "f" * 64, "name": "scripts/bench-protocol/driver.py", "revision": "0" * 40},
         "orchestrator": {"sha256": "9" * 64, "name": "scripts/bench-protocol/w6_runner.py", "revision": "0" * 40},
         "collectors": [],
@@ -6597,6 +6713,7 @@ def self_test() -> list[str]:
             prepare_geometry_control = RealLauncher.prepare_geometry_control
             normalize_startup_geometry = RealLauncher.normalize_startup_geometry
             release_geometry_control = RealLauncher.release_geometry_control
+            _release_geometry_child = RealLauncher._release_geometry_child
             _geometry_command_succeeded = staticmethod(
                 RealLauncher._geometry_command_succeeded
             )
@@ -6819,7 +6936,7 @@ def self_test() -> list[str]:
                 failures.append(
                     "geometry diagnostic: forged normalized cell grid validated"
                 )
-            for invalid_schema in (1, 2, 3, 4, 6):
+            for invalid_schema in (1, 2, 3, 4, 5, 7):
                 forged_diagnostic = json.loads(json.dumps(diagnostic))
                 forged_diagnostic["schema_version"] = invalid_schema
                 if validate_geometry_diagnostic(
@@ -6981,9 +7098,12 @@ def self_test() -> list[str]:
                 sleep=lambda _seconds: None,
             )
         except ValueError:
-            if failed_launcher.launches != ["odytty", "kitty", "ghostty"]:
+            # A genuine failure (no window at all) is still a failure, but the
+            # remaining terminals are attempted first: one terminal's problem
+            # must not hide the others' evidence or burn the preparation run.
+            if failed_launcher.launches != list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS):
                 failures.append(
-                    "geometry diagnostic: failure did not stop the fixed sequence"
+                    "geometry diagnostic: a failing terminal stopped the sequence"
                 )
         else:
             failures.append("geometry diagnostic: missing window was accepted")
@@ -7235,10 +7355,11 @@ def self_test() -> list[str]:
             or not any(path.is_file() for path in cli_failure_private.rglob("*"))
             or len(cli_failure_launchers) != 1
             or cli_failure_launchers[0].launches
-            != ["odytty", "kitty", "ghostty"]
+            != list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
         ):
             failures.append(
-                "geometry diagnostic: failed CLI did not discard public output and retain private diagnostics"
+                "geometry diagnostic: failed CLI did not attempt every terminal, "
+                "discard public output, and retain private diagnostics"
             )
 
         calibration_interrupt_output = public / "interrupted-calibration.json"
@@ -8170,14 +8291,23 @@ def self_test() -> list[str]:
             for command in bounded_launcher.geometry_commands
             if "resizewindowpixel" in command
         ]
+        # The resize budget is still hard-bounded, but exhausting it now
+        # RELEASES the child at its stable observed grid with the target miss
+        # recorded, instead of poisoning the controller and ending the
+        # workflow. The compositor is still touched at most twice.
         if (
             len(resize_commands) != GEOMETRY_RESIZE_MAX_ATTEMPTS
             or bounded_control.get("resize_attempts")
             != GEOMETRY_RESIZE_MAX_ATTEMPTS
-            or bounded_control.get("command_failed") is not True
+            or bounded_control.get("command_failed") is True
+            or bounded_control.get("released") is not True
+            or bounded_control.get("target_grid_reached") is not False
+            or not bounded_ready.is_file()
+            or not bounded_ready.read_text(encoding="utf-8").startswith("stable-")
         ):
             failures.append(
-                "geometry control: iterative resize command bound was not enforced"
+                "geometry control: exhausting the resize bound did not release "
+                "at the stable observed grid"
             )
         if not bounded_launcher.release_geometry_control(bounded_launch):
             failures.append("geometry control: bounded failure did not clean up")
@@ -8311,15 +8441,24 @@ def self_test() -> list[str]:
                 "content_height_device_px": 1007,
             },
         )
+        # A reproducible off-target grid is now measurable evidence, not a
+        # rejection: the probe keeps the raw 94x53 envelope, derives the
+        # matching stable grid, and records that the target was missed.
         wrong_grid = _probe_implementation(
             "kitty", wrong_grid_launcher, "wrong-grid", sleep=lambda _seconds: None
         )
         if (
-            wrong_grid.get("configuration_status") != "unmet-protocol"
+            wrong_grid.get("configuration_status") == "unmet-protocol"
             or wrong_grid.get("raw_idle_ready", {}).get("pty_columns") != 94
+            or wrong_grid.get("cell_geometry", {}).get("columns") != 94
+            or wrong_grid.get("cell_geometry", {}).get("rows") != 53
+            or profiles.matches_target_grid(wrong_grid.get("cell_geometry"))
+            or not _stable_own_geometry(wrong_grid)
             or wrong_grid_launcher._live
         ):
-            failures.append("geometry control: a reproduced 94x53 launch was accepted")
+            failures.append(
+                "geometry control: a reproduced off-target launch was not recorded"
+            )
 
     with tempfile.TemporaryDirectory() as tmp:
         interrupted_probe = _FakeLauncher({"kitty": "wayland"}, Path(tmp))
@@ -8643,7 +8782,7 @@ def self_test() -> list[str]:
         if observed_geometry[0] != observed_geometry[1]:
             failures.append("timing: mapping delay changed calibrated geometry")
 
-    # Protocol 1.3.0 default: the probe takes exactly one bounded launch per
+    # Protocol 1.4.0 default: the probe takes exactly one bounded launch per
     # implementation, applies no calibration override, and produces no
     # calibration-search evidence. WezTerm is outside the laptop scope and is
     # never named, so it is never launched.
@@ -8979,7 +9118,7 @@ def self_test() -> list[str]:
     if kitty_ignored_geometries != {json.dumps(different_geometry, sort_keys=True)}:
         failures.append("qualification: ignored overrides did not preserve observed geometry")
 
-    # Protocol 1.3.0: two terminals with DIFFERENT stable exact-80x24 grids
+    # Protocol 1.4.0: two terminals with DIFFERENT stable exact-80x24 grids
     # both qualify. This is the case the retired equality gate blocked and the
     # only case the laptop can actually produce, so it is asserted directly.
     width_only = dict(geometry)
@@ -9008,32 +9147,64 @@ def self_test() -> list[str]:
             "qualification: differing stable per-terminal grids were not admitted"
         )
 
-    # A grid whose content envelope is not exactly the cell pitch times 80x24
-    # is not a stable model for that terminal and is refused on its own terms.
+    # A grid whose content envelope is not exactly the cell pitch times the
+    # observed rows/columns is not a stable model and is refused on its own
+    # terms. A grid that is merely OFF-TARGET is a different thing entirely:
+    # it is stable, measurable, and must qualify — this is the Ghostty-shaped
+    # case where a terminal reproducibly settles at its own cell count.
     inconsistent = dict(geometry)
     inconsistent["cell_width_device_px"] = 11
-    off_grid = dict(geometry)
-    off_grid["columns"] = 100
-    off_grid["content_width_device_px"] = 100 * off_grid["cell_width_device_px"]
-    for label, broken in (("inconsistent", inconsistent), ("non-80x24", off_grid)):
-        broken_decision = qualify_implementations(
-            [
-                _synthetic_probe_attempt(
-                    "odytty",
-                    profiles.calibration_configurations("odytty")[0],
-                    geometry,
-                ),
-                _synthetic_probe_attempt(
-                    "kitty", profiles.calibration_configurations("kitty")[0], broken
-                ),
-            ]
+    off_target = {
+        "columns": 94,
+        "rows": 53,
+        "content_width_device_px": 94 * 10,
+        "content_height_device_px": 53 * 19,
+        "cell_width_device_px": 10,
+        "cell_height_device_px": 19,
+    }
+    broken_decision = qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty",
+                profiles.calibration_configurations("odytty")[0],
+                geometry,
+            ),
+            _synthetic_probe_attempt(
+                "kitty",
+                profiles.calibration_configurations("kitty")[0],
+                inconsistent,
+            ),
+        ]
+    )
+    if "kitty" in broken_decision["qualified"] or not broken_decision[
+        "protocol_blockers"
+    ]:
+        failures.append(
+            "qualification: an inconsistent device-pixel grid was admitted"
         )
-        if "kitty" in broken_decision["qualified"] or not broken_decision[
-            "protocol_blockers"
-        ]:
-            failures.append(
-                f"qualification: a {label} device-pixel grid was admitted"
-            )
+    off_target_decision = qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty",
+                profiles.calibration_configurations("odytty")[0],
+                geometry,
+            ),
+            _synthetic_probe_attempt(
+                "ghostty",
+                profiles.calibration_configurations("ghostty")[0],
+                off_target,
+            ),
+        ]
+    )
+    if (
+        off_target_decision["qualified"] != ["odytty", "ghostty"]
+        or off_target_decision["protocol_blockers"]
+        or off_target_decision["implementation_cell_geometry"]["ghostty"]
+        != off_target
+    ):
+        failures.append(
+            "qualification: a stable off-target grid was not admitted and recorded"
+        )
 
     # The per-implementation admission predicate is pinned directly, because
     # at the decision layer the evidence seal already rejects most malformed
@@ -9044,16 +9215,27 @@ def self_test() -> list[str]:
             "kitty", profiles.calibration_configurations("kitty")[0], geometry
         )
     ):
-        failures.append("qualification: a stable exact 80x24 grid was not admitted")
-    for label, broken in (("inconsistent", inconsistent), ("non-80x24", off_grid)):
-        if _stable_own_geometry(
-            _synthetic_probe_attempt(
-                "kitty", profiles.calibration_configurations("kitty")[0], broken
-            )
-        ):
-            failures.append(
-                f"qualification: a {label} grid satisfied the per-terminal invariant"
-            )
+        failures.append("qualification: a stable target grid was not admitted")
+    if not _stable_own_geometry(
+        _synthetic_probe_attempt(
+            "ghostty", profiles.calibration_configurations("ghostty")[0], off_target
+        )
+    ):
+        failures.append(
+            "qualification: a stable off-target grid failed the per-terminal invariant"
+        )
+    if profiles.matches_target_grid(off_target) or not profiles.matches_target_grid(
+        geometry
+    ):
+        failures.append("qualification: target-grid classification is wrong")
+    if _stable_own_geometry(
+        _synthetic_probe_attempt(
+            "kitty", profiles.calibration_configurations("kitty")[0], inconsistent
+        )
+    ):
+        failures.append(
+            "qualification: an inconsistent grid satisfied the per-terminal invariant"
+        )
     contradicting_model = _synthetic_probe_attempt(
         "kitty", profiles.calibration_configurations("kitty")[0], geometry
     )
@@ -9476,7 +9658,7 @@ def self_test() -> list[str]:
             "window_still_mapped": True,
             "window_focused": True,
             "window_unobscured": True,
-            "pty_80x24": True,
+            "pty_grid_as_registered": True,
             "cell_geometry_unchanged": True,
             "static_prompt": True,
             "viewport_unchanged": True,
@@ -9690,7 +9872,7 @@ def self_test() -> list[str]:
             if token and len(token) > 2 and re.search(rf"\b{re.escape(token)}\b", text):
                 failures.append("session: machine-identifying token reached the document")
 
-    # Protocol 1.3.0 end to end: two terminals whose stable device-pixel grids
+    # Protocol 1.4.0 end to end: two terminals whose stable device-pixel grids
     # DIFFER complete a measured session and publish a validating document.
     # This is the case the retired matched-grid gate made unreachable, and the
     # exhaustive laptop search proved it is the only case this machine offers.
@@ -9783,6 +9965,98 @@ def self_test() -> list[str]:
             if expected_environment.get("cell_geometry") != differing_grids[name]:
                 failures.append(
                     "session: a replicate was not held to its own preregistered grid"
+                )
+                break
+
+    # A terminal that stabilized AWAY from the normalization target is
+    # measured, published, and disclosed — this is the Ghostty-shaped case and
+    # the whole point of treating 80x24 as a target rather than a gate. The
+    # replicate is held to that terminal's own registered grid.
+    off_target_grids = {
+        "odytty": {
+            "columns": 80,
+            "rows": 24,
+            "content_width_device_px": 800,
+            "content_height_device_px": 480,
+            "cell_width_device_px": 10,
+            "cell_height_device_px": 20,
+        },
+        "kitty": {
+            "columns": 94,
+            "rows": 53,
+            "content_width_device_px": 94 * 10,
+            "content_height_device_px": 53 * 19,
+            "cell_width_device_px": 10,
+            "cell_height_device_px": 19,
+        },
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        off_target_prereg = _fake_prereg(
+            ["odytty", "kitty"], geometries=off_target_grids
+        )
+        off_target_launcher = _FakeLauncher(
+            {"odytty": "wayland", "kitty": "wayland"},
+            root / "logs",
+            per_implementation_oracle_geometry={
+                name: {
+                    "pty_columns": grid["columns"],
+                    "pty_rows": grid["rows"],
+                    "content_width_device_px": grid["content_width_device_px"],
+                    "content_height_device_px": grid["content_height_device_px"],
+                }
+                for name, grid in off_target_grids.items()
+            },
+        )
+        off_target_document = run_session(
+            off_target_prereg,
+            "d" * 64,
+            off_target_launcher,
+            root / "results",
+            {"collectors": []},
+            sleep=lambda _seconds: None,
+            runner_sha256="9" * 64,
+            prereg_anchor_commit="1" * 40,
+        )
+        if off_target_document["environment"].get(
+            "implementation_cell_geometry"
+        ) != off_target_grids:
+            failures.append(
+                "session: an off-target terminal's actual grid was not published"
+            )
+        if off_target_document["environment"].get("target_grid") != {
+            "columns": profiles.TARGET_GRID[0],
+            "rows": profiles.TARGET_GRID[1],
+        }:
+            failures.append("session: the normalization target was not published")
+        undisclosed = result_schema.validate(off_target_document, off_target_prereg)
+        if not any(error.path == "$.limitations" for error in undisclosed):
+            failures.append(
+                "session: an undisclosed off-target grid validated"
+            )
+        off_target_document["limitations"] = [
+            {
+                "code": "off-target-cell-grid",
+                "implementations": ["kitty"],
+                "detail": (
+                    "kitty stabilized at 94x53 rather than the 80x24 target; its "
+                    "samples are reported at that grid"
+                ),
+            }
+        ]
+        disclosed = result_schema.validate(off_target_document, off_target_prereg)
+        if disclosed:
+            failures.append(
+                "session: a disclosed off-target run set failed validation: "
+                + "; ".join(f"{e.path}: {e.message}" for e in disclosed[:4])
+            )
+        for name, expected_environment in (
+            (entry["implementation"], entry["expected_environment"])
+            for entry in off_target_launcher.replicates
+        ):
+            if expected_environment.get("cell_geometry") != off_target_grids[name]:
+                failures.append(
+                    "session: an off-target replicate was not held to its own grid"
                 )
                 break
 
@@ -10125,7 +10399,7 @@ def self_test() -> list[str]:
         private = root / "private"
         package.mkdir()
         private.mkdir(mode=0o700)
-        # Protocol 1.3.0 publishes one bounded probe per implementation, and
+        # Protocol 1.4.0 publishes one bounded probe per implementation, and
         # the availability evidence must recompute to the same decision.
         per_implementation_probes = [
             _synthetic_probe_attempt(
@@ -10775,7 +11049,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
         f"{PUBLIC_API_BASE}/git/ref/{encoded_ref}",
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "OdyTTY-benchmark-protocol/1.3.0",
+            "User-Agent": "OdyTTY-benchmark-protocol/1.4.0",
         },
     )
     with urllib.request.urlopen(ref_request, timeout=30) as response:
@@ -10789,7 +11063,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
     encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
     request = urllib.request.Request(
         f"{PUBLIC_RAW_BASE}/{commit}/{encoded_path}",
-        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.3.0"},
+        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.4.0"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return commit, response.read()
@@ -10954,7 +11228,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.allow_mixed_display_paths:
         print(
-            "--allow-mixed-display-paths is retired; protocol 1.3.0 requires "
+            "--allow-mixed-display-paths is retired; protocol 1.4.0 requires "
             "native Wayland for every qualified implementation",
             file=sys.stderr,
         )
@@ -11294,7 +11568,7 @@ def main(argv: list[str] | None = None) -> int:
             for entry in prereg_record.get("implementations", [])
             if entry.get("name")
         ]
-        # Protocol 1.3.0 takes exactly one bounded probe launch per
+        # Protocol 1.4.0 takes exactly one bounded probe launch per
         # implementation with its preregistered calibration. No calibration
         # search is planned, launched, or budgeted here.
         probe_budget = {

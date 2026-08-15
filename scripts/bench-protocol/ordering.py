@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Balanced execution-order generator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.3.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.4.0).
 #
 # The protocol requires that implementation order follow a balanced Latin
 # square derived from the preregistered seed, that the square and its reverse

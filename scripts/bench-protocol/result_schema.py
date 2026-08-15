@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Result-document schema and validator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.3.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.4.0).
 #
 # The protocol specifies the canonical result as UTF-8 JSON with sorted object
 # keys and a minimum shape, and it specifies exactly what validation must
@@ -53,18 +53,19 @@ import profiles
 import summaries
 import workloads
 
-# The exact-80x24 per-implementation grid rule lives in profiles.py so that
+# The stable per-implementation grid rule lives in profiles.py so that
 # preregistration checking, result validation, and the runner share one
 # definition instead of three that can drift.
-_exact_80x24_geometry = profiles.exact_80x24_geometry
+_stable_cell_geometry = profiles.stable_cell_geometry
+_matches_target_grid = profiles.matches_target_grid
 
-# 1.3.0 retires the cross-terminal matched device-pixel grid: each qualified
-# implementation binds and reports its own stable exact-80x24 grid instead.
-# Documents written under 1.2.0 are rejected by version, not reinterpreted,
-# because their environment block asserts an equality this protocol no longer
-# makes and no longer verifies.
-SCHEMA_VERSION = "1.3.0"
-PROTOCOL_VERSION = "1.3.0"
+# 1.3.0 retired the cross-terminal matched device-pixel grid and required each
+# implementation to bind an exact-80x24 grid. Version 1.4.0 binds each
+# implementation's stable observed grid and records whether it reached the
+# 80x24 target. Documents written under earlier versions are rejected by
+# version, not reinterpreted under these different geometry semantics.
+SCHEMA_VERSION = "1.4.0"
+PROTOCOL_VERSION = "1.4.0"
 REHEARSAL_TIMING_TOLERANCE_SECONDS = 2.0
 ENVIRONMENT_SAMPLE_PERIOD_SECONDS = 1.0
 ENVIRONMENT_SAMPLE_MAX_GAP_SECONDS = 2.0
@@ -1050,7 +1051,7 @@ def validate(
             errors.append(
                 ValidationError("$.environment", "does not exactly bind preregistered fields")
             )
-        # Protocol 1.3.0: the environment publishes the declared policy and
+        # Protocol 1.4.0: the environment publishes the declared policy and
         # every qualified terminal's own grid. Nothing here requires two
         # terminals to share a pitch; each must bind exactly the grid it
         # preregistered, and each grid must be an exact 80x24 model.
@@ -1088,14 +1089,46 @@ def validate(
                     )
                 )
             if any(
-                not _exact_80x24_geometry(geometry)
+                not _stable_cell_geometry(geometry)
                 for geometry in expected_geometry.values()
             ):
                 errors.append(
                     ValidationError(
                         "$.environment.implementation_cell_geometry",
-                        "every qualified implementation must bind an exact "
-                        "positive 80x24 device-pixel grid",
+                        "every qualified implementation must bind a "
+                        "self-consistent positive device-pixel grid",
+                    )
+                )
+            # The target grid is disclosed, never enforced. When any terminal
+            # settled on a different stable grid, the run set must carry the
+            # limitation saying so rather than presenting the comparison as
+            # though every terminal ran the requested cell count.
+            if actual_environment.get("target_grid") != preregistration.get(
+                "target_grid"
+            ):
+                errors.append(
+                    ValidationError(
+                        "$.environment.target_grid",
+                        "must exactly bind the preregistered normalization target",
+                    )
+                )
+            off_target = sorted(
+                name
+                for name, geometry in expected_geometry.items()
+                if not _matches_target_grid(geometry)
+            )
+            if off_target and not any(
+                entry.get("code") == "off-target-cell-grid"
+                and sorted(entry.get("implementations", [])) == off_target
+                for entry in document.get("limitations", [])
+                if isinstance(entry, dict)
+            ):
+                errors.append(
+                    ValidationError(
+                        "$.limitations",
+                        "a terminal that did not reach the target grid must be "
+                        "disclosed as an off-target-cell-grid limitation naming "
+                        f"exactly {off_target}",
                     )
                 )
         if has_w6 and any(
@@ -1426,7 +1459,7 @@ def _validate_ci(value: object) -> bool:
 
 
 def canonical_w6_summaries(samples: list[dict], seed: str) -> list[dict]:
-    """Recompute the exact protocol 1.3.0 W6 summaries from raw samples."""
+    """Recompute the exact protocol 1.4.0 W6 summaries from raw samples."""
     metric_specs = {
         metric["name"]: metric
         for metric in workloads.WORKLOADS["idle-visible-10m"]["metrics"]
@@ -1993,6 +2026,10 @@ def self_test() -> list[str]:
         }
     )
     w6_prereg["cell_geometry_policy"] = profiles.CELL_GEOMETRY_POLICY
+    w6_prereg["target_grid"] = {
+        "columns": profiles.TARGET_GRID[0],
+        "rows": profiles.TARGET_GRID[1],
+    }
     w6_prereg["implementations"][0]["cell_geometry"] = {
         "columns": 80,
         "rows": 24,
@@ -2009,6 +2046,7 @@ def self_test() -> list[str]:
     w6_document["environment"]["cell_geometry_policy"] = w6_prereg[
         "cell_geometry_policy"
     ]
+    w6_document["environment"]["target_grid"] = w6_prereg["target_grid"]
     w6_document["environment"]["implementation_cell_geometry"] = {
         entry["name"]: entry["cell_geometry"]
         for entry in w6_prereg["implementations"]
@@ -2081,7 +2119,7 @@ def self_test() -> list[str]:
         failures.append(
             f"schema: canonical W6 summary was rejected: {messages(w6_errors)}"
         )
-    # Protocol 1.3.0: two qualified terminals with DIFFERENT stable device-pixel
+    # Protocol 1.4.0: two qualified terminals with DIFFERENT stable device-pixel
     # grids are a valid, publishable comparison as long as each binds its own
     # preregistered exact-80x24 model. The old schema rejected exactly this.
     differing_prereg = json.loads(json.dumps(w6_prereg))
@@ -2115,19 +2153,60 @@ def self_test() -> list[str]:
         for error in validate(missing_second, differing_prereg)
     ):
         failures.append("schema: an omitted per-terminal grid was accepted")
-    off_grid_document = json.loads(json.dumps(differing_document))
-    off_grid_prereg = json.loads(json.dumps(differing_prereg))
+    # A stable grid that missed the normalization target is PUBLISHABLE, not
+    # disqualifying — but only when the run set discloses it. This is the
+    # Ghostty-shaped case: a terminal that reproducibly settles at its own
+    # grid is still a real product configuration and is still measured.
+    off_target_document = json.loads(json.dumps(differing_document))
+    off_target_prereg = json.loads(json.dumps(differing_prereg))
     for record in (
-        off_grid_prereg["implementations"][1]["cell_geometry"],
-        off_grid_document["environment"]["implementation_cell_geometry"]["kitty"],
+        off_target_prereg["implementations"][1]["cell_geometry"],
+        off_target_document["environment"]["implementation_cell_geometry"]["kitty"],
     ):
-        record["rows"] = 25
-        record["content_height_device_px"] = 25 * record["cell_height_device_px"]
+        record["rows"] = 53
+        record["content_height_device_px"] = 53 * record["cell_height_device_px"]
+    if not any(
+        error.path == "$.limitations"
+        for error in validate(off_target_document, off_target_prereg)
+    ):
+        failures.append("schema: an undisclosed off-target grid was accepted")
+    off_target_document["limitations"] = [
+        {
+            "code": "off-target-cell-grid",
+            "implementations": ["kitty"],
+            "detail": "kitty stabilized at 80x53 rather than the 80x24 target",
+        }
+    ]
+    disclosed_errors = validate(off_target_document, off_target_prereg)
+    if any(
+        error.path in ("$.limitations", "$.environment.implementation_cell_geometry")
+        for error in disclosed_errors
+    ):
+        failures.append(
+            "schema: a disclosed off-target grid was rejected: "
+            + messages(disclosed_errors)
+        )
+    wrong_names = json.loads(json.dumps(off_target_document))
+    wrong_names["limitations"][0]["implementations"] = ["odytty"]
+    if not any(
+        error.path == "$.limitations"
+        for error in validate(wrong_names, off_target_prereg)
+    ):
+        failures.append("schema: an off-target disclosure naming the wrong terminal passed")
+    inconsistent_grid_document = json.loads(json.dumps(differing_document))
+    inconsistent_grid_prereg = json.loads(json.dumps(differing_prereg))
+    for record in (
+        inconsistent_grid_prereg["implementations"][1]["cell_geometry"],
+        inconsistent_grid_document["environment"]["implementation_cell_geometry"][
+            "kitty"
+        ],
+    ):
+        record["cell_height_device_px"] += 1
     if not any(
         error.path == "$.environment.implementation_cell_geometry"
-        for error in validate(off_grid_document, off_grid_prereg)
+        for error in validate(inconsistent_grid_document, inconsistent_grid_prereg)
     ):
-        failures.append("schema: a non-80x24 per-terminal grid was accepted")
+        failures.append("schema: a self-inconsistent per-terminal grid was accepted")
 
     mismatched_font_document = json.loads(json.dumps(w6_document))
     mismatched_font_document["implementations"][0]["font_identity"]["sha256"] = (

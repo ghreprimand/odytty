@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Canonical protocol 1.3.0 terminal profiles and launch identities."""
+"""Canonical protocol 1.4.0 terminal profiles and launch identities."""
 
 from __future__ import annotations
 
@@ -59,18 +59,29 @@ FONTCONFIG_ISOLATION_POLICY_SHA256 = hashlib.sha256(
     FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
 ).hexdigest()
 
-# Protocol 1.3.0 cell-geometry policy. Protocol 1.2.0 admitted W6 only when
+# Protocol 1.4.0 cell-geometry policy. Protocol 1.2.0 admitted W6 only when
 # every qualified terminal reached ONE identical device-pixel cell grid. The
 # exhaustive laptop calibration search completed every declared configuration
 # for odytty/kitty/ghostty/alacritty and proved no such common grid exists on
 # this machine, so that equality was an unsatisfiable admission gate rather
-# than a control. It is replaced by a per-implementation control: each
-# qualified terminal is normalized to exact PTY 80x24 on the shared font and
-# its canonical tracked profile, its own device-pixel cell pitch and sub-cell
-# remainder are preregistered, and that model must hold through readiness,
-# rehearsal, and every measured replicate. Cross-terminal pitch differences
-# are published as a limitation of the comparison, not equalized away.
-CELL_GEOMETRY_POLICY = "per-implementation-stable-exact-80x24"
+# than a control. Protocol 1.3.0 replaced it with a per-implementation exact
+# 80x24 control. Protocol 1.4.0 retains the per-implementation model but treats
+# 80x24 as a normalization target: the observed grid, device-pixel cell pitch,
+# and sub-cell remainder are preregistered and must hold through readiness,
+# rehearsal, and every measured replicate. Cross-terminal pitch and cell-count
+# differences are published as limitations, not equalized away.
+CELL_GEOMETRY_POLICY = "per-implementation-stable-observed-grid"
+
+# The normalization TARGET, not an admission gate. Every terminal is
+# configured and driven toward this grid, and whether it arrived there is
+# recorded per implementation and published. A terminal that settles at a
+# different stable grid is still measured: refusing it would discard a real,
+# reproducible product configuration because the compositor or the terminal's
+# own startup sizing did not land on the requested cell count. What must hold
+# is that the grid is STABLE and self-consistent, that the font bytes,
+# profile, colors, workload, and display path are shared, and that the actual
+# rows/columns/content pixels are recorded and disclosed.
+TARGET_GRID = (80, 24)
 
 # The exact device-pixel field set every qualified implementation pins.
 REQUIRED_CELL_GEOMETRY = frozenset(
@@ -85,15 +96,20 @@ REQUIRED_CELL_GEOMETRY = frozenset(
 )
 
 
-def exact_80x24_geometry(geometry: object) -> bool:
-    """Return whether one implementation's own grid is an exact 80x24 model.
+def stable_cell_geometry(geometry: object) -> bool:
+    """Return whether one implementation's own observed grid is self-consistent.
 
-    This is a per-implementation invariant and is the single definition used
-    by preregistration checking, result validation, and the runner. The
-    terminal must have been normalized to exactly 80 columns by 24 rows, and
-    its reported content envelope must be exactly the integer cell pitch times
-    that grid. It says nothing about any other implementation's pitch, which
-    the protocol no longer requires to be equal.
+    This is the single definition used by preregistration checking, result
+    validation, and the runner. It requires the exact device-pixel field set,
+    strictly positive integers, and a content envelope that is exactly the
+    integer cell pitch times the observed grid — that is what makes the grid a
+    usable model of the terminal rather than a stray reading.
+
+    It deliberately does NOT require any particular column/row count. The
+    target grid is a target (see `TARGET_GRID` and `matches_target_grid`); a
+    terminal that stabilizes elsewhere is recorded and reported, not rejected.
+    It also says nothing about any other implementation's pitch, which the
+    protocol does not require to be equal.
     """
     if not isinstance(geometry, dict) or set(geometry) != REQUIRED_CELL_GEOMETRY:
         return False
@@ -104,13 +120,23 @@ def exact_80x24_geometry(geometry: object) -> bool:
     ):
         return False
     return (
-        geometry["columns"] == 80
-        and geometry["rows"] == 24
-        and geometry["content_width_device_px"]
-        == 80 * geometry["cell_width_device_px"]
+        geometry["content_width_device_px"]
+        == geometry["columns"] * geometry["cell_width_device_px"]
         and geometry["content_height_device_px"]
-        == 24 * geometry["cell_height_device_px"]
+        == geometry["rows"] * geometry["cell_height_device_px"]
     )
+
+
+def matches_target_grid(geometry: object) -> bool:
+    """Return whether a stable grid also reached the normalization target.
+
+    Diagnostic only. This never gates qualification; it is recorded per
+    implementation so the published result can state exactly which terminals
+    reached the requested cell count and which did not.
+    """
+    if not stable_cell_geometry(geometry):
+        return False
+    return (geometry["columns"], geometry["rows"]) == TARGET_GRID
 
 
 # ---------------------------------------------------------------------------
@@ -396,6 +422,37 @@ def profile_records(repo_root: Path, implementation: str) -> list[dict[str, str]
     ]
 
 
+# Settings each canonical profile must carry so the terminal sizes ITSELF to
+# the target grid at launch, instead of the controller coercing pixels after
+# the window maps. Ghostty expresses `window-width`/`window-height` in grid
+# cells, and its documentation records that on Linux/GTK the computed window
+# size ignores decorations — so the requested cell grid is only honored with
+# decorations disabled. `none` is the canonical enum value; `false` is the
+# legacy boolean spelling of the same thing and is accepted here so the guard
+# describes the requirement rather than one spelling of it.
+REQUIRED_PROFILE_SETTINGS = {
+    "ghostty": {
+        "window-width": ("80",),
+        "window-height": ("24",),
+        "window-padding-x": ("0",),
+        "window-padding-y": ("0",),
+        "window-decoration": ("none", "false"),
+    },
+}
+
+
+def _profile_settings(text: str) -> dict[str, str]:
+    """Parse `key = value` lines from a canonical profile, ignoring comments."""
+    settings: dict[str, str] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        settings[key.strip()] = value.strip()
+    return settings
+
+
 def validate_profiles(repo_root: Path) -> list[str]:
     """Check that the complete canonical profile set exists and is non-empty."""
     failures = []
@@ -406,4 +463,15 @@ def validate_profiles(repo_root: Path) -> list[str]:
                 failures.append(f"{implementation}: canonical profile is missing: {relative}")
             elif not path.read_bytes().strip():
                 failures.append(f"{implementation}: canonical profile is empty: {relative}")
+    for implementation, required in REQUIRED_PROFILE_SETTINGS.items():
+        path = repo_root / CONFIG_PATHS[implementation]
+        if not path.is_file():
+            continue
+        settings = _profile_settings(path.read_text(encoding="utf-8"))
+        for key, accepted in required.items():
+            if settings.get(key) not in accepted:
+                failures.append(
+                    f"{implementation}: canonical profile must set {key} to one of "
+                    f"{list(accepted)}, found {settings.get(key)!r}"
+                )
     return failures

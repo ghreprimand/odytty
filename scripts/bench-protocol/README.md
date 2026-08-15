@@ -1,7 +1,7 @@
 # `scripts/bench-protocol/` — comparative benchmark harness
 
 Preparation tooling for `docs/benchmark-protocol.md` (protocol version
-`1.3.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
+`1.4.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
 and cannot measure, and why.
 
 Every command here is offline, cheap, and side-effect free unless it is
@@ -101,10 +101,15 @@ verifying the pinned terminal artifacts, tracked configs, shared font, child
 display, and canonical per-terminal calibrations, it uses private systemd
 scopes and the production startup-geometry handshake to launch exactly OdyTTY,
 Kitty, Ghostty, and Alacritty once each in that order. WezTerm is never
-launched. The
-create-exclusive schema-version-5 public record is written only when all four
-windows reach exact 80x24 PTY geometry and clean up; it preserves each raw PTY
-pixel envelope, normalized cell grid, and validator-recomputed affine proof.
+launched. All four
+terminals are launched and recorded before any verdict, so one terminal's miss
+or failure never hides the others' evidence, and the action consumes no run
+identity — it is safe to rerun until measurement begins. The create-exclusive
+schema-version-6 public record is written when all four windows map, complete
+the handshake, yield a stable self-consistent grid, and clean up; it preserves
+each raw PTY pixel envelope, observed cell grid, whether that grid reached the
+80x24 target, and the validator-recomputed affine proof. Missing the target is
+recorded, not fatal.
 Copy each observed grid and envelope model into that implementation's draft
 preregistration entry. The diagnostic digest excludes only those discovered
 values; it still binds the artifacts, profiles, font, calibrations, and policy.
@@ -149,7 +154,7 @@ tracked at
 `scripts/bench-protocol/configs/alacritty.toml`, and
 `scripts/bench-protocol/configs/wezterm.lua`; OdyTTY's profile also binds its
 tracked `themes/benchmark.theme` dependency. Preregistration records the path
-and digest of every participating profile file. They pin the common 80x24 input
+and digest of every participating profile file. They pin the requested 80x24 input
 where the terminal exposes it, DejaVu Sans Mono at each terminal's native size
 value of 12 (pixels for OdyTTY and points for the reference terminals), opaque
 `#101010`/`#c0c0c0` colors, disabled animation, effects, bells, cursor blink,
@@ -160,16 +165,26 @@ On Hyprland, every launch also receives a fresh opaque `odytty-bench-*`
 application id. The child reports PTY geometry out of band and waits behind a
 private controller edge. The runner binds the mapped native window to both
 that exact id and its exact compositor address, floats only that window, and
-resizes its outer dimensions from the observed cell size until the PTY reports
-exactly 80x24. Only then may the child emit `idle-ready`. No persistent
+resizes its outer dimensions from the observed cell size toward the 80x24
+target. Hyprland tiles new windows to the layout, so a terminal's own initial
+sizing can be overridden before the controller sees the window; floating that
+exact window is what makes the correction possible at all. The resize budget
+is hard-bounded, and when it is spent — or the compositor stops moving the
+grid — the controller releases the child at its stable observed grid and
+records that the target was not reached, instead of ending the preparation
+run. Only after release may the child emit `idle-ready`. No persistent
 compositor rule is installed, and teardown removes the private edge after
 every normal, failed, timed-out, or interrupted launch. Kitty additionally
-disables its remembered window size. Sway remains observable, but the runner
+disables its remembered window size. Ghostty requests its grid in cells and,
+per its own documentation, only honors that request on Linux/GTK with window
+decorations disabled, so the tracked profile pins
+`window-decoration = none` with the 80/24 cell request and zero padding; a
+regression asserts those settings remain. Sway remains observable, but the runner
 fails its prerequisite before launching a terminal because it does not yet
 have an equivalent reversible exact-startup-geometry controller there.
 
 The bounded pre-public probe also reads the PTY-reported pixel envelope and
-derives the exact per-cell geometry for the 80x24 grid. Some terminals include
+derives the exact per-cell geometry for the observed grid. Some terminals include
 a fixed sub-cell edge remainder in that envelope. The controller preserves the
 raw envelope, requires both integer cell pitch and the smaller-than-one-cell
 remainder to stay stable across its resize and `idle-ready`, and compares only
@@ -184,22 +199,28 @@ device-pixel corrections are divided by the bound monitor scale. Nonzero
 remainders require distinct affine-proof observations, sealed resize commands,
 and validator recomputation within a two-command bound. Validation derives
 pitch from the ordered cell/pixel deltas.
-A nonzero-remainder launch first observed at exact 80x24 perturbs by one cell
-and returns to 80x24 without allowing repeated polls to consume either resize;
-a zero-remainder exact launch keeps the single-observation
+A nonzero-remainder launch first observed at the target grid perturbs by one
+cell and returns without allowing repeated polls to consume either resize; a
+zero-remainder launch already at the target keeps the single-observation
 fast path. Each qualified implementation's grid and envelope model are pinned
 in preregistration and rechecked before measurement.
 
-Protocol 1.3.0 checks that grid PER IMPLEMENTATION. One bounded probe launch
-per terminal uses that terminal's preregistered calibration, and the terminal
-qualifies when its OWN grid is exactly 80x24 with a content envelope equal to
-its integer pitch times that grid and a sub-cell remainder. Two terminals with
-different device-pixel pitches both qualify; that difference is published as a
-limitation rather than searched away, because the exhaustive search proved no
-common pitch exists on this machine. A terminal whose kernel PTY does not
-expose pixel geometry, or that does not reach its own exact 80x24 grid, stays
-mapped but records `unmet-protocol-configuration`; it is not relabeled
-unavailable or silently dropped.
+Protocol 1.4.0 checks that grid PER IMPLEMENTATION, and 80x24 is a target
+rather than an admission gate. One bounded probe launch per terminal uses that
+terminal's preregistered calibration, and the terminal qualifies when its OWN
+grid is stable and self-consistent — the content envelope equals its integer
+pitch times the observed rows and columns, with a sub-cell remainder. Two
+terminals with different device-pixel pitches both qualify, and so does a
+terminal that reproducibly settles at a different cell count; both differences
+are published as limitations rather than searched away, because the exhaustive
+search proved no common pitch exists on this machine and because refusing a
+reproducible startup geometry would discard evidence instead of controlling
+for anything. A run set containing an off-target grid must name that terminal
+in an `off-target-cell-grid` limitation or it does not validate. A terminal
+whose kernel PTY does not expose pixel geometry, or that yields no stable
+self-consistent grid, stays mapped but records
+`unmet-protocol-configuration`; it is not relabeled unavailable or silently
+dropped.
 
 Probe-attempt schema version 3 preserves a sanitized exact argv, requested metric controls,
 separate observed idle-ready PTY columns/rows/raw pixel envelope and derived
@@ -217,7 +238,7 @@ PTY child, reach the idle-ready record, and map an observable window. Failure
 stops before a probe directory is created. The resulting record binds the
 preregistered inputs and must validate through `--reference-readiness-record`;
 schema version 4 binds the startup-geometry handshake and normalized-grid
-derivation that gate `idle-ready` on the exact 80x24 PTY. Earlier readiness
+derivation that gate `idle-ready` on a released, stable PTY grid. Earlier readiness
 schemas are rejected. The gate never launches WezTerm. Raw readiness logs require an explicit create-only,
 mode-`0700` private directory outside both the repository and the public
 readiness-artifact tree.
@@ -248,13 +269,14 @@ within 15,120 seconds — and its published attempts must equal the exact ordere
 profile setting sequence, with attempt and ordered-list digests recomputed;
 truncated, reordered, duplicate, cherry-picked, or merely resealed lists fail.
 
-Protocol 1.3.0 is an identity break: the cross-terminal matched device-pixel
-grid is retired in favor of a per-implementation grid, so earlier probe,
+Protocol 1.4.0 is an identity break: protocol 1.3.0's exact-80x24 admission
+gate becomes a recorded normalization target, so earlier probe,
 readiness, diagnostic, and result records are historical and cannot be
 reinterpreted under it. It requires a fresh preregistration and run identity;
-1.0.0, 1.1.0, and 1.2.0 results are never pooled with it. Exact font identity,
-matched colors, matched profiles, and the exact 80x24 character grid remain the
-underlying requirements. Available DRM GPU-memory evidence
+1.0.0, 1.1.0, 1.2.0, and 1.3.0 results are never pooled with it. Exact font identity,
+matched colors, matched profiles, and the 80x24 normalization target remain
+the underlying controls; the target is recorded and disclosed per terminal
+rather than enforced as an admission gate. Available DRM GPU-memory evidence
 likewise requires one identical `drm-resident-*` region-field set for every
 qualified terminal. If that semantic set cannot be matched, GPU memory is
 preregistered unsupported for the whole comparison.
@@ -298,7 +320,7 @@ unrecognized or missing drivers and missing preferences leave the policy as
 `powersave`. Unreadable governor evidence is unavailable. Only normalized
 `performance` is eligible; every other outcome stops a measured run.
 
-After the window, driver, prompt, 80x24 grid, and calibrated viewport are
+After the window, driver, prompt, released stable grid, and calibrated viewport are
 ready, the controller creates an immutable start-edge file. The child begins
 its exact 120-second rehearsal or 60+600-second interval only at that edge;
 window-mapping delay is outside the interval. Completion collection has a
@@ -359,7 +381,7 @@ because each one exists to prevent a specific, tempting mistake.
    what each workload physically needs. Five of seven require optical capture,
    so they are declared `skip` / `unavailable-hardware` in preregistration
    before any sample is taken. A self-test fails if W3 or W4 ever lose that
-   requirement — throughput endpoints are optical under protocol `1.3.0`, and
+   requirement — throughput endpoints are optical under protocol `1.4.0`, and
    quietly relaxing them to software timing would be the single most damaging
    change possible to this harness's honesty.
 
