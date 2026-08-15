@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Summary statistics for the OdyTTY comparative benchmark protocol
-# (`docs/benchmark-protocol.md`, protocol version 1.4.0).
+# (`docs/benchmark-protocol.md`, protocol version 1.4.1).
 #
 # The protocol fixes exactly which statistics are published and how they are
 # calculated. This module implements that list and nothing beyond it. The

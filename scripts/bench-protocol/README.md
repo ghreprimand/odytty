@@ -1,7 +1,7 @@
 # `scripts/bench-protocol/` — comparative benchmark harness
 
 Preparation tooling for `docs/benchmark-protocol.md` (protocol version
-`1.4.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
+`1.4.1`). See `docs/benchmark-apparatus.md` for what this comparison unit can
 and cannot measure, and why.
 
 Every command here is offline, cheap, and side-effect free unless it is
@@ -322,7 +322,9 @@ runner verifies their ordering, the same live boot, and refuses to start
 before that time. At runtime it separately
 observes the pinned display-mode signature, external power state, eligible
 `performance` CPU power policy, thermal counters, background CPU load, and
-viewport state throughout each attempt.
+viewport state throughout each attempt. Background load is the aggregate
+system busy fraction over the attempt; one-second observations prove counter
+continuity without turning a single transient spike into an invalid sample.
 
 Preregistration and the measurement runner decide the CPU power policy with
 one shared detector (`profiles.effective_power_policy`), so a machine cannot

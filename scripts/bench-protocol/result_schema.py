@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Result-document schema and validator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.4.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.4.1).
 #
 # The protocol specifies the canonical result as UTF-8 JSON with sorted object
 # keys and a minimum shape, and it specifies exactly what validation must
@@ -64,8 +64,8 @@ _matches_target_grid = profiles.matches_target_grid
 # implementation's stable observed grid and records whether it reached the
 # 80x24 target. Documents written under earlier versions are rejected by
 # version, not reinterpreted under these different geometry semantics.
-SCHEMA_VERSION = "1.4.0"
-PROTOCOL_VERSION = "1.4.0"
+SCHEMA_VERSION = "1.4.1"
+PROTOCOL_VERSION = "1.4.1"
 REHEARSAL_TIMING_TOLERANCE_SECONDS = 2.0
 ENVIRONMENT_SAMPLE_PERIOD_SECONDS = 1.0
 ENVIRONMENT_SAMPLE_MAX_GAP_SECONDS = 2.0
@@ -241,13 +241,14 @@ def derive_environment_invalid_reason(
         for ticks in cpu_ticks
     ):
         return False, None
-    busy_percentages = []
     for before, after in zip(cpu_ticks, cpu_ticks[1:]):
         total_delta = after[0] - before[0]
         idle_delta = after[1] - before[1]
         if total_delta <= 0 or idle_delta < 0 or idle_delta > total_delta:
             return False, None
-        busy_percentages.append(100.0 * (total_delta - idle_delta) / total_delta)
+    total_delta = cpu_ticks[-1][0] - cpu_ticks[0][0]
+    idle_delta = cpu_ticks[-1][1] - cpu_ticks[0][1]
+    aggregate_busy_percent = 100.0 * (total_delta - idle_delta) / total_delta
 
     baseline = observations[0]
     if baseline.get("display_mode_signature") != expected_environment.get(
@@ -277,7 +278,7 @@ def derive_environment_invalid_reason(
         after > before for before, after in zip(thermal_counts, thermal_counts[1:])
     ):
         return True, "thermal-throttling"
-    if any(value > background_cpu_ceiling for value in busy_percentages):
+    if aggregate_busy_percent > background_cpu_ceiling:
         return True, "background-load-above-ceiling"
     return True, None
 
@@ -2196,10 +2197,10 @@ def self_test() -> list[str]:
         elif environmental_reason == "thermal-throttling":
             final["thermal_throttle_count"] = 1
         elif environmental_reason == "background-load-above-ceiling":
-            prior_total, prior_idle = entry["uninstrumented_environment_checks"][-2][
-                "system_cpu_ticks"
-            ]
-            final["system_cpu_ticks"] = [prior_total + 1, prior_idle]
+            for offset, observation in enumerate(
+                entry["uninstrumented_environment_checks"]
+            ):
+                observation["system_cpu_ticks"] = [100 + offset, 100]
         entry["uninstrumented_invalid_reason"] = environmental_reason
         derived = canonical_overhead_fields(entry, 5)
         if derived is None or derived.get("invalid_reason") != environmental_reason:

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # W6 (idle-visible-10m) measured-run orchestrator for the OdyTTY comparative
-# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.4.0).
+# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.4.1).
 #
 # Every other module in this directory is preparation: it computes, checks, or
 # describes, and never takes a measurement. This module is the one exception,
@@ -67,7 +67,7 @@ import summaries  # noqa: E402
 import workloads  # noqa: E402
 
 WORKLOAD = "idle-visible-10m"
-RUNNER_VERSION = "1.4.0"
+RUNNER_VERSION = "1.4.1"
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 PUBLIC_API_BASE = "https://api.github.com/repos/ghreprimand/odytty"
 PUBLIC_RAW_BASE = "https://raw.githubusercontent.com/ghreprimand/odytty"
@@ -5953,8 +5953,8 @@ class _FakeLauncher:
         elif invalid_reason == "thermal-throttling":
             final["thermal_throttle_count"] = 1
         elif invalid_reason == "background-load-above-ceiling":
-            prior_total, prior_idle = observations[-2]["system_cpu_ticks"]
-            final["system_cpu_ticks"] = (prior_total + 1, prior_idle)
+            for offset, observation in enumerate(observations):
+                observation["system_cpu_ticks"] = (100 + offset, 100)
         return observations
 
     def windows(self) -> list[dict]:
@@ -10073,6 +10073,35 @@ def self_test() -> list[str]:
     if reason != "power-policy-change":
         failures.append("environment: live CPU power-policy change was not invalidated")
 
+    transient_cpu_sequence = [
+        {**stable_environment, "system_cpu_ticks": (1000, 1000)},
+        {**stable_environment, "system_cpu_ticks": (1100, 1040)},
+        {**stable_environment, "system_cpu_ticks": (2000, 1940)},
+    ]
+    reason, _ = _checked_sleep(
+        _ChangingEnvironment(transient_cpu_sequence),
+        2,
+        lambda _seconds: None,
+        10,
+        expected_environment=stable_environment,
+    )
+    if reason is not None:
+        failures.append("environment: a transient CPU spike invalidated the attempt")
+    sustained_cpu_sequence = [
+        {**stable_environment, "system_cpu_ticks": (1000, 1000)},
+        {**stable_environment, "system_cpu_ticks": (1100, 1040)},
+        {**stable_environment, "system_cpu_ticks": (1200, 1080)},
+    ]
+    reason, _ = _checked_sleep(
+        _ChangingEnvironment(sustained_cpu_sequence),
+        2,
+        lambda _seconds: None,
+        10,
+        expected_environment=stable_environment,
+    )
+    if reason != "background-load-above-ceiling":
+        failures.append("environment: sustained background CPU did not fail closed")
+
     # The live power-policy observation is the shared detector, not a second
     # cpu0-only reading that could disagree with preregistration. A pstate
     # machine whose governors read powersave while every energy/performance
@@ -11738,7 +11767,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
         f"{PUBLIC_API_BASE}/git/ref/{encoded_ref}",
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "OdyTTY-benchmark-protocol/1.4.0",
+            "User-Agent": "OdyTTY-benchmark-protocol/1.4.1",
         },
     )
     with urllib.request.urlopen(ref_request, timeout=30) as response:
@@ -11752,7 +11781,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
     encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
     request = urllib.request.Request(
         f"{PUBLIC_RAW_BASE}/{commit}/{encoded_path}",
-        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.4.0"},
+        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.4.1"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return commit, response.read()

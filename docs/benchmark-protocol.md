@@ -1,6 +1,13 @@
 # OdyTTY Comparative Benchmark Protocol
 
-Protocol version: `1.4.0`
+Protocol version: `1.4.1`
+
+Version 1.4.1 retains the 1.4.0 geometry and workload model and corrects the
+continuous background-load decision: the preregistered ceiling applies to the
+aggregate system busy fraction across an attempt, while per-second observations
+continue to prove sampling continuity and counter validity. This prevents a
+single transient interval from being misclassified as sustained background
+load without weakening the power, display, thermal, or controller-loss gates.
 
 Version 1.3.0 retired the cross-terminal matched device-pixel cell grid as an
 admission requirement and replaced it with a per-implementation exact-80x24
@@ -26,10 +33,10 @@ comparison unreachable. The remaining pitch difference is therefore stated as
 a limitation of the comparison (see *Cell geometry: a target, not an admission gate*) rather
 than asserted away.
 
-Version 1.4.0 requires a fresh preregistration and run-set identity. Protocol
-1.0.0, 1.1.0, 1.2.0, and 1.3.0 records and results remain historical evidence, are
-rejected by version rather than reinterpreted, and are never pooled with
-1.4.0 samples.
+Version 1.4.1 requires a fresh preregistration and run-set identity. Protocol
+1.0.0, 1.1.0, 1.2.0, 1.3.0, and 1.4.0 records and results remain historical
+evidence, are rejected by version rather than reinterpreted, and are never
+pooled with 1.4.1 samples.
 
 This protocol defines how OdyTTY and independent terminal references are
 compared before any comparative numbers are collected. It measures complete
@@ -442,9 +449,13 @@ Each run set uses the following controls:
 8. Do not flush filesystem or font caches between primary samples. The primary
    startup result is explicitly a warm-cache, fresh-process result.
 
-System-wide background CPU above the preregistered ceiling, thermal throttling,
-or collector loss makes a sample invalid only under the fixed rules below.
-Performance alone never makes a sample invalid.
+Sustained system-wide background CPU above the preregistered ceiling, thermal
+throttling, or collector loss makes a sample invalid only under the fixed rules
+below. The background-load decision uses the aggregate busy fraction between
+the first and last per-attempt system CPU observations. Individual intervals
+remain structural evidence for counter monotonicity and sampling continuity,
+but a transient one-second spike does not invalidate an otherwise controlled
+attempt. Performance alone never makes a sample invalid.
 
 ## Workloads and Correctness Oracles
 
@@ -728,9 +739,9 @@ shape:
 
 ```json
 {
-  "schema_version": "1.4.0",
+  "schema_version": "1.4.1",
   "protocol": {
-    "version": "1.4.0",
+    "version": "1.4.1",
     "git_commit": "<full-sha>",
     "sha256": "<protocol-sha256>"
   },
