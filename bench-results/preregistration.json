@@ -7,17 +7,17 @@
     "power-policy-change",
     "thermal-throttling"
   ],
-  "background_cpu_ceiling_percent": 5,
+  "background_cpu_ceiling_percent": 5.0,
   "boot_and_settle_evidence": {
     "boot_started_utc": "2026-08-14T04:36:35Z",
-    "login_ready_utc": "2026-08-14T04:37:17Z",
-    "measurement_not_before_utc": "2026-08-14T04:42:17Z",
+    "login_ready_utc": "2026-08-14T04:37:15Z",
+    "measurement_not_before_utc": "2026-08-14T04:42:15Z",
     "minimum_post_login_settle_seconds": 300
   },
   "cell_geometry_policy": "per-implementation-stable-observed-grid",
   "checkout": {
     "dirty": false,
-    "git_commit": "f8fdd083718a9fc58f77b26ea35fb8fa5855fdeb"
+    "git_commit": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb"
   },
   "collectors": [
     {
@@ -161,7 +161,7 @@
   ],
   "driver": {
     "name": "scripts/bench-protocol/driver.py (W6 idle-visible-10m child)",
-    "revision": "f8fdd083718a9fc58f77b26ea35fb8fa5855fdeb",
+    "revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
     "sha256": "1534f6606375a47fc4acc994425b70194ce8d5dfcada53a3ff2093a1089b78e0"
   },
   "environment_class": {
@@ -187,25 +187,25 @@
     "power_policy": "performance",
     "power_source": "AC",
     "storage_class": "NVMe solid-state storage",
-    "thermal_and_cooling": "integrated active cooling; preparation CPU package 61 C, NVMe 36-42 C; thermal-throttle counter baseline 15020",
+    "thermal_and_cooling": "integrated active cooling; preparation CPU package 72 C; observed thermal-zone range 20-78 C",
     "virtualized_or_remote": "no"
   },
   "fixtures": [
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "f8fdd083718a9fc58f77b26ea35fb8fa5855fdeb",
+      "generator_revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
       "name": "w3",
       "sha256": "6115e084c778270394b1111e75ae8d882b1e6e1a61ad7d832b96a9dc42dbf3d2"
     },
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "f8fdd083718a9fc58f77b26ea35fb8fa5855fdeb",
+      "generator_revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
       "name": "w4",
       "sha256": "6f536f28c5ec3f965c3600fd1e93701a4557605e1567d0c20210bc27db05bfea"
     },
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "f8fdd083718a9fc58f77b26ea35fb8fa5855fdeb",
+      "generator_revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
       "name": "w5",
       "sha256": "e9b4deb6703136053f9b0c4d1387640e248e8f442a3a9e879b0464a6c27b07c4"
     }
@@ -213,9 +213,9 @@
   "implementations": [
     {
       "artifact_class": "clean-source-release-build",
-      "artifact_sha256": "d00e284332c1fc28f92e82fcd1bfbf000b553baaeb35b981e7df24b67a8a97f8",
+      "artifact_sha256": "103dc1dbc3f141cb3921761b3685a1f9084d5c52ed1b6e5e59e8c056e02af097",
       "availability": "qualified",
-      "build_command": "cargo build --release --locked",
+      "build_command": "CARGO_BUILD_JOBS=4 cargo build --release --locked",
       "build_profile": "release",
       "calibration": {
         "font_size": 12,
@@ -259,7 +259,7 @@
         "height_remainder_device_px": 0,
         "width_remainder_device_px": 0
       },
-      "revision": "f8fdd083718a9fc58f77b26ea35fb8fa5855fdeb",
+      "revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
       "target_grid_met": true,
       "unavailable_reason": "not applicable"
     },
@@ -267,7 +267,7 @@
       "artifact_class": "distribution-package",
       "artifact_sha256": "940cbe42c8cf1dcb342f20b32ee35f51818bbcd8deffc11029f5766d844783a4",
       "availability": "qualified",
-      "build_command": "not-built-in-this-diagnostic; installed distribution package",
+      "build_command": "not-built-in-this-run; installed distribution package",
       "build_profile": "installed-release",
       "calibration": {
         "font_size": 12,
@@ -314,7 +314,7 @@
       "artifact_class": "distribution-package",
       "artifact_sha256": "d943cc1d6c6d24de8964b689bb7de6c827731560b37122e649f75d9e23b57580",
       "availability": "qualified",
-      "build_command": "not-built-in-this-diagnostic; installed distribution package",
+      "build_command": "not-built-in-this-run; installed distribution package",
       "build_profile": "installed-release",
       "calibration": {
         "font_size": 12,
@@ -361,7 +361,7 @@
       "artifact_class": "distribution-package",
       "artifact_sha256": "0cf523596ad06112922350a3d7c0eb0875c7c45b7c05b0dcc405a40afc50e624",
       "availability": "qualified",
-      "build_command": "not-built-in-this-diagnostic; installed distribution package",
+      "build_command": "not-built-in-this-run; installed distribution package",
       "build_profile": "installed-release",
       "calibration": {
         "font_size": 12,
@@ -405,7 +405,7 @@
       "unavailable_reason": "not applicable"
     }
   ],
-  "instrumentation_overhead_ceiling_percent": 5,
+  "instrumentation_overhead_ceiling_percent": 5.0,
   "machine_scope_exclusions": [
     {
       "detail": "known nonfunctional on this laptop; it is not launched, readiness-tested, probed, rehearsed, measured, or retried",
@@ -424,12 +424,12 @@
   },
   "orchestrator": {
     "name": "scripts/bench-protocol/w6_runner.py",
-    "revision": "f8fdd083718a9fc58f77b26ea35fb8fa5855fdeb",
-    "sha256": "40fc243e8a59b24273a8ec0c7b0ad625c7c416410778a651c4f7d15cbbe5740d"
+    "revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
+    "sha256": "7cd20bb273720b8339b1b3d8a87daa413187c8f53d4aff7a6e34d7e9a12d1b08"
   },
   "outlier_rule": "no sample is removed by an outlier test; all valid numeric samples remain in the analysis",
   "protocol": {
-    "git_commit": "f8fdd083718a9fc58f77b26ea35fb8fa5855fdeb",
+    "git_commit": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
     "path": "docs/benchmark-protocol.md",
     "sha256": "934697e99269f4049749a7eda942e5e209b8dec7ed30e5172dd933d9b93e916a",
     "version": "1.4.0"
@@ -445,11 +445,11 @@
   "replacement_limit_per_invalid_attempt": 1,
   "reporting_rule": "no significance threshold, composite score, weighted total, or overall winner; favourable and unfavourable results are published together",
   "run_set": {
-    "bootstrap_seed": "geometry-smoke-bootstrap-f8fdd083-20260815T120224Z",
-    "id": "odytty-v0.11.0-w6-linux-f8fdd083-20260815",
-    "order_seed": "geometry-smoke-order-f8fdd083-20260815T120224Z",
+    "bootstrap_seed": "19ed842d-w6-bootstrap-20260815-r2",
+    "id": "odytty-v0.11.0-w6-linux-19ed842d-20260815-r2",
+    "order_seed": "19ed842d-w6-order-20260815-r2",
     "statistics_implementation": "scripts/bench-protocol/summaries.py",
-    "statistics_revision": "f8fdd083718a9fc58f77b26ea35fb8fa5855fdeb",
+    "statistics_revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
     "statistics_sha256": "519e84f412961541d2c8dab9f54db2402cbb3904dbfa95b3a90c76195dece83d"
   },
   "run_set_time_budget_hours": 4.05,
@@ -472,10 +472,10 @@
         "plain"
       ],
       "implementation_order": [
-        "alacritty",
-        "kitty",
+        "ghostty",
         "odytty",
-        "ghostty"
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -484,10 +484,10 @@
         "plain"
       ],
       "implementation_order": [
-        "odytty",
         "alacritty",
         "ghostty",
-        "kitty"
+        "kitty",
+        "odytty"
       ]
     },
     {
@@ -496,10 +496,10 @@
         "plain"
       ],
       "implementation_order": [
-        "ghostty",
-        "odytty",
         "kitty",
-        "alacritty"
+        "alacritty",
+        "odytty",
+        "ghostty"
       ]
     },
     {
@@ -508,10 +508,10 @@
         "plain"
       ],
       "implementation_order": [
+        "odytty",
         "kitty",
         "ghostty",
-        "alacritty",
-        "odytty"
+        "alacritty"
       ]
     },
     {
@@ -520,10 +520,10 @@
         "plain"
       ],
       "implementation_order": [
-        "alacritty",
-        "kitty",
+        "ghostty",
         "odytty",
-        "ghostty"
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -532,10 +532,10 @@
         "plain"
       ],
       "implementation_order": [
-        "odytty",
         "alacritty",
         "ghostty",
-        "kitty"
+        "kitty",
+        "odytty"
       ]
     }
   ],
