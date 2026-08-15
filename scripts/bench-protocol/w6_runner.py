@@ -101,6 +101,7 @@ CALIBRATION_DIAGNOSTIC_SCHEMA_VERSION = 1
 # makes, and 5 could only exist when every terminal hit the target, so its
 # silence about off-target grids cannot be read as a claim that none existed.
 GEOMETRY_DIAGNOSTIC_SCHEMA_VERSION = 6
+GEOMETRY_SMOKE_SCHEMA_VERSION = 1
 GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS = (
     "odytty",
     "kitty",
@@ -3715,6 +3716,144 @@ def validate_geometry_diagnostic(
     )
 
 
+def run_geometry_smoke(
+    prereg_record: dict,
+    launcher,
+    implementation: str,
+    sleep=time.sleep,
+) -> dict:
+    """Exercise one production geometry handshake without creating run evidence.
+
+    This is a troubleshooting action, not a partial geometry diagnostic. It
+    exists so a controller correction can be proven against one named terminal
+    before the fixed four-terminal discovery action is attempted again. Its
+    record cannot validate as availability, readiness, preregistration,
+    rehearsal, measurement, or a startup-geometry diagnostic.
+    """
+    _geometry_diagnostic_inputs(prereg_record)
+    if implementation not in GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS:
+        raise ValueError(
+            f"unsupported geometry smoke implementation: {implementation!r}"
+        )
+    if getattr(launcher, "use_scope", None) is not True:
+        raise ValueError("geometry smoke requires a private systemd scope")
+    backend = getattr(launcher, "backend", {})
+    if backend.get("backend") != "hyprctl" or backend.get("display") != "wayland":
+        raise ValueError("geometry smoke requires a native Hyprland Wayland session")
+    calibration = next(
+        (
+            entry.get("calibration")
+            for entry in prereg_record.get("implementations", [])
+            if entry.get("name") == implementation
+        ),
+        None,
+    )
+    setter = getattr(launcher, "set_calibration", None)
+    if setter is None or not setter(implementation, calibration):
+        raise ValueError(
+            f"geometry smoke could not set {implementation!r} calibration"
+        )
+    observed_launcher = _GeometryDiagnosticLauncher(launcher)
+    probe = _probe_implementation(
+        implementation,
+        observed_launcher,
+        f"geometry-smoke-{implementation}",
+        sleep=sleep,
+    )
+    launch = _geometry_diagnostic_launch(
+        probe,
+        observed_launcher.cleanup_outcome,
+        observed_launcher.private_scope_observed,
+    )
+    if (
+        not _valid_geometry_diagnostic_launch(launch, implementation)
+        or not profiles.stable_cell_geometry(launch.get("cell_geometry"))
+    ):
+        raise ValueError(
+            f"geometry smoke could not observe a stable grid for {implementation}: "
+            + (
+                probe.get("detail")
+                or "no stable native-Wayland device-pixel grid was observed"
+            )
+        )
+    return {
+        "schema_version": GEOMETRY_SMOKE_SCHEMA_VERSION,
+        "record_type": "startup-geometry-smoke",
+        "status": "PASS",
+        "inputs_sha256": _geometry_diagnostic_inputs_sha256(prereg_record),
+        "implementation": implementation,
+        "execution": {
+            "diagnostic_only": True,
+            "single_implementation": True,
+            "measurement": False,
+            "private_systemd_scope": True,
+            "window_backend": "hyprctl",
+            "display_path": DISPLAY_PATH_WAYLAND,
+            "brave_suspension_enforced": False,
+            "cpu_noise_controls_enforced": False,
+            "rerunnable": True,
+        },
+        "target_grid": {
+            "columns": profiles.TARGET_GRID[0],
+            "rows": profiles.TARGET_GRID[1],
+        },
+        "benchmark_state_consumed_or_created": _diagnostic_state_record(),
+        "launch": launch,
+    }
+
+
+def validate_geometry_smoke(
+    record: object,
+    prereg_record: dict,
+    implementation: str,
+) -> bool:
+    """Validate a single-terminal, explicitly non-evidence geometry smoke."""
+    if not isinstance(record, dict) or set(record) != {
+        "schema_version",
+        "record_type",
+        "status",
+        "inputs_sha256",
+        "implementation",
+        "execution",
+        "target_grid",
+        "benchmark_state_consumed_or_created",
+        "launch",
+    }:
+        return False
+    try:
+        inputs_sha256 = _geometry_diagnostic_inputs_sha256(prereg_record)
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (
+        implementation in GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS
+        and record.get("schema_version") == GEOMETRY_SMOKE_SCHEMA_VERSION
+        and record.get("record_type") == "startup-geometry-smoke"
+        and record.get("status") == "PASS"
+        and record.get("inputs_sha256") == inputs_sha256
+        and record.get("implementation") == implementation
+        and record.get("execution")
+        == {
+            "diagnostic_only": True,
+            "single_implementation": True,
+            "measurement": False,
+            "private_systemd_scope": True,
+            "window_backend": "hyprctl",
+            "display_path": DISPLAY_PATH_WAYLAND,
+            "brave_suspension_enforced": False,
+            "cpu_noise_controls_enforced": False,
+            "rerunnable": True,
+        }
+        and record.get("target_grid")
+        == {"columns": profiles.TARGET_GRID[0], "rows": profiles.TARGET_GRID[1]}
+        and record.get("benchmark_state_consumed_or_created")
+        == _diagnostic_state_record()
+        and _valid_geometry_diagnostic_launch(record.get("launch"), implementation)
+        and profiles.stable_cell_geometry(
+            (record.get("launch") or {}).get("cell_geometry")
+        )
+    )
+
+
 def _pty_grid_metrics(record: dict | None) -> dict | None:
     """Split the PTY pixel envelope into an integer cell grid and edge remainder."""
     if not isinstance(record, dict):
@@ -7074,6 +7213,87 @@ def self_test() -> list[str]:
                 failures.append(
                     "geometry diagnostic: forged affine remainder proof validated"
                 )
+
+        smoke_launcher = _FixedRemainderDiagnosticLauncher(
+            diagnostic_behaviour, root / "single-terminal-geometry-smoke"
+        )
+        try:
+            ghostty_smoke = run_geometry_smoke(
+                fixed_remainder_prereg,
+                smoke_launcher,
+                "ghostty",
+                sleep=lambda _seconds: None,
+            )
+        except ValueError as error:
+            failures.append(f"geometry smoke: valid Ghostty run failed: {error}")
+        else:
+            smoke_commands = [
+                command
+                for implementation, command in smoke_launcher.geometry_commands
+                if implementation == "ghostty"
+            ]
+            if (
+                smoke_launcher.launches != ["ghostty"]
+                or "wezterm" in smoke_launcher.launches
+                or len(smoke_commands) != 2
+                or "setfloating" not in smoke_commands[0]
+                or "resizewindowpixel" not in smoke_commands[1]
+                or not smoke_commands[1][-1].startswith(
+                    "exact 820 476,address:"
+                )
+                or ghostty_smoke["launch"]["pty_geometry"]
+                != {
+                    "columns": 80,
+                    "rows": 24,
+                    "content_width_device_px": 805,
+                    "content_height_device_px": 459,
+                }
+                or ghostty_smoke["launch"]["target_grid_met"] is not True
+                or not validate_geometry_smoke(
+                    ghostty_smoke, fixed_remainder_prereg, "ghostty"
+                )
+                or validate_geometry_diagnostic(
+                    ghostty_smoke, fixed_remainder_prereg
+                )
+                or smoke_launcher.handshake_state
+                or list(
+                    (root / "single-terminal-geometry-smoke").glob(
+                        "*.geometry-ready"
+                    )
+                )
+            ):
+                failures.append(
+                    "geometry smoke: Ghostty-only recovery, cleanup, or "
+                    "schema separation drifted"
+                )
+            consumed_smoke = json.loads(json.dumps(ghostty_smoke))
+            consumed_smoke["benchmark_state_consumed_or_created"][
+                "measurement"
+            ] = True
+            if validate_geometry_smoke(
+                consumed_smoke, fixed_remainder_prereg, "ghostty"
+            ):
+                failures.append(
+                    "geometry smoke: benchmark state consumption validated"
+                )
+
+        excluded_smoke_launcher = _FixedRemainderDiagnosticLauncher(
+            diagnostic_behaviour, root / "excluded-geometry-smoke"
+        )
+        try:
+            run_geometry_smoke(
+                fixed_remainder_prereg,
+                excluded_smoke_launcher,
+                "wezterm",
+                sleep=lambda _seconds: None,
+            )
+        except ValueError:
+            if excluded_smoke_launcher.launches:
+                failures.append(
+                    "geometry smoke: excluded implementation launched a terminal"
+                )
+        else:
+            failures.append("geometry smoke: excluded implementation was accepted")
 
         wrong_backend = _FakeLauncher(diagnostic_behaviour, root / "wrong-backend")
         try:
@@ -11277,6 +11497,21 @@ def main(argv: list[str] | None = None) -> int:
         help="new 0700 diagnostic raw-log directory outside the repository and public output tree",
     )
     parser.add_argument(
+        "--geometry-smoke-output",
+        metavar="PATH",
+        help="write one explicitly non-evidence single-terminal geometry smoke record",
+    )
+    parser.add_argument(
+        "--geometry-smoke-private-dir",
+        metavar="PATH",
+        help="new 0700 smoke raw-log directory outside the repository and public output tree",
+    )
+    parser.add_argument(
+        "--geometry-smoke-implementation",
+        choices=GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS,
+        help="single terminal exercised by --geometry-smoke-output",
+    )
+    parser.add_argument(
         "--calibration-diagnostic-record",
         metavar="PATH",
         help="retired protocol 1.2.0 option; always rejected",
@@ -11330,12 +11565,14 @@ def main(argv: list[str] | None = None) -> int:
             args.reference_readiness_output,
             args.calibration_diagnostic_output,
             args.geometry_diagnostic_output,
+            args.geometry_smoke_output,
         )
     )
     if actions > 1:
         print(
             "select exactly one of --probe, --run, --reference-readiness-output, "
-            "--calibration-diagnostic-output, or --geometry-diagnostic-output",
+            "--calibration-diagnostic-output, --geometry-diagnostic-output, or "
+            "--geometry-smoke-output",
             file=sys.stderr,
         )
         return 2
@@ -11367,7 +11604,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.preregistration:
         print(
             "--probe, --run, --reference-readiness-output, and "
-            "the calibration/geometry diagnostics require --preregistration",
+            "the calibration/geometry diagnostic and smoke actions require "
+            "--preregistration",
             file=sys.stderr,
         )
         return 2
@@ -11384,6 +11622,24 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "--geometry-diagnostic-output requires "
             "--geometry-diagnostic-private-dir",
+            file=sys.stderr,
+        )
+        return 2
+    if args.geometry_smoke_output and not args.geometry_smoke_private_dir:
+        print(
+            "--geometry-smoke-output requires --geometry-smoke-private-dir",
+            file=sys.stderr,
+        )
+        return 2
+    if args.geometry_smoke_output and not args.geometry_smoke_implementation:
+        print(
+            "--geometry-smoke-output requires --geometry-smoke-implementation",
+            file=sys.stderr,
+        )
+        return 2
+    if args.geometry_smoke_implementation and not args.geometry_smoke_output:
+        print(
+            "--geometry-smoke-implementation requires --geometry-smoke-output",
             file=sys.stderr,
         )
         return 2
@@ -11430,7 +11686,9 @@ def main(argv: list[str] | None = None) -> int:
         # their strict input checks below still reject every unpinned byte they
         # depend on, while --run requires the complete public record.
         action_name = (
-            "geometry diagnostic"
+            "geometry smoke"
+            if args.geometry_smoke_output
+            else "geometry diagnostic"
             if args.geometry_diagnostic_output
             else "calibration diagnostic"
             if args.calibration_diagnostic_output
@@ -11531,6 +11789,74 @@ def main(argv: list[str] | None = None) -> int:
             print(f"calibration diagnostic failed: {error}", file=sys.stderr)
             return 1
         json.dump(calibration_diagnostic, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return 0
+
+    if args.geometry_smoke_output:
+        if args.no_scope:
+            print("geometry smoke requires a private systemd scope", file=sys.stderr)
+            return 2
+        if (
+            backend.get("backend") != "hyprctl"
+            or backend.get("display") != "wayland"
+        ):
+            print(
+                "geometry smoke requires the native Hyprland Wayland backend",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            verify_probe_inputs(prereg_record, HERE.parents[1])
+        except ValueError as error:
+            print(f"geometry smoke input verification failed: {error}", file=sys.stderr)
+            return 1
+        try:
+            output_path, private_dir, smoke_output = (
+                reserve_geometry_diagnostic_storage(
+                    Path(args.geometry_smoke_output),
+                    (
+                        Path(args.geometry_smoke_private_dir)
+                        if args.geometry_smoke_private_dir
+                        else None
+                    ),
+                    HERE.parents[1],
+                )
+            )
+        except (OSError, ValueError) as error:
+            print(f"invalid geometry smoke storage: {error}", file=sys.stderr)
+            return 1
+        try:
+            launcher = RealLauncher(
+                backend,
+                use_scope=True,
+                log_dir=private_dir / "logs",
+                config_paths=config_paths,
+                calibrations=calibrations,
+                launch_environment=launch_environment,
+                font_identity=prereg_record.get("shared_font"),
+            )
+            smoke = run_geometry_smoke(
+                prereg_record,
+                launcher,
+                args.geometry_smoke_implementation,
+            )
+            if not validate_geometry_smoke(
+                smoke,
+                prereg_record,
+                args.geometry_smoke_implementation,
+            ):
+                raise ValueError("completed geometry smoke did not validate")
+            smoke_output.write(json.dumps(smoke, indent=2, sort_keys=True) + "\n")
+            smoke_output.close()
+        except KeyboardInterrupt:
+            discard_reference_readiness_reservation(output_path, smoke_output)
+            print("geometry smoke interrupted", file=sys.stderr)
+            return 130
+        except (OSError, ValueError) as error:
+            discard_reference_readiness_reservation(output_path, smoke_output)
+            print(f"geometry smoke failed: {error}", file=sys.stderr)
+            return 1
+        json.dump(smoke, sys.stdout, indent=2, sort_keys=True)
         sys.stdout.write("\n")
         return 0
 

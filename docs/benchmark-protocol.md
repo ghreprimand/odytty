@@ -190,6 +190,11 @@ terminal in the fixed order, records all of them, and only then reports a
 verdict, so one terminal's miss or failure never hides the others' evidence.
 It consumes no readiness, probe, preregistration-anchor, rehearsal, or
 measurement identity, so it can be repeated until measurement begins.
+When troubleshooting one implementation, `--geometry-smoke-output` runs that
+implementation alone through the same production geometry handshake and
+cleanup. Its separate schema is explicitly non-evidence: it cannot satisfy the
+four-terminal diagnostic or any readiness, probe, preregistration, rehearsal,
+measurement, or result requirement.
 
 An exhaustive common-grid search over the declared configuration set remains
 available as historical feasibility tooling
@@ -270,6 +275,17 @@ For a bounded live check before laptop execution, run:
 python3 scripts/bench-protocol/w6_runner.py \
     --geometry-diagnostic-output <geometry-diagnostic.json> \
     --geometry-diagnostic-private-dir <new-private-dir-outside-repository> \
+    --preregistration <record.json>
+```
+
+To troubleshoot Ghostty without launching or consuming any other terminal,
+run the separate, rerunnable smoke action:
+
+```text
+python3 scripts/bench-protocol/w6_runner.py \
+    --geometry-smoke-output <geometry-smoke.json> \
+    --geometry-smoke-private-dir <new-private-dir-outside-repository> \
+    --geometry-smoke-implementation ghostty \
     --preregistration <record.json>
 ```
 

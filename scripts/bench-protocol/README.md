@@ -64,6 +64,11 @@ python3 scripts/bench-protocol/w6_runner.py \
     --geometry-diagnostic-output <geometry-diagnostic.json> \
     --geometry-diagnostic-private-dir <new-private-dir-outside-repository> \
     --preregistration <record.json>
+python3 scripts/bench-protocol/w6_runner.py \
+    --geometry-smoke-output <geometry-smoke.json> \
+    --geometry-smoke-private-dir <new-private-dir-outside-repository> \
+    --geometry-smoke-implementation ghostty \
+    --preregistration <record.json>
 python3 scripts/bench-protocol/w6_runner.py --probe --preregistration <record.json> \
     --reference-readiness-record <readiness.json>
 python3 scripts/bench-protocol/w6_runner.py --run --preregistration <record.json> \
@@ -122,7 +127,19 @@ Failure or interruption removes the incomplete public reservation while
 retaining private diagnostics. This action creates or consumes no readiness,
 probe, preregistration-anchor, rehearsal, measurement, or run identity. It
 does not suspend Brave or enforce CPU-noise controls because it diagnoses only
-startup geometry. The calibration action has the same zero-consumption and
+startup geometry.
+
+`--geometry-smoke-output` is an explicitly non-evidence troubleshooting action
+for one named terminal. It exercises that terminal's production launch,
+private scope, native-Wayland mapping, geometry controller, stable PTY grid,
+and cleanup without launching the other references. Its schema cannot validate
+as the four-terminal geometry diagnostic or as readiness, availability,
+preregistration, rehearsal, measurement, or results. It is safe to rerun until
+measurement begins and is intended to prove a controller correction before
+another complete preparation attempt. Raw logs use the same create-exclusive,
+outside-repository storage discipline as the full diagnostic.
+
+The calibration action has the same zero-consumption and
 noise-control posture; it is preparation evidence rather than the official
 availability probe.
 
