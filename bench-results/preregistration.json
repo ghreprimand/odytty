@@ -145,6 +145,11 @@
       "detail": "this comparison unit lacks the apparatus the protocol requires for this endpoint: display-photosensor-with-shared-capture-clock, external-stimulus-controller, pinned-platform-window-control-adapter. The endpoint is not re-defined in software; a software-timed substitute would measure a different quantity under the protocol's name.",
       "reason": "unavailable-hardware",
       "workload": "resize-reflow-100k"
+    },
+    {
+      "detail": "this v0.11.0 comparison unit is limited to the preregistered 4.05-hour W6 run set; three four-hour W7 replicates per qualified implementation exceed that fixed budget and are not attempted.",
+      "reason": "budget-exhausted",
+      "workload": "long-session-4h"
     }
   ],
   "declared_unsupported": [
@@ -716,7 +721,7 @@
       "missing_apparatus": [],
       "name": "long-session-4h",
       "oracle": "240 ordered heartbeats, the scheduled payload and resize counts, bounded scrollback behaviour, correct final size, and a live child",
-      "planned": true,
+      "planned": false,
       "sampling": {
         "measured_replicates": 3,
         "shortened_substitute": false
