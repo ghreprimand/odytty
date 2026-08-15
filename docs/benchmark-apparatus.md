@@ -1,6 +1,6 @@
 # Comparative Benchmark Apparatus and Availability
 
-Companion to `docs/benchmark-protocol.md` (protocol version `1.4.0`).
+Companion to `docs/benchmark-protocol.md` (protocol version `1.4.1`).
 
 The protocol defines how OdyTTY and independent terminal references are
 compared. This document records what the current comparison unit can actually
