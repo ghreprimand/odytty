@@ -174,12 +174,12 @@ def effective_power_policy(cpu_root: Path | str = CPU_ROOT) -> str | None:
     driver, reports the `powersave` governor, and exposes an
     energy/performance preference of `performance`.
 
-    Anything else is reported as observed rather than normalized. A uniform
-    non-performance governor is returned verbatim, policies that disagree with
-    each other are reported as `mixed-cpu-power-policy` even if their
-    preferences agree — disagreeing policies are exactly the ambiguous
-    evidence this must not resolve in its own favor — and absent or unreadable
-    evidence returns None.
+    Anything else is reported rather than normalized. A uniform
+    non-performance governor is returned verbatim; disagreeing governors, or
+    disagreeing drivers in the `powersave`/EPP branch, return
+    `mixed-cpu-power-policy`. Missing or unrecognized driver/preference
+    evidence leaves that branch as `powersave`. An absent policy tree or an
+    unreadable governor returns None.
     """
     root = Path(cpu_root)
     policies = _policy_directories(root)

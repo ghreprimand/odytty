@@ -361,10 +361,11 @@ Each run set uses the following controls:
    scaling governor on every cpufreq policy, or — when every policy uses the
    same recognized active-pstate driver (`intel_pstate` or `amd-pstate-epp`),
    where the governor reads `powersave` — a `performance` energy/performance
-   preference on every policy. Every policy is inspected, not just the first
-   CPU. Governors or drivers that disagree, unrecognized drivers, and missing
-   evidence are never normalized: the record stays unpinned and a measured
-   run stops rather than claiming a policy it could not verify.
+   preference on every policy. Every governor is inspected, not just the first
+   CPU. Disagreeing or unreadable governors are never normalized. Driver and
+   preference evidence is required only for the `powersave`/EPP expression;
+   there, drivers must agree and be recognized, and every preference must be
+   present. Every other outcome remains ineligible and stops a measured run.
 3. Disable scheduled updates, indexing, backups, notifications, screen
    recording, network-heavy work, and unrelated foreground applications.
 4. Keep the display awake and fixed at the preregistered mode. Do not move the

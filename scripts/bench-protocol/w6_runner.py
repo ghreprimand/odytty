@@ -9332,6 +9332,17 @@ def self_test() -> list[str]:
     )
     if reason != "power-policy-change":
         failures.append("environment: live external-power change was not invalidated")
+    policy_changed = dict(stable_environment)
+    policy_changed["power_policy"] = "powersave"
+    policy_changed["system_cpu_ticks"] = (200, 200)
+    reason, _ = _checked_sleep(
+        _ChangingEnvironment([stable_environment, policy_changed]),
+        1,
+        lambda _seconds: None,
+        100,
+    )
+    if reason != "power-policy-change":
+        failures.append("environment: live CPU power-policy change was not invalidated")
 
     # The live power-policy observation is the shared detector, not a second
     # cpu0-only reading that could disagree with preregistration. A pstate

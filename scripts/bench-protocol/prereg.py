@@ -977,6 +977,17 @@ def self_test(repo_root: Path) -> list[str]:
             "schedutil",
         ),
         (
+            "recognized pstate driver with schedutil governor",
+            [
+                {
+                    "scaling_governor": "schedutil",
+                    "scaling_driver": "intel_pstate",
+                    "energy_performance_preference": "performance",
+                }
+            ] * 2,
+            "schedutil",
+        ),
+        (
             "ondemand with performance EPP",
             [
                 {

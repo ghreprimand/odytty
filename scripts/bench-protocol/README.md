@@ -291,11 +291,12 @@ rather than the first CPU, and normalizes to `performance` in two cases: a
 the same recognized active-pstate driver (`intel_pstate` or
 `amd-pstate-epp`) and its governor reads `powersave` — a `performance`
 energy/performance preference on every policy. A uniform non-performance
-governor is reported verbatim. Disagreeing governors or drivers are reported
-as `mixed-cpu-power-policy`; unrecognized drivers and missing preferences do
-not normalize a `powersave` governor. Unreadable governor evidence is reported
-as unavailable. Only the normalized `performance` value is eligible; every
-other outcome leaves the record unpinned and stops a measured run.
+governor is reported verbatim, and disagreeing governors are reported as
+`mixed-cpu-power-policy`. Driver evidence is consulted only for the
+`powersave`/EPP expression: disagreeing drivers use the mixed marker, while
+unrecognized or missing drivers and missing preferences leave the policy as
+`powersave`. Unreadable governor evidence is unavailable. Only normalized
+`performance` is eligible; every other outcome stops a measured run.
 
 After the window, driver, prompt, 80x24 grid, and calibrated viewport are
 ready, the controller creates an immutable start-edge file. The child begins
