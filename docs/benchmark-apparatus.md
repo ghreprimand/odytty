@@ -50,7 +50,7 @@ Described only in the protocol's public environment-class terms.
 | GPU | exact public class pinned per run set |
 | Operating system | Linux; exact build pinned per run set |
 | Window server | Wayland compositor |
-| Power | external power, `performance` CPU frequency governor |
+| Power | external power, normalized `performance` CPU power policy |
 | Optical apparatus | none |
 | Virtualization | none; bare metal, local display |
 

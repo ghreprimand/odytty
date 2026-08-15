@@ -355,8 +355,16 @@ Each run set uses the following controls:
 
 1. Reboot before the run set, then allow five minutes for login and background
    services to settle.
-2. Use external power, a fixed performance policy, unchanged firmware settings,
-   and the same cooling arrangement.
+2. Use external power, a fixed performance CPU power policy, unchanged
+   firmware settings, and the same cooling arrangement. That policy has two
+   valid expressions and both normalize to `performance`: a `performance`
+   scaling governor on every cpufreq policy, or — when every policy uses the
+   same recognized active-pstate driver (`intel_pstate` or `amd-pstate-epp`),
+   where the governor reads `powersave` — a `performance` energy/performance
+   preference on every policy. Every policy is inspected, not just the first
+   CPU. Governors or drivers that disagree, unrecognized drivers, and missing
+   evidence are never normalized: the record stays unpinned and a measured
+   run stops rather than claiming a policy it could not verify.
 3. Disable scheduled updates, indexing, backups, notifications, screen
    recording, network-heavy work, and unrelated foreground applications.
 4. Keep the display awake and fixed at the preregistered mode. Do not move the

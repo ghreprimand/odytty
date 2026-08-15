@@ -1386,17 +1386,16 @@ class RealLauncher:
         return sorted(modes, key=lambda mode: json.dumps(mode, sort_keys=True))
 
     def environment_observation(self) -> dict:
-        governor = None
-        try:
-            governor = Path(
-                "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
-            ).read_text(encoding="utf-8").strip()
-        except OSError:
-            pass
+        # Shared with preregistration (`profiles.effective_power_policy`) so
+        # the pinned policy and the live policy are decided by one rule.
+        # Every cpufreq policy is inspected; `performance` governors and
+        # recognized active-pstate `powersave` governors with `performance`
+        # energy/performance preferences both normalize to `performance`,
+        # while mixed or unreadable evidence fails the run closed.
         return {
             "display_mode_signature": self.display_mode_signature(),
             "external_power_state": _external_power_state(),
-            "power_policy": governor.strip() if governor else None,
+            "power_policy": profiles.effective_power_policy(),
             "thermal_throttle_count": _thermal_throttle_count(),
             "system_cpu_ticks": _system_cpu_ticks(),
         }
@@ -9333,6 +9332,69 @@ def self_test() -> list[str]:
     )
     if reason != "power-policy-change":
         failures.append("environment: live external-power change was not invalidated")
+
+    # The live power-policy observation is the shared detector, not a second
+    # cpu0-only reading that could disagree with preregistration. A pstate
+    # machine whose governors read powersave while every energy/performance
+    # preference is performance normalizes to performance; policies that
+    # disagree, or evidence that cannot be read, never do.
+    policy_launcher = RealLauncher(
+        {"backend": "fake", "display": "wayland"},
+        use_scope=False,
+        log_dir=Path("logs"),
+        config_paths={},
+    )
+    if policy_launcher.environment_observation().get(
+        "power_policy"
+    ) != profiles.effective_power_policy():
+        failures.append(
+            "environment: the live power policy diverged from the shared detector"
+        )
+    with tempfile.TemporaryDirectory() as tmp:
+        pstate_root = Path(tmp) / "pstate"
+        for index in range(2):
+            policy = pstate_root / "cpufreq" / f"policy{index}"
+            policy.mkdir(parents=True)
+            policy.joinpath("scaling_governor").write_text(
+                "powersave\n", encoding="utf-8"
+            )
+            policy.joinpath("scaling_driver").write_text(
+                "amd-pstate-epp\n", encoding="utf-8"
+            )
+            policy.joinpath("energy_performance_preference").write_text(
+                "performance\n", encoding="utf-8"
+            )
+        if profiles.effective_power_policy(pstate_root) != "performance":
+            failures.append(
+                "environment: a pstate performance preference did not normalize"
+            )
+        pstate_root.joinpath(
+            "cpufreq", "policy1", "energy_performance_preference"
+        ).write_text("balance_power\n", encoding="utf-8")
+        if profiles.effective_power_policy(pstate_root) == "performance":
+            failures.append(
+                "environment: a non-performance preference normalized to performance"
+            )
+        pstate_root.joinpath("cpufreq", "policy1", "scaling_governor").write_text(
+            "performance\n", encoding="utf-8"
+        )
+        if profiles.effective_power_policy(pstate_root) != "mixed-cpu-power-policy":
+            failures.append(
+                "environment: disagreeing cpufreq policies did not fail closed"
+            )
+        for policy in (pstate_root / "cpufreq").glob("policy*"):
+            policy.joinpath("scaling_governor").write_text(
+                "schedutil\n", encoding="utf-8"
+            )
+            policy.joinpath("energy_performance_preference").write_text(
+                "performance\n", encoding="utf-8"
+            )
+        if profiles.effective_power_policy(pstate_root) == "performance":
+            failures.append(
+                "environment: schedutil governors normalized from performance EPP"
+            )
+        if profiles.effective_power_policy(Path(tmp) / "absent") is not None:
+            failures.append("environment: unreadable power evidence produced a policy")
     stable_sequence = [
         {
             **stable_environment,

@@ -113,6 +113,105 @@ def exact_80x24_geometry(geometry: object) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# CPU power policy
+# ---------------------------------------------------------------------------
+
+# The protocol requires a fixed performance CPU power policy. On classic
+# cpufreq drivers that is expressed as a `performance` scaling governor. On
+# recognized active-pstate drivers (`intel_pstate` and `amd-pstate-epp`) the
+# governor is frequently `powersave` while the actual policy knob is the
+# energy/performance preference. A machine with that driver and governor on
+# every policy and `performance` EPP throughout is running the performance
+# policy; reading cpu0's governor alone would report the opposite. Both
+# expressions are accepted and normalized to `performance`.
+#
+# Every policy is inspected, not just cpu0: heterogeneous CPUs expose one
+# policy per core cluster and they can genuinely disagree. Mixed or unreadable
+# evidence is never normalized — the detector fails closed so that an
+# unverifiable machine cannot preregister or measure as though its policy were
+# pinned.
+CPU_ROOT = "/sys/devices/system/cpu"
+PERFORMANCE_POLICY = "performance"
+ACTIVE_PSTATE_DRIVERS = frozenset({"intel_pstate", "amd-pstate-epp"})
+
+
+def _policy_directories(cpu_root: Path) -> list[Path]:
+    """Return every cpufreq policy directory in deterministic order.
+
+    Prefers the `cpufreq/policyN` layout and falls back to the per-CPU
+    `cpuN/cpufreq` layout, so a kernel exposing only the older arrangement is
+    still inspected in full rather than reported as unavailable.
+    """
+    policies = sorted(
+        (path for path in (cpu_root / "cpufreq").glob("policy*") if path.is_dir()),
+        key=lambda path: (len(path.name), path.name),
+    )
+    if policies:
+        return policies
+    return sorted(
+        (
+            path / "cpufreq"
+            for path in cpu_root.glob("cpu[0-9]*")
+            if (path / "cpufreq").is_dir()
+        ),
+        key=lambda path: (len(path.parent.name), path.parent.name),
+    )
+
+
+def _policy_value(policy: Path, name: str) -> str | None:
+    try:
+        return policy.joinpath(name).read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def effective_power_policy(cpu_root: Path | str = CPU_ROOT) -> str | None:
+    """Return the normalized CPU power policy, or None when it is unreadable.
+
+    Returns `performance` in exactly two cases: every policy's governor is
+    `performance`, or every policy uses the same recognized active-pstate
+    driver, reports the `powersave` governor, and exposes an
+    energy/performance preference of `performance`.
+
+    Anything else is reported as observed rather than normalized. A uniform
+    non-performance governor is returned verbatim, policies that disagree with
+    each other are reported as `mixed-cpu-power-policy` even if their
+    preferences agree — disagreeing policies are exactly the ambiguous
+    evidence this must not resolve in its own favor — and absent or unreadable
+    evidence returns None.
+    """
+    root = Path(cpu_root)
+    policies = _policy_directories(root)
+    if not policies:
+        return None
+    governors = [_policy_value(policy, "scaling_governor") for policy in policies]
+    if any(governor is None for governor in governors):
+        return None
+    distinct = set(governors)
+    if distinct == {PERFORMANCE_POLICY}:
+        return PERFORMANCE_POLICY
+    if len(distinct) > 1:
+        return "mixed-cpu-power-policy"
+    governor = distinct.pop()
+    if governor != "powersave":
+        return governor
+    drivers = [_policy_value(policy, "scaling_driver") for policy in policies]
+    if any(driver is None for driver in drivers):
+        return governor
+    distinct_drivers = set(drivers)
+    if len(distinct_drivers) > 1:
+        return "mixed-cpu-power-policy"
+    if distinct_drivers.pop() not in ACTIVE_PSTATE_DRIVERS:
+        return governor
+    preferences = [
+        _policy_value(policy, "energy_performance_preference") for policy in policies
+    ]
+    if all(preference == PERFORMANCE_POLICY for preference in preferences):
+        return PERFORMANCE_POLICY
+    return governor
+
+
 def calibration_configurations(implementation: str) -> list[dict[str, object]]:
     """Return the complete bounded calibration set in deterministic order."""
     if implementation not in CALIBRATABLE_IMPLEMENTATIONS:

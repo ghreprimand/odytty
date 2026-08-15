@@ -44,6 +44,7 @@ import platform
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -168,12 +169,19 @@ def detect_os_build() -> str:
     return f"linux {'.'.join(components)}"
 
 
-def detect_power_policy(reader=None) -> str:
-    read = _read if reader is None else reader
-    governor = read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
-    if governor:
-        return governor.strip()
-    return TODO
+def detect_power_policy(cpu_root: Path | str = profiles.CPU_ROOT) -> str:
+    """Return the normalized CPU power policy, or the unpinned placeholder.
+
+    Detection is shared with the measurement runner
+    (`profiles.effective_power_policy`) so preregistration and live
+    verification can never disagree about what this machine's policy is. It
+    inspects every cpufreq policy and accepts either a `performance` governor
+    everywhere or the recognized active-pstate expression: `powersave`
+    governors, one supported driver, and `performance` energy/performance
+    preferences everywhere. Mixed or unreadable evidence is left unpinned.
+    """
+    policy = profiles.effective_power_policy(cpu_root)
+    return policy if policy else TODO
 
 
 def detect_boot_started_utc() -> str:
@@ -886,10 +894,153 @@ def check_record(record: dict) -> list[str]:
 def self_test(repo_root: Path) -> list[str]:
     failures: list[str] = []
 
-    if detect_power_policy(lambda _path: "performance\n") != "performance":
-        failures.append("prereg: power-policy detector did not normalize to performance")
-    if detect_power_policy(lambda _path: "powersave\n") != "powersave":
-        failures.append("prereg: power-policy detector rewrote the live governor")
+    # CPU power-policy detection, against real sysfs-shaped trees. The
+    # detector is shared with the measurement runner, so these cases pin both.
+    def _cpu_tree(root: Path, policies: list[dict[str, str]], legacy: bool = False):
+        for index, values in enumerate(policies):
+            policy = (
+                root / f"cpu{index}" / "cpufreq"
+                if legacy
+                else root / "cpufreq" / f"policy{index}"
+            )
+            policy.mkdir(parents=True)
+            for name, value in values.items():
+                policy.joinpath(name).write_text(f"{value}\n", encoding="utf-8")
+        return root
+
+    performance = {"scaling_governor": "performance"}
+    # A pstate laptop: governors report powersave while the actual policy knob,
+    # the energy/performance preference, is pinned to performance on every
+    # policy. Reading cpu0's governor alone would call this powersave and block
+    # a machine that is in fact running the performance policy.
+    pstate = {
+        "scaling_governor": "powersave",
+        "scaling_driver": "amd-pstate-epp",
+        "energy_performance_preference": "performance",
+        "energy_performance_available_preferences": "default performance balance_performance balance_power power",
+    }
+    power_policy_cases = [
+        ("performance governors", [performance] * 4, "performance"),
+        ("pstate performance EPP", [pstate] * 4, "performance"),
+        (
+            "intel pstate performance EPP",
+            [{**pstate, "scaling_driver": "intel_pstate"}] * 4,
+            "performance",
+        ),
+        (
+            "performance governors with balanced EPP",
+            [{**performance, "energy_performance_preference": "balance_performance"}] * 4,
+            "performance",
+        ),
+        ("legacy per-cpu performance governors", [performance] * 2, "performance"),
+        ("uniform powersave", [{"scaling_governor": "powersave"}] * 4, "powersave"),
+        (
+            "pstate powersave EPP",
+            [{**pstate, "energy_performance_preference": "balance_power"}] * 4,
+            "powersave",
+        ),
+        (
+            "mixed governors",
+            [performance, {"scaling_governor": "schedutil"}],
+            "mixed-cpu-power-policy",
+        ),
+        (
+            "one non-performance EPP among powersave governors",
+            [pstate, {**pstate, "energy_performance_preference": "balance_power"}],
+            "powersave",
+        ),
+        (
+            "partial EPP exposure",
+            [pstate, {"scaling_governor": "powersave", "scaling_driver": "amd-pstate-epp"}],
+            "powersave",
+        ),
+        # Policies that disagree with each other are ambiguous evidence even
+        # when their preferences agree, so they are never resolved in the
+        # protocol's favor.
+        (
+            "mixed governors with performance EPP everywhere",
+            [
+                {**pstate, "scaling_governor": "schedutil"},
+                pstate,
+            ],
+            "mixed-cpu-power-policy",
+        ),
+        (
+            "schedutil with performance EPP",
+            [
+                {
+                    "scaling_governor": "schedutil",
+                    "scaling_driver": "amd-pstate",
+                    "energy_performance_preference": "performance",
+                }
+            ] * 2,
+            "schedutil",
+        ),
+        (
+            "ondemand with performance EPP",
+            [
+                {
+                    "scaling_governor": "ondemand",
+                    "scaling_driver": "acpi-cpufreq",
+                    "energy_performance_preference": "performance",
+                }
+            ] * 2,
+            "ondemand",
+        ),
+        (
+            "powersave EPP with unrecognized driver",
+            [{**pstate, "scaling_driver": "acpi-cpufreq"}] * 2,
+            "powersave",
+        ),
+        (
+            "powersave EPP with missing driver",
+            [
+                {
+                    "scaling_governor": "powersave",
+                    "energy_performance_preference": "performance",
+                }
+            ] * 2,
+            "powersave",
+        ),
+        (
+            "powersave EPP with mixed active drivers",
+            [pstate, {**pstate, "scaling_driver": "intel_pstate"}],
+            "mixed-cpu-power-policy",
+        ),
+    ]
+    for label, policies, expected in power_policy_cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _cpu_tree(
+                Path(tmp), policies, legacy=label.startswith("legacy")
+            )
+            observed = profiles.effective_power_policy(root)
+            if observed != expected:
+                failures.append(
+                    f"prereg: power policy for {label} was {observed!r}, expected {expected!r}"
+                )
+            if detect_power_policy(root) != expected:
+                failures.append(
+                    f"prereg: preregistration power policy for {label} diverged from the shared detector"
+                )
+
+    # Fail closed: absent, empty, and unreadable evidence is never normalized.
+    with tempfile.TemporaryDirectory() as tmp:
+        if profiles.effective_power_policy(Path(tmp) / "absent") is not None:
+            failures.append("prereg: an absent cpufreq tree produced a power policy")
+        empty = Path(tmp) / "empty"
+        (empty / "cpufreq").mkdir(parents=True)
+        if profiles.effective_power_policy(empty) is not None:
+            failures.append("prereg: a cpufreq tree with no policies produced a policy")
+        if detect_power_policy(empty) != TODO:
+            failures.append("prereg: unreadable power-policy evidence was pinned")
+        missing_governor = _cpu_tree(
+            Path(tmp) / "missing-governor",
+            [performance, {"energy_performance_preference": "performance"}],
+        )
+        if profiles.effective_power_policy(missing_governor) is not None:
+            failures.append(
+                "prereg: a policy with no readable governor produced a power policy"
+            )
 
     probe = {
         "platform": "linux",
@@ -1149,6 +1300,20 @@ def self_test(repo_root: Path) -> list[str]:
         for problem in check_record(retired_field)
     ):
         failures.append("prereg: a protocol 1.2.0 matched-geometry record was accepted")
+
+    # Only the normalized performance value is eligible. A raw governor name,
+    # the mixed-evidence marker, and the unpinned placeholder are all refused,
+    # so widening the detector cannot widen what a record may claim.
+    for rejected in ("powersave", "schedutil", "mixed-cpu-power-policy", TODO):
+        refused = json.loads(json.dumps(pinned))
+        refused["environment_class"]["power_policy"] = rejected
+        if not any(
+            "performance policy must be" in problem
+            for problem in check_record(refused)
+        ):
+            failures.append(
+                f"prereg: power policy {rejected!r} was accepted as performance"
+            )
 
     unpinned_policy = json.loads(json.dumps(pinned))
     unpinned_policy["cell_geometry_policy"] = "matched-across-implementations"

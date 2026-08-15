@@ -280,8 +280,22 @@ login-ready timestamp plus a not-before time at least five minutes later. The
 runner verifies their ordering, the same live boot, and refuses to start
 before that time. At runtime it separately
 observes the pinned display-mode signature, external power state, eligible
-`performance` policy, thermal counters, background CPU load, and viewport state
-throughout each attempt.
+`performance` CPU power policy, thermal counters, background CPU load, and
+viewport state throughout each attempt.
+
+Preregistration and the measurement runner decide the CPU power policy with
+one shared detector (`profiles.effective_power_policy`), so a machine cannot
+pin one policy and measure under another. It inspects every cpufreq policy
+rather than the first CPU, and normalizes to `performance` in two cases: a
+`performance` scaling governor on every policy, or — when every policy uses
+the same recognized active-pstate driver (`intel_pstate` or
+`amd-pstate-epp`) and its governor reads `powersave` — a `performance`
+energy/performance preference on every policy. A uniform non-performance
+governor is reported verbatim. Disagreeing governors or drivers are reported
+as `mixed-cpu-power-policy`; unrecognized drivers and missing preferences do
+not normalize a `powersave` governor. Unreadable governor evidence is reported
+as unavailable. Only the normalized `performance` value is eligible; every
+other outcome leaves the record unpinned and stops a measured run.
 
 After the window, driver, prompt, 80x24 grid, and calibrated viewport are
 ready, the controller creates an immutable start-edge file. The child begins
