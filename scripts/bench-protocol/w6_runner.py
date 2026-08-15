@@ -2060,12 +2060,14 @@ def _checked_sleep(
     background_cpu_ceiling: float,
     viewport_observer=None,
     expected_environment: dict | None = None,
+    monotonic=None,
 ) -> tuple[str | None, list[dict]]:
     """Sleep while continuously checking the observable environment controls."""
     observe = getattr(launcher, "environment_observation", None)
     if observe is None:
         sleep(seconds)
         return "controller-loss", []
+    clock = time.monotonic if monotonic is None else monotonic
     observations = [observe()]
     observations[0]["controller_elapsed_seconds"] = 0
     if viewport_observer is not None:
@@ -2073,17 +2075,21 @@ def _checked_sleep(
     if seconds == 0:
         return None, observations
     remaining = seconds
-    production_clock = sleep is time.sleep
-    started_monotonic = time.monotonic()
+    deadline_scheduling = sleep is time.sleep or monotonic is not None
+    started_monotonic = clock()
     interval = int(result_schema.ENVIRONMENT_SAMPLE_PERIOD_SECONDS)
     while remaining > 0:
         step = min(interval, remaining)
-        sleep(step)
+        scheduled_elapsed = seconds - remaining + step
+        if deadline_scheduling:
+            sleep(max(0.0, started_monotonic + scheduled_elapsed - clock()))
+        else:
+            sleep(step)
         remaining -= step
         observation = observe()
         observation["controller_elapsed_seconds"] = (
-            time.monotonic() - started_monotonic
-            if production_clock
+            clock() - started_monotonic
+            if deadline_scheduling
             else seconds - remaining
         )
         if viewport_observer is not None:
@@ -10156,6 +10162,84 @@ def self_test() -> list[str]:
         or len(production_checks) != REHEARSAL_SECONDS + 1
     ):
         failures.append("environment: production-generated full-interval sequence failed")
+
+    class _DeadlineClock:
+        def __init__(self):
+            self.now = 0.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+        def sleep(self, seconds: float) -> None:
+            self.now += seconds
+
+    class _SlowChangingEnvironment(_ChangingEnvironment):
+        def __init__(
+            self, observations: list[dict], clock: _DeadlineClock, cost: float
+        ):
+            super().__init__(observations)
+            self.clock = clock
+            self.cost = cost
+
+        def environment_observation(self) -> dict:
+            value = super().environment_observation()
+            self.clock.now += self.cost
+            return value
+
+    # Each live observation took about 25 ms on the benchmark machine. Sleeping
+    # for a fresh one-second interval after every observation accumulated that
+    # work into roughly three seconds over a 120-second rehearsal and falsely
+    # tripped the two-second controller-loss guard. Absolute deadlines make the
+    # observation consume part of its interval while retaining the same sample
+    # count and evidence checks.
+    slow_clock = _DeadlineClock()
+    slow_reason, slow_checks = _checked_sleep(
+        _SlowChangingEnvironment(stable_sequence, slow_clock, 0.025),
+        REHEARSAL_SECONDS,
+        slow_clock.sleep,
+        100,
+        expected_environment=stable_environment,
+        monotonic=slow_clock.monotonic,
+    )
+    slow_evidence_valid, slow_derived_reason = (
+        result_schema.derive_environment_invalid_reason(
+            slow_checks,
+            stable_environment,
+            100,
+            REHEARSAL_SECONDS,
+        )
+    )
+    if (
+        slow_reason is not None
+        or not slow_evidence_valid
+        or slow_derived_reason is not None
+        or len(slow_checks) != REHEARSAL_SECONDS + 1
+        or not 120.0 <= slow_checks[-1]["controller_elapsed_seconds"] < 120.1
+    ):
+        failures.append("environment: observation cost accumulated into deadline drift")
+
+    class _StalledDeadlineClock(_DeadlineClock):
+        def __init__(self):
+            super().__init__()
+            self.stalled = False
+
+        def sleep(self, seconds: float) -> None:
+            self.now += seconds
+            if not self.stalled:
+                self.now += result_schema.REHEARSAL_TIMING_TOLERANCE_SECONDS + 0.1
+                self.stalled = True
+
+    stalled_clock = _StalledDeadlineClock()
+    stalled_reason, _ = _checked_sleep(
+        _ChangingEnvironment(stable_sequence),
+        REHEARSAL_SECONDS,
+        stalled_clock.sleep,
+        100,
+        expected_environment=stable_environment,
+        monotonic=stalled_clock.monotonic,
+    )
+    if stalled_reason != "controller-loss":
+        failures.append("environment: a real controller stall did not fail closed")
 
     # Sample assembly: unsupported metrics carry no value key at all.
     samples = build_samples(
