@@ -129,7 +129,8 @@ All implementations in a primary run set use the same:
 - exact font file and SHA-256 digest;
 - font weight and style;
 - font size setting, from that terminal's canonical tracked profile;
-- `80` by `24` base grid and `160` by `48` expanded grid;
+- `80` by `24` base-grid target and `160` by `48` expanded-grid target, with
+  each terminal's stable observed grid recorded and disclosed;
 - display, scale, refresh rate, color mode, and compositor session;
 - opaque background, effects-off rendering, and no background image;
 - disabled ligatures, cursor blinking, animations, audible bell, and visual
@@ -246,8 +247,9 @@ exact-address resize. The correction uses the integer pitch, is repeated only
 after a new PTY geometry observation, and allows at most two resize commands
 after floating. Raw envelope pixels remain evidence, while calibration compares
 the normalized cell grid; for example, a raw 805x459 envelope with a stable
-5x3 remainder represents the same 800x456 grid as an unpadded envelope. The child
-cannot emit `idle-ready` until the PTY reports exactly 80 columns by 24 rows.
+5x3 remainder represents the same 800x456 grid as an unpadded envelope. The
+child cannot emit `idle-ready` until the PTY grid is stable. Its release marker
+records whether it reached 80x24 or settled at another observed grid.
 No persistent compositor rule is installed, unrelated windows cannot match the
 exact-id/address pair, and teardown removes the private edge on success,
 failure, timeout, and interruption. Kitty sets `remember_window_size no` so a
@@ -256,7 +258,7 @@ insufficient: until an equivalent reversible startup-geometry controller
 exists, a Sway session fails the prerequisite before any terminal launch.
 
 Probe-attempt evidence is schema version 3, reference-readiness evidence is
-schema version 4, and geometry-diagnostic evidence is schema version 5.
+schema version 4, and geometry-diagnostic evidence is schema version 6.
 Calibration-diagnostic evidence (historical feasibility tooling) remains schema
 version 1. Earlier schemas predate either the startup-geometry handshake, the
 stable normalized-grid evidence, or the per-implementation grid, and are

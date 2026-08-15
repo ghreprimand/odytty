@@ -1054,7 +1054,7 @@ def validate(
         # Protocol 1.4.0: the environment publishes the declared policy and
         # every qualified terminal's own grid. Nothing here requires two
         # terminals to share a pitch; each must bind exactly the grid it
-        # preregistered, and each grid must be an exact 80x24 model.
+        # preregistered, and each grid must be a stable observed model.
         if has_w6 and actual_environment.get(
             "cell_geometry_policy"
         ) != preregistration.get("cell_geometry_policy"):
@@ -2121,7 +2121,7 @@ def self_test() -> list[str]:
         )
     # Protocol 1.4.0: two qualified terminals with DIFFERENT stable device-pixel
     # grids are a valid, publishable comparison as long as each binds its own
-    # preregistered exact-80x24 model. The old schema rejected exactly this.
+    # preregistered stable model. The old schema rejected exactly this.
     differing_prereg = json.loads(json.dumps(w6_prereg))
     second_entry = json.loads(json.dumps(differing_prereg["implementations"][0]))
     second_entry["name"] = "kitty"

@@ -3822,14 +3822,20 @@ def _geometry_model_proof_complete(control: object) -> bool:
 def _geometry_model_evidence(launched: dict, raw_record: dict | None) -> dict | None:
     """Return sealed public-safe proof of the per-launch PTY envelope model."""
     model = _pty_grid_model(raw_record)
-    if model is None:
+    cell_geometry = cell_geometry_from_oracle(raw_record)
+    if model is None or cell_geometry is None:
         return None
+    target_grid_met = profiles.matches_target_grid(cell_geometry)
+    release_outcome = (
+        "target-grid" if target_grid_met else "stable-observed-grid"
+    )
     control = launched.get("geometry_control")
     if isinstance(control, dict):
         if (
             control.get("released") is not True
             or control.get("command_failed") is True
             or control.get("grid_model") != model
+            or control.get("target_grid_reached") is not target_grid_met
             or not _geometry_model_proof_complete(control)
         ):
             return None
@@ -3853,7 +3859,7 @@ def _geometry_model_evidence(launched: dict, raw_record: dict | None) -> dict | 
         commands = []
         attempts = 0
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "cell_width_device_px": model[0],
         "cell_height_device_px": model[1],
         "width_remainder_device_px": model[2],
@@ -3862,7 +3868,7 @@ def _geometry_model_evidence(launched: dict, raw_record: dict | None) -> dict | 
         "resize_commands": commands,
         "resize_attempts": attempts,
         "resize_attempt_bound": GEOMETRY_RESIZE_MAX_ATTEMPTS,
-        "release_outcome": "exact-80x24",
+        "release_outcome": release_outcome,
     }
 
 
@@ -3892,10 +3898,15 @@ def _valid_geometry_model_evidence(
     observations = evidence.get("observations")
     commands = evidence.get("resize_commands")
     attempts = evidence.get("resize_attempts")
+    expected_release_outcome = (
+        "target-grid"
+        if profiles.matches_target_grid(cell_geometry)
+        else "stable-observed-grid"
+    )
     if (
-        evidence.get("schema_version") != 1
+        evidence.get("schema_version") != 2
         or evidence.get("resize_attempt_bound") != GEOMETRY_RESIZE_MAX_ATTEMPTS
-        or evidence.get("release_outcome") != "exact-80x24"
+        or evidence.get("release_outcome") != expected_release_outcome
         or not isinstance(observations, list)
         or not observations
         or len(observations) != len(
@@ -4167,8 +4178,9 @@ def run_replicate(
             "implementation": implementation, "block": block, "reading": {},
             "oracle": evaluate_idle_oracle({"process_alive": process.poll() is None}),
             "detail": "pre-settle readiness gate did not observe the pinned driver, "
-            "private cgroup, exact launch identity, focused unobscured 80x24 "
-            "viewport, cleaned geometry control, and idle-start prompt",
+            "private cgroup, exact launch identity, focused unobscured viewport "
+            "at the preregistered grid, cleaned geometry control, and idle-start "
+            "prompt",
             "invalid_reason": "controller-loss",
         }
 
@@ -4564,8 +4576,8 @@ def verify_frozen_probe(record: dict, probes: list[dict]) -> tuple[list[str], li
         # terminal's profile after preregistration.
         if name in qualified and not _stable_own_geometry(probe):
             raise ValueError(
-                f"availability probe drift: {name!r} did not prove its own exact "
-                "80x24 device-pixel grid"
+                f"availability probe drift: {name!r} did not prove its own "
+                "preregistered stable device-pixel grid"
             )
     if observed["excluded"]:
         raise ValueError(
@@ -6948,7 +6960,9 @@ def self_test() -> list[str]:
             if validate_geometry_diagnostic(
                 forged_diagnostic, diagnostic_prereg
             ):
-                failures.append("geometry diagnostic: non-80-column evidence validated")
+                failures.append(
+                    "geometry diagnostic: evidence drifted from its preregistered grid"
+                )
             forged_diagnostic = json.loads(json.dumps(diagnostic))
             forged_diagnostic["benchmark_state_consumed_or_created"][
                 "measurement"
@@ -6981,12 +6995,6 @@ def self_test() -> list[str]:
                     3 if implementation["name"] == "ghostty" else 0
                 ),
             }
-        fixed_remainder_calibration = synthetic_calibration_diagnostic(
-            False,
-            target_prereg=fixed_remainder_prereg,
-            target_geometry=fixed_remainder_grid,
-            fixed_remainder_for="ghostty",
-        )
         fixed_remainder_launcher = _FixedRemainderDiagnosticLauncher(
             diagnostic_behaviour, root / "fixed-remainder-production-path"
         )
@@ -8459,6 +8467,31 @@ def self_test() -> list[str]:
             failures.append(
                 "geometry control: a reproduced off-target launch was not recorded"
             )
+        off_target_proof = wrong_grid.get("pty_pixel_envelope_model")
+        if (
+            not isinstance(off_target_proof, dict)
+            or off_target_proof.get("schema_version") != 2
+            or off_target_proof.get("release_outcome") != "stable-observed-grid"
+            or not _valid_geometry_model_evidence(
+                off_target_proof,
+                wrong_grid.get("raw_idle_ready"),
+                wrong_grid.get("cell_geometry"),
+            )
+        ):
+            failures.append(
+                "geometry control: off-target proof did not bind its release outcome"
+            )
+        if isinstance(off_target_proof, dict):
+            forged_outcome = json.loads(json.dumps(off_target_proof))
+            forged_outcome["release_outcome"] = "target-grid"
+            if _valid_geometry_model_evidence(
+                forged_outcome,
+                wrong_grid.get("raw_idle_ready"),
+                wrong_grid.get("cell_geometry"),
+            ):
+                failures.append(
+                    "geometry control: forged target-grid release outcome validated"
+                )
 
     with tempfile.TemporaryDirectory() as tmp:
         interrupted_probe = _FakeLauncher({"kitty": "wayland"}, Path(tmp))
@@ -11612,8 +11645,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write("\n")
         if decision["protocol_blockers"]:
             print(
-                "a mapped terminal did not prove its own exact 80x24 "
-                "device-pixel grid; protocol-valid comparison is blocked",
+                "a mapped terminal did not prove its own stable device-pixel "
+                "grid; protocol-valid comparison is blocked",
                 file=sys.stderr,
             )
             return 2
