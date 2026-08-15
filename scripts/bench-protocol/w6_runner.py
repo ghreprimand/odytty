@@ -136,6 +136,10 @@ DISPLAY_PATH_WAYLAND = "wayland-native"
 DISPLAY_PATH_XWAYLAND = "xwayland"
 DISPLAY_PATH_X11 = "x11"
 DISPLAY_PATH_UNKNOWN = "unknown"
+BENCHMARK_WINDOW_TAG_PATTERN = re.compile(
+    r"org\.odytty\.bench\.w[0-9a-f]{24}"
+)
+SYNTHETIC_WINDOW_TAG = "org.odytty.bench.w" + "0" * 24
 
 # Launch recipes. Each entry is the argv prefix that makes the terminal run a
 # single command in its window. The idle command is appended by the caller.
@@ -350,12 +354,16 @@ def preflight_window_backend(
 
 
 def benchmark_window_tag(tag: str, nonce: int | None = None) -> str:
-    """Return an opaque, per-launch app id safe for compositor selectors."""
+    """Return an opaque per-launch app ID valid for GTK and compositors."""
     if not re.fullmatch(r"[a-z0-9-]+", tag):
         raise ValueError("benchmark launch tags may contain only lowercase ASCII and hyphens")
     seed = f"{os.getpid()}:{time.monotonic_ns() if nonce is None else nonce}:{tag}"
     digest = hashlib.sha256(seed.encode("ascii")).hexdigest()[:24]
-    return f"odytty-bench-{digest}"
+    # Ghostty's GTK `class` setting becomes its Wayland application ID. GTK
+    # requires at least two dot-separated elements, with no element beginning
+    # with a digit. The final `w` keeps the random digest valid regardless of
+    # its first hexadecimal character.
+    return f"org.odytty.bench.w{digest}"
 
 
 def hyprland_window_selector(address: object) -> str:
@@ -2189,7 +2197,7 @@ def _valid_requested_launch_binding(
             ]
         if (
             len(identities) != 1
-            or re.fullmatch(r"odytty-bench-[0-9a-f]{24}", identities[0]) is None
+            or BENCHMARK_WINDOW_TAG_PATTERN.fullmatch(identities[0]) is None
             or (window_app_id is not None and identities[0] != window_app_id)
         ):
             return False
@@ -2632,10 +2640,10 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
             {
                 "configuration_status": "unmet-protocol",
                 "detail": (
-                    "mapped viewport did not expose a stable device-pixel grid"
-                    if geometry is None
-                    else "mapped window did not retain the exact per-launch application id"
+                    "mapped window did not retain the exact per-launch application id"
                     if not launch_bound
+                    else "mapped viewport did not expose a stable device-pixel grid"
+                    if geometry is None
                     else "temporary compositor geometry state did not clean up"
                 ),
             }
@@ -3455,8 +3463,7 @@ def _valid_geometry_diagnostic_launch(record: object, expected_name: str) -> boo
         or record.get("display_path") != DISPLAY_PATH_WAYLAND
         or not isinstance(window, dict)
         or set(window) != {"app_id", "width", "height"}
-        or re.fullmatch(r"odytty-bench-[0-9a-f]{24}", str(window.get("app_id")))
-        is None
+        or BENCHMARK_WINDOW_TAG_PATTERN.fullmatch(str(window.get("app_id"))) is None
         or any(
             not isinstance(window.get(field), int)
             or isinstance(window.get(field), bool)
@@ -5493,7 +5500,7 @@ def _synthetic_launch_controls(
     window_tag: str | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     config = f"$REPOSITORY/{profiles.CONFIG_PATHS[implementation]}"
-    tag = window_tag or f"odytty-bench-{'0' * 24}"
+    tag = window_tag or SYNTHETIC_WINDOW_TAG
     if implementation == "odytty":
         argv = ["odytty", "--app-id", tag, "-e"]
     elif implementation == "kitty":
@@ -5618,7 +5625,7 @@ def _synthetic_probe_attempt(
             "resize_attempts": 1,
         }
     envelope_model = _geometry_model_evidence(synthetic_launch, raw)
-    synthetic_tag = f"odytty-bench-{'0' * 24}"
+    synthetic_tag = SYNTHETIC_WINDOW_TAG
     return _seal_probe_attempt(
         {
             "implementation": implementation,
@@ -7863,6 +7870,42 @@ def self_test() -> list[str]:
     if LAUNCH_RECIPES != frozen_recipes:
         failures.append("launch argv: assembly mutated LAUNCH_RECIPES")
 
+    ghostty_window_tag = benchmark_window_tag("ghostty-smoke", nonce=8)
+    ghostty_request = profiles.calibration_configurations("ghostty")[0]
+    ghostty_controls = _synthetic_launch_controls(
+        "ghostty", ghostty_request, window_tag=ghostty_window_tag
+    )
+    legacy_ghostty_tag = "odytty-bench-" + "0" * 24
+    legacy_ghostty_argv = [
+        argument.replace(ghostty_window_tag, legacy_ghostty_tag)
+        for argument in ghostty_controls[0]
+    ]
+    if (
+        BENCHMARK_WINDOW_TAG_PATTERN.fullmatch(ghostty_window_tag) is None
+        or any(
+            not element or element[0].isdigit()
+            for element in ghostty_window_tag.split(".")
+        )
+        or BENCHMARK_WINDOW_TAG_PATTERN.fullmatch(legacy_ghostty_tag) is not None
+        or not _valid_requested_launch_binding(
+            "ghostty",
+            ghostty_request,
+            ghostty_controls[0],
+            ghostty_controls[1],
+            ghostty_window_tag,
+        )
+        or _valid_requested_launch_binding(
+            "ghostty",
+            ghostty_request,
+            legacy_ghostty_argv,
+            ghostty_controls[1],
+            legacy_ghostty_tag,
+        )
+    ):
+        failures.append(
+            "launch identity: Ghostty accepted an invalid GTK application ID"
+        )
+
     # Startup geometry is controlled only through an opaque exact app id and
     # the mapped native window's exact compositor address. No persistent rule
     # is installed, so interrupted attempts cannot contaminate later launches.
@@ -8825,7 +8868,7 @@ def self_test() -> list[str]:
         },
     )
     exact_binding["sanitized_argv"] = [
-        argument.replace("odytty-bench-" + "0" * 24, "odytty-bench-" + "1" * 24)
+        argument.replace(SYNTHETIC_WINDOW_TAG, "org.odytty.bench.w" + "1" * 24)
         for argument in exact_binding["sanitized_argv"]
     ]
     exact_binding = _seal_probe_attempt(exact_binding)

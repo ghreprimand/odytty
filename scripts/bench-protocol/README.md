@@ -138,6 +138,8 @@ preregistration, rehearsal, measurement, or results. It is safe to rerun until
 measurement begins and is intended to prove a controller correction before
 another complete preparation attempt. Raw logs use the same create-exclusive,
 outside-repository storage discipline as the full diagnostic.
+Ghostty receives a GTK-valid reverse-domain `class`, ensuring its Wayland
+application ID matches the exact per-launch identity used by the controller.
 
 The calibration action has the same zero-consumption and
 noise-control posture; it is preparation evidence rather than the official
@@ -178,12 +180,12 @@ value of 12 (pixels for OdyTTY and points for the reference terminals), opaque
 and ligatures, and 100,000 lines of scrollback. The runner supplies the pinned
 idle driver as the explicit child command for every recipe.
 
-On Hyprland, every launch also receives a fresh opaque `odytty-bench-*`
-application id. The child reports PTY geometry out of band and waits behind a
-private controller edge. The runner binds the mapped native window to both
-that exact id and its exact compositor address, floats only that window, and
-resizes its outer dimensions from the observed cell size toward the 80x24
-target. Hyprland tiles new windows to the layout, so a terminal's own initial
+On Hyprland, every launch also receives a fresh opaque
+`org.odytty.bench.w*` application ID. The child reports PTY geometry out of
+band and waits behind a private controller edge. The runner binds the mapped
+native window to both that exact ID and its exact compositor address, floats
+only that window, and resizes its outer dimensions from the observed cell size
+toward the 80x24 target. Hyprland tiles new windows to the layout, so a terminal's own initial
 sizing can be overridden before the controller sees the window; floating that
 exact window is what makes the correction possible at all. The resize budget
 is hard-bounded, and when it is spent — or the compositor stops moving the

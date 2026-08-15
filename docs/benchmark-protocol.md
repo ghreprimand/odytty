@@ -212,6 +212,10 @@ launch records. Requested controls are not observations; only PTY geometry is
 effective observed evidence.
 
 The Linux controller binds each real launch to a fresh opaque application id.
+The ID is a valid reverse-domain GTK application ID as well as a compositor
+identity, so Ghostty's `class` setting produces the same exact Wayland
+`app_id` that the controller binds rather than falling back to Ghostty's
+default application ID.
 On Hyprland the child reports PTY geometry out of band, then waits behind a
 private controller edge. The runner requires both that exact id and the mapped
 native window's exact compositor address before floating or resizing it. The
