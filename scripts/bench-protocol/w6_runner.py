@@ -1643,8 +1643,6 @@ class RealLauncher:
                 if control["nonzero_exact_perturbation_started"]:
                     return False
                 if window.get("floating") is not True:
-                    if control["float_requested"]:
-                        return False
                     completed = self._run_geometry_command(
                         ["hyprctl", "dispatch", "setfloating", selector]
                     )
@@ -1652,7 +1650,13 @@ class RealLauncher:
                     control["command_failed"] = not self._geometry_command_succeeded(
                         completed
                     )
-                    return False
+                    if control["command_failed"]:
+                        return False
+                    # The client snapshot was taken before this dispatch. Do
+                    # not wait for a later `clients` poll to echo the floating
+                    # bit before issuing the address-bound resize: Hyprland
+                    # processes the completed dispatch first, and a stale
+                    # tiled snapshot must not deadlock geometry control.
                 if control["resize_attempts"] >= GEOMETRY_RESIZE_MAX_ATTEMPTS:
                     control["command_failed"] = True
                     return False
@@ -1713,14 +1717,17 @@ class RealLauncher:
         ):
             return False
         if window.get("floating") is not True:
-            if control["float_requested"]:
-                return False
             completed = self._run_geometry_command(
                 ["hyprctl", "dispatch", "setfloating", selector]
             )
             control["float_requested"] = True
             control["command_failed"] = not self._geometry_command_succeeded(completed)
-            return False
+            if control["command_failed"]:
+                return False
+            # `window` predates the completed setfloating dispatch. Continue
+            # directly to the exact address-bound resize so a compositor that
+            # reports the old tiled state for another poll cannot strand an
+            # otherwise stable PTY envelope.
 
         signature = (columns, rows, content_width, content_height)
         if control["last_resize_observation"] == signature:
@@ -7797,6 +7804,76 @@ def self_test() -> list[str]:
             failures.append(
                 "geometry control: post-lock distinct-sequence drift did not fail closed"
             )
+
+        # Live Ghostty regression from the b9084 laptop diagnostic. Hyprland
+        # tiled the decoration-free 80x24 request while the PTY repeatedly
+        # reported a stable 94x53 / 945x1010 device-pixel envelope. Model the
+        # established 960x1027 outer-window envelope here. The first
+        # setfloating dispatch succeeds, but the next compositor snapshot
+        # still carries the old `floating = false` value. That stale snapshot
+        # must not prevent the controller from reasserting the idempotent float
+        # state and issuing the calculated 820x476 address-bound resize in the
+        # same control step.
+        stale_float_launcher = _RecordingGeometryLauncher("hyprctl", Path(tmp))
+        stale_float_ready = Path(tmp) / "stale-float-geometry-ready"
+        stale_float_control = stale_float_launcher.prepare_geometry_control(
+            geometry_tag, stale_float_ready
+        )
+        stale_float_launch = {"geometry_control": stale_float_control}
+        stale_float_window = dict(replay_window, floating=False)
+        stale_float_first = dict(replay_geometry, sequence=1)
+        stale_float_second = dict(replay_geometry, sequence=2)
+        RealLauncher.normalize_startup_geometry(
+            stale_float_launcher,
+            stale_float_launch,
+            stale_float_window,
+            stale_float_first,
+        )
+        RealLauncher.normalize_startup_geometry(
+            stale_float_launcher,
+            stale_float_launch,
+            stale_float_window,
+            stale_float_second,
+        )
+        stale_float_exact = {
+            **replay_geometry,
+            "sequence": 3,
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "content_width_device_px": 805,
+            "content_height_device_px": 459,
+        }
+        stale_float_released = RealLauncher.normalize_startup_geometry(
+            stale_float_launcher,
+            stale_float_launch,
+            stale_float_window,
+            stale_float_exact,
+        )
+        if (
+            stale_float_launcher.geometry_commands
+            != [
+                ["hyprctl", "dispatch", "setfloating", exact_selector],
+                ["hyprctl", "dispatch", "setfloating", exact_selector],
+                [
+                    "hyprctl",
+                    "dispatch",
+                    "resizewindowpixel",
+                    f"exact 820 476,{exact_selector}",
+                ],
+            ]
+            or stale_float_control["grid_model"] != (10, 19, 5, 3)
+            or stale_float_control["resize_attempts"] != 1
+            or stale_float_control["command_failed"] is True
+            or stale_float_control["released"] is not True
+            or stale_float_control["target_grid_reached"] is not True
+            or stale_float_released is not True
+            or not stale_float_ready.is_file()
+        ):
+            failures.append(
+                "geometry control: stale tiled Ghostty snapshot blocked the "
+                "address-bound 80x24 resize"
+            )
+        stale_float_launcher.release_geometry_control(stale_float_launch)
 
         # Unprocessed geometry records must reach the oracle file in strictly
         # increasing sequence order. An inverted suffix cannot be ordered, so
