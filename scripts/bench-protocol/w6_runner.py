@@ -1503,7 +1503,8 @@ class RealLauncher:
         """Create per-launch controller state without mutating the compositor."""
         if self.backend.get("backend") != "hyprctl":
             raise ValueError(
-                "exact startup geometry is supported only by the Hyprland controller"
+                "startup-geometry normalization is supported only by the "
+                "Hyprland controller"
             )
         return {
             "backend": "hyprctl",
@@ -1531,7 +1532,13 @@ class RealLauncher:
     def normalize_startup_geometry(
         self, launched: dict, window: dict, observation: dict
     ) -> bool:
-        """Float and resize only the exact mapped launch until its PTY is 80x24."""
+        """Float and resize only the exact mapped launch toward the target grid.
+
+        The loop ends by releasing the child at whatever stable grid it holds:
+        at the target when normalization reached it, and at the reproducible
+        observed grid when the bounded resize budget is spent or the
+        compositor stops moving it. The release marker records which happened.
+        """
         control = launched.get("geometry_control")
         if (
             not isinstance(control, dict)

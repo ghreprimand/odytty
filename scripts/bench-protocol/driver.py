@@ -779,7 +779,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--geometry-ready-path",
-        help="controller edge released only after exact startup geometry is observed",
+        help=(
+            "controller edge released only after a stable startup grid is "
+            "observed, whether or not it reached the target"
+        ),
     )
     parser.add_argument(
         "--no-await-start",
