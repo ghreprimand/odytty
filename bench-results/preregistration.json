@@ -7,17 +7,17 @@
     "power-policy-change",
     "thermal-throttling"
   ],
-  "background_cpu_ceiling_percent": 5.0,
+  "background_cpu_ceiling_percent": 10.0,
   "boot_and_settle_evidence": {
-    "boot_started_utc": "2026-08-14T04:36:35Z",
-    "login_ready_utc": "2026-08-14T04:37:15Z",
-    "measurement_not_before_utc": "2026-08-14T04:42:15Z",
+    "boot_started_utc": "2026-08-15T22:16:00Z",
+    "login_ready_utc": "2026-08-15T22:16:26Z",
+    "measurement_not_before_utc": "2026-08-15T22:21:26Z",
     "minimum_post_login_settle_seconds": 300
   },
   "cell_geometry_policy": "per-implementation-stable-observed-grid",
   "checkout": {
     "dirty": false,
-    "git_commit": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb"
+    "git_commit": "174dcc1cc8dbf333d3d394fdc9b2115908c1b5a1"
   },
   "collectors": [
     {
@@ -28,13 +28,13 @@
         "user_usec",
         "system_usec"
       ],
-      "implementation_sha256": "058d464ea5c24046e4e8cf8a9771a15c01033c493ca687487612ec87f917bab9",
+      "implementation_sha256": "3693da31666fd1e2fb2f4574e96cf2a22e8aa5504bbb86fdfb21bb033927ee9b",
       "metric": "process_tree_cpu",
       "required_privilege": "none",
       "semantics": "cgroup v2 cpu.stat usage delta",
       "status": "available",
       "unit": "microseconds",
-      "version": "protocol-1.4.0; linux-kernel-7.1.6"
+      "version": "protocol-1.4.1; linux-kernel-7.1.6"
     },
     {
       "collector": "cgroup-memory",
@@ -45,36 +45,36 @@
         "memory.stat:anon",
         "memory.stat:file"
       ],
-      "implementation_sha256": "058d464ea5c24046e4e8cf8a9771a15c01033c493ca687487612ec87f917bab9",
+      "implementation_sha256": "3693da31666fd1e2fb2f4574e96cf2a22e8aa5504bbb86fdfb21bb033927ee9b",
       "metric": "resident_and_footprint_memory",
       "required_privilege": "none",
       "semantics": "cgroup v2 memory.current and memory.peak in bytes; breakdown fields reported under their exact cgroup field names",
       "status": "available",
       "unit": "bytes",
-      "version": "protocol-1.4.0; linux-kernel-7.1.6"
+      "version": "protocol-1.4.1; linux-kernel-7.1.6"
     },
     {
       "collector": "sched-wakeup",
       "configuration_sha256": "c2559457f72327d060430d57286f50a91410b3a2ed6b2c262a9ae8f8f481e706",
-      "implementation_sha256": "058d464ea5c24046e4e8cf8a9771a15c01033c493ca687487612ec87f917bab9",
+      "implementation_sha256": "3693da31666fd1e2fb2f4574e96cf2a22e8aa5504bbb86fdfb21bb033927ee9b",
       "metric": "idle_wake_events",
       "reason": "/sys/kernel/tracing/events/sched/sched_wakeup/enable is not readable by this user (tracefs is root-restricted on a default install); perf_event_paranoid is 2, which withholds unprivileged tracepoint collection (a value of -1 or lower would permit it). Wake events are reported unsupported rather than approximated: the protocol names context switches as a separate diagnostic and forbids relabeling them as wakeups.",
       "remedy": "a privileged collector run (root-owned tracefs access) would make this metric available; it must then be preregistered as a privileged collector for every compared implementation equally",
       "required_privilege": "none",
       "status": "unsupported",
-      "version": "protocol-1.4.0; linux-kernel-7.1.6"
+      "version": "protocol-1.4.1; linux-kernel-7.1.6"
     },
     {
       "collector": "context-switches",
       "configuration_sha256": "c972e35f5c614661e80bdf6180acfaac3aca8a18787c4129382fd11d452f4f53",
       "diagnostic_only": true,
-      "implementation_sha256": "058d464ea5c24046e4e8cf8a9771a15c01033c493ca687487612ec87f917bab9",
+      "implementation_sha256": "3693da31666fd1e2fb2f4574e96cf2a22e8aa5504bbb86fdfb21bb033927ee9b",
       "metric": "context_switches",
       "required_privilege": "none",
       "semantics": "voluntary and involuntary context switches summed over the process tree, diagnostic only",
       "status": "available",
       "unit": "switches",
-      "version": "protocol-1.4.0; linux-kernel-7.1.6"
+      "version": "protocol-1.4.1; linux-kernel-7.1.6"
     },
     {
       "collector": "drm-fdinfo",
@@ -102,14 +102,14 @@
           "drm-resident-system0"
         ]
       },
-      "implementation_sha256": "058d464ea5c24046e4e8cf8a9771a15c01033c493ca687487612ec87f917bab9",
+      "implementation_sha256": "3693da31666fd1e2fb2f4574e96cf2a22e8aa5504bbb86fdfb21bb033927ee9b",
       "metric": "gpu_memory",
       "qualification": "qualified evidence only if every compared implementation is measured through the same fields on the same driver; shared and dedicated regions stay separate",
       "required_privilege": "none",
       "semantics": "standardized DRM client resident-region fields from /proc/<pid>/fdinfo, attributed to the registered process tree",
       "status": "available",
       "unit": "bytes",
-      "version": "protocol-1.4.0; linux-kernel-7.1.6"
+      "version": "protocol-1.4.1; linux-kernel-7.1.6"
     }
   ],
   "configurations": [
@@ -161,8 +161,8 @@
   ],
   "driver": {
     "name": "scripts/bench-protocol/driver.py (W6 idle-visible-10m child)",
-    "revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
-    "sha256": "1534f6606375a47fc4acc994425b70194ce8d5dfcada53a3ff2093a1089b78e0"
+    "revision": "174dcc1cc8dbf333d3d394fdc9b2115908c1b5a1",
+    "sha256": "bcd37b3678b24f89ee7e2f27834f6eac2d24ca1e896cfb299ffa208b3d0bc46b"
   },
   "environment_class": {
     "compositor": "Hyprland v0.56.2, native Wayland",
@@ -186,26 +186,26 @@
     "os_build": "linux 7.1.6",
     "power_policy": "performance",
     "power_source": "AC",
-    "storage_class": "NVMe solid-state storage",
-    "thermal_and_cooling": "integrated active cooling; preparation CPU package 72 C; observed thermal-zone range 20-78 C",
+    "storage_class": "NVME solid-state storage (LUKS-encrypted btrfs root)",
+    "thermal_and_cooling": "integrated active cooling (Processor, TCC Offset, intel_powerclamp); preparation CPU package 65 C; observed thermal-zone range 20-75 C",
     "virtualized_or_remote": "no"
   },
   "fixtures": [
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
+      "generator_revision": "174dcc1cc8dbf333d3d394fdc9b2115908c1b5a1",
       "name": "w3",
       "sha256": "6115e084c778270394b1111e75ae8d882b1e6e1a61ad7d832b96a9dc42dbf3d2"
     },
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
+      "generator_revision": "174dcc1cc8dbf333d3d394fdc9b2115908c1b5a1",
       "name": "w4",
       "sha256": "6f536f28c5ec3f965c3600fd1e93701a4557605e1567d0c20210bc27db05bfea"
     },
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
+      "generator_revision": "174dcc1cc8dbf333d3d394fdc9b2115908c1b5a1",
       "name": "w5",
       "sha256": "e9b4deb6703136053f9b0c4d1387640e248e8f442a3a9e879b0464a6c27b07c4"
     }
@@ -213,7 +213,7 @@
   "implementations": [
     {
       "artifact_class": "clean-source-release-build",
-      "artifact_sha256": "103dc1dbc3f141cb3921761b3685a1f9084d5c52ed1b6e5e59e8c056e02af097",
+      "artifact_sha256": "ebea3ce166331a6ef5f43128f349f97390a2441c1b43ac5aa5a38ca8a9cbd9e5",
       "availability": "qualified",
       "build_command": "CARGO_BUILD_JOBS=4 cargo build --release --locked",
       "build_profile": "release",
@@ -259,7 +259,7 @@
         "height_remainder_device_px": 0,
         "width_remainder_device_px": 0
       },
-      "revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
+      "revision": "174dcc1cc8dbf333d3d394fdc9b2115908c1b5a1",
       "target_grid_met": true,
       "unavailable_reason": "not applicable"
     },
@@ -424,15 +424,15 @@
   },
   "orchestrator": {
     "name": "scripts/bench-protocol/w6_runner.py",
-    "revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
-    "sha256": "7cd20bb273720b8339b1b3d8a87daa413187c8f53d4aff7a6e34d7e9a12d1b08"
+    "revision": "174dcc1cc8dbf333d3d394fdc9b2115908c1b5a1",
+    "sha256": "06bb125ef08e37212a2e35c38ee1d831356e37d8df50221c79c1e089a995c6a2"
   },
   "outlier_rule": "no sample is removed by an outlier test; all valid numeric samples remain in the analysis",
   "protocol": {
-    "git_commit": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
+    "git_commit": "174dcc1cc8dbf333d3d394fdc9b2115908c1b5a1",
     "path": "docs/benchmark-protocol.md",
-    "sha256": "934697e99269f4049749a7eda942e5e209b8dec7ed30e5172dd933d9b93e916a",
-    "version": "1.4.0"
+    "sha256": "c86a7198d431abbb93e5fe4da9b807b6a3a5edc3dac7616f34a9b679f7d52945",
+    "version": "1.4.1"
   },
   "public_anchor": {
     "path": "bench-results/preregistration.json",
@@ -445,12 +445,12 @@
   "replacement_limit_per_invalid_attempt": 1,
   "reporting_rule": "no significance threshold, composite score, weighted total, or overall winner; favourable and unfavourable results are published together",
   "run_set": {
-    "bootstrap_seed": "19ed842d-w6-bootstrap-20260815-r2",
-    "id": "odytty-v0.11.0-w6-linux-19ed842d-20260815-r2",
-    "order_seed": "19ed842d-w6-order-20260815-r2",
+    "bootstrap_seed": "174dcc1c-w6-bootstrap-20260815-r4",
+    "id": "odytty-v0.11.0-w6-linux-174dcc1c-20260815-r4",
+    "order_seed": "174dcc1c-w6-order-20260815-r4",
     "statistics_implementation": "scripts/bench-protocol/summaries.py",
-    "statistics_revision": "19ed842d80d9ce3c1d13d92a0def6c4fd26d97bb",
-    "statistics_sha256": "519e84f412961541d2c8dab9f54db2402cbb3904dbfa95b3a90c76195dece83d"
+    "statistics_revision": "174dcc1cc8dbf333d3d394fdc9b2115908c1b5a1",
+    "statistics_sha256": "793f04330f639f2ee8a4f5f104fcd5bd0d8968cd4397ca6bb4efcfe2b7d6d91f"
   },
   "run_set_time_budget_hours": 4.05,
   "shared_font": {
@@ -472,9 +472,9 @@
         "plain"
       ],
       "implementation_order": [
-        "ghostty",
-        "odytty",
         "alacritty",
+        "odytty",
+        "ghostty",
         "kitty"
       ]
     },
@@ -484,8 +484,8 @@
         "plain"
       ],
       "implementation_order": [
-        "alacritty",
         "ghostty",
+        "alacritty",
         "kitty",
         "odytty"
       ]
@@ -497,9 +497,9 @@
       ],
       "implementation_order": [
         "kitty",
-        "alacritty",
+        "ghostty",
         "odytty",
-        "ghostty"
+        "alacritty"
       ]
     },
     {
@@ -510,8 +510,8 @@
       "implementation_order": [
         "odytty",
         "kitty",
-        "ghostty",
-        "alacritty"
+        "alacritty",
+        "ghostty"
       ]
     },
     {
@@ -520,9 +520,9 @@
         "plain"
       ],
       "implementation_order": [
-        "ghostty",
-        "odytty",
         "alacritty",
+        "odytty",
+        "ghostty",
         "kitty"
       ]
     },
@@ -532,8 +532,8 @@
         "plain"
       ],
       "implementation_order": [
-        "alacritty",
         "ghostty",
+        "alacritty",
         "kitty",
         "odytty"
       ]
