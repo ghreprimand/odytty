@@ -6,9 +6,13 @@ complete; see `DEVLOG.md` for the running record, `SPEC.md` for durable
 decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 
 The v0.10.0 architecture, compatibility, correctness, security, evidence,
-documentation, and release-convergence scope is complete and published.
-Unchecked feature ideas below are longer-range roadmap candidates; they require
-a separately recorded milestone before implementation.
+documentation, and release-convergence scope is complete and published, and
+the v0.11.0 external-review response scope (documentation accuracy, release
+signing, color-font and shaping maturity, graphics protocol completeness,
+instanced rendering, theme capture, and the published W6 idle comparison) is
+complete and published on top of it. Unchecked feature ideas below are
+longer-range roadmap candidates; they require a separately recorded milestone
+before implementation.
 
 ## Stage 4.5: Foundation Ownership
 

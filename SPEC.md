@@ -798,9 +798,17 @@ its first stable layer.
 Version 0.10.0 completed its architecture, compatibility, correctness,
 security, evidence, documentation, and release-convergence scope. Bounded
 post-release checks completed on the shipped Linux, macOS, and Windows packages,
-including a matched visual pass against comparable terminal emulators. The
-project remains pre-1.0; any later milestone requires a separately recorded
-scope rather than silently inheriting deferred work from this release.
+including a matched visual pass against comparable terminal emulators.
+
+Version 0.11.0 closed the separately recorded external-review response scope:
+documentation-accuracy corrections, Minisign release signing, COLR/CPAL v0 and
+v1 color glyphs, shaping-run infrastructure with extended ligatures and Arabic
+contextual joining, Kitty Unicode placeholders and animation, iTerm2 inline
+images, instanced cell rendering, theme capture from live dynamic colors, and
+a published preregistered W6 idle-resource comparison
+(`docs/benchmark-results.md`). The project remains pre-1.0; any later
+milestone requires a separately recorded scope rather than silently inheriting
+deferred work from a prior release.
 
 ### Parser And Protocols
 

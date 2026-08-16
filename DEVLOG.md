@@ -7,49 +7,7 @@ durable product/architecture decisions.
 
 ---
 
-## 2026-08-16 -- W6 idle comparison executed and published
-
-The comparative-benchmark program produced its first protocol-valid result
-set. A complete W6 (`idle-visible-10m`) session ran on the preregistered
-Linux laptop unit under protocol 1.4.1: OdyTTY, Kitty, Ghostty, and
-Alacritty, five measured replicates each after a discarded rehearsal, every
-per-replicate oracle check passed, zero failures, zero deviations, zero
-incomplete reasons. The result document validates against the anchored
-preregistration and is published in `bench-results/` (raw samples included);
-`docs/benchmark-results.md` summarizes medians with 95 percent
-percentile-bootstrap confidence intervals and states scope and limitations.
-
-Reported exactly as measured: OdyTTY idles at 0.0105 percent of one core
-(median), in the same band as Kitty (0.0072) and Alacritty (0.0082) and well
-below Ghostty (0.2104); OdyTTY's memory footprint is the largest of the four
-(286 MB current against 58-137 MB), a real cost of the current renderer and
-font-atlas architecture and a known optimization target. GPU memory and idle
-wake events are recorded `unsupported` with reasons on this unit; every
-optical-endpoint workload remains `unavailable-hardware` per
-`docs/benchmark-apparatus.md`. No overall winner is declared, per the
-protocol's reporting rule.
-
-Two earlier sessions stopped before producing samples, and both stops were
-harness or procedure defects preserved as historical record, not measurement
-failures. First, the controller's per-second environment polling accumulated
-observation overhead into its own rehearsal wall clock (~3 s over 120 s),
-tripping the absolute timing gate and mislabeling every rehearsal as
-controller loss; `_checked_sleep` now schedules observations against absolute
-monotonic deadlines, with a slow-observer regression test. Second,
-background-load validation treated any single one-second CPU interval above
-the ceiling as sustained load; the decision now uses the aggregate busy
-fraction across the attempt window (transient spikes remain structural
-evidence), and the protocol/schema identity moved to 1.4.1 so pre-correction
-records cannot be pooled. A further incomplete session then isolated two
-procedure hazards the runner correctly refused to measure through: an
-on-screen application change during rehearsal (caught by the focused
-unobscured-viewport oracle) and a reference geometry model registered under a
-different desktop layout than the one measured (caught by the pre-settle
-readiness gate). The published run was prepared and executed against an empty
-desktop on a fresh boot, with preparation and measurement sharing one
-normalized environment.
-
-## 2026-08-13 -- Release v0.11.0 — External-review response, graphics completeness, and shaping maturity
+## 2026-08-16 -- Release v0.11.0 — External-review response, graphics completeness, and shaping maturity
 
 Version 0.11.0 responds to an independent technical review of the pre-0.11.0
 codebase, closing every finding that could be addressed without paid Apple
@@ -129,11 +87,12 @@ surfaced real protocol gaps — including a controller display-preflight defect
 that let a resumed session with no live compositor socket misreport every
 candidate as unavailable — and both the run and the fixes are preserved as
 historical record. A complete protocol-valid W6 run set was subsequently
-executed and published (see the 2026-08-16 entry): OdyTTY, Kitty, Ghostty,
-and Alacritty, five measured replicates each, raw samples and bootstrap
-confidence intervals in `bench-results/` and `docs/benchmark-results.md`,
-reported exactly as measured with no overall winner declared. The
-optical-endpoint workloads remain `unavailable-hardware`.
+executed and published (detailed in the dedicated W6 entry below): OdyTTY,
+Kitty, Ghostty, and Alacritty, five measured replicates each, raw samples and
+bootstrap confidence intervals in `bench-results/` and
+`docs/benchmark-results.md`, reported exactly as measured with no overall
+winner declared. The optical-endpoint workloads remain
+`unavailable-hardware`.
 
 **Contribution stance.** `CONTRIBUTING.md` now states a maintainer-led,
 vision-scoped welcome for outside contributions instead of discouraging them,
@@ -147,6 +106,48 @@ plus the RustSec audit where dependency, parser, font, transport, input, or
 storage code was touched, and blocking Ubuntu/macOS/Windows CI. Windows stays
 a first-class, explicitly stated platform throughout: every feature above
 states its Windows behavior rather than inferring it from another platform.
+
+## 2026-08-16 -- W6 idle comparison executed and published
+
+The comparative-benchmark program produced its first protocol-valid result
+set. A complete W6 (`idle-visible-10m`) session ran on the preregistered
+Linux laptop unit under protocol 1.4.1: OdyTTY, Kitty, Ghostty, and
+Alacritty, five measured replicates each after a discarded rehearsal, every
+per-replicate oracle check passed, zero failures, zero deviations, zero
+incomplete reasons. The result document validates against the anchored
+preregistration and is published in `bench-results/` (raw samples included);
+`docs/benchmark-results.md` summarizes medians with 95 percent
+percentile-bootstrap confidence intervals and states scope and limitations.
+
+Reported exactly as measured: OdyTTY idles at 0.0105 percent of one core
+(median), in the same band as Kitty (0.0072) and Alacritty (0.0082) and well
+below Ghostty (0.2104); OdyTTY's memory footprint is the largest of the four
+(286 MB current against 58-137 MB), a real cost of the current renderer and
+font-atlas architecture and a known optimization target. GPU memory and idle
+wake events are recorded `unsupported` with reasons on this unit; every
+optical-endpoint workload remains `unavailable-hardware` per
+`docs/benchmark-apparatus.md`. No overall winner is declared, per the
+protocol's reporting rule.
+
+Two earlier sessions stopped before producing samples, and both stops were
+harness or procedure defects preserved as historical record, not measurement
+failures. First, the controller's per-second environment polling accumulated
+observation overhead into its own rehearsal wall clock (~3 s over 120 s),
+tripping the absolute timing gate and mislabeling every rehearsal as
+controller loss; `_checked_sleep` now schedules observations against absolute
+monotonic deadlines, with a slow-observer regression test. Second,
+background-load validation treated any single one-second CPU interval above
+the ceiling as sustained load; the decision now uses the aggregate busy
+fraction across the attempt window (transient spikes remain structural
+evidence), and the protocol/schema identity moved to 1.4.1 so pre-correction
+records cannot be pooled. A further incomplete session then isolated two
+procedure hazards the runner correctly refused to measure through: an
+on-screen application change during rehearsal (caught by the focused
+unobscured-viewport oracle) and a reference geometry model registered under a
+different desktop layout than the one measured (caught by the pre-settle
+readiness gate). The published run was prepared and executed against an empty
+desktop on a fresh boot, with preparation and measurement sharing one
+normalized environment.
 
 ## 2026-08-13 -- W6 benchmark harness: protocol-valid evidence binding
 

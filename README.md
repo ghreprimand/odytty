@@ -139,11 +139,14 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.10.0 is published. Bounded
-post-release checks of the shipped Linux, macOS Apple Silicon, and Windows
-packages completed without a reported blocker. A matched visual pass against
-comparable terminal emulators found no release-blocking difference in the
-tested text, Unicode, box-drawing, or interaction surfaces. These checks
+OdyTTY is a broad pre-1.0 terminal. Version 0.11.0 is published. Bounded
+post-release checks of the v0.10.0 shipped Linux, macOS Apple Silicon, and
+Windows packages completed without a reported blocker, and a matched visual
+pass against comparable terminal emulators found no release-blocking
+difference in the tested text, Unicode, box-drawing, or interaction surfaces.
+A published, preregistered idle-resource comparison against Kitty, Ghostty,
+and Alacritty is summarized in
+[docs/benchmark-results.md](docs/benchmark-results.md). These checks
 complement blocking CI; they do not cover every GPU, compositor, IME, font, or
 hardware configuration.
 
