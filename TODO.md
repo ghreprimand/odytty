@@ -1508,8 +1508,11 @@ stay pinned to the revisions they measured.
       routing, shell integration, and clickable paths incl. inline images);
       CI additionally proves compile + automated tests on every push. A bounded
       v0.10.0 post-release package smoke pass completed without a reported
-      blocker, while broader Windows hardware and application coverage remains
-      ongoing. It remains a newer target with a lower polish bar than Linux. A
+      blocker, and the v0.11.1 Scoop upgrade path was confirmed on real
+      hardware (automated manifest bump picked up, package upgraded, app
+      launches and runs), while broader Windows hardware and application
+      coverage remains ongoing. It remains a newer target with a lower polish
+      bar than Linux. A
       child-process waiter now
       closes the pseudoconsole when a shell exits naturally, so the tab follows
       the normal reader-EOF teardown path.
