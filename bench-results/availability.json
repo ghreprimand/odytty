@@ -1,0 +1,773 @@
+{
+  "calibration_mode": "frozen-qualified-revalidation",
+  "probes": [
+    {
+      "attempt_sha256": "a7ee5d54df60b4e7d26cfd62c4f61ec745b2592975602479e0ff03f3074a4691",
+      "calibration": {
+        "font_size": 12,
+        "line_height": 1,
+        "method": "canonical-profile"
+      },
+      "cell_geometry": {
+        "cell_height_device_px": 12,
+        "cell_width_device_px": 7,
+        "columns": 80,
+        "content_height_device_px": 288,
+        "content_width_device_px": 560,
+        "rows": 24
+      },
+      "display_path": "wayland-native",
+      "font_identity": {
+        "face_index": 0,
+        "family": "DejaVu Sans Mono",
+        "file_name": "DejaVuSansMono.ttf",
+        "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "style": "Book"
+      },
+      "font_isolation": {
+        "config_sha256": "5ed1ec1b487736a8505e7d3185b8d6db07c47a59effd7f1a77b79285ec410d4e",
+        "font_identity": {
+          "face_index": 0,
+          "family": "DejaVu Sans Mono",
+          "file_name": "DejaVuSansMono.ttf",
+          "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+          "style": "Book"
+        },
+        "font_sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "listed_face_count": 1,
+        "method": "private-single-face-fontconfig-plus-odytty-direct-path",
+        "odytty_control": "ODYTTY_FONT",
+        "policy_sha256": "5ed1ec1b487736a8505e7d3185b8d6db07c47a59effd7f1a77b79285ec410d4e",
+        "reference_control": "FONTCONFIG_FILE"
+      },
+      "gpu_fields": [
+        "drm-resident-stolen-system0",
+        "drm-resident-system0"
+      ],
+      "implementation": "odytty",
+      "observed_evidence": {
+        "cell_geometry": {
+          "cell_height_device_px": 12,
+          "cell_width_device_px": 7,
+          "columns": 80,
+          "content_height_device_px": 288,
+          "content_width_device_px": 560,
+          "rows": 24
+        },
+        "evidence_source": "idle-ready-pty-observation",
+        "pty_pixel_envelope_model": {
+          "cell_height_device_px": 12,
+          "cell_width_device_px": 7,
+          "height_remainder_device_px": 0,
+          "observations": [
+            {
+              "pty_columns": 271,
+              "pty_rows": 84,
+              "reported_height_device_px": 1008,
+              "reported_width_device_px": 1897
+            },
+            {
+              "pty_columns": 274,
+              "pty_rows": 90,
+              "reported_height_device_px": 1080,
+              "reported_width_device_px": 1918
+            },
+            {
+              "pty_columns": 80,
+              "pty_rows": 24,
+              "reported_height_device_px": 288,
+              "reported_width_device_px": 560
+            }
+          ],
+          "release_outcome": "target-grid",
+          "resize_attempt_bound": 2,
+          "resize_attempts": 1,
+          "resize_commands": [
+            {
+              "height": 288,
+              "width": 562
+            }
+          ],
+          "schema_version": 2,
+          "width_remainder_device_px": 0
+        },
+        "raw_idle_ready": {
+          "content_height_device_px": 288,
+          "content_width_device_px": 560,
+          "pty_columns": 80,
+          "pty_rows": 24
+        }
+      },
+      "process_outcome": {
+        "controller_stopped": true,
+        "exit_status": -15,
+        "started": true
+      },
+      "pty_pixel_envelope_model": {
+        "cell_height_device_px": 12,
+        "cell_width_device_px": 7,
+        "height_remainder_device_px": 0,
+        "observations": [
+          {
+            "pty_columns": 271,
+            "pty_rows": 84,
+            "reported_height_device_px": 1008,
+            "reported_width_device_px": 1897
+          },
+          {
+            "pty_columns": 274,
+            "pty_rows": 90,
+            "reported_height_device_px": 1080,
+            "reported_width_device_px": 1918
+          },
+          {
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "reported_height_device_px": 288,
+            "reported_width_device_px": 560
+          }
+        ],
+        "release_outcome": "target-grid",
+        "resize_attempt_bound": 2,
+        "resize_attempts": 1,
+        "resize_commands": [
+          {
+            "height": 288,
+            "width": 562
+          }
+        ],
+        "schema_version": 2,
+        "width_remainder_device_px": 0
+      },
+      "raw_idle_ready": {
+        "content_height_device_px": 288,
+        "content_width_device_px": 560,
+        "pty_columns": 80,
+        "pty_rows": 24
+      },
+      "requested_config": {
+        "font_size": 12,
+        "line_height": 1,
+        "method": "canonical-profile"
+      },
+      "sanitized_argv": [
+        "systemd-run",
+        "--user",
+        "--scope",
+        "--quiet",
+        "--unit=odytty-bench-probe-odytty",
+        "--collect",
+        "--property=MemoryHigh=16G",
+        "--property=MemoryMax=24G",
+        "--property=MemorySwapMax=4G",
+        "--property=CPUQuota=800%",
+        "--property=RuntimeMaxSec=90s",
+        "--property=TimeoutStopSec=15s",
+        "--property=KillMode=mixed",
+        "--",
+        "odytty",
+        "--app-id",
+        "org.odytty.bench.wce3c34f03dbf5a50d96876f8",
+        "-e",
+        "$PYTHON",
+        "$REPOSITORY/scripts/bench-protocol/driver.py",
+        "--workload",
+        "idle-visible-10m",
+        "--oracle-path",
+        "$PROBE_EVIDENCE/probe-odytty.oracle.jsonl",
+        "--duration-seconds",
+        "30",
+        "--start-path",
+        "$PROBE_EVIDENCE/probe-odytty.start",
+        "--geometry-ready-path",
+        "$PROBE_EVIDENCE/probe-odytty.geometry-ready"
+      ],
+      "sanitized_launch_environment": {
+        "FONTCONFIG_FILE": "$FONT_ISOLATION_CONFIG",
+        "FONTCONFIG_PATH": "$FONT_ISOLATION_ROOT",
+        "ODYTTY_FONT": "$FONT_ISOLATION_FILE",
+        "ODYTTY_FONT_SIZE": "12",
+        "ODYTTY_LINE_HEIGHT": "1",
+        "XDG_CONFIG_HOME": "$REPOSITORY/scripts/bench-protocol/configs"
+      },
+      "schema_version": 3,
+      "window": {
+        "app_id": "org.odytty.bench.wce3c34f03dbf5a50d96876f8",
+        "height": 288,
+        "width": 562
+      },
+      "window_mapped": true
+    },
+    {
+      "attempt_sha256": "aedc1198e93e422e84d5201f683174f85c1744cfac23f3e2c746a55ad044cfa4",
+      "calibration": {
+        "font_size": 12,
+        "method": "canonical-profile"
+      },
+      "cell_geometry": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "columns": 80,
+        "content_height_device_px": 456,
+        "content_width_device_px": 800,
+        "rows": 24
+      },
+      "display_path": "wayland-native",
+      "font_identity": {
+        "face_index": 0,
+        "family": "DejaVu Sans Mono",
+        "file_name": "DejaVuSansMono.ttf",
+        "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "style": "Book"
+      },
+      "font_isolation": {
+        "config_sha256": "5ed1ec1b487736a8505e7d3185b8d6db07c47a59effd7f1a77b79285ec410d4e",
+        "font_identity": {
+          "face_index": 0,
+          "family": "DejaVu Sans Mono",
+          "file_name": "DejaVuSansMono.ttf",
+          "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+          "style": "Book"
+        },
+        "font_sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "listed_face_count": 1,
+        "method": "private-single-face-fontconfig-plus-odytty-direct-path",
+        "odytty_control": "ODYTTY_FONT",
+        "policy_sha256": "5ed1ec1b487736a8505e7d3185b8d6db07c47a59effd7f1a77b79285ec410d4e",
+        "reference_control": "FONTCONFIG_FILE"
+      },
+      "gpu_fields": [
+        "drm-resident-stolen-system0",
+        "drm-resident-system0"
+      ],
+      "implementation": "kitty",
+      "observed_evidence": {
+        "cell_geometry": {
+          "cell_height_device_px": 19,
+          "cell_width_device_px": 10,
+          "columns": 80,
+          "content_height_device_px": 456,
+          "content_width_device_px": 800,
+          "rows": 24
+        },
+        "evidence_source": "idle-ready-pty-observation",
+        "pty_pixel_envelope_model": {
+          "cell_height_device_px": 19,
+          "cell_width_device_px": 10,
+          "height_remainder_device_px": 0,
+          "observations": [
+            {
+              "pty_columns": 190,
+              "pty_rows": 53,
+              "reported_height_device_px": 1007,
+              "reported_width_device_px": 1900
+            },
+            {
+              "pty_columns": 192,
+              "pty_rows": 56,
+              "reported_height_device_px": 1064,
+              "reported_width_device_px": 1920
+            },
+            {
+              "pty_columns": 80,
+              "pty_rows": 24,
+              "reported_height_device_px": 456,
+              "reported_width_device_px": 800
+            }
+          ],
+          "release_outcome": "target-grid",
+          "resize_attempt_bound": 2,
+          "resize_attempts": 1,
+          "resize_commands": [
+            {
+              "height": 472,
+              "width": 800
+            }
+          ],
+          "schema_version": 2,
+          "width_remainder_device_px": 0
+        },
+        "raw_idle_ready": {
+          "content_height_device_px": 456,
+          "content_width_device_px": 800,
+          "pty_columns": 80,
+          "pty_rows": 24
+        }
+      },
+      "process_outcome": {
+        "controller_stopped": true,
+        "exit_status": 0,
+        "started": true
+      },
+      "pty_pixel_envelope_model": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "height_remainder_device_px": 0,
+        "observations": [
+          {
+            "pty_columns": 190,
+            "pty_rows": 53,
+            "reported_height_device_px": 1007,
+            "reported_width_device_px": 1900
+          },
+          {
+            "pty_columns": 192,
+            "pty_rows": 56,
+            "reported_height_device_px": 1064,
+            "reported_width_device_px": 1920
+          },
+          {
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "reported_height_device_px": 456,
+            "reported_width_device_px": 800
+          }
+        ],
+        "release_outcome": "target-grid",
+        "resize_attempt_bound": 2,
+        "resize_attempts": 1,
+        "resize_commands": [
+          {
+            "height": 472,
+            "width": 800
+          }
+        ],
+        "schema_version": 2,
+        "width_remainder_device_px": 0
+      },
+      "raw_idle_ready": {
+        "content_height_device_px": 456,
+        "content_width_device_px": 800,
+        "pty_columns": 80,
+        "pty_rows": 24
+      },
+      "requested_config": {
+        "font_size": 12,
+        "method": "canonical-profile"
+      },
+      "sanitized_argv": [
+        "systemd-run",
+        "--user",
+        "--scope",
+        "--quiet",
+        "--unit=odytty-bench-probe-kitty",
+        "--collect",
+        "--property=MemoryHigh=16G",
+        "--property=MemoryMax=24G",
+        "--property=MemorySwapMax=4G",
+        "--property=CPUQuota=800%",
+        "--property=RuntimeMaxSec=90s",
+        "--property=TimeoutStopSec=15s",
+        "--property=KillMode=mixed",
+        "--",
+        "kitty",
+        "--config",
+        "$REPOSITORY/scripts/bench-protocol/configs/kitty.conf",
+        "--class",
+        "org.odytty.bench.wa36892e19b9ffe36a5cb60c8",
+        "--",
+        "$PYTHON",
+        "$REPOSITORY/scripts/bench-protocol/driver.py",
+        "--workload",
+        "idle-visible-10m",
+        "--oracle-path",
+        "$PROBE_EVIDENCE/probe-kitty.oracle.jsonl",
+        "--duration-seconds",
+        "30",
+        "--start-path",
+        "$PROBE_EVIDENCE/probe-kitty.start",
+        "--geometry-ready-path",
+        "$PROBE_EVIDENCE/probe-kitty.geometry-ready"
+      ],
+      "sanitized_launch_environment": {
+        "FONTCONFIG_FILE": "$FONT_ISOLATION_CONFIG",
+        "FONTCONFIG_PATH": "$FONT_ISOLATION_ROOT"
+      },
+      "schema_version": 3,
+      "window": {
+        "app_id": "org.odytty.bench.wa36892e19b9ffe36a5cb60c8",
+        "height": 472,
+        "width": 800
+      },
+      "window_mapped": true
+    },
+    {
+      "attempt_sha256": "326f0adb92d8b54021cb28e2f1f2a351060e39d6f42567c15031b17ca30a6a1a",
+      "calibration": {
+        "font_size": 12,
+        "method": "canonical-profile"
+      },
+      "cell_geometry": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "columns": 80,
+        "content_height_device_px": 456,
+        "content_width_device_px": 800,
+        "rows": 24
+      },
+      "display_path": "wayland-native",
+      "font_identity": {
+        "face_index": 0,
+        "family": "DejaVu Sans Mono",
+        "file_name": "DejaVuSansMono.ttf",
+        "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "style": "Book"
+      },
+      "font_isolation": {
+        "config_sha256": "5ed1ec1b487736a8505e7d3185b8d6db07c47a59effd7f1a77b79285ec410d4e",
+        "font_identity": {
+          "face_index": 0,
+          "family": "DejaVu Sans Mono",
+          "file_name": "DejaVuSansMono.ttf",
+          "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+          "style": "Book"
+        },
+        "font_sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "listed_face_count": 1,
+        "method": "private-single-face-fontconfig-plus-odytty-direct-path",
+        "odytty_control": "ODYTTY_FONT",
+        "policy_sha256": "5ed1ec1b487736a8505e7d3185b8d6db07c47a59effd7f1a77b79285ec410d4e",
+        "reference_control": "FONTCONFIG_FILE"
+      },
+      "gpu_fields": [
+        "drm-resident-stolen-system0",
+        "drm-resident-system0"
+      ],
+      "implementation": "ghostty",
+      "observed_evidence": {
+        "cell_geometry": {
+          "cell_height_device_px": 19,
+          "cell_width_device_px": 10,
+          "columns": 80,
+          "content_height_device_px": 456,
+          "content_width_device_px": 800,
+          "rows": 24
+        },
+        "evidence_source": "idle-ready-pty-observation",
+        "pty_pixel_envelope_model": {
+          "cell_height_device_px": 19,
+          "cell_width_device_px": 10,
+          "height_remainder_device_px": 16,
+          "observations": [
+            {
+              "pty_columns": 192,
+              "pty_rows": 56,
+              "reported_height_device_px": 1080,
+              "reported_width_device_px": 1920
+            },
+            {
+              "pty_columns": 80,
+              "pty_rows": 24,
+              "reported_height_device_px": 472,
+              "reported_width_device_px": 800
+            }
+          ],
+          "release_outcome": "target-grid",
+          "resize_attempt_bound": 2,
+          "resize_attempts": 1,
+          "resize_commands": [
+            {
+              "height": 472,
+              "width": 800
+            }
+          ],
+          "schema_version": 2,
+          "width_remainder_device_px": 0
+        },
+        "raw_idle_ready": {
+          "content_height_device_px": 472,
+          "content_width_device_px": 800,
+          "pty_columns": 80,
+          "pty_rows": 24
+        }
+      },
+      "process_outcome": {
+        "controller_stopped": true,
+        "exit_status": -15,
+        "started": true
+      },
+      "pty_pixel_envelope_model": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "height_remainder_device_px": 16,
+        "observations": [
+          {
+            "pty_columns": 192,
+            "pty_rows": 56,
+            "reported_height_device_px": 1080,
+            "reported_width_device_px": 1920
+          },
+          {
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "reported_height_device_px": 472,
+            "reported_width_device_px": 800
+          }
+        ],
+        "release_outcome": "target-grid",
+        "resize_attempt_bound": 2,
+        "resize_attempts": 1,
+        "resize_commands": [
+          {
+            "height": 472,
+            "width": 800
+          }
+        ],
+        "schema_version": 2,
+        "width_remainder_device_px": 0
+      },
+      "raw_idle_ready": {
+        "content_height_device_px": 472,
+        "content_width_device_px": 800,
+        "pty_columns": 80,
+        "pty_rows": 24
+      },
+      "requested_config": {
+        "font_size": 12,
+        "method": "canonical-profile"
+      },
+      "sanitized_argv": [
+        "systemd-run",
+        "--user",
+        "--scope",
+        "--quiet",
+        "--unit=odytty-bench-probe-ghostty",
+        "--collect",
+        "--property=MemoryHigh=16G",
+        "--property=MemoryMax=24G",
+        "--property=MemorySwapMax=4G",
+        "--property=CPUQuota=800%",
+        "--property=RuntimeMaxSec=90s",
+        "--property=TimeoutStopSec=15s",
+        "--property=KillMode=mixed",
+        "--",
+        "ghostty",
+        "--config-file=$REPOSITORY/scripts/bench-protocol/configs/ghostty.conf",
+        "--class=org.odytty.bench.w7dd20b365c257169a3aa9201",
+        "-e",
+        "$PYTHON",
+        "$REPOSITORY/scripts/bench-protocol/driver.py",
+        "--workload",
+        "idle-visible-10m",
+        "--oracle-path",
+        "$PROBE_EVIDENCE/probe-ghostty.oracle.jsonl",
+        "--duration-seconds",
+        "30",
+        "--start-path",
+        "$PROBE_EVIDENCE/probe-ghostty.start",
+        "--geometry-ready-path",
+        "$PROBE_EVIDENCE/probe-ghostty.geometry-ready"
+      ],
+      "sanitized_launch_environment": {
+        "FONTCONFIG_FILE": "$FONT_ISOLATION_CONFIG",
+        "FONTCONFIG_PATH": "$FONT_ISOLATION_ROOT"
+      },
+      "schema_version": 3,
+      "window": {
+        "app_id": "org.odytty.bench.w7dd20b365c257169a3aa9201",
+        "height": 472,
+        "width": 800
+      },
+      "window_mapped": true
+    },
+    {
+      "attempt_sha256": "e841bfd773af5a9657aa2fc3f01ab8e60fdf9169005265ce101bd70f5f7ce29e",
+      "calibration": {
+        "font_size": 12,
+        "method": "canonical-profile"
+      },
+      "cell_geometry": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "columns": 80,
+        "content_height_device_px": 456,
+        "content_width_device_px": 800,
+        "rows": 24
+      },
+      "display_path": "wayland-native",
+      "font_identity": {
+        "face_index": 0,
+        "family": "DejaVu Sans Mono",
+        "file_name": "DejaVuSansMono.ttf",
+        "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "style": "Book"
+      },
+      "font_isolation": {
+        "config_sha256": "5ed1ec1b487736a8505e7d3185b8d6db07c47a59effd7f1a77b79285ec410d4e",
+        "font_identity": {
+          "face_index": 0,
+          "family": "DejaVu Sans Mono",
+          "file_name": "DejaVuSansMono.ttf",
+          "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+          "style": "Book"
+        },
+        "font_sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "listed_face_count": 1,
+        "method": "private-single-face-fontconfig-plus-odytty-direct-path",
+        "odytty_control": "ODYTTY_FONT",
+        "policy_sha256": "5ed1ec1b487736a8505e7d3185b8d6db07c47a59effd7f1a77b79285ec410d4e",
+        "reference_control": "FONTCONFIG_FILE"
+      },
+      "gpu_fields": [
+        "drm-resident-stolen-system0",
+        "drm-resident-system0"
+      ],
+      "implementation": "alacritty",
+      "observed_evidence": {
+        "cell_geometry": {
+          "cell_height_device_px": 19,
+          "cell_width_device_px": 10,
+          "columns": 80,
+          "content_height_device_px": 456,
+          "content_width_device_px": 800,
+          "rows": 24
+        },
+        "evidence_source": "idle-ready-pty-observation",
+        "pty_pixel_envelope_model": {
+          "cell_height_device_px": 19,
+          "cell_width_device_px": 10,
+          "height_remainder_device_px": 0,
+          "observations": [
+            {
+              "pty_columns": 190,
+              "pty_rows": 53,
+              "reported_height_device_px": 1007,
+              "reported_width_device_px": 1900
+            },
+            {
+              "pty_columns": 192,
+              "pty_rows": 56,
+              "reported_height_device_px": 1064,
+              "reported_width_device_px": 1920
+            },
+            {
+              "pty_columns": 80,
+              "pty_rows": 24,
+              "reported_height_device_px": 456,
+              "reported_width_device_px": 800
+            }
+          ],
+          "release_outcome": "target-grid",
+          "resize_attempt_bound": 2,
+          "resize_attempts": 1,
+          "resize_commands": [
+            {
+              "height": 472,
+              "width": 800
+            }
+          ],
+          "schema_version": 2,
+          "width_remainder_device_px": 0
+        },
+        "raw_idle_ready": {
+          "content_height_device_px": 456,
+          "content_width_device_px": 800,
+          "pty_columns": 80,
+          "pty_rows": 24
+        }
+      },
+      "process_outcome": {
+        "controller_stopped": true,
+        "exit_status": 0,
+        "started": true
+      },
+      "pty_pixel_envelope_model": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "height_remainder_device_px": 0,
+        "observations": [
+          {
+            "pty_columns": 190,
+            "pty_rows": 53,
+            "reported_height_device_px": 1007,
+            "reported_width_device_px": 1900
+          },
+          {
+            "pty_columns": 192,
+            "pty_rows": 56,
+            "reported_height_device_px": 1064,
+            "reported_width_device_px": 1920
+          },
+          {
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "reported_height_device_px": 456,
+            "reported_width_device_px": 800
+          }
+        ],
+        "release_outcome": "target-grid",
+        "resize_attempt_bound": 2,
+        "resize_attempts": 1,
+        "resize_commands": [
+          {
+            "height": 472,
+            "width": 800
+          }
+        ],
+        "schema_version": 2,
+        "width_remainder_device_px": 0
+      },
+      "raw_idle_ready": {
+        "content_height_device_px": 456,
+        "content_width_device_px": 800,
+        "pty_columns": 80,
+        "pty_rows": 24
+      },
+      "requested_config": {
+        "font_size": 12,
+        "method": "canonical-profile"
+      },
+      "sanitized_argv": [
+        "systemd-run",
+        "--user",
+        "--scope",
+        "--quiet",
+        "--unit=odytty-bench-probe-alacritty",
+        "--collect",
+        "--property=MemoryHigh=16G",
+        "--property=MemoryMax=24G",
+        "--property=MemorySwapMax=4G",
+        "--property=CPUQuota=800%",
+        "--property=RuntimeMaxSec=90s",
+        "--property=TimeoutStopSec=15s",
+        "--property=KillMode=mixed",
+        "--",
+        "alacritty",
+        "--config-file",
+        "$REPOSITORY/scripts/bench-protocol/configs/alacritty.toml",
+        "--class",
+        "org.odytty.bench.w9e1ebed11924b28670e4595e",
+        "-e",
+        "$PYTHON",
+        "$REPOSITORY/scripts/bench-protocol/driver.py",
+        "--workload",
+        "idle-visible-10m",
+        "--oracle-path",
+        "$PROBE_EVIDENCE/probe-alacritty.oracle.jsonl",
+        "--duration-seconds",
+        "30",
+        "--start-path",
+        "$PROBE_EVIDENCE/probe-alacritty.start",
+        "--geometry-ready-path",
+        "$PROBE_EVIDENCE/probe-alacritty.geometry-ready"
+      ],
+      "sanitized_launch_environment": {
+        "FONTCONFIG_FILE": "$FONT_ISOLATION_CONFIG",
+        "FONTCONFIG_PATH": "$FONT_ISOLATION_ROOT"
+      },
+      "schema_version": 3,
+      "window": {
+        "app_id": "org.odytty.bench.w9e1ebed11924b28670e4595e",
+        "height": 472,
+        "width": 800
+      },
+      "window_mapped": true
+    }
+  ],
+  "revalidated_qualified": [
+    "odytty",
+    "kitty",
+    "ghostty",
+    "alacritty"
+  ]
+}
