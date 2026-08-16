@@ -9,9 +9,9 @@
   ],
   "background_cpu_ceiling_percent": 10.0,
   "boot_and_settle_evidence": {
-    "boot_started_utc": "2026-08-15T22:16:00Z",
-    "login_ready_utc": "2026-08-15T22:16:26Z",
-    "measurement_not_before_utc": "2026-08-15T22:21:26Z",
+    "boot_started_utc": "2026-08-16T00:33:44Z",
+    "login_ready_utc": "2026-08-16T00:34:46Z",
+    "measurement_not_before_utc": "2026-08-16T00:39:46Z",
     "minimum_post_login_settle_seconds": 300
   },
   "cell_geometry_policy": "per-implementation-stable-observed-grid",
@@ -34,7 +34,7 @@
       "semantics": "cgroup v2 cpu.stat usage delta",
       "status": "available",
       "unit": "microseconds",
-      "version": "protocol-1.4.1; linux-kernel-7.1.6"
+      "version": "protocol-1.4.1; linux-kernel-7.1.6-arch1-1"
     },
     {
       "collector": "cgroup-memory",
@@ -51,7 +51,7 @@
       "semantics": "cgroup v2 memory.current and memory.peak in bytes; breakdown fields reported under their exact cgroup field names",
       "status": "available",
       "unit": "bytes",
-      "version": "protocol-1.4.1; linux-kernel-7.1.6"
+      "version": "protocol-1.4.1; linux-kernel-7.1.6-arch1-1"
     },
     {
       "collector": "sched-wakeup",
@@ -62,7 +62,7 @@
       "remedy": "a privileged collector run (root-owned tracefs access) would make this metric available; it must then be preregistered as a privileged collector for every compared implementation equally",
       "required_privilege": "none",
       "status": "unsupported",
-      "version": "protocol-1.4.1; linux-kernel-7.1.6"
+      "version": "protocol-1.4.1; linux-kernel-7.1.6-arch1-1"
     },
     {
       "collector": "context-switches",
@@ -74,7 +74,7 @@
       "semantics": "voluntary and involuntary context switches summed over the process tree, diagnostic only",
       "status": "available",
       "unit": "switches",
-      "version": "protocol-1.4.1; linux-kernel-7.1.6"
+      "version": "protocol-1.4.1; linux-kernel-7.1.6-arch1-1"
     },
     {
       "collector": "drm-fdinfo",
@@ -109,7 +109,7 @@
       "semantics": "standardized DRM client resident-region fields from /proc/<pid>/fdinfo, attributed to the registered process tree",
       "status": "available",
       "unit": "bytes",
-      "version": "protocol-1.4.1; linux-kernel-7.1.6"
+      "version": "protocol-1.4.1; linux-kernel-7.1.6-arch1-1"
     }
   ],
   "configurations": [
@@ -179,15 +179,15 @@
     ],
     "external_power_state": "external",
     "gpu_class": "discrete/integrated class, kernel driver: i915",
-    "graphics_driver": "Intel UHD Graphics 620; i915 in Linux 7.1.6; Mesa 1:26.1.6-1",
-    "keyboard_connection_class": "integrated i8042/PS2-class keyboard; virtual HID receiver present",
+    "graphics_driver": "Intel UHD Graphics 620; i915 in Linux 7.1.6-arch1-1; Mesa 1:26.1.6-1",
+    "keyboard_connection_class": "integrated i8042/PS2-class keyboard",
     "memory_class": "8-16 GiB",
     "optical_apparatus_model_class": "none; no optical capture apparatus",
-    "os_build": "linux 7.1.6",
+    "os_build": "linux 7.1.6-arch1-1",
     "power_policy": "performance",
     "power_source": "AC",
     "storage_class": "NVME solid-state storage (LUKS-encrypted btrfs root)",
-    "thermal_and_cooling": "integrated active cooling (Processor, TCC Offset, intel_powerclamp); preparation CPU package 65 C; observed thermal-zone range 20-75 C",
+    "thermal_and_cooling": "integrated active cooling (Processor, TCC Offset, intel_powerclamp); preparation CPU package 45 C; observed thermal-zone range 0-45 C",
     "virtualized_or_remote": "no"
   },
   "fixtures": [
@@ -350,8 +350,8 @@
       "pty_pixel_envelope_model": {
         "cell_height_device_px": 19,
         "cell_width_device_px": 10,
-        "height_remainder_device_px": 17,
-        "width_remainder_device_px": 2
+        "height_remainder_device_px": 16,
+        "width_remainder_device_px": 0
       },
       "revision": "1.3.1-2",
       "target_grid_met": true,
@@ -445,9 +445,9 @@
   "replacement_limit_per_invalid_attempt": 1,
   "reporting_rule": "no significance threshold, composite score, weighted total, or overall winner; favourable and unfavourable results are published together",
   "run_set": {
-    "bootstrap_seed": "174dcc1c-w6-bootstrap-20260815-r4",
-    "id": "odytty-v0.11.0-w6-linux-174dcc1c-20260815-r4",
-    "order_seed": "174dcc1c-w6-order-20260815-r4",
+    "bootstrap_seed": "174dcc1c-w6-bootstrap-20260816-r5",
+    "id": "odytty-v0.11.0-w6-linux-174dcc1c-20260816-r5",
+    "order_seed": "174dcc1c-w6-order-20260816-r5",
     "statistics_implementation": "scripts/bench-protocol/summaries.py",
     "statistics_revision": "174dcc1cc8dbf333d3d394fdc9b2115908c1b5a1",
     "statistics_sha256": "793f04330f639f2ee8a4f5f104fcd5bd0d8968cd4397ca6bb4efcfe2b7d6d91f"
@@ -472,10 +472,10 @@
         "plain"
       ],
       "implementation_order": [
-        "alacritty",
         "odytty",
-        "ghostty",
-        "kitty"
+        "alacritty",
+        "kitty",
+        "ghostty"
       ]
     },
     {
@@ -484,10 +484,10 @@
         "plain"
       ],
       "implementation_order": [
-        "ghostty",
-        "alacritty",
         "kitty",
-        "odytty"
+        "odytty",
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -496,10 +496,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
         "ghostty",
-        "odytty",
-        "alacritty"
+        "kitty",
+        "alacritty",
+        "odytty"
       ]
     },
     {
@@ -508,10 +508,10 @@
         "plain"
       ],
       "implementation_order": [
-        "odytty",
-        "kitty",
         "alacritty",
-        "ghostty"
+        "ghostty",
+        "odytty",
+        "kitty"
       ]
     },
     {
@@ -520,10 +520,10 @@
         "plain"
       ],
       "implementation_order": [
-        "alacritty",
         "odytty",
-        "ghostty",
-        "kitty"
+        "alacritty",
+        "kitty",
+        "ghostty"
       ]
     },
     {
@@ -532,10 +532,10 @@
         "plain"
       ],
       "implementation_order": [
-        "ghostty",
-        "alacritty",
         "kitty",
-        "odytty"
+        "odytty",
+        "ghostty",
+        "alacritty"
       ]
     }
   ],
