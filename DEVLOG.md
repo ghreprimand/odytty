@@ -7,7 +7,7 @@ durable product/architecture decisions.
 
 ---
 
-## 2026-08-16 -- Bounded checks of the published v0.11.1 Linux packages
+## 2026-08-16 -- Bounded checks of the published v0.11.1 Linux and macOS packages
 
 The four published v0.11.1 Linux artifacts (binary tarball, AppImage, Debian
 package, and RPM) were re-downloaded from the release and checked: the
@@ -17,11 +17,17 @@ metadata lists the expected dependencies and Freedesktop files, and the
 payload binary from each package executes and reports version 0.11.1 (the deb
 and rpm payloads extracted without installation).
 
-This is an artifact-integrity and binary-execution check on one Linux machine,
-deliberately narrower than the v0.10.0 cross-platform package smoke pass;
-macOS and Windows package checks were not repeated for v0.11.x, and public
-documentation records that distinction instead of extending the v0.10.0
-claim to the newer artifacts.
+On macOS, the Homebrew channel was exercised end to end on an Apple Silicon
+machine: `brew update` picked up the tap's automated v0.11.1 bump,
+`brew upgrade --cask odytty` installed it, and the upgraded app launches and
+runs. (The same session surfaced Homebrew 6's new tap-trust warnings for
+unrelated third-party taps; the OdyTTY tap itself was unaffected.)
+
+These are artifact-integrity, install-channel, and binary-execution checks on
+one machine per platform, deliberately narrower than the v0.10.0
+cross-platform package smoke pass; Windows package checks were not repeated
+for v0.11.x, and public documentation records that distinction instead of
+extending the v0.10.0 claim to the newer artifacts.
 
 ## 2026-08-16 -- Release v0.11.1 — Theme builder back navigation and readable layout
 
