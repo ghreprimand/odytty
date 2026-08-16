@@ -142,9 +142,9 @@ workflows, settings, and platform-specific behavior.
 OdyTTY is a broad pre-1.0 terminal. Version 0.11.1 is published; its four
 Linux packages received bounded post-publish artifact checks (Minisign
 signature and checksum verification, package metadata inspection, and
-execution of each package's binary), and the macOS Homebrew upgrade path was
-confirmed on an Apple Silicon machine (automated tap bump, cask upgrade, and
-app launch). Windows package checks were not repeated for v0.11.x. The fuller
+execution of each package's binary), and the macOS Homebrew and Windows Scoop
+upgrade paths were each confirmed on real hardware (automated version bump
+picked up, package upgraded, app launches and runs). The fuller
 cross-platform package smoke pass remains recorded against v0.10.0: bounded post-release checks of the
 v0.10.0 shipped Linux, macOS Apple Silicon, and Windows packages completed
 without a reported blocker, and a matched visual pass against comparable

@@ -7,7 +7,7 @@ durable product/architecture decisions.
 
 ---
 
-## 2026-08-16 -- Bounded checks of the published v0.11.1 Linux and macOS packages
+## 2026-08-16 -- Bounded checks of the published v0.11.1 packages on all three platforms
 
 The four published v0.11.1 Linux artifacts (binary tarball, AppImage, Debian
 package, and RPM) were re-downloaded from the release and checked: the
@@ -23,11 +23,14 @@ machine: `brew update` picked up the tap's automated v0.11.1 bump,
 runs. (The same session surfaced Homebrew 6's new tap-trust warnings for
 unrelated third-party taps; the OdyTTY tap itself was unaffected.)
 
+On Windows, the Scoop channel was exercised the same way: a Scoop update
+picked up the manifest's automated v0.11.1 bump, installed it, and the
+updated app launches and runs.
+
 These are artifact-integrity, install-channel, and binary-execution checks on
-one machine per platform, deliberately narrower than the v0.10.0
-cross-platform package smoke pass; Windows package checks were not repeated
-for v0.11.x, and public documentation records that distinction instead of
-extending the v0.10.0 claim to the newer artifacts.
+one machine per platform, narrower than the v0.10.0 cross-platform package
+smoke pass (which also covered a matched visual comparison and broader
+interaction surfaces); that fuller pass remains recorded against v0.10.0.
 
 ## 2026-08-16 -- Release v0.11.1 — Theme builder back navigation and readable layout
 
