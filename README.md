@@ -185,6 +185,7 @@ platform gates, and pre-commit checks.
 - [Keybindings](docs/keybindings.md)
 - [Accessibility](docs/accessibility.md)
 - [Diagnostics](docs/diagnostics.md)
+- [Benchmarks: protocol, apparatus, and results](docs/benchmark-results.md)
 - [Architecture specification](SPEC.md)
 - [Complete documentation index](docs/README.md)
 

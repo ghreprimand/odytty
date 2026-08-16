@@ -223,6 +223,8 @@ result schema and its validator, and the preregistration record generator.
 machine-readable form of this document's availability tables against the live
 host.
 
-No comparative result set has been published. `TODO.md` records matched
-comparative numbers as outstanding, and the reasons above — not scheduling —
-are why.
+One comparative result set has been published: the W6 idle comparison
+(`docs/benchmark-results.md`), whose endpoint is defined entirely in
+software and therefore needs none of the missing apparatus. Every
+optical-endpoint workload remains unmeasured for the reasons above — not
+scheduling — and `TODO.md` records that boundary.

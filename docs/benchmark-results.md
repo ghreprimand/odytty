@@ -1,28 +1,89 @@
-# Benchmark results: W6 idle comparison (v0.11.0 release candidate)
+# Comparative benchmark results
 
-One protocol-valid comparative run set exists. It was executed under
-`docs/benchmark-protocol.md` protocol version 1.4.1 against the
-preregistration anchored at `bench-results/preregistration.json`
-(run set `odytty-v0.11.0-w6-linux-174dcc1c-20260816-r5`). The full
-result document, raw samples, availability record, and evidence
-manifest are published in `bench-results/`.
+This page is the canonical record of OdyTTY's comparative benchmark
+program: what governs a measurement, how the published run was produced,
+the environment it ran in, the numbers, and exactly what those numbers do
+and do not support.
 
-This page reports exactly what was measured. It declares no overall
-winner, computes no composite score, and applies no significance
-threshold, per the protocol's reporting rule.
+The program publishes three documents plus the evidence files:
 
-## What was measured
+| Document | Role |
+| --- | --- |
+| [`benchmark-protocol.md`](benchmark-protocol.md) | The preregistered protocol: workloads, oracles, noise controls, statistics, and reporting rules. Fixed before any measurement. |
+| [`benchmark-apparatus.md`](benchmark-apparatus.md) | What the current apparatus can and cannot measure, and why the optical-endpoint workloads are not measured in software. |
+| This page | The executed run sets and their results. |
+| `bench-results/` (repository root) | The evidence: anchored preregistration, validated result document, raw samples, availability record, evidence manifest. |
 
-**W6 (`idle-visible-10m`)**: one visible, focused, unobscured terminal
-window at a per-implementation stable 80x24 grid, running an idle shell
-prompt, measured for 600 seconds after a 60-second settle. Five
-measured replicates per implementation in a seeded balanced Latin-square
-order, after one discarded rehearsal block. Each replicate's process
-tree ran in a private cgroup; CPU and memory figures come from cgroup
-v2 accounting of that tree alone. A per-replicate oracle (process and
-child alive, window mapped, focused, unobscured, viewport and content
-unchanged, no output bytes) passed on every measured sample: 0 failed,
-0 invalid, 0 deviations, 0 incomplete reasons.
+## Run sets
+
+One protocol-valid run set has been executed and published.
+
+| | |
+| --- | --- |
+| Run set | `odytty-v0.11.0-w6-linux-174dcc1c-20260816-r5` |
+| Workload | W6 `idle-visible-10m` (the sole workload whose endpoint is defined entirely in software) |
+| Protocol version | 1.4.1 |
+| OdyTTY revision | `174dcc1c` (v0.11.0 release candidate, clean-source release build) |
+| Preregistration anchored | 2026-08-16, commit `37f1f3fc` on `master`, before any measurement |
+| Session executed | 2026-08-16, 00:49-04:47 UTC, on a fresh boot (00:33 UTC) after the preregistered 5-minute post-login settle |
+| Outcome | `complete`: 0 failures, 0 invalid samples, 0 deviations, 0 incomplete reasons |
+
+## How the run was produced
+
+The protocol makes the plan tamper-evident and the execution fail-closed;
+each step below is enforced by the harness (`scripts/bench-protocol/`),
+not by convention.
+
+1. **Preregistration.** Every governing value (implementations and their
+   artifact digests, configuration and font digests, per-implementation
+   cell geometry, execution order seed, bootstrap seed, environment
+   attestations, validity ceilings, planned and skipped workloads) was
+   pinned into a preregistration record and validated by the pinned
+   checker.
+2. **Public anchor.** The exact preregistration bytes were committed to
+   this repository (`bench-results/preregistration.json`) and pushed
+   before measurement. The result document binds the record's SHA-256, so
+   the plan cannot be edited after the fact without breaking validation.
+3. **Qualification.** Each terminal was launched once and had to map a
+   native-Wayland window at its registered 80x24 grid, reproduce its
+   registered pixel-envelope model, and reach an idle-ready prompt. All
+   four qualified with zero blockers.
+4. **Rehearsal.** Block 1 ran every terminal through a paired
+   uninstrumented/instrumented 120-second rehearsal that gates
+   instrumentation overhead (ceiling 5 percent) and environment validity.
+   Rehearsal samples are discarded from the statistics by design.
+5. **Measurement.** Blocks 2-6 produced five replicates per terminal in a
+   seeded balanced Latin-square order. Each replicate launched the
+   terminal in a private cgroup on an otherwise empty desktop, settled
+   60 seconds, then measured 600 seconds of idle. A per-replicate oracle
+   (process and child alive, window mapped, focused, unobscured, viewport
+   and content unchanged, no output bytes) had to pass for the sample to
+   count; a condition that cannot be checked fails the oracle rather than
+   passing it.
+6. **Validation.** The assembled document was validated against the
+   anchored preregistration before the runner exited, and again
+   independently before publication.
+
+Sustained system-wide background CPU measured 0.18 percent immediately
+before launch, against the preregistered 10.0 percent ceiling.
+
+## Measurement unit
+
+Reported exactly as the published environment record states it. The
+protocol publishes environment *classes* rather than machine-identifying
+detail.
+
+| | |
+| --- | --- |
+| Platform | Linux (`linux 7.1.6-arch1-1`), x86_64, 8 logical cores |
+| Compositor | Hyprland v0.56.2, native Wayland |
+| Display | 1920x1080 at 60.010 Hz, scale 1.0, transform 0 |
+| Graphics | Intel UHD Graphics 620; `i915`; Mesa 1:26.1.6-1 |
+| Memory | 8-16 GiB class |
+| Storage | NVMe solid-state (LUKS-encrypted btrfs root) |
+| Power | AC (external) for the whole session; fixed performance CPU policy |
+| Thermal | Integrated active cooling; preparation CPU package 45 C |
+| Session | Fresh boot, empty desktop, idle/DPMS inhibited, update/backup/index timers stopped, no other applications |
 
 ## Comparison set
 
@@ -33,24 +94,23 @@ unchanged, no output bytes) passed on every measured sample: 0 failed,
 | Ghostty | 1.3.1 | distribution package |
 | Alacritty | 0.17.0 | distribution package |
 
-All four ran native Wayland with a shared DejaVu Sans Mono face,
-matched foreground/background colors, and tracked benchmark
-configuration profiles (digests in the preregistration). WezTerm is
-outside this machine's preregistered comparison set: it is known
-nonfunctional on this unit and received no launch, probe, or
-measurement.
+All four ran native Wayland with identical DejaVu Sans Mono Book font
+bytes, matched foreground/background colors, and tracked benchmark
+configuration profiles (all digests pinned in the preregistration). Each
+terminal ran at exactly 80x24 with its own stable pixel pitch pinned and
+published; the protocol records the remaining pitch difference as a
+limitation rather than asserting a device-pixel match no configuration
+produces.
 
-**Environment:** Hyprland v0.56.2 (native Wayland), 1920x1080 at
-60.010 Hz, Linux 7.1.6, 8 logical cores, Intel UHD Graphics 620
-(i915), AC power, performance CPU policy, fresh boot, empty desktop,
-no other applications. Sustained background CPU before launch measured
-0.18 percent against the preregistered 10.0 percent ceiling.
+WezTerm is outside this unit's preregistered comparison set: it is known
+nonfunctional on this unit and received no launch, probe, or measurement.
 
-## Results
+## Results: W6 idle (2026-08-16)
 
 Medians over five replicates with 95 percent percentile-bootstrap
 confidence intervals (10,000 resamples, preregistered seed). Lower is
-better for every metric shown.
+better for every metric shown. No overall winner is declared and no
+composite score is computed, per the protocol's reporting rule.
 
 ### Idle CPU (normalized percent of one core)
 
@@ -97,41 +157,52 @@ better for every metric shown.
 | OdyTTY | 1000 | [1000, 1003] |
 | Ghostty | 6472 | [6440, 6490] |
 
+CPU and memory figures come from cgroup v2 accounting of each terminal's
+private process tree; nothing outside that tree contributes to its
+numbers.
+
 ## Reading the numbers honestly
 
-On this unit, OdyTTY's idle CPU cost sits with Kitty and Alacritty:
-all three idle in the 0.007-0.011 percent band (paired ratio medians:
-1.48x Kitty, 1.27x Alacritty), while Ghostty idles roughly twenty
-times higher. OdyTTY's memory footprint is the largest of the four:
-roughly 2.1x Kitty, 3.1x Ghostty, and 4.9x Alacritty on current
-memory. Both findings are published as measured. The memory footprint
-is a real cost of the current renderer and font-atlas architecture and
-is a known optimization target, not an artifact of the measurement.
+On this unit, OdyTTY's idle CPU cost sits with Kitty and Alacritty: all
+three idle in the 0.007-0.011 percent band (paired ratio medians: 1.48x
+Kitty, 1.27x Alacritty), while Ghostty idles roughly twenty times higher.
+OdyTTY's memory footprint is the largest of the four: roughly 2.1x Kitty,
+3.1x Ghostty, and 4.9x Alacritty on current memory. Both findings are
+published as measured. The memory footprint is a real cost of the current
+renderer and font-atlas architecture and is a known optimization target,
+not an artifact of the measurement.
 
 ## What was not measured, and why
 
-- **GPU memory** (`gpu_memory`): unsupported on this unit. The i915
-  fdinfo interface did not expose the standardized `drm-resident-*`
-  fields for the measured processes on this kernel. Recorded per
-  replicate as `unsupported`, never approximated.
-- **Idle wake events** (`idle_wake_events`): unsupported without root
-  tracing privileges, which the protocol run does not use.
-- **Optical-endpoint workloads** (startup latency, input latency,
-  throughput, resize): skipped as `unavailable-hardware`. Their
-  endpoints are defined by an external stimulus edge and a display
-  photosensor on a shared capture clock; this unit has no such
-  apparatus, and the protocol forbids re-defining those endpoints in
-  software under the same name.
-- **W6 long-session (4 h) workload**: skipped as `budget-exhausted`
-  within the preregistered 4.05-hour session budget.
+| Item | Status | Reason |
+| --- | --- | --- |
+| GPU memory | `unsupported` (per replicate) | The `i915` fdinfo interface did not expose the standardized `drm-resident-*` fields for the measured processes on this kernel. Never approximated. |
+| Idle wake events | `unsupported` (per replicate) | Requires root tracing privileges, which the protocol run does not use. |
+| Startup, input latency, throughput, resize workloads | `unavailable-hardware` skip | Their endpoints are an external stimulus edge plus a display photosensor on a shared capture clock; this unit has no such apparatus, and the protocol forbids re-defining optical endpoints in software under the same name. See [`benchmark-apparatus.md`](benchmark-apparatus.md). |
+| W6 long-session (4 h) workload | `budget-exhausted` skip | Three four-hour replicates per implementation exceed the preregistered 4.05-hour session budget. |
+
+`unsupported`, `unavailable-hardware`, and `budget-exhausted` are distinct
+recorded states, not gaps: every planned sample is accounted for.
 
 ## Limitations
 
 Single comparison unit, single operating system, single compositor,
 single session: these figures describe one Linux laptop under Hyprland
 and are not generalized to other hardware, drivers, or platforms. The
-ambient desktop session ran throughout; every implementation was
-measured under the same session, which supports the relative
-comparison but not an absolute idle-cost figure. Latency and
-throughput claims are out of scope entirely; nothing here speaks to
-input latency, rendering speed, or interactive performance.
+ambient desktop session ran throughout; every implementation was measured
+under the same session, which supports the relative comparison but not an
+absolute idle-cost figure. Latency and throughput claims are out of scope
+entirely; nothing here speaks to input latency, rendering speed, or
+interactive performance.
+
+## Evidence index
+
+All in `bench-results/` at the repository root:
+
+| File | Content |
+| --- | --- |
+| `preregistration.json` | The anchored plan the run was measured against (SHA-256 bound into the result document) |
+| `w6-results.json` | The validated result document: per-replicate samples, summaries, confidence intervals, pairwise differences and ratios |
+| `raw-samples.jsonl` | One record per launch, rehearsal included, with oracle outcomes |
+| `availability.json` | The qualification probe record for all four terminals |
+| `evidence-manifest.json` | Digests binding the public evidence set |

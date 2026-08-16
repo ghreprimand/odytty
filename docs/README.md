@@ -55,6 +55,8 @@ scaling behavior.
 - [Parser and graphics fuzzing guide](../fuzz/parser_graphics/README.md)
 - [Native decomposition record](native-decomposition.md)
 - [Comparative benchmark protocol](benchmark-protocol.md)
+- [Comparative benchmark apparatus statement](benchmark-apparatus.md)
+- [Comparative benchmark results: W6 idle](benchmark-results.md)
 - [Terminal threat model](threat-model.md)
 - [Pinned vttest methodology and results](compatibility/vttest.md)
 - [Dynamic-analysis lanes](dynamic-analysis.md)

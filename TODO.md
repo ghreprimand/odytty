@@ -1303,22 +1303,23 @@ stay pinned to the revisions they measured.
       `docs/compatibility/real-application-smoke.md` with an exact artifact,
       application version, and evidence reference per row. The bounded
       post-release package smoke pass does not fill them.
-- [ ] Matched comparative performance numbers under the preregistered protocol
-      in `docs/benchmark-protocol.md`. Deferred for the specific reasons
-      recorded in `docs/benchmark-apparatus.md`: the interactive and stream
-      workloads define optical measurement endpoints (external stimulus
-      controller and display photosensor on a shared capture clock) that the
-      current apparatus does not provide, and the protocol forbids
-      substituting software timestamps; the eligible reference set on the
-      measurement host is also incomplete. The execution harness,
-      preregistration tooling, statistics, and result-schema validator are
-      built (`scripts/bench-protocol/`) so measurement can start when the
-      apparatus exists. Internal before/after microbenchmarks remain
+- [ ] Comparative performance numbers under the preregistered protocol in
+      `docs/benchmark-protocol.md` — partially delivered. The W6 idle
+      comparison is executed and published (`docs/benchmark-results.md`,
+      raw samples in `bench-results/`): OdyTTY, Kitty, Ghostty, and
+      Alacritty at protocol 1.4.1, five measured replicates each, zero
+      failures or deviations, no overall winner declared. The remaining
+      workloads stay deferred for the specific reasons recorded in
+      `docs/benchmark-apparatus.md`: the interactive and stream workloads
+      define optical measurement endpoints (external stimulus controller and
+      display photosensor on a shared capture clock) that the current
+      apparatus does not provide, and the protocol forbids substituting
+      software timestamps. Internal before/after microbenchmarks remain
       implementation measurements, not product comparisons.
       Protocol 1.3.0 additionally records a measured feasibility finding: the
       complete declared calibration search over OdyTTY, Kitty, Ghostty, and
       Alacritty found no common device-pixel cell grid on the measurement
-      host, so the protocol now controls the grid per implementation — exact
+      host, so the protocol controls the grid per implementation — exact
       80x24 on identical font bytes, colors, and profiles, with each
       terminal's own pixel pitch pinned and published — and states the
       remaining pitch difference as a limitation instead of asserting a match
