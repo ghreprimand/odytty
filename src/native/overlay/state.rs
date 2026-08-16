@@ -90,7 +90,10 @@ pub(in crate::native) struct OverlayUi {
     /// True while `ThemeBuilder` is the active mode AND it was entered from
     /// `ThemePicker` (via `ThemePickerOutcome::OpenBuilder`). Esc / back-button
     /// in this state navigates back to `ThemePicker` rather than closing the
-    /// whole overlay. False for the standalone / Settings-launched path.
+    /// whole overlay. False for the Settings-launched path (which returns to
+    /// the settings panel via `picker_return`, same contract as the pickers)
+    /// and for the standalone paths (keyboard shortcut, theme capture), which
+    /// close.
     pub(super) builder_from_picker: bool,
     /// The pending host + target tab carried by the replace-tab confirm dialog
     /// (ODP-5D). Set when the dialog opens (the clicked tab held a running
@@ -295,7 +298,10 @@ impl OverlayUi {
         self.theme_builder.open(settings);
         self.mode = OverlayMode::ThemeBuilder;
         self.open = true;
-        // Standalone / Settings-launched path: back-button closes, not ThemePicker.
+        // Not entered from ThemePicker. Back-button behavior is decided by
+        // `picker_return`: the Settings-launched path sets it (return to the
+        // panel); the standalone keyboard-shortcut path leaves it `None`
+        // (close).
         self.builder_from_picker = false;
     }
 
@@ -726,7 +732,15 @@ impl OverlayUi {
                 });
                 OverlayOutcome::OpenThemePicker
             }
-            SettingsPanelOutcome::OpenThemeBuilder => OverlayOutcome::OpenThemeBuilder,
+            SettingsPanelOutcome::OpenThemeBuilder => {
+                // Same return contract as the pickers: remember the panel level
+                // so the builder's Esc / back navigates back to the settings
+                // panel instead of closing the whole overlay.
+                self.picker_return = Some(PickerReturn {
+                    level: self.panel.current_level(),
+                });
+                OverlayOutcome::OpenThemeBuilder
+            }
             SettingsPanelOutcome::OpenKeyBindings => OverlayOutcome::OpenKeyBindings,
             SettingsPanelOutcome::OpenFontPicker => {
                 self.picker_return = Some(PickerReturn {

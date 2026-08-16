@@ -669,12 +669,17 @@ impl OverlayUi {
             ThemeBuilderOutcome::Cancel(theme) => {
                 let settings = self.settings_with_theme(theme);
                 self.settings = settings.clone();
-                // If the builder was opened from ThemePicker, Esc / back-button
-                // navigates back to it rather than closing the whole overlay.
-                // For the standalone / Settings-launched path, close as before.
+                // Esc / back-button navigates to wherever the builder was
+                // opened from: ThemePicker when entered via its edit row,
+                // the settings panel (at the remembered level) when entered
+                // via the Themes section action row, and a full close only
+                // for the standalone paths (keyboard shortcut, theme
+                // capture).
                 if self.builder_from_picker {
                     self.builder_from_picker = false;
                     self.mode = OverlayMode::ThemePicker;
+                } else if self.picker_return.is_some() {
+                    self.return_to_settings_panel();
                 } else {
                     self.close();
                 }

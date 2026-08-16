@@ -7,6 +7,46 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-16 -- Theme builder: back navigation and readable layout
+
+Two navigation defects and a layout revision in the theme editor, from
+post-release daily use.
+
+**Back returns to where the builder was opened from.** The builder can be
+entered three ways: from the theme picker's edit row, from the settings
+panel's Themes section, and standalone (keyboard shortcut, theme capture).
+The picker path already navigated back correctly; the Settings path closed
+the entire overlay instead of returning to the Themes section. It now
+follows the same return contract as the theme and font pickers: the panel
+level is remembered on entry and restored on Esc / back. This also fixes a
+follow-on defect: the force-close left the settings panel parked on the
+Themes section, so the next overlay open resumed deep in Themes instead of
+at the section list. Every normal exit walks back to the section list; the
+builder's force-close was the only path that could strand the panel deep.
+A regression test drives the full production path (drill into Themes,
+activate the builder action row, Esc) and asserts the panel resumes at the
+Themes section with the overlay open.
+
+**The key reference no longer disappears.** The builder's usage help
+(channel keys, snap, generate, capture, hex entry, save) was packed into
+the transient status message shown on open, so the first status change —
+clicking a channel, applying a value — deleted the only copy of the help.
+The help is now a fixed rendered line that survives every status change,
+and the status region occupies exactly two rows (wrapped, then padded), so
+a status appearing, changing, or clearing never shifts the controls and
+role list below it. A regression test pins both invariants.
+
+**Header regrouped for readability.** The old header stacked two
+near-duplicate help/contrast lines above the controls and read as a wall
+of text. The layout is now: draft name and fg/bg contrast on one line, the
+channel picker and slider, the selected-role contrast readout directly
+under the slider it describes, a blank separator, the persistent key
+reference, and the fixed status region — then the preview rows and the
+role list, unchanged.
+
+Full local gate: fmt, clippy -D warnings, cargo test --locked 4,648
+passed, 0 failed.
+
 ## 2026-08-16 -- Release v0.11.0 — External-review response, graphics completeness, and shaping maturity
 
 Version 0.11.0 responds to an independent technical review of the pre-0.11.0

@@ -637,3 +637,52 @@ fn theme_builder_esc_standalone_closes_overlay() {
         "standalone builder Esc closes the overlay"
     );
 }
+
+#[test]
+fn theme_builder_esc_from_settings_returns_to_settings_panel() {
+    // ThemeBuilder opened from the settings panel (the Themes section's
+    // "Open Theme Builder" action row): Esc / back-button returns to the
+    // settings panel at the Themes section, not a full overlay close, and
+    // never leaves the panel parked at a deep level for the next open.
+    let mut overlay = OverlayUi::default();
+    overlay.open_settings();
+    // Drill into Themes (the first section), then activate the last row —
+    // the synthetic "Open Theme Builder" action row.
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        OverlayOutcome::Consumed
+    );
+    assert_eq!(
+        overlay.handle_input(OverlayInput::End),
+        OverlayOutcome::Consumed
+    );
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        OverlayOutcome::OpenThemeBuilder,
+        "the Themes action row opens the builder"
+    );
+    // The App bounces OpenThemeBuilder into open_theme_builder.
+    let settings = overlay.settings.clone();
+    overlay.open_theme_builder(&settings);
+    assert_eq!(overlay.render_signature().mode, OverlayMode::ThemeBuilder);
+
+    let outcome = overlay.handle_input(OverlayInput::Close);
+    assert!(
+        matches!(outcome, OverlayOutcome::ApplySettings(_)),
+        "builder Esc emits ApplySettings (restore theme)"
+    );
+    assert!(
+        overlay.is_open(),
+        "builder Esc from the Settings path keeps the overlay open"
+    );
+    assert_eq!(
+        overlay.render_signature().mode,
+        OverlayMode::Settings,
+        "builder Esc returns to the settings panel"
+    );
+    assert_eq!(
+        overlay.settings_active_section_for_test(),
+        Some("Themes"),
+        "the panel resumes at the Themes section it was left on"
+    );
+}

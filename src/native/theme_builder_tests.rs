@@ -679,3 +679,46 @@ fn applying_a_capture_mid_edit_keeps_the_draft_name() {
     assert_eq!(builder.spec.name, "first-name");
     assert_eq!(builder.spec.foreground, (0x01, 0x02, 0x03));
 }
+
+#[test]
+fn help_line_persists_and_status_region_is_fixed_height() {
+    // The key-reference help line is a fixed rendered element: it must
+    // survive any status change (a channel click replaces the open status,
+    // which previously deleted the only copy of the help). The transient
+    // status region always occupies exactly two rows, so a status appearing,
+    // changing, or clearing never shifts the preview/role rows below it.
+    let settings = Settings::default();
+    let mut builder = ThemeBuilder::new(&settings);
+    builder.open(&settings);
+
+    let help_marker = "Tab/[ ] channel";
+    let rows_with_status = builder.build_rows(W, H);
+    assert!(
+        rows_with_status
+            .iter()
+            .any(|(line, _)| line.text.contains(help_marker)),
+        "help line rendered while the open status is showing"
+    );
+    let first_field_with_status = rows_with_status
+        .iter()
+        .position(|(_, zone)| matches!(zone, BuilderZone::Field(_)))
+        .expect("role rows present");
+
+    // Clear the status entirely — the strongest layout-shift case.
+    builder.message = None;
+    let rows_without_status = builder.build_rows(W, H);
+    assert!(
+        rows_without_status
+            .iter()
+            .any(|(line, _)| line.text.contains(help_marker)),
+        "help line still rendered after the status is cleared"
+    );
+    let first_field_without_status = rows_without_status
+        .iter()
+        .position(|(_, zone)| matches!(zone, BuilderZone::Field(_)))
+        .expect("role rows present");
+    assert_eq!(
+        first_field_with_status, first_field_without_status,
+        "clearing the status must not shift the role rows"
+    );
+}

@@ -270,10 +270,7 @@ impl ThemeBuilder {
 
     pub(super) fn open(&mut self, settings: &Settings) {
         *self = Self::from_theme(settings.theme);
-        self.message = Some(
-            "Clone active theme. Tab or [/] picks L/C/H, Left/Right or drag adjust, F snaps to AA, G generates from a seed, C captures live colors, Enter types hex, Ctrl+S saves."
-                .to_owned(),
-        );
+        self.message = Some("Cloned the active theme into a new draft.".to_owned());
     }
 
     /// Load a captured draft (THEME-CAPTURE): the editor opens on the pane's
@@ -457,31 +454,18 @@ impl ThemeBuilder {
             )
         };
 
-        rows.push(inert(
-            ellipsize(
-                "  Theme builder - Tab/[ ] L/C/H, Left/Right or drag adjust, F snap AA, G generate, Ctrl+S save",
-                body_width,
-            ),
-            None,
-        ));
-
+        // Header group: draft identity on one line, then the channel controls,
+        // then the selected-role readout that the slider acts on.
         let ratio = contrast_ratio(self.spec.foreground, self.spec.background);
         rows.push(inert(
             ellipsize(
                 &format!(
-                    "  name={}  fg/bg contrast={ratio:.2}{}",
+                    "  Theme: {}    fg/bg contrast {ratio:.2}{}",
                     self.spec.name,
-                    if ratio < 4.0 { " below 4.0" } else { "" }
+                    if ratio < 4.0 { " (below 4.0)" } else { "" }
                 ),
                 body_width,
             ),
-            None,
-        ));
-
-        // Selected-role contrast readout (inert), then the channel picker and the
-        // focused-channel slider — the two new mouse-driven controls.
-        rows.push(inert(
-            ellipsize(&self.contrast_readout_line(), body_width),
             None,
         ));
 
@@ -515,13 +499,40 @@ impl ThemeBuilder {
             )),
         }
 
-        if let Some(message) = self.message.as_deref() {
-            for wrapped in wrap_words(message, body_width.saturating_sub(4)) {
-                if rows.len() >= body_height {
-                    rows.truncate(body_height);
-                    return rows;
-                }
-                rows.push(inert(format!("    {wrapped}"), None));
+        // Selected-role contrast readout, directly under the slider it
+        // describes.
+        rows.push(inert(
+            ellipsize(&self.contrast_readout_line(), body_width),
+            None,
+        ));
+
+        // Persistent key reference: a fixed help line that never disappears
+        // (the transient status below comes and goes; the help must not).
+        rows.push(inert(String::new(), None));
+        rows.push(inert(
+            ellipsize(
+                "  Tab/[ ] channel   Left/Right adjust   F snap AA   G generate   C capture   Enter hex   Ctrl+S save",
+                body_width,
+            ),
+            None,
+        ));
+
+        // Transient status region: always exactly two rows (wrapped, then
+        // padded), so a status appearing, changing, or clearing never shifts
+        // the rows below it.
+        let status_rows: Vec<String> = self
+            .message
+            .as_deref()
+            .map(|message| wrap_words(message, body_width.saturating_sub(4)))
+            .unwrap_or_default();
+        for slot in 0..2usize {
+            if rows.len() >= body_height {
+                rows.truncate(body_height);
+                return rows;
+            }
+            match status_rows.get(slot) {
+                Some(wrapped) => rows.push(inert(format!("    {wrapped}"), None)),
+                None => rows.push(inert(String::new(), None)),
             }
         }
 

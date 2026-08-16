@@ -2133,11 +2133,11 @@ fn builder_slider_press_routes_through_handle_pointer_and_arms_a_drag() {
     overlay.open_theme_builder(&settings);
     let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
-    // Row 4 of the body is the focused-channel slider (title, name, contrast,
+    // Row 2 of the body is the focused-channel slider (name line,
     // channel-picker, slider). A left press on it applies a theme and arms a
     // drag the App's Move gate (`is_settings_dragging`) now reports.
     let cell = CellPoint {
-        row: rect.body_top + 4,
+        row: rect.body_top + 2,
         column: rect.body_left + rect.body_width.saturating_sub(1),
     };
     let outcome = overlay.handle_pointer(
