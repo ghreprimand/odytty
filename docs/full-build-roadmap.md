@@ -139,11 +139,15 @@ and XTSMGRAPHICS queries are not implemented, so applications that require a
 capability probe may not emit it. The graphics stack also includes the
 Kitty graphics protocol (direct RGB/RGBA and PNG transmit, file transports on
 all platforms and shared-memory transport on Unix, with security hardening,
-placements with z-order/crop/scale/offset, delete and query operations); a GPU
-image layer; and color emoji on Linux and macOS (ZWJ families, flags, keycaps,
-skin-tone modifiers, variation selectors) via a dedicated RGBA color-glyph
-atlas. Windows uses the same color path when Noto Color Emoji is installed;
-stock Segoe UI Emoji falls back to monochrome.
+placements with z-order/crop/scale/offset, Unicode placeholders (`U=1`),
+animation frame/control/composition actions, delete and query operations);
+iTerm2 inline images (`OSC 1337 ; File=`, bounded by the OSC payload cap); a
+GPU image layer; and color emoji on all three platforms (ZWJ families, flags,
+keycaps, skin-tone modifiers, variation selectors) via a dedicated RGBA
+color-glyph atlas covering bitmap strikes, COLR/CPAL v0 layers, and COLR v1
+Paint graphs, including stock Windows Segoe UI Emoji, whose cluster coverage
+is bounded by the host font (no regional-indicator flag glyphs on stock
+Windows; see `docs/features.md`).
 
 ### Text Rendering Quality
 
@@ -158,9 +162,11 @@ assertions.
 
 Lazy scrollback re-wrap on width change and a width-unchanged resize fast path
 ([dated internal measurements](../DEVLOG.md), not cross-terminal comparisons),
-reusable
-vertex storage with a grow-only GPU buffer, resize debounce, and a render
-invalidation/retained-frame system.
+instanced cell geometry (one compact per-quad instance expanded in the vertex
+shader, over reusable CPU storage and grow-only GPU buffers), resize debounce,
+and a render invalidation/retained-frame system. A protocol-governed idle
+resource comparison against other terminals is published in
+[docs/benchmark-results.md](./benchmark-results.md).
 
 ### Configuration And Themes
 
@@ -168,7 +174,8 @@ File-based configuration with live reload and a
 clear precedence model (defaults < config file < environment); an in-window
 overlay framework; an in-app settings panel where every setting is editable,
 live-applied, and written back to the config file; a live theme picker; an
-in-app custom theme builder (clone, tweak, live preview, save); and CLI config
+in-app custom theme builder (clone, tweak, live preview, save, and capture of
+the pane's current dynamic colors as a new draft); and CLI config
 introspection. A dependency-free `.theme` format, a full 16-color + bright ANSI
 palette plus semantic roles, and a curated 142-theme built-in library (dark and
 light, all contrast-validated).
@@ -375,8 +382,11 @@ Sharp, stable, comfortable text is a primary product pillar.
 - **Shipped — Stem-darkening default activation.** The rasterization machinery
   ships default-on at `0.7`, with `0.0` as the byte-identical opt-out.
 - **Someday — Legibility font features.** A narrow, charter-clean subset (such
-  as a slashed or dotted zero) is the near-term slice; broader ligatures beyond
-  the shipped ASCII contextual path and arbitrary font features remain deferred.
+  as a slashed or dotted zero) is the near-term slice. Ligature coverage now
+  spans the ASCII contextual path, a curated non-ASCII operator/arrow
+  allowlist, Latin `liga` alongside `calt`, and explicit `ss01`/`ss02`
+  settings (see `docs/shaping-roadmap.md`); open-ended stylistic sets and
+  arbitrary font features remain deferred.
 - **Someday - SVG-in-OT color-font expansion**, after the shipped bitmap,
   COLR/CPAL v0, and COLR v1 Paint-graph paths, only from real evidence.
 
@@ -688,8 +698,8 @@ Making OdyTTY installable and maintainable outside the source tree.
 - **Shipped — Release builds and packaging.** Each tag publishes seven artifact
   types: Debian, RPM, Linux binary tarball, Linux AppImage, macOS app zip,
   Windows portable zip, and source archive. Every artifact has an always-latest
-  alias and a version-pinned twin, with `SHA256SUMS` as the fifteenth release
-  asset.
+  alias and a version-pinned twin, with `SHA256SUMS` and its Minisign
+  signature `SHA256SUMS.minisig` completing the 16-asset set.
 - **Shipped — Native Linux installation paths.** Debian and RPM packages,
   a checksum-verifying one-line installer, and the standalone binary tarball
   cover package-managed and portable installs. The AppImage remains the
