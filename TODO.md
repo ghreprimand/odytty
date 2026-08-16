@@ -1331,6 +1331,44 @@ stay pinned to the revisions they measured.
 - [ ] The external daily-driver evidence program
       (`docs/external-daily-driver.md`) remains a 1.0 gate and is unstarted.
 
+## Stage 10: v0.11.0 External-Review Response
+
+A response to an independent technical review rather than feature-driven
+expansion, published as v0.11.0 with a v0.11.1 patch on top. The detailed
+records live in `DEVLOG.md` and the documents named below.
+
+- [x] Documentation accuracy: a full-tree comment and docs drift sweep, with
+      every confirmed stale claim corrected against the code it describes and
+      repeated literal claims converted to intra-doc constant references.
+- [x] Release-chain signing: `SHA256SUMS` signed with Minisign from v0.11.0
+      onward, the public key committed at `docs/keys/odytty-release.pub`, and
+      per-platform verification instructions in `docs/install.md`. macOS stays
+      ad-hoc signed without notarization and the Windows executable stays
+      unsigned; releases before v0.11.0 were not retroactively signed.
+- [x] Color-font and shaping maturity: COLR/CPAL v0 layers and COLR v1 Paint
+      graphs (stock Windows Segoe UI Emoji included), shaping-run
+      infrastructure with grapheme-cluster grouping beyond ASCII, Arabic
+      contextual joining forms in logical cell order, and the curated
+      non-ASCII ligature allowlist with `liga` and explicit `ss01`/`ss02`.
+      `docs/shaping-roadmap.md` states what remains deferred.
+- [x] Graphics protocol completeness: Kitty Unicode placeholders (`U=1`),
+      Kitty animation frame/control/composition actions, and iTerm2 inline
+      images (`OSC 1337 ; File=`) under the established parser-limit
+      discipline. `docs/graphics.md` holds the support matrix.
+- [x] Instanced cell geometry: one compact per-quad instance expanded in the
+      vertex shader, pixel output unchanged, recorded in
+      `docs/visual-architecture.md`.
+- [x] Theme capture from live dynamic colors: "Create Theme From Current
+      Colors" snapshots the focused pane's effective dynamic-color state into
+      a theme-builder draft.
+- [x] The published W6 idle comparison (`docs/benchmark-results.md`), executed
+      under the preregistered protocol against Kitty, Ghostty, and Alacritty
+      with results reported exactly as measured.
+- [x] v0.11.1 patch: theme-builder back navigation restored to the
+      panel-return contract, a persistent usage-help line, and a stable
+      layout; bounded post-publish package checks on all three platforms
+      (Linux artifact checks, macOS Homebrew channel, Windows Scoop channel).
+
 ## Archived First Prototype Checklist
 
 ## Core Readiness
@@ -1523,4 +1561,8 @@ stay pinned to the revisions they measured.
       that Explorer/other apps hand consoles to. Future work; needs COM/registry
       registration and on-device validation.
 - [ ] Daily-driver claims against comparable terminal emulators before
-      compatibility and performance are proven.
+      compatibility and performance are proven. The published W6 idle
+      comparison is partial performance evidence for one workload on one
+      machine (see the Stage 9 benchmark item); the real-application matrix
+      and the external daily-driver program remain the open compatibility
+      evidence.
