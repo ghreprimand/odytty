@@ -7,10 +7,10 @@ durable product/architecture decisions.
 
 ---
 
-## 2026-08-16 -- Theme builder: back navigation and readable layout
+## 2026-08-16 -- Release v0.11.1 — Theme builder back navigation and readable layout
 
-Two navigation defects and a layout revision in the theme editor, from
-post-release daily use.
+Patch release: two navigation defects and a layout revision in the theme
+editor, found in daily use immediately after v0.11.0.
 
 **Back returns to where the builder was opened from.** The builder can be
 entered three ways: from the theme picker's edit row, from the settings
