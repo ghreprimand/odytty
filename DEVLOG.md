@@ -7,6 +7,22 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-16 -- Bounded checks of the published v0.11.1 Linux packages
+
+The four published v0.11.1 Linux artifacts (binary tarball, AppImage, Debian
+package, and RPM) were re-downloaded from the release and checked: the
+Minisign signature on `SHA256SUMS` verifies against the committed release key,
+every downloaded artifact matches its manifest digest, the Debian control
+metadata lists the expected dependencies and Freedesktop files, and the
+payload binary from each package executes and reports version 0.11.1 (the deb
+and rpm payloads extracted without installation).
+
+This is an artifact-integrity and binary-execution check on one Linux machine,
+deliberately narrower than the v0.10.0 cross-platform package smoke pass;
+macOS and Windows package checks were not repeated for v0.11.x, and public
+documentation records that distinction instead of extending the v0.10.0
+claim to the newer artifacts.
+
 ## 2026-08-16 -- Release v0.11.1 — Theme builder back navigation and readable layout
 
 Patch release: two navigation defects and a layout revision in the theme
