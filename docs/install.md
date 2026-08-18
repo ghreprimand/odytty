@@ -1094,6 +1094,12 @@ On Linux OdyTTY prefers a Vulkan adapter but does not require one:
 - When no Vulkan adapter is present it selects accelerated OpenGL/GLES (Mesa)
   instead of failing to start; a CPU software rasterizer (llvmpipe or lavapipe)
   is the last resort and is slow.
+- The accelerated backends are tried first and OpenGL is reached on a second
+  attempt, so a machine with a working Vulkan driver never initializes the GL
+  stack it will not draw through. This is a startup-cost decision only: GL
+  remains a fully supported path, and a machine that needs it lands on it
+  automatically, including when the first attempt finds nothing better than a
+  software rasterizer.
 - Accelerated GL is a real GPU path: the About panel and the startup log show
   backend `Gl` with a hardware renderer name.
 - On this path text is drawn in grayscale rather than subpixel (accelerated GL
@@ -1115,4 +1121,6 @@ accelerated GL stack:
 
 **Forcing a backend.** Standard `wgpu` environment overrides are honored, so a
 backend can be forced for debugging with `WGPU_BACKEND=gl` or
-`WGPU_BACKEND=vulkan`.
+`WGPU_BACKEND=vulkan`. An explicit request is used exactly as given: the staged
+bring-up above is skipped entirely, so a forced backend that cannot produce an
+adapter fails visibly instead of quietly succeeding through another one.

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::gpu::{
     BloomOptions, CrtOptions, ViewportUniform, accumulate_pane_color_glyphs, adapter_is_software,
-    choose_surface_format, colored_content_build_opacity, content_build_opacity,
+    backend_stages, choose_surface_format, colored_content_build_opacity, content_build_opacity,
     create_atlas_bind_group, create_cell_pipeline, create_color_atlas_bind_group,
     create_color_glyph_pipeline, image::BgImageGpu, multi_pane_wallpaper_edge_wash_quads,
     physical_font_px, post, quads_excluding, rail_overlay_chrome_pin, required_limits_for_adapter,
     rescue_adapter_index, scene_clear_color, scene_target_format, select_alpha_mode,
-    wallpaper_edge_wash_quads, wallpaper_edge_wash_quads_with_pin,
+    software_adapter_is_final, wallpaper_edge_wash_quads, wallpaper_edge_wash_quads_with_pin,
 };
 use crate::atlas::CellSize;
 use crate::core::Terminal;
@@ -106,6 +106,50 @@ fn software_adapter_predicate_matches_known_rasterizers() {
     ] {
         assert!(!adapter_is_software(&info), "{}", info.name);
     }
+}
+
+#[test]
+fn backend_stages_try_accelerated_first_and_keep_gl_reachable() {
+    let stages = backend_stages(None);
+    assert_eq!(stages.len(), 2, "an accelerated attempt, then a wider one");
+    assert_eq!(
+        stages[0],
+        wgpu::Backends::PRIMARY,
+        "the first attempt initializes only the accelerated backends"
+    );
+    assert!(
+        !stages[0].contains(wgpu::Backends::GL),
+        "GL is what the first stage is avoiding paying for"
+    );
+    assert_eq!(
+        stages[1],
+        wgpu::Backends::all(),
+        "GL stays reachable for machines with no usable Vulkan/DX12/Metal"
+    );
+    assert!(
+        stages[1].contains(wgpu::Backends::GL),
+        "the fallback stage must be able to reach GL"
+    );
+
+    // An explicit WGPU_BACKEND request is answered exactly, never widened:
+    // someone naming a backend is diagnosing something and a silent second
+    // attempt would hide the result.
+    let explicit = backend_stages(Some(wgpu::Backends::GL));
+    assert_eq!(explicit, vec![wgpu::Backends::GL]);
+    let explicit_vulkan = backend_stages(Some(wgpu::Backends::VULKAN));
+    assert_eq!(explicit_vulkan, vec![wgpu::Backends::VULKAN]);
+}
+
+#[test]
+fn software_adapter_is_only_accepted_by_the_last_stage() {
+    // Two stages: a software adapter on the accelerated-only stage must not end
+    // the search, because a machine with no usable Vulkan can still have an
+    // accelerated GL driver behind the wider stage.
+    assert!(!software_adapter_is_final(0, 2));
+    assert!(software_adapter_is_final(1, 2));
+    // One stage (an explicit WGPU_BACKEND request): there is nothing to widen
+    // to, so software is the answer and starts with the usual warning.
+    assert!(software_adapter_is_final(0, 1));
 }
 
 #[test]
@@ -1077,6 +1121,10 @@ fn background_image_pipeline_builds_from_png() {
         TEST_SURFACE_FORMAT,
         &path,
         1,
+        // A surface far larger than the 4x4 fixture. The resample never
+        // upscales, so this takes the same "source already fits the window"
+        // path the fixture took before the surface argument existed.
+        (1920, 1080),
         None,
         &theme,
         0.5,

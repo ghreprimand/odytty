@@ -965,7 +965,9 @@ background_image_scrim = 0.5
 
 PNG, JPEG, and WebP images are supported. `background_image_scrim` ranges from
 `0` for no scrim to `1` for an opaque scrim, while `auto` selects a
-floor-safe value.
+floor-safe value. Any image, bundled or custom, is resampled to the window
+before it reaches the GPU, so a large wallpaper costs what the window displays
+rather than what the file contains.
 
 `background_image = default`, including the unset state, selects the bundled
 image again.

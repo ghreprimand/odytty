@@ -41,6 +41,16 @@ impl GpuState {
         {
             post_process.resize(&self.device, &self.config, format);
         }
+        // The background texture is sized for the drawable it was loaded
+        // against, so a window that grows past the headroom it carries needs
+        // more texels than it holds. The check is pure — no GPU work, no file
+        // access — and the reload is growth-only, so a resize that the current
+        // texture already covers costs a comparison and nothing else.
+        let surface = (self.config.width, self.config.height);
+        let cell_bg_opacity = self.cell_bg_opacity;
+        if let Some(bg) = self.bg_image.as_mut() {
+            bg.resample_for_surface(&self.device, &self.queue, surface, cell_bg_opacity);
+        }
     }
 
     /// Reapply the current configuration for an outdated surface.

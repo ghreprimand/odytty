@@ -7,6 +7,127 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-18 -- The background image is sized to the window, and the backend surface is staged
+
+Two memory changes and one correction, all of them measured rather than
+reasoned.
+
+**The wallpaper no longer arrives at source resolution.** The shipped default is
+3840x2160, and the loader only downscaled an image that exceeded the adapter's
+maximum texture dimension — a limit no current adapter falls below. Every window
+held a full 33,177,600-byte texture whether it displayed 4K worth of pixels or a
+quarter of that, and a user-supplied wallpaper was treated identically. The
+decoded image is now resampled to the drawable surface before the texture is
+created, with a headroom factor so the window can grow by half again on either
+axis before the file is read a second time. Each axis is capped independently,
+because the wallpaper is stretched across the window with no aspect correction
+anywhere in the pass, and it is never upscaled.
+
+This changes background sampling quality, deliberately, and for the better.
+Minifying a 4K texture into a smaller window through a linear sampler with no
+mipmaps reads a 2x2 texel neighbourhood regardless of the reduction ratio, so
+most source pixels never reach the screen and high-frequency content aliases.
+The resample runs a filter whose support scales with the ratio, so every source
+pixel contributes and the sampler then works near 1:1 — the same pixels on
+screen, computed from all of the source data instead of a fraction of it. A test
+pins it: a one-pixel checkerboard reduced eightfold must land mid-range on every
+channel, which a nearest-neighbour implementation could not do.
+
+The readability scrim is recomputed on the resampled buffer, and the ordering is
+load-bearing. The luminance scan now runs last, on the exact bytes that are
+uploaded. Hardware filtering returns convex combinations of texels and relative
+luminance is linear in linear-light RGB, so measuring the worst case on the
+uploaded buffer bounds every pixel that can be sampled from it, and the contrast
+floor holds by construction rather than by assumption. The scan previously ran
+before the device-limit downscale, so on any image that hit that path the scrim
+was measured on a buffer that was not the one uploaded; that is fixed as a
+consequence. A test asserts the property directly, checking every texel of a
+resampled fixture against the computed scrim rather than checking a summary.
+
+The re-resample trigger is texels per window pixel, not the headroom target.
+Comparing against the target would re-decode on every one-pixel resize event;
+comparing against actual coverage is what turns the headroom into hysteresis,
+giving a logarithmic number of reloads across a full-range window drag and none
+at all once the texture reaches source resolution. Growth only: a window
+maximized once keeps the larger texture for the session, because reclaiming on
+shrink costs a decode and invites thrash across a shrink/grow oscillation.
+`MAX_BG_IMAGE_DIM` is kept with rewritten reasoning — it now guards the
+resampled buffer, so it is unreachable by wallpaper choice and bounds only the
+blur on a drawable that is itself near 4096 pixels.
+
+Measured on a development workstation with the shipped default:
+`gpu_background_image_texture` fell from 33,177,600 to 19,776,960 bytes at the
+compositor-chosen window size, where only the width axis was headroom-limited. A
+live-device test loading the same 4K asset against an 800x600 surface produces a
+1200x900 texture at 4,320,000 bytes. A live resize probe grew the texture to
+source resolution and stopped there, and left it unchanged when the window
+shrank again. The saving is a function of window size, so the figure that
+matters is the benchmark unit's on the benchmark configuration.
+
+**The instance is brought up in stages.** Asking for every backend initializes
+every installed backend's driver stack, not only the one that draws. OdyTTY now
+tries the accelerated backends first and reaches the full set — which is what
+reaches OpenGL — only when the first stage cannot produce a usable accelerated
+adapter. Accelerated GL stays reachable for the machines that genuinely need it:
+older hardware, virtual machines, and remote display stacks with no working
+Vulkan. A software rasterizer found at a non-final stage is held rather than
+accepted, so a machine whose only accelerated path is GL still lands on GL
+instead of being quietly demoted to software rendering. An explicit
+`WGPU_BACKEND` request is answered exactly and never widened, so a forced
+backend that cannot produce an adapter fails visibly.
+
+The saving is about 1.5 MB — consistent across replicates at fixed window
+geometry, with no overlap between arms, and much smaller than a headless probe
+of the same change suggested. The windowed configuration is the one that
+describes the product, so that is the number recorded. The mechanism explains
+the gap: on a unified vendor driver the GL and EGL libraries stay mapped at
+nearly identical resident cost either way, so what the staging saves is one
+backend's initialization, not one driver's mapping. Nothing here should be read
+as GL going unloaded.
+
+**A correction, from a capture on the benchmark unit.** An earlier note recorded
+the software Vulkan ICD's presence as a structural cost of the Vulkan choice
+that the OpenGL-based reference terminals do not pay. The narrow fact holds and
+is 2.4 MB: the Vulkan loader maps every registered ICD regardless of what the
+application configures. The generalization does not. On the benchmark unit —
+Intel integrated graphics on Mesa — the driver-library total measures 88.6 MB
+for Alacritty, 89.4 MB for Ghostty and 100.1 MB for OdyTTY, with `libLLVM.so`
+the dominant mapping in all three. Alacritty and Ghostty both render through
+OpenGL, so on that stack the large driver tax is a Mesa cost shared by the GL
+and Vulkan paths through a common shader compiler, not a Vulkan cost. The
+document now says so.
+
+The same capture constrains what composition can explain: OdyTTY's own-bytes
+share measured 27.6% against Kitty's 23.5% and Ghostty's 26.6%, close enough
+that fixed composition does not account for the published gap. That points at
+growth over the idle interval rather than a structural difference visible in one
+sample. It is recorded as a constraint on the explanation rather than as an
+explanation, and its absolute totals are explicitly not comparable to the
+published figures because the capture used a window size the benchmark protocol
+does not.
+
+Also settled: a Unicode width conformance run flagged U+17A4 and U+17D8 as
+measuring wider than expected, which would have implied combining-mark
+absorption in the print path. It does not. Marks attach only at width zero, and
+both values match the width table the renderer consults; the conformance tool's
+listing transposes the two. A new `tests/width_conformance.rs` records the
+outcome as a table rather than a verdict, separating rows that conform, rows
+that diverge from Unicode with the divergence asserted in both directions so a
+future fix must promote them, and rows that pass by arithmetic coincidence
+rather than by clustering. No row is ignored, because "measured and wrong" and
+"not tested" are different states and the file exists to keep them apart.
+
+Windows: no platform branch in any of this. Backend staging differs there only
+in that the accelerated set already contains DX12 and Vulkan, so the first stage
+is the normal Windows path and GL is what the second stage adds; that is stated
+rather than measured, and CI is the check.
+
+Verified: `cargo fmt --check` and `cargo clippy --all-targets --locked
+-D warnings` clean; full `cargo test --locked` green at 4,673 passed and 0
+failed; production-file guard and the RustSec audit both pass.
+
+---
+
 ## 2026-08-18 -- Post-process render targets are released when the effects are off
 
 The first thing the new memory instrument caught was a retention bug it was

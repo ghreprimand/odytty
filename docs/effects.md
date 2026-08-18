@@ -374,6 +374,13 @@ foreground is re-lifted over the treated background cell by cell.
   luminance, or set a float to pin another value.
 - Missing, unreadable, undecodable, or oversized inputs degrade safely with a
   warning.
+- The image is resampled to the window before it is uploaded, so a 4K wallpaper
+  in a small window costs a small window's worth of texture rather than a 4K
+  one, and the reduction averages the source rather than taking the GPU's
+  fixed 2x2 minification tap. Growing the window past the headroom the current
+  texture carries re-reads the image at the size the window now needs; shrinking
+  keeps what is already loaded. `background_blur_radius` is scaled by the same
+  ratio, so the blurred band keeps its on-screen width.
 - The settings panel's `Background image` row opens an inline path picker that
   enumerates directories off the UI path, so navigation stays responsive while
   large folders load.

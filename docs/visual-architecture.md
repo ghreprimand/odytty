@@ -358,7 +358,12 @@ Distinctive treatments that direct attention without harming legibility.
   PNG/JPEG/WebP image backgrounds. Image mode uses `cell_bg_opacity`, a one-time
   optional CPU blur (`background_blur_radius`, default `0` = off), and a
   readability scrim (`background_image_scrim`, fixed `0.5` by default; `auto`
-  computes a floor-safe value).
+  computes a floor-safe value). The decoded image is resampled to the drawable
+  surface (with headroom for window growth) before upload rather than uploaded
+  at source resolution, so the texture is sized by the window rather than by the
+  file; the blur radius is rescaled by the same ratio so the blurred band keeps
+  its on-screen width, and the scrim is measured on the resampled buffer so the
+  readability bound is computed from the pixels that are actually sampled.
 - **Window chrome / padding identity (landed):** themed padding, optional thin
   semantic-role border, and a live window-decoration toggle.
 

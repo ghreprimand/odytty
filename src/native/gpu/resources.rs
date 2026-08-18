@@ -36,8 +36,8 @@ use super::fonts::{
 };
 use super::image::BgImageGpu;
 use super::pipeline_policy::{
-    adapter_is_software, choose_surface_format, effect_params, effective_subpixel_mode,
-    required_limits_for_adapter, rescue_adapter_index, scene_target_format, select_alpha_mode,
+    adapter_is_software, bring_up_adapter, choose_surface_format, effect_params,
+    effective_subpixel_mode, required_limits_for_adapter, scene_target_format, select_alpha_mode,
     text_params, theme_clear_color,
 };
 use super::pipelines::{
@@ -641,60 +641,7 @@ impl GpuState {
         let size = window.inner_size();
         let scale = (window.scale_factor() as f32).max(1.0);
         let physical_px = physical_font_px(options.font_size_px, scale);
-        // GL/GLES requires the window's display handle to create a presentable
-        // surface on both Wayland and X11. Vulkan, Metal, and DX12 ignore this
-        // field, so their existing adapter and rendering paths are unchanged.
-        let instance = wgpu::Instance::new(
-            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone())),
-        );
-
-        let surface = instance
-            .create_surface(window.clone())
-            .map_err(|err| NativeError::SurfaceCreation(err.to_string()))?;
-
-        let mut adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            force_fallback_adapter: false,
-            compatible_surface: Some(&surface),
-        }))
-        .map_err(|err| {
-            NativeError::NoAdapter(format!(
-                "{err}; install a Vulkan driver or accelerated GL stack; if WGPU_BACKEND is set, ensure it selects an installed backend; see the \"Slow rendering / software adapter\" section of docs/install.md"
-            ))
-        })?;
-
-        let initial_adapter_info = adapter.get_info();
-        let adapter_info = if adapter_is_software(&initial_adapter_info) {
-            let mut adapters =
-                pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
-            let candidates = adapters
-                .iter()
-                .map(|candidate| {
-                    (
-                        candidate.get_info(),
-                        candidate.is_surface_supported(&surface),
-                    )
-                })
-                .collect::<Vec<_>>();
-            if let Some(index) = rescue_adapter_index(&candidates) {
-                let replacement_info = candidates[index].0.clone();
-                tracing::warn!(
-                    "odytty: replacing software GPU adapter {} ({:?}, {:?}) with accelerated adapter {} ({:?}, {:?})",
-                    initial_adapter_info.name,
-                    initial_adapter_info.backend,
-                    initial_adapter_info.device_type,
-                    replacement_info.name,
-                    replacement_info.backend,
-                    replacement_info.device_type
-                );
-                adapter = adapters.swap_remove(index);
-                replacement_info
-            } else {
-                initial_adapter_info
-            }
-        } else {
-            initial_adapter_info
-        };
+        let (instance, surface, adapter, adapter_info) = bring_up_adapter(&window)?;
 
         // Capture adapter identity for the About panel before any device work.
         // Read-only diagnostics; does not influence rendering.
@@ -1565,6 +1512,10 @@ impl GpuState {
                 self.scene_target_format,
                 path,
                 blur_radius,
+                // Size the texture to the drawable, not to the source file: a
+                // 4K wallpaper on a 1080p window needs no more texels than the
+                // window can show.
+                (self.config.width, self.config.height),
                 scrim_override,
                 &theme,
                 cell_bg_opacity,

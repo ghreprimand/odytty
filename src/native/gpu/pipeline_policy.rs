@@ -5,6 +5,11 @@
 //! adapter and surface report, they choose what the renderer asks for. Keeping
 //! them free of GPU handles lets the policy be tested headlessly.
 
+use std::sync::Arc;
+
+use winit::window::Window;
+
+use crate::native::options::NativeError;
 use crate::text::{self, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 
@@ -153,6 +158,192 @@ pub(in crate::native) fn required_limits_for_adapter(
         },
         true,
     )
+}
+
+/// Backend sets to try, in order, when bringing the instance up.
+///
+/// Initializing a backend is not free: the loader maps that backend's driver
+/// stack into the process and pages in the code it runs. Asking for every
+/// backend at once therefore pays for a full second driver stack that the
+/// window will never draw through. Measured on the shipped windowed
+/// configuration, an all-backends instance sat about 1.5 MB above the staged
+/// one — consistently, across replicates at fixed window geometry, but small.
+/// A headless probe of the same change suggested a far larger figure; the
+/// windowed number is the one that describes the product. What is saved is one
+/// backend's initialization, not one driver's mapping: on a unified vendor
+/// driver the GL libraries stay mapped at nearly identical resident cost either
+/// way, so nothing here should be read as GL going unloaded.
+///
+/// So: try the accelerated backends first, and keep the wider set as a
+/// fallback. `Backends::PRIMARY` is Vulkan, DX12, and Metal — it excludes GL,
+/// which is a genuine last-resort path for older hardware, virtual machines,
+/// and remote display stacks with no working Vulkan. Dropping GL outright would
+/// trade memory for a class of machines that stop launching, so it stays
+/// reachable; it is simply no longer initialized on machines that never need
+/// it. The second stage is entered only when the first cannot produce a usable
+/// accelerated adapter, so its cost falls exactly on the configurations that
+/// would otherwise have failed or fallen back to software rendering.
+///
+/// An explicit `WGPU_BACKEND` request is honoured exactly and never widened:
+/// someone who names a backend is diagnosing something, and silently adding a
+/// second stage would hide the answer they are looking for.
+pub(in crate::native) fn backend_stages(explicit: Option<wgpu::Backends>) -> Vec<wgpu::Backends> {
+    match explicit {
+        Some(backends) => vec![backends],
+        None => vec![wgpu::Backends::PRIMARY, wgpu::Backends::all()],
+    }
+}
+
+/// Whether a software adapter found at stage `index` of [`backend_stages`] is
+/// the answer, or whether a later stage should be tried instead.
+///
+/// A software rasterizer at a stage that excludes GL is not necessarily the
+/// machine's best option: a system with no usable Vulkan driver can still have
+/// an accelerated GL one, and before the staged bring-up such a system reached
+/// it through the all-backends instance. Falling through keeps that outcome
+/// identical. Only the final stage accepts software, and it does so with the
+/// same warning it always did.
+pub(in crate::native) fn software_adapter_is_final(stage_index: usize, stages: usize) -> bool {
+    stage_index + 1 >= stages
+}
+
+/// Bring up an instance, a presentable surface, and the best adapter available,
+/// trying each backend set from [`backend_stages`] in order.
+///
+/// Each stage builds its own instance, because the backend set is fixed at
+/// instance creation and the surface belongs to the instance that made it. A
+/// stage that yields an accelerated adapter ends the search, so the common case
+/// — a machine with a working Vulkan, DX12, or Metal driver — creates exactly
+/// one instance and initializes exactly one backend, instead of initializing
+/// every installed backend and drawing through one of them.
+///
+/// A stage that yields only a software rasterizer is not accepted while a wider
+/// stage remains: a machine with no usable Vulkan driver may still have an
+/// accelerated GL one, and that machine must keep reaching it. The software
+/// rescue within a stage, and the warnings on both the rescue and the
+/// final-software case, behave exactly as before.
+pub(in crate::native) fn bring_up_adapter(
+    window: &Arc<Window>,
+) -> Result<
+    (
+        wgpu::Instance,
+        wgpu::Surface<'static>,
+        wgpu::Adapter,
+        wgpu::AdapterInfo,
+    ),
+    NativeError,
+> {
+    let stages = backend_stages(wgpu::Backends::from_env());
+    let mut last_adapter_error: Option<String> = None;
+    let mut fallback: Option<(
+        wgpu::Instance,
+        wgpu::Surface<'static>,
+        wgpu::Adapter,
+        wgpu::AdapterInfo,
+    )> = None;
+
+    for (index, backends) in stages.iter().enumerate() {
+        // GL/GLES requires the window's display handle to create a presentable
+        // surface on both Wayland and X11. Vulkan, Metal, and DX12 ignore this
+        // field, so their existing adapter and rendering paths are unchanged.
+        // `..._from_env` applies WGPU_BACKEND; the stage set is only imposed
+        // when the environment named nothing, so an explicit request still wins.
+        let mut descriptor =
+            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone()));
+        descriptor.backends = *backends;
+        let instance = wgpu::Instance::new(descriptor);
+
+        let surface = match instance.create_surface(window.clone()) {
+            Ok(surface) => surface,
+            Err(err) => {
+                if index + 1 >= stages.len() {
+                    return Err(NativeError::SurfaceCreation(err.to_string()));
+                }
+                tracing::debug!(
+                    "odytty: no presentable surface on backends {backends:?} ({err}); widening the backend set"
+                );
+                continue;
+            }
+        };
+
+        let adapter = match pollster::block_on(instance.request_adapter(
+            &wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                force_fallback_adapter: false,
+                compatible_surface: Some(&surface),
+            },
+        )) {
+            Ok(adapter) => adapter,
+            Err(err) => {
+                last_adapter_error = Some(err.to_string());
+                tracing::debug!(
+                    "odytty: no adapter on backends {backends:?} ({err}); widening the backend set"
+                );
+                continue;
+            }
+        };
+
+        let (adapter, adapter_info) = rescue_software_adapter(&instance, &surface, adapter);
+        if !adapter_is_software(&adapter_info) {
+            return Ok((instance, surface, adapter, adapter_info));
+        }
+        if software_adapter_is_final(index, stages.len()) {
+            return Ok((instance, surface, adapter, adapter_info));
+        }
+        // Hold the software adapter in case the wider stage does no better, so
+        // a machine whose only renderer is a software one still starts.
+        tracing::debug!(
+            "odytty: only a software adapter on backends {backends:?}; widening the backend set before accepting it"
+        );
+        fallback = Some((instance, surface, adapter, adapter_info));
+    }
+
+    if let Some(fallback) = fallback {
+        return Ok(fallback);
+    }
+    let err = last_adapter_error.unwrap_or_else(|| "no compatible GPU adapter".to_string());
+    Err(NativeError::NoAdapter(format!(
+        "{err}; install a Vulkan driver or accelerated GL stack; if WGPU_BACKEND is set, ensure it selects an installed backend; see the \"Slow rendering / software adapter\" section of docs/install.md"
+    )))
+}
+
+/// Replace a software adapter with an accelerated, presentable one from the
+/// same instance when enumeration offers a better choice. Returns the adapter
+/// to use and its info; identical to the pre-staging behavior, including the
+/// warning text.
+fn rescue_software_adapter(
+    instance: &wgpu::Instance,
+    surface: &wgpu::Surface<'static>,
+    adapter: wgpu::Adapter,
+) -> (wgpu::Adapter, wgpu::AdapterInfo) {
+    let initial_adapter_info = adapter.get_info();
+    if !adapter_is_software(&initial_adapter_info) {
+        return (adapter, initial_adapter_info);
+    }
+    let mut adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
+    let candidates = adapters
+        .iter()
+        .map(|candidate| {
+            (
+                candidate.get_info(),
+                candidate.is_surface_supported(surface),
+            )
+        })
+        .collect::<Vec<_>>();
+    let Some(index) = rescue_adapter_index(&candidates) else {
+        return (adapter, initial_adapter_info);
+    };
+    let replacement_info = candidates[index].0.clone();
+    tracing::warn!(
+        "odytty: replacing software GPU adapter {} ({:?}, {:?}) with accelerated adapter {} ({:?}, {:?})",
+        initial_adapter_info.name,
+        initial_adapter_info.backend,
+        initial_adapter_info.device_type,
+        replacement_info.name,
+        replacement_info.backend,
+        replacement_info.device_type
+    );
+    (adapters.swap_remove(index), replacement_info)
 }
 
 /// Whether an adapter is a software rasterizer rather than an accelerated GPU.

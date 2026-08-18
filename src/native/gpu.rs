@@ -55,10 +55,10 @@ pub(super) use frame::FrameOutcome;
 pub(super) use pipeline_policy::content_build_opacity;
 #[allow(unused_imports)]
 pub(super) use pipeline_policy::{
-    adapter_is_software, blend_state_for_color_glyphs, blend_state_for_subpixel,
+    adapter_is_software, backend_stages, blend_state_for_color_glyphs, blend_state_for_subpixel,
     choose_surface_format, colored_content_build_opacity, effect_params, effective_subpixel_mode,
     required_limits_for_adapter, rescue_adapter_index, scene_clear_color, scene_target_format,
-    select_alpha_mode, text_params, theme_clear_color,
+    select_alpha_mode, software_adapter_is_final, text_params, theme_clear_color,
 };
 
 #[allow(unused_imports)]

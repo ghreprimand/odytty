@@ -67,14 +67,46 @@ pub(super) fn fit_rgba8<'a>(
         return Some((Cow::Borrowed(&rgba[..needed]), width, height));
     }
 
+    let fitted = resample_rgba8(rgba, width, height, fitted_width, fitted_height)?;
+    Some((Cow::Owned(fitted), fitted_width, fitted_height))
+}
+
+/// Resample tightly-packed RGBA8 pixels to an exact target size.
+///
+/// The filter is `Triangle`, whose support the resampler scales by the
+/// downscale ratio: reducing an axis by a factor of N averages over the full
+/// N-pixel source footprint rather than over a fixed 2-tap neighbourhood. A
+/// minifying downscale is therefore a correct weighted area average, and every
+/// source pixel contributes to the result. That is the property the background
+/// pass depends on — nearest sampling would drop source pixels outright, and
+/// GPU bilinear minification without mipmaps reads only a 2x2 texel
+/// neighbourhood no matter how large the ratio is, which aliases high-frequency
+/// content instead of averaging it.
+///
+/// Returns `None` for a zero-sized target or an under-length source buffer,
+/// rather than fabricating pixels.
+pub(super) fn resample_rgba8(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    target_width: u32,
+    target_height: u32,
+) -> Option<Vec<u8>> {
+    let needed = usize::try_from(width)
+        .ok()?
+        .checked_mul(usize::try_from(height).ok()?)?
+        .checked_mul(4)?;
+    if width == 0 || height == 0 || target_width == 0 || target_height == 0 || rgba.len() < needed {
+        return None;
+    }
     let source = image::RgbaImage::from_raw(width, height, rgba[..needed].to_vec())?;
-    let fitted = image::imageops::resize(
+    let resampled = image::imageops::resize(
         &source,
-        fitted_width,
-        fitted_height,
+        target_width,
+        target_height,
         image::imageops::FilterType::Triangle,
     );
-    Some((Cow::Owned(fitted.into_raw()), fitted_width, fitted_height))
+    Some(resampled.into_raw())
 }
 
 pub(super) fn extent_2d(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Extent3d {

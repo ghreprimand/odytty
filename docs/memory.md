@@ -243,6 +243,123 @@ expected to show up in the resident figure there. Expected, not measured: the
 benchmark unit's own capture is what settles it, and until that exists this
 saving is claimed as device memory only.
 
+### The background image is sized to the window, not to the file
+
+The second thing the instrument caught. The shipped default wallpaper is
+3840x2160, and the loader only downscaled an image when it exceeded the
+adapter's maximum texture dimension — a limit no current adapter falls below.
+Every window therefore held a full 33,177,600-byte texture whether it was
+showing 4K worth of pixels or a quarter of that, and a user-supplied wallpaper
+was treated the same way.
+
+The decoded image is now resampled to the drawable surface before the texture is
+created, with a bounded headroom factor so the window can grow by half again on
+either axis before the image is read a second time. Each axis is capped
+independently, because the wallpaper is stretched across the window with no
+aspect correction anywhere in the pass, and never upscaled, so a wallpaper
+smaller than the window is uploaded exactly as it is.
+
+**This changes background sampling quality, deliberately, and in the better
+direction.** Minifying a 4K texture into a smaller window through a linear
+sampler with no mipmaps reads a 2x2 texel neighbourhood no matter how large the
+reduction is, so most source pixels never reach the screen and high-frequency
+content aliases. The resample instead runs a filter whose support scales with
+the reduction ratio, so every source pixel contributes to the result, and the
+sampler then works near 1:1. Same pixels on screen, computed from all the
+source data instead of a sixteenth of it.
+
+The blur radius is rescaled by the same ratio the buffer was, so the blurred
+band is the same width on screen as before, and the readability scrim is
+recomputed on the resampled buffer — the one that is uploaded. That ordering is
+the load-bearing part: hardware filtering returns convex combinations of texels
+and relative luminance is linear in linear-light RGB, so measuring the worst
+case on the uploaded buffer bounds every pixel that can be sampled from it, and
+the RV1 floor the scrim protects stays valid by construction rather than by
+assumption.
+
+Measured on this workstation, with the shipped 3840x2160 default:
+`gpu_background_image_texture` fell from 33,177,600 bytes to 19,776,960 on a
+window whose height still exceeds the source's own headroom bound, so only the
+width axis was reduced. A live-device test loading the same asset against an
+800x600 surface produces a 1200x900 texture — 4,320,000 bytes. The saving is
+therefore a function of window size, and the same caveat as above applies: the
+figure that matters is the benchmark unit's, on the benchmark configuration.
+
+### Backend surface: measured, small here, kept anyway
+
+An instance that asks for every backend initializes every installed backend's
+driver stack, not just the one that ends up drawing. OdyTTY now brings the
+instance up in stages: the accelerated backends first (Vulkan, DX12, Metal), and
+the full set — which is what reaches OpenGL — only if the first stage cannot
+produce a usable accelerated adapter. GL stays reachable for machines that
+genuinely need it: older hardware, virtual machines, and remote display stacks
+with no working Vulkan. A software rasterizer found at the first stage is not
+accepted while a wider stage remains, so a machine whose only accelerated path
+is GL still finds it. An explicit `WGPU_BACKEND` request is answered exactly and
+never widened.
+
+Measured on this workstation, three replicates per arm, same window geometry
+(verified by an identical post-process target size in every sample), same
+binary, with the wider arm selected through `WGPU_BACKEND=vulkan,gl`:
+
+| Instance backends | Resident |
+| --- | --- |
+| Accelerated first (`PRIMARY`) | 175.4, 175.5, 175.7 MB |
+| Every backend | 177.0, 177.1, 177.1 MB |
+
+About 1.5 MB, consistently, with no overlap between the arms. That is a real
+saving and a small one, and it is much smaller than a headless probe of the same
+change suggested — which is the point of measuring the shipped configuration
+rather than a probe. The mechanism explains the gap: on this driver the vendor
+GL and EGL libraries stay mapped at nearly identical resident cost either way,
+because the driver is a unified blob whose Vulkan path touches them, so what is
+saved is the initialization of a second backend and not the mapping of a second
+driver. Any claim that GL is "no longer loaded" would be false on this stack.
+
+The change is kept on its own terms — one backend initialized instead of two,
+with the fallback intact — and the size of its saving is left to the benchmark
+unit, whose Mesa/i915 driver stack is structured differently from a vendor blob
+and may well answer differently.
+
+The same capture settles a related question. `libvulkan_lvp.so`, Mesa's software
+Vulkan ICD, is mapped at a byte-identical 2.4 MB in every arm, including the
+accelerated-only one. It is there because the Vulkan loader enumerates every
+registered ICD on the system, not because of anything OdyTTY configures, and no
+instance-side change removes it. It is a cost of choosing Vulkan that a
+GL-only process does not pay: measured, understood, and not fixable from here.
+
+That last point wants a boundary drawn carefully, because the obvious
+generalization from it is wrong. A capture on the benchmark unit — Intel
+integrated graphics on Mesa, not a vendor blob — put the driver-library total at
+88.6 MB for Alacritty, 89.4 MB for Ghostty, and 100.1 MB for OdyTTY, with
+`libLLVM.so` the dominant single mapping in all three. Alacritty renders through
+OpenGL and Ghostty likewise, so on that stack the large driver tax is not a
+Vulkan cost at all: it is a Mesa cost, paid by the GL and Vulkan paths alike,
+because Mesa's shader compiler backend is shared between them. The
+software-ICD mapping above is genuinely Vulkan-specific and is 2.4 MB. The rest
+of the driver tax is not, and this document does not claim it is.
+
+That measurement also constrains what composition can explain. At that snapshot
+OdyTTY's own-bytes share was 27.6%, against 23.5% for Kitty and 26.6% for
+Ghostty — close enough that fixed composition does not account for the published
+gap. Whatever produces it is more likely to be growth over the idle interval
+than a structural difference visible in a single sample. Recorded here as a
+constraint on the explanation, not as an explanation: the capture was taken at a
+window size the benchmark protocol does not use, so its absolute totals are not
+comparable to the published figures and are not offered as such.
+
+### Allocator hints: measured and rejected
+
+`wgpu::MemoryHints::MemoryUsage` biases the suballocator toward smaller blocks
+than the performance-oriented default. Against a resource bundle matching
+OdyTTY's real texture set (~62 MB), three runs per arm measured 127.0–127.2 MB
+with the default and 127.1–127.3 MB with `MemoryUsage`: run-to-run variance
+larger than the difference between the arms. The footprint sits inside a single
+allocator block, so a smaller block granularity has nothing to divide. The
+adoption gate — a measured reduction with no frame-time regression — is not met,
+so the hint is not adopted. Recorded here because a negative result that cost
+machine time is worth keeping; it stops the same experiment being run twice.
+
 ## What is deliberately not a goal
 
 **Matching Alacritty's 58.0 MB is a non-goal.** Not because it is hard, but
