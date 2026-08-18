@@ -79,6 +79,24 @@ impl BgImageGpu {
         (self.source.0.as_path(), self.source.1)
     }
 
+    /// Bytes the background-image texture occupies, for memory attribution.
+    ///
+    /// The decoded CPU-side RGBA buffer is a local of [`Self::load`] and is
+    /// dropped when that call returns, so it is a peak cost rather than a
+    /// resident one and is reported as zero retained host bytes. The texture
+    /// itself is retained for the window's lifetime and is what this reports.
+    pub(in crate::native) fn gpu_texture_bytes(&self) -> u64 {
+        crate::native::texture_limits::texture_bytes(&self._texture)
+    }
+
+    /// Retained CPU-side decoded RGBA bytes. Zero: the decode buffer does not
+    /// outlive [`Self::load`]. Stated explicitly rather than omitted so the
+    /// attribution names the subsystem and reports a measured zero, instead of
+    /// leaving a reader to wonder whether it was counted.
+    pub(in crate::native) fn cpu_buffer_bytes(&self) -> u64 {
+        0
+    }
+
     /// TRANSPARENCY: the window background alpha the wallpaper quad is currently
     /// drawn at (test accessor; the live value is set by
     /// [`Self::set_window_alpha`]).

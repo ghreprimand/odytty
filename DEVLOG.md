@@ -7,6 +7,81 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-18 -- Memory attribution: an instrument before an optimization
+
+The published W6 idle comparison puts OdyTTY's resident footprint last of four
+terminals — 286.3 MB current and 327.9 MB peak against Kitty's 136.5 MB,
+Ghostty's 92.1 MB, and Alacritty's 58.0 MB. That result stands. What was
+missing was any way to say *which bytes*, so the first work against it is
+measurement rather than optimization.
+
+Two instruments land together, one inside the process and one outside it.
+
+`ODYTTY_MEMORY_REPORT` is a new opt-in trace gate alongside the existing reflow
+and key-event gates. When set it appends one line per sample naming what each
+subsystem holds: the glyph and colour-glyph atlas bitmaps and textures, the
+background image buffer and texture, the post-process render targets, per-pane
+grid and scrollback, the graphics-protocol image store, and the vertex buffers.
+Three properties are structural rather than incidental. Attributed host bytes
+plus an explicitly labelled remainder equal the resident set exactly, and the
+remainder is signed, because reserved-but-unfaulted pages can legitimately push
+attribution above residency and a saturating subtraction would hide that. GPU
+object bytes are reported beside the resident set and never subtracted from it,
+since where a texture physically lives is the driver's business and varies by
+adapter. And a subsystem that is not instantiated reports a measured zero rather
+than being omitted, so "costs nothing right now" reads differently from "was not
+counted".
+
+Off, the gate costs one atomic load and contributes no event-loop wake deadline,
+leaving the idle wake set byte-identical. On, it samples from the about-to-wait
+maintenance pass rather than the frame path and never requests a redraw: an idle
+terminal presents no frames, and forcing one in order to measure an idle process
+would change the quantity being measured.
+
+`scripts/memory-capture.py` is the host-side companion. It records resident and
+proportional set size, the per-mapping breakdown grouped into driver libraries,
+mapped binary, heap, stack, anonymous and device classes, and the loaded
+GPU/driver library set — so the GPU-stack tax is separable from OdyTTY's own
+allocations in every future comparison. Mapping identity is recorded as a
+basename, never a full path: the basename carries the analysis, the directory
+carries machine identity, and these records are destined for a public evidence
+tree. Where a platform exposes no figure the field reads `unmeasured` with its
+reason and the whole record is marked partial; nothing is approximated and no
+Linux figure is inferred for another platform.
+
+`docs/memory.md` records the model, the standing rule that a memory claim cites
+a capture rather than an estimate, and the target: below Kitty's 136.5 MB
+current and 150.0 MB peak on the W6 configuration. Matching Alacritty's 58.0 MB
+is recorded as a non-goal with its reason — Alacritty ships no background image,
+no post-process pipeline, and no tabs, panes or session host, so reaching that
+figure would mean deleting the product rather than optimizing it.
+
+A first capture on a development workstation already redirects the work. Of a
+~213 MB resident set, attributed host bytes came to ~2.4 MB, while ~90 MB was
+driver libraries and device nodes and ~81.6 MB was GPU objects — dominated by a
+33.2 MB background-image texture held at the source asset's 3840x2160 regardless
+of window size, and 47.1 MB of post-process render targets resident in a session
+with no effect active. The intuitive targets, atlases and cell storage, are not
+where this points. Those two figures are hypotheses for the benchmark unit to
+confirm, not conclusions, and they are exactly why the instrument comes first.
+
+Windows carries the same diagnostic with the same field set and the same gate;
+only the process-level source differs, reading `GetProcessMemoryInfo` rather
+than `/proc`. macOS reports the peak from `getrusage` and marks the current
+resident set `unmeasured` rather than approximating it from the peak. The
+capture script's self-tests join the architecture-guards CI job.
+
+Verified: `cargo fmt --check` and `cargo clippy --all-targets --locked
+-D warnings` clean; full `cargo test --locked` green at 4,460 library tests and
+23 ignored across the suite. Recorded for future gate runs: on a 32-core host
+the default test-thread count intermittently produces an unnamed SIGSEGV in the
+library binary, and the `gpu_composite_smoke` tests deadlock under parallel
+threads against the software Vulkan path. Both are environmental and reproduce
+on the unmodified tree; both clear at `RUST_TEST_THREADS=1`, where the composite
+suite completes in about a second.
+
+---
+
 ## 2026-08-16 -- Bounded checks of the published v0.11.1 packages on all three platforms
 
 The four published v0.11.1 Linux artifacts (binary tarball, AppImage, Debian

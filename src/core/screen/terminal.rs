@@ -51,6 +51,24 @@ impl Terminal {
         self.screen.set_scrollback_limit(limit);
     }
 
+    /// Heap bytes this terminal's visible grid occupies, for memory
+    /// attribution. See [`Screen::grid_bytes`].
+    pub fn grid_bytes(&self) -> u64 {
+        self.screen.grid_bytes()
+    }
+
+    /// Heap bytes this terminal's scrollback occupies, for memory attribution.
+    /// See [`Screen::scrollback_bytes`].
+    pub fn scrollback_bytes(&self) -> u64 {
+        self.screen.scrollback_bytes()
+    }
+
+    /// Decoded bytes held by this terminal's graphics image store, for memory
+    /// attribution. See [`Screen::graphics_store_bytes`].
+    pub fn graphics_store_bytes(&self) -> u64 {
+        self.screen.graphics_store_bytes()
+    }
+
     /// Master gate for the button protocol (default off). See
     /// [`Screen::set_buttons_enabled`].
     pub fn set_buttons_enabled(&mut self, enabled: bool) {

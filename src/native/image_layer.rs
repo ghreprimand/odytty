@@ -519,6 +519,43 @@ impl ImageLayer {
         }
     }
 
+    /// Bytes the terminal-graphics placement textures occupy, for memory
+    /// attribution: the single-pane cache, the per-pane (split-tab) cache, and
+    /// the image-viewer overlay texture when one is open.
+    pub(super) fn gpu_texture_bytes(&self) -> u64 {
+        use crate::native::texture_limits::texture_bytes;
+        let cached = self
+            .textures
+            .values()
+            .chain(self.pane_textures.values())
+            .fold(0u64, |acc, image| {
+                acc.saturating_add(texture_bytes(&image._texture))
+            });
+        let overlay = self
+            .overlay_image
+            .as_ref()
+            .map_or(0, |image| texture_bytes(&image._texture));
+        cached.saturating_add(overlay)
+    }
+
+    /// Bytes the image layer's vertex buffers occupy, for memory attribution.
+    /// The overlay and scrim quads are fixed-size allocations made at
+    /// construction; the placement buffers grow by power-of-two doubling.
+    pub(super) fn gpu_vertex_buffer_bytes(&self) -> u64 {
+        self.vertex_capacity_bytes
+            .saturating_add(self.pane_vertex_capacity_bytes)
+            .saturating_add(self.overlay_vertex_buf.size())
+            .saturating_add(self.scrim_vertex_buf.size())
+    }
+
+    /// CPU-side vertex staging held between frames, for memory attribution.
+    pub(super) fn cpu_vertex_staging_bytes(&self) -> u64 {
+        let vertex = std::mem::size_of::<ImageVertex>() as u64;
+        (self.vertices.capacity() as u64)
+            .saturating_add(self.pane_vertices.capacity() as u64)
+            .saturating_mul(vertex)
+    }
+
     /// Set (or clear) the C4 viewer's overlay image. `image` is
     /// `(rgba, width, height)` of a decoded, tightly-packed RGBA8 buffer;
     /// `None` clears the overlay so the frame returns to byte-identical. The

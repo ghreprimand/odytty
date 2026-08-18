@@ -24,6 +24,38 @@ impl Screen {
         self.scrollback.physical_len(self.dimensions.columns)
     }
 
+    /// Heap bytes the visible grid occupies, for memory attribution.
+    ///
+    /// Includes the stored primary buffer when the alternate screen is active:
+    /// that buffer is retained, so omitting it would under-report an alt-screen
+    /// pane and push a cost this project controls into the unaccounted
+    /// remainder.
+    pub fn grid_bytes(&self) -> u64 {
+        let stored = self
+            .primary_screen
+            .as_ref()
+            .map_or(0, |primary| rows_bytes(&primary.rows));
+        rows_bytes(&self.rows).saturating_add(stored)
+    }
+
+    /// Heap bytes scrollback occupies across the active buffer and the stored
+    /// primary buffer, for memory attribution. Counts the logical-line ring and
+    /// its memoized physical projection; see [`crate::core::scrollback`].
+    pub fn scrollback_bytes(&self) -> u64 {
+        let stored = self
+            .primary_screen
+            .as_ref()
+            .map_or(0, |primary| primary.scrollback.stored_bytes());
+        self.scrollback.stored_bytes().saturating_add(stored)
+    }
+
+    /// Decoded bytes held by this screen's terminal-graphics image store, for
+    /// memory attribution. Zero for a session that has never received a
+    /// graphics-protocol image.
+    pub fn graphics_store_bytes(&self) -> u64 {
+        self.graphics.store().decoded_bytes() as u64
+    }
+
     /// Monotonic notice that the absolute-row origin moved because retained
     /// history was removed from the front. Include an off-screen stored primary
     /// buffer so trimming it while the alternate screen is active is observed.

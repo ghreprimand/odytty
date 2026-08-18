@@ -104,6 +104,10 @@ pub(in crate::native) struct App {
     /// Linux clipboard contents remain served after Ctrl+Shift+C.
     pub(super) clipboard: NativeClipboard,
     pub(super) resize_debounce: ResizeDebouncer,
+    /// Env-gated memory-attribution sampler (`ODYTTY_MEMORY_REPORT`). Inert
+    /// unless the gate is set: it then contributes no wake deadline and no work
+    /// beyond one `Option` check per maintenance pass.
+    pub(super) memory_sampler: memory_report::MemorySampler,
     /// Presentation-only producer for debounced `columns × rows` feedback.
     /// The shared transient HUD owns painting and expiry.
     pub(super) resize_hud: resize_hud::ResizeHud,
@@ -521,6 +525,7 @@ impl App {
             overlay,
             clipboard: NativeClipboard::default(),
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
+            memory_sampler: memory_report::MemorySampler::from_env(Instant::now()),
             resize_hud: resize_hud::ResizeHud::default(),
             skipped_frame_retry_deadline: None,
             graphics_clock_epoch: Instant::now(),

@@ -58,6 +58,18 @@ use super::reflow::{ReflowOptions, reflow_lines_with_options, resize_keep_width_
 use super::screen::{Line, blank_row};
 use super::types::{Cell, Dimensions, Position};
 
+/// Heap bytes a cell allocation of `capacity` cells occupies. Shared by every
+/// memory-attribution site so grid and scrollback are counted the same way.
+pub(in crate::core) fn cells_bytes(capacity: usize) -> u64 {
+    (capacity as u64).saturating_mul(std::mem::size_of::<Cell>() as u64)
+}
+
+/// Heap bytes a button-span allocation of `capacity` spans occupies. Zero for
+/// the overwhelmingly common span-free line, which never allocates.
+pub(in crate::core) fn spans_bytes(capacity: usize) -> u64 {
+    (capacity as u64).saturating_mul(std::mem::size_of::<ButtonSpan>() as u64)
+}
+
 /// One logical line: a hard-terminated line whose soft-wrap runs have been
 /// rejoined into a single flat cell vector. `open` is true when the line's last
 /// physical row was soft-wrapped — the logical line is not yet hard terminated
@@ -467,6 +479,35 @@ impl Scrollback {
     #[cfg(test)]
     pub(in crate::core) fn logical_len(&self) -> usize {
         self.lines.len()
+    }
+
+    /// Heap bytes this store currently holds, for memory attribution.
+    ///
+    /// Counts the logical-line ring (its own slots plus each line's cell and
+    /// button-span allocations) and, separately, the memoized physical
+    /// projection — the projection is a real retained cost, so folding it into
+    /// the logical total or omitting it would both misreport what an idle pane
+    /// occupies. Capacities are used rather than lengths because capacity is
+    /// what the process is resident for. Saturating throughout: an attribution
+    /// figure must never wrap into a smaller number.
+    pub(in crate::core) fn stored_bytes(&self) -> u64 {
+        let ring_slots = (self.lines.capacity() as u64)
+            .saturating_mul(std::mem::size_of::<LogicalLine>() as u64);
+        let contents = self.lines.iter().fold(0u64, |acc, line| {
+            acc.saturating_add(cells_bytes(line.cells.capacity()))
+                .saturating_add(spans_bytes(line.button_spans.capacity()))
+        });
+        let cache = self.cache.borrow();
+        let projection = cache.rows.iter().fold(
+            (cache.rows.capacity() as u64).saturating_mul(std::mem::size_of::<Line>() as u64),
+            |acc, row| {
+                acc.saturating_add(cells_bytes(row.cells.capacity()))
+                    .saturating_add(spans_bytes(row.button_spans.capacity()))
+            },
+        );
+        ring_slots
+            .saturating_add(contents)
+            .saturating_add(projection)
     }
 
     fn invalidate(&self) {

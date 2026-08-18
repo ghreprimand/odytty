@@ -291,6 +291,12 @@ impl App {
             // at rest (nothing pending), so the idle wake set is unchanged; when
             // a shape mutation is pending this fires the one write ~1.5s later.
             self.autosave_deadline,
+            // Memory-attribution sampler. `None` whenever `ODYTTY_MEMORY_REPORT`
+            // is unset, which is every ordinary run — so the idle wake set is
+            // unchanged and the diagnostic cannot alter the idle behavior it
+            // exists to measure. When the gate is on this is the one added wake,
+            // and it reads counters without requesting a redraw.
+            self.memory_sampler.deadline(),
         ]
         .into_iter()
         .flatten()
@@ -547,6 +553,11 @@ impl App {
         // REMOTE-UX P4 / ODP-8: drain a finished Test Connection probe into the
         // open form. Idle when no probe is in flight.
         self.poll_connection_probe();
+        // Memory-attribution sample, when the diagnostic is gated on and one is
+        // due. One `Option` check otherwise. Deliberately here rather than on
+        // the frame path: an idle terminal presents no frames, and idle
+        // residency is the figure this diagnostic exists to attribute.
+        self.run_memory_report_sample(now);
         // NF20-B: settle the cursor-animation / render-hold timers of every
         // non-active pane. Background panes are never rendered, so their timers
         // have no consumer; parking them here — the one place that runs before

@@ -3,6 +3,25 @@
 
 use std::borrow::Cow;
 
+/// Bytes a single-mip 2D texture occupies at its own dimensions and format, for
+/// memory attribution.
+///
+/// This is the size OdyTTY asked the driver for, computed from the texture's
+/// declared extent and its format's block size. It is not a claim about where
+/// the driver placed those bytes — that varies by adapter, backend, and
+/// allocator, which is exactly why the attribution reports GPU totals alongside
+/// the resident set rather than folded into it. A format with no host-copy block
+/// size contributes zero rather than a guessed figure.
+pub(super) fn texture_bytes(texture: &wgpu::Texture) -> u64 {
+    let Some(block) = texture.format().block_copy_size(None) else {
+        return 0;
+    };
+    u64::from(texture.width())
+        .saturating_mul(u64::from(texture.height()))
+        .saturating_mul(u64::from(texture.depth_or_array_layers()))
+        .saturating_mul(u64::from(block))
+}
+
 /// Clamp a texture extent axis-by-axis to a device limit. Zero-sized inputs
 /// become one pixel because WebGPU textures cannot have an empty dimension.
 pub(super) fn clamp_dimensions(width: u32, height: u32, limit: u32) -> (u32, u32) {

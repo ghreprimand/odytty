@@ -130,6 +130,19 @@ impl ColorGlyphAtlas {
         dirty
     }
 
+    /// Heap bytes the CPU-side RGBA bitmap currently holds, for memory
+    /// attribution. Reports the allocation's capacity for the same reason the
+    /// monochrome atlas does: capacity is what the process is resident for.
+    pub fn cpu_bitmap_bytes(&self) -> u64 {
+        self.data.capacity() as u64
+    }
+
+    /// Bytes the GPU colour-glyph texture occupies at the current dimensions.
+    /// The atlas is always RGBA8, so four bytes per pixel.
+    pub fn gpu_texture_bytes(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height) * 4
+    }
+
     /// Bind growth to the active device's maximum 2D texture height. Inserts
     /// return [`ColorGlyphAtlasError::Full`] once the final complete growth
     /// page is full.

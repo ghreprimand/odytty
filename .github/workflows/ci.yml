@@ -228,6 +228,14 @@ jobs:
         # relaxed to software timing.
         run: python3 scripts/bench-protocol/bench-protocol.py --self-test
 
+      - name: Memory-capture self-tests
+        # Pure parser/classifier checks over recorded sample text. No process
+        # is inspected and nothing is written. These are part of the gate
+        # because a capture that misclassifies a driver mapping would silently
+        # inflate the "OdyTTY's own bytes" reading, which is exactly the error
+        # the memory record exists to prevent.
+        run: python3 scripts/memory-capture.py --self-test
+
       - name: Production Rust file-size guard
         # The recorded backlog forgives the files the decomposition work has
         # not reached yet and nothing else: a new oversized file, a recorded

@@ -245,6 +245,18 @@ impl PostProcessResources {
         self.rebuild_bloom_bind_groups(device);
     }
 
+    /// Bytes the three post-process render targets occupy, for memory
+    /// attribution: the full-resolution offscreen scene target plus the
+    /// half-resolution bright and ping bloom targets. These are created on first
+    /// effect use and retained thereafter, so this figure is non-zero for the
+    /// rest of the process once CRT or bloom has been enabled once.
+    pub(in crate::native) fn gpu_texture_bytes(&self) -> u64 {
+        use crate::native::texture_limits::texture_bytes;
+        texture_bytes(&self.offscreen)
+            .saturating_add(texture_bytes(&self.bright))
+            .saturating_add(texture_bytes(&self.ping))
+    }
+
     pub(in crate::native) fn encode_post_process(
         &self,
         encoder: &mut wgpu::CommandEncoder,

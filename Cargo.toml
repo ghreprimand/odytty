@@ -70,8 +70,12 @@ rustix = { version = "1.1.4", features = ["pipe", "pty", "termios", "process"] }
 # `windows` 0.62 stack `wgpu` already locks transitively (Cargo.lock has
 # windows 0.62.2) so no second copy is pulled. `Win32_Security` is required even
 # though it is not called directly: the `CreatePipe`/`CreateProcessW` bindings
-# are cfg-gated on it in 0.62.2 (their `SECURITY_ATTRIBUTES` parameters). All
-# usage is behind `#[cfg(windows)]`, so Unix builds never see this crate.
+# are cfg-gated on it in 0.62.2 (their `SECURITY_ATTRIBUTES` parameters).
+# `Win32_System_ProcessStatus` backs the memory-attribution diagnostic's
+# process-level read (`GetProcessMemoryInfo`), which is the Windows equivalent
+# of the Linux `/proc/self/status` source — Windows reads its own interface
+# rather than inheriting a figure from another platform. All usage is behind
+# `#[cfg(windows)]`, so Unix builds never see this crate.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",
@@ -80,6 +84,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Environment",
     "Win32_System_JobObjects",
     "Win32_System_Pipes",
+    "Win32_System_ProcessStatus",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ] }

@@ -75,6 +75,21 @@ pub(in crate::core) struct Line {
     /// [`Snapshot`]. Empty (no allocation) for the common button-free row.
     pub(in crate::core) button_spans: Vec<ButtonSpan>,
 }
+
+/// Heap bytes a slice of physical rows occupies, for memory attribution: the
+/// row slots themselves plus each row's cell and button-span allocations.
+/// Capacities are used rather than lengths because capacity is what the process
+/// is resident for.
+pub(in crate::core) fn rows_bytes(rows: &[Line]) -> u64 {
+    rows.iter().fold(
+        (rows.len() as u64).saturating_mul(std::mem::size_of::<Line>() as u64),
+        |acc, row| {
+            acc.saturating_add(super::scrollback::cells_bytes(row.cells.capacity()))
+                .saturating_add(super::scrollback::spans_bytes(row.button_spans.capacity()))
+        },
+    )
+}
+
 /// An owned physical row of the visible viewport, produced by
 /// [`Screen::visible_search_rows`]. It owns its cells and carries the soft-wrap
 /// `wrapped` flag the hint / quick-select scanner needs to join logical lines

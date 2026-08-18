@@ -30,4 +30,21 @@ impl GlyphAtlas {
     pub fn bytes_per_row(&self) -> u32 {
         self.width * self.subpixel.bytes_per_pixel()
     }
+
+    /// Heap bytes the CPU-side coverage bitmap currently holds, for memory
+    /// attribution. Reports the allocation's **capacity**, not its length: the
+    /// capacity is what the process is resident for, and an atlas that grew and
+    /// then shrank still owns the larger buffer.
+    pub fn cpu_bitmap_bytes(&self) -> u64 {
+        self.data.capacity() as u64
+    }
+
+    /// Bytes the GPU coverage texture occupies at the current dimensions and
+    /// storage mode, for memory attribution. This is the size OdyTTY asked the
+    /// driver for; where the driver actually places those bytes is its own
+    /// business, which is why the attribution reports GPU totals alongside the
+    /// resident set rather than inside it.
+    pub fn gpu_texture_bytes(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height) * u64::from(self.subpixel.bytes_per_pixel())
+    }
 }

@@ -135,6 +135,10 @@ use layouts::LayoutPlacement;
 // Window lifecycle: close, exit, wake deadlines, user events, resume, resize,
 // and focus lifecycle. Extracted from this file without behavior change.
 mod lifecycle;
+// Env-gated memory-attribution diagnostic: the walk that fills a report from
+// live window state, and the sampler that schedules it. Inert when the gate is
+// unset.
+pub(in crate::native) mod memory_report;
 mod mouse_protocol;
 mod new_row_fade;
 mod open_notice;

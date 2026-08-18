@@ -155,13 +155,15 @@ silencing anything (a typo must never hide errors).
 
 ### Opt-in traces
 
-Two targeted trace gates exist. Both are inert unless explicitly set and are
-meant for reproducing a specific issue, not for everyday use.
+Three targeted trace gates exist. All are inert unless explicitly set and are
+meant for reproducing a specific issue or taking a measurement, not for everyday
+use.
 
 | Gate | Value | Destination | Purpose |
 |---|---|---|---|
 | `ODYTTY_REFLOW_TRACE` | `1` or `true` | `odytty-reflow-trace.log` in the OS temp dir | Permanent passive diagnostic: one geometry/cursor line per terminal resize. |
 | `ODYTTY_KEY_EVENT_DIAGNOSTICS` | `1`, `on`, or `true` | `odytty.log` and stderr | Temporary keyboard/IME route trace for compositor-dependent editing-key issues. |
+| `ODYTTY_MEMORY_REPORT` | `1`/`true` (10 s), or a period in seconds (1-3600) | `odytty-memory-report.log` in the OS temp dir | Permanent passive diagnostic: one memory-attribution line per sample, naming what each subsystem holds. |
 
 `ODYTTY_REFLOW_TRACE` costs a single atomic load when off and appends one line
 per resize when on; it records geometry and cursor coordinates only, never cell
@@ -178,6 +180,25 @@ events are sampled at powers of two so a feedback loop cannot flood the log.
 The gate uses warning-level application logging so it remains retrievable from
 `odytty.log`, including on Windows. Turn it off after the keyboard issue has
 been captured.
+
+`ODYTTY_MEMORY_REPORT` records byte totals for the subsystems OdyTTY itself
+decides the size of — glyph and colour-glyph atlases, the background image, the
+post-process render targets, per-pane grid and scrollback, the graphics-protocol
+image store, and the vertex buffers — alongside the process resident set and its
+peak. The difference between the attributed total and the resident set is
+reported as an explicitly labelled remainder rather than distributed across the
+named subsystems, and GPU-object bytes are reported beside the resident set
+rather than subtracted from it. Every field is a byte total, a count, or a fixed
+identifier from a closed set; there is no string field, so terminal content,
+titles, paths, and environment values cannot enter the log. Off, it costs a
+single atomic load and adds no event-loop wake, so an idle terminal's behavior is
+unchanged; on, it wakes once per period to read counters and never requests a
+redraw, because forcing a frame in order to measure an idle process would change
+what is being measured. The process-level figures come from
+`/proc/self/status` on Linux, `GetProcessMemoryInfo` on Windows, and `getrusage`
+on macOS (peak only; the current resident set is reported `unmeasured` there
+rather than approximated). See [`memory.md`](memory.md) for the memory model this
+diagnostic serves and for the companion host-side capture script.
 
 ## Recovery behavior
 

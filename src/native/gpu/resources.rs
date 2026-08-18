@@ -548,6 +548,76 @@ impl GpuState {
         &self.adapter_diagnostics
     }
 
+    /// Fill the renderer's share of a memory-attribution report.
+    ///
+    /// Host bytes are CPU allocations this state retains between frames; GPU
+    /// bytes are the sizes OdyTTY asked the driver for. The two are kept in
+    /// separate records because a GPU allocation's residency is the driver's
+    /// business, and folding it into a resident-set figure would make the
+    /// resident figure incomparable across backends.
+    ///
+    /// A subsystem that is not currently instantiated — no background image, no
+    /// post-process stack — contributes a measured zero. That is deliberately
+    /// different from omitting it: a zero says the cost was looked for and found
+    /// absent.
+    pub(in crate::native) fn fill_memory_report(
+        &self,
+        host: &mut crate::memory_report::HostBytes,
+        gpu: &mut crate::memory_report::GpuBytes,
+    ) {
+        host.glyph_atlas_bitmap = self.atlas.cpu_bitmap_bytes();
+        host.color_glyph_atlas_bitmap = self.color_glyph_atlas.cpu_bitmap_bytes();
+        host.background_image_buffer = self
+            .bg_image
+            .as_ref()
+            .map_or(0, |image| image.cpu_buffer_bytes());
+        host.vertex_staging = self
+            .cpu_vertex_staging_bytes()
+            .saturating_add(self.image_layer.cpu_vertex_staging_bytes());
+
+        gpu.glyph_atlas_texture = self.atlas.gpu_texture_bytes();
+        gpu.color_glyph_atlas_texture = self.color_glyph_atlas.gpu_texture_bytes();
+        gpu.background_image_texture = self
+            .bg_image
+            .as_ref()
+            .map_or(0, |image| image.gpu_texture_bytes());
+        gpu.post_process_textures = self
+            .post_process
+            .as_ref()
+            .map_or(0, |post| post.gpu_texture_bytes());
+        gpu.graphics_textures = self.image_layer.gpu_texture_bytes();
+        gpu.vertex_buffers = [
+            self.viewport_buf.size(),
+            self.vertex_buf.size(),
+            self.cursor_glow_vertex_buf.size(),
+            self.cursor_streak_vertex_buf.size(),
+            self.color_glyph_vertex_buf.size(),
+            self.image_layer.gpu_vertex_buffer_bytes(),
+        ]
+        .into_iter()
+        .fold(0u64, u64::saturating_add);
+    }
+
+    /// CPU-side vertex vectors this state retains between frames. Reported as
+    /// capacities: a burst of colour-glyph or cursor-trail geometry leaves the
+    /// vectors grown, and that growth is resident whether or not the next frame
+    /// uses it.
+    fn cpu_vertex_staging_bytes(&self) -> u64 {
+        let cell = std::mem::size_of::<Vertex>() as u64;
+        let glow = std::mem::size_of::<CursorGlowVertex>() as u64;
+        let streak = std::mem::size_of::<CursorStreakVertex>() as u64;
+        let color = std::mem::size_of::<ColorGlyphVertex>() as u64;
+        [
+            (self.vertices.capacity() as u64).saturating_mul(cell),
+            (self.cursor_vertices.capacity() as u64).saturating_mul(cell),
+            (self.cursor_glow_vertices.capacity() as u64).saturating_mul(glow),
+            (self.cursor_streak_vertices.capacity() as u64).saturating_mul(streak),
+            (self.color_glyph_vertices.capacity() as u64).saturating_mul(color),
+        ]
+        .into_iter()
+        .fold(0u64, u64::saturating_add)
+    }
+
     /// Bring up the GPU surface for `window`.
     ///
     /// Synchronous from the caller's perspective: the async adapter/device
