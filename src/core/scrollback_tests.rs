@@ -19,7 +19,7 @@ use super::scrollback::{
     resize_lazy, resize_lazy_with_options,
 };
 use super::search::SearchOptions;
-use super::types::{Attrs, Cell, Dimensions, Position};
+use super::types::{Attrs, Cell, Dimensions, MAX_COMBINING, Position};
 
 const W: usize = 8;
 
@@ -1055,6 +1055,240 @@ fn measure_wrapped_scrollback(
     }
     let _ = term.screen().scrollback_len();
     term.screen().scrollback_bytes()
+}
+
+// ---------------------------------------------------------------------------
+// Representation-independent grapheme oracle (P3 stage B prerequisite)
+// ---------------------------------------------------------------------------
+//
+// Any change to how the ring *stores* cells has to preserve what the ring
+// *means*: the grapheme content of every logical line, at every width it can be
+// projected to. This oracle states that as a property rather than as a golden
+// file, so it constrains a new representation without having to be rewritten
+// for it — feed known grapheme sequences in, project them out at many widths,
+// and require the reconstruction to be the input.
+//
+// It is deliberately not a byte-level or layout-level assertion. Byte-level
+// pins belong with the type (`cell_equivalence`); this one has to survive a
+// storage change in order to be worth anything during one.
+
+/// Rebuild the logical lines a projection encodes, by joining physical rows on
+/// the soft-wrap flag and concatenating each cell's full grapheme cluster.
+///
+/// Wide-glyph spacer cells contribute nothing: the base char already carries the
+/// glyph, so counting the spacer would double it.
+fn logical_graphemes(rows: &[Line]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut open = false;
+    for row in rows {
+        for cell in &row.cells {
+            if cell.wide_continuation {
+                continue;
+            }
+            current.push_str(&cell.grapheme());
+        }
+        if row.wrapped {
+            open = true;
+        } else {
+            out.push(std::mem::take(&mut current));
+            open = false;
+        }
+    }
+    if open || !current.is_empty() {
+        out.push(current);
+    }
+    out
+}
+
+/// Content chosen so the oracle has something to lose: combining marks at the
+/// start, middle and end of a line, a cell carrying the full `MAX_COMBINING`
+/// run, a cell whose marks would overflow that bound, and wide glyphs adjacent
+/// to marked cells so the spacer rule and the mark rule interact.
+fn grapheme_oracle_corpus() -> Vec<String> {
+    let overflow: String = std::iter::once('e')
+        .chain(std::iter::repeat_n('\u{0301}', MAX_COMBINING + 2))
+        .collect();
+    let full: String = std::iter::once('a')
+        .chain(std::iter::repeat_n('\u{0308}', MAX_COMBINING))
+        .collect();
+    vec![
+        "plain ascii".to_string(),
+        format!("start{full}end"),
+        format!("{overflow}tail"),
+        "e\u{0301}a\u{0300}i\u{0302}o\u{0303}u\u{0308}".to_string(),
+        "wide\u{0301}xy".to_string(),
+        format!("mixed{full}rest"),
+    ]
+}
+
+/// The property: for every projection width, the graphemes read back out of the
+/// scrollback are exactly the graphemes that were written in.
+///
+/// Width is swept rather than fixed because a storage change that loses a mark
+/// only at a wrap boundary would pass at a single width. Trailing blanks are
+/// trimmed by the projection, so the corpus carries none.
+#[test]
+fn scrollback_projection_preserves_graphemes_at_every_width() {
+    let corpus = grapheme_oracle_corpus();
+    // Expected clusters are what the *cell* representation can hold, not what
+    // was fed: `push_combining` drops marks past `MAX_COMBINING`, and that
+    // bound is a documented limitation this oracle must not paper over.
+    let expected: Vec<String> = corpus
+        .iter()
+        .map(|line| {
+            let mut out = String::new();
+            let mut marks = 0usize;
+            for ch in line.chars() {
+                if is_zero_width_mark(ch) {
+                    if marks < MAX_COMBINING {
+                        out.push(ch);
+                        marks += 1;
+                    }
+                } else {
+                    out.push(ch);
+                    marks = 0;
+                }
+            }
+            out
+        })
+        .collect();
+
+    for width in [2usize, 3, 5, 8, 13, 40, 80] {
+        let mut term = Terminal::new(width, 3);
+        term.set_scrollback_limit(0);
+        for line in &corpus {
+            term.advance(line.as_bytes());
+            term.advance(b"\r\n");
+        }
+        // Push every fed line out of the viewport and into the ring.
+        for _ in 0..8 {
+            term.advance(b"\r\n");
+        }
+        let store = term.screen().scrollback_store();
+        let rows = store.physical_tail(width, store.physical_len(width));
+        let read_back = logical_graphemes(&rows);
+        // Blank padding is the projection's business, not this oracle's: a row
+        // is stored full-width, so a wrapped line's last row contributes the
+        // spaces that pad it. Comparing trimmed content keeps the property
+        // ("no grapheme is lost, gained, or reordered") independent of the
+        // padding policy, which `same_width_roundtrip` already pins.
+        let content: Vec<String> = read_back
+            .iter()
+            .map(|line| line.trim_end_matches(' ').to_string())
+            .filter(|line| !line.is_empty())
+            .collect();
+        assert_eq!(
+            content.len(),
+            expected.len(),
+            "width {width}: logical line count changed; read back {read_back:?}"
+        );
+        for (got, want) in content.iter().zip(expected.iter()) {
+            assert_eq!(
+                got.as_str(),
+                want.as_str(),
+                "width {width}: grapheme content differs"
+            );
+        }
+    }
+}
+
+/// Zero-width marks as the printer classifies them (`Screen::print_char` treats
+/// width 0 as a combining mark), so the oracle's expectation is derived from the
+/// same rule the feed path applies rather than from a second list.
+fn is_zero_width_mark(ch: char) -> bool {
+    unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1) == 0
+}
+
+/// Candidate A: `Cell` with the four-slot `combining` array and its length byte
+/// replaced by a 4-byte handle into a side table. Declared here purely so the
+/// resulting size is produced by the compiler's layout rules rather than by
+/// hand-arithmetic in a report.
+#[allow(dead_code)]
+struct CandidateHandleCell {
+    ch: char,
+    attrs: Attrs,
+    protected: bool,
+    wide_continuation: bool,
+    combining: u32,
+}
+
+/// Candidate B: the cell the **scrollback ring alone** would store — no handle
+/// field at all, because the marks live in a per-line sidecar keyed by column,
+/// and the two per-cell booleans pack into one byte that the existing padding
+/// already pays for. `Cell` itself is untouched; conversion happens at the
+/// projection boundary that stage A already made on-demand.
+#[allow(dead_code)]
+struct CandidateStoredCell {
+    ch: char,
+    attrs: Attrs,
+    flags: u8,
+}
+
+/// The candidate sizes above are load-bearing for the stage-B decision, so they
+/// are asserted rather than quoted. If a future field addition changes either
+/// layout, the projection harness's arithmetic changes with it.
+#[test]
+fn stage_b_candidate_cell_sizes() {
+    assert_eq!(std::mem::size_of::<Cell>(), 44);
+    assert_eq!(std::mem::size_of::<CandidateHandleCell>(), 32);
+    assert_eq!(std::mem::size_of::<CandidateStoredCell>(), 28);
+}
+
+/// Measurement, not an assertion: what a change to `size_of::<Cell>()` would
+/// be worth against the **post-stage-A** ring, decomposed so the projection is
+/// arithmetic over measured capacities rather than a guess.
+///
+/// Only the cell term scales with `Cell`'s size; ring slots and button spans do
+/// not, so a projection that applies the ratio to the whole ring would
+/// overstate the saving. Run with
+/// `cargo test -- --ignored --nocapture stage_b_cell_shrink_projection`.
+#[test]
+#[ignore = "measurement harness; allocates ~GB at the deepest point"]
+fn stage_b_cell_shrink_projection() {
+    // Two candidate representations, both measured rather than assumed. Their
+    // sizes come from `stage_b_candidate_cell_sizes` below, which declares
+    // structs with the same fields and asserts what the compiler lays out.
+    //
+    // A: a handle replacing `combining: [char; 4]` + `combining_len: u8`,
+    //    `Cell` itself narrowed everywhere.
+    // B: `Cell` unchanged, and the scrollback ring alone stores a narrow cell
+    //    with the marks in a per-line sidecar (the shape `button_spans`
+    //    already uses), converted at the projection boundary.
+    let cell_a = std::mem::size_of::<CandidateHandleCell>();
+    let cell_b = std::mem::size_of::<CandidateStoredCell>();
+    let old_cell = std::mem::size_of::<Cell>();
+    let slot = std::mem::size_of::<crate::core::scrollback::LogicalLine>();
+    println!("cell {old_cell}; candidate A {cell_a}; candidate B {cell_b}; slot {slot}");
+    println!("shape depth ring cell_bytes slot_bytes ring_A pct_A ring_B pct_B");
+    for wrapped in [false, true] {
+        for depth in [1_000usize, 10_000, 100_000] {
+            let mut term = Terminal::new(80, 24);
+            term.set_scrollback_limit(0);
+            let width = if wrapped { 420 } else { 72 };
+            let body: String = (0..width)
+                .map(|i| char::from(b'a' + (i % 26) as u8))
+                .collect();
+            for _ in 0..depth {
+                term.advance(body.as_bytes());
+                term.advance(b"\r\n");
+            }
+            let _ = term.screen().scrollback_len();
+            let bytes = term.screen().scrollback_bytes();
+            let (slots, cells, _spans) = term.screen().scrollback_store().ring_composition();
+            let cell_bytes = cells * old_cell;
+            let slot_bytes = slots * slot;
+            let ring = bytes.ring as usize;
+            let ring_a = ring - cells * (old_cell - cell_a);
+            let ring_b = ring - cells * (old_cell - cell_b);
+            println!(
+                "{} {depth} {ring} {cell_bytes} {slot_bytes} {ring_a} {:.1} {ring_b} {:.1}",
+                if wrapped { "wrapped" } else { "hard" },
+                100.0 * (ring - ring_a) as f64 / ring as f64,
+                100.0 * (ring - ring_b) as f64 / ring as f64
+            );
+        }
+    }
 }
 
 /// Measurement, not an assertion: fill cost for the soft-wrapped merge path.

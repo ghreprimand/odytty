@@ -9,6 +9,7 @@ use super::*;
 mod bell;
 mod cell_equivalence;
 mod chars_unicode;
+mod combining_side_table;
 mod erase_scroll;
 mod kitty_keyboard;
 mod osc_clipboard_colors;

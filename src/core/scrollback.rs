@@ -703,6 +703,22 @@ impl Scrollback {
         self.lines.len()
     }
 
+    /// Test window: the ring's byte total decomposed by what the bytes are
+    /// *made of*, rather than by which allocation holds them —
+    /// `(ring slots, cell capacity in cells, button-span capacity in spans)`.
+    ///
+    /// [`Self::stored_bytes`] reports the ring as one figure because that is
+    /// the resident cost. This split exists for a different question: only the
+    /// cell term scales with `size_of::<Cell>()`, so projecting the effect of a
+    /// change to `Cell`'s layout requires knowing how much of the ring is cells
+    /// and how much is per-line overhead that such a change would not move.
+    #[cfg(test)]
+    pub(in crate::core) fn ring_composition(&self) -> (usize, usize, usize) {
+        let cells = self.lines.iter().map(|l| l.cells.capacity()).sum();
+        let spans = self.lines.iter().map(|l| l.button_spans.capacity()).sum();
+        (self.lines.capacity(), cells, spans)
+    }
+
     /// Heap bytes this store currently holds, split by what holds them.
     ///
     /// The logical-line ring and the memoized projection shape are reported

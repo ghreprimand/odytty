@@ -7,6 +7,70 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-18 -- Denser scrollback cells: the evidence before the change
+
+The next scrollback reduction is a denser stored cell, and the design it should
+take was decided by measurement rather than by argument. This entry records the
+instruments and the coverage; the change itself is not in it.
+
+**What the ring is made of.** With deep history now stored once rather than
+twice, the ring is 97.7% cells — 351,919,040 bytes of 360,307,648 at 100,000
+hard-terminated lines. Per-line overhead and the ring's own slots are the rest,
+and neither scales with a cell's size, so a projection that applied a per-cell
+ratio to the whole ring would overstate what a narrower cell is worth. The
+store now exposes its composition to tests as three separate counts — ring
+slots, cell capacity, button-span capacity — so that arithmetic is done over
+measured capacities instead of an assumed layout.
+
+**Candidate layouts are sized by the compiler, not by hand.** Two candidate
+representations are declared as real structs and their sizes asserted: a cell
+carrying a handle in place of the inline combining array and its length byte,
+at 32 bytes; and the cell the scrollback ring alone would store — no handle at
+all, marks held per line and keyed by column — at 28. `Cell` itself remains 44.
+Those figures are load-bearing for the decision, so they are pinned by a test
+that fails if a future field addition moves either layout, rather than quoted
+from a note that could go stale.
+
+The second design saves more (35.5% of the ring hard-terminated, 36.2%
+soft-wrapped, against 26.6% for the first) and touches less: `Cell` is not
+modified, so every existing caller of the grapheme accessors is unaffected by
+construction, and the per-line mark store follows the shape button spans
+already use — empty and unallocated for the overwhelmingly common line, moving
+and dropping with its owner.
+
+**A grapheme oracle that outlives the representation.** Storage changes need a
+correctness statement that does not have to be rewritten for the new storage,
+or it proves nothing during the change it exists for. Combining clusters are
+now fed through scrollback and read back at seven projection widths, with the
+reconstruction required to equal the input: marks at the start, middle and end
+of a line, a cell carrying the full `MAX_COMBINING` run, a cell whose marks
+overflow that bound, and wide glyphs adjacent to marked cells so the spacer and
+mark rules interact. Width is swept rather than fixed because a fault that
+loses a mark only at a wrap boundary passes at any single width. The oracle
+derives its expectation from the same zero-width rule the printer applies, so
+the documented `MAX_COMBINING` limit is honored rather than papered over.
+
+Alongside it, seventeen adversarial cases pin the seams a denser representation
+has to keep: a `Cell` copy must not observe a later mutation of its original
+(the failure there is wrong glyphs, not missing ones), insert/overwrite/recycle
+must not attach another cell's marks, 128 distinct live clusters stay fully
+readable, alternate-screen swap and session-host round-trip treat marks as a
+unit with their cell, and reflow keeps marks on the same base character. None
+of it names a storage design.
+
+**Benchmark profile units, swept after one was found wrong.** The scrollback
+comparison profiles were re-checked field by field against each terminal's own
+documentation, after one silent unit mismatch had already been corrected there.
+No second instance: font size 12 is pixels for OdyTTY and points for the others
+and was already documented as such, padding units diverge but every value is
+zero, and the two opacity spellings are each natively opaque. A copied non-zero
+padding would repeat the original failure mode, so the divergence is recorded
+rather than left implicit.
+
+Windows: no platform surface — core storage, and test-only measurement.
+
+---
+
 ## 2026-08-18 -- Deep scrollback stops being paid for twice
 
 At 100,000 lines of history, scrollback is not one memory term among several —
