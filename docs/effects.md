@@ -246,7 +246,17 @@ ODYTTY_CRT=on ODYTTY_CRT_SCANLINE_INTENSITY=0.17 odytty
 
 CRT uses the same `Rgba16Float` post-process target as bloom. If the adapter
 cannot render, bind, and filter that format, OdyTTY uses the plain direct path.
-With both bloom and CRT disabled, no offscreen texture is allocated.
+
+The post-process targets are allocated on the first frame that needs them and
+released as soon as both bloom and CRT are off — so disabling the effects gives
+the memory back for the rest of the session rather than only avoiding the
+allocation on a session that never enabled them. The three targets (a
+full-resolution offscreen plus two half-resolution bloom buffers) come to
+`width * height * 12` bytes, roughly 24 MB at 1080p and 95 MB at 4K, so this is
+a real saving rather than a bookkeeping one. Re-enabling either effect
+reallocates them at the current window size on the next frame, before that frame
+is presented, so the first effect-on frame is fully post-processed and no frame
+is dropped at either edge.
 
 ---
 

@@ -30,6 +30,12 @@ impl GpuState {
         // Geometry is pixel-space and stable across resize; only the viewport
         // uniform needs the new physical size.
         self.update_viewport();
+        // The effect stack may have been turned off since these targets were
+        // built. Release them first, so an inactive stack is not reallocated at
+        // every new size for the rest of the session; an active stack is
+        // untouched by this call and falls through to the resize below exactly
+        // as before.
+        self.release_post_process_if_inactive();
         if let Some(post_process) = &mut self.post_process
             && let Some(format) = self.post_process_format
         {

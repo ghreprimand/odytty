@@ -216,6 +216,33 @@ benchmark unit rather than conclusions:
 That is what "measure before optimizing" is for. The intuitive target — atlases
 and cell storage — is not where this capture points.
 
+The post-process figure above was the first thing the instrument caught. Those
+targets were built on the first frame that used an effect and then never
+released, so turning bloom and CRT off left them resident for the rest of the
+session, and every subsequent resize rebuilt them at the new size for an effect
+nothing was drawing. They are now released whenever the effect stack goes
+inactive; on this workstation that is a measured `gpu_post_process_textures`
+drop from 47,051,136 bytes to 0 across an effects-off toggle, against no change
+at all on the same toggle before the fix.
+
+That figure proves the behavior, not the size of the saving. The targets are
+sized from the drawable surface, so the bytes recovered scale with window area
+and pixel format: a large surface on a workstation and an 80x24 window on the
+benchmark unit will disagree substantially on the number. The behavioral claim —
+zero while inactive, no reallocation on resize while inactive, clean re-creation
+when an effect is turned back on — is machine-independent and is established
+here. The quantity recovered on the configuration the published comparison uses
+is established by the benchmark unit's own capture and nowhere else.
+
+One caveat that the capture makes visible and that no summary should drop: this
+is a **discrete** GPU. Freeing a texture there returns device memory, and the
+process resident set does not move — which is exactly why this document reports
+GPU bytes beside the resident set rather than inside it. On an integrated
+adapter the same allocation is carved out of system RAM, so the same change is
+expected to show up in the resident figure there. Expected, not measured: the
+benchmark unit's own capture is what settles it, and until that exists this
+saving is claimed as device memory only.
+
 ## What is deliberately not a goal
 
 **Matching Alacritty's 58.0 MB is a non-goal.** Not because it is hard, but

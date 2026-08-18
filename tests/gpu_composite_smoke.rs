@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use std::sync::mpsc;
+use std::sync::{Mutex, mpsc};
 
 use odytty::settings::default_bloom_threshold_for_theme;
 use odytty::theme::Theme;
@@ -926,6 +926,16 @@ fn cleared_viewer_frame_is_byte_identical() {
 }
 
 fn gpu_device() -> Option<(wgpu::Device, wgpu::Queue, bool)> {
+    // Concurrent device bring-up on the same adapter deadlocks inside the
+    // driver. The lib-binary GPU tests already serialize this window with
+    // `test_lock::device_creation_lock`;
+    // that lock is crate-private, so this integration crate carries the same
+    // mutex around the same window. Held only for instance/adapter/device
+    // creation; the returned device is then free to run in parallel.
+    static DEVICE_CREATION_LOCK: Mutex<()> = Mutex::new(());
+    let _init = DEVICE_CREATION_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),

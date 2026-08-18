@@ -42,6 +42,14 @@ the required HDR format, the same scene is rendered to a linear `Rgba16Float`
 offscreen target and composited back through a fullscreen pass. The
 `render_quality = plain` profile forces the direct path.
 
+The branch is lazy in both directions. The offscreen targets are built on the
+first frame that needs them and released again as soon as `post_active()` goes
+false, so turning the effects off returns their memory instead of keeping it for
+the rest of the session. The release is driven from the consumer side — `render`
+checks it every frame, so the rule holds no matter what mutated the effect stack
+— and `resize` checks it too, so an inactive stack is never rebuilt at a new
+size.
+
 ### Draw order within the scene pass
 
 The canonical scene order is:
@@ -365,7 +373,11 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
   weak-adapter auto-downgrade. The pipeline is a no-op when no effect is enabled;
   the shipped defaults enable bloom and CRT, so the offscreen path is normally
   active. Scene pipelines re-target the offscreen format only while a pass is
-  active.
+  active. The render targets themselves follow the same rule: they are created
+  lazily on the first frame that needs them and released whenever the effect
+  stack goes inactive, so an effects-off session holds none of the
+  `width * height * 12` bytes they occupy, and a resize while inactive does not
+  rebuild them at the new size.
 - **Bloom / phosphor glow (VE2) (landed):** bright-text/bright-cell glow via a
   bright-pass threshold + half-res separable blur + additive composite. Enabled
   in the fresh-install ambient baseline behind the `bloom` setting and

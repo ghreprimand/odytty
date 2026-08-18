@@ -31,8 +31,46 @@ pub(in crate::native) enum FrameOutcome {
 }
 
 impl GpuState {
-    fn post_active(&self) -> bool {
+    /// Whether the effect stack currently needs the post-process targets: at
+    /// least one of bloom/CRT is enabled AND the adapter offered a usable
+    /// offscreen format. `pub(super)` so the resize path can gate on the same
+    /// predicate the render path does, rather than keeping a second copy of the
+    /// rule that could drift.
+    pub(super) fn post_active(&self) -> bool {
         self.post_options().active() && self.post_process_format.is_some()
+    }
+
+    /// Release the post-process render targets whenever the effect stack is
+    /// inactive.
+    ///
+    /// [`PostProcessResources`] is created lazily on the first frame that needs
+    /// it. It was previously never released, so turning bloom and CRT back off
+    /// left the full-resolution offscreen target and the two half-resolution
+    /// bloom targets resident for the remaining life of the process — three
+    /// `Rgba16Float` surfaces totalling `width * height * 12` bytes, about 24 MB
+    /// at 1080p and 95 MB at 4K, held for an effect nothing was drawing.
+    ///
+    /// Releasing from the consumer side rather than inside the effect setters is
+    /// deliberate. `render` is the only consumer of these targets, so the check
+    /// there covers every path that can turn the stack off — including any added
+    /// later. Today the effect fields are reachable only through
+    /// `set_bloom`/`set_crt`, but a third mutation site would need no change
+    /// here, whereas a setter-side release would have to be remembered at each
+    /// one. `resize` calls this as well, for a narrower reason: an inactive
+    /// stack's targets must not be rebuilt at each new size.
+    ///
+    /// Externally this is invisible. Turning an effect back on takes the same
+    /// lazy creation path that built the targets the first time, inside the
+    /// frame that needs them and before that frame is presented — so the first
+    /// effects-on frame is fully post-processed, exactly as the very first
+    /// toggle always was. Nothing between the release and the next enable reads
+    /// the targets: the no-effect branch of `render` draws straight to the
+    /// swapchain, and the scene pipelines are keyed off the target *format*,
+    /// which the setters already maintain independently of this allocation.
+    pub(super) fn release_post_process_if_inactive(&mut self) {
+        if !self.post_active() {
+            self.post_process = None;
+        }
     }
 
     pub(super) fn post_options(&self) -> PostProcessOptions {
@@ -185,6 +223,13 @@ impl GpuState {
             return FrameOutcome::RecreateDevice;
         }
         self.ensure_scene_target_format();
+        // Give back the post-process targets when the effect stack is off.
+        // Placed BEFORE the surface acquire on purpose: an occluded or
+        // timing-out window returns early from the arms below, and releasing
+        // after the acquire would make it hold the memory until it became
+        // visible again — precisely the case where holding it is least
+        // defensible.
+        self.release_post_process_if_inactive();
         let (frame, suboptimal) = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => (frame, false),
             // Acquired, but the surface no longer matches: draw this frame, then

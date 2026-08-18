@@ -7,6 +7,97 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-18 -- Post-process render targets are released when the effects are off
+
+The first thing the new memory instrument caught was a retention bug it was
+built to find. The post-process render targets — a full-resolution `Rgba16Float`
+offscreen plus two half-resolution bloom buffers, `width * height * 12` bytes in
+total — are created on the first frame that uses bloom or CRT. They were then
+never released. Turning both effects off left them resident for the remaining
+life of the process, and every subsequent window resize rebuilt them at the new
+size for an effect nothing was drawing. The cost is roughly 24 MB at 1080p, 42 MB
+at 1440p and 95 MB at 4K.
+
+They are now released whenever the effect stack goes inactive. The release is
+driven from the consumer side: `render` checks the same `post_active()`
+predicate every frame, so the rule holds regardless of what mutated the effect
+stack, including any mutation site added later. A setter-side release would have
+to be remembered at each new setter. `resize` calls the same check for a
+narrower reason — an inactive stack must not be rebuilt at each new size. The
+check sits before the surface acquire rather than after it, so an occluded or
+minimized window releases the memory too; that is the case where holding it is
+least defensible, and it is the one an after-acquire check would miss.
+
+Nothing changes externally. Re-enabling an effect takes the same lazy creation
+path that built the targets the first time, inside the frame that needs them and
+before that frame is presented, so the first effect-on frame is fully
+post-processed. Three toggle edges in one traced session produced no skipped
+frames, no watchdog stalls and no device errors, and the targets came back sized
+to the window as it stands after an intervening resize rather than as it stood
+when they were first built.
+
+Measured on a development workstation across an effects-off toggle:
+`gpu_post_process_textures` falls from 47,051,136 bytes to zero, against no
+change at all on the same toggle beforehand. Across two live resizes with the
+effects off, the previous build reallocated at both new sizes while the current
+one holds at zero. That figure proves the behavior, not the size of the saving —
+the targets are sized from the drawable surface, so the bytes recovered scale
+with window area, and the quantity recovered on the published-comparison
+configuration comes from the benchmark unit's own capture and nowhere else. One
+further caveat is recorded rather than buried: that workstation has a discrete
+GPU, where freeing a texture returns device memory and the process resident set
+does not move. On an integrated adapter the same allocation is carved out of
+system RAM and is expected to appear in the resident figure. Expected, not
+measured.
+
+`docs/effects.md` previously stated that no offscreen texture is allocated with
+both effects disabled. That was false for any session that had ever enabled one.
+The documentation now states the lifetime explicitly instead of the claim, in
+`docs/effects.md` and at both affected sites in `docs/visual-architecture.md`.
+
+Two test-side corrections land with it. The `gpu_composite_smoke` integration
+tests each created a wgpu instance, adapter and device with no serialization;
+every other device-creation site in the tree already holds a creation lock, but
+that lock is crate-private and the integration crate could not reach it, so it
+never got the equivalent guard. It now carries its own mutex over the same
+window, and the six tests complete in under a second at eight threads where they
+previously hung indefinitely. The earlier entry attributed that deadlock to the
+software Vulkan path; that attribution was a guess and it was wrong. A thread
+dump taken at a reproduced hang showed every open descriptor pointing at the
+accelerated device nodes, the blocked threads inside the vendor driver's own
+worker pool, and no software-ICD descriptor open at all. The hazard is
+concurrent device creation on the same adapter, whichever driver serves it, and
+both the original lock comment and the new one now say so. The unnamed SIGSEGV
+seen at high thread counts is a separate matter with no established cause; it
+does not reproduce when the GPU tests are run in isolation, and
+`RUST_TEST_THREADS=1` remains the standing gate until it is understood.
+
+A new `tests/memory_report.rs` pins the diagnostic's own arithmetic so the
+instrument cannot drift silently: the accounted-plus-remainder identity, a
+negative remainder when attribution exceeds residency, saturating sums, the
+exclusion of GPU bytes from the host remainder, the gate grammar, the
+`/proc/status` field parse, the closed resident-source set, and the report
+column set in order. The tests construct reports in memory and never open a
+device.
+
+One negative result is worth recording because it was paid for. `wgpu`'s
+`MemoryHints::MemoryUsage` was measured against the current performance-biased
+default on a resource bundle matching OdyTTY's real texture set, three runs
+each: 127.0-127.2 MB against 127.1-127.3 MB, a difference smaller than
+run-to-run variance. The footprint sits inside a single suballocator block, so
+the smaller granularity has nothing to save. Not adopted.
+
+Windows: no platform branch anywhere in the change. The retention, the resize
+reallocation and the release are all platform-independent, and DX12 backs the
+same resource lifetime.
+
+Verified: `cargo fmt --check` and `cargo clippy --all-targets --locked
+-D warnings` clean; full `cargo test --locked` green at 4,657 passed and 0
+failed at `RUST_TEST_THREADS=1`, including both direct-versus-offscreen
+equivalence assertions in the composite suite.
+
+---
+
 ## 2026-08-18 -- Memory attribution: an instrument before an optimization
 
 The published W6 idle comparison puts OdyTTY's resident footprint last of four
