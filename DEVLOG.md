@@ -7,6 +7,110 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-18 -- Deep scrollback stops being paid for twice
+
+At 100,000 lines of history, scrollback is not one memory term among several —
+it is 96% of the resident set, with atlases, grid, vertex staging and every GPU
+total together in the low single-digit megabytes. It was also getting worse per
+line as it got deeper, which a flat `lines x columns x sizeof(Cell)` model
+cannot produce. Something structural was doing it, and finding out which meant
+measuring before changing anything.
+
+**The attribution field was split first, because a single total cannot say what
+moved.** Scrollback now reports the logical-line ring and the memoized
+projection as separate figures, plus the reserved-but-unused capacity inside the
+ring as a third. That third field is a breakdown, not an addition: it is already
+counted in the ring figure, so the attributed total deliberately excludes it,
+and the sum now destructures the field set exhaustively so a field cannot be
+added without deciding which kind it is. Adding a breakdown figure to a total
+would inflate the attribution and shrink the remainder that exists to make
+unexplained bytes visible.
+
+Split apart, both structural terms were immediately visible.
+
+**The memoized projection was a full second copy of the store.** Scrollback is
+held as width-independent logical lines and projected to physical rows at the
+current width; that projection was memoized in full, every row with its own copy
+of every cell. At 100,000 hard-terminated lines it measured 360,307,648 bytes
+against a logical ring of 360,307,648 — exact parity. History was stored twice.
+
+What is memoized now is the projection's shape: each logical line's first
+physical row index at the current width, one `usize` per line, with rows
+produced on demand. The shape is what consumers actually need, because it
+resolves an absolute row to its owning logical line without materializing
+anything. Of the nine readers, six want a viewport-sized tail, one wants a
+single row, and only two — full-buffer search and the prompt-mark enumeration —
+ever wanted every row; both are user-initiated rather than per-frame, so they
+project transiently and retain nothing. The projection field fell from
+360,307,648 bytes to 799,816, and total scrollback bytes halved.
+
+That change moved memory and latency the same way. A viewport read no longer
+depends on how deep the buffer is — 9.2 microseconds at 1,000 lines and at
+100,000 alike — and because the shape is cheaper to rebuild than the rows were,
+reading a viewport immediately after new output, the steady state while a
+command is producing output, fell from 94.3 ms to 27.6 ms at 100,000 lines. The
+one regression is 2 microseconds on a read with nothing pushed since the last,
+where a tail projection replaces a slice of an already-built vector.
+
+**Finalized lines stopped holding their growth overshoot.** A logical line
+assembled from soft-wrapped rows grows by amortized doubling and can hold up to
+twice the cells it needs; once the line is hard-terminated its length is final
+and the overshoot is waste. Capacity is reclaimed at exactly that transition and
+nowhere else — an open line is only ever the last line in the store and the only
+one the merge path extends, so reclaiming there cannot reintroduce per-push
+reallocation, whereas reclaiming on every push would defeat the amortized growth
+the merge path depends on. At 100,000 soft-wrapped lines, 705,960,640 bytes of
+slack became 1,988,800, and fill cost was unchanged within run-to-run variance
+(1304–1312 ms after, 1304–1331 ms before). Hard-terminated lines are adopted
+whole from a grid row and arrive already exact, so they show no slack; the two
+shapes are measured separately because a hard-terminated corpus alone would
+report this term as negligible and hide it.
+
+Combined at 100,000 lines: hard-terminated scrollback fell 49.9%, soft-wrapped
+fell 57.6%, and per-line cost is now flat with depth instead of rising.
+
+The windowed accessors are proven against the full projection rather than
+against hand-written expectations, at every width from 1 to 12 and every row
+index, over corpora covering soft-wrap runs, wide glyphs that cannot straddle
+the right edge, trailing-blank trim, an open tail, and prompt marks — so the
+tests cannot drift from the wrapping rule they depend on. The cached shape is
+re-checked after a width change and after every mutation path that invalidates
+it, because a stale shape resolves rows to the wrong line, which is the failure
+a memoized index invites.
+
+Two stale figures corrected in passing, both claiming `Cell` is 36 bytes when it
+measures 44. The scrollback limit's own note said 36 bytes per cell and ~28 MB
+for 10,000 lines; it now reads 44 bytes and ~34.5 MB, stated from a measurement
+rather than from the model. The `Attrs` note recording the SGR bit-packing said
+that change took `Cell` from 44 bytes to 36 — true when it was written, and
+undone afterwards when the four-slot combining array was added, with the note
+never revised. Both sizes are now pinned by compile-time assertion, so the
+figures are measured rather than remembered.
+
+**A benchmark profile was not the matched configuration it claimed to be.**
+Ghostty's `scrollback-limit` is a byte budget, not a line count — its own
+documentation says so and its default is 10000000 — and the benchmark profile
+carried `scrollback-limit = 100000`, copied across as though the unit matched
+kitty's `scrollback_lines`, alacritty's `history` and OdyTTY's own
+`scrollback_lines`, all set to 100,000 lines. At roughly 100 KB it retained a
+negligible fraction of what the other three retained, which was confirmed by
+filling to the catalogue's depth and measuring what survived. The setting is now
+a byte budget far above what the shared line depth needs, so the depth is the
+binding constraint for every implementation rather than an implementation
+-specific byte cap.
+
+Correcting a profile file changes its digest and therefore the profile identity,
+so results measured under the previous value are not pooled with results
+measured under this one. The published idle samples are not affected in
+substance — an idle terminal retains no scrollback — but they were taken under
+the previous profile identity and stay recorded that way.
+
+Windows: no platform surface. This is core terminal storage with no
+platform-specific branch. The benchmark profile correction is a configuration
+file with no platform-specific content.
+
+---
+
 ## 2026-08-18 -- Sixel becomes discoverable, and the Kitty protocol closes its last two gaps
 
 Three protocol changes, and a bug found while making the third one safe.

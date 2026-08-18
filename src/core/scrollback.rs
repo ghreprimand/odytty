@@ -12,9 +12,15 @@
 //! This module stores scrollback as **logical lines** — hard-terminated lines
 //! with their soft-wrap runs rejoined — and computes the physical view (what the
 //! renderer, search, and `scrollback_len` need) by *projecting* each logical
-//! line back to physical rows at the current width. The projection is memoized
-//! ([`Projection`]) so repeated reads at a stable width are cheap and only
-//! rebuilt when the width changes.
+//! line back to physical rows at the current width.
+//!
+//! What is memoized is the projection's **shape**, not the projection
+//! ([`Projection`]): each logical line's first physical row index at the
+//! current width, rebuilt only when the width changes or the store mutates.
+//! Rows themselves are produced on demand. Memoizing the rows instead meant
+//! retaining a full second physical copy of the store — measured at parity with
+//! the logical ring at depth, so a deep scrollback was paid for twice — while
+//! every per-frame consumer reads only a viewport-sized tail of it.
 //!
 //! [`resize_lazy`] re-wraps only the bottom of the buffer — the trailing logical
 //! lines needed to fill the new visible window, plus the live grid — and leaves
@@ -41,13 +47,13 @@
 //!
 //! # Single-threaded invariant
 //!
-//! The projection cache uses [`RefCell`] so the scrollback accessors on
+//! The projection-shape cache uses [`RefCell`] so the scrollback accessors on
 //! [`super::screen::Screen`] stay `&self`. A `Terminal` is driven from a single
 //! thread (the front end serializes all access), so the `RefCell` is never
 //! borrowed concurrently; `Screen` is `!Sync` as a result, matching its existing
 //! usage.
 
-use std::cell::{Ref, RefCell};
+use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use unicode_width::UnicodeWidthChar;
@@ -57,6 +63,7 @@ use super::prompt_marks::PromptKind;
 use super::reflow::{ReflowOptions, reflow_lines_with_options, resize_keep_width_with_options};
 use super::screen::{Line, blank_row};
 use super::types::{Cell, Dimensions, Position};
+use crate::memory_report::ScrollbackBytes;
 
 /// Heap bytes a cell allocation of `capacity` cells occupies. Shared by every
 /// memory-attribution site so grid and scrollback are counted the same way.
@@ -94,20 +101,98 @@ pub(in crate::core) struct LogicalLine {
     button_spans: Vec<ButtonSpan>,
 }
 
-/// Memoized physical projection of the logical store at a single width.
+/// Slack tolerated on a finalized logical line before its allocation is
+/// reclaimed, in cells. Reclaiming is a reallocate-and-copy, so it is only
+/// worth doing when the waste exceeds the cost of moving the line; below this
+/// band the reclaim would churn the allocator for a few dozen bytes.
+///
+/// A grid-adopted line (the common hard-terminated case) arrives with capacity
+/// already equal to its length and is skipped entirely by this test — the
+/// reclaim exists for the merge path, where amortized doubling leaves up to
+/// half a line's allocation unused.
+const FINALIZE_SLACK_TOLERANCE: usize = 64;
+
+impl LogicalLine {
+    /// Reclaim reserved-but-unused capacity on a line whose length is now
+    /// final.
+    ///
+    /// Only ever called at the hard-terminate transition. That timing is the
+    /// whole design: an open logical line is only ever the *last* line in the
+    /// store and is the only line `push_row` extends, so shrinking at the
+    /// transition cannot reintroduce per-push reallocation — after it, the
+    /// line is never appended to again. Shrinking on every push instead would
+    /// defeat the amortized growth the merge path depends on and make a
+    /// soft-wrapped stream quadratic.
+    fn finalize_capacity(&mut self) {
+        debug_assert!(
+            !self.open,
+            "capacity is only final on a hard-terminated line"
+        );
+        if self.cells.capacity() - self.cells.len() > FINALIZE_SLACK_TOLERANCE {
+            self.cells.shrink_to_fit();
+        }
+        if self.button_spans.capacity() - self.button_spans.len() > FINALIZE_SLACK_TOLERANCE {
+            self.button_spans.shrink_to_fit();
+        }
+    }
+}
+
+/// Memoized *shape* of the physical projection at a single width.
+///
+/// This used to memoize the projection itself — every physical row, with its
+/// own copy of every cell. That is a full second copy of the store's content,
+/// and at depth it was measured at parity with the logical ring: a 100k-line
+/// store paid for its scrollback twice.
+///
+/// It is replaced by the projection's shape: how many physical rows each
+/// logical line produces at this width, and the total. That is the only part of
+/// the projection every consumer needs, it is what makes an absolute row index
+/// resolvable to a logical line without materializing anything, and it costs
+/// one `usize` per logical line instead of a row of cells per row.
+///
+/// Rows themselves are produced on demand and not retained, because no consumer
+/// needs them retained: the render path reads a viewport-sized tail, the point
+/// queries read one row, and the two whole-store readers (search and the prompt
+/// -mark enumeration) are user-initiated rather than per-frame. See
+/// [`Scrollback::physical_tail`] and [`Scrollback::physical_all`].
 #[derive(Debug, Clone)]
 struct Projection {
-    /// Width the cached rows were wrapped at; `None` means invalid.
+    /// Width the cached shape was computed at; `None` means invalid.
     width: Option<usize>,
-    rows: Vec<Line>,
+    /// Absolute index of each logical line's **first** physical row at `width`,
+    /// parallel to [`Scrollback::lines`] and in the same order. Strictly
+    /// increasing (every logical line projects to at least one row), which is
+    /// what lets an absolute row index be resolved to its owning line by binary
+    /// search rather than by walking the store.
+    row_starts: Vec<usize>,
+    /// Total physical rows, so a length query is O(1) and the last line's row
+    /// count is derivable without a special case.
+    total_rows: usize,
 }
 
 impl Projection {
     fn empty() -> Self {
         Self {
             width: None,
-            rows: Vec::new(),
+            row_starts: Vec::new(),
+            total_rows: 0,
         }
+    }
+
+    /// Index of the logical line owning absolute physical row `row`, with that
+    /// line's first row index. `None` when `row` is past the end.
+    ///
+    /// `partition_point` over the strictly-increasing starts, so a point query
+    /// costs O(log lines) rather than O(lines). That matters because the
+    /// pointer hit-test resolves a row on every mouse move, and a linear walk
+    /// would have made deep scrollback progressively more expensive to hover
+    /// over — trading the bytes this change saves for a latency regression.
+    fn locate(&self, row: usize) -> Option<(usize, usize)> {
+        if row >= self.total_rows {
+            return None;
+        }
+        let line_index = self.row_starts.partition_point(|&start| start <= row) - 1;
+        Some((line_index, self.row_starts[line_index]))
     }
 }
 
@@ -115,8 +200,12 @@ impl Projection {
 /// -off hard-terminated line is one logical line, so this is the user-facing
 /// "lines of history" cap. Chosen to match the common terminal default (xterm,
 /// kitty, alacritty all default near this) and bounds steady-state memory: at
-/// ~36 B/cell and 80 columns a logical line is ~2.9 KB, so 10k lines is ~28 MB
-/// of scrollback before projection. Without a cap, a process that streams
+/// 44 B/cell and 80 columns a logical line is ~3.5 KB, so 10k lines of
+/// hard-terminated history measures ~34.5 MB of ring. (The earlier form of this
+/// note said 36 B/cell and ~28 MB; `Cell` grew to 44 bytes when the combining
+/// array was added, and the figure was never revised. It is stated here from a
+/// measurement, not from the model — see `docs/memory.md`.) Without a cap, a
+/// process that streams
 /// unbounded output (`yes`, `cat bigfile`, a runaway loop) would grow OdyTTY's
 /// memory until the OS OOM-killed it. See [`Scrollback::push_row`].
 pub(in crate::core) const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
@@ -248,9 +337,12 @@ impl Scrollback {
     }
 
     /// Number of physical rows the scrollback projects to at `width`.
+    ///
+    /// Served from the cached shape, so this no longer materializes the store
+    /// to count it.
     pub(in crate::core) fn physical_len(&self, width: usize) -> usize {
         self.ensure_cache(width);
-        self.cache.borrow().rows.len()
+        self.cache.borrow().total_rows
     }
 
     pub(in crate::core) fn trim_epoch(&self) -> u64 {
@@ -262,12 +354,126 @@ impl Scrollback {
         self.lines.is_empty()
     }
 
-    /// The physical projection at `width` (oldest first), byte-identical to what
-    /// eager reflow would store as scrollback. Borrows the memoized cache,
-    /// rebuilding it first if the width changed.
-    pub(in crate::core) fn physical(&self, width: usize) -> Ref<'_, Vec<Line>> {
+    /// The **whole** physical projection at `width` (oldest first),
+    /// byte-identical to what eager reflow would store as scrollback.
+    ///
+    /// Materializes the entire store and does not retain it. Reserved for the
+    /// two consumers that genuinely need every row — full-buffer search and the
+    /// prompt-mark enumeration's fallback — both of which are user-initiated,
+    /// not per-frame. Anything that needs a viewport uses
+    /// [`Scrollback::physical_tail`]; anything that needs one row uses
+    /// [`Scrollback::physical_row`]; anything that needs only the count uses
+    /// [`Scrollback::physical_len`].
+    pub(in crate::core) fn physical_all(&self, width: usize) -> Vec<Line> {
+        project_logical(&self.lines, width)
+    }
+
+    /// Test window onto the whole projection.
+    ///
+    /// An alias for [`Scrollback::physical_all`], kept because the projection
+    /// suites assert against every row and should keep doing so: the windowed
+    /// accessors are only correct if the full projection they are windows onto
+    /// is correct, and that is what these tests pin.
+    #[cfg(test)]
+    pub(in crate::core) fn physical(&self, width: usize) -> Vec<Line> {
+        self.physical_all(width)
+    }
+
+    /// The last `n` physical rows at `width`, oldest first.
+    ///
+    /// Projects only the trailing logical lines needed to cover `n` rows, so
+    /// the cost is `O(n)` in rows rather than `O(store)`. Returns fewer than
+    /// `n` rows only when the store projects to fewer than `n` in total.
+    ///
+    /// This is the render path's accessor. The viewport is always the tail of
+    /// the combined scrollback-plus-grid buffer, so a tail projection is
+    /// exactly what every per-frame consumer reads, and the rows above it never
+    /// have to exist.
+    pub(in crate::core) fn physical_tail(&self, width: usize, n: usize) -> Vec<Line> {
+        if n == 0 {
+            return Vec::new();
+        }
         self.ensure_cache(width);
-        Ref::map(self.cache.borrow(), |c| &c.rows)
+        // Whole logical lines are projected, never a suffix of one: a line's
+        // wrapping is only correct when the line is projected as a unit, so
+        // taking a suffix of its cells would re-wrap from the wrong offset.
+        // The first line to pull is therefore the one *containing* the first
+        // wanted row, found by binary search.
+        let (start_line, total_rows) = {
+            let cache = self.cache.borrow();
+            let first_wanted = cache.total_rows.saturating_sub(n);
+            match cache.locate(first_wanted) {
+                Some((line_index, _)) => (line_index, cache.total_rows),
+                // `locate` returns `None` only for an empty store, since
+                // `first_wanted < total_rows` whenever any row exists.
+                None => return Vec::new(),
+            }
+        };
+        let mut rows = project_logical(self.lines.iter().skip(start_line), width);
+        let n = n.min(total_rows);
+        // The pulled lines may project to more than `n` rows; keep the tail.
+        if rows.len() > n {
+            rows.drain(0..rows.len() - n);
+        }
+        rows
+    }
+
+    /// The single physical row at absolute index `row` at `width`, or `None`
+    /// when the index is past the end.
+    ///
+    /// Resolves the index through the cached shape to the one logical line that
+    /// owns it and projects only that line.
+    pub(in crate::core) fn physical_row(&self, width: usize, row: usize) -> Option<Line> {
+        self.ensure_cache(width);
+        let (line_index, first_row) = self.cache.borrow().locate(row)?;
+        let line = self.lines.get(line_index)?;
+        let mut rows = Vec::new();
+        project_line_into(
+            &line.cells,
+            width,
+            line.open,
+            line.prompt_mark,
+            &line.button_spans,
+            &mut rows,
+        );
+        rows.into_iter().nth(row - first_row)
+    }
+
+    /// Absolute physical row index of each stored logical line's **first** row
+    /// at `width`, paired with that line's prompt mark, for lines that carry
+    /// one.
+    ///
+    /// [`project_line_into`] stamps a logical line's mark onto the first
+    /// physical row it produces and leaves continuation rows unmarked, so the
+    /// marked rows are exactly the first-row indices of marked logical lines.
+    /// Serving the enumeration from the cached shape therefore returns the same
+    /// pairs the materialized projection would, without materializing it.
+    pub(in crate::core) fn prompt_mark_rows(&self, width: usize) -> Vec<(usize, PromptKind)> {
+        self.ensure_cache(width);
+        let cache = self.cache.borrow();
+        let mut out = Vec::new();
+        for (line, &start) in self.lines.iter().zip(cache.row_starts.iter()) {
+            if let Some(kind) = line.prompt_mark {
+                out.push((start, kind));
+            }
+        }
+        out
+    }
+
+    /// The prompt mark at absolute physical row `row`, if any.
+    ///
+    /// The point-query counterpart of [`Scrollback::prompt_mark_rows`], and
+    /// exact for the same reason: only a logical line's first physical row can
+    /// carry a mark, so any row that is not a line's first row is unmarked by
+    /// construction.
+    pub(in crate::core) fn prompt_mark_at(&self, width: usize, row: usize) -> Option<PromptKind> {
+        self.ensure_cache(width);
+        let (line_index, first_row) = self.cache.borrow().locate(row)?;
+        if first_row != row {
+            // A continuation row, which never carries a mark.
+            return None;
+        }
+        self.lines.get(line_index).and_then(|line| line.prompt_mark)
     }
 
     /// Append one physical row that has just scrolled off the visible grid.
@@ -305,13 +511,26 @@ impl Scrollback {
                     len: span.len,
                 });
             }
+            // The merge path is where slack accumulates: `extend` grows the
+            // flat cell vector by doubling. If this row hard-terminated the
+            // line, its length is now final and the overshoot is pure waste.
+            if !wrapped {
+                last.finalize_capacity();
+            }
         } else {
-            self.lines.push_back(LogicalLine {
+            let mut line = LogicalLine {
                 cells: row.cells,
                 open: wrapped,
                 prompt_mark: row.prompt_mark,
                 button_spans: row.button_spans,
-            });
+            };
+            // A line adopted whole from a grid row is normally already exact,
+            // so this is a no-op under the tolerance; it is applied anyway
+            // because rows arriving from reflow overflow can carry slack.
+            if !wrapped {
+                line.finalize_capacity();
+            }
+            self.lines.push_back(line);
         }
         self.enforce_limit();
         self.invalidate();
@@ -426,6 +645,9 @@ impl Scrollback {
             && last.open
         {
             last.open = false;
+            // The tail's length is final from here: severing is exactly the
+            // hard-terminate transition, reached by a different route.
+            last.finalize_capacity();
             self.invalidate();
         }
     }
@@ -481,41 +703,74 @@ impl Scrollback {
         self.lines.len()
     }
 
-    /// Heap bytes this store currently holds, for memory attribution.
+    /// Heap bytes this store currently holds, split by what holds them.
     ///
-    /// Counts the logical-line ring (its own slots plus each line's cell and
-    /// button-span allocations) and, separately, the memoized physical
-    /// projection — the projection is a real retained cost, so folding it into
-    /// the logical total or omitting it would both misreport what an idle pane
-    /// occupies. Capacities are used rather than lengths because capacity is
-    /// what the process is resident for. Saturating throughout: an attribution
-    /// figure must never wrap into a smaller number.
-    pub(in crate::core) fn stored_bytes(&self) -> u64 {
-        let ring_slots = (self.lines.capacity() as u64)
-            .saturating_mul(std::mem::size_of::<LogicalLine>() as u64);
-        let contents = self.lines.iter().fold(0u64, |acc, line| {
-            acc.saturating_add(cells_bytes(line.cells.capacity()))
-                .saturating_add(spans_bytes(line.button_spans.capacity()))
-        });
+    /// The logical-line ring and the memoized projection shape are reported
+    /// separately rather than summed. They are structurally different costs:
+    /// the ring is the content, the projection is the cached description of how
+    /// that content wraps at the current width, and they are reclaimed by
+    /// different means. A single total cannot say which one a change moved,
+    /// which makes any before/after comparison unattributable — and the
+    /// projection field is exactly where that mattered, because it once held a
+    /// full second copy of the ring and now holds one `usize` per line.
+    ///
+    /// `ring_slack` is the reserved-but-unused part of `ring` — capacity minus
+    /// length, across the ring's own slots and each line's allocations. It is a
+    /// **breakdown of `ring`, not an addition to it**, so that reclaimable
+    /// waste is visible as a figure rather than inferred from a model.
+    ///
+    /// Capacities are used rather than lengths because capacity is what the
+    /// process is resident for. Saturating throughout: an attribution figure
+    /// must never wrap into a smaller number.
+    pub(in crate::core) fn stored_bytes(&self) -> ScrollbackBytes {
+        let slot = std::mem::size_of::<LogicalLine>() as u64;
+        let ring_slots = (self.lines.capacity() as u64).saturating_mul(slot);
+        let ring_slot_slack =
+            (self.lines.capacity().saturating_sub(self.lines.len()) as u64).saturating_mul(slot);
+        let (contents, contents_slack) =
+            self.lines
+                .iter()
+                .fold((0u64, 0u64), |(bytes, slack), line| {
+                    let used = cells_bytes(line.cells.capacity())
+                        .saturating_add(spans_bytes(line.button_spans.capacity()));
+                    let unused = cells_bytes(line.cells.capacity() - line.cells.len())
+                        .saturating_add(spans_bytes(
+                            line.button_spans.capacity() - line.button_spans.len(),
+                        ));
+                    (bytes.saturating_add(used), slack.saturating_add(unused))
+                });
+        // The projection is now a shape, not a copy: one `usize` per logical
+        // line. It stays a separate reported figure rather than being folded
+        // into `ring` because it is still a real retained cost and because a
+        // future change to how the projection is held has to remain visible in
+        // the same field it was measured in.
         let cache = self.cache.borrow();
-        let projection = cache.rows.iter().fold(
-            (cache.rows.capacity() as u64).saturating_mul(std::mem::size_of::<Line>() as u64),
-            |acc, row| {
-                acc.saturating_add(cells_bytes(row.cells.capacity()))
-                    .saturating_add(spans_bytes(row.button_spans.capacity()))
-            },
-        );
-        ring_slots
-            .saturating_add(contents)
-            .saturating_add(projection)
+        let projection = (cache.row_starts.capacity() as u64)
+            .saturating_mul(std::mem::size_of::<usize>() as u64);
+        ScrollbackBytes {
+            ring: ring_slots.saturating_add(contents),
+            projection,
+            ring_slack: ring_slot_slack.saturating_add(contents_slack),
+        }
     }
 
     fn invalidate(&self) {
         let mut cache = self.cache.borrow_mut();
         cache.width = None;
-        cache.rows.clear();
+        cache.row_starts.clear();
+        cache.total_rows = 0;
     }
 
+    /// Rebuild the cached projection shape for `width` if it is not current.
+    ///
+    /// Each logical line is projected into one reused scratch buffer purely to
+    /// count the rows it produces, and the rows are dropped. The row count is
+    /// therefore produced by the same code that produces the rows, so the
+    /// cached shape cannot disagree with the projection it describes — a
+    /// separate arithmetic row-count model would be a second implementation of
+    /// the wrapping rule and would drift from it.
+    ///
+    /// Peak extra memory is one logical line's worth of rows, not the store's.
     fn ensure_cache(&self, width: usize) {
         {
             let cache = self.cache.borrow();
@@ -523,10 +778,26 @@ impl Scrollback {
                 return;
             }
         }
-        let rows = project_logical(&self.lines, width);
+        let mut scratch: Vec<Line> = Vec::new();
+        let mut row_starts = Vec::with_capacity(self.lines.len());
+        let mut total_rows = 0usize;
+        for line in &self.lines {
+            scratch.clear();
+            project_line_into(
+                &line.cells,
+                width,
+                line.open,
+                line.prompt_mark,
+                &line.button_spans,
+                &mut scratch,
+            );
+            row_starts.push(total_rows);
+            total_rows += scratch.len();
+        }
         let mut cache = self.cache.borrow_mut();
         cache.width = Some(width);
-        cache.rows = rows;
+        cache.row_starts = row_starts;
+        cache.total_rows = total_rows;
     }
 }
 
@@ -783,12 +1054,17 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
         }
         current.extend(row.cells.iter().copied());
         if !row.wrapped {
-            lines.push(LogicalLine {
+            let mut line = LogicalLine {
                 cells: std::mem::take(&mut current),
                 open: false,
                 prompt_mark: current_mark.take(),
                 button_spans: std::mem::take(&mut current_spans),
-            });
+            };
+            // Same accumulation as the `push_row` merge path: `current` grew
+            // by doubling across the rows that joined into this line, and
+            // `mem::take` hands that overshoot to the finished line.
+            line.finalize_capacity();
+            lines.push(line);
         }
     }
     if !current.is_empty() {

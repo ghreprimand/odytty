@@ -7,6 +7,7 @@
 use super::*;
 
 mod bell;
+mod cell_equivalence;
 mod chars_unicode;
 mod erase_scroll;
 mod kitty_keyboard;

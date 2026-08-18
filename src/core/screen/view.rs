@@ -39,13 +39,20 @@ impl Screen {
     }
 
     /// Heap bytes scrollback occupies across the active buffer and the stored
-    /// primary buffer, for memory attribution. Counts the logical-line ring and
-    /// its memoized physical projection; see [`crate::core::scrollback`].
-    pub fn scrollback_bytes(&self) -> u64 {
+    /// primary buffer, for memory attribution, split into the logical-line ring
+    /// and its memoized physical projection; see [`crate::core::scrollback`].
+    ///
+    /// The stored primary buffer is included for the same reason
+    /// [`Screen::grid_bytes`] includes it: while the alternate screen is active
+    /// that scrollback is still resident, and omitting it would push a cost
+    /// this project controls into the unaccounted remainder.
+    pub fn scrollback_bytes(&self) -> ScrollbackBytes {
         let stored = self
             .primary_screen
             .as_ref()
-            .map_or(0, |primary| primary.scrollback.stored_bytes());
+            .map_or(ScrollbackBytes::default(), |primary| {
+                primary.scrollback.stored_bytes()
+            });
         self.scrollback.stored_bytes().saturating_add(stored)
     }
 
@@ -292,9 +299,11 @@ impl Screen {
     /// private `Screen` / `Scrollback` storage remains behind this owned copy.
     pub fn snapshot_state(&self, max_scrollback_rows: usize) -> SnapshotTerminalState {
         let columns = self.dimensions.columns;
-        let scrollback = self.scrollback.physical(columns);
-        let start = scrollback.len().saturating_sub(max_scrollback_rows);
-        let scrollback_rows = scrollback[start..]
+        // Only the trailing `max_scrollback_rows` are persisted, so only they
+        // are projected.
+        let scrollback_rows = self
+            .scrollback
+            .physical_tail(columns, max_scrollback_rows)
             .iter()
             .map(|row| snapshot_row_from_line(row, columns))
             .collect();
@@ -424,8 +433,7 @@ impl Screen {
     pub fn snapshot_with_scrollback(&self, offset_rows: usize) -> Snapshot {
         let height = self.dimensions.rows;
         let columns = self.dimensions.columns;
-        let scrollback = self.scrollback.physical(columns);
-        let scrollback_len = scrollback.len();
+        let scrollback_len = self.scrollback.physical_len(columns);
         let offset = offset_rows.min(scrollback_len);
 
         if offset == 0 {
@@ -433,17 +441,15 @@ impl Screen {
         }
 
         // The viewport is `height` rows of the combined scrollback ++ live
-        // buffer whose bottom edge sits `offset` rows above the live bottom.
-        let total = scrollback_len + height;
-        let window_start = total - offset - height;
+        // buffer whose bottom edge sits `offset` rows above the live bottom,
+        // so its window over that buffer starts at `scrollback_len - offset`.
+        // Skipping that many rows of `scrollback ++ live` is the same sequence
+        // as the last `offset` scrollback rows followed by the live grid, which
+        // is why only the tail has to be projected.
+        let tail = self.scrollback.physical_tail(columns, offset);
 
         let mut cells = Vec::with_capacity(height * columns);
-        for row in scrollback
-            .iter()
-            .chain(self.rows.iter())
-            .skip(window_start)
-            .take(height)
-        {
+        for row in tail.iter().chain(self.rows.iter()).take(height) {
             for column in 0..columns {
                 cells.push(row.get(column).copied().unwrap_or_else(Cell::blank));
             }
@@ -541,8 +547,7 @@ impl Screen {
     fn collect_placeholder_placements(&self, offset_rows: usize, out: &mut Vec<VisiblePlacement>) {
         let height = self.dimensions.rows;
         let columns = self.dimensions.columns;
-        let scrollback = self.scrollback.physical(columns);
-        let scrollback_len = scrollback.len();
+        let scrollback_len = self.scrollback.physical_len(columns);
         let offset = offset_rows.min(scrollback_len);
 
         if offset == 0 {
@@ -550,15 +555,10 @@ impl Screen {
                 placeholder::collect_row_placeholders(&self.graphics, row, &line.cells, out);
             }
         } else {
-            let total = scrollback_len + height;
-            let window_start = total - offset - height;
-            for (row, line) in scrollback
-                .iter()
-                .chain(self.rows.iter())
-                .skip(window_start)
-                .take(height)
-                .enumerate()
-            {
+            // Same tail window as `snapshot_with_scrollback`, for the same
+            // reason: the walks have to agree row for row.
+            let tail = self.scrollback.physical_tail(columns, offset);
+            for (row, line) in tail.iter().chain(self.rows.iter()).take(height).enumerate() {
                 placeholder::collect_row_placeholders(&self.graphics, row, &line.cells, out);
             }
         }
@@ -582,8 +582,7 @@ impl Screen {
         }
         let height = self.dimensions.rows;
         let columns = self.dimensions.columns;
-        let scrollback = self.scrollback.physical(columns);
-        let scrollback_len = scrollback.len();
+        let scrollback_len = self.scrollback.physical_len(columns);
         let offset = offset_rows.min(scrollback_len);
 
         let mut out = Vec::new();
@@ -598,15 +597,8 @@ impl Screen {
             // `snapshot_with_scrollback` draws. Physical scrollback rows carry
             // button spans re-projected to row-local columns by the reflow
             // projection, so they align with the drawn cells here too.
-            let total = scrollback_len + height;
-            let window_start = total - offset - height;
-            for (row, line) in scrollback
-                .iter()
-                .chain(self.rows.iter())
-                .skip(window_start)
-                .take(height)
-                .enumerate()
-            {
+            let tail = self.scrollback.physical_tail(columns, offset);
+            for (row, line) in tail.iter().chain(self.rows.iter()).take(height).enumerate() {
                 self.collect_row_buttons(row, line, &mut out);
             }
         }
@@ -739,10 +731,10 @@ impl Screen {
     /// live grid. Out-of-range rows return `None`. Advisory state only — nothing
     /// on the render path consults it; this is the sole reader of `prompt_mark`.
     pub fn prompt_mark_at(&self, row: usize) -> Option<PromptKind> {
-        let scrollback = self.scrollback.physical(self.dimensions.columns);
-        let scrollback_len = scrollback.len();
+        let columns = self.dimensions.columns;
+        let scrollback_len = self.scrollback.physical_len(columns);
         if row < scrollback_len {
-            scrollback[row].prompt_mark
+            self.scrollback.prompt_mark_at(columns, row)
         } else {
             self.rows
                 .get(row - scrollback_len)
@@ -766,14 +758,12 @@ impl Screen {
     /// buffer carries no marks (they ride the stored primary), so this returns
     /// an empty `Vec`, consistent with [`Screen::prompt_mark_at`].
     pub fn prompt_marks(&self) -> Vec<(usize, PromptKind)> {
-        let scrollback = self.scrollback.physical(self.dimensions.columns);
-        let mut marks = Vec::new();
-        for (row, line) in scrollback.iter().enumerate() {
-            if let Some(kind) = line.prompt_mark {
-                marks.push((row, kind));
-            }
-        }
-        let base = scrollback.len();
+        let columns = self.dimensions.columns;
+        // Served from the projection's cached shape: a mark rides a logical
+        // line's first physical row, so the marked rows are exactly those
+        // first-row indices and no row has to be materialized to find them.
+        let mut marks = self.scrollback.prompt_mark_rows(columns);
+        let base = self.scrollback.physical_len(columns);
         for (offset, line) in self.rows.iter().enumerate() {
             if let Some(kind) = line.prompt_mark {
                 marks.push((base + offset, kind));
@@ -955,14 +945,17 @@ impl Screen {
         if row >= self.dimensions.rows || column >= self.dimensions.columns {
             return None;
         }
-        let scrollback = self.scrollback.physical(self.dimensions.columns);
-        let scrollback_len = scrollback.len();
+        let columns = self.dimensions.columns;
+        let scrollback_len = self.scrollback.physical_len(columns);
         // Same window as visible_search_rows / snapshot_with_scrollback.
         let offset = offset_rows.min(scrollback_len);
         let window_start = scrollback_len - offset;
         let row_index = window_start + row;
+        // A point query projects the one logical line that owns this row.
+        let scrollback_line;
         let line = if row_index < scrollback_len {
-            &scrollback[row_index]
+            scrollback_line = self.scrollback.physical_row(columns, row_index)?;
+            &scrollback_line
         } else {
             self.rows.get(row_index - scrollback_len)?
         };
@@ -1008,7 +1001,11 @@ impl Screen {
     /// see [`super::search`] for the coordinate convention and limitations).
     /// Matches are returned in reading order, sorted ascending by `start`.
     pub fn search(&self, query: &str, options: SearchOptions) -> Vec<SearchMatch> {
-        let scrollback = self.scrollback.physical(self.dimensions.columns);
+        // One of the two consumers that genuinely needs every physical row.
+        // Materialized transiently and dropped when the search returns, rather
+        // than retained: a full-buffer search is user-initiated, so paying for
+        // the projection here costs nothing between searches.
+        let scrollback = self.scrollback.physical_all(self.dimensions.columns);
         let rows: Vec<SearchRow<'_>> = scrollback
             .iter()
             .chain(self.rows.iter())
@@ -1036,16 +1033,14 @@ impl Screen {
     pub fn visible_search_rows(&self, offset_rows: usize) -> Vec<VisibleRow> {
         let height = self.dimensions.rows;
         let columns = self.dimensions.columns;
-        let scrollback = self.scrollback.physical(columns);
-        let scrollback_len = scrollback.len();
+        let scrollback_len = self.scrollback.physical_len(columns);
         // Same window as snapshot_with_scrollback: bottom edge `offset` rows above
-        // the live tail. window_start = (scrollback_len + height) - offset - height.
+        // the live tail. window_start = (scrollback_len + height) - offset - height
+        // = scrollback_len - offset, i.e. the last `offset` scrollback rows.
         let offset = offset_rows.min(scrollback_len);
-        let window_start = scrollback_len - offset;
-        scrollback
-            .iter()
+        let tail = self.scrollback.physical_tail(columns, offset);
+        tail.iter()
             .chain(self.rows.iter())
-            .skip(window_start)
             .take(height)
             .map(|line| VisibleRow {
                 cells: line.cells.clone(),

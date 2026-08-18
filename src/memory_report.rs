@@ -129,12 +129,51 @@ impl ProcessMemory {
     }
 }
 
+/// Byte breakdown of one scrollback store, or of several summed together.
+///
+/// Scrollback holds two structurally different things, and reporting them as
+/// one sum makes it impossible to tell which one a change moved. The logical
+/// ring is the content; the projection is a memoized *second physical copy* of
+/// that content at the current width. They grow for different reasons and are
+/// reclaimed by different means, so they are separate figures.
+///
+/// `ring_slack` is a **breakdown of `ring`, not an addition to it**: it is the
+/// reserved-but-unused capacity already counted inside `ring`. Summing the
+/// three would double-count, which is why [`HostBytes::accounted`] takes the
+/// first two and deliberately excludes the third.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScrollbackBytes {
+    /// Logical-line ring: its own slots plus each line's cell and button-span
+    /// allocations, measured by capacity.
+    pub ring: u64,
+    /// Memoized physical projection of the ring at the current width.
+    pub projection: u64,
+    /// Portion of `ring` that is reserved-but-unused capacity (capacity minus
+    /// length). A subset of `ring`, never added to it.
+    pub ring_slack: u64,
+}
+
+impl ScrollbackBytes {
+    /// Field-wise saturating sum, for accumulating across panes and buffers.
+    pub fn saturating_add(self, other: Self) -> Self {
+        Self {
+            ring: self.ring.saturating_add(other.ring),
+            projection: self.projection.saturating_add(other.projection),
+            ring_slack: self.ring_slack.saturating_add(other.ring_slack),
+        }
+    }
+}
+
 /// Host (resident-set-backed) bytes OdyTTY controls the size of.
 ///
 /// Every field is an allocation this project decides the extent of. Anything
 /// allocated by a dependency, the allocator's own overhead, the mapped binary,
 /// and driver mappings are deliberately absent — they land in the remainder,
 /// where they are visible as unexplained rather than silently attributed.
+///
+/// Most fields are additive and sum into [`HostBytes::accounted`]. One is not:
+/// `scrollback_ring_slack` is a breakdown of a figure already counted. The
+/// distinction is enforced by construction — see `accounted`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HostBytes {
     /// Monochrome/subpixel glyph atlas CPU coverage bitmap.
@@ -145,28 +184,56 @@ pub struct HostBytes {
     pub background_image_buffer: u64,
     /// Visible grid cells across every live pane.
     pub grid_cells: u64,
-    /// Scrollback cells across every live pane, including the physical
-    /// projection cache.
-    pub scrollback_cells: u64,
+    /// Logical-line scrollback ring across every live pane. Content only — the
+    /// memoized physical view is `scrollback_projection`.
+    pub scrollback_ring: u64,
+    /// Memoized physical projection of scrollback across every live pane: a
+    /// second copy of the ring's content wrapped to the current width.
+    pub scrollback_projection: u64,
     /// Decoded bytes held by the terminal-graphics image store across panes.
     pub graphics_image_store: u64,
     /// CPU-side vertex staging vectors the renderer builds each frame and
     /// retains between frames.
     pub vertex_staging: u64,
+    /// **Non-additive breakdown figure.** The reserved-but-unused portion of
+    /// `scrollback_ring`, reported so reclaimable slack is visible without
+    /// having to infer it. Already counted inside `scrollback_ring`; adding it
+    /// to the total would double-count, so `accounted` excludes it explicitly.
+    pub scrollback_ring_slack: u64,
 }
 
 impl HostBytes {
     /// Total attributed host bytes. Saturating, so no field combination can
     /// overflow the sum into a smaller number.
+    ///
+    /// The exhaustive destructuring is deliberate: a field added to
+    /// [`HostBytes`] without deciding whether it is additive fails to compile
+    /// here. That matters because this struct now carries one field that must
+    /// *not* be summed, and a silently-included breakdown figure would inflate
+    /// the attributed total and shrink the remainder — the exact failure mode
+    /// the remainder exists to make visible.
     pub fn accounted(&self) -> u64 {
+        let Self {
+            glyph_atlas_bitmap,
+            color_glyph_atlas_bitmap,
+            background_image_buffer,
+            grid_cells,
+            scrollback_ring,
+            scrollback_projection,
+            graphics_image_store,
+            vertex_staging,
+            // Deliberately excluded: a subset of `scrollback_ring`.
+            scrollback_ring_slack: _,
+        } = *self;
         [
-            self.glyph_atlas_bitmap,
-            self.color_glyph_atlas_bitmap,
-            self.background_image_buffer,
-            self.grid_cells,
-            self.scrollback_cells,
-            self.graphics_image_store,
-            self.vertex_staging,
+            glyph_atlas_bitmap,
+            color_glyph_atlas_bitmap,
+            background_image_buffer,
+            grid_cells,
+            scrollback_ring,
+            scrollback_projection,
+            graphics_image_store,
+            vertex_staging,
         ]
         .into_iter()
         .fold(0u64, u64::saturating_add)
@@ -240,7 +307,8 @@ const LEGEND: &str = concat!(
     "seq epoch_ms panes rss_source rss_bytes rss_peak_bytes ",
     "host_accounted_bytes host_unaccounted_bytes ",
     "host_glyph_atlas_bitmap host_color_glyph_atlas_bitmap host_background_image_buffer ",
-    "host_grid_cells host_scrollback_cells host_graphics_image_store host_vertex_staging ",
+    "host_grid_cells host_scrollback_ring host_scrollback_projection ",
+    "host_scrollback_ring_slack host_graphics_image_store host_vertex_staging ",
     "gpu_accounted_bytes gpu_glyph_atlas_texture gpu_color_glyph_atlas_texture ",
     "gpu_background_image_texture gpu_post_process_textures gpu_graphics_textures ",
     "gpu_vertex_buffers"
@@ -264,7 +332,8 @@ pub fn format_report_line(seq: u64, epoch_ms: u128, report: &MemoryReport) -> St
         "seq={seq} epoch_ms={epoch_ms} panes={panes} rss_source={src} rss_bytes={rss} \
 rss_peak_bytes={peak} host_accounted_bytes={acc} host_unaccounted_bytes={unacc} \
 host_glyph_atlas_bitmap={h1} host_color_glyph_atlas_bitmap={h2} \
-host_background_image_buffer={h3} host_grid_cells={h4} host_scrollback_cells={h5} \
+host_background_image_buffer={h3} host_grid_cells={h4} host_scrollback_ring={h5} \
+host_scrollback_projection={h5b} host_scrollback_ring_slack={h5c} \
 host_graphics_image_store={h6} host_vertex_staging={h7} gpu_accounted_bytes={gacc} \
 gpu_glyph_atlas_texture={g1} gpu_color_glyph_atlas_texture={g2} \
 gpu_background_image_texture={g3} gpu_post_process_textures={g4} \
@@ -282,7 +351,9 @@ gpu_graphics_textures={g5} gpu_vertex_buffers={g6}",
         h2 = host.color_glyph_atlas_bitmap,
         h3 = host.background_image_buffer,
         h4 = host.grid_cells,
-        h5 = host.scrollback_cells,
+        h5 = host.scrollback_ring,
+        h5b = host.scrollback_projection,
+        h5c = host.scrollback_ring_slack,
         h6 = host.graphics_image_store,
         h7 = host.vertex_staging,
         gacc = gpu.accounted(),

@@ -57,9 +57,10 @@ impl Terminal {
         self.screen.grid_bytes()
     }
 
-    /// Heap bytes this terminal's scrollback occupies, for memory attribution.
-    /// See [`Screen::scrollback_bytes`].
-    pub fn scrollback_bytes(&self) -> u64 {
+    /// Heap bytes this terminal's scrollback occupies, split into the logical
+    /// ring and its projection, for memory attribution. See
+    /// [`Screen::scrollback_bytes`].
+    pub fn scrollback_bytes(&self) -> ScrollbackBytes {
         self.screen.scrollback_bytes()
     }
 

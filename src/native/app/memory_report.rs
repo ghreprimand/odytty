@@ -94,9 +94,14 @@ impl App {
             panes = panes.saturating_add(1);
             let terminal = crate::native::lock_recover(&session.terminal);
             host.grid_cells = host.grid_cells.saturating_add(terminal.grid_bytes());
-            host.scrollback_cells = host
-                .scrollback_cells
-                .saturating_add(terminal.scrollback_bytes());
+            let scrollback = terminal.scrollback_bytes();
+            host.scrollback_ring = host.scrollback_ring.saturating_add(scrollback.ring);
+            host.scrollback_projection = host
+                .scrollback_projection
+                .saturating_add(scrollback.projection);
+            host.scrollback_ring_slack = host
+                .scrollback_ring_slack
+                .saturating_add(scrollback.ring_slack);
             host.graphics_image_store = host
                 .graphics_image_store
                 .saturating_add(terminal.graphics_store_bytes());

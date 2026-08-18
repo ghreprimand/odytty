@@ -30,7 +30,9 @@ const LEGEND_COLUMNS: &[&str] = &[
     "host_color_glyph_atlas_bitmap",
     "host_background_image_buffer",
     "host_grid_cells",
-    "host_scrollback_cells",
+    "host_scrollback_ring",
+    "host_scrollback_projection",
+    "host_scrollback_ring_slack",
     "host_graphics_image_store",
     "host_vertex_staging",
     "gpu_accounted_bytes",
@@ -61,6 +63,11 @@ fn report(
     }
 }
 
+/// Fills the **additive** fields positionally. `scrollback_ring_slack` is not
+/// among them: it is a breakdown of `scrollback_ring` that `accounted()`
+/// deliberately excludes, so feeding it from this helper would make every
+/// expected total in this file ambiguous. Tests that exercise slack set it
+/// explicitly.
 fn host_with(fields: impl IntoIterator<Item = u64>) -> HostBytes {
     let mut vals = fields.into_iter();
     HostBytes {
@@ -68,9 +75,11 @@ fn host_with(fields: impl IntoIterator<Item = u64>) -> HostBytes {
         color_glyph_atlas_bitmap: vals.next().unwrap_or(0),
         background_image_buffer: vals.next().unwrap_or(0),
         grid_cells: vals.next().unwrap_or(0),
-        scrollback_cells: vals.next().unwrap_or(0),
+        scrollback_ring: vals.next().unwrap_or(0),
+        scrollback_projection: vals.next().unwrap_or(0),
         graphics_image_store: vals.next().unwrap_or(0),
         vertex_staging: vals.next().unwrap_or(0),
+        scrollback_ring_slack: 0,
     }
 }
 
@@ -231,11 +240,59 @@ fn accounted_saturates_instead_of_wrapping() {
         color_glyph_atlas_bitmap: u64::MAX,
         background_image_buffer: u64::MAX,
         grid_cells: u64::MAX,
-        scrollback_cells: u64::MAX,
+        scrollback_ring: u64::MAX,
+        scrollback_projection: u64::MAX,
         graphics_image_store: u64::MAX,
         vertex_staging: u64::MAX,
+        scrollback_ring_slack: u64::MAX,
     };
     assert_eq!(all_max_host.accounted(), u64::MAX);
+}
+
+/// `scrollback_ring_slack` is a non-additive breakdown of `scrollback_ring`.
+/// Changing it must not move `accounted()` or the host remainder, or the
+/// slack figure would double-count and shrink the unexplained bytes.
+#[test]
+fn accounted_does_not_move_when_scrollback_ring_slack_changes() {
+    let base = host_with([10, 10, 10, 10, 40, 10, 10, 10]);
+    assert_eq!(base.scrollback_ring_slack, 0);
+    let accounted = base.accounted();
+    assert_eq!(accounted, 110);
+
+    let mut with_slack = base;
+    with_slack.scrollback_ring_slack = 1_000_000;
+    let mut max_slack = base;
+    max_slack.scrollback_ring_slack = u64::MAX;
+
+    assert_eq!(with_slack.accounted(), accounted);
+    assert_eq!(max_slack.accounted(), accounted);
+    assert_ne!(with_slack.scrollback_ring_slack, base.scrollback_ring_slack);
+
+    let without = report(
+        Some(200),
+        Some(200),
+        Some(ResidentSource::ProcStatus),
+        base,
+        GpuBytes::default(),
+    );
+    let with = report(
+        Some(200),
+        Some(200),
+        Some(ResidentSource::ProcStatus),
+        with_slack,
+        GpuBytes::default(),
+    );
+    assert_eq!(
+        without.unaccounted_host_bytes(),
+        with.unaccounted_host_bytes()
+    );
+    assert_eq!(without.unaccounted_host_bytes(), Some(90));
+
+    let line = format_report_line(0, 0, &with);
+    let map: std::collections::HashMap<&str, &str> = line_fields(&line).into_iter().collect();
+    assert_eq!(map["host_scrollback_ring_slack"], "1000000");
+    assert_eq!(map["host_accounted_bytes"], "110");
+    assert_eq!(map["host_scrollback_ring"], "40");
 }
 
 /// GPU-object bytes sit alongside the resident set and never enter the host

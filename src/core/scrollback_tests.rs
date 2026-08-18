@@ -11,6 +11,7 @@
 //! prove search/snapshot stay coherent across width changes through the live
 //! resize path.
 
+use super::prompt_marks::PromptKind;
 use super::reflow::{reflow_lines, resize_keep_width};
 use super::screen::{Line, Terminal, blank_row};
 use super::scrollback::{
@@ -962,4 +963,340 @@ fn terminal_set_scrollback_limit_caps_live_history() {
         "scrollback_len {} exceeded cap",
         term.screen().scrollback_len()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Scrollback byte-attribution measurement harness (P3 stage A)
+// ---------------------------------------------------------------------------
+
+/// Fill a terminal with `lines` hard-terminated lines of realistic-width
+/// content, then read the projection once so the memoized cache is populated
+/// the way a rendered pane populates it. Returns the store's byte breakdown.
+///
+/// The projection read is not incidental: an unrendered pane has an empty
+/// cache, so measuring without it would report a projection cost of zero and
+/// understate what a pane the user is actually looking at occupies.
+#[cfg(test)]
+fn measure_scrollback(
+    lines: usize,
+    columns: usize,
+    rows: usize,
+) -> crate::memory_report::ScrollbackBytes {
+    let mut term = Terminal::new(columns, rows);
+    term.set_scrollback_limit(0);
+    // 72 printable columns of mixed content, hard-terminated: the shape of
+    // ordinary command output, not a degenerate all-blank or all-full line.
+    let body: String = (0..72).map(|i| char::from(b'a' + (i % 26) as u8)).collect();
+    for _ in 0..lines {
+        term.advance(body.as_bytes());
+        term.advance(b"\r\n");
+    }
+    // Populate the projection cache exactly as a render pass would.
+    let _ = term.screen().scrollback_len();
+    term.screen().scrollback_bytes()
+}
+
+/// Measurement, not an assertion: prints the scrollback byte breakdown at
+/// several depths so a before/after comparison is attributable to a named
+/// subsystem rather than to a single opaque total. Ignored by default because
+/// the 100k-line case allocates hundreds of megabytes; run deliberately with
+/// `cargo test -- --ignored --nocapture scrollback_byte_breakdown`.
+#[test]
+#[ignore = "measurement harness; allocates ~GB at the deepest point"]
+fn scrollback_byte_breakdown_by_depth() {
+    println!("shape depth ring projection ring_slack total bytes_per_line");
+    for depth in [1_000usize, 10_000, 100_000] {
+        let b = measure_scrollback(depth, 80, 24);
+        let total = b.ring + b.projection;
+        println!(
+            "hard {depth} {} {} {} {} {:.1}",
+            b.ring,
+            b.projection,
+            b.ring_slack,
+            total,
+            total as f64 / depth as f64
+        );
+    }
+    for depth in [1_000usize, 10_000, 100_000] {
+        let b = measure_wrapped_scrollback(depth, 80, 24);
+        let total = b.ring + b.projection;
+        println!(
+            "wrapped {depth} {} {} {} {} {:.1}",
+            b.ring,
+            b.projection,
+            b.ring_slack,
+            total,
+            total as f64 / depth as f64
+        );
+    }
+}
+
+/// Same measurement over **soft-wrapped** content: each logical line spans
+/// several physical rows, so it is assembled through the `push_row` merge path
+/// (`Vec::extend`) rather than adopted whole from a grid row. That is the path
+/// where amortized doubling leaves reserved-but-unused capacity behind, so the
+/// two shapes have to be measured separately — a hard-terminated corpus alone
+/// would report the slack term as negligible and hide it.
+#[cfg(test)]
+fn measure_wrapped_scrollback(
+    lines: usize,
+    columns: usize,
+    rows: usize,
+) -> crate::memory_report::ScrollbackBytes {
+    let mut term = Terminal::new(columns, rows);
+    term.set_scrollback_limit(0);
+    // ~5.2 physical rows per logical line at 80 columns.
+    let body: String = (0..420)
+        .map(|i| char::from(b'a' + (i % 26) as u8))
+        .collect();
+    for _ in 0..lines {
+        term.advance(body.as_bytes());
+        term.advance(b"\r\n");
+    }
+    let _ = term.screen().scrollback_len();
+    term.screen().scrollback_bytes()
+}
+
+/// Measurement, not an assertion: fill cost for the soft-wrapped merge path.
+///
+/// Reclaiming capacity is a reallocate-and-copy, so the saving has to be
+/// weighed against what it costs to push. This times the fill alone (no
+/// projection read) so the number is the merge path and nothing else. Run with
+/// `cargo test -- --ignored --nocapture scrollback_fill_cost`.
+#[test]
+#[ignore = "measurement harness"]
+fn scrollback_fill_cost_wrapped() {
+    for depth in [10_000usize, 100_000] {
+        // One warm-up pass so allocator state is comparable between depths.
+        let _ = measure_wrapped_scrollback(1_000, 80, 24);
+        let start = std::time::Instant::now();
+        let b = measure_wrapped_scrollback(depth, 80, 24);
+        let elapsed = start.elapsed();
+        println!(
+            "fill depth={depth} elapsed_ms={:.1} ring={} slack={}",
+            elapsed.as_secs_f64() * 1000.0,
+            b.ring,
+            b.ring_slack
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Projection-accessor equivalence (P3 stage A, item 2)
+// ---------------------------------------------------------------------------
+//
+// The retained full projection was replaced by a cached *shape* (each logical
+// line's first physical row) plus on-demand projection. Every windowed
+// accessor must therefore return exactly what indexing the full projection
+// would have returned. These tests prove that against the full projection
+// itself rather than against a hand-computed expectation, so they cannot drift
+// from the wrapping rule they depend on.
+
+/// Corpora chosen to exercise the wrapping rule's awkward cases: soft-wrap
+/// runs, wide glyphs that cannot straddle the right edge, trailing-blank trim,
+/// an open (unterminated) tail, prompt marks, and a single-cell line.
+fn accessor_equivalence_corpora() -> Vec<Vec<Line>> {
+    let mut wide = Line::unwrapped(vec![
+        Cell::new('漢', Attrs::default()),
+        Cell::wide_spacer(Attrs::default()),
+        Cell::new('字', Attrs::default()),
+        Cell::wide_spacer(Attrs::default()),
+        Cell::blank(),
+        Cell::blank(),
+        Cell::blank(),
+        Cell::blank(),
+    ]);
+    wide.prompt_mark = Some(PromptKind::PromptStart);
+
+    vec![
+        vec![],
+        vec![content("a")],
+        vec![content("a"), content("b"), content("c")],
+        vec![wrapped_full('x'), wrapped_full('y'), content("tail")],
+        vec![content("one"), wrapped_full('z'), content("two"), blank()],
+        vec![wide],
+        vec![
+            wrapped_full('a'),
+            wrapped_full('b'),
+            wrapped_full('c'),
+            wrapped_full('d'),
+        ],
+        vec![content("m"), blank(), blank(), content("n")],
+    ]
+}
+
+/// `physical_len`, `physical_row`, `physical_tail`, `prompt_mark_at` and
+/// `prompt_mark_rows` all agree with the full projection, at every width and
+/// every index.
+#[test]
+fn windowed_accessors_match_full_projection() {
+    for (corpus_index, rows) in accessor_equivalence_corpora().into_iter().enumerate() {
+        let sb = Scrollback::from_physical(&rows);
+        for width in 1..=12usize {
+            let full = sb.physical_all(width);
+
+            assert_eq!(
+                sb.physical_len(width),
+                full.len(),
+                "corpus {corpus_index} width {width}: physical_len disagrees with projection"
+            );
+
+            // Every absolute row resolves to the same Line, and one past the
+            // end resolves to nothing.
+            for (row, expected) in full.iter().enumerate() {
+                assert_eq!(
+                    sb.physical_row(width, row).as_ref(),
+                    Some(expected),
+                    "corpus {corpus_index} width {width} row {row}: physical_row mismatch"
+                );
+                assert_eq!(
+                    sb.prompt_mark_at(width, row),
+                    expected.prompt_mark,
+                    "corpus {corpus_index} width {width} row {row}: prompt_mark_at mismatch"
+                );
+            }
+            assert!(
+                sb.physical_row(width, full.len()).is_none(),
+                "corpus {corpus_index} width {width}: row past the end must be None"
+            );
+            assert!(
+                sb.prompt_mark_at(width, full.len()).is_none(),
+                "corpus {corpus_index} width {width}: mark past the end must be None"
+            );
+
+            // Every tail length, including 0 and more rows than exist, matches
+            // the corresponding suffix of the full projection.
+            for n in 0..=(full.len() + 3) {
+                let tail = sb.physical_tail(width, n);
+                let start = full.len().saturating_sub(n);
+                assert_eq!(
+                    tail.as_slice(),
+                    &full[start..],
+                    "corpus {corpus_index} width {width} n {n}: physical_tail mismatch"
+                );
+            }
+
+            // The mark enumeration is the set of marked rows, in row order.
+            let expected_marks: Vec<(usize, PromptKind)> = full
+                .iter()
+                .enumerate()
+                .filter_map(|(row, line)| line.prompt_mark.map(|kind| (row, kind)))
+                .collect();
+            assert_eq!(
+                sb.prompt_mark_rows(width),
+                expected_marks,
+                "corpus {corpus_index} width {width}: prompt_mark_rows mismatch"
+            );
+        }
+    }
+}
+
+/// The cached shape must follow a width change and a mutation, not just a cold
+/// build — a stale shape would resolve rows to the wrong logical line, which is
+/// exactly the failure a memoized index invites.
+#[test]
+fn projection_shape_tracks_width_and_mutation() {
+    let mut sb = Scrollback::from_physical(&[wrapped_full('a'), content("b")]);
+
+    // Read at one width, then another, then back: each must agree with a fresh
+    // projection at that width.
+    for width in [W, 3, 5, W, 1] {
+        assert_eq!(sb.physical_len(width), sb.physical_all(width).len());
+        let full = sb.physical_all(width);
+        for (row, expected) in full.iter().enumerate() {
+            assert_eq!(sb.physical_row(width, row).as_ref(), Some(expected));
+        }
+    }
+
+    // Mutate through every path that invalidates, re-checking after each.
+    sb.push_row(content("c"));
+    assert_eq!(sb.physical_len(W), sb.physical_all(W).len());
+
+    sb.push_row(wrapped_full('d'));
+    sb.push_row(content("e"));
+    assert_eq!(sb.physical_len(W), sb.physical_all(W).len());
+
+    sb.sever_trailing_wrap();
+    assert_eq!(sb.physical_len(W), sb.physical_all(W).len());
+
+    sb.set_limit(2);
+    assert_eq!(sb.physical_len(W), sb.physical_all(W).len());
+    let full = sb.physical_all(W);
+    for (row, expected) in full.iter().enumerate() {
+        assert_eq!(sb.physical_row(W, row).as_ref(), Some(expected));
+    }
+
+    sb.clear();
+    assert_eq!(sb.physical_len(W), 0);
+    assert!(sb.physical_row(W, 0).is_none());
+    assert!(sb.physical_tail(W, 5).is_empty());
+    assert!(sb.prompt_mark_rows(W).is_empty());
+}
+
+/// Reclaiming capacity on a finalized line must not change any observable
+/// projection output — it is a storage change, not a content change.
+#[test]
+fn capacity_reclaim_is_content_neutral() {
+    // A soft-wrapped run merged through `push_row` is the path that accrues
+    // slack, so it is the path whose output has to be proven unchanged.
+    let mut sb = Scrollback::new();
+    for _ in 0..4 {
+        sb.push_row(wrapped_full('q'));
+    }
+    sb.push_row(content("end"));
+
+    let oracle = Scrollback::from_physical(&[
+        wrapped_full('q'),
+        wrapped_full('q'),
+        wrapped_full('q'),
+        wrapped_full('q'),
+        content("end"),
+    ]);
+
+    for width in 1..=12usize {
+        assert_eq!(
+            sb.physical_all(width),
+            oracle.physical_all(width),
+            "width {width}: reclaimed line projects differently"
+        );
+    }
+}
+
+/// Measurement, not an assertion: per-frame render-path cost at depth.
+///
+/// The retained projection is gone, so the question is whether reading a
+/// viewport still costs viewport time rather than store time. Times a warm
+/// read (nothing pushed since the last read, the steady state while the user
+/// scrolls or idles) and a cold read (a row pushed first, which invalidates the
+/// cached shape — the steady state while output is arriving).
+#[test]
+#[ignore = "measurement harness"]
+fn snapshot_cost_at_depth() {
+    for depth in [1_000usize, 10_000, 100_000] {
+        let mut term = Terminal::new(80, 24);
+        term.set_scrollback_limit(0);
+        let body: String = (0..72).map(|i| char::from(b'a' + (i % 26) as u8)).collect();
+        for _ in 0..depth {
+            term.advance(body.as_bytes());
+            term.advance(b"\r\n");
+        }
+
+        // Warm: cached shape, repeated viewport reads.
+        let _ = term.screen().snapshot_with_scrollback(10);
+        let start = std::time::Instant::now();
+        for _ in 0..100 {
+            let _ = term.screen().snapshot_with_scrollback(10);
+        }
+        let warm_us = start.elapsed().as_secs_f64() * 1e6 / 100.0;
+
+        // Cold: one line of output between reads, so the shape is rebuilt.
+        let start = std::time::Instant::now();
+        for _ in 0..10 {
+            term.advance(b"x\r\n");
+            let _ = term.screen().snapshot_with_scrollback(10);
+        }
+        let cold_us = start.elapsed().as_secs_f64() * 1e6 / 10.0;
+
+        println!("depth={depth} warm_us={warm_us:.1} cold_us={cold_us:.1}");
+    }
 }

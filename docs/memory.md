@@ -103,7 +103,7 @@ One line per sample is appended to `odytty-memory-report.log` in the OS temp
 directory. A file rather than stderr, because the Windows build is a
 GUI-subsystem application with no visible stderr.
 
-Three properties of the record are structural, not incidental:
+Four properties of the record are structural, not incidental:
 
 - **The remainder is explicit and signed.** `host_accounted_bytes +
   host_unaccounted_bytes == rss_bytes`, exactly, in both directions. A negative
@@ -117,6 +117,14 @@ Three properties of the record are structural, not incidental:
 - **A subsystem that costs nothing reports zero, not nothing.** A zero says the
   cost was looked for and found absent, which is a different statement from
   omission.
+- **One field is a breakdown, not an addition.** `host_scrollback_ring_slack`
+  is the reserved-but-unused portion of `host_scrollback_ring`, reported so
+  reclaimable waste is visible rather than inferred. It is already counted
+  inside `host_scrollback_ring`, so `host_accounted_bytes` excludes it —
+  including it would double-count, inflate the attributed total, and shrink the
+  remainder that exists to make unexplained bytes visible. The exclusion is
+  enforced by construction: the sum destructures the field set exhaustively, so
+  a field cannot be added without deciding which kind it is.
 
 Every field is a byte total, a count, or a fixed identifier from a closed set.
 There is no string field, so terminal content, titles, paths, and environment
@@ -359,6 +367,66 @@ allocator block, so a smaller block granularity has nothing to divide. The
 adoption gate — a measured reduction with no frame-time regression — is not met,
 so the hint is not adopted. Recorded here because a negative result that cost
 machine time is worth keeping; it stops the same experiment being run twice.
+
+### Scrollback: the projection was a second copy of the store
+
+At depth, scrollback is not one term among several — it is the whole figure. A
+capture at 100,000 lines attributed 96% of the resident set to scrollback, with
+atlases, grid, vertex staging and every GPU total together in the low single-digit
+megabytes.
+
+It was also getting *worse* per line as it got deeper, which a flat
+`lines x columns x sizeof(Cell)` model cannot produce. Two structural terms
+explained the rise, and both are now measured separately rather than summed into
+one figure, because a single total cannot say which one a change moved:
+
+**The memoized projection was a full second physical copy.** Scrollback is
+stored as width-independent logical lines and projected to physical rows at the
+current width. That projection was memoized in full — every row, with its own
+copy of every cell. Measured at 100,000 hard-terminated lines it was
+360,307,648 bytes against a logical ring of 360,307,648: exact parity, so the
+history was paid for twice.
+
+What is memoized now is the projection's *shape* — each logical line's first
+physical row index at the current width, one `usize` per line — and rows are
+produced on demand. The shape is what every consumer actually needs: it resolves
+an absolute row to its owning line without materializing anything. Of the nine
+readers, six want a viewport-sized tail, one wants a single row, and only two
+(full-buffer search and the prompt-mark enumeration) ever wanted every row —
+both user-initiated rather than per-frame, so they project transiently and
+retain nothing. Measured: 360,307,648 → 799,816 bytes, a 99.8% reduction, and
+total scrollback bytes halved.
+
+This is a case where the memory win and the latency win point the same way. A
+viewport read no longer depends on how deep the buffer is: 9.2 microseconds at
+1,000 lines and at 100,000 lines alike. And because the shape is cheaper to
+rebuild than the rows were, the cost of reading a viewport immediately after new
+output — the steady state while a command is producing output — fell from 94.3 ms
+to 27.6 ms at 100,000 lines. The one regression is 2 microseconds on a read with
+nothing pushed since the last one, which is the tail projection replacing a
+slice of an already-built vector.
+
+**Reserved-but-unused capacity on finalized lines.** A logical line assembled
+from soft-wrapped rows grows by amortized doubling, so it can hold up to twice
+the cells it needs. Once a line is hard-terminated its length is final and that
+overshoot is pure waste. Capacity is now reclaimed at exactly that transition —
+not on every push, which would defeat the amortized growth the merge path
+depends on. At 100,000 soft-wrapped lines: 705,960,640 bytes of slack reduced to
+1,988,800, a 24.9% reduction in the ring, with fill cost unchanged within
+run-to-run variance (1304–1312 ms after, 1304–1331 ms before).
+
+Hard-terminated lines are adopted whole from a grid row and arrive already
+exact, so they show no slack and are unaffected. The two shapes are measured
+separately for that reason: a hard-terminated corpus alone would report this
+term as negligible and hide it.
+
+Combined, at 100,000 lines: hard-terminated scrollback fell 49.9% and
+soft-wrapped fell 57.6%, and the per-line cost is flat with depth rather than
+rising.
+
+**Windows:** no platform surface. This is core terminal storage with no
+platform-specific branch; the same code runs on every target and the
+`windows-latest` CI leg is the check.
 
 ## What is deliberately not a goal
 

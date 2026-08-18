@@ -8,6 +8,7 @@
 use unicode_width::UnicodeWidthChar;
 
 use crate::graphics::{ImageScene, VisiblePlacement};
+use crate::memory_report::ScrollbackBytes;
 use crate::parser::{OdyParser, Params, VtDispatch};
 
 use super::button::{

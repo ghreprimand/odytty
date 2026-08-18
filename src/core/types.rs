@@ -296,9 +296,16 @@ pub struct Attrs {
     /// strikethrough, inverse, hidden — one bit each (see the `F_*` masks).
     /// Private so the storage can evolve; read/written through the generated
     /// getters (`bold()`…`hidden()`) and setters (`set_bold(..)`…). Packing the
-    /// eight former `bool` fields into a single `u16` keeps `Attrs` at 20 bytes
-    /// (was 28) and `Cell` at 36 (was 44), which the perf benches showed costs
-    /// per-cell write/blank-row throughput on scroll-heavy feeds.
+    /// eight former `bool` fields into a single `u16` took `Attrs` from 28
+    /// bytes to 20, which the perf benches showed costs per-cell
+    /// write/blank-row throughput on scroll-heavy feeds.
+    ///
+    /// This note used to add "and `Cell` from 44 to 36". That was true when it
+    /// was written and is not true now: `Cell` is 44 bytes again, because the
+    /// four-slot `combining` array was added afterwards and this comment was
+    /// never revised. Both sizes are pinned by compile-time assertion in
+    /// `crate::core::tests::cell_equivalence`, so the figures here are
+    /// measured rather than remembered.
     flags: u16,
     pub underline_style: UnderlineStyle,
     pub underline_color: Option<Color>,
