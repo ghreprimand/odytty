@@ -59,18 +59,31 @@ fn frame_error(error: FrameError) -> KittyError {
 }
 
 /// Resolve the image an animation command addresses. Every animation command
-/// must name an image (`i=`), since a frame has no meaning without one.
-fn resolve_image(
+/// must name an image, since a frame has no meaning without one, and the
+/// protocol lets it be named either way: `i=` is a terminal-scoped image id,
+/// `I=` a client-chosen image number. Naming neither is malformed; naming both
+/// is refused earlier, where the command is first seen.
+///
+/// Number resolution takes the *newest* image carrying the number. Numbers are
+/// deliberately not unique — a transmission carrying a number always creates a
+/// new image rather than replacing one — so "newest wins" is what lets a client
+/// address the image it just sent without waiting for the terminal to report
+/// the assigned id back to it.
+pub(super) fn resolve_image(
     graphics: &ImageScene,
     control: &ControlData,
 ) -> Result<StoredImageId, KittyError> {
-    let protocol_id = control
-        .image_id
-        .filter(|id| *id != 0)
-        .ok_or(KittyError::MalformedControl)?;
-    graphics
-        .find_by_protocol_id(protocol_id)
-        .ok_or(KittyError::FrameNotFound)
+    if let Some(protocol_id) = control.addressed_image_id() {
+        return graphics
+            .find_by_protocol_id(protocol_id)
+            .ok_or(KittyError::FrameNotFound);
+    }
+    if let Some(number) = control.addressed_image_number() {
+        return graphics
+            .find_by_image_number(number)
+            .ok_or(KittyError::FrameNotFound);
+    }
+    Err(KittyError::MalformedControl)
 }
 
 /// `a=f` - create or edit an animation frame from transmitted pixel data.

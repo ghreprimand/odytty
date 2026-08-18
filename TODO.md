@@ -741,9 +741,8 @@ a floor; surpassing it is the standing ambition.
       a per-image cap of 64. Visible placements in every active split pane
       advance; a session without animated images schedules no animation wake or
       per-frame work. Unicode placeholder placements animate through the same
-      visibility path. Payload
-      compression (`o=z`) and `I=` image-number addressing remain unsupported,
-      and animated containers such as APNG and GIF decode as one still frame.
+      visibility path. Animated containers such as APNG and GIF decode as one
+      still frame.
 - [x] Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,
       c/C, p/P+x=/y=) with uppercase image-data GC, `a=q` validation-only
       query responses, and DECSET/DECRST 80 sixel cursor policy (anchor at

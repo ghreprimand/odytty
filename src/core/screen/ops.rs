@@ -15,6 +15,34 @@ const ODYTTY_DA2_TERMINAL_TYPE: usize = 65;
 const ODYTTY_DA2_VERSION: usize = 1;
 const ODYTTY_DA2_ROM: usize = 0;
 
+/// Primary Device Attributes (DA1) reply.
+///
+/// Every parameter is a claim, and each one here is backed by an implemented
+/// sequence. The list is deliberately short: an unclaimed capability costs a
+/// client one fallback path, while a falsely claimed one makes it emit output
+/// this terminal cannot honour.
+///
+/// * `62` — VT220 service class. 8-bit C1 controls are decoded (CSI `0x9B`,
+///   OSC `0x9D`, DCS `0x90`, APC `0x9F`, ST `0x9C`), and selective erase is
+///   implemented, which is what the class requires. Replies are always emitted
+///   in 7-bit form; S7C1T is the default state of every terminal that
+///   implements the pair, so a client never has to ask for it.
+/// * `4` — Sixel graphics. `docs/graphics.md` carries the supported-feature
+///   matrix for the DCS decoder behind this bit.
+/// * `6` — selective erase: DECSCA (`CSI Ps " q`), DECSED (`CSI ? Ps J`),
+///   DECSEL (`CSI ? Ps K`) and DECSERA (`CSI Pt;Pl;Pb;Pr $ {`).
+/// * `22` — ANSI colour.
+/// * `28` — rectangular editing: DECCRA, DECFRA, DECERA, DECSERA, DECCARA,
+///   DECRARA and DECSACE.
+///
+/// Not claimed, because not implemented: `1` (132-column mode — DECCOLM is not
+/// handled), `2` (printer port), `7` (soft character sets), `8` (user-defined
+/// keys), `9` (national replacement character sets — non-ASCII `ESC (` finals
+/// resolve to ASCII rather than to a replacement set), `15` (technical
+/// character set), `16`/`29` (locator), `18` (user windows) and `21`
+/// (horizontal scrolling).
+const ODYTTY_DA1_REPLY: &[u8] = b"\x1b[?62;4;6;22;28c";
+
 impl Screen {
     /// C16: sever the soft-wrap chain at `row`. `Line::wrapped` on row N
     /// promises that row N+1 is the physical continuation of the same logical
@@ -1058,9 +1086,11 @@ impl Screen {
             .extend_from_slice(format!("\x1b[>4;{level}m").as_bytes());
     }
 
+    /// DA1 (`CSI c`) and DA2 (`CSI > c`). See [`ODYTTY_DA1_REPLY`] for what
+    /// each primary attribute claims and why it is claimed.
     pub(super) fn device_attributes(&mut self, params: &Params, intermediates: &[u8]) {
         if intermediates.is_empty() && param_or(params, 0, 0) == 0 {
-            self.host_output.extend_from_slice(b"\x1b[?1;2c");
+            self.host_output.extend_from_slice(ODYTTY_DA1_REPLY);
         } else if intermediates == b">" && param_or(params, 0, 0) == 0 {
             self.host_output.extend_from_slice(
                 format!(

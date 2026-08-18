@@ -19,6 +19,10 @@ pub struct StoredImageId(pub u64);
 pub struct StoredImage {
     pub id: StoredImageId,
     pub protocol_id: Option<u32>,
+    /// Client-chosen image *number* (Kitty `I=`), independent of
+    /// `protocol_id`. Numbers are not unique across images by design, so this
+    /// is a lookup key resolved newest-first, never an identity.
+    pub protocol_number: Option<u32>,
     pub width: u32,
     pub height: u32,
     pub generation: u64,
@@ -173,11 +177,50 @@ impl ImageStore {
         })
     }
 
-    /// Insert an RGBA8 image, evicting least-recently-used records until the
-    /// configured decoded-byte and image-count caps are satisfied.
+    /// Insert an RGBA8 image with no client-supplied image number.
+    ///
+    /// Thin wrapper over [`ImageStore::insert_rgba_numbered`] rather than a
+    /// second implementation: protocols with no image-number concept (Sixel,
+    /// iTerm2) get one call shape, and there is still exactly one insert path
+    /// to keep correct.
     pub fn insert_rgba(
         &mut self,
         protocol_id: Option<u32>,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) -> Result<ImageInsert, ImageStoreError> {
+        self.insert_rgba_numbered(protocol_id, None, width, height, rgba)
+    }
+
+    /// Lowest positive image id not currently carried by any stored image.
+    ///
+    /// Used when a client transmits with an image *number* and no id: the
+    /// protocol then makes the terminal choose the id and report it back. The
+    /// scan is bounded by the store's image-count cap, and picking the lowest
+    /// free value keeps the choice deterministic — an allocation strategy that
+    /// depended on history would make the reported id untestable.
+    ///
+    /// Zero is never allocated: the protocol reserves it for "no id".
+    fn allocate_protocol_id(&self) -> Option<u32> {
+        let used: BTreeSet<u32> = self
+            .images
+            .values()
+            .filter_map(|image| image.protocol_id)
+            .collect();
+        (1..=u32::MAX).find(|candidate| !used.contains(candidate))
+    }
+
+    /// Insert an RGBA8 image, evicting least-recently-used records until the
+    /// configured decoded-byte and image-count caps are satisfied.
+    ///
+    /// When `protocol_id` is absent and `protocol_number` is present the store
+    /// allocates an id, mirroring the graphics protocol's rule that an image
+    /// addressed by number still gets an id the client can be told about.
+    pub fn insert_rgba_numbered(
+        &mut self,
+        protocol_id: Option<u32>,
+        protocol_number: Option<u32>,
         width: u32,
         height: u32,
         rgba: Vec<u8>,
@@ -201,6 +244,14 @@ impl ImageStore {
             });
         }
 
+        // Allocated only for a numbered image that carries no id of its own.
+        // Computed before the record is inserted so the new image cannot
+        // collide with itself.
+        let protocol_id = match (protocol_id, protocol_number) {
+            (None, Some(_)) => self.allocate_protocol_id(),
+            (existing, _) => existing,
+        };
+
         let id = StoredImageId(self.next_id);
         self.next_id += 1;
         let generation = self.next_generation;
@@ -209,6 +260,7 @@ impl ImageStore {
         let image = StoredImage {
             id,
             protocol_id,
+            protocol_number,
             width,
             height,
             generation,

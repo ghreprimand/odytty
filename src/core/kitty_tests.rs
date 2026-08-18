@@ -2,6 +2,9 @@
 use crate::graphics::{GraphicsProtocol, ImageStoreLimits};
 
 use super::*;
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
+use std::io::Write;
 
 fn b64(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -71,6 +74,8 @@ fn parses_control_and_payload_without_new_dependencies() {
     assert_eq!(control.display_rows, Some(1));
     assert_eq!(control.image_id, Some(9));
     assert_eq!(control.placement_id, Some(4));
+    assert_eq!(control.image_number, None);
+    assert_eq!(control.compression, None);
     assert_eq!(payload, b"QUJD");
 }
 
@@ -863,4 +868,435 @@ fn kitty_extreme_display_params_survive_and_stay_bounded() {
     assert_eq!(visible[0].display_rows, 1);
     let cursor = t.screen().cursor();
     assert!(cursor.row < 3, "cursor stays on screen: {cursor:?}");
+}
+
+fn zlib(bytes: &[u8]) -> Vec<u8> {
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(bytes).expect("zlib write");
+    encoder.finish().expect("zlib finish")
+}
+
+fn zlib_zeros(len: usize) -> Vec<u8> {
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+    let chunk = [0u8; 256];
+    let mut remaining = len;
+    while remaining > 0 {
+        let n = remaining.min(chunk.len());
+        encoder.write_all(&chunk[..n]).expect("zlib zeros");
+        remaining -= n;
+    }
+    encoder.finish().expect("zlib zeros finish")
+}
+
+fn host_text(terminal: &mut Terminal) -> String {
+    String::from_utf8(terminal.take_host_output()).expect("host output is utf-8")
+}
+
+/// Payload compression (`o=z`) and image-number addressing (`I=`) are
+/// transport-independent: they apply identically on every platform. The
+/// Windows-unsupported shared-memory transport (`t=s`) is not exercised here
+/// and stays unsupported.
+#[test]
+fn parses_image_number_and_compression_keys() {
+    let (control, _) = super::kitty::test_parse_apc(b"Gf=32,a=T,o=z,I=13,i=9;QQ==").expect("parse");
+    assert_eq!(control.compression, Some('z'));
+    assert_eq!(control.image_number, Some(13));
+    assert_eq!(control.image_id, Some(9));
+}
+
+#[test]
+fn kitty_zlib_payload_renders_the_same_pixels_as_uncompressed() {
+    let mut compressed = Terminal::new(20, 4);
+    compressed.advance(&kitty_apc(
+        "f=32,a=T,t=d,s=2,v=1,o=z,i=42",
+        &zlib(&rgba_2x1()),
+    ));
+    let mut plain = Terminal::new(20, 4);
+    plain.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,i=42", &rgba_2x1()));
+
+    assert!(
+        host_text(&mut compressed).contains("OK"),
+        "valid o=z must render, not be rejected as invalid-payload"
+    );
+    let placed = compressed.visible_graphics(0);
+    assert_eq!(placed.len(), 1);
+    let image = compressed
+        .graphics()
+        .store()
+        .get(placed[0].image_id)
+        .unwrap();
+    assert_eq!(image.rgba, rgba_2x1());
+    assert_eq!(
+        image.rgba,
+        plain
+            .graphics()
+            .store()
+            .get(plain.visible_graphics(0)[0].image_id)
+            .unwrap()
+            .rgba
+    );
+}
+
+#[test]
+fn kitty_zlib_png_payload_renders() {
+    let png = png_rgba_2x1();
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=100,a=T,t=d,o=z,i=7", &zlib(&png)));
+
+    assert!(host_text(&mut t).contains("OK"));
+    let placed = t.visible_graphics(0);
+    assert_eq!(placed.len(), 1);
+    assert_eq!(
+        t.graphics().store().get(placed[0].image_id).unwrap().rgba,
+        rgba_2x1()
+    );
+}
+
+#[test]
+fn kitty_chunked_zlib_payload_assembles_then_inflates_once() {
+    let encoded = b64(&zlib(&rgba_2x1()));
+    let (first, second) = encoded.split_at(encoded.len() / 2);
+    let mut t = Terminal::new(20, 4);
+    t.advance(format!("\x1b_Gf=32,a=T,t=d,s=2,v=1,o=z,i=3,m=1;{first}\x1b\\").as_bytes());
+    t.advance(format!("\x1b_Gm=0;{second}\x1b\\").as_bytes());
+
+    assert!(host_text(&mut t).contains("OK"));
+    assert_eq!(t.visible_graphics(0).len(), 1);
+    assert_eq!(
+        t.graphics()
+            .store()
+            .get(t.visible_graphics(0)[0].image_id)
+            .unwrap()
+            .rgba,
+        rgba_2x1()
+    );
+}
+
+#[test]
+fn kitty_repeated_compression_markers_last_win_and_inflate_once() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc(
+        "f=32,a=T,t=d,s=2,v=1,o=z,o=z,i=4",
+        &zlib(&rgba_2x1()),
+    ));
+    assert!(host_text(&mut t).contains("OK"));
+    assert_eq!(t.visible_graphics(0).len(), 1);
+}
+
+#[test]
+fn kitty_double_compressed_payload_is_refused() {
+    let nested = zlib(&zlib(&rgba_2x1()));
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,o=z,i=5", &nested));
+    let out = host_text(&mut t);
+    assert!(
+        out.contains("invalid-payload") || out.contains("EINVAL:compressed-payload"),
+        "double-zlib must not render: {out:?}"
+    );
+    assert!(t.visible_graphics(0).is_empty());
+    assert_eq!(t.graphics().store().len(), 0);
+}
+
+#[test]
+fn kitty_truncated_zlib_stream_is_refused_without_a_placement() {
+    let mut truncated = zlib(&rgba_2x1());
+    truncated.pop();
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,o=z,i=6", &truncated));
+    let out = host_text(&mut t);
+    assert!(
+        out.contains("EINVAL:compressed-payload"),
+        "truncated zlib must refuse at inflate, not allocate pixels: {out:?}"
+    );
+    assert!(t.visible_graphics(0).is_empty());
+    assert_eq!(t.graphics().store().len(), 0);
+}
+
+#[test]
+fn kitty_zlib_missing_trailer_is_refused_even_if_pixels_already_inflated() {
+    // A cut-short zlib stream can produce every declared pixel before the
+    // Adler-32 trailer arrives. Inflating with a reader that treats that as
+    // clean EOF would answer OK. StreamEnd (terminating block + Adler-32)
+    // is required; missing trailer is EINVAL:compressed-payload, store empty.
+    let mut truncated = zlib(&rgba_2x1());
+    assert!(
+        truncated.len() > 4,
+        "fixture must be large enough to drop a 4-byte trailer"
+    );
+    truncated.truncate(truncated.len() - 4);
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,o=z,i=14", &truncated));
+    let out = host_text(&mut t);
+    assert!(
+        out.contains("EINVAL:compressed-payload"),
+        "missing zlib trailer must not render: {out:?}"
+    );
+    assert!(t.visible_graphics(0).is_empty());
+    assert_eq!(t.graphics().store().len(), 0);
+}
+
+#[test]
+fn kitty_zlib_header_with_garbage_body_is_refused() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc(
+        "f=32,a=T,t=d,s=2,v=1,o=z,i=8",
+        &[0x78, 0x9c, 0xff, 0x00, 0x01, 0x02],
+    ));
+    let out = host_text(&mut t);
+    assert!(
+        out.contains("EINVAL:compressed-payload"),
+        "valid CMF/FLG plus junk must not inflate: {out:?}"
+    );
+    assert!(t.visible_graphics(0).is_empty());
+    assert_eq!(t.graphics().store().len(), 0);
+}
+
+#[test]
+fn kitty_empty_zlib_payload_is_refused() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,o=z,i=9", &[]));
+    let out = host_text(&mut t);
+    assert!(
+        out.contains("EINVAL:compressed-payload") || out.contains("invalid-payload"),
+        "empty o=z payload must refuse: {out:?}"
+    );
+    assert!(t.visible_graphics(0).is_empty());
+    assert_eq!(t.graphics().store().len(), 0);
+}
+
+#[test]
+fn kitty_unknown_compression_scheme_is_refused_not_ignored() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,o=x,i=10", &rgba_2x1()));
+    let out = host_text(&mut t);
+    assert!(
+        out.contains("EINVAL:unsupported-compression"),
+        "unknown o= must not fall through to the pixel decoder: {out:?}"
+    );
+    assert!(t.visible_graphics(0).is_empty());
+    assert_eq!(t.graphics().store().len(), 0);
+}
+
+#[test]
+fn kitty_hostile_ratio_zlib_is_refused_at_the_store_budget() {
+    // Bound under test: decompress_payload caps inflate at
+    // ImageStoreLimits.max_decoded_bytes via Read::take(max+1). A tiny store
+    // makes the refusal observable without a 64 MiB fixture: 1024 zero bytes
+    // compress to a handful of bytes, expand past 64, and must not land an
+    // image. Pass is refusal + empty store, not merely no-panic.
+    let mut t = Terminal::new(20, 4);
+    *t.graphics_mut() = crate::graphics::ImageScene::new(ImageStoreLimits {
+        max_decoded_bytes: 64,
+        max_images: 4,
+    });
+    t.advance(&kitty_apc(
+        "f=32,a=T,t=d,s=2,v=1,o=z,i=11",
+        &zlib_zeros(1024),
+    ));
+    let out = host_text(&mut t);
+    assert!(
+        out.contains("EINVAL:compressed-payload"),
+        "hostile-ratio inflate must reject at the store budget: {out:?}"
+    );
+    assert!(t.visible_graphics(0).is_empty());
+    assert_eq!(t.graphics().store().len(), 0);
+    assert_eq!(t.graphics().store().decoded_bytes(), 0);
+}
+
+#[test]
+fn kitty_zlib_declared_size_mismatch_after_inflate_is_refused() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc(
+        "f=32,a=T,t=d,s=3,v=1,o=z,i=12",
+        &zlib(&rgba_2x1()),
+    ));
+    let out = host_text(&mut t);
+    assert!(
+        out.contains("invalid-payload"),
+        "inflated length must still match s*v*bpp: {out:?}"
+    );
+    assert!(t.visible_graphics(0).is_empty());
+    assert_eq!(t.graphics().store().len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Compression across the payload shapes that are not a single raw direct blob
+// ---------------------------------------------------------------------------
+
+/// A chunked transfer is compressed as one stream spanning every chunk, not as
+/// a sequence of independently compressed chunks. Inflating per chunk would
+/// find no valid header on the second one, so this pins that decompression
+/// happens after reassembly.
+#[test]
+fn kitty_compressed_payload_survives_a_chunked_transfer() {
+    let compressed = zlib(&rgba_2x1());
+    let encoded = b64(&compressed);
+    // Split the base64 text on a 4-character boundary, as the protocol requires
+    // of every chunk but the last.
+    let split = (encoded.len() / 2) / 4 * 4;
+    let (head, tail) = encoded.split_at(split.max(4).min(encoded.len()));
+
+    let mut t = Terminal::new(20, 4);
+    t.advance(format!("\x1b_Gf=32,a=T,t=d,s=2,v=1,o=z,i=40,m=1;{head}\x1b\\").as_bytes());
+    t.advance(format!("\x1b_Gm=0;{tail}\x1b\\").as_bytes());
+
+    assert!(host_text(&mut t).contains("OK"));
+    assert_eq!(t.visible_graphics(0).len(), 1);
+    assert_eq!(
+        t.graphics()
+            .store()
+            .get(t.visible_graphics(0)[0].image_id)
+            .unwrap()
+            .rgba,
+        rgba_2x1()
+    );
+}
+
+/// `o=z` is orthogonal to `f=`: the protocol allows compressing any format, so
+/// a compressed PNG must inflate to the container and then decode normally.
+#[test]
+fn kitty_compressed_png_inflates_then_decodes() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=100,a=T,t=d,o=z,i=41", &zlib(&png_rgba_2x1())));
+
+    assert!(host_text(&mut t).contains("OK"));
+    assert_eq!(t.visible_graphics(0).len(), 1);
+    assert_eq!(
+        t.graphics()
+            .store()
+            .get(t.visible_graphics(0)[0].image_id)
+            .unwrap()
+            .rgba,
+        rgba_2x1()
+    );
+}
+
+/// A query (`a=q`) must validate exactly what a transmission would accept. It
+/// decodes on its own path, so it needs its own proof that the path
+/// decompresses — and its own proof that validating stored nothing.
+#[test]
+fn kitty_query_validates_a_compressed_payload_without_storing_it() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc(
+        "f=32,a=q,t=d,s=2,v=1,o=z,i=42",
+        &zlib(&rgba_2x1()),
+    ));
+
+    let out = host_text(&mut t);
+    assert!(
+        out.contains("OK"),
+        "compressed query must validate: {out:?}"
+    );
+    assert_eq!(t.graphics().store().len(), 0, "a query stores nothing");
+}
+
+/// The mirror of the case above: a query over a payload that does not inflate
+/// must report the failure rather than answering OK for an image that could
+/// never have been stored.
+#[test]
+fn kitty_query_reports_a_broken_compressed_payload() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc(
+        "f=32,a=q,t=d,s=2,v=1,o=z,i=43",
+        &[0x78, 0x9c, 0xff, 0xff],
+    ));
+
+    let out = host_text(&mut t);
+    assert!(
+        out.contains("EINVAL:compressed-payload"),
+        "a query must not pass a payload a transmission would refuse: {out:?}"
+    );
+    assert_eq!(t.graphics().store().len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Terminal-assigned image ids for number-addressed transmissions
+// ---------------------------------------------------------------------------
+
+/// Extract `i=<id>` from a Kitty response.
+fn reply_image_id(text: &str) -> u32 {
+    let start = text.find("i=").expect("reply carries an image id") + 2;
+    let digits: String = text[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse().expect("image id is numeric")
+}
+
+/// The point of the id echo is that the client can stop using numbers: the
+/// protocol tells clients to switch to `i=` once the terminal reports an id.
+/// So the assertion that matters is not that some id appears, but that the
+/// reported id addresses the very image the number addressed.
+#[test]
+fn kitty_number_only_transmission_reports_a_usable_image_id() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,I=13,i=0", &rgba_2x1()));
+
+    let out = host_text(&mut t);
+    assert!(out.contains("I=13"), "number must be echoed back: {out:?}");
+    let assigned = reply_image_id(&out);
+    assert_ne!(assigned, 0, "zero is reserved for `no id`");
+
+    let by_number = t
+        .graphics()
+        .find_by_image_number(13)
+        .expect("image resolves by number");
+    let by_id = t
+        .graphics()
+        .find_by_protocol_id(assigned)
+        .expect("image resolves by the reported id");
+    assert_eq!(
+        by_number, by_id,
+        "the reported id must address the same image the number does"
+    );
+}
+
+/// An assigned id must not silently alias an image the client already owns,
+/// because the client would then find its own image replaced by one it never
+/// asked the terminal to store there.
+#[test]
+fn kitty_assigned_ids_avoid_client_chosen_ids() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,i=1", &rgba_2x1()));
+    let _ = host_text(&mut t);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,i=2", &rgba_2x1()));
+    let _ = host_text(&mut t);
+
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,I=99", &rgba_2x1()));
+    let assigned = reply_image_id(&host_text(&mut t));
+
+    assert!(
+        assigned != 1 && assigned != 2,
+        "assigned id {assigned} collides with a client-chosen id"
+    );
+    // The images the client addressed by id must still be the ones it sent.
+    for id in [1, 2] {
+        assert!(
+            t.graphics().find_by_protocol_id(id).is_some(),
+            "client image i={id} must survive an assignment"
+        );
+    }
+}
+
+/// Numbers are explicitly not unique and a numbered transmission always creates
+/// a new image, so two transmissions sharing a number must produce two distinct
+/// images with two distinct ids — and the number must resolve to the newer.
+#[test]
+fn kitty_repeated_number_creates_a_second_image_and_resolves_newest() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,I=5", &rgba_2x1()));
+    let first = reply_image_id(&host_text(&mut t));
+    t.advance(&kitty_apc(
+        "f=32,a=T,t=d,s=2,v=1,I=5",
+        &[1, 2, 3, 4, 5, 6, 7, 8],
+    ));
+    let second = reply_image_id(&host_text(&mut t));
+
+    assert_ne!(first, second, "a repeated number must not reuse the id");
+    let newest = t.graphics().find_by_image_number(5).expect("resolves");
+    assert_eq!(
+        t.graphics().store().get(newest).unwrap().rgba,
+        vec![1, 2, 3, 4, 5, 6, 7, 8],
+        "the number must resolve to the most recently transmitted image"
+    );
 }

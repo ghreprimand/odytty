@@ -87,3 +87,49 @@ fn rejects_single_images_larger_than_cap() {
         }
     );
 }
+
+#[test]
+fn numbered_insert_without_an_id_allocates_the_lowest_free_id() {
+    let mut store = ImageStore::default();
+    store.insert_rgba(Some(1), 1, 1, rgba(1, 1, 1)).unwrap();
+    store.insert_rgba(Some(3), 1, 1, rgba(1, 1, 3)).unwrap();
+
+    let inserted = store
+        .insert_rgba_numbered(None, Some(77), 1, 1, rgba(1, 1, 7))
+        .unwrap();
+
+    let image = store.get(inserted.id).unwrap();
+    assert_eq!(
+        image.protocol_id,
+        Some(2),
+        "the gap between the used ids is the lowest free id"
+    );
+    assert_eq!(image.protocol_number, Some(77));
+}
+
+#[test]
+fn a_client_supplied_id_is_never_replaced_by_an_allocated_one() {
+    let mut store = ImageStore::default();
+
+    let inserted = store
+        .insert_rgba_numbered(Some(9), Some(4), 1, 1, rgba(1, 1, 9))
+        .unwrap();
+
+    let image = store.get(inserted.id).unwrap();
+    assert_eq!(image.protocol_id, Some(9), "the client chose this id");
+    assert_eq!(image.protocol_number, Some(4));
+}
+
+#[test]
+fn an_unnumbered_insert_allocates_no_id() {
+    let mut store = ImageStore::default();
+
+    let inserted = store.insert_rgba(None, 1, 1, rgba(1, 1, 1)).unwrap();
+
+    assert_eq!(
+        store.get(inserted.id).unwrap().protocol_id,
+        None,
+        "protocols with no image-number concept must not acquire an id they never asked for"
+    );
+    assert_eq!(store.get(inserted.id).unwrap().protocol_number, None);
+}

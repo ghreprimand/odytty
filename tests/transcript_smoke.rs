@@ -257,7 +257,7 @@ fn device_attributes_query_produces_host_reply() {
     // A primary Device Attributes query (CSI c) must produce a host-bound reply
     // — the kind of round-trip a real program relies on at startup.
     let mut terminal = run_transcript(20, 2, &[b"\x1b[c"]);
-    assert_eq!(terminal.take_host_output(), b"\x1b[?1;2c");
+    assert_eq!(terminal.take_host_output(), b"\x1b[?62;4;6;22;28c");
     // Reply is consumed once.
     assert!(terminal.take_host_output().is_empty());
 }

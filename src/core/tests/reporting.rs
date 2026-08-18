@@ -190,7 +190,30 @@ fn responds_to_secondary_device_attributes() {
 
     terminal.advance(b"\x1b[>c");
 
+    // DA2 is a version inventory, not a graphics-capability bitmap. Sixel is
+    // advertised only in DA1 (bit 4). This reply must not grow a sixel bit.
     assert_eq!(terminal.take_host_output(), b"\x1b[>65;1;0c");
+}
+
+#[test]
+fn tertiary_device_attributes_are_unimplemented_and_silent() {
+    let mut terminal = Terminal::new(10, 4);
+    terminal.advance(b"\x1b[=c");
+    terminal.advance(b"\x1b[=0c");
+    assert!(
+        terminal.take_host_output().is_empty(),
+        "DA3 has no implementation, so it must not invent a reply"
+    );
+}
+
+#[test]
+fn private_marked_da1_does_not_share_the_primary_reply() {
+    let mut terminal = Terminal::new(10, 4);
+    terminal.advance(b"\x1b[?c");
+    assert!(
+        terminal.take_host_output().is_empty(),
+        "CSI ? c is not primary DA; only empty intermediates answer DA1"
+    );
 }
 
 #[test]
@@ -217,6 +240,16 @@ fn xtgettcap_reports_known_and_unknown_capabilities() {
           \x1bP1+r524742=31\x1b\\\
           \x1bP0+r\x1b\\"
     );
+}
+
+#[test]
+fn xtgettcap_does_not_advertise_sixel() {
+    // Sixel autodetection for chafa/w3m/timg/Neovim plugins is DA1 bit 4, not
+    // a termcap name. XTGETTCAP stays a conservative truth set; `sixel` is
+    // unknown here so a DA1 change cannot silently fork a second claim.
+    let mut terminal = Terminal::new(10, 4);
+    terminal.advance(b"\x1bP+q736978656c\x1b\\");
+    assert_eq!(terminal.take_host_output(), b"\x1bP0+r\x1b\\");
 }
 
 #[test]

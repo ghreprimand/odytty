@@ -8,6 +8,20 @@
 //! 16-bit samples are stripped to 8-bit.
 //!
 //! File transports are security-restricted — see `kitty_transport` module docs.
+//!
+//! Payloads may be zlib-compressed (`o=z`); decompression is bounded before it
+//! allocates, so a compression bomb is refused rather than honored. See
+//! [`decompress_payload`].
+//!
+//! Images may be addressed by client-chosen *image number* (`I=`) as well as by
+//! terminal-scoped *image id* (`i=`). Numbers are not unique: a transmission
+//! carrying a number always creates a new image, and later commands that
+//! address by number act on the newest image holding it.
+//!
+//! Platform surface: compression and image-number addressing are both parser
+//! and image-store work with no filesystem, process, or environment access, so
+//! Windows behaves identically to Unix. Neither affects the transport table —
+//! the shared-memory transport (`t=s`) stays Unix-only, compressed or not.
 
 use crate::graphics::{GraphicsProtocol, ImageScene, PlacementRequest};
 
@@ -43,7 +57,19 @@ pub(super) struct ControlData {
     pub(super) transmission: Option<char>,
     pub(super) more_chunks: bool,
     pub(super) image_id: Option<u32>,
+    /// Image number (`I=`): a client-chosen handle for programs that share a
+    /// screen with other programs and therefore cannot know which image *ids*
+    /// are free. Numbers are deliberately not unique — transmitting with a
+    /// number always creates a new image — so every command that addresses by
+    /// number resolves to the newest image carrying it. Zero means "absent",
+    /// exactly as it does for `image_id`.
+    pub(super) image_number: Option<u32>,
     pub(super) placement_id: Option<u32>,
+    /// Payload compression (`o=`). The protocol defines exactly one value,
+    /// `z` (RFC 1950 zlib). Any other value is refused rather than ignored: a
+    /// payload compressed with a scheme this terminal cannot read would
+    /// otherwise be handed to the pixel/PNG decoder as if it were plain data.
+    pub(super) compression: Option<char>,
     pub(super) width: Option<u32>,
     pub(super) height: Option<u32>,
     pub(super) display_columns: Option<usize>,
@@ -99,14 +125,39 @@ pub(super) struct ControlData {
 
 impl ControlData {
     fn response_prefix(&self) -> String {
+        self.response_prefix_for(self.image_id)
+    }
+
+    /// Response prefix with an explicit image id, used by the transmit path
+    /// when the client addressed the image only by number (`I=`) and the
+    /// terminal allocated the id itself. The protocol's worked example is
+    /// `i=99,I=13`, so the id comes first and the number is echoed back
+    /// unchanged — that echo is what lets a client correlate the assigned id
+    /// with the number it chose.
+    fn response_prefix_for(&self, image_id: Option<u32>) -> String {
         let mut parts = Vec::new();
-        if let Some(id) = self.image_id {
+        if let Some(id) = image_id {
             parts.push(format!("i={id}"));
+        }
+        if let Some(number) = self.image_number {
+            parts.push(format!("I={number}"));
         }
         if let Some(id) = self.placement_id {
             parts.push(format!("p={id}"));
         }
         parts.join(",")
+    }
+
+    /// The image id (`i=`) treated as present only when non-zero. The protocol
+    /// reserves zero as "no id", so a literal `i=0` must never resolve.
+    pub(super) fn addressed_image_id(&self) -> Option<u32> {
+        self.image_id.filter(|id| *id != 0)
+    }
+
+    /// The image number (`I=`) treated as present only when non-zero, mirroring
+    /// [`ControlData::addressed_image_id`].
+    pub(super) fn addressed_image_number(&self) -> Option<u32> {
+        self.image_number.filter(|number| *number != 0)
     }
 
     /// NF9: per the kitty graphics spec, `q=1` suppresses SUCCESS (OK)
@@ -126,6 +177,15 @@ pub(super) enum KittyError {
     UnsupportedFormat,
     UnsupportedPngColor,
     UnsupportedTransmission,
+    /// `o=` names a compression scheme this terminal does not implement. Only
+    /// `o=z` (RFC 1950 zlib) is defined by the protocol.
+    UnsupportedCompression,
+    /// A compressed payload did not decompress, or expanded past the store's
+    /// decoded-byte budget. Both are refusals, never partial renders.
+    CompressedPayloadRejected,
+    /// A command named an image by both id (`i=`) and number (`I=`). The
+    /// protocol requires this be rejected rather than resolved by precedence.
+    IdAndNumber,
     MissingDimensions,
     DimensionMismatch,
     InvalidPayload,
@@ -155,6 +215,9 @@ impl KittyError {
             KittyError::UnsupportedFormat => "unsupported-format",
             KittyError::UnsupportedPngColor => "unsupported-png-color",
             KittyError::UnsupportedTransmission => "unsupported-transmission",
+            KittyError::UnsupportedCompression => "EINVAL:unsupported-compression",
+            KittyError::CompressedPayloadRejected => "EINVAL:compressed-payload",
+            KittyError::IdAndNumber => "EINVAL:id-and-number",
             KittyError::MissingDimensions => "missing-dimensions",
             KittyError::DimensionMismatch => "dimension-mismatch",
             KittyError::InvalidPayload => "invalid-payload",
@@ -247,6 +310,18 @@ fn handle_command(
     cell_metrics: CellMetrics,
     named_transports_enabled: bool,
 ) -> Result<KittyOutcome, KittyError> {
+    // Naming an image by both id (`i=`) and number (`I=`) is an error the
+    // protocol requires be reported, not resolved by precedence. The two are
+    // independent namespaces — a client that sends both has a bug, and picking
+    // a winner would hide it and act on an image the client did not mean.
+    // Checked before chunk assembly because only the first chunk of a
+    // transmission carries these keys.
+    if command.control.addressed_image_id().is_some()
+        && command.control.addressed_image_number().is_some()
+    {
+        return Err(KittyError::IdAndNumber);
+    }
+
     // A command that is not a continuation aborts an unfinished transfer and
     // executes normally. Animation-frame chunks are stricter than still-image
     // chunks: every continuation must repeat `a=f`, so a delete or playback
@@ -406,14 +481,14 @@ fn process_frame_command(
     named_transports_enabled: bool,
 ) -> Result<KittyOutcome, KittyError> {
     validate_frame_control(&command.control)?;
-    let protocol_id = command
-        .control
-        .image_id
-        .filter(|id| *id != 0)
-        .ok_or(KittyError::MalformedControl)?;
+    // Resolved through the animation module's own resolver so the canvas this
+    // frame is sized against and the image the frame is finally written to can
+    // never be two different images — `i=` and `I=` are accepted here exactly
+    // as they are there.
+    let stored = kitty_animation::resolve_image(graphics, &command.control)?;
     let (canvas_width, canvas_height) = graphics
-        .find_by_protocol_id(protocol_id)
-        .and_then(|stored| graphics.store().get(stored))
+        .store()
+        .get(stored)
         .map(|image| (image.width, image.height))
         .ok_or(KittyError::FrameNotFound)?;
 
@@ -466,8 +541,126 @@ fn validate_frame_control(control: &ControlData) -> Result<(), KittyError> {
         _ => return Err(KittyError::UnsupportedFormat),
     }
     match control.transmission.unwrap_or('d') {
-        'd' | 'f' | 't' | 's' => Ok(()),
-        _ => Err(KittyError::UnsupportedTransmission),
+        'd' | 'f' | 't' | 's' => {}
+        _ => return Err(KittyError::UnsupportedTransmission),
+    }
+    validate_compression(control)
+}
+
+/// Accept only the compression schemes this terminal implements. Absent (`o`
+/// unset) and `o=z` are the whole accepted set; anything else is refused at the
+/// parse boundary so undecodable bytes never reach the pixel or PNG decoder
+/// disguised as plain data.
+fn validate_compression(control: &ControlData) -> Result<(), KittyError> {
+    match control.compression {
+        None | Some('z') => Ok(()),
+        Some(_) => Err(KittyError::UnsupportedCompression),
+    }
+}
+
+/// Inflate an RFC 1950 zlib stream, refusing anything that would expand past
+/// `max_output` and anything that does not reach a proper end-of-stream.
+///
+/// The input arrives from the PTY and is adversarial by construction, so the
+/// bound is applied to the *decompressed* stream as it is produced, never to a
+/// size the payload declares about itself: a declared size is under the
+/// attacker's control, and an expansion-ratio test is a guess about intent
+/// rather than a limit on consumption. The output buffer therefore grows only
+/// as bytes actually arrive and is hard-clamped one byte past the budget —
+/// producing that byte is proof the payload exceeds the budget, and it is the
+/// entire cost of finding out, so the bomb's full expansion is never allocated.
+///
+/// Completion is checked explicitly rather than inferred from running out of
+/// input. Inflating with a plain reader treats a truncated transfer as a clean
+/// end-of-file, so a payload cut short mid-stream yields whatever bytes had
+/// already been produced and looks like a success. Requiring the decoder to
+/// report `StreamEnd` — which for zlib framing means the terminating block and
+/// the Adler-32 check were both present and correct — is what makes a truncated
+/// or corrupt payload a refusal. That matches the rule the APC, DCS and OSC
+/// payload paths already follow: a partial image is worse than none.
+fn decompress_payload(compressed: &[u8], max_output: usize) -> Result<Vec<u8>, KittyError> {
+    /// First output reservation. Small enough that a short payload claiming an
+    /// enormous expansion reserves next to nothing, large enough that an
+    /// ordinary image does not walk the growth path repeatedly.
+    const INITIAL_CAPACITY: usize = 8 * 1024;
+
+    // A zero budget cannot hold any image at all, and the ceiling below would
+    // then permit a byte the budget does not cover.
+    if max_output == 0 {
+        return Err(KittyError::CompressedPayloadRejected);
+    }
+    let ceiling = max_output.saturating_add(1);
+
+    // `true` selects RFC 1950 (zlib) framing, which is exactly what `o=z`
+    // names — raw deflate and gzip are different formats and are not accepted.
+    let mut inflate = flate2::Decompress::new(true);
+    let mut out: Vec<u8> = Vec::new();
+    let mut consumed = 0usize;
+
+    loop {
+        if out.len() > max_output {
+            return Err(KittyError::CompressedPayloadRejected);
+        }
+        // Geometric growth keeps the amortized copy cost linear; `reserve_exact`
+        // under a hard clamp keeps the buffer from overshooting the ceiling the
+        // way an amortizing `reserve` would. `max` then `min` rather than
+        // `clamp`, because a budget smaller than the initial reservation would
+        // make `clamp`'s bounds cross.
+        let want = out
+            .capacity()
+            .saturating_mul(2)
+            .max(INITIAL_CAPACITY)
+            .min(ceiling);
+        if want > out.capacity() {
+            out.reserve_exact(want - out.capacity());
+        }
+
+        let before_in = inflate.total_in();
+        let before_out = out.len();
+        let status = inflate
+            .decompress_vec(
+                &compressed[consumed..],
+                &mut out,
+                flate2::FlushDecompress::None,
+            )
+            .map_err(|_| KittyError::CompressedPayloadRejected)?;
+        consumed = consumed
+            .saturating_add(inflate.total_in().saturating_sub(before_in) as usize)
+            .min(compressed.len());
+
+        match status {
+            flate2::Status::StreamEnd => break,
+            // No end marker yet. Progress means keep going. No progress means
+            // the stream cannot complete: either the input ran out mid-stream
+            // (a truncated transfer) or the output reached its ceiling. Both
+            // are refusals.
+            flate2::Status::Ok | flate2::Status::BufError => {
+                if inflate.total_in() == before_in && out.len() == before_out {
+                    return Err(KittyError::CompressedPayloadRejected);
+                }
+            }
+        }
+    }
+
+    if out.len() > max_output {
+        return Err(KittyError::CompressedPayloadRejected);
+    }
+    Ok(out)
+}
+
+/// Apply `o=z` decompression when the command asked for it, otherwise pass the
+/// bytes through untouched. One helper so every payload-bearing action —
+/// transmit, transmit-and-display, animation frame, and query — decompresses
+/// under identical bounds instead of each growing its own copy of the rule.
+fn decompress_if_requested(
+    control: &ControlData,
+    bytes: Vec<u8>,
+    max_decoded: usize,
+) -> Result<Vec<u8>, KittyError> {
+    match control.compression {
+        Some('z') => decompress_payload(&bytes, max_decoded),
+        None => Ok(bytes),
+        Some(_) => Err(KittyError::UnsupportedCompression),
     }
 }
 
@@ -476,7 +669,46 @@ fn validate_frame_control(control: &ControlData) -> Result<(), KittyError> {
 /// transmission and animation frame transmission so both honor exactly the same
 /// transport policy, byte ceiling, and named-transport permission gate - a
 /// second copy of this logic would be free to drift from the first.
+///
+/// Compression is applied here, after the medium has produced its bytes and
+/// before any format interpretation, because the protocol compresses the image
+/// data itself and is silent about the medium carrying it: `o=z` is equally
+/// valid on a direct payload, a file, and a shared-memory segment.
 fn resolve_transport_bytes(
+    control: &ControlData,
+    payload: &[u8],
+    max_decoded: usize,
+    named_transports_enabled: bool,
+) -> Result<Vec<u8>, KittyError> {
+    let medium = control.transmission.unwrap_or('d');
+    let bytes = read_transport_medium(control, payload, max_decoded, named_transports_enabled)?;
+    let mut bytes = decompress_if_requested(control, bytes, max_decoded)?;
+    // POSIX shm objects are rounded up to a page boundary on macOS, so the
+    // mapped segment can be larger than the logical payload. For fixed-size raw
+    // formats the exact length is known from the dimensions — trim trailing
+    // padding to it so the strict length check in `rgba_from_payload` still
+    // holds. PNG (self-delimiting) and segments already at the exact size
+    // (every Linux segment) are unaffected.
+    //
+    // The trim runs *after* decompression, not before: with `o=z` the segment
+    // holds a compressed stream whose length has nothing to do with the raw
+    // pixel length, so trimming first would cut the stream mid-way. A zlib
+    // stream is self-delimiting, so the decoder stops at its own end marker and
+    // the page padding beyond it is discarded without a length rule.
+    if medium == 's'
+        && let Some(expected) = expected_raw_payload_len(control)
+    {
+        if bytes.len() < expected {
+            return Err(KittyError::InvalidPayload);
+        }
+        bytes.truncate(expected);
+    }
+    Ok(bytes)
+}
+
+/// Read the bytes the transmission medium (`t=`) carries, before any
+/// compression or format interpretation is applied.
+fn read_transport_medium(
     control: &ControlData,
     payload: &[u8],
     max_decoded: usize,
@@ -515,24 +747,11 @@ fn resolve_transport_bytes(
                     "EPERM:named-transport-disabled",
                 ));
             }
-            // Shared memory: payload is base64-encoded shm name.
+            // Shared memory: payload is base64-encoded shm name. Page-padding
+            // trim happens in `resolve_transport_bytes`, after decompression.
             let name_bytes = decode_base64(payload, 4096)?;
-            let mut bytes = kitty_transport::read_shm_transport(&name_bytes, max_decoded)
-                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?;
-            // POSIX shm objects are rounded up to a page boundary on macOS, so
-            // the mapped segment can be larger than the logical payload. For
-            // fixed-size raw formats the exact length is known from the
-            // dimensions — trim trailing padding to it so the strict length
-            // check in `rgba_from_payload` still holds. PNG (self-delimiting)
-            // and segments already at the exact size (every Linux segment) are
-            // unaffected.
-            if let Some(expected) = expected_raw_payload_len(control) {
-                if bytes.len() < expected {
-                    return Err(KittyError::InvalidPayload);
-                }
-                bytes.truncate(expected);
-            }
-            Ok(bytes)
+            kitty_transport::read_shm_transport(&name_bytes, max_decoded)
+                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))
         }
         _ => Err(KittyError::UnsupportedTransmission),
     }
@@ -560,8 +779,22 @@ fn process_complete_command(
 
     let (rgba, width, height) = rgba_from_payload(&command.control, image_bytes, max_decoded)?;
     let insert = graphics
-        .insert_rgba(command.control.image_id, width, height, rgba)
+        .insert_rgba_numbered(
+            command.control.addressed_image_id(),
+            command.control.addressed_image_number(),
+            width,
+            height,
+            rgba,
+        )
         .map_err(|_| KittyError::StoreRejected)?;
+    // When the client addressed the image only by number the terminal allocated
+    // the id, and the client learns it from this response. Read it back from
+    // the store rather than tracking it separately, so the id echoed to the
+    // client is by construction the id the stored image actually carries.
+    let assigned_id = graphics
+        .store()
+        .get(insert.id)
+        .and_then(|image| image.protocol_id);
 
     let mut dirty = true;
     let mut cursor = None;
@@ -586,7 +819,7 @@ fn process_complete_command(
     let response = if command.control.suppress_response() {
         Vec::new()
     } else {
-        kitty_response(Some(command.control.response_prefix()), "OK")
+        kitty_response(Some(command.control.response_prefix_for(assigned_id)), "OK")
     };
     Ok(KittyOutcome {
         dirty,
@@ -828,6 +1061,10 @@ fn process_query_command(
     validate_supported_control(&command.control)?;
     let max_decoded = graphics.store().limits().max_decoded_bytes;
     let decoded = decode_base64(&command.payload, max_decoded)?;
+    // A query must validate exactly what a transmission would accept, so it
+    // decompresses under the same bound rather than handing a compressed
+    // stream to the pixel decoder and reporting a spurious failure.
+    let decoded = decompress_if_requested(&command.control, decoded, max_decoded)?;
     // Validate pixel dimensions / format match.
     let _validated = rgba_from_payload(&command.control, decoded, max_decoded)?;
 
@@ -856,6 +1093,7 @@ fn validate_supported_control(control: &ControlData) -> Result<(), KittyError> {
         'd' | 'f' | 't' | 's' => {}
         _ => return Err(KittyError::UnsupportedTransmission),
     }
+    validate_compression(control)?;
     // Raw pixel formats require explicit dimensions; PNG and file transports
     // derive dimensions from the payload/file content.
     if matches!(control.format, Some(24 | 32))
@@ -1134,6 +1372,8 @@ fn parse_control(control: &[u8]) -> Result<ControlData, KittyError> {
             "t" => parsed.transmission = parse_char(value),
             "m" => parsed.more_chunks = parse_u32(value).unwrap_or(0) != 0,
             "i" => parsed.image_id = parse_u32(value),
+            "I" => parsed.image_number = parse_u32(value),
+            "o" => parsed.compression = parse_char(value),
             "p" => parsed.placement_id = parse_u32(value),
             "s" => parsed.width = parse_u32(value),
             "v" => parsed.height = parse_u32(value),

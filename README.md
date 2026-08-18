@@ -158,9 +158,8 @@ hardware configuration.
 
 Linux is the primary target. macOS and Windows are supported, shipped, and
 blocking CI targets. Known gaps include Windows detached and resumable session
-hosting, profiles, full bidi and complex-script reordering, SVG-in-OpenType
-color glyphs, and Kitty payload compression and image-number animation
-addressing.
+hosting, profiles, full bidi and complex-script reordering, and SVG-in-OpenType
+color glyphs.
 See [current work](TODO.md) and the [full roadmap](docs/full-build-roadmap.md).
 
 The terminal core and visual experience layer are deliberately separate.

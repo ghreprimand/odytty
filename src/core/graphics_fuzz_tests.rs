@@ -3,7 +3,8 @@
 //! the full Kitty/Sixel display surface that grew across G2.2→K3.
 //!
 //! The surface under test: APC `_G` key-value control parsing, base64 payloads,
-//! `m=` chunking, direct RGB/RGBA + PNG decode, file/temp/shm transports,
+//! `m=` chunking, direct RGB/RGBA + PNG decode, zlib-compressed payloads
+//! (`o=z`), image-number addressing (`I=`), file/temp/shm transports,
 //! placement params (`c/r/z/X/Y/x/y/w/h`), deletes (`d=…`), queries, and the
 //! Sixel DCS decoder. This module feeds *adversarial* byte streams through the
 //! public `Terminal` boundary (and `decode_sixel` directly) and asserts a small
@@ -52,6 +53,9 @@
 use crate::core::Terminal;
 use crate::graphics::sixel::{SixelBackground, decode_sixel};
 use crate::graphics::{ImageScene, ImageStoreLimits};
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
+use std::io::Write;
 
 // ---------------------------------------------------------------------------
 // Determinism scaffolding (mirrors the parser-oracle fuzzers' house style)
@@ -184,8 +188,8 @@ fn assert_parser_not_wedged(seed: u64, t: &mut Terminal) {
 /// The full set of Kitty control keys plus a few unknown ones, so the generator
 /// exercises both real dispatch and the silent-ignore path.
 const KITTY_KEYS: &[&str] = &[
-    "a", "f", "t", "m", "i", "p", "s", "v", "c", "r", "C", "q", "d", "x", "y", "w", "h", "X", "Y",
-    "z", "U", // unknowns: must be silently ignored, never wedge parsing.
+    "a", "f", "t", "m", "i", "I", "o", "p", "s", "v", "c", "r", "C", "q", "d", "x", "y", "w", "h",
+    "X", "Y", "z", "U", // unknowns: must be silently ignored, never wedge parsing.
     "Q", "Z", "k", "b", "n",
 ];
 
@@ -258,6 +262,7 @@ fn fuzz_apc_control(rng: &mut FuzzRng) -> String {
             // values must fall through to ordinary placement, and garbage must
             // not do either.
             "U" => rng.pick(&["1", "0", "2", "-1", ""]).to_string(),
+            "o" => rng.pick(&["z", "x", "", "zz", "Z"]).to_string(),
             _ => fuzz_numeric(rng),
         };
         // Duplicate keys arise naturally because keys are picked with
@@ -1190,6 +1195,11 @@ fn fuzz_base_image(id: u32) -> Vec<u8> {
     format!("\x1b_Ga=T,f=32,t=d,s=2,v=2,i={id},c=1,r=1;{payload}\x1b\\").into_bytes()
 }
 
+fn fuzz_base_image_numbered(number: u32) -> Vec<u8> {
+    let payload = b64_encode(&[128u8; 2 * 2 * 4]);
+    format!("\x1b_Ga=T,f=32,t=d,s=2,v=2,I={number},c=1,r=1;{payload}\x1b\\").into_bytes()
+}
+
 #[test]
 fn graphics_fuzz_kitty_animation_smoke() {
     run_kitty_animation_stream(fuzz_iters());
@@ -1217,10 +1227,12 @@ fn run_kitty_animation_stream(iters: u64) {
         let _ = t.take_host_output();
 
         for _ in 0..2 + rng.below(10) {
-            match rng.below(8) {
+            match rng.below(10) {
                 0 => t.advance(&fuzz_base_image(1 + rng.below(3) as u32)),
                 1 => t.advance(b"\x1b_Ga=d,d=f,i=1,r=2\x1b\\"),
                 2 => t.advance(b"\x1b[2J\x1b[H"),
+                3 => t.advance(&fuzz_base_image_numbered(1 + rng.below(3) as u32)),
+                4 => t.advance(b"\x1b_Ga=a,I=1,s=3\x1b\\"),
                 _ => t.advance(&fuzz_animation_sequence(&mut rng)),
             }
             let _ = t.take_host_output();
@@ -1248,6 +1260,75 @@ fn run_kitty_animation_stream(iters: u64) {
                 placement.row < rows && placement.column < cols,
                 "seed={seed}: anchor off screen: {placement:?}"
             );
+        }
+        assert_parser_not_wedged(seed, &mut t);
+    }
+}
+
+fn zlib_encode(bytes: &[u8]) -> Vec<u8> {
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(bytes).expect("zlib write");
+    encoder.finish().expect("zlib finish")
+}
+
+fn fuzz_oz_sequence(rng: &mut FuzzRng) -> Vec<u8> {
+    let rgba = [255u8, 0, 0, 255, 0, 255, 0, 128];
+    let control_and_payload: (&str, Vec<u8>) = match rng.below(8) {
+        0 => ("f=32,a=T,t=d,s=2,v=1,o=z,i=1", zlib_encode(&rgba)),
+        1 => {
+            let mut truncated = zlib_encode(&rgba);
+            truncated.truncate(truncated.len() / 2);
+            ("f=32,a=T,t=d,s=2,v=1,o=z,i=2", truncated)
+        }
+        2 => (
+            "f=32,a=T,t=d,s=2,v=1,o=z,i=3",
+            vec![0x78, 0x9c, rng.byte(), rng.byte(), rng.byte()],
+        ),
+        3 => ("f=32,a=T,t=d,s=2,v=1,o=x,i=4", rgba.to_vec()),
+        4 => ("f=32,a=T,t=d,s=2,v=1,o=z,i=5", zlib_encode(&[0u8; 8192])),
+        5 => ("f=32,a=T,t=d,s=2,v=1,o=z,o=z,i=6", zlib_encode(&rgba)),
+        6 => (
+            "f=32,a=T,t=d,s=2,v=1,o=z,i=7",
+            zlib_encode(&zlib_encode(&rgba)),
+        ),
+        _ => ("f=32,a=T,t=d,s=3,v=1,o=z,i=8", zlib_encode(&rgba)),
+    };
+    let (control, payload) = control_and_payload;
+    format!("\x1b_G{control};{}\x1b\\", b64_encode(&payload)).into_bytes()
+}
+
+#[test]
+fn graphics_fuzz_kitty_oz_smoke() {
+    run_kitty_oz_stream(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test -p odytty graphics_fuzz -- --ignored --nocapture"]
+fn graphics_fuzz_kitty_oz_deep() {
+    run_kitty_oz_stream(fuzz_iters());
+}
+
+/// Compressed-payload soup: valid zlib, truncated streams, garbage bodies,
+/// unknown `o=` schemes, hostile-ratio zeros, repeated markers, and nested
+/// compression. Invariants match the rest of this module — never panic, store
+/// stays inside its caps, parser not wedged. Windows: `o=z` is transport-
+/// independent; `t=s` is not used here.
+fn run_kitty_oz_stream(iters: u64) {
+    announce_budget("kitty_oz", iters, 0xC0FF_EE12_3456_789A, 0x0A7E);
+    for i in 0..iters {
+        let seed = fuzz_seed(i, 0xC0FF_EE12_3456_789A, 0x0A7E);
+        let mut rng = FuzzRng::new(seed);
+        let (rows, cols) = (8usize, 30usize);
+        let mut t = capped_terminal(cols, rows);
+        for _ in 0..2 + rng.below(8) {
+            match rng.below(5) {
+                0 => t.advance(&fuzz_oz_sequence(&mut rng)),
+                1 => t.advance(&fuzz_apc_stream(&mut rng)),
+                2 => t.advance(b"\x1b[2J\x1b[H"),
+                _ => t.advance(&fuzz_base64_payload(&mut rng)),
+            }
+            let _ = t.take_host_output();
+            assert_store_bounded(seed, &t);
         }
         assert_parser_not_wedged(seed, &mut t);
     }

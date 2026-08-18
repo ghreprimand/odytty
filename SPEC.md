@@ -350,8 +350,12 @@ z-index, source-rectangle crop, cell-box scaling, and anchor pixel offset are
 all wired through. Unicode placeholder rendering (`U=1`) creates virtual
 placements resolved from placeholder cells. Animation frames share the decoded
 image quota, only visible placements advance, and a still session schedules no
-animation wake. Animation commands require `i=` image ids; `I=` image-number
-addressing and payload compression (`o=z`) remain unsupported.
+animation wake. Animation commands address an image by either `i=` image id or
+`I=` image number, resolving a number to the newest image carrying it; naming
+both in one command is rejected. Payloads may be zlib-compressed (`o=z`) in any
+format, on any transport, with inflation bounded by the image store's
+decoded-byte budget and truncated streams refused. `I=` addressing on display
+(`a=p`) and delete (`d=n`/`d=N`) commands remains unsupported.
 
 **Sixel.** The complete DCS `q` data language is supported: raster attributes,
 RGB and HLS color introducers, repeat introducer, VT340 16-color default
@@ -1454,7 +1458,8 @@ formats and install channels are defined in the
 
 ### Out Of Scope
 
-- Kitty payload compression (`o=z`) and image-number (`I=`) animation addressing
+- Kitty `I=` addressing on display (`a=p`) and delete (`d=n`/`d=N`) commands,
+  and the `S=`/`O=` partial-read keys
 
 - Full bidi and complex-script reordering
 

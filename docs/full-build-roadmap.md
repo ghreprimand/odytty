@@ -134,9 +134,10 @@ foundation the command-aware navigation builds on.
 
 ### Graphics And Media
 
-A complete Sixel decoder wired to live DCS. DA1 does not yet advertise Sixel,
-and XTSMGRAPHICS queries are not implemented, so applications that require a
-capability probe may not emit it. The graphics stack also includes the
+A complete Sixel decoder wired to live DCS, advertised in DA1 so applications
+that gate Sixel output on a capability probe emit it. XTSMGRAPHICS geometry
+queries remain unimplemented and are answered with silence, which clients treat
+as a signal to use their own defaults. The graphics stack also includes the
 Kitty graphics protocol (direct RGB/RGBA and PNG transmit, file transports on
 all platforms and shared-memory transport on Unix, with security hardening,
 placements with z-order/crop/scale/offset, Unicode placeholders (`U=1`),

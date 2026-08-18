@@ -685,3 +685,158 @@ fn frame_commands_do_not_disturb_a_session_without_animation() {
         "and does not dirty the screen on its own"
     );
 }
+
+/// Image-number (`I=`) animation addressing is transport-independent and
+/// applies identically on every platform. Shared-memory transmit (`t=s`) is
+/// Windows-unsupported and is not used here.
+fn assert_ok_echoes_number(output: &[u8], number: u32) {
+    let text = String::from_utf8_lossy(output);
+    assert!(
+        text.contains(&format!("I={number}")),
+        "reply must echo the client number: {text}"
+    );
+    assert!(text.contains("OK"), "expected OK, got {text}");
+    assert!(
+        !text.contains("EINVAL:id-and-number"),
+        "number-only commands must not trip the both-present rejection: {text}"
+    );
+}
+
+fn newest_image(terminal: &Terminal) -> &crate::graphics::StoredImage {
+    terminal
+        .graphics()
+        .store()
+        .iter_ids()
+        .filter_map(|id| terminal.graphics().store().get(id))
+        .max_by_key(|image| image.generation)
+        .expect("store holds an image")
+}
+
+#[test]
+fn animation_commands_address_an_image_by_number() {
+    let mut terminal = Terminal::new(20, 6);
+    terminal.advance(&apc(
+        "a=T,f=32,t=d,s=2,v=2,I=7,c=2,r=2",
+        &canvas([10, 20, 30, 255]),
+    ));
+    assert_ok_echoes_number(&terminal.take_host_output(), 7);
+
+    terminal.advance(&apc(
+        "a=f,I=7,f=32,s=2,v=2,z=60",
+        &canvas([40, 50, 60, 255]),
+    ));
+    let out = terminal.take_host_output();
+    assert!(
+        String::from_utf8_lossy(&out).contains("OK"),
+        "a=f must resolve I=7 to the transmitted image: {}",
+        String::from_utf8_lossy(&out)
+    );
+    assert_eq!(newest_image(&terminal).frames.frame_count(), 2);
+}
+
+#[test]
+fn animation_number_reused_across_images_resolves_the_newest() {
+    let mut terminal = Terminal::new(20, 6);
+    terminal.advance(&apc(
+        "a=T,f=32,t=d,s=2,v=2,I=7,c=2,r=2",
+        &canvas([10, 20, 30, 255]),
+    ));
+    terminal.advance(&apc(
+        "a=T,f=32,t=d,s=2,v=2,I=7,c=2,r=2",
+        &canvas([1, 1, 1, 255]),
+    ));
+    let _ = terminal.take_host_output();
+    assert_eq!(terminal.graphics().store().len(), 2);
+
+    terminal.advance(&apc("a=f,I=7,f=32,s=2,v=2,z=40", &canvas([9, 9, 9, 255])));
+    assert!(String::from_utf8_lossy(&terminal.take_host_output()).contains("OK"));
+
+    let newest = newest_image(&terminal);
+    assert_eq!(newest.frames.frame_count(), 2, "newest I=7 gained a frame");
+    let older_frames = terminal
+        .graphics()
+        .store()
+        .iter_ids()
+        .filter_map(|id| terminal.graphics().store().get(id))
+        .filter(|image| image.generation != newest.generation)
+        .map(|image| image.frames.frame_count())
+        .sum::<usize>();
+    assert_eq!(older_frames, 0, "the older I=7 image must be left still");
+}
+
+#[test]
+fn animation_number_of_a_deleted_image_reports_enoent() {
+    let mut terminal = Terminal::new(20, 6);
+    terminal.advance(&apc(
+        "a=T,f=32,t=d,s=2,v=2,I=7,c=2,r=2",
+        &canvas([10, 20, 30, 255]),
+    ));
+    let _ = terminal.take_host_output();
+    terminal.advance(&apc_no_payload("a=d,d=A"));
+    assert_eq!(terminal.graphics().store().len(), 0);
+    // The delete acknowledges with its own `OK`; drain it so the assertion
+    // below reads the frame command's reply rather than the pair concatenated.
+    assert_eq!(terminal.take_host_output(), b"\x1b_G;OK\x1b\\");
+
+    terminal.advance(&apc("a=f,I=7,f=32,s=2,v=2", &canvas([1, 1, 1, 255])));
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b_G;ENOENT:frame-not-found\x1b\\"
+    );
+}
+
+#[test]
+fn animation_number_matching_nothing_reports_enoent() {
+    let mut terminal = Terminal::new(20, 6);
+    terminal.advance(&apc("a=f,I=99,f=32,s=2,v=2", &canvas([1, 1, 1, 255])));
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b_G;ENOENT:frame-not-found\x1b\\"
+    );
+}
+
+#[test]
+fn animation_id_and_number_together_are_rejected() {
+    let mut terminal = terminal_with_animated_image();
+    terminal.advance(&apc("a=f,i=1,I=7,f=32,s=2,v=2", &canvas([1, 1, 1, 255])));
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b_G;EINVAL:id-and-number\x1b\\"
+    );
+    assert_eq!(frame_count(&terminal, 1), 0, "the image must be untouched");
+}
+
+#[test]
+fn animation_zero_id_with_a_number_addresses_by_number() {
+    let mut terminal = Terminal::new(20, 6);
+    terminal.advance(&apc(
+        "a=T,f=32,t=d,s=2,v=2,I=7,c=2,r=2",
+        &canvas([10, 20, 30, 255]),
+    ));
+    let _ = terminal.take_host_output();
+    // `i=0` is "absent", so this is number-only, not both-present.
+    terminal.advance(&apc(
+        "a=f,i=0,I=7,f=32,s=2,v=2,z=40",
+        &canvas([40, 50, 60, 255]),
+    ));
+    let out = terminal.take_host_output();
+    assert!(
+        String::from_utf8_lossy(&out).contains("OK"),
+        "i=0 must not shadow I=7: {}",
+        String::from_utf8_lossy(&out)
+    );
+}
+
+#[test]
+fn still_transmit_rejects_id_and_number_together() {
+    let mut terminal = Terminal::new(20, 6);
+    terminal.advance(&apc(
+        "a=T,f=32,t=d,s=2,v=2,i=1,I=7,c=2,r=2",
+        &canvas([10, 20, 30, 255]),
+    ));
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b_G;EINVAL:id-and-number\x1b\\"
+    );
+    assert_eq!(terminal.graphics().store().len(), 0);
+}

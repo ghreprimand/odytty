@@ -45,6 +45,9 @@ section below.
 | `24` | Raw RGB (3 bytes/pixel, expanded to RGBA internally) | ✅ supported |
 | `100` | PNG still image — grayscale, grayscale+alpha, RGB, and RGBA color types; 16-bit samples normalized to 8-bit | ✅ supported |
 
+Any format may additionally be zlib-compressed with `o=z` — see
+[Payload compression](#payload-compression-oz).
+
 **Indexed PNG** (palette color type) is accepted: the decoder normalizes
 palette frames to 8-bit RGB/RGBA before they reach the image store, so an
 indexed PNG transmits and displays like any other color type. **Multi-frame PNG
@@ -115,6 +118,12 @@ rejected with an explicit error response; incomplete state is cleared.
 
 Lowercase specifiers delete placements only. Uppercase specifiers also free
 stored image data once no remaining placements reference the image.
+
+Specifiers outside this table — including `n`/`N` (delete the newest image with
+the number in `I=`), `f`/`F` beyond the frame deletes documented under
+[Animation](#animation), `q`/`Q`, `r`/`R`, `x`/`X`, `y`/`Y` and `z`/`Z` — are
+rejected as unsupported. A delete that cannot be honoured exactly is refused
+rather than approximated: deleting the wrong image is worse than deleting none.
 
 ### Unicode placeholders (`U=1`)
 
@@ -188,12 +197,64 @@ and one prose sentence reverses the rectangle offsets used by the example and
 key table. OdyTTY follows the worked example for both mappings: `r=` and `X/Y`
 name the source, while `c=` and `x/y` name the destination.
 
+### Payload compression (`o=z`)
+
+Payloads may be zlib-compressed (RFC 1950), signalled with `o=z`. Compression is
+orthogonal to everything else about a transfer: it applies to any format
+(`f=24`, `f=32`, `f=100`), to every transmission medium, to animation frame data
+(`a=f`) and to validation-only queries (`a=q`). A chunked transfer is one
+compressed stream spanning all of its chunks, decompressed after reassembly, not
+one stream per chunk.
+
+`o=z` is the only value the protocol defines and the only one accepted. An
+unrecognised `o=` is **refused** (`EINVAL:unsupported-compression`) rather than
+ignored, because ignoring it would hand a compressed byte stream to the pixel
+decoder as though it were pixels.
+
+Decompression is bounded before it allocates. The limit is the image store's
+decoded-byte budget, applied to the output as it is produced rather than to any
+size the payload declares about itself, and the buffer is clamped one byte past
+that budget — producing that byte is proof the payload exceeds it, so a
+compression bomb is refused having allocated the budget, never its full
+expansion. A stream that does not reach a valid end-of-stream marker is refused
+as well: truncated transfers and corrupt payloads produce
+`EINVAL:compressed-payload` and no image, on the same principle as the rest of
+the graphics stack — a partial image is worse than none.
+
+### Image numbers (`I=`)
+
+A client that shares the screen with other programs cannot know which image
+*ids* are free. It can instead pick an image *number* with `I=`. Numbers are
+deliberately not unique: transmitting with a number always creates a new image
+rather than replacing an existing one, and every command that addresses by
+number acts on the **newest** image carrying it.
+
+A transmission that carries a number is answered with both the id the terminal
+assigned and the number the client chose — `i=<id>,I=<number>` — which is how
+the client learns an id it can use directly from then on. The assigned id is the
+lowest positive id not already in use, so it never displaces an image the client
+addressed by id itself.
+
+Naming an image by both `i=` and `I=` in one command is an error
+(`EINVAL:id-and-number`). The two are independent namespaces, so resolving the
+conflict by precedence would act on an image the client did not name.
+
+Accepted on: the animation commands `a=f`, `a=a` and `a=c`, and on transmission
+commands, which is where a number is assigned.
+
+**Platform surface.** Compression and image numbers are both transport- and
+platform-independent: they are parser and image-store work with no filesystem,
+process, or environment access, and Windows behaves identically to Unix. Neither
+changes the transport table above — in particular the shared-memory transport
+(`t=s`) remains unsupported on Windows exactly as before, whether or not the
+payload it would have carried is compressed.
+
 ### What is not yet supported
-- **`I=` image numbers** - animation commands must address an image by `i=`;
-  the image-number form is not accepted.
-- **Payload compression (`o=z`)** — zlib-compressed payloads are not supported.
-  The `o=` key is ignored, so compressed data is rejected as an invalid payload
-  rather than decompressed.
+- **`I=` addressing on display and delete commands.** `a=p` still requires
+  `i=`, and the `d=n` / `d=N` delete-newest-by-number specifiers are rejected as
+  unsupported rather than silently deleting something else.
+- **`S=` and `O=` file size/offset keys**, which read part of a file or
+  shared-memory segment rather than all of it.
 
 ---
 
@@ -271,10 +332,16 @@ rejected at the read stage; the decoder is never given a hostile payload.
 OdyTTY decodes the Sixel DCS data language as defined by the DEC VT340 and
 extended by xterm and foot, covering the full set of features listed below.
 
-> **Note — DA1 does not advertise Sixel.** OdyTTY's Primary Device Attributes
-> reply is `CSI ? 1 ; 2 c` and does **not** include the `;4` Sixel attribute.
-> Applications that gate Sixel output on a DA1 probe will not emit Sixel to
-> OdyTTY; tools that emit unconditionally (such as `img2sixel`) work fine.
+> **Note — Sixel autodetection.** OdyTTY's Primary Device Attributes reply is
+> `CSI ? 62 ; 4 ; 6 ; 22 ; 28 c`, and the `4` is the Sixel attribute clients
+> probe for, so applications that gate Sixel output on DA1 will emit it.
+>
+> XTSMGRAPHICS (`CSI ? Pi ; Pa ; Pv S`), the follow-up query for geometry and
+> colour-register limits, is **not** implemented and is answered with silence,
+> which clients treat as "use your own defaults". It is not treated as a scroll:
+> that final byte is shared with SU, and a graphics query must never alter the
+> screen it is asking about.
+>
 > The raster `"Pan;Pad`-form aspect/grid parameters (DEC `P1`/`P3`) are parsed
 > but not honored.
 

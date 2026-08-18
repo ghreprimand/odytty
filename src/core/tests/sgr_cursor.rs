@@ -353,8 +353,149 @@ fn responds_to_primary_device_attributes() {
 
     terminal.advance(b"\x1b[c");
 
-    assert_eq!(terminal.take_host_output(), b"\x1b[?1;2c");
+    assert_eq!(terminal.take_host_output(), b"\x1b[?62;4;6;22;28c");
     assert!(terminal.take_host_output().is_empty());
+}
+
+/// The DA1 attribute list is a set of capability claims, and the thing worth
+/// pinning is which capabilities are claimed — not the byte order they happen
+/// to be emitted in. Sixel (`4`) is called out separately because clients
+/// autodetect Sixel support from exactly this parameter: without it a working
+/// decoder is undiscoverable.
+#[test]
+fn primary_device_attributes_claims_only_implemented_capabilities() {
+    let mut terminal = Terminal::new(10, 2);
+
+    terminal.advance(b"\x1b[c");
+    let reply = terminal.take_host_output();
+
+    let body = reply
+        .strip_prefix(b"\x1b[?")
+        .and_then(|rest| rest.strip_suffix(b"c"))
+        .expect("DA1 reply is a private-parameter CSI ending in `c`");
+    let params: Vec<u32> = String::from_utf8(body.to_vec())
+        .expect("DA1 parameters are ASCII")
+        .split(';')
+        .map(|part| part.parse().expect("DA1 parameter is a number"))
+        .collect();
+
+    assert_eq!(params[0], 62, "service class: VT220");
+    let attributes = &params[1..];
+    assert!(
+        attributes.contains(&4),
+        "Sixel must be advertised or no client can autodetect it"
+    );
+    for attribute in attributes {
+        assert!(
+            matches!(attribute, 4 | 6 | 22 | 28),
+            "DA1 advertises {attribute}, which is not an implemented capability"
+        );
+    }
+}
+
+#[test]
+fn primary_device_attributes_zero_param_matches_bare_query() {
+    let mut terminal = Terminal::new(10, 2);
+    terminal.advance(b"\x1b[0c");
+    assert_eq!(terminal.take_host_output(), b"\x1b[?62;4;6;22;28c");
+}
+
+#[test]
+fn primary_device_attributes_ignores_nonzero_params() {
+    let mut terminal = Terminal::new(10, 2);
+    terminal.advance(b"\x1b[1c");
+    assert!(
+        terminal.take_host_output().is_empty(),
+        "DA1 answers only Ps=0"
+    );
+}
+
+/// XTSMGRAPHICS (`CSI ? Pi ; Pa ; Pv S`) is the second half of the Sixel
+/// autodetection handshake: a client that sees the Sixel bit in DA1 sends this
+/// to learn geometry and colour-register limits. It shares its final byte with
+/// SU (scroll up), and dispatching it as a scroll silently destroyed screen
+/// content for every probe. Answering nothing is correct — the client falls
+/// back to its own defaults — but scrolling never is.
+#[test]
+fn sixel_geometry_query_does_not_scroll_the_screen() {
+    let mut terminal = Terminal::new(4, 3);
+    terminal.advance(b"AAA\r\nBBB\r\nCCC");
+
+    let before = terminal.screen().snapshot_with_scrollback(0);
+    terminal.advance(b"\x1b[?2;1;0S");
+
+    assert_eq!(
+        terminal.screen().snapshot_with_scrollback(0),
+        before,
+        "a graphics-geometry query must not alter the grid"
+    );
+    assert!(
+        terminal.take_host_output().is_empty(),
+        "unimplemented queries stay silent rather than answering falsely"
+    );
+}
+
+/// The `>`-prefixed form ending in `T` (xterm's title-mode reset) is the same
+/// collision as XTSMGRAPHICS one final byte over, so it is guarded together
+/// with it and pinned together with it.
+#[test]
+fn private_scroll_down_form_does_not_scroll_the_screen() {
+    let mut terminal = Terminal::new(4, 3);
+    terminal.advance(b"AAA\r\nBBB\r\nCCC");
+
+    let before = terminal.screen().snapshot_with_scrollback(0);
+    terminal.advance(b"\x1b[>2T");
+
+    assert_eq!(
+        terminal.screen().snapshot_with_scrollback(0),
+        before,
+        "a title-mode reset must not alter the grid"
+    );
+}
+
+/// Guarding the private forms must not have narrowed the unprefixed ones.
+#[test]
+fn unprefixed_scroll_sequences_still_scroll() {
+    let mut terminal = Terminal::new(4, 3);
+    terminal.advance(b"AAA\r\nBBB\r\nCCC");
+
+    terminal.advance(b"\x1b[1S");
+    assert_eq!(terminal.screen().cell(0, 0).unwrap().ch, 'B');
+
+    terminal.advance(b"\x1b[1T");
+    assert_eq!(terminal.screen().cell(1, 0).unwrap().ch, 'B');
+}
+
+/// XTSMGRAPHICS is a family, not a single probe. `Pi=2` (geometry) is the one
+/// that used to scroll two lines off a 3-row screen; `Pi=1` (colour registers)
+/// scrolls one line under the same unguarded arm, and `>`-prefixed `S` plus
+/// `?`-prefixed `T` are the remaining SU/SD collisions. One pin per sibling so
+/// a later guard that special-cases `?2;1;0S` cannot leave the others scrolling.
+#[test]
+fn xtsmgraphics_siblings_do_not_scroll_the_screen() {
+    const PROBES: &[&[u8]] = &[
+        b"\x1b[?1;1;0S", // colour-register query
+        b"\x1b[?2;1;0S", // sixel geometry query
+        b"\x1b[?3;1;0S",
+        b"\x1b[>1S",
+        b"\x1b[?1T",
+        b"\x1b[>2T", // title-mode reset; same collision as XTSMGRAPHICS
+    ];
+    for probe in PROBES {
+        let mut terminal = Terminal::new(4, 3);
+        terminal.advance(b"AAA\r\nBBB\r\nCCC");
+        let before = terminal.screen().snapshot_with_scrollback(0);
+        terminal.advance(probe);
+        assert_eq!(
+            terminal.screen().snapshot_with_scrollback(0),
+            before,
+            "probe {probe:?} must not alter the grid"
+        );
+        assert!(
+            terminal.take_host_output().is_empty(),
+            "probe {probe:?} must stay silent"
+        );
+    }
 }
 
 #[test]

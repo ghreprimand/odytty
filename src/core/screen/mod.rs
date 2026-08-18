@@ -1300,8 +1300,26 @@ impl Screen {
             'D' => self.move_left(param_or_one(params, 0)),
             'G' => self.move_to(self.cursor.row + 1, param_or_one(params, 0)),
             'H' | 'f' => self.move_to_origin(param_or_one(params, 0), param_or_one(params, 1)),
-            'S' => self.scroll_region_up(param_or_one(params, 0)),
-            'T' => self.scroll_region_down(param_or_one(params, 0)),
+            // SU/SD are the unprefixed forms only. A private-parameter or
+            // `>`-prefixed sequence ending in `S`/`T` is a different command
+            // entirely, and treating it as a scroll destroys screen content in
+            // response to what the client sent as a question.
+            //
+            // The case that matters in practice is XTSMGRAPHICS
+            // (`CSI ? Pi ; Pa ; Pv S`), the query a client sends to learn the
+            // terminal's Sixel geometry and colour-register limits. Sixel
+            // autodetection is a two-step handshake — DA1 first, XTSMGRAPHICS
+            // second — so the moment DA1 advertises Sixel this sequence starts
+            // arriving from chafa, img2sixel, timg and the Neovim image
+            // plugins, and the unguarded arm scrolled `Pi` lines off the screen
+            // for each one. `CSI > Ps T` (xterm's title-mode reset) is the same
+            // shape and is covered by the same guard.
+            //
+            // Unhandled here means no reply, which is the correct answer for a
+            // query this terminal does not implement: a client that gets no
+            // XTSMGRAPHICS response falls back to its own defaults.
+            'S' if intermediates.is_empty() => self.scroll_region_up(param_or_one(params, 0)),
+            'T' if intermediates.is_empty() => self.scroll_region_down(param_or_one(params, 0)),
             '@' => self.insert_chars(param_or_one(params, 0)),
             'b' => self.repeat_char(param_or_one(params, 0)),
             'J' if intermediates == b"?" => self.selective_erase_display(param_or(params, 0, 0)),

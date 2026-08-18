@@ -35,6 +35,15 @@ ab_glyph = "0.2.32"
 anyhow = "1.0.102"
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 bytemuck = { version = "1.25.0", features = ["derive"] }
+# RFC 1950 zlib inflate for the Kitty graphics protocol's `o=z` compressed
+# payloads. Already present in the dependency graph (the `png` and `tiff`
+# decoders pull the same version), so declaring it directly compiles nothing
+# new; it is declared rather than reached through a re-export so the version is
+# visible to the audit script. Default features keep the pure-Rust
+# `miniz_oxide` backend — no C toolchain, no system zlib, identical on every
+# supported platform. Decompression is always bounded at the call site; see
+# `src/core/kitty.rs::decompress_payload`.
+flate2 = "1.1.9"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 png = "0.18.1"
 pollster = "0.4.0"

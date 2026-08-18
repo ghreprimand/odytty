@@ -250,7 +250,24 @@ impl ImageScene {
         height: u32,
         rgba: Vec<u8>,
     ) -> Result<ImageInsert, ImageStoreError> {
-        let inserted = self.store.insert_rgba(protocol_id, width, height, rgba)?;
+        self.insert_rgba_numbered(protocol_id, None, width, height, rgba)
+    }
+
+    /// Insert an image that may carry a client-chosen image number (Kitty
+    /// `I=`). Shares the eviction bookkeeping with [`ImageScene::insert_rgba`]
+    /// rather than duplicating it, so a numbered image drops its placements on
+    /// eviction exactly as an unnumbered one does.
+    pub fn insert_rgba_numbered(
+        &mut self,
+        protocol_id: Option<u32>,
+        protocol_number: Option<u32>,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) -> Result<ImageInsert, ImageStoreError> {
+        let inserted =
+            self.store
+                .insert_rgba_numbered(protocol_id, protocol_number, width, height, rgba)?;
         self.remove_placements_for_images(&inserted.evicted);
         Ok(inserted)
     }
@@ -406,6 +423,26 @@ impl ImageScene {
                 self.store
                     .get(*id)
                     .is_some_and(|image| image.protocol_id == Some(protocol_id))
+            })
+            .max_by_key(|id| self.store.get(*id).map(|image| image.generation))
+    }
+
+    /// Resolve a stored image by its client-chosen image number (Kitty `I=`),
+    /// taking the newest match.
+    ///
+    /// Newest-match is the protocol's rule, not a tie-break of convenience:
+    /// numbers are explicitly not unique, and transmitting with a number
+    /// creates a new image rather than replacing the previous one, so several
+    /// images can legitimately share a number at once. Resolution by generation
+    /// — the same ordering [`ImageScene::find_by_protocol_id`] uses — means a
+    /// client's follow-up commands act on the image it most recently sent.
+    pub fn find_by_image_number(&self, protocol_number: u32) -> Option<StoredImageId> {
+        self.store
+            .iter_ids()
+            .filter(|id| {
+                self.store
+                    .get(*id)
+                    .is_some_and(|image| image.protocol_number == Some(protocol_number))
             })
             .max_by_key(|id| self.store.get(*id).map(|image| image.generation))
     }

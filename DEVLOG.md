@@ -7,6 +7,100 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-18 -- Sixel becomes discoverable, and the Kitty protocol closes its last two gaps
+
+Three protocol changes, and a bug found while making the third one safe.
+
+**Compressed payloads (`o=z`) now render.** The Kitty graphics protocol allows
+any payload to be zlib-compressed, in any format, on any transport, for still
+images, animation frames and validation-only queries alike. Until now the `o=`
+key was ignored, so a compressed transfer reached the pixel decoder as though
+the deflate stream were pixels and was rejected as invalid. Compression is
+applied after the transmission medium produces its bytes and before any format
+interpretation, which is the one place where the rule is the same for a direct
+payload, a file and a shared-memory segment. A chunked transfer is one
+compressed stream spanning all its chunks, so inflation happens after
+reassembly.
+
+These bytes arrive from the PTY and are treated accordingly. The inflate bound
+is the image store's decoded-byte budget, applied to output as it is produced
+rather than to any size the payload declares about itself — a declared size is
+attacker-chosen, and an expansion-ratio test is a guess about intent rather than
+a limit on consumption. The output buffer grows geometrically under a hard clamp
+one byte past the budget: producing that byte proves the payload exceeds it, and
+it is the entire cost of finding out, so a decompression bomb is refused having
+allocated the budget rather than its full expansion.
+
+Completion is checked rather than inferred. Inflating through a plain reader
+treats a truncated transfer as a clean end-of-file, which means a payload cut
+short mid-stream yields whatever had already been produced and looks like a
+success — a real hole, caught by a test before it shipped. The decoder must now
+report end-of-stream, which for zlib framing means the terminating block and the
+Adler-32 check were both present and correct. A truncated or corrupt payload is
+a refusal and no image, the same rule the APC, DCS and OSC payload paths already
+follow: a partial image is worse than none. An unrecognised `o=` value is
+likewise refused rather than ignored.
+
+**Animation commands accept image numbers (`I=`).** A program sharing a screen
+with other programs cannot know which image ids are free, so the protocol lets
+it choose a *number* instead. Numbers are deliberately not unique: transmitting
+with one always creates a new image, and commands that address by number act on
+the newest image carrying it. A numbered transmission is answered with both the
+id the terminal assigned and the number the client chose, which is how a client
+learns an id it can use directly from then on; the assigned id is the lowest
+positive id not already in use, so it never displaces an image the client
+addressed by id itself. Naming an image by both `i=` and `I=` in one command is
+rejected — they are independent namespaces, and resolving the conflict by
+precedence would act on an image the client did not name.
+
+**DA1 advertises Sixel.** The Sixel decoder has been complete for some time and
+nothing could find it: applications autodetect Sixel from the Primary Device
+Attributes reply, which claimed a VT100 with the advanced video option and no
+graphics. A shipped feature nobody can discover is a defect in the
+advertisement, not a missing feature. The reply is now
+`CSI ? 62 ; 4 ; 6 ; 22 ; 28 c`, and every parameter is backed by an implemented
+sequence: VT220 service class (8-bit C1 controls are decoded and selective erase
+is implemented), Sixel graphics, selective erase, ANSI colour, and rectangular
+editing. Deliberately not claimed, because not implemented: 132-column mode,
+printer port, soft character sets, user-defined keys, national replacement
+character sets, technical characters, locator, user windows and horizontal
+scrolling. The old reply was pinned in three places — a direct assertion, a
+transcript round-trip, and two golden parser fingerprints — all updated.
+
+**The bug that found itself.** Sixel autodetection is a two-step handshake: DA1
+first, then XTSMGRAPHICS (`CSI ? Pi ; Pa ; Pv S`) for geometry and
+colour-register limits. That sequence shares its final byte with SU, and the
+dispatcher matched `S` without checking for the private-parameter prefix, so the
+query scrolled the screen by its first parameter and answered nothing. It was
+unreachable in practice only because nothing was asking — advertising Sixel
+would have made every capability probe destroy several lines of the user's
+scrollback. The private forms of `S` and `T` are now guarded, XTSMGRAPHICS stays
+unimplemented and silent (which clients read as "use your own defaults"), and a
+graphics query no longer alters the screen it is asking about.
+
+Still not supported, and now stated as a boundary rather than a silence: `I=`
+addressing on display (`a=p`) and delete (`d=n`/`d=N`) commands, and the
+`S=`/`O=` partial-read keys. Delete specifiers outside the documented set are
+refused rather than approximated.
+
+Platform surface: both features are parser and image-store work with no
+filesystem, process or environment access, so Windows behaves identically to
+Unix, and the transport table is unchanged — shared memory (`t=s`) stays
+Unix-only whether or not its payload is compressed.
+
+Verified: `cargo fmt --check` clean, `cargo clippy --all-targets --locked -D
+warnings` clean, `cargo test --locked` 4712 passed / 0 failed at
+`RUST_TEST_THREADS=1`, production-file guard PASS, `rustsec-audit.sh` exit 0
+with only the pre-existing allowed `ttf-parser` advisory. The protocol and
+graphics fuzz suites ran at 20,000 iterations per fuzzer inside the heavy-job
+cgroup, including new coverage for truncated, double-compressed,
+garbage-bodied, empty and hostile-ratio compressed payloads. `flate2` is
+declared directly for the inflate path; it was already in the dependency graph
+behind the PNG and TIFF decoders, so nothing new is compiled and the pure-Rust
+backend keeps the build free of a C toolchain or system zlib.
+
+---
+
 ## 2026-08-18 -- The background image is sized to the window, and the backend surface is staged
 
 Two memory changes and one correction, all of them measured rather than
