@@ -4,6 +4,10 @@
 # Resource collectors for the OdyTTY comparative benchmark protocol
 # (`docs/benchmark-protocol.md`, protocol version 1.4.1), Linux column.
 #
+# Software-endpoint retention sampling (SE1/SE2) lives here too: it reads
+# the same cgroup v2 memory.current / memory.peak files and never approximates
+# a missing sample. The class is Linux-only by this apparatus.
+#
 # The protocol's platform-metric table is strict about semantics, and this
 # module treats that strictness as the point rather than an obstacle:
 #
@@ -158,6 +162,74 @@ def probe_cgroup_memory(cgroup: Path | None = None) -> dict:
             "memory.current"
         )
     return result
+
+
+RETENTION_LIMITATION = (
+    "after minus before resident bytes around one burst. This detects "
+    "retention per unit of work, not time-based creep in an idle process, "
+    "and it is not a substitute for W7."
+)
+
+
+def read_resident_bytes(cgroup: Path) -> int | None:
+    """Read `memory.current` from a cgroup v2 directory, or None if unreadable.
+
+    Linux-only. Never substitutes `/proc/self/status` VmRSS or any other nearby
+    figure: those are different semantics and cannot fill a missing sample.
+    """
+    text = _read_text(cgroup / "memory.current")
+    if text is None:
+        return None
+    try:
+        return int(text.strip())
+    except ValueError:
+        return None
+
+
+def read_peak_bytes(cgroup: Path) -> int | None:
+    """Read `memory.peak` when the kernel exposes it; None is not approximated."""
+    text = _read_text(cgroup / "memory.peak")
+    if text is None:
+        return None
+    try:
+        return int(text.strip())
+    except ValueError:
+        return None
+
+
+def retention_record(
+    before: int | None, peak: int | None, after: int | None
+) -> dict:
+    """Compose the per-trial retention record for a software-endpoint sample.
+
+    Missing before/after yields `unsupported`, never a guessed delta. A missing
+    peak is named as unsupported and is never filled from `before` or `after`.
+    """
+    record = {
+        "collector": "cgroup-memory-retention",
+        "unit": "bytes",
+        "limitation": RETENTION_LIMITATION,
+        "platform": "linux",
+    }
+    if before is None or after is None:
+        record["status"] = UNSUPPORTED
+        record["reason"] = (
+            "resident samples were not collected; retention is not approximated"
+        )
+        return record
+    record["status"] = AVAILABLE
+    record["before"] = before
+    record["after"] = after
+    record["delta"] = after - before
+    if peak is None:
+        record["peak_status"] = UNSUPPORTED
+        record["peak_reason"] = (
+            "memory.peak was not sampled and is not approximated from memory.current"
+        )
+    else:
+        record["peak_status"] = AVAILABLE
+        record["peak"] = peak
+    return record
 
 
 def probe_wake_events() -> dict:
@@ -465,6 +537,26 @@ def self_test() -> list[str]:
         failures.append(f"collectors: keyed parser mishandled input: {parsed}")
     if _parse_keyed("") != {}:
         failures.append("collectors: keyed parser mishandled empty input")
+
+    # Retention is after-minus-before, and a missing sample is unsupported
+    # rather than a nearby RSS figure.
+    kept = retention_record(100, 180, 130)
+    if kept.get("status") != AVAILABLE or kept.get("delta") != 30 or kept.get("peak") != 180:
+        failures.append(f"collectors: retention record arithmetic drifted: {kept}")
+    if "per unit of work" not in kept.get("limitation", ""):
+        failures.append("collectors: retention limitation does not state its bound")
+    missing = retention_record(None, 10, 10)
+    if missing.get("status") != UNSUPPORTED:
+        failures.append("collectors: missing before-sample was not unsupported")
+    if "approximated" not in missing.get("reason", ""):
+        failures.append("collectors: missing retention reason does not forbid approximation")
+    no_peak = retention_record(50, None, 60)
+    if no_peak.get("status") != AVAILABLE or no_peak.get("delta") != 10:
+        failures.append("collectors: peak-less retention lost the current delta")
+    if no_peak.get("peak_status") != UNSUPPORTED or "peak" in no_peak:
+        failures.append("collectors: missing peak was approximated or stored")
+    if read_resident_bytes(Path("/sys/fs/cgroup/odytty-bench-nonexistent-probe")) is not None:
+        failures.append("collectors: missing cgroup resident read did not return None")
 
     # The aggregate record partitions collectors cleanly.
     everything = probe_all()

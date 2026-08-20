@@ -4,6 +4,23 @@
 # Workload catalogue for the OdyTTY comparative benchmark protocol
 # (`docs/benchmark-protocol.md`, protocol version 1.4.1).
 #
+# Two classes live in this file and must never be pooled:
+#
+#   * W1-W7 keep their protocol 1.4.1 identities. W1-W5 are optical-endpoint
+#     workloads. W6 and W7 are software-idle / long-session. Their apparatus
+#     requirements and the W3/W4 optical-throughput guard stay exactly as
+#     they were.
+#   * SE1 and SE2 are the software-endpoint class: identifiers distinct from
+#     W1-W7, never reported as latency, never pooled with optical samples.
+#     Every SE workload's oracle is a cursor-position report plus a
+#     completion patch. A terminal that drops or coalesces the payload fails
+#     that oracle instead of scoring well for finishing the child early.
+#
+# Linux-only by apparatus: SE collection uses the Linux cgroup v2 collectors
+# in `collectors.py`. The child-side CPR/completion-patch oracle in
+# `driver.py` is transport-identical; the measured class is not claimed as
+# portable.
+#
 # One place to state, per workload: its identifier, its endpoint, its primary
 # metrics and their units and direction, its oracle, its timeout, its sampling
 # plan, and -- the field that decides whether it can run at all -- the
@@ -38,9 +55,16 @@ APPARATUS_STIMULUS_CONTROLLER = "external-stimulus-controller"
 APPARATUS_KEY_ACTUATOR = "hardware-key-switch-actuator"
 APPARATUS_WINDOW_ADAPTER = "pinned-platform-window-control-adapter"
 
+# Workload class. Optical-endpoint samples and software-endpoint samples
+# measure different quantities and must never share a result pool.
+CLASS_OPTICAL_ENDPOINT = "optical-endpoint"
+CLASS_SOFTWARE_IDLE = "software-idle"
+CLASS_SOFTWARE_ENDPOINT = "software-endpoint"
+
 WORKLOADS: dict[str, dict] = {
     "startup-ready": {
         "id": "W1",
+        "class": CLASS_OPTICAL_ENDPOINT,
         "endpoint": "physical launch stimulus to the first displayed ready patch",
         "metrics": [
             {
@@ -59,6 +83,7 @@ WORKLOADS: dict[str, dict] = {
     },
     "input-present": {
         "id": "W2",
+        "class": CLASS_OPTICAL_ENDPOINT,
         "endpoint": (
             "electrical switch closure to the first detected luminance "
             "transition in the response cell"
@@ -84,6 +109,7 @@ WORKLOADS: dict[str, dict] = {
     },
     "ascii-stream-64mb": {
         "id": "W3",
+        "class": CLASS_OPTICAL_ENDPOINT,
         "endpoint": "external start signal to the first displayed completion patch",
         "metrics": [
             {
@@ -108,6 +134,7 @@ WORKLOADS: dict[str, dict] = {
     },
     "sgr-stream-64mb": {
         "id": "W4",
+        "class": CLASS_OPTICAL_ENDPOINT,
         "endpoint": "external start signal to the first displayed completion patch",
         "metrics": [
             {
@@ -132,6 +159,7 @@ WORKLOADS: dict[str, dict] = {
     },
     "resize-reflow-100k": {
         "id": "W5",
+        "class": CLASS_OPTICAL_ENDPOINT,
         "endpoint": "first resize request to the first displayed final marker",
         "metrics": [
             {
@@ -160,6 +188,7 @@ WORKLOADS: dict[str, dict] = {
     },
     "idle-visible-10m": {
         "id": "W6",
+        "class": CLASS_SOFTWARE_IDLE,
         "endpoint": (
             "no external endpoint; 60 seconds of settling followed by 600 "
             "measured seconds of a static, focused, unobscured viewport"
@@ -195,6 +224,7 @@ WORKLOADS: dict[str, dict] = {
     },
     "long-session-4h": {
         "id": "W7",
+        "class": CLASS_SOFTWARE_IDLE,
         "endpoint": (
             "no external endpoint; a four-hour mixed session sampled once per "
             "minute, with the first hour retained as the stabilization segment"
@@ -232,6 +262,119 @@ WORKLOADS: dict[str, dict] = {
         "note": (
             "the primary slope uses minute samples from hours two through four "
             "and is not extrapolated beyond the observed interval"
+        ),
+    },
+    "software-ascii-stream": {
+        "id": "SE1",
+        "class": CLASS_SOFTWARE_ENDPOINT,
+        "endpoint": (
+            "child payload start to a validated cursor-position report, "
+            "then the displayed completion patch"
+        ),
+        "metrics": [
+            {
+                "name": "elapsed_seconds",
+                "unit": "seconds",
+                "direction": "lower-is-better",
+            },
+            {
+                "name": "payload_bytes_per_second",
+                "unit": "bytes-per-second",
+                "direction": "higher-is-better",
+            },
+            {
+                "name": "resident_bytes_before",
+                "unit": "bytes",
+                "direction": "lower-is-better",
+            },
+            {
+                "name": "resident_bytes_peak",
+                "unit": "bytes",
+                "direction": "lower-is-better",
+            },
+            {
+                "name": "resident_bytes_after",
+                "unit": "bytes",
+                "direction": "lower-is-better",
+            },
+            {
+                "name": "retention_delta_bytes",
+                "unit": "bytes",
+                "direction": "lower-is-better",
+            },
+        ],
+        "oracle": (
+            "exact fixture digest, a valid cursor-position report received "
+            "before the completion patch is painted, the completion patch, "
+            "the expected final record, and no child or terminal failure. "
+            "A child that exits after writing the payload without a CPR "
+            "reply fails the oracle; early finish is not a throughput score"
+        ),
+        "timeout_seconds": 120,
+        "sampling": {"warmup_blocks": 5, "measured_blocks": 30},
+        "fixture": "w3",
+        "apparatus": [APPARATUS_SOFTWARE_ONLY],
+        "note": (
+            "software-endpoint class; never pooled with W3 optical samples "
+            "and never reported as latency. Retention is after-minus-before "
+            "resident bytes around one burst: it detects per-unit-of-work "
+            "retention, not idle creep, and is not a W7 substitute. "
+            "Linux-only by collector apparatus."
+        ),
+    },
+    "software-sgr-stream": {
+        "id": "SE2",
+        "class": CLASS_SOFTWARE_ENDPOINT,
+        "endpoint": (
+            "child payload start to a validated cursor-position report, "
+            "then the displayed completion patch"
+        ),
+        "metrics": [
+            {
+                "name": "elapsed_seconds",
+                "unit": "seconds",
+                "direction": "lower-is-better",
+            },
+            {
+                "name": "payload_bytes_per_second",
+                "unit": "bytes-per-second",
+                "direction": "higher-is-better",
+            },
+            {
+                "name": "resident_bytes_before",
+                "unit": "bytes",
+                "direction": "lower-is-better",
+            },
+            {
+                "name": "resident_bytes_peak",
+                "unit": "bytes",
+                "direction": "lower-is-better",
+            },
+            {
+                "name": "resident_bytes_after",
+                "unit": "bytes",
+                "direction": "lower-is-better",
+            },
+            {
+                "name": "retention_delta_bytes",
+                "unit": "bytes",
+                "direction": "lower-is-better",
+            },
+        ],
+        "oracle": (
+            "exact fixture digest, a valid cursor-position report received "
+            "before the completion patch is painted, the completion patch, "
+            "reset style at completion, the expected final record, and no "
+            "child or terminal failure. A child that exits after writing "
+            "the payload without a CPR reply fails the oracle"
+        ),
+        "timeout_seconds": 120,
+        "sampling": {"warmup_blocks": 5, "measured_blocks": 30},
+        "fixture": "w4",
+        "apparatus": [APPARATUS_SOFTWARE_ONLY],
+        "note": (
+            "software-endpoint class; never pooled with W4 optical samples "
+            "and never reported as latency. Linux-only by collector apparatus."
         ),
     },
 }
@@ -302,6 +445,7 @@ def self_test() -> list[str]:
     for name, entry in WORKLOADS.items():
         for field in (
             "id",
+            "class",
             "endpoint",
             "metrics",
             "oracle",
@@ -325,10 +469,47 @@ def self_test() -> list[str]:
         if not isinstance(entry.get("timeout_seconds"), int):
             failures.append(f"workloads: {name} has a non-integer timeout")
 
-    # The protocol has exactly seven workloads, W1 through W7, each once.
-    ids = sorted(entry["id"] for entry in WORKLOADS.values())
-    if ids != [f"W{n}" for n in range(1, 8)]:
-        failures.append(f"workloads: catalogue does not cover W1-W7 exactly: {ids}")
+    # W1-W7 remain exactly the protocol 1.4.1 set. The software-endpoint class
+    # uses SE* identifiers and is never folded into that range.
+    w_ids = sorted(
+        entry["id"]
+        for entry in WORKLOADS.values()
+        if entry["id"].startswith("W")
+    )
+    if w_ids != [f"W{n}" for n in range(1, 8)]:
+        failures.append(f"workloads: W1-W7 coverage drifted: {w_ids}")
+    se_ids = sorted(
+        entry["id"]
+        for entry in WORKLOADS.values()
+        if entry["class"] == CLASS_SOFTWARE_ENDPOINT
+    )
+    if se_ids != ["SE1", "SE2"]:
+        failures.append(f"workloads: software-endpoint ids drifted: {se_ids}")
+    for name, entry in WORKLOADS.items():
+        if entry["class"] == CLASS_SOFTWARE_ENDPOINT:
+            if not entry["id"].startswith("SE"):
+                failures.append(
+                    f"workloads: {name} is software-endpoint but id {entry['id']!r} "
+                    "is not in the SE* namespace"
+                )
+            if APPARATUS_OPTICAL_CAPTURE in entry["apparatus"]:
+                failures.append(
+                    f"workloads: {name} must not require optical capture; that "
+                    "would silently re-gate the class behind the missing rig"
+                )
+            if any(m["name"] == "optical_latency" for m in entry["metrics"]):
+                failures.append(
+                    f"workloads: {name} reports optical_latency; software-endpoint "
+                    "samples must never be reported as latency"
+                )
+            if "cursor-position" not in entry["oracle"] or "completion patch" not in entry["oracle"]:
+                failures.append(
+                    f"workloads: {name} oracle does not require CPR and a completion patch"
+                )
+        if entry["id"].startswith("W") and entry["class"] == CLASS_SOFTWARE_ENDPOINT:
+            failures.append(
+                f"workloads: {name} pools a W-number with the software-endpoint class"
+            )
 
     # Timeouts match the protocol's stated values.
     expected_timeouts = {
@@ -339,6 +520,8 @@ def self_test() -> list[str]:
         "resize-reflow-100k": 120,
         "idle-visible-10m": 720,
         "long-session-4h": 4 * 3600 + 600,
+        "software-ascii-stream": 120,
+        "software-sgr-stream": 120,
     }
     for name, expected in expected_timeouts.items():
         if WORKLOADS[name]["timeout_seconds"] != expected:
@@ -359,9 +542,24 @@ def self_test() -> list[str]:
             )
         if APPARATUS_OPTICAL_CAPTURE not in WORKLOADS[name]["apparatus"]:
             failures.append(f"workloads: {name} does not require optical capture")
+        if WORKLOADS[name]["class"] != CLASS_OPTICAL_ENDPOINT:
+            failures.append(f"workloads: {name} is not classed optical-endpoint")
     for name in ("idle-visible-10m", "long-session-4h"):
         if not runnable(name):
             failures.append(f"workloads: {name} should be runnable software-only")
+        if WORKLOADS[name]["class"] != CLASS_SOFTWARE_IDLE:
+            failures.append(f"workloads: {name} is not classed software-idle")
+    for name in ("software-ascii-stream", "software-sgr-stream"):
+        if not runnable(name):
+            failures.append(
+                f"workloads: {name} should be runnable on software-only apparatus"
+            )
+        if runnable(name, set()):
+            failures.append(
+                f"workloads: {name} ran with no apparatus; unsatisfiable must refuse"
+            )
+        if WORKLOADS[name]["class"] != CLASS_SOFTWARE_ENDPOINT:
+            failures.append(f"workloads: {name} is not classed software-endpoint")
 
     # Throughput is optically gated too. A future edit that quietly relaxed
     # W3 or W4 to software timing would be the single most damaging change
@@ -401,8 +599,8 @@ def self_test() -> list[str]:
             )
 
     # Alias resolution and rejection.
-    if _key("W3") != "ascii-stream-64mb":
-        failures.append("workloads: W-number alias did not resolve")
+    if _key("SE1") != "software-ascii-stream":
+        failures.append("workloads: SE1 alias did not resolve")
     try:
         _key("w9")
     except ValueError:

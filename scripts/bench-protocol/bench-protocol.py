@@ -37,6 +37,7 @@ import fixtures  # noqa: E402
 import ordering  # noqa: E402
 import prereg  # noqa: E402
 import prng  # noqa: E402
+import profiles  # noqa: E402
 import result_schema  # noqa: E402
 import summaries  # noqa: E402
 import w6_runner  # noqa: E402
@@ -49,6 +50,7 @@ MODULES = (
     ("summaries", lambda root: summaries.self_test()),
     ("collectors", lambda root: collectors.self_test()),
     ("workloads", lambda root: workloads.self_test()),
+    ("profiles", lambda root: profiles.self_test(root)),
     ("result-schema", lambda root: result_schema.self_test()),
     ("driver", lambda root: driver.self_test()),
     ("prereg", lambda root: prereg.self_test(root)),

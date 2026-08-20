@@ -30,15 +30,16 @@
 # because writing it later, under time pressure, is how a software-timed
 # shortcut gets invented.
 #
-# Cross-platform rule: measured output uses `sys.stdout.buffer` and plain byte
-# writes. Platform-specific input primitives are isolated behind an OS branch;
-# Windows never imports the POSIX terminal modules. Terminal size comes from
-# `shutil.get_terminal_size`, which is implemented on all three platforms.
+# W6 and W7 are software-idle. The software-endpoint class (SE1/SE2) is a
+# separate quantity: child payload to a validated CPR reply plus completion
+# patch. Linux-only by collector apparatus (`collectors.py`); the child oracle
+# here is transport-identical. SE samples must never be pooled with W3/W4.
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -278,6 +279,159 @@ def evaluate_stream_oracle(
         "oracle": "pass" if not reasons else "fail",
         "reasons": reasons,
     }
+
+
+def wait_for_cursor_report(stream, timeout_seconds: float) -> tuple[int, int] | None:
+    """Read stdin until a CPR reply arrives or `timeout_seconds` elapses.
+
+    A missing or malformed reply is an oracle failure. The wait is the entire
+    difference between the software-endpoint class and child-exit timing: a
+    terminal that drops the payload never replies, so the sample fails instead
+    of finishing early.
+    """
+    if timeout_seconds < 0:
+        raise ValueError("CPR wait timeout must not be negative")
+    buf = bytearray()
+    parsed = parse_cursor_report(bytes(buf))
+    # BytesIO and other fully-buffered streams: one read is enough.
+    pending = getattr(stream, "read", None)
+    if pending is None:
+        return None
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() <= deadline:
+        parsed = parse_cursor_report(bytes(buf))
+        if parsed is not None:
+            return parsed
+        remaining = deadline - time.monotonic()
+        if remaining < 0:
+            break
+        chunk = b""
+        fileno = getattr(stream, "fileno", None)
+        if callable(fileno):
+            try:
+                fd = stream.fileno()
+            except (io.UnsupportedOperation, OSError, AttributeError):
+                fd = None
+            if fd is not None and os.name != "nt":
+                import select
+
+                ready, _, _ = select.select([fd], [], [], remaining)
+                if not ready:
+                    break
+                chunk = os.read(fd, 64)
+            else:
+                chunk = stream.read(64)
+        else:
+            chunk = stream.read(64)
+        if not chunk:
+            # EOF without a report.
+            return parse_cursor_report(bytes(buf))
+        buf.extend(chunk)
+    return parse_cursor_report(bytes(buf))
+
+
+def evaluate_software_endpoint_oracle(
+    fixture: str,
+    observed_digest: str,
+    observed_bytes: int,
+    expected_digest: str,
+    cursor_report: tuple[int, int] | None,
+    completion_patch_painted: bool,
+    final_record_present: bool,
+    child_alive: bool,
+    waited_for_cpr: bool,
+) -> dict:
+    """Oracle for SE1/SE2. Child-exit without a CPR wait cannot pass.
+
+    The optical W3/W4 evaluator is intentionally separate: those workloads
+    capture the completion patch with a photosensor. This class has no
+    photosensor, so the CPR reply is the proof the terminal processed the
+    stream. Skipping that wait and scoring elapsed time to child exit is the
+    budgeting probe this class exists to replace.
+    """
+    reasons: list[str] = []
+    if not waited_for_cpr:
+        reasons.append("CPR wait was skipped; child-exit timing is not a sample")
+    if observed_digest != expected_digest:
+        reasons.append("fixture digest mismatch")
+    if fixture in ("w3", "w4"):
+        expected_bytes = (
+            fixtures.W3_TOTAL_BYTES if fixture == "w3" else fixtures.W4_TOTAL_BYTES
+        )
+        if observed_bytes != expected_bytes:
+            reasons.append(
+                f"payload byte count {observed_bytes} is not {expected_bytes}"
+            )
+    if cursor_report is None:
+        reasons.append("no valid cursor-position report")
+    if not completion_patch_painted:
+        reasons.append("completion patch was not painted")
+    if not final_record_present:
+        reasons.append("expected final record was not present")
+    if not child_alive:
+        reasons.append("child did not survive the workload")
+    return {
+        "oracle": "pass" if not reasons else "fail",
+        "reasons": reasons,
+        "class": "software-endpoint",
+    }
+
+
+def run_software_stream(
+    sink: OracleSink,
+    fixture: str,
+    stdin_stream=None,
+    cpr_timeout_seconds: float = 30.0,
+) -> dict:
+    """SE1/SE2 child: write the payload, wait for CPR, then paint completion.
+
+    Elapsed time includes the CPR wait. A timeout or malformed reply is
+    recorded as an oracle failure, not as a fast finish.
+    """
+    stream = sys.stdout.buffer
+    started = time.monotonic()
+    digest, written = write_payload(stream, fixture)
+    cursor_position_request(stream)
+    report = wait_for_cursor_report(
+        stdin_stream if stdin_stream is not None else sys.stdin.buffer,
+        cpr_timeout_seconds,
+    )
+    completion_patch(stream)
+    elapsed = time.monotonic() - started
+    verdict = evaluate_software_endpoint_oracle(
+        fixture,
+        digest,
+        written,
+        digest,
+        report,
+        True,
+        True,
+        True,
+        True,
+    )
+    workload = (
+        "software-ascii-stream" if fixture == "w3" else "software-sgr-stream"
+    )
+    return sink.emit(
+        "software-endpoint-complete",
+        workload=workload,
+        **{
+            "class": "software-endpoint",
+            "fixture": fixture,
+            "fixture_sha256": digest,
+            "payload_bytes": written,
+            "child_elapsed_seconds": elapsed,
+            "cursor_report": None if report is None else list(report),
+            "waited_for_cpr": True,
+            "completion_patch_painted": True,
+            "oracle": verdict["oracle"],
+            "oracle_reasons": verdict["reasons"],
+            "measurement_status": (
+                "software-endpoint class: elapsed includes the CPR wait; "
+                "never pooled with W3/W4 optical samples; never reported as latency"
+            ),
+        },
+    )
 
 
 def evaluate_resize_oracle(
@@ -657,6 +811,66 @@ def self_test() -> list[str]:
         if verdict["oracle"] != "fail" or not verdict["reasons"]:
             failures.append(f"driver: stream oracle passed despite a {label} problem")
 
+    # Software-endpoint oracle: child-exit without a CPR wait cannot pass.
+    se_pass = evaluate_software_endpoint_oracle(
+        "w3",
+        good_digest,
+        fixtures.W3_TOTAL_BYTES,
+        good_digest,
+        (24, 80),
+        True,
+        True,
+        True,
+        True,
+    )
+    if se_pass["oracle"] != "pass" or se_pass["reasons"]:
+        failures.append(f"driver: a clean software-endpoint oracle did not pass: {se_pass}")
+    se_skip_wait = evaluate_software_endpoint_oracle(
+        "w3",
+        good_digest,
+        fixtures.W3_TOTAL_BYTES,
+        good_digest,
+        (24, 80),
+        True,
+        True,
+        True,
+        False,
+    )
+    if se_skip_wait["oracle"] != "fail":
+        failures.append("driver: software-endpoint oracle passed without a CPR wait")
+    se_no_cpr = evaluate_software_endpoint_oracle(
+        "w3",
+        good_digest,
+        fixtures.W3_TOTAL_BYTES,
+        good_digest,
+        None,
+        True,
+        True,
+        True,
+        True,
+    )
+    if se_no_cpr["oracle"] != "fail":
+        failures.append("driver: software-endpoint oracle passed with no CPR reply")
+    se_no_patch = evaluate_software_endpoint_oracle(
+        "w3",
+        good_digest,
+        fixtures.W3_TOTAL_BYTES,
+        good_digest,
+        (24, 80),
+        False,
+        True,
+        True,
+        True,
+    )
+    if se_no_patch["oracle"] != "fail":
+        failures.append("driver: software-endpoint oracle passed without a completion patch")
+    if wait_for_cursor_report(io.BytesIO(b"\x1b[24;80R"), 1.0) != (24, 80):
+        failures.append("driver: CPR wait did not parse a complete reply")
+    if wait_for_cursor_report(io.BytesIO(b""), 0.0) is not None:
+        failures.append("driver: empty CPR wait returned a report")
+    if wait_for_cursor_report(io.BytesIO(b"garbage"), 0.0) is not None:
+        failures.append("driver: malformed CPR wait returned a report")
+
     # --- resize oracle ------------------------------------------------------
     expected = resize_schedule(200)
     if len(expected) != 200:
@@ -765,7 +979,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument(
         "--workload",
-        choices=["startup-ready", "ascii-stream-64mb", "sgr-stream-64mb", "idle-visible-10m"],
+        choices=[
+            "startup-ready",
+            "ascii-stream-64mb",
+            "sgr-stream-64mb",
+            "idle-visible-10m",
+            "software-ascii-stream",
+            "software-sgr-stream",
+        ],
         help="child behaviour to run",
     )
     parser.add_argument("--oracle-path", help="file to receive oracle records")
@@ -828,6 +1049,9 @@ def main(argv: list[str] | None = None) -> int:
                 args.start_path,
                 geometry_ready_path=args.geometry_ready_path,
             )
+        elif args.workload in ("software-ascii-stream", "software-sgr-stream"):
+            fixture = "w3" if args.workload == "software-ascii-stream" else "w4"
+            run_software_stream(sink, fixture)
         else:
             fixture = "w3" if args.workload == "ascii-stream-64mb" else "w4"
             run_stream(sink, fixture, await_start=not args.no_await_start)

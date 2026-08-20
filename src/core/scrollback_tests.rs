@@ -1213,54 +1213,53 @@ struct CandidateHandleCell {
     combining: u32,
 }
 
-/// Candidate B: the cell the **scrollback ring alone** would store — no handle
-/// field at all, because the marks live in a per-line sidecar keyed by column,
-/// and the two per-cell booleans pack into one byte that the existing padding
-/// already pays for. `Cell` itself is untouched; conversion happens at the
-/// projection boundary that stage A already made on-demand.
-#[allow(dead_code)]
-struct CandidateStoredCell {
-    ch: char,
-    attrs: Attrs,
-    flags: u8,
-}
-
-/// The candidate sizes above are load-bearing for the stage-B decision, so they
-/// are asserted rather than quoted. If a future field addition changes either
-/// layout, the projection harness's arithmetic changes with it.
+/// Candidate B was adopted and is now
+/// [`crate::core::stored_cell::StoredCell`] — the cell the **scrollback ring
+/// alone** stores. There is no separate declaration for it here any more: the
+/// measurement is taken against the shipped type, so the figure cannot drift
+/// from the thing it describes.
+///
+/// The sizes are load-bearing for the stage-B decision, so they are asserted
+/// rather than quoted. `Cell` is pinned alongside because the saving is the
+/// *difference* between the two.
 #[test]
 fn stage_b_candidate_cell_sizes() {
     assert_eq!(std::mem::size_of::<Cell>(), 44);
     assert_eq!(std::mem::size_of::<CandidateHandleCell>(), 32);
-    assert_eq!(std::mem::size_of::<CandidateStoredCell>(), 28);
+    assert_eq!(
+        std::mem::size_of::<crate::core::stored_cell::StoredCell>(),
+        28
+    );
 }
 
-/// Measurement, not an assertion: what a change to `size_of::<Cell>()` would
-/// be worth against the **post-stage-A** ring, decomposed so the projection is
-/// arithmetic over measured capacities rather than a guess.
+/// Measurement, not an assertion: the ring's size and composition, and what
+/// the rejected candidate A would have cost on the same corpora.
 ///
-/// Only the cell term scales with `Cell`'s size; ring slots and button spans do
-/// not, so a projection that applies the ratio to the whole ring would
-/// overstate the saving. Run with
+/// This started as a projection over a ring that still stored `Cell`. Candidate
+/// B has since landed, so the B column is no longer a projection — it is the
+/// measured ring, read from the store. The A column stays arithmetic because
+/// candidate A was not built; it is labelled as such rather than presented
+/// beside the measured figure as if it were one.
+///
+/// Only the cell term scales with the stored cell's size; ring slots and
+/// button spans do not, so a comparison that applied the ratio to the whole
+/// ring would overstate the difference. Run with
 /// `cargo test -- --ignored --nocapture stage_b_cell_shrink_projection`.
 #[test]
 #[ignore = "measurement harness; allocates ~GB at the deepest point"]
 fn stage_b_cell_shrink_projection() {
-    // Two candidate representations, both measured rather than assumed. Their
-    // sizes come from `stage_b_candidate_cell_sizes` below, which declares
-    // structs with the same fields and asserts what the compiler lays out.
-    //
-    // A: a handle replacing `combining: [char; 4]` + `combining_len: u8`,
-    //    `Cell` itself narrowed everywhere.
-    // B: `Cell` unchanged, and the scrollback ring alone stores a narrow cell
-    //    with the marks in a per-line sidecar (the shape `button_spans`
-    //    already uses), converted at the projection boundary.
+    // A (rejected): a handle replacing `combining: [char; 4]` +
+    //    `combining_len: u8`, `Cell` itself narrowed everywhere. Disproved by
+    //    the renderer holding cells with no `Screen` in scope; kept here as the
+    //    counterfactual the decision was made against.
+    // B (adopted): `Cell` unchanged, the scrollback ring alone storing a narrow
+    //    cell with the marks in a per-line sidecar.
     let cell_a = std::mem::size_of::<CandidateHandleCell>();
-    let cell_b = std::mem::size_of::<CandidateStoredCell>();
+    let stored = std::mem::size_of::<crate::core::stored_cell::StoredCell>();
     let old_cell = std::mem::size_of::<Cell>();
     let slot = std::mem::size_of::<crate::core::scrollback::LogicalLine>();
-    println!("cell {old_cell}; candidate A {cell_a}; candidate B {cell_b}; slot {slot}");
-    println!("shape depth ring cell_bytes slot_bytes ring_A pct_A ring_B pct_B");
+    println!("Cell {old_cell}; rejected A {cell_a}; stored (B, live) {stored}; slot {slot}");
+    println!("shape depth ring_measured cell_bytes slot_bytes ring_if_A pct_A_vs_44");
     for wrapped in [false, true] {
         for depth in [1_000usize, 10_000, 100_000] {
             let mut term = Terminal::new(80, 24);
@@ -1276,16 +1275,19 @@ fn stage_b_cell_shrink_projection() {
             let _ = term.screen().scrollback_len();
             let bytes = term.screen().scrollback_bytes();
             let (slots, cells, _spans) = term.screen().scrollback_store().ring_composition();
+            // Cells at the pre-B width, so the corpus's cell term stays
+            // comparable with the figures recorded before B landed.
             let cell_bytes = cells * old_cell;
             let slot_bytes = slots * slot;
             let ring = bytes.ring as usize;
-            let ring_a = ring - cells * (old_cell - cell_a);
-            let ring_b = ring - cells * (old_cell - cell_b);
+            // What the ring would be under A, derived from the ring as it is
+            // now: add back the bytes B saved, then take A's smaller saving.
+            let ring_at_44 = ring + cells * (old_cell - stored);
+            let ring_a = ring_at_44 - cells * (old_cell - cell_a);
             println!(
-                "{} {depth} {ring} {cell_bytes} {slot_bytes} {ring_a} {:.1} {ring_b} {:.1}",
+                "{} {depth} {ring} {cell_bytes} {slot_bytes} {ring_a} {:.1}",
                 if wrapped { "wrapped" } else { "hard" },
-                100.0 * (ring - ring_a) as f64 / ring as f64,
-                100.0 * (ring - ring_b) as f64 / ring as f64
+                100.0 * (ring_at_44 - ring_a) as f64 / ring_at_44 as f64,
             );
         }
     }
@@ -1533,4 +1535,140 @@ fn snapshot_cost_at_depth() {
 
         println!("depth={depth} warm_us={warm_us:.1} cold_us={cold_us:.1}");
     }
+}
+
+/// Flat grapheme clusters of every cell in `rows`, in order, so a mark can be
+/// checked against the base character it is supposed to be attached to rather
+/// than against the line's text as a whole.
+fn flat_graphemes(rows: &[Line]) -> Vec<String> {
+    rows.iter()
+        .flat_map(|row| row.cells.iter())
+        .map(|cell| cell.grapheme())
+        .collect()
+}
+
+/// A mark carried in by a *continuation* row must stay on its own base
+/// character once that row is merged onto the open logical line.
+///
+/// The merge appends one row's cells at an offset into the logical line's flat
+/// space, and the mark sidecar is keyed in that same space, so a mistake here
+/// does not lose the mark — it relocates it. Every base character is distinct
+/// modulo 26 and every marked position is checked against its own base, so a
+/// shift of any size shows up as a named mismatch rather than as content that
+/// still contains the right number of marks.
+#[test]
+fn merged_continuation_rows_keep_marks_on_their_own_base() {
+    const W: usize = 8;
+    // Marks placed inside the second, third and fifth physical rows, so the
+    // append offset is non-zero and different for each.
+    let marked_at = [W + 3, 2 * W, 5 * W + 7];
+    let mut fed = String::new();
+    for i in 0..(8 * W) {
+        fed.push(char::from(b'a' + (i % 26) as u8));
+        if marked_at.contains(&i) {
+            fed.push('\u{0301}');
+        }
+    }
+    let mut term = Terminal::new(W, 2);
+    term.set_scrollback_limit(0);
+    term.advance(fed.as_bytes());
+    term.advance(b"\r\n");
+    for _ in 0..4 {
+        term.advance(b"\r\n");
+    }
+    let store = term.screen().scrollback_store();
+    let rows = store.physical_tail(W, store.physical_len(W));
+    let cells = flat_graphemes(&rows);
+    for i in 0..(8 * W) {
+        let base = char::from(b'a' + (i % 26) as u8);
+        let want = if marked_at.contains(&i) {
+            format!("{base}\u{0301}")
+        } else {
+            base.to_string()
+        };
+        assert_eq!(
+            cells.get(i).map(String::as_str),
+            Some(want.as_str()),
+            "cell {i}: mark landed on the wrong base character"
+        );
+    }
+}
+
+/// A soft-wrapped logical line is not bounded by the terminal width, so the
+/// mark sidecar's key must address past 65,535 cells.
+///
+/// This is the test that fails if the key is ever narrowed to a `u16`: the
+/// marked cell sits at index 66,000 of a single open logical line, which is
+/// reachable from ordinary output — a long line with no newline in it — not
+/// from anything adversarial.
+#[test]
+fn mark_survives_past_a_sixteen_bit_column_index() {
+    const W: usize = 80;
+    const MARKED: usize = 66_000;
+    const TOTAL: usize = 70_000;
+    let mut fed = String::with_capacity(TOTAL + 1);
+    for i in 0..TOTAL {
+        fed.push(char::from(b'a' + (i % 26) as u8));
+        if i == MARKED {
+            fed.push('\u{0308}');
+        }
+    }
+    let mut term = Terminal::new(W, 3);
+    term.set_scrollback_limit(0);
+    term.advance(fed.as_bytes());
+    let store = term.screen().scrollback_store();
+    let rows = store.physical_tail(W, store.physical_len(W));
+    let cells = flat_graphemes(&rows);
+    assert!(
+        cells.len() > MARKED,
+        "the marked cell must have reached the ring; ring holds {} cells",
+        cells.len()
+    );
+    let base = char::from(b'a' + (MARKED % 26) as u8);
+    assert_eq!(
+        cells[MARKED],
+        format!("{base}\u{0308}"),
+        "mark lost or displaced past a 16-bit index"
+    );
+    assert_eq!(
+        cells[MARKED - 1],
+        char::from(b'a' + ((MARKED - 1) % 26) as u8).to_string(),
+        "the preceding cell picked up a mark that is not its own"
+    );
+    assert_eq!(
+        cells[MARKED + 1],
+        char::from(b'a' + ((MARKED + 1) % 26) as u8).to_string(),
+        "the following cell picked up a mark that is not its own"
+    );
+}
+
+/// A cell whose base is a space but which carries marks is not blank, and the
+/// projection's trailing-blank trim must not discard it.
+///
+/// While marks lived inside the `Cell`, a marked space could never compare
+/// equal to `Cell::blank()`, so the trim was safe by construction. With the
+/// marks in a sidecar the base alone compares equal, and the trim has to
+/// consult the sidecar to mean the same thing. This is the test that fails if
+/// it stops doing so.
+#[test]
+fn a_marked_space_is_not_trimmed_as_a_trailing_blank() {
+    const W: usize = 8;
+    let mut term = Terminal::new(W, 2);
+    term.set_scrollback_limit(0);
+    // "ab" then a space carrying a combining mark, at the end of the line.
+    term.advance("ab \u{0301}".as_bytes());
+    term.advance(b"\r\n");
+    for _ in 0..4 {
+        term.advance(b"\r\n");
+    }
+    let store = term.screen().scrollback_store();
+    let rows = store.physical_tail(W, store.physical_len(W));
+    let cells = flat_graphemes(&rows);
+    assert_eq!(cells.first().map(String::as_str), Some("a"));
+    assert_eq!(cells.get(1).map(String::as_str), Some("b"));
+    assert_eq!(
+        cells.get(2).map(String::as_str),
+        Some(" \u{0301}"),
+        "a marked space was trimmed as a trailing blank"
+    );
 }

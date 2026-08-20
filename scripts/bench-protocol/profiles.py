@@ -475,3 +475,44 @@ def validate_profiles(repo_root: Path) -> list[str]:
                     f"{list(accepted)}, found {settings.get(key)!r}"
                 )
     return failures
+
+
+def self_test(repo_root: Path | None = None) -> list[str]:
+    """Profile catalogue checks. Missing from the aggregate list was an omission.
+
+    The files were already validated through `prereg.py` and `w6_runner.py`.
+    This entry exists so `--self-test` covers the same surface as every sibling
+    module rather than leaving profiles as the one catalogue file without a
+    named self-test.
+    """
+    root = repo_root or Path(__file__).resolve().parents[2]
+    failures = [f"profiles: {item}" for item in validate_profiles(root)]
+    if set(PROFILE_FILES) != set(CONFIG_PATHS):
+        failures.append("profiles: PROFILE_FILES and CONFIG_PATHS keys diverged")
+    if set(LAUNCH_EXECUTABLES) != set(CONFIG_PATHS):
+        failures.append("profiles: LAUNCH_EXECUTABLES and CONFIG_PATHS keys diverged")
+    if not SHARED_FONT_FAMILY:
+        failures.append("profiles: shared font family is empty")
+    return failures
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Canonical terminal profiles for the benchmark protocol."
+    )
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
+        problems = self_test()
+        for problem in problems:
+            print(f"self-test FAIL: {problem}", file=sys.stderr)
+        if problems:
+            print(f"{len(problems)} self-test failure(s)", file=sys.stderr)
+            sys.exit(1)
+        print("profiles self-test: all checks passed")
+        sys.exit(0)
+    parser.print_help()
+    sys.exit(2)

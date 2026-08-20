@@ -406,6 +406,10 @@ to 27.6 ms at 100,000 lines. The one regression is 2 microseconds on a read with
 nothing pushed since the last one, which is the tail projection replacing a
 slice of an already-built vector.
 
+Those four figures are the state *at this step*, kept because they are what this
+change did. The narrower stored cell below moved two of them again; the current
+numbers are the ones stated there.
+
 **Reserved-but-unused capacity on finalized lines.** A logical line assembled
 from soft-wrapped rows grows by amortized doubling, so it can hold up to twice
 the cells it needs. Once a line is hard-terminated its length is final and that
@@ -423,6 +427,76 @@ term as negligible and hide it.
 Combined, at 100,000 lines: hard-terminated scrollback fell 49.9% and
 soft-wrapped fell 57.6%, and the per-line cost is flat with depth rather than
 rising.
+
+### Scrollback: the ring stores a narrower cell than the grid
+
+After the two terms above, what remained of the ring was almost entirely cells —
+97.7% at 100,000 hard-terminated lines — so the size of a stored cell became the
+whole question. `Cell` is 44 bytes and 16 of them are `combining: [char; 4]`
+plus its length byte, an inline array that is empty for effectively every cell
+in real content.
+
+The obvious change — narrow `Cell` itself and put marks in a side table — cannot
+be built. `Cell::combining` returns a borrow of data inside the cell, and the
+renderer reads it while iterating a `Snapshot`'s cells with no `Screen` in scope
+and none reachable. A cell must stay self-describing wherever it goes, and it
+goes outside the core. `Cell` is also `Copy`, so no destructor runs to evict a
+side-table entry, and cells are duplicated wholesale by rectangle copies.
+
+What is built instead narrows only the ring. `StoredCell` is 28 bytes — base
+char, the whole `Attrs`, and the two per-cell booleans packed into one byte —
+and combining marks live in a per-line sidecar keyed by flat-cell index, the
+same shape button spans already use and with the same lifetime: a field of the
+logical line, unallocated for the mark-free line, evicted with the line because
+it is part of it. `Cell` is unchanged, stays `Copy`, and every reader outside
+the ring sees exactly what it saw before.
+
+No `Attrs` field is narrowed. Colour, every SGR bit, and the hyperlink id are
+carried whole; the saving is not bought with cell fidelity.
+
+Measured against the same corpora, ring bytes:
+
+| shape | lines | before | after | change |
+| --- | --- | --- | --- | --- |
+| hard-terminated | 10,000 | 36,167,616 | 23,790,272 | -34.2% |
+| hard-terminated | 100,000 | 360,307,648 | 235,482,816 | -34.6% |
+| soft-wrapped | 100,000 | 2,120,307,648 | 1,355,482,816 | -36.1% |
+
+The per-line slot grew 64 to 88 bytes to carry the sidecar handle, which is why
+the reduction lands slightly under the 35.3-36.2% projected before the work:
+that projection held the slot constant. The gap is the cost of the handle on
+every line, including the mark-free ones.
+
+**A cell carrying marks costs more than it used to.** It is 28 bytes plus a
+32-byte sidecar entry, against 44 bytes inline before. Break-even is at roughly
+45% of cells carrying combining marks: below that the per-cell saving dominates,
+above it this representation is worse than the one it replaced. Real content is
+nowhere near that density, and the corpus that is — text that is mostly
+combining marks — is the case this design is deliberately worst for. The figure
+is measured, not assumed, by `mark_density_cost`.
+
+The sidecar's key is a `usize`, not a narrower integer. A soft-wrapped logical
+line is not bounded by the terminal width — it is bounded by
+`MAX_LOGICAL_LINE_CELLS`, 2^20 — so a 16-bit key would truncate on ordinary
+output and silently attach marks to the wrong base character. A `usize` is the
+type flat indices already have throughout the store, so no conversion exists on
+that path that could truncate.
+
+**Reading got faster, not slower, despite converting on read.** The projection
+rebuilt every cell in the store purely to count how many rows each line
+produces, then dropped them. It now counts without materializing: one
+implementation, with cell writes gated by a flag and the row length asserted
+against the written cells at every step so the two modes cannot drift. Reading a
+viewport immediately after new output — the steady state while a command is
+producing output — fell from 27.6 ms to 11.4 ms at 100,000 lines. Filling the
+store also got faster, 930 ms to 772 ms at 100,000 soft-wrapped lines, because
+the ring it writes into is a third smaller.
+
+The one regression is the read with nothing pushed since the last one: 9.7 to
+11.4 microseconds, the cost of rebuilding the roughly 800 cells a viewport
+actually contains. That is intrinsic to converting at the boundary rather than
+storing what the renderer wants, and it is stated here rather than netted off
+against the cold-path gain.
 
 **Windows:** no platform surface. This is core terminal storage with no
 platform-specific branch; the same code runs on every target and the

@@ -306,6 +306,13 @@ pub struct Attrs {
     /// never revised. Both sizes are pinned by compile-time assertion in
     /// `crate::core::tests::cell_equivalence`, so the figures here are
     /// measured rather than remembered.
+    ///
+    /// `Cell` is what the **live grid** stores and what every reader outside
+    /// the core sees. Scrollback stores a narrower cell —
+    /// `crate::core::stored_cell::StoredCell`, 28 bytes, with the combining
+    /// array held per line instead of per cell — and converts at the projection
+    /// boundary. A change to `Cell`'s layout therefore moves grid cost
+    /// directly and ring cost only through that type.
     flags: u16,
     pub underline_style: UnderlineStyle,
     pub underline_color: Option<Color>,
@@ -552,6 +559,33 @@ impl Cell {
         Self {
             protected,
             ..Self::new(ch, attrs)
+        }
+    }
+
+    /// A mark-free cell built from all four of its non-combining fields in a
+    /// single initializer.
+    ///
+    /// Exists for the scrollback ring's hydration path, which rebuilds a `Cell`
+    /// per stored cell on every projection. The struct-update forms above go
+    /// through a full `Cell` temporary and copy it, which is invisible on a
+    /// one-off construction and measurable when it runs once per cell across a
+    /// deep store. Marks are still attached afterwards through
+    /// [`Cell::push_combining`], so the `MAX_COMBINING` bound stays in one
+    /// place.
+    #[inline]
+    pub(crate) fn from_parts(
+        ch: char,
+        attrs: Attrs,
+        protected: bool,
+        wide_continuation: bool,
+    ) -> Self {
+        Self {
+            ch,
+            attrs,
+            protected,
+            wide_continuation,
+            combining: ['\0'; MAX_COMBINING],
+            combining_len: 0,
         }
     }
 

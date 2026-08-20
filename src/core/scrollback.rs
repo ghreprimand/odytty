@@ -62,11 +62,19 @@ use super::button::{ButtonId, ButtonSpan, MAX_BUTTON_SPANS_PER_LINE, SpanReproje
 use super::prompt_marks::PromptKind;
 use super::reflow::{ReflowOptions, reflow_lines_with_options, resize_keep_width_with_options};
 use super::screen::{Line, blank_row};
+use super::stored_cell::{
+    MarkTable, StoredCell, adopt_row_cells, hydrate_all, marks_bytes, stored_cells_bytes,
+};
 use super::types::{Cell, Dimensions, Position};
 use crate::memory_report::ScrollbackBytes;
 
-/// Heap bytes a cell allocation of `capacity` cells occupies. Shared by every
-/// memory-attribution site so grid and scrollback are counted the same way.
+/// Heap bytes a **live-grid** cell allocation of `capacity` cells occupies.
+///
+/// The ring counts its own cells with
+/// [`super::stored_cell::stored_cells_bytes`], because the ring stores
+/// [`StoredCell`] and the grid stores [`Cell`]. They were one function while
+/// the two were the same type; keeping it shared now would misattribute one of
+/// them.
 pub(in crate::core) fn cells_bytes(capacity: usize) -> u64 {
     (capacity as u64).saturating_mul(std::mem::size_of::<Cell>() as u64)
 }
@@ -84,7 +92,15 @@ pub(in crate::core) fn spans_bytes(capacity: usize) -> u64 {
 /// or the live grid). An open line is only ever the *last* line in the store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::core) struct LogicalLine {
-    cells: Vec<Cell>,
+    /// The line's cells in the ring's narrow representation. Combining marks
+    /// are not here — they are in `marks`, keyed by index into this vector.
+    cells: Vec<StoredCell>,
+    /// Combining marks of this logical line's cells, in FLAT-cell coordinates
+    /// (the same space `cells` indexes) — the same carry `button_spans` uses,
+    /// for the same reason and with the same lifetime. Empty and unallocated
+    /// for the overwhelmingly common mark-free line, and evicted with the line
+    /// because it *is* part of the line.
+    marks: MarkTable,
     open: bool,
     /// OSC 133 prompt mark of this logical line (SH1), captured from the first
     /// physical row that formed it. Re-stamped onto the first physical row when
@@ -133,6 +149,51 @@ impl LogicalLine {
         }
         if self.button_spans.capacity() - self.button_spans.len() > FINALIZE_SLACK_TOLERANCE {
             self.button_spans.shrink_to_fit();
+        }
+        // The mark sidecar is reclaimed on the same transition and by the same
+        // rule as the cells it describes. Reclaiming capacity must not reorder
+        // or drop entries, so this is a `shrink_to_fit` and nothing else.
+        self.marks.finalize_capacity();
+        self.marks.debug_check(self.cells.len());
+    }
+
+    /// This line's cells as full `Cell`s, with combining marks re-attached.
+    fn hydrate(&self) -> Vec<Cell> {
+        hydrate_all(&self.cells, &self.marks)
+    }
+}
+
+/// One logical line's inputs to [`project_line_into`], grouped so the
+/// projection's signature stays readable and so a caller cannot pair a line's
+/// cells with another line's marks by argument order.
+#[derive(Clone, Copy)]
+struct LineView<'a> {
+    cells: &'a [StoredCell],
+    marks: &'a MarkTable,
+    prompt_mark: Option<PromptKind>,
+    spans: &'a [ButtonSpan],
+}
+
+impl LogicalLine {
+    /// This line as projection inputs, with everything the projection reads
+    /// taken from the same line by construction.
+    fn view(&self) -> LineView<'_> {
+        LineView {
+            cells: &self.cells,
+            marks: &self.marks,
+            prompt_mark: self.prompt_mark,
+            spans: &self.button_spans,
+        }
+    }
+
+    /// This line as projection inputs for a caller that only needs the row
+    /// count. Button spans cannot influence how many rows a line produces —
+    /// the reprojector only records positions during the walk and attaches
+    /// spans to rows after it — so they are dropped rather than walked.
+    fn counting_view(&self) -> LineView<'_> {
+        LineView {
+            spans: &[],
+            ..self.view()
         }
     }
 }
@@ -199,12 +260,14 @@ impl Projection {
 /// Default maximum number of logical lines retained in scrollback. Each scrolled
 /// -off hard-terminated line is one logical line, so this is the user-facing
 /// "lines of history" cap. Chosen to match the common terminal default (xterm,
-/// kitty, alacritty all default near this) and bounds steady-state memory: at
-/// 44 B/cell and 80 columns a logical line is ~3.5 KB, so 10k lines of
-/// hard-terminated history measures ~34.5 MB of ring. (The earlier form of this
-/// note said 36 B/cell and ~28 MB; `Cell` grew to 44 bytes when the combining
-/// array was added, and the figure was never revised. It is stated here from a
-/// measurement, not from the model — see `docs/memory.md`.) Without a cap, a
+/// kitty, alacritty all default near this) and bounds steady-state memory: the
+/// ring stores [`StoredCell`] at 28 B/cell, so at 80 columns 10k lines of
+/// hard-terminated history measures 23.8 MB of ring. (This note has now been
+/// wrong twice, in the same way: it said 36 B/cell and ~28 MB after `Cell` grew
+/// to 44, then 44 B/cell and ~34.5 MB after the ring stopped storing `Cell`.
+/// Both times the model outlived the code. The figure above is a measurement —
+/// `stage_b_cell_shrink_projection`, hard 10,000 — not an arithmetic product,
+/// which is why it does not equal 10,000 x 80 x 28.) Without a cap, a
 /// process that streams
 /// unbounded output (`yes`, `cat bigfile`, a runaway loop) would grow OdyTTY's
 /// memory until the OS OOM-killed it. See [`Scrollback::push_row`].
@@ -428,14 +491,7 @@ impl Scrollback {
         let (line_index, first_row) = self.cache.borrow().locate(row)?;
         let line = self.lines.get(line_index)?;
         let mut rows = Vec::new();
-        project_line_into(
-            &line.cells,
-            width,
-            line.open,
-            line.prompt_mark,
-            &line.button_spans,
-            &mut rows,
-        );
+        project_line_into(line.view(), width, line.open, true, &mut rows);
         rows.into_iter().nth(row - first_row)
     }
 
@@ -490,8 +546,11 @@ impl Scrollback {
             // row already scrolled off before the mark was stamped (the mark
             // landed on a still-visible continuation row), adopt it here so the
             // line keeps its first non-`None` mark.
+            // Cells and their marks are appended together by the store's one
+            // re-keying entry point, so the offset the append starts at is
+            // applied to both or to neither.
             let offset = last.cells.len();
-            last.cells.extend(row.cells.iter().copied());
+            adopt_row_cells(&mut last.cells, &mut last.marks, &row.cells);
             last.open = wrapped;
             if last.prompt_mark.is_none() {
                 last.prompt_mark = row.prompt_mark;
@@ -518,8 +577,12 @@ impl Scrollback {
                 last.finalize_capacity();
             }
         } else {
+            let mut cells = Vec::new();
+            let mut marks = MarkTable::default();
+            adopt_row_cells(&mut cells, &mut marks, &row.cells);
             let mut line = LogicalLine {
-                cells: row.cells,
+                cells,
+                marks,
                 open: wrapped,
                 prompt_mark: row.prompt_mark,
                 button_spans: row.button_spans,
@@ -585,6 +648,11 @@ impl Scrollback {
         {
             let drop = last.cells.len() - (MAX_LOGICAL_LINE_CELLS - SLACK);
             last.cells.drain(0..drop);
+            // The mark sidecar is keyed by flat index, so a front-drain of the
+            // cells has to shift it by the same amount or every surviving mark
+            // lands on a different base character than the one it belongs to.
+            last.marks.drop_front(drop);
+            last.marks.debug_check(last.cells.len());
             // Shift surviving button spans left with the drained cells; spans
             // fully inside the drained front are freed, spans straddling the
             // cut keep their surviving tail.
@@ -747,12 +815,14 @@ impl Scrollback {
             self.lines
                 .iter()
                 .fold((0u64, 0u64), |(bytes, slack), line| {
-                    let used = cells_bytes(line.cells.capacity())
-                        .saturating_add(spans_bytes(line.button_spans.capacity()));
-                    let unused = cells_bytes(line.cells.capacity() - line.cells.len())
+                    let used = stored_cells_bytes(line.cells.capacity())
+                        .saturating_add(spans_bytes(line.button_spans.capacity()))
+                        .saturating_add(marks_bytes(line.marks.capacity()));
+                    let unused = stored_cells_bytes(line.cells.capacity() - line.cells.len())
                         .saturating_add(spans_bytes(
                             line.button_spans.capacity() - line.button_spans.len(),
-                        ));
+                        ))
+                        .saturating_add(marks_bytes(line.marks.capacity() - line.marks.len()));
                     (bytes.saturating_add(used), slack.saturating_add(unused))
                 });
         // The projection is now a shape, not a copy: one `usize` per logical
@@ -799,14 +869,7 @@ impl Scrollback {
         let mut total_rows = 0usize;
         for line in &self.lines {
             scratch.clear();
-            project_line_into(
-                &line.cells,
-                width,
-                line.open,
-                line.prompt_mark,
-                &line.button_spans,
-                &mut scratch,
-            );
+            project_line_into(line.counting_view(), width, line.open, false, &mut scratch);
             row_starts.push(total_rows);
             total_rows += scratch.len();
         }
@@ -877,14 +940,13 @@ pub(in crate::core) fn resize_lazy_with_options(
     let mut pulled_rows = 0usize;
     loop {
         let need_more = pulled_rows < new_rows;
-        let extend_blank =
-            pulled_rows >= new_rows && sb.lines.back().is_some_and(|l| cells_all_blank(&l.cells));
+        let extend_blank = pulled_rows >= new_rows && sb.lines.back().is_some_and(line_all_blank);
         if !(need_more || extend_blank) {
             break;
         }
         match sb.lines.pop_back() {
             Some(line) => {
-                pulled_rows += count_projected_rows(&line.cells, new_width, line.open);
+                pulled_rows += count_projected_rows(&line, new_width);
                 pulled.push(line);
             }
             None => break,
@@ -905,10 +967,14 @@ pub(in crate::core) fn resize_lazy_with_options(
         // irrelevant — so no projection/padding is needed and an open line joins
         // to the live grid without inserted blanks.
         for line in &pulled {
+            // The reflow primitives are unchanged and work in `Cell`, so the
+            // mega-row is hydrated here. Marks ride the cells they belong to
+            // through reflow exactly as they always did, and the result comes
+            // back through `push_row`, which re-narrows it.
             let mut mega = if line.open {
-                Line::wrapped(line.cells.clone())
+                Line::wrapped(line.hydrate())
             } else {
-                Line::unwrapped(line.cells.clone())
+                Line::unwrapped(line.hydrate())
             };
             // Carry the prompt mark onto the mega-row so `reflow_lines` re-anchors
             // it onto the first re-wrapped physical row. Button spans ride the
@@ -1048,7 +1114,8 @@ fn resize_shell_owns_no_rewrap(
 /// becomes an `open` logical line.
 pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> {
     let mut lines = Vec::new();
-    let mut current: Vec<Cell> = Vec::new();
+    let mut current: Vec<StoredCell> = Vec::new();
+    let mut current_marks = MarkTable::default();
     let mut current_mark: Option<PromptKind> = None;
     let mut current_spans: Vec<ButtonSpan> = Vec::new();
     for row in rows {
@@ -1068,10 +1135,13 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
                 len: span.len,
             });
         }
-        current.extend(row.cells.iter().copied());
+        // Same single re-keying entry point as `push_row`: the flat offset the
+        // append starts at is applied to the cells and their marks together.
+        adopt_row_cells(&mut current, &mut current_marks, &row.cells);
         if !row.wrapped {
             let mut line = LogicalLine {
                 cells: std::mem::take(&mut current),
+                marks: std::mem::take(&mut current_marks),
                 open: false,
                 prompt_mark: current_mark.take(),
                 button_spans: std::mem::take(&mut current_spans),
@@ -1086,6 +1156,7 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
     if !current.is_empty() {
         lines.push(LogicalLine {
             cells: current,
+            marks: current_marks,
             open: true,
             prompt_mark: current_mark,
             button_spans: current_spans,
@@ -1101,26 +1172,24 @@ where
 {
     let mut out = Vec::new();
     for line in lines {
-        project_line_into(
-            &line.cells,
-            width,
-            line.open,
-            line.prompt_mark,
-            &line.button_spans,
-            &mut out,
-        );
+        project_line_into(line.view(), width, line.open, true, &mut out);
     }
     out
 }
 
-fn cells_all_blank(cells: &[Cell]) -> bool {
-    let plain = Cell::blank();
-    cells.iter().all(|c| *c == plain)
+/// Whether a logical line is entirely plain blanks.
+///
+/// A marked cell is never blank however plain its base looks, for the same
+/// reason the trailing-blank trim consults the sidecar: the marks are no longer
+/// inside the cell being compared.
+fn line_all_blank(line: &LogicalLine) -> bool {
+    let plain = StoredCell::from_cell(&Cell::blank());
+    line.marks.is_empty() && line.cells.iter().all(|c| *c == plain)
 }
 
-fn count_projected_rows(cells: &[Cell], width: usize, open: bool) -> usize {
+fn count_projected_rows(line: &LogicalLine, width: usize) -> usize {
     let mut tmp = Vec::new();
-    project_line_into(cells, width, open, None, &[], &mut tmp);
+    project_line_into(line.counting_view(), width, line.open, false, &mut tmp);
     tmp.len()
 }
 
@@ -1141,15 +1210,39 @@ fn count_projected_rows(cells: &[Cell], width: usize, open: bool) -> usize {
 ///   re-projected onto the produced rows as row-local segments — the
 ///   `prompt_mark` carry extended to column ranges. Span-free lines (the
 ///   overwhelmingly common case) pay only an `is_empty` check.
+///
+/// # `materialize`
+///
+/// Callers that only need to know *how many* rows a line produces — the
+/// projection-shape cache and the resize subset pull — pass `false`, and the
+/// rows are emitted with their flags and their count but without their cells.
+///
+/// This is one implementation, not two. Every wrapping decision reads
+/// `row_len`, which is maintained identically in both modes; materializing only
+/// gates whether a cell is also *written*. `row_len` and the row vector are
+/// asserted equal at every push under `debug_assertions`, so the two modes
+/// cannot silently diverge — a missed increment fails immediately in every
+/// debug test run rather than producing a shape that disagrees with the
+/// projection it describes.
+///
+/// It exists because the ring stores [`StoredCell`] and rebuilding a full
+/// `Cell` is real work: rebuilding every cell in the store purely to count rows
+/// and then dropping them was measured at 21.5 ms of a 38.5 ms cache rebuild at
+/// 100,000 lines.
 fn project_line_into(
-    cells: &[Cell],
+    line: LineView<'_>,
     width: usize,
     open: bool,
-    mark: Option<PromptKind>,
-    spans: &[ButtonSpan],
+    materialize: bool,
     out: &mut Vec<Line>,
 ) {
-    let plain = Cell::blank();
+    let LineView {
+        cells,
+        marks,
+        prompt_mark: mark,
+        spans,
+    } = line;
+    let plain = StoredCell::from_cell(&Cell::blank());
     // Index of this logical line's first physical row in `out`; the prompt mark
     // is re-anchored here after the rows are produced. A logical line always
     // produces at least one row, so this index is always valid afterward.
@@ -1161,70 +1254,101 @@ fn project_line_into(
     };
 
     // Trim trailing plain blanks (matches reflow). Open lines carry none.
+    //
+    // A stored cell that compares equal to `plain` is not necessarily blank:
+    // its combining marks live in the sidecar and are not part of the
+    // comparison. Trimming on the base alone would silently discard marks
+    // attached to a space — which a `Cell` comparison could never do, because
+    // the marks were inside the cell. The sidecar is consulted so the trim
+    // means the same thing it did before.
     let mut keep = cells.len();
-    while keep > 0 && cells[keep - 1] == plain {
+    while keep > 0 && cells[keep - 1] == plain && !marks.any_at_or_after(keep - 1) {
         keep -= 1;
     }
     let cells = &cells[..keep];
 
-    let mut row_cells: Vec<Cell> = Vec::with_capacity(width);
+    let blank = Cell::blank();
+    let mut row_cells: Vec<Cell> = Vec::with_capacity(if materialize { width } else { 0 });
+    // Logical length of the row being built. This — not `row_cells.len()` — is
+    // what every wrapping decision below reads, so the decisions are identical
+    // whether or not the cells are written.
+    let mut row_len = 0usize;
+    // Emit one cell into the row: always counted, written only when
+    // materializing. The debug assertion pins the two together, so the counting
+    // mode cannot drift from the mode it is supposed to describe.
+    macro_rules! emit {
+        ($make:expr) => {{
+            row_len += 1;
+            if materialize {
+                row_cells.push($make);
+                debug_assert_eq!(
+                    row_cells.len(),
+                    row_len,
+                    "row length drifted from its cells"
+                );
+            }
+        }};
+    }
+    macro_rules! finish_row {
+        ($line:expr) => {{
+            out.push($line);
+            row_len = 0;
+            row_cells = Vec::with_capacity(if materialize { width } else { 0 });
+        }};
+    }
     let mut produced_any = false;
     let mut i = 0;
     while i < cells.len() {
         let cell = cells[i];
-        let is_wide_lead = !cell.wide_continuation && UnicodeWidthChar::width(cell.ch) == Some(2);
+        let is_wide_lead =
+            !cell.wide_continuation() && UnicodeWidthChar::width(cell.ch()) == Some(2);
         let unit = if is_wide_lead && width >= 2 { 2 } else { 1 };
 
         // Wrap before a wide pair that would straddle the right edge.
-        if unit == 2 && row_cells.len() + unit > width && !row_cells.is_empty() {
-            while row_cells.len() < width {
-                row_cells.push(plain);
+        if unit == 2 && row_len + unit > width && row_len != 0 {
+            while row_len < width {
+                emit!(blank);
             }
-            out.push(Line::wrapped(std::mem::take(&mut row_cells)));
+            finish_row!(Line::wrapped(std::mem::take(&mut row_cells)));
             produced_any = true;
-            row_cells = Vec::with_capacity(width);
         }
 
         if unit == 2 {
             if let Some(rec) = reprojector.as_mut() {
-                rec.record(i, out.len(), row_cells.len());
-                if i + 1 < cells.len() && cells[i + 1].wide_continuation {
-                    rec.record(i + 1, out.len(), row_cells.len() + 1);
+                rec.record(i, out.len(), row_len);
+                if i + 1 < cells.len() && cells[i + 1].wide_continuation() {
+                    rec.record(i + 1, out.len(), row_len + 1);
                 }
             }
-            row_cells.push(cell);
-            let cont = if i + 1 < cells.len() && cells[i + 1].wide_continuation {
-                cells[i + 1]
+            let has_cont = i + 1 < cells.len() && cells[i + 1].wide_continuation();
+            emit!(cell.hydrate(marks.marks_at(i)));
+            if has_cont {
+                emit!(cells[i + 1].hydrate(marks.marks_at(i + 1)));
+                i += 2;
             } else {
-                Cell::wide_spacer(cell.attrs)
-            };
-            row_cells.push(cont);
-            i += if i + 1 < cells.len() && cells[i + 1].wide_continuation {
-                2
-            } else {
-                1
-            };
+                emit!(Cell::wide_spacer(cell.attrs()));
+                i += 1;
+            }
         } else {
             // Drop an orphaned continuation cell (its lead was degraded).
-            if !cell.wide_continuation {
+            if !cell.wide_continuation() {
                 if let Some(rec) = reprojector.as_mut() {
-                    rec.record(i, out.len(), row_cells.len());
+                    rec.record(i, out.len(), row_len);
                 }
-                row_cells.push(cell);
+                emit!(cell.hydrate(marks.marks_at(i)));
             }
             i += 1;
         }
 
-        if row_cells.len() >= width {
-            out.push(Line::wrapped(std::mem::take(&mut row_cells)));
+        if row_len >= width {
+            finish_row!(Line::wrapped(std::mem::take(&mut row_cells)));
             produced_any = true;
-            row_cells = Vec::with_capacity(width);
         }
     }
 
-    if !row_cells.is_empty() || !produced_any {
-        while row_cells.len() < width {
-            row_cells.push(plain);
+    if row_len != 0 || !produced_any {
+        while row_len < width {
+            emit!(blank);
         }
         out.push(if open {
             Line::wrapped(row_cells)

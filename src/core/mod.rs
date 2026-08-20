@@ -31,6 +31,7 @@ mod screen;
 mod scrollback;
 mod search;
 mod snapshot_envelope;
+mod stored_cell;
 mod types;
 
 #[cfg(test)]

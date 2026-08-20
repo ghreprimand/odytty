@@ -12,6 +12,7 @@ mod chars_unicode;
 mod combining_side_table;
 mod erase_scroll;
 mod kitty_keyboard;
+mod mark_density_cost;
 mod osc_clipboard_colors;
 mod osc_cwd;
 mod osc_prompt;

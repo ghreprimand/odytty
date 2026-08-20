@@ -425,3 +425,108 @@ fn scrollback_eviction_does_not_reattach_evicted_marks_to_survivors() {
         last = at;
     }
 }
+
+/// `push_row` merge must re-key continuation-row marks by the append offset.
+/// An off-by-N sidecar key leaves diacritics on a neighboring base: the
+/// graphemes are all still "present", but on the wrong character.
+#[test]
+fn push_row_merge_keeps_continuation_marks_on_their_own_base() {
+    let lead = cluster('L', 4);
+    let cont = cluster('R', 3);
+    let mut terminal = Terminal::new(8, 2);
+    terminal.set_scrollback_limit(0);
+    terminal.advance(b"aaaaaaa");
+    terminal.advance(lead.as_bytes());
+    terminal.advance(cont.as_bytes());
+    terminal.advance(b"bbbbbbb");
+    // Hard-terminate and scroll the wrapped pair into history.
+    terminal.advance(b"\r\n\r\n\r\n");
+    let physical = physical_graphemes(&terminal);
+    let lead_at = physical
+        .iter()
+        .position(|g| g == &lead)
+        .expect("lead cluster missing after merge");
+    let cont_at = physical
+        .iter()
+        .position(|g| g == &cont)
+        .expect("continuation cluster missing after merge");
+    assert!(
+        lead_at + 1 == cont_at,
+        "merge re-key off-by-N: lead at {lead_at}, cont at {cont_at}, grid={physical:?}"
+    );
+    assert_eq!(
+        physical[lead_at], lead,
+        "lead marks landed on a different base"
+    );
+    assert_eq!(
+        physical[cont_at], cont,
+        "continuation marks landed on a different base"
+    );
+    assert_ne!(physical[lead_at], physical[cont_at]);
+}
+
+/// A soft-wrapped logical line is not bounded by terminal width. Past 65,535
+/// cells, a u16 sidecar key wraps and attaches the far-end marks to cell 0.
+#[test]
+fn long_logical_line_marks_survive_past_u16_column() {
+    const FAR_INDEX: usize = 65_535;
+    let start = cluster('S', 4);
+    let lead = cluster('L', 4);
+    let cont = cluster('R', 3);
+    let far = cluster('Z', 4);
+    let past = cluster('Y', 3);
+    let mut terminal = Terminal::new(80, 4);
+    terminal.set_scrollback_limit(0);
+
+    let mut payload = String::new();
+    payload.push_str(&start);
+    payload.push_str(&"a".repeat(78));
+    payload.push_str(&lead);
+    payload.push_str(&cont);
+    payload.push_str(&"x".repeat(FAR_INDEX - 81));
+    payload.push_str(&far);
+    payload.push_str(&past);
+    payload.push_str("\r\n\r\n\r\n\r\n");
+    terminal.advance(payload.as_bytes());
+
+    let physical = physical_graphemes(&terminal);
+    let start_at = physical
+        .iter()
+        .position(|g| g == &start)
+        .expect("start cluster missing on the long line");
+    let lead_at = physical
+        .iter()
+        .position(|g| g == &lead)
+        .expect("wrap-end cluster missing");
+    let cont_at = physical
+        .iter()
+        .position(|g| g == &cont)
+        .expect("wrap-start cluster missing");
+    let far_at = physical
+        .iter()
+        .position(|g| g == &far)
+        .expect("cell 65535 cluster missing");
+    let past_at = physical
+        .iter()
+        .position(|g| g == &past)
+        .expect("cell 65536 cluster missing — u16 key truncation drops or relocates it");
+
+    assert_eq!(
+        physical[start_at], start,
+        "far-end marks wrapped onto cell 0"
+    );
+    assert_ne!(
+        physical[start_at], past,
+        "cell 65536 marks aliased onto cell 0"
+    );
+    assert_eq!(
+        lead_at + 1,
+        cont_at,
+        "merge across the first wrap shifted marks; lead={lead_at} cont={cont_at}"
+    );
+    assert!(
+        far_at + 1 == past_at,
+        "marks at the u16 boundary swapped; far={far_at} past={past_at}"
+    );
+    assert!(start_at < lead_at && cont_at < far_at && far_at < past_at);
+}

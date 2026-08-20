@@ -7,6 +7,96 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-20 -- Scrollback stores a narrower cell than the grid
+
+Deep history is now stored once rather than twice, and what was left of the ring
+was almost entirely cells — 97.7% at 100,000 hard-terminated lines. The size of
+a stored cell was therefore the whole remaining question, and 16 of `Cell`'s 44
+bytes are an inline four-slot combining array that is empty for effectively
+every cell in real content.
+
+**The obvious design cannot be built, and one existing call site proves it.**
+Narrowing `Cell` itself and moving marks to a per-screen side table founders on
+`Cell::combining` returning a borrow of data inside the cell: the renderer reads
+it while iterating a snapshot's cells with no `Screen` in scope and none
+reachable, because the snapshot has already left the core. A cell has to stay
+self-describing wherever it goes, and it goes outside the core. The same root
+cause defeats eviction — `Cell` is `Copy`, so no destructor runs, and rectangle
+copies duplicate cells wholesale. The only surviving variant of that design was
+a process-global arena that never frees and drops marks on overflow, which is a
+poor trade in a release about resident memory.
+
+**What landed narrows only the ring.** `StoredCell` is 28 bytes — base char, the
+whole `Attrs`, and the two per-cell booleans packed into one byte — and
+combining marks live in a per-line sidecar keyed by flat-cell index. That is the
+shape button spans already use, with the same lifetime: a field of the logical
+line, unallocated for the mark-free line, evicted with the line because it is
+part of it. `Cell` is untouched, stays `Copy`, and every reader outside the ring
+sees exactly what it saw before. No `Attrs` field is narrowed — colour, every
+SGR bit and the hyperlink id are carried whole, so the saving is not bought with
+cell fidelity.
+
+Ring bytes, measured on the same corpora as before: 36,167,616 to 23,790,272 at
+10,000 hard-terminated lines (-34.2%), 360,307,648 to 235,482,816 at 100,000
+(-34.6%), and 2,120,307,648 to 1,355,482,816 at 100,000 soft-wrapped (-36.1%).
+The reduction lands slightly under the 35.3-36.2% projected beforehand because
+the per-line slot grew 64 to 88 bytes to carry the sidecar handle, and the
+projection had held the slot constant. That gap is a real cost paid on every
+line, including the mark-free ones, and it is stated rather than rounded away.
+
+**Index integrity was treated as the deliverable, not a side effect.** A mistake
+re-keying the sidecar does not lose marks — it moves them onto the wrong base
+character, which reads as wrong glyphs rather than missing ones and which no
+"did we keep every mark" assertion would catch. So there is exactly one
+re-keying site: every path that builds or extends a logical line from physical
+rows goes through the same function, which pushes a cell and its marks in the
+same loop over the same index. The key is a `usize` rather than a narrower
+integer, because a soft-wrapped logical line is not bounded by the terminal
+width and a 16-bit key would truncate on ordinary long output.
+
+Three seams are pinned by tests that were each confirmed to fail when the
+corresponding guard is removed: a mark carried in by a continuation row stays on
+its own base after the merge; a mark at flat index 66,000 of a single logical
+line survives; and a space carrying marks is not discarded by the trailing-blank
+trim, which used to be safe by construction because the marks were inside the
+cell being compared.
+
+**Reading got faster, not slower, despite converting on read.** Rebuilding a
+`Cell` per stored cell is real work, and the projection was doing it for every
+cell in the store purely to count how many rows each line produces, then
+dropping the result — measured at 21.5 ms of a 38.5 ms cache rebuild at 100,000
+lines. Counting no longer materializes cells. It is one implementation, not two:
+every wrapping decision reads a row length that is maintained identically either
+way, cell writes are gated, and the two are asserted equal at every step so the
+shape cannot drift from the projection it describes. Reading a viewport
+immediately after new output fell from 27.6 ms to 11.4 ms at 100,000 lines, and
+filling the store fell from 930 ms to 772 ms because the ring being written is a
+third smaller.
+
+The one regression is the read with nothing pushed since the last one: 9.7 to
+11.4 microseconds, three replicates per arm and non-overlapping. That is the
+cost of rebuilding the roughly 800 cells a viewport contains, intrinsic to
+converting at the boundary, and it is recorded rather than netted off against
+the cold-path gain.
+
+**The cost that goes up is stated where the saving is.** A cell carrying marks
+now costs 28 bytes plus a 32-byte sidecar entry against 44 bytes inline, so
+break-even is around 45% of cells carrying combining marks. Real content is
+nowhere near that; text that is mostly combining marks is the case this design
+is deliberately worst for, and its price is measured rather than described.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D warnings`,
+and `cargo test --locked` at `RUST_TEST_THREADS=1` — 4762 passed, 0 failed. The
+deep fuzz tiers were run over the new index space specifically: 12 protocol-fuzz
+targets and 9 graphics-fuzz targets at 40,000 iterations each, all passing.
+Sizes are pinned by compile-time assertion on both the stored cell and `Cell`.
+
+**Windows:** no platform surface. This is core terminal storage with no
+platform-specific branch anywhere in the change; the same code runs on every
+target and the `windows-latest` CI leg is the check.
+
+---
+
 ## 2026-08-18 -- Denser scrollback cells: the evidence before the change
 
 The next scrollback reduction is a denser stored cell, and the design it should
