@@ -434,7 +434,7 @@ pub(super) const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" 
 
   case "$PS1" in
     *'133;B'*) ;;
-    *) PS1="${PS1}%{\e]133;B\a%}" ;;
+    *) PS1="${PS1}"$'%{\e]133;B\a%}' ;;
   esac
   add-zsh-hook precmd __odytty_precmd
   add-zsh-hook preexec __odytty_preexec
