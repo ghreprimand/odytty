@@ -1,6 +1,15 @@
 # OdyTTY Comparative Benchmark Protocol
 
-Protocol version: `1.4.1`
+Protocol version: `1.5.0`
+
+Version 1.5.0 retains the 1.4.1 geometry model, optical workloads W1-W7, and
+background-load decision, and adds an explicitly named **software-endpoint**
+workload class with its own identifiers (`SE1`, `SE2`). That class is a
+weaker evidence class: its samples are never pooled with optical-endpoint
+samples, never reported as latency, and never used to rank interactive
+responsiveness. A software-endpoint measurement is not an optical workload
+with the photosensor removed; it is a different quantity with a different
+boundary (see *Software-endpoint class*).
 
 Version 1.4.1 retains the 1.4.0 geometry and workload model and corrects the
 continuous background-load decision: the preregistered ceiling applies to the
@@ -33,10 +42,11 @@ comparison unreachable. The remaining pitch difference is therefore stated as
 a limitation of the comparison (see *Cell geometry: a target, not an admission gate*) rather
 than asserted away.
 
-Version 1.4.1 requires a fresh preregistration and run-set identity. Protocol
-1.0.0, 1.1.0, 1.2.0, 1.3.0, and 1.4.0 records and results remain historical
-evidence, are rejected by version rather than reinterpreted, and are never
-pooled with 1.4.1 samples.
+Version 1.5.0 requires a fresh preregistration and run-set identity. Protocol
+1.0.0 through 1.4.1 records and results remain historical evidence, are
+rejected by version rather than reinterpreted, and are never pooled with
+1.5.0 samples. Optical samples under 1.5.0 are never pooled with
+software-endpoint samples under the same version.
 
 This protocol defines how OdyTTY and independent terminal references are
 compared before any comparative numbers are collected. It measures complete
@@ -611,12 +621,90 @@ primary growth slope.
 The primary slope uses all minute samples from hours two through four. It is not
 extrapolated beyond the observed interval.
 
+## Software-endpoint class
+
+The software-endpoint class exists so this comparison unit can publish
+throughput-shaped and retention-shaped measurements without optical capture
+apparatus, without pretending those measurements are the optical workloads.
+
+**Evidence class.** Software-endpoint samples are a weaker evidence class than
+optical-endpoint samples. They:
+
+- use identifiers in the `SE*` namespace, never `W1`-`W7`;
+- are never pooled with optical samples in any summary, table, or ranking;
+- are never reported as latency, optical latency, or interactive
+  responsiveness;
+- must not be cited as a substitute for W3, W4, or any other optical
+  workload.
+
+**Endpoint.** For every software-endpoint workload the harness controls the
+same software boundary on every terminal: child payload start → validated
+cursor-position report (CPR) → displayed completion patch. Elapsed time
+includes the CPR wait. A terminal that drops or coalesces output and never
+replies fails the oracle; finishing the child early is not a throughput
+score.
+
+**What the class captures.** Byte-accurate fixture delivery through the
+terminal's PTY path, CPR correctness, completion-patch emission, and
+process-tree resident memory around the burst (before, peak during, after a
+fixed idle settle). `retention_delta_bytes` is `after - before`. That signal
+detects retention per unit of work; it does not detect time-based creep in an
+idle process and is not a substitute for W7.
+
+**What the class does not capture.** Compositor present, display scanout, and
+any photosensor-observed completion. The optical boundary sits outside every
+implementation; the software-endpoint boundary sits inside the harness's view
+of the child and the PTY.
+
+### SE1: `software-ascii-stream`
+
+Feed the same `64,000,000`-byte ASCII fixture used by W3 (`800000` records of
+`80` bytes). After the payload, the child requests a cursor-position report,
+waits for a valid reply, then displays the high-contrast completion patch.
+
+- **Endpoint:** child payload start to a validated CPR, then the completion
+  patch (software boundary, identical for every terminal).
+- **Primary metrics:** elapsed seconds (including CPR wait); payload bytes per
+  second; resident bytes before, peak, and after; retention delta
+  (`after - before`).
+- **Oracle:** exact fixture digest; a valid CPR received before the
+  completion patch is painted; the completion patch; the expected final
+  record; no child or terminal failure. Skipping the CPR wait fails the
+  oracle.
+- **Timeout:** `120` seconds.
+- **Relation to W3:** SE1 reuses W3's fixture bytes. It is not W3 with
+  software timing. W3's endpoint is an external start edge to the first
+  *displayed* completion patch on a shared capture clock. SE1 excludes that
+  optical path and therefore measures a different quantity.
+
+### SE2: `software-sgr-stream`
+
+Feed the same `64,000,000`-byte SGR fixture used by W4. After the payload, the
+child performs the same CPR-then-completion-patch oracle as SE1, and requires
+reset style at completion.
+
+- **Endpoint:** identical software boundary to SE1.
+- **Primary metrics:** identical metric set to SE1.
+- **Oracle:** as SE1, plus reset style at completion.
+- **Timeout:** `120` seconds.
+- **Relation to W4:** SE2 reuses W4's fixture bytes. It is not W4 with
+  software timing, for the same boundary reason SE1 is not W3.
+
+Linux is the measurement platform for this class: resident-memory collectors
+are cgroup v2. The child-side CPR and completion-patch oracle is
+transport-identical; the published class is not claimed as portable until a
+preregistration pins equivalent collectors on another platform.
+
 ## Sampling, Ordering, and Stopping
 
 Short workloads W1, W3, W4, and W5 use five complete unmeasured warmup blocks
 followed by `30` measured blocks. Every measured block contains one trial of
 every implementation. W2 uses `20` unmeasured key events followed by `100`
 measured events per implementation in ten blocks.
+
+SE1 and SE2 use the same block plan as W3 and W4: five unmeasured warmup
+blocks and `30` measured blocks, ordered by the same balanced Latin square.
+Their samples remain in a separate result pool from every `W*` sample.
 
 W6 uses one unmeasured two-minute rehearsal and `5` measured replicates per
 implementation. W7 uses `3` measured replicates and no shortened substitute.
@@ -739,9 +827,9 @@ shape:
 
 ```json
 {
-  "schema_version": "1.4.1",
+  "schema_version": "1.5.0",
   "protocol": {
-    "version": "1.4.1",
+    "version": "1.5.0",
     "git_commit": "<full-sha>",
     "sha256": "<protocol-sha256>"
   },

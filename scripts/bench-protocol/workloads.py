@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Workload catalogue for the OdyTTY comparative benchmark protocol
-# (`docs/benchmark-protocol.md`, protocol version 1.4.1).
+# (`docs/benchmark-protocol.md`, protocol version 1.5.0).
 #
 # Two classes live in this file and must never be pooled:
 #
-#   * W1-W7 keep their protocol 1.4.1 identities. W1-W5 are optical-endpoint
+#   * W1-W7 keep their protocol identities (W1-W7). W1-W5 are optical-endpoint
 #     workloads. W6 and W7 are software-idle / long-session. Their apparatus
 #     requirements and the W3/W4 optical-throughput guard stay exactly as
 #     they were.
@@ -469,7 +469,7 @@ def self_test() -> list[str]:
         if not isinstance(entry.get("timeout_seconds"), int):
             failures.append(f"workloads: {name} has a non-integer timeout")
 
-    # W1-W7 remain exactly the protocol 1.4.1 set. The software-endpoint class
+    # W1-W7 remain exactly the optical/idle protocol set. The software-endpoint class
     # uses SE* identifiers and is never folded into that range.
     w_ids = sorted(
         entry["id"]
@@ -568,7 +568,7 @@ def self_test() -> list[str]:
         if not missing_apparatus(name):
             failures.append(
                 f"workloads: {name} lost its apparatus requirement; throughput "
-                "endpoints are optical under protocol 1.4.1"
+                "endpoints are optical under the protocol"
             )
 
     # With a full rig, everything becomes runnable.

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Preregistration-record generator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.4.1).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.5.0).
 #
 # The protocol's first requirement is that every run set have a public
 # preregistration record committed before its first measured sample, and it
@@ -54,7 +54,7 @@ import ordering
 import profiles
 import workloads
 
-PROTOCOL_VERSION = "1.4.1"
+PROTOCOL_VERSION = "1.5.0"
 PROTOCOL_DOC = Path("docs/benchmark-protocol.md")
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 
@@ -1132,9 +1132,20 @@ def self_test(repo_root: Path) -> list[str]:
     ):
         if skipped.get(name) != "unavailable-hardware":
             failures.append(f"prereg: {name} is not declared an unavailable-hardware skip")
-    for name in ("idle-visible-10m", "long-session-4h"):
+    for name in (
+        "idle-visible-10m",
+        "long-session-4h",
+        "software-ascii-stream",
+        "software-sgr-stream",
+    ):
         if name in skipped:
             failures.append(f"prereg: {name} was skipped despite being runnable")
+    for name in ("software-ascii-stream", "software-sgr-stream"):
+        entry = next(w for w in record["workloads"] if w["name"] == name)
+        if not entry.get("planned"):
+            failures.append(f"prereg: {name} is not planned under software-only apparatus")
+        if not entry["id"].startswith("SE"):
+            failures.append(f"prereg: {name} lost its SE* identity")
 
     # Every unplanned workload is accounted for by a declared skip.
     unplanned = {

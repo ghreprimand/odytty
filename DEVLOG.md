@@ -7,6 +7,47 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-22 -- Benchmark protocol 1.5.0: a software-endpoint class, declared weaker
+
+The comparative benchmark protocol moves to 1.5.0. The geometry model, the
+optical workloads W1-W7, and the background-load decision are unchanged; what
+is added is an explicitly named software-endpoint workload class (`SE1`
+bulk-stream throughput, `SE2` resize-acknowledgement rate) so that
+throughput-shaped measurements can be published without optical capture
+apparatus and without pretending they are the optical workloads.
+
+The class is declared a weaker evidence class in the protocol text itself:
+its samples use the `SE*` namespace and never the `W*` one, are never pooled
+with optical samples, are never reported as latency, and are never used to
+rank interactive responsiveness. Every software-endpoint workload carries a
+real oracle - child payload start, then a validated cursor-position report,
+then a displayed completion patch - so a terminal that drops or coalesces
+output fails the oracle rather than scoring well for finishing early. Each
+trial also samples resident bytes before, during, and after the burst; the
+`after - before` retention delta is recorded with its limit stated: it
+detects retention per unit of work, not time-based creep, and is not a
+substitute for W7.
+
+`docs/benchmark-apparatus.md` classifies the new class before any sample is
+taken. W1-W5 remain recorded as blocked on the optical rig, which is ruled
+out on cost, and the record now says so in those words rather than omitting
+the workloads. `unmeasured` is clarified as a publication-state word, not a
+sample status. The GPU-memory collector, `unsupported` in the published W6
+run because the kernel's fdinfo interface lacked the standardized fields,
+is now `available`: the current kernel on the comparison unit exposes
+`drm-resident-*` for every compared terminal, confirmed per terminal rather
+than assumed from one.
+
+Protocol 1.5.0 requires a fresh preregistration and run-set identity. No
+sample has been taken under it; the preregistration will be frozen from a
+clean tree before the first one is, exactly as the protocol requires.
+
+Verified: harness self-test (all checks pass), `cargo fmt --check`,
+`cargo clippy --all-targets --locked -D warnings`, `cargo test --locked` at
+`RUST_TEST_THREADS=1` - 4775 passed, 0 failed.
+
+---
+
 ## 2026-08-21 -- Prompt key enhancement is off by default, and the reason is written down
 
 `shell_key_enhancement` shipped on by default, and the setting's own

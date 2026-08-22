@@ -1,6 +1,6 @@
 # Comparative Benchmark Apparatus and Availability
 
-Companion to `docs/benchmark-protocol.md` (protocol version `1.4.1`).
+Companion to `docs/benchmark-protocol.md` (protocol version `1.5.0`).
 
 The protocol defines how OdyTTY and independent terminal references are
 compared. This document records what the current comparison unit can actually
@@ -18,7 +18,9 @@ therefore classified explicitly.
 
 The protocol fixes five sample statuses: `pass`, `fail`, `invalid`, `skip`, and
 `unsupported`. Result-document validation rejects any status outside that set,
-so the harness does not invent a sixth.
+so the harness does not invent a sixth. `unmeasured` is a publication-state
+word for a workload that remains in the protocol but has no samples yet; it is
+not a sample status and must not appear as one.
 
 `unavailable-hardware` is recorded as a **reserved skip reason** carried by a
 `skip` sample, declared in the preregistration record before measurement. That
@@ -51,7 +53,7 @@ Described only in the protocol's public environment-class terms.
 | Operating system | Linux; exact build pinned per run set |
 | Window server | Wayland compositor |
 | Power | external power, normalized `performance` CPU power policy |
-| Optical apparatus | none |
+| Optical apparatus | none -- optical capture rig ruled out on cost |
 | Virtualization | none; bare metal, local display |
 
 Storage class, display mode, exact driver version, compositor version, and
@@ -102,11 +104,13 @@ geometry" figure.
 
 ## Workload availability
 
-Five of the protocol's seven workloads define their endpoint as an external
+Five of the protocol's optical workloads define their endpoint as an external
 electrical stimulus edge and a display photosensor sharing one capture clock.
 That boundary is deliberate: it sits outside every compared implementation, so
 no product nominates its own start and stop, and no implementation is credited
-for reporting its own completion early.
+for reporting its own completion early. The optical capture rig is **ruled
+out on cost** for this comparison unit; those workloads stay in the protocol
+and are recorded here as blocked rather than omitted from the table.
 
 | Workload | Endpoint | Apparatus required | Status here |
 | --- | --- | --- | --- |
@@ -117,27 +121,35 @@ for reporting its own completion early.
 | W5 `resize-reflow-100k` | first resize request to first displayed final marker | pinned window-control adapter, stimulus controller, photosensor with shared capture clock | `skip` / `unavailable-hardware` |
 | W6 `idle-visible-10m` | none; settling plus 600 measured seconds | software only | available |
 | W7 `long-session-4h` | none; four-hour session sampled per minute | software only | available |
+| SE1 `software-ascii-stream` | child payload start to validated CPR, then completion patch | software only | available (weaker evidence class) |
+| SE2 `software-sgr-stream` | child payload start to validated CPR, then completion patch | software only | available (weaker evidence class) |
 
-Two consequences follow, and both are stated here because both are easy to get
-wrong later:
+Quiet omission is forbidden: a results table that simply lacks W1-W5 would
+read as though those workloads were never part of the protocol. Every run set
+under this apparatus must declare them as `skip` / `unavailable-hardware` with
+the missing apparatus named, exactly as the preregistration generator does.
 
-1. **Throughput is optically gated too.** W3 and W4 are not exempt from the
-   apparatus requirement merely because their metric is a duration rather than
-   a latency. There is no protocol-conforming "at least we can publish
-   throughput" fallback under version `1.4.0`.
-2. **No software-timed substitute is published under a protocol workload
-   name.** Timing the same interval from inside the driver measures a
-   different quantity: it excludes compositor and scanout, and it moves the
-   boundary inside the implementation. Such a tier would require a new
-   protocol version that defines it and forbids pooling its results with
-   optical-tier results. It is not a shortcut that can be taken inside version
-   `1.4.0`.
+Consequences that are easy to get wrong:
+
+1. **Throughput is optically gated for W3 and W4.** They are not exempt from
+   the apparatus requirement merely because their metric is a duration rather
+   than a latency. There is no protocol-conforming fallback that republishes
+   W3/W4 under software timing.
+2. **SE1 and SE2 are not that fallback.** Protocol 1.5.0 defines them as a
+   separate class with separate identifiers. They reuse the W3/W4 fixture
+   bytes and a CPR-plus-completion-patch oracle, but their endpoint excludes
+   compositor present and display scanout. Their samples must never be pooled
+   with optical samples, never reported as latency, and never used to rank
+   interactive responsiveness.
+3. **A child-exit timer without a CPR wait is not an SE sample.** The
+   budgeting probe that timed child exit is explicitly not publishable as
+   throughput under this class.
 
 The harness enforces this in code rather than in prose alone: the workload
-catalogue carries each workload's apparatus requirement as data, the
-preregistration generator declares the unsatisfiable ones as skips before any
-sample is taken, and a self-test fails if W3 or W4 ever lose their apparatus
-requirement.
+catalogue carries each workload's apparatus requirement and class as data, the
+preregistration generator declares the unsatisfiable optical workloads as
+skips before any sample is taken, and a self-test fails if W3 or W4 ever lose
+their optical apparatus requirement or if an SE workload is given a `W*` id.
 
 ## Reference-implementation availability
 
@@ -174,7 +186,8 @@ does not do so is labeled exploratory in its own record.
 | Private / footprint memory | cgroup memory breakdown, exact field names | available |
 | Context switches | scheduler switches for the process tree, diagnostic only | available, diagnostic only |
 | Idle wake events | scheduler wake events targeting registered process-tree threads | `unsupported` unless the run set uses a privileged collector |
-| GPU memory | standardized DRM client resident-region fdinfo fields | `unsupported` |
+| GPU memory | standardized DRM client resident-region fdinfo fields | available on the benchmark unit (see below) |
+| SE retention (`before` / `peak` / `after` / `delta`) | cgroup v2 `memory.current` and `memory.peak` around one burst | available; limit stated below |
 
 **Idle wake events.** Scheduler tracepoints require privileged access on a
 default install: tracefs is root-restricted and `perf_event_paranoid` withholds
@@ -185,13 +198,24 @@ relabeling as wakeups. A privileged run makes the metric available, and must
 then apply the same privileged collector to every compared implementation
 equally.
 
-**GPU memory.** The graphics driver on this comparison unit exports no `drm-`
-prefixed client fields in `/proc/<pid>/fdinfo`, so there is no attributable,
-documented, same-semantic field to compare across implementations. Vendor query
-tools are not substituted: the protocol classes driver-specific and
-self-reported counters as diagnostic, unable to support a cross-product ratio.
-The metric is `unsupported` for this comparison unit and is declared as such in
-preregistration.
+**GPU memory.** Confirmed on the benchmark unit (Intel UHD 620, `i915`, kernel
+`7.1.8-arch1-3`) for every comparison terminal as a live Wayland GPU client:
+OdyTTY, Kitty, Ghostty, and Alacritty each expose the identical field set
+`drm-resident-system0` and `drm-resident-stolen-system0` in
+`/proc/<pid>/fdinfo`. The confirmation used the repository's own
+`collectors.py:probe_gpu_memory()` against each PID; it was not inferred from
+a non-terminal client. The published W6 run under protocol 1.4.1 recorded
+`unsupported` on an earlier kernel surface; that historical record stays as
+published and is never rewritten. A run set that cannot show the same fields
+for every compared terminal must declare `gpu_memory` `unsupported` for that
+run set and must not approximate or fill one terminal from another.
+
+**SE retention.** `retention_delta_bytes` is `after - before` resident bytes
+around one software-endpoint burst, with peak sampled during the burst when
+`memory.peak` is exposed. The signal detects retention per unit of work. It
+does not detect time-based creep in an idle process and is not a substitute
+for W7. A missing before/after sample is `unsupported` and is never filled
+from VmRSS or another nearby figure.
 
 ## Measurement environment and resource limits
 
@@ -216,15 +240,17 @@ machine time; it cannot be interleaved with other work on the same host.
 
 `scripts/bench-protocol/` contains the preparation tooling: deterministic
 fixture generators with digest self-tests, the child-side driver and its
-out-of-band oracle-record format, the Linux collectors and their unsupported
-reporting, the seeded balanced-order generator, the summary statistics, the
-result schema and its validator, and the preregistration record generator.
+out-of-band oracle-record format (including SE1/SE2 CPR-wait behaviour), the
+Linux collectors and their unsupported reporting, the seeded balanced-order
+generator, the summary statistics, the result schema and its validator, and
+the preregistration record generator.
 `scripts/bench-protocol/bench-protocol.py --availability` regenerates the
 machine-readable form of this document's availability tables against the live
 host.
 
-One comparative result set has been published: the W6 idle comparison
-(`docs/benchmark-results.md`), whose endpoint is defined entirely in
-software and therefore needs none of the missing apparatus. Every
-optical-endpoint workload remains unmeasured for the reasons above — not
-scheduling — and `TODO.md` records that boundary.
+One comparative result set has been published under protocol 1.4.1: the W6
+idle comparison (`docs/benchmark-results.md`). Under 1.5.0, W6 and the
+software-endpoint class remain available on this unit; every optical-endpoint
+workload remains `skip` / `unavailable-hardware` for the reasons above -- not
+scheduling -- and must keep appearing in every preregistration and results
+table as such.
