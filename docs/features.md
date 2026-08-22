@@ -622,9 +622,9 @@ with the Bash 3.2 that ships on older macOS systems.
 
 Set `shell_key_enhancement = on` (with `shell_integration` on) to make modified
 keys reachable at the `bash` and `zsh` prompt. While the prompt is active the
-shell enables the Kitty keyboard protocol in disambiguate mode only, so `Ctrl+C`
-still interrupts, then turns it off before each command runs so the programs the
-shell launches see the terminal's default keyboard mode. Modified keys such as
+shell enables the Kitty keyboard protocol in disambiguate mode, then turns it off
+before each command runs so the programs the shell launches see the terminal's
+default keyboard mode. Modified keys such as
 `Ctrl+Enter`, `Shift+Enter`, and `Ctrl+Backspace` then arrive as distinct
 escape sequences you can bind:
 
@@ -647,8 +647,30 @@ the sequence with `bind`/`bindkey` (for example
 
 `fish` manages the protocol itself (use `bind ctrl-enter ...`), and PowerShell
 key bindings use `Set-PSReadLineKeyHandler` through the Console API, so neither
-needs this knob. On by default; set `shell_key_enhancement = off` to return the
-prompt to the terminal's plain keyboard mode.
+needs this knob.
+
+**Off by default, and the reason is a correctness boundary rather than taste.**
+Kitty keyboard flag `0x1` is defined to re-encode every `Ctrl+key` as a CSI-u
+sequence — the protocol specification states that with disambiguation on,
+`Ctrl+C` no longer generates SIGINT and is delivered as an escape code instead.
+OdyTTY implements that faithfully, so for as long as the flag is set the terminal
+emits no `0x03`, the tty line discipline never sees an INTR byte, and no
+interrupt is raised. `Ctrl+D` (`0x04`, EOF) and `Ctrl+Z` (`0x1a`, SIGTSTP) go the
+same way.
+
+That is survivable only for a line editor that speaks CSI-u, and neither
+readline nor ZLE does out of the box — unbound CSI-u arrives at the prompt as
+literal text. Zsh can at least be taught to recover, because `send-break` is
+bindable:
+
+```zsh
+bindkey '^[[99;5u' send-break     # Ctrl+C
+```
+
+Readline has no equivalent: it exposes no function that raises SIGINT, so Bash
+has no route back to a working `Ctrl+C` while the flag is set. Turning this on is
+a deliberate trade — three enhanced binds in exchange for hand-binding every
+`Ctrl+key` your prompt still needs.
 
 Bash 4.4 and newer remove the prompt-only disambiguation flag through `PS0`
 after readline accepts a command and before it runs. Bash 3.2 and other older

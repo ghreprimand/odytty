@@ -7,6 +7,57 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-21 -- Prompt key enhancement is off by default, and the reason is written down
+
+`shell_key_enhancement` shipped on by default, and the setting's own
+documentation gave the reason it was safe to do that: disambiguate mode only, so
+`Ctrl+C` keeps generating SIGINT. That claim was never true, and it appeared in
+four places — the constant's doc comment, the settings-catalogue description,
+and the comments in both the bash and zsh snippets.
+
+**What the mode actually does.** Kitty keyboard flag `0x1` re-encodes every
+`Ctrl+key` as a CSI-u sequence. The protocol specification is explicit that with
+disambiguation on, `Ctrl+C` no longer generates SIGINT and is delivered as an
+escape code instead. OdyTTY implements that faithfully, which is the point: the
+encoder is correct. Driving it directly gives `Ctrl+C` as `CSI 99;5u` where
+legacy gives `0x03`, `Ctrl+D` as `CSI 100;5u` where legacy gives `0x04`, and
+`Ctrl+Z` as `CSI 122;5u` where legacy gives `0x1a`. No INTR byte reaches the tty
+line discipline, so no signal is raised. Interrupt, end-of-file and suspend all
+stop working for as long as the flag is set.
+
+**The defect was the default, not the encoding.** Enabling the flag at a bash or
+zsh prompt hands the line editor a protocol it does not speak; unbound CSI-u
+arrives as literal text on the command line. The snippets bound three sequences
+back and left the rest, but the shortfall is not a matter of binding more of
+them: ZLE can recover, because `send-break` is bindable, while readline exposes
+no function that raises SIGINT at all. Bash therefore had no route back to a
+working `Ctrl+C`. A default that cannot be repaired by configuration is not a
+default, so the knob now ships off.
+
+The feature is unchanged and still available. What changed is that it is opt-in,
+and that the documentation states the trade before it is taken: three enhanced
+binds in exchange for hand-binding every `Ctrl+key` the prompt still needs.
+
+**The guard was one assertion wide.** Flipping the default broke exactly one
+test — the one pinning the default — which is a fair measure of how little stood
+between this and a release. The corrected doc comments now record the
+readline-versus-ZLE asymmetry, so the next reader meets the constraint rather
+than the reassurance.
+
+Reported externally against both the 0.11.1 release and a build of master tip
+(#3), with clean-room reproductions for bash and zsh that made the encoder the
+obvious first place to look.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D warnings`,
+and `cargo test --locked` at `RUST_TEST_THREADS=1` — 4762 passed, 0 failed.
+
+**Windows:** the knob reaches ConPTY through the same discovery env var and is
+now absent there by default too. PowerShell key bindings go through the
+PSReadLine/Console API and never used this path, so the Windows-visible change is
+that the environment variable is no longer injected.
+
+---
+
 ## 2026-08-20 -- Scrollback stores a narrower cell than the grid
 
 Deep history is now stored once rather than twice, and what was left of the ring

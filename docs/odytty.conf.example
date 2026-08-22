@@ -213,17 +213,23 @@ buttons_sticky = off
 shell_integration = on
 # Prompt-scoped Kitty keyboard enhancement for integrated bash/zsh shells.
 # Requires shell_integration = on. While the prompt is active the shell enables
-# disambiguate mode (Ctrl+C still interrupts) so modified keys like Ctrl+Enter
-# arrive as distinct sequences; it is turned off before each command runs. When
+# disambiguate mode so modified keys like Ctrl+Enter arrive as distinct
+# sequences; it is turned off before each command runs. When
 # on it ships default binds (Ctrl+Backspace deletes the previous word,
 # Shift+Enter inserts a newline, Ctrl+Enter submits), each skipped when you have
 # already bound the sequence, so a personal inputrc/bindkey always wins. fish
 # self-manages the protocol and PowerShell uses the Console API, so neither is
 # affected. Bash 4.4+ removes the prompt protocol through PS0; Bash 3.2 uses a
 # guarded first-real-command DEBUG boundary instead. Both remove it before a
-# child program runs. On by default; set to off to return the prompt to the
-# terminal's plain keyboard mode.
-shell_key_enhancement = on
+# child program runs.
+#
+# OFF BY DEFAULT. Disambiguate mode re-encodes EVERY Ctrl+key as a CSI-u
+# sequence, so while the prompt is active Ctrl+C sends no 0x03 and raises no
+# SIGINT; Ctrl+D and Ctrl+Z lose EOF and SIGTSTP the same way. zsh can bind its
+# way back (bindkey '^[[99;5u' send-break), but readline exposes no function
+# that raises SIGINT, so bash cannot. Turn this on only if you are prepared to
+# bind the Ctrl+keys your prompt needs.
+shell_key_enhancement = off
 keybinds =
 # Example:
 # keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste

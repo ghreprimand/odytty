@@ -97,8 +97,11 @@ fn defaults_are_stable_without_env() {
     );
     assert!(!settings.reduced_motion, "motion is allowed by default");
     assert!(
-        settings.shell_key_enhancement,
-        "prompt key enhancement is on by default (0.9.2)"
+        !settings.shell_key_enhancement,
+        "prompt key enhancement is OFF by default: Kitty disambiguate mode \
+         re-encodes every Ctrl+key as CSI-u, so while it is set Ctrl+C emits no \
+         0x03 and raises no SIGINT, and readline exposes no bindable function \
+         that could win it back"
     );
     assert!(warnings.is_empty());
 }

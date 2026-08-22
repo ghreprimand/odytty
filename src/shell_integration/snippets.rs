@@ -116,12 +116,19 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
     printf '\e]133;A;click_events=1\a'
     unset __ODYTTY_PROMPT_EXECUTING
     # Prompt-scoped key enhancement (D-b): while the prompt owns the line, add
-    # Kitty keyboard flag 0x1 (disambiguate ONLY -- Ctrl+C stays SIGINT). PS0
-    # removes exactly that flag after readline accepts a real command and before
-    # the command starts. Unlike the DEBUG trap, PS0 is not confused by commands
-    # a Fedora prompt executes while rendering itself. Empty Enter prints no PS0,
-    # and the idempotent add remains active for the next prompt. Only active when
-    # OdyTTY advertises ODYTTY_KEY_ENHANCE; zero effect on launched programs.
+    # Kitty keyboard flag 0x1 (disambiguate). PS0 removes exactly that flag after
+    # readline accepts a real command and before the command starts. Unlike the
+    # DEBUG trap, PS0 is not confused by commands a Fedora prompt executes while
+    # rendering itself. Empty Enter prints no PS0, and the idempotent add remains
+    # active for the next prompt. Only active when OdyTTY advertises
+    # ODYTTY_KEY_ENHANCE; zero effect on launched programs.
+    #
+    # WHILE THIS FLAG IS SET, Ctrl+C DOES NOT INTERRUPT. Disambiguation re-encodes
+    # every Ctrl+key as CSI-u, so the terminal emits no 0x03 and the tty line
+    # discipline raises no SIGINT; Ctrl+D and Ctrl+Z lose EOF and SIGTSTP the same
+    # way, and readline has no bindable function that raises SIGINT to win them
+    # back. That is why ODYTTY_KEY_ENHANCE is off by default and why the flag is
+    # scoped to the prompt and dropped before any command runs.
     if [ -n "${ODYTTY_KEY_ENHANCE-}" ]; then
       printf '\e[=1;2u'
     fi
@@ -341,13 +348,20 @@ pub(super) const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" 
   zle -N zle-line-pre-redraw __odytty_line_pre_redraw
 
   # Prompt-scoped key enhancement (D-b): when OdyTTY advertises
-  # ODYTTY_KEY_ENHANCE, push Kitty keyboard flag 0x1 (disambiguate ONLY --
-  # Ctrl+C stays SIGINT) while the line editor owns the prompt, popped when the
-  # line is accepted or aborted. line-init/line-finish pair once per prompt, so
-  # push/pop stay balanced even on an empty Enter. Users then bind raw CSI-u
-  # sequences (e.g. `bindkey '^[[13;5u' <widget>`). Zero effect on the programs
-  # the shell launches; default off. Chain rather than clobber any existing
-  # init/finish widget, mirroring the pre-redraw wrap above.
+  # ODYTTY_KEY_ENHANCE, push Kitty keyboard flag 0x1 (disambiguate) while the
+  # line editor owns the prompt, popped when the line is accepted or aborted.
+  # line-init/line-finish pair once per prompt, so push/pop stay balanced even on
+  # an empty Enter. Users then bind raw CSI-u sequences (e.g.
+  # `bindkey '^[[13;5u' <widget>`). Zero effect on the programs the shell
+  # launches; default off. Chain rather than clobber any existing init/finish
+  # widget, mirroring the pre-redraw wrap above.
+  #
+  # WHILE THIS FLAG IS SET, Ctrl+C DOES NOT INTERRUPT. Disambiguation re-encodes
+  # every Ctrl+key as CSI-u, so no 0x03 reaches the tty line discipline and no
+  # SIGINT is raised; Ctrl+D and Ctrl+Z lose EOF and SIGTSTP the same way. ZLE can
+  # be taught to recover -- `bindkey '^[[99;5u' send-break` restores Ctrl+C, and
+  # the other Ctrl+keys the prompt needs must be bound the same way -- which is
+  # why this is opt-in rather than a default.
   if [ -n "${ODYTTY_KEY_ENHANCE-}" ]; then
     if (( ${+widgets[zle-line-init]} )); then
       zle -A zle-line-init __odytty_wrapped_line_init

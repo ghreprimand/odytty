@@ -122,9 +122,14 @@ gutters in every visible pane. Existing shells are not modified; restart the
 shell/tab after changing the setting. Bash integration is interactive non-login
 via `--rcfile`, so login-shell-only startup files remain a manual concern.
 
-With `shell_key_enhancement = on` (the default), Bash and Zsh prompts make
-`Ctrl+Backspace`, `Shift+Enter`, and `Ctrl+Enter` distinct while leaving
-`Ctrl+C` as interrupt. Bash 4.4+ removes that prompt-only protocol through
+With `shell_key_enhancement = on` (**off by default**), Bash and Zsh prompts make
+`Ctrl+Backspace`, `Shift+Enter`, and `Ctrl+Enter` distinct. The mode that buys
+that distinction re-encodes *every* `Ctrl+key` as a CSI-u sequence, so while the
+prompt is active `Ctrl+C` sends no `0x03` and raises no interrupt, and `Ctrl+D`
+and `Ctrl+Z` lose EOF and suspend the same way. Zsh can be bound back
+(`bindkey '^[[99;5u' send-break`); readline exposes no function that raises
+SIGINT, so Bash cannot. Turn this on only if you are prepared to bind the
+`Ctrl+keys` your prompt needs. Bash 4.4+ removes that prompt-only protocol through
 `PS0`; Bash 3.2 uses a guarded first-command DEBUG boundary because it does not
 expand `PS0`. In both cases child programs start in the ordinary keyboard mode.
 Fish manages its keyboard protocol itself, while PowerShell uses the

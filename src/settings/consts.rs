@@ -949,10 +949,9 @@ pub const DEFAULT_SHELL_INTEGRATION: bool = true;
 
 /// Prompt-scoped key enhancement for bash/zsh (`ODYTTY_SHELL_KEY_ENHANCEMENT`):
 /// when on, integrated bash/zsh shells enable Kitty keyboard flag 0x1
-/// (disambiguate only, so Ctrl+C keeps generating SIGINT) while the prompt owns
-/// the line and remove it before each command runs. Bash uses idempotent
-/// add/remove controls around readline; zsh uses its line-editor push/pop hooks.
-/// This makes modified keys like
+/// (disambiguate) while the prompt owns the line and remove it before each
+/// command runs. Bash uses idempotent add/remove controls around readline; zsh
+/// uses its line-editor push/pop hooks. This makes modified keys like
 /// Ctrl+Enter, Shift+Enter, and Ctrl+Backspace reachable as distinct CSI-u
 /// sequences; the snippets ship working default binds for them (Ctrl+Backspace
 /// word-deletes, Shift+Enter inserts a newline, Ctrl+Enter submits), each
@@ -963,8 +962,25 @@ pub const DEFAULT_SHELL_INTEGRATION: bool = true;
 /// injects `ODYTTY_KEY_ENHANCE=1` into the child environment so the snippet can
 /// discover support (mirroring buttons discovery). fish manages the keyboard
 /// protocol itself and PowerShell key bindings use the PSReadLine/Console API,
-/// so neither is affected. On by default.
-pub const DEFAULT_SHELL_KEY_ENHANCEMENT: bool = true;
+/// so neither is affected.
+///
+/// **Off by default, and the reason is a correctness boundary rather than
+/// taste.** Kitty keyboard flag 0x1 is defined to re-encode *every* Ctrl+key as
+/// a CSI-u sequence, Ctrl+C included: the protocol specification states that
+/// with disambiguation on, Ctrl+C no longer generates SIGINT and is delivered as
+/// an escape code instead. OdyTTY's encoder implements that faithfully, so while
+/// the flag is set the terminal never emits the 0x03 INTR byte, the tty line
+/// discipline never sees it, and no SIGINT is raised. The same holds for Ctrl+D
+/// (0x04, EOF) and Ctrl+Z (0x1a, SIGTSTP).
+///
+/// That is survivable only for a line editor that speaks CSI-u. readline and ZLE
+/// do not: unbound CSI-u arrives at the prompt as literal text. ZLE can at least
+/// be taught to recover, because `send-break` is bindable; readline cannot be,
+/// because it exposes no function that raises SIGINT. So bash has no route back
+/// to a working Ctrl+C while the flag is set, which is why this cannot ship on
+/// by default. Turning it on is a deliberate trade: three enhanced binds in
+/// exchange for hand-binding every Ctrl+key the prompt still needs.
+pub const DEFAULT_SHELL_KEY_ENHANCEMENT: bool = false;
 
 /// Remote OSC 133 shell integration for SSH tabs (`ODYTTY_REMOTE_INTEGRATION`):
 /// when on, an SSH tab injects OdyTTY's bash prompt-mark bootstrap on the remote

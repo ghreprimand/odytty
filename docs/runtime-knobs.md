@@ -153,7 +153,7 @@ environment variable was not set at startup.
 | `buttons_iterm_compat` | `ODYTTY_BUTTONS_ITERM_COMPAT` | `on`, `off` | `on` |
 | `buttons_sticky` | `ODYTTY_BUTTONS_STICKY` | `on`, `off` | `off` |
 | `shell_integration` | `ODYTTY_SHELL_INTEGRATION` | `on`, `off` | `on` |
-| `shell_key_enhancement` | `ODYTTY_SHELL_KEY_ENHANCEMENT` | `on`, `off` | `on` |
+| `shell_key_enhancement` | `ODYTTY_SHELL_KEY_ENHANCEMENT` | `on`, `off` | `off` |
 | `interactive_urls` | `ODYTTY_INTERACTIVE_URLS` | `on`, `off` | `on` |
 | `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `on`, `off` | `off` |
 | `interactive_paths_barewords` | `ODYTTY_INTERACTIVE_PATHS_BAREWORDS` | `on`, `off` | `on` |
@@ -385,13 +385,21 @@ audible bell.
   it uses installed broad-coverage symbol faces (Noto Sans Symbols / Symbols2,
   Symbola, DejaVu, Unifont) when present. When a symbol codepoint
   still misses the static chain on Linux, OdyTTY runs a per-codepoint,
-  result-cached `fc-match :charset=<cp>` query to find a monochrome host face
+  result-cached fontconfig `:charset=<cp>` query to find a monochrome host face
   that covers it (color/bitmap-only faces are rejected), which resolves standard
   symbols such as the playback triangle `U+23F5 ⏵`, the record bullet, and
-  check/ballot marks that no bundled face carries. The query is local-only and
-  read-only, runs at most once per distinct missing codepoint, and is never on
-  the per-frame path; if `fc-match` is absent (for example, in headless CI), the
-  codepoint keeps the historical hollow-box glyph.
+  check/ballot marks that no bundled face carries. Candidates are tried in
+  order — `fc-match`'s preferred answer first, then the remaining providers
+  `fc-list` reports — so a face that fails to load or proves bitmap-only costs a
+  fallthrough rather than the glyph. The face *index* fontconfig reports is
+  honored, which matters for a font collection: face 0 of a collection is
+  arbitrary with respect to the request, so ignoring the index can rasterize
+  symbols at the wrong weight beside the body font. A collection is read one
+  face at a time rather than whole, so a multi-hundred-megabyte collection costs
+  the face it provides rather than the file containing it. The query is
+  local-only and read-only, runs at most once per distinct missing codepoint,
+  and is never on the per-frame path; if fontconfig is absent (for example, in
+  headless CI), the codepoint keeps the historical hollow-box glyph.
 
   Setting
   `symbol_fallback = off` disables the whole chain and the runtime query.
