@@ -105,9 +105,11 @@ is now `available`: the current kernel on the comparison unit exposes
 `drm-resident-*` for every compared terminal, confirmed per terminal rather
 than assumed from one.
 
-Protocol 1.5.0 requires a fresh preregistration and run-set identity. No
-sample has been taken under it; the preregistration will be frozen from a
-clean tree before the first one is, exactly as the protocol requires.
+Protocol 1.5.0 has a fresh preregistration and run-set identity anchored to the
+clean protocol commit `8085818b`. It freezes the ordering and bootstrap seeds,
+sample counts, stopping rules, implementation set, collector availability, and
+publication fields. No sample was taken before the record was frozen, exactly
+as the protocol requires.
 
 Verified: harness self-test (all checks pass), `cargo fmt --check`,
 `cargo clippy --all-targets --locked -D warnings`, `cargo test --locked` at
