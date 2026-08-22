@@ -14,7 +14,7 @@ use crate::pty::CommandBuilder;
 #[cfg(unix)]
 use super::install::{apply_spawn_integration_in_dir, write_if_needed};
 #[cfg(unix)]
-use super::snippets::BASH_SNIPPET;
+use super::snippets::{BASH_SNIPPET, ZSH_SNIPPET};
 
 #[test]
 fn snippets_emit_osc_133_marks() {
@@ -612,6 +612,43 @@ fn bash_percent_encodes_osc7_cwd_end_to_end() {
     let _ = fs::remove_dir_all(base);
 }
 
+#[cfg(unix)]
+#[test]
+fn zsh_prompt_mark_reaches_the_wire_as_real_escape_bytes() {
+    // The `133;B` input-start mark is appended to PS1, and zsh prompt
+    // expansion honours `%` escapes but never backslash ones. Appending it
+    // inside a plain double-quoted string therefore drew the ten literal
+    // characters `\e]133;B\a` on every prompt and emitted no sequence at all
+    // (fails-before), while `%{...%}` told zsh they were zero-width, skewing
+    // the cursor column too. Bash's PS1 does expand `\e`/`\a`, so only the zsh
+    // arm needs `$'...'`. Drive a real zsh with the production snippet and
+    // assert the rendered prompt carries the bytes, not their spelling.
+    let Some(zsh) = find_zsh() else {
+        eprintln!("skipping: no zsh on this host");
+        return;
+    };
+    let dir = temp_integration_dir("zsh-prompt-mark");
+    fs::create_dir_all(&dir).expect("mkdir");
+    fs::write(dir.join(".zshrc"), format!("PS1='P%# '\n{ZSH_SNIPPET}")).expect("write rc");
+
+    let (stdout, stderr) = run_zsh_zdotdir(&zsh, &dir, "exit\n");
+    if !stdout.contains("\x1b]133;A") {
+        // Interactive integration did not engage in this environment.
+        eprintln!("skipping: zsh ran no interactive prompt, no 133;A on stdout");
+        let _ = fs::remove_dir_all(&dir);
+        return;
+    }
+    assert!(
+        stderr.contains("\x1b]133;B\x07"),
+        "the prompt must carry the real OSC 133;B bytes: {stderr:?}"
+    );
+    assert!(
+        !stderr.contains("\\e]133;B"),
+        "the uninterpreted escape must never be drawn: {stderr:?}"
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
 /// Minimal percent-decoder mirroring the OSC 7 consumer's `%XX` rule, used
 /// to confirm the encoders round-trip. The production decoder
 /// (`core::screen::osc::percent_decode_path`) is module-private; this test
@@ -808,6 +845,57 @@ fn run_bash_rc_env(bash: &Path, rc: &Path, input: &str, env: &[(&str, &str)]) ->
         .expect("write stdin");
     let output = child.wait_with_output().expect("wait bash");
     String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// Locate a `zsh` binary for the behavioral prompt tests. Returns `None`
+/// (self-skip) where zsh is absent, matching [`find_bash`].
+#[cfg(unix)]
+fn find_zsh() -> Option<PathBuf> {
+    [
+        "/bin/zsh",
+        "/usr/bin/zsh",
+        "/usr/local/bin/zsh",
+        "/opt/homebrew/bin/zsh",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .find(|path| path.exists())
+}
+
+/// Drive an interactive zsh whose `ZDOTDIR` is `dir`, the same mechanism the
+/// production install path uses, feed `input`, and return `(stdout, stderr)`.
+/// Both streams are needed: the marks the snippet `printf`s go to stdout, but
+/// zsh renders the prompt itself to stderr when stdout is not a tty, and the
+/// `133;B` mark rides in PS1. `input` must terminate the session (feed
+/// `exit\n`); stdin EOF after the write is a second guard against wedging.
+#[cfg(unix)]
+fn run_zsh_zdotdir(zsh: &Path, dir: &Path, input: &str) -> (String, String) {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new(zsh)
+        .arg("-i")
+        .env("ZDOTDIR", dir)
+        // Same nested-launch scrub as run_bash_rc: strip an inherited
+        // ODYTTY_SHELL_INTEGRATION so the snippet guard engages even when the
+        // test runner is itself an integrated odytty session.
+        .env_remove("ODYTTY_SHELL_INTEGRATION")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn zsh");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(input.as_bytes())
+        .expect("write stdin");
+    let output = child.wait_with_output().expect("wait zsh");
+    (
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
 }
 
 /// Build an rcfile that loads a user PROMPT_COMMAND helper BEFORE the real
