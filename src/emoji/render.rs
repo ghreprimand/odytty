@@ -34,13 +34,14 @@ pub struct EmojiRasterizer {
 
 impl EmojiRasterizer {
     pub fn discover() -> Self {
-        let font = discover_noto_color_emoji().and_then(|found| EmojiFont::load(found.path).ok());
+        let font = discover_noto_color_emoji()
+            .and_then(|found| EmojiFont::load_face(found.path, found.face_index).ok());
         Self::new(font)
     }
 
     pub(crate) fn discover_with_inventory(inventory: &crate::text::FontFileInventory) -> Self {
         let font = discover_noto_color_emoji_with_inventory(inventory)
-            .and_then(|found| EmojiFont::load(found.path).ok());
+            .and_then(|found| EmojiFont::load_face(found.path, found.face_index).ok());
         Self::new(font)
     }
 

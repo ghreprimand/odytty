@@ -442,7 +442,9 @@ mod tests {
             },
             |inventory| {
                 let font = crate::emoji::discover_noto_color_emoji_in_inventory(inventory)
-                    .and_then(|found| crate::emoji::EmojiFont::load(found.path).ok());
+                    .and_then(|found| {
+                        crate::emoji::EmojiFont::load_face(found.path, found.face_index).ok()
+                    });
                 EmojiRasterizer::new(font)
             },
         );

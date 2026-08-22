@@ -356,11 +356,27 @@ pub fn load_font_with_path(font_path: Option<&Path>) -> Result<FontVec, TextErro
 }
 
 /// Load and parse a font from an explicit path.
+///
+/// Takes the file's first face. A collection's first face is not usually the
+/// one a caller means -- see [`load_font_face_at`] -- but every caller of this
+/// function names a specific single-face file.
 pub fn load_font_at(path: &Path) -> Result<FontVec, TextError> {
-    let bytes = crate::font_file::read_font_file(path).map_err(|source| TextError::Read {
-        path: path.display().to_string(),
-        source,
-    })?;
+    load_font_face_at(path, 0)
+}
+
+/// Load and parse one face of a font file.
+///
+/// For a collection this reads only the requested face's tables rather than the
+/// whole file, so a 377 MiB collection costs the 9 MiB the face actually needs.
+/// The extracted face is a standalone single-face font, so the index passed to
+/// the parser is always 0 -- `face_index` selects what to extract, not what to
+/// then look up.
+pub fn load_font_face_at(path: &Path, face_index: u32) -> Result<FontVec, TextError> {
+    let bytes =
+        crate::font_file::read_font_face(path, face_index).map_err(|source| TextError::Read {
+            path: path.display().to_string(),
+            source,
+        })?;
     FontVec::try_from_vec(bytes).map_err(|source| TextError::Parse {
         path: path.display().to_string(),
         source,

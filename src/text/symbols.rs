@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 
 use ab_glyph::FontVec;
 
-use super::bundled::{load_font_at, resolve_bundled_symbol_font, resolve_bundled_symbol_fonts};
+use super::bundled::{
+    load_font_at, load_font_face_at, resolve_bundled_symbol_font, resolve_bundled_symbol_fonts,
+};
 use super::discovery::{FontFileInventory, file_stem, font_search_dirs, normalize_family};
 // Used only by the fontconfig-backed runtime fallback, which exists on Linux
 // and other non-macOS Unix targets; the gate must match that item's gate or
@@ -360,35 +362,139 @@ pub(crate) fn resolve_symbol_fonts_with_inventory(
 /// Invoked by the glyph atlas **only** when a printable spacing codepoint misses
 /// the static fallback chain (and the result is cached per-codepoint by the
 /// atlas, so this shells out at most once per distinct missing codepoint --
-/// never on the hot path repeatedly). It runs
-/// `fc-match -f %{file} :charset=<hex>` to ask fontconfig for a host face that
-/// covers the codepoint, then loads it and rejects color/bitmap-only faces via
-/// [`font_provides_outline_glyph`] so only a monochrome outline face is
-/// installed. Read-only, local-only subprocess (no network, no user data),
-/// mirroring the emoji discovery path's `fc-match` use. Returns `None` when
-/// fontconfig is absent (e.g. headless CI), when no face covers the codepoint,
-/// or when the only match is color/bitmap-only -- all of which preserve the
+/// never on the hot path repeatedly). It asks fontconfig which host faces cover
+/// the codepoint, then loads them in preference order and rejects
+/// color/bitmap-only faces via [`font_provides_outline_glyph`] so only a
+/// monochrome outline face is installed. Read-only, local-only subprocess (no
+/// network, no user data), mirroring the emoji discovery path's use. Returns
+/// `None` when fontconfig is absent (e.g. headless CI), when no face covers the
+/// codepoint, or when every candidate is unusable -- all of which preserve the
 /// historical hollow-box behavior.
+///
+/// # Candidates, not a candidate
+///
+/// This used to take `fc-match`'s single best answer and give up if it failed
+/// to load. One unloadable face then meant tofu even when the host had other
+/// faces covering the codepoint. Candidates are now tried in order:
+/// `fc-match`'s preferred answer first, then everything `fc-list` reports for
+/// the same charset, so a face that fails to load or turns out to be
+/// bitmap-only costs a fallthrough rather than the glyph.
+///
+/// # Face index
+///
+/// Both queries report the face *index* within the file, and it is honored.
+/// A collection's face 0 is arbitrary with respect to the request: face 0 of
+/// Iosevka's 162-face collection is Iosevka Thin, while fontconfig's answer for
+/// a symbol charset is index 54, Regular. Loading face 0 would have rasterized
+/// symbols at Thin weight beside a Regular body font.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn runtime_resolve_symbol_font(ch: char) -> Option<std::sync::Arc<FontVec>> {
+    for (path, face_index) in symbol_font_candidates(ch) {
+        if !path.is_file() {
+            continue;
+        }
+        let Ok(font) = load_font_face_at(&path, face_index) else {
+            continue;
+        };
+        if !font_provides_outline_glyph(&font, ch) {
+            continue;
+        }
+        return Some(std::sync::Arc::new(font));
+    }
+    None
+}
+
+/// Host faces covering `ch`, in preference order, as `(path, face index)`.
+///
+/// `fc-match`'s answer leads because it applies the host's own fontconfig
+/// preferences; `fc-list` then supplies every remaining provider. Duplicates
+/// are dropped so a face is never loaded twice, and the list is bounded because
+/// a pathological host font set should cost a bounded number of load attempts
+/// on a cache miss, not an unbounded scan.
+///
+/// Both queries request an explicit `%{file}\t%{index}` format rather than
+/// fontconfig's default human-readable listing. The default separates the path
+/// from the properties with `": "`, and a font path may itself contain a colon,
+/// so parsing it means guessing at a delimiter. Asking for the fields directly
+/// removes the guess instead of hardening it.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn symbol_font_candidates(ch: char) -> Vec<(PathBuf, u32)> {
     let charset = format!(":charset={:x}", ch as u32);
-    let output = std::process::Command::new("fc-match")
-        .args(["-f", "%{file}", &charset])
+    let mut found: Vec<(PathBuf, u32)> = Vec::new();
+
+    if let Ok(output) = std::process::Command::new("fc-match")
+        .args(["-f", FC_RECORD_FORMAT, &charset])
         .output()
-        .ok()?;
-    if !output.status.success() {
+        && output.status.success()
+        && let Ok(text) = String::from_utf8(output.stdout)
+    {
+        found.extend(text.lines().filter_map(parse_fc_record));
+    }
+
+    if let Ok(output) = std::process::Command::new("fc-list")
+        .args(["-f", FC_RECORD_FORMAT_NL, &charset])
+        .output()
+        && output.status.success()
+        && let Ok(text) = String::from_utf8(output.stdout)
+    {
+        found.extend(text.lines().filter_map(parse_fc_record));
+    }
+
+    bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES)
+}
+
+/// fontconfig format string for one `path<TAB>index` record.
+#[cfg(all(unix, not(target_os = "macos")))]
+const FC_RECORD_FORMAT: &str = "%{file}\t%{index}";
+/// The same, newline-terminated, for the multi-record `fc-list` query.
+#[cfg(all(unix, not(target_os = "macos")))]
+const FC_RECORD_FORMAT_NL: &str = "%{file}\t%{index}\n";
+
+/// Upper bound on faces tried for one missing codepoint.
+///
+/// A host can report a great many covering faces -- one 162-face collection does
+/// on the development workstation -- and each attempt parses a font. A single
+/// cache miss must cost a bounded number of parses, not one per installed face.
+#[cfg(all(unix, not(target_os = "macos")))]
+const MAX_SYMBOL_FONT_CANDIDATES: usize = 8;
+
+/// First `max` distinct entries of `items`, preserving order.
+///
+/// Pure, and deliberately separated from the subprocess queries: the bound and
+/// the de-duplication cannot be exercised through those queries on a host whose
+/// fontconfig happens never to report a duplicate, which is how a removed
+/// de-duplication passed its first test.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn bounded_unique(items: Vec<(PathBuf, u32)>, max: usize) -> Vec<(PathBuf, u32)> {
+    let mut out: Vec<(PathBuf, u32)> = Vec::new();
+    for (path, index) in items {
+        if out.len() >= max {
+            break;
+        }
+        if path.as_os_str().is_empty() {
+            continue;
+        }
+        if !out.iter().any(|(p, i)| p == &path && *i == index) {
+            out.push((path, index));
+        }
+    }
+    out
+}
+
+/// Parse a tab-separated `%{file}\t%{index}` record. A missing or unparseable
+/// index means face 0, which is what a single-face file always is.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn parse_fc_record(line: &str) -> Option<(PathBuf, u32)> {
+    let mut parts = line.split('\t');
+    let path = PathBuf::from(parts.next()?.trim());
+    if path.as_os_str().is_empty() {
         return None;
     }
-    let path = String::from_utf8(output.stdout).ok()?;
-    let path = PathBuf::from(path.trim());
-    if path.as_os_str().is_empty() || !path.is_file() {
-        return None;
-    }
-    let font = load_font_at(&path).ok()?;
-    if !font_provides_outline_glyph(&font, ch) {
-        return None;
-    }
-    Some(std::sync::Arc::new(font))
+    let index = parts
+        .next()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0);
+    Some((path, index))
 }
 
 /// Resolve only the **source** of the symbol-fallback face. Convenience wrapper
@@ -430,4 +536,27 @@ fn resolve_symbol_font_path_in_inventory(inventory: &FontFileInventory) -> Optio
         }
     }
     best.map(|(_, path)| path)
+}
+
+/// Test window onto [`symbol_font_candidates`], so a test can ask the same
+/// question the resolver asks and distinguish "this host has no provider" from
+/// "this host has a provider and we failed to use it".
+#[cfg(all(test, unix, not(target_os = "macos")))]
+pub(super) fn symbol_font_candidates_for_test(ch: char) -> Vec<(PathBuf, u32)> {
+    symbol_font_candidates(ch)
+}
+
+/// Test window onto [`parse_fc_record`].
+#[cfg(all(test, unix, not(target_os = "macos")))]
+pub(super) fn parse_fc_record_for_test(line: &str) -> Option<(PathBuf, u32)> {
+    parse_fc_record(line)
+}
+
+/// Test window onto [`bounded_unique`].
+#[cfg(all(test, unix, not(target_os = "macos")))]
+pub(super) fn bounded_unique_for_test(
+    items: Vec<(PathBuf, u32)>,
+    max: usize,
+) -> Vec<(PathBuf, u32)> {
+    bounded_unique(items, max)
 }

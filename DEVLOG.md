@@ -58,6 +58,83 @@ that the environment variable is no longer injected.
 
 ---
 
+## 2026-08-21 -- Font collections are read one face at a time
+
+Three characters rendered as hollow boxes in ordinary use: `U+23F5` and
+`U+23F4`, and `U+23BF`, which sits on every tool-result line of at least one
+widely used terminal program and had gone unnoticed for longer. They miss the
+bundled body faces, miss both bundled icon faces, and miss the Linux static
+tail, so they fall to the runtime fontconfig backfill -- which found exactly one
+covering face on the affected host and then refused to load it, because the file
+is a 377.1 MiB Iosevka collection and the font reader stops at 256 MiB.
+
+**Raising the ceiling was the wrong repair and is not what happened.** Reading
+377 MiB into the heap to draw one triangle would be a poor trade in any release
+and an absurd one in a release whose subject is resident memory. The ceiling is
+unchanged.
+
+**What changed is that a collection is no longer read as a file.** A collection
+holds many faces that share most of their tables, so the file can be enormous
+while any single face is ordinary: 162 faces in 377.1 MiB, of which the face
+actually wanted is 9.4 MiB. The reader now takes the requested face's table
+directory and only the tables that face references, and reassembles them as a
+standalone single-face font -- 2.5% of the file, and the ceiling now applies to
+what is retained rather than to the container it arrived in. The three reported
+codepoints resolve.
+
+**The face index is no longer discarded, which was a second defect hiding behind
+the first.** Face 0 of a collection is arbitrary with respect to the request:
+face 0 of that collection is Iosevka Thin, while fontconfig's answer for the
+symbol charset is face 54, Regular. Every load took face 0, so even a successful
+load would have drawn symbols at Thin weight beside a Regular body. Both
+fontconfig queries are now asked for the face index and it is honored. This was
+recorded as unverified when the defect was diagnosed; it was verified before
+being fixed, and it was real.
+
+**Candidates are enumerated rather than assumed.** The resolver took
+fontconfig's single best answer and gave up if it failed to load, so one
+unloadable face meant a hollow box even on a host with other faces covering the
+codepoint. It now tries `fc-match`'s preferred answer first and then the
+remaining providers `fc-list` reports, bounded and de-duplicated, so an
+unloadable or bitmap-only face costs a fallthrough instead of the glyph.
+
+Both queries now request an explicit `%{file}\t%{index}` format instead of
+parsing fontconfig's default human-readable listing. That listing separates the
+path from the properties with a colon and a space, and a font path may contain
+either, so parsing it means guessing at a delimiter; asking for the fields
+directly removes the guess rather than hardening it.
+
+The collection header and table directory are input OdyTTY did not write, so
+they are treated as adversarial: every offset and length is bounds-checked
+against the real file length before any seek, the table count is capped before
+it can size a directory read, and the assembled size is checked against the
+ceiling before any buffer is reserved. Truncated, out-of-range, and
+absurd-count collections are covered by tests, as is the padding and tag
+ordering of the reassembled directory.
+
+**A Linux coverage test now exists.** Its absence is why this class stayed
+invisible on the primary development platform while the Windows leg had pinned
+the equivalent codepoints for some time. A Linux test cannot assume host fonts,
+so this one asserts a conditional rather than a fact: if fontconfig reports a
+provider for a codepoint, resolution must succeed. On a host with no provider it
+says so by name instead of passing quietly, because a test that passes both when
+it is satisfied and when it is vacuous reads as coverage without being any.
+
+**Windows and macOS:** the fontconfig backfill is Linux and non-macOS Unix only,
+so neither platform reaches the failure. The font reader itself is shared by all
+three, and the collection path is equally available on each -- Apple Color Emoji
+ships as a collection, which is why the emoji discovery path carries the face
+index too. The emoji path deliberately does not enumerate: it queries by family,
+where a single best answer is the correct semantics, unlike a charset query
+where any covering face will do. The `windows-latest` leg is the check.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D warnings`,
+`cargo test --locked` at `RUST_TEST_THREADS=1` -- 4775 passed, 0 failed --
+production-file guard, and a RustSec audit, this being font and dependency
+surface. No dependency was added.
+
+---
+
 ## 2026-08-20 -- Scrollback stores a narrower cell than the grid
 
 Deep history is now stored once rather than twice, and what was left of the ring

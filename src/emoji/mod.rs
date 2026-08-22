@@ -33,6 +33,10 @@ const EMOJI_PROBE_SIZE: f32 = 128.0;
 pub struct EmojiFontMatch {
     pub path: PathBuf,
     pub source: EmojiFontSource,
+    /// Face index within `path`. Non-zero only for a font collection, where
+    /// face 0 is arbitrary with respect to the request -- the sibling of the
+    /// symbol resolver's index handling, and here for the same reason.
+    pub face_index: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,12 +54,26 @@ pub struct EmojiFont {
 }
 
 impl EmojiFont {
+    /// Load the file's first face. Every caller that names a specific
+    /// single-face file uses this.
     pub fn load(path: PathBuf) -> Result<Self, EmojiProbeError> {
-        let data =
-            crate::font_file::read_font_file(&path).map_err(|source| EmojiProbeError::Read {
+        Self::load_face(path, 0)
+    }
+
+    /// Load one face of a font file.
+    ///
+    /// For a collection this reads only that face's tables, so the cost is the
+    /// face rather than the file, and the face is the one that was asked for
+    /// rather than whichever happens to be first. The extracted face is a
+    /// standalone single-face font, so the index handed to the parser is always
+    /// 0 -- `face_index` selects what to extract, not what to then look up.
+    pub fn load_face(path: PathBuf, face_index: u32) -> Result<Self, EmojiProbeError> {
+        let data = crate::font_file::read_font_face(&path, face_index).map_err(|source| {
+            EmojiProbeError::Read {
                 path: path.clone(),
                 source,
-            })?;
+            }
+        })?;
         let font = FontRef::from_index(&data, 0)
             .ok_or_else(|| EmojiProbeError::Parse { path: path.clone() })?;
         let offset = font.offset;
@@ -196,6 +214,10 @@ pub(crate) fn discover_noto_color_emoji_in_inventory(
     Some(EmojiFontMatch {
         path,
         source: EmojiFontSource::SearchDirs,
+        // Directory discovery matches whole files by name or by probing for
+        // COLR/CPAL, neither of which selects a face within a collection, so
+        // this path has no index to carry and takes the first face.
+        face_index: 0,
     })
 }
 
@@ -431,9 +453,20 @@ fn has_colr_v1_glyph(font: &EmojiFont, glyph_id: GlyphId) -> bool {
         .is_some()
 }
 
+/// Ask fontconfig for the color-emoji face.
+///
+/// Unlike the symbol resolver's charset query, this asks by *family*, where
+/// fontconfig's single best answer is the correct semantics: any face covering
+/// a codepoint will do for a symbol, but only Noto Color Emoji is Noto Color
+/// Emoji. So this path enumerates nothing -- deliberately, not by omission.
+///
+/// It does share the symbol resolver's face-index concern, and honors it for
+/// the same reason: a color-emoji font can ship as a collection (Apple Color
+/// Emoji does), and face 0 of a collection is arbitrary with respect to the
+/// request.
 fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
     let output = Command::new("fc-match")
-        .args(["-f", "%{file}\n%{family}", NOTO_COLOR_EMOJI])
+        .args(["-f", "%{file}\n%{family}\n%{index}", NOTO_COLOR_EMOJI])
         .output()
         .ok()?;
     if !output.status.success() {
@@ -443,6 +476,10 @@ fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
     let mut lines = output.lines();
     let path = PathBuf::from(lines.next()?.trim());
     let family = lines.next().unwrap_or_default();
+    let face_index = lines
+        .next()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0);
     if path.is_file()
         && (is_color_emoji_name(&normalized_stem(&path))
             || is_color_emoji_name(&normalize_name(family)))
@@ -450,6 +487,7 @@ fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
         Some(EmojiFontMatch {
             path,
             source: EmojiFontSource::Fontconfig,
+            face_index,
         })
     } else {
         None

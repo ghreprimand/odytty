@@ -621,7 +621,13 @@ the most deliberate omissions.
   loading), and a parse failure returns an error rather than panicking
   (`src/text/face_meta.rs`). Every production whole-font read shares the 256 MiB
   regular-file boundary in `src/font_file.rs`; glyph rasterization output is
-  bounded by atlas capacity.
+  bounded by atlas capacity. A font *collection* is read one face at a time
+  rather than whole. Every offset and length in the collection header and the
+  face's table directory is untrusted input: each is bounds-checked against the
+  real file length before any seek, the table count is capped before it can size
+  a directory read, and the assembled face size is checked against the same
+  256 MiB boundary *before* any buffer is reserved -- so a corrupt or hostile
+  header cannot drive an allocation from its own declared numbers.
 - **Failure behavior:** an unparseable font is skipped during enumeration or
   falls back to the next candidate at load time.
 - **Diagnostic exposure:** font paths may include a user's home directory and

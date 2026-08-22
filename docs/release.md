@@ -73,8 +73,10 @@ warning with no patched release. OdyTTY reaches `ttf-parser 0.25.1` directly for
 font metadata and transitively through `owned_ttf_parser` / `ab_glyph`; the
 Wayland decoration path also reaches `ab_glyph` through `sctk-adwaita`. The C
 API is not built or called. Production font files are capped at 256 MiB before
-parsing, parser failures skip the candidate or fall back, and glyph/font corpus
-tests exercise the Rust paths used by the application.
+parsing -- a collection is read one validated face at a time, so the cap applies
+to what is retained rather than to the file that contains it -- parser failures
+skip the candidate or fall back, and glyph/font corpus tests exercise the Rust
+paths used by the application.
 
 The upstream repository moved to the HarfBuzz organization and, as of
 2026-08-06, describes itself as maintenance-mode software where correctness,

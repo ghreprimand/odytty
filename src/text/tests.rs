@@ -1432,3 +1432,248 @@ fn windows_symbol_chain_resolves_reported_blank_glyphs() {
         );
     }
 }
+
+/// Linux counterpart to `windows_symbol_chain_resolves_reported_blank_glyphs`.
+///
+/// The Windows test pins `U+2714` / `U+23BF` on the `windows-latest` runner.
+/// There was no Linux equivalent, which is exactly why a tofu class stayed
+/// invisible on the primary development platform: the codepoints Claude Code
+/// prints on every tool result line rendered as hollow boxes for as long as it
+/// took someone to notice by eye.
+///
+/// A Linux test cannot assume host fonts, so this pins what is host
+/// independent and reports -- loudly, in the pass message -- what it could not
+/// check. A test that passes vacuously on a bare CI image and also passes on a
+/// fully-fonted workstation is worse than no test, because it reads as
+/// coverage. The distinction here is explicit: if fontconfig reports a provider
+/// for a codepoint, resolution MUST succeed, and a failure to load that
+/// provider is a hard failure rather than a fallthrough to "no coverage".
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn linux_runtime_backfill_resolves_reported_blank_glyphs() {
+    // The three codepoints from the report: the two bypass-indicator triangles
+    // and the result-branch glyph.
+    let reported = ['\u{23F5}', '\u{23F4}', '\u{23BF}'];
+    let mut checked = 0usize;
+    let mut skipped = Vec::new();
+
+    for ch in reported {
+        // Ask the same question the resolver asks. No provider means the host
+        // genuinely cannot render it, which is a host fact and not a defect.
+        let providers = super::symbols::symbol_font_candidates_for_test(ch);
+        if providers.is_empty() {
+            skipped.push(format!("U+{:04X} (no host provider)", ch as u32));
+            continue;
+        }
+        assert!(
+            super::runtime_resolve_symbol_font(ch).is_some(),
+            "fontconfig reports {} provider(s) covering U+{:04X} {ch:?}, so the runtime \
+             backfill must resolve it. Providers: {providers:?}. This is the failure the \
+             size ceiling used to cause: a 377 MiB collection was the only provider and \
+             was rejected whole instead of read one face at a time.",
+            providers.len(),
+            ch as u32
+        );
+        checked += 1;
+    }
+
+    assert!(
+        checked > 0 || !skipped.is_empty(),
+        "neither checked nor skipped any codepoint, which means the query itself broke"
+    );
+    if !skipped.is_empty() {
+        println!(
+            "linux_runtime_backfill: verified {checked}/{} codepoints; not verifiable on this \
+             host: {}",
+            reported.len(),
+            skipped.join(", ")
+        );
+    }
+}
+
+/// The face index fontconfig reports must be honored by the RESOLVER, not just
+/// available to it.
+///
+/// An earlier form of this test compared two explicit extractions and passed
+/// even when the resolver was reverted to always loading face 0 -- it proved the
+/// extractor could select a face, not that the resolver did. It now takes the
+/// font the resolver actually returns and compares its glyph outlines against
+/// the same file loaded at face 0 and at the reported index.
+///
+/// Host-independent: it asserts a relationship and skips cleanly when the host
+/// has no collection provider. Face 0 of a collection is arbitrary with respect
+/// to the request -- face 0 of Iosevka's 162-face collection is Iosevka Thin,
+/// while fontconfig's answer for a symbol charset is a Regular face -- so
+/// loading face 0 rasterizes symbols at the wrong weight beside a Regular body.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn collection_faces_load_at_the_index_fontconfig_reports() {
+    use ab_glyph::Font;
+
+    /// A shape signature: outline bounds of the glyph, which differ between
+    /// weights of the same family (Thin and Regular do not share stem widths).
+    fn signature(font: &ab_glyph::FontVec, ch: char) -> Option<(i32, i32, i32, i32)> {
+        let outline = font.outline(font.glyph_id(ch))?;
+        Some((
+            (outline.bounds.min.x * 100.0) as i32,
+            (outline.bounds.min.y * 100.0) as i32,
+            (outline.bounds.max.x * 100.0) as i32,
+            (outline.bounds.max.y * 100.0) as i32,
+        ))
+    }
+
+    for ch in ['\u{23F5}', '\u{2713}', '\u{2714}'] {
+        for (path, index) in super::symbols::symbol_font_candidates_for_test(ch) {
+            if index == 0 || !path.is_file() {
+                continue;
+            }
+            let (Ok(at_index), Ok(at_zero)) = (
+                super::bundled::load_font_face_at(&path, index),
+                super::bundled::load_font_face_at(&path, 0),
+            ) else {
+                continue;
+            };
+            let (Some(want), Some(face_zero)) = (signature(&at_index, ch), signature(&at_zero, ch))
+            else {
+                continue;
+            };
+            if want == face_zero {
+                // The two faces draw this glyph identically, so it cannot
+                // distinguish them. Not a failure -- just not evidence.
+                continue;
+            }
+            let resolved = super::runtime_resolve_symbol_font(ch)
+                .expect("a provider exists, so this resolves");
+            assert_eq!(
+                signature(&resolved, ch),
+                Some(want),
+                "the resolver returned a face whose U+{:04X} outline does not match face \
+                 {index} of {}, the index fontconfig reported. Face 0 of a collection is \
+                 a different weight, so ignoring the index rasterizes symbols at the wrong \
+                 weight beside the body font.",
+                ch as u32,
+                path.display()
+            );
+            return;
+        }
+    }
+    println!(
+        "collection_faces_load_at_the_index_fontconfig_reports: no collection provider on \
+         this host whose faces draw these glyphs differently; the index path was not exercised"
+    );
+}
+
+/// A collection face costs the face, not the file.
+///
+/// The defect this guards: reading a whole collection to rasterize one glyph.
+/// Host-independent in its assertion -- it only requires that *if* a collection
+/// is present, one face is a small fraction of it.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn a_collection_face_costs_far_less_than_its_file() {
+    for ch in ['\u{23F5}', '\u{2713}', '\u{2714}'] {
+        for (path, index) in super::symbols::symbol_font_candidates_for_test(ch) {
+            let Ok(metadata) = std::fs::metadata(&path) else {
+                continue;
+            };
+            // Only meaningful for a file large enough that the distinction
+            // matters; a 200 KB single-face file has nothing to save.
+            if metadata.len() < 64 * 1024 * 1024 {
+                continue;
+            }
+            let Ok(face) = crate::font_file::read_font_face(&path, index) else {
+                continue;
+            };
+            assert!(
+                (face.len() as u64) * 4 < metadata.len(),
+                "face {index} of {} is {} bytes against a {}-byte file; a collection face \
+                 should be a small fraction of its collection",
+                path.display(),
+                face.len(),
+                metadata.len()
+            );
+            return;
+        }
+    }
+    println!("a_collection_face_costs_far_less_than_its_file: no large collection on this host");
+}
+
+/// fontconfig record parsing, which sabotage showed is otherwise unexercised on
+/// a host where `fc-match` alone answers every query.
+///
+/// The enumeration path exists so that a face which fails to load costs a
+/// fallthrough rather than the glyph. On a single-provider host it never runs,
+/// so its parsing is pinned directly instead.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn fc_records_parse_to_path_and_face_index() {
+    let cases: &[(&str, &str, u32)] = &[
+        (
+            "/usr/share/fonts/iosevka/Iosevka.ttc\t115",
+            "/usr/share/fonts/iosevka/Iosevka.ttc",
+            115,
+        ),
+        // No index field means face 0 -- what a single-face file always is.
+        (
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            0,
+        ),
+        // A path containing a colon survives intact: the fields are tab
+        // separated precisely so a colon in a path is not a delimiter.
+        ("/fonts/od:d/Name.ttc\t3", "/fonts/od:d/Name.ttc", 3),
+        // A path containing ": ", which the default fontconfig listing format
+        // could not be parsed unambiguously against.
+        ("/fonts/a: b/Name.ttc\t9", "/fonts/a: b/Name.ttc", 9),
+        // A non-numeric index degrades to face 0 rather than dropping the face.
+        ("/fonts/Name.ttc\tnot-a-number", "/fonts/Name.ttc", 0),
+    ];
+    for (line, want_path, want_index) in cases {
+        assert_eq!(
+            super::symbols::parse_fc_record_for_test(line),
+            Some((std::path::PathBuf::from(want_path), *want_index)),
+            "failed to parse {line:?}"
+        );
+    }
+    assert_eq!(super::symbols::parse_fc_record_for_test(""), None);
+    assert_eq!(super::symbols::parse_fc_record_for_test("\t7"), None);
+}
+
+/// The candidate list is bounded and free of duplicates.
+///
+/// Tested against the pure helper rather than through the fontconfig queries.
+/// Removing the de-duplication passed a query-driven version of this test,
+/// because this host's fontconfig never reports the same face twice -- the test
+/// was describing the host, not the code.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn symbol_font_candidates_are_bounded_and_unique() {
+    use std::path::PathBuf;
+
+    let dup = PathBuf::from("/fonts/A.ttc");
+    let items = vec![
+        (dup.clone(), 3),
+        (dup.clone(), 3),
+        (dup.clone(), 4),
+        (PathBuf::from("/fonts/B.ttf"), 0),
+        (dup.clone(), 3),
+        (PathBuf::new(), 0),
+    ];
+    let got = super::symbols::bounded_unique_for_test(items, 8);
+    assert_eq!(
+        got,
+        vec![
+            (dup.clone(), 3),
+            (dup.clone(), 4),
+            (PathBuf::from("/fonts/B.ttf"), 0),
+        ],
+        "duplicates must collapse, an empty path must drop, and order must hold"
+    );
+
+    let many: Vec<(PathBuf, u32)> = (0..64).map(|i| (dup.clone(), i)).collect();
+    assert_eq!(
+        super::symbols::bounded_unique_for_test(many, 8).len(),
+        8,
+        "one cache miss must not turn into an unbounded number of font parses"
+    );
+}
