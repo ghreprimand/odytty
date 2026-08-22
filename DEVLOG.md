@@ -7,6 +7,27 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-22 -- zsh prompts emit the OSC 133 input-start mark as real bytes
+
+The zsh integration appended the OSC 133 `B` mark to `PS1` inside ordinary
+double quotes. zsh does not interpret `\\e` or `\\a` during prompt expansion,
+so it rendered their spelling instead of sending ESC and BEL. Prompt-aware
+editing consequently had no input-start boundary.
+
+The mark now uses zsh ANSI-C quoting while preserving the existing prompt and
+the `%{...%}` nonprinting wrapper. A behavioral regression test launches a real
+zsh through the production `ZDOTDIR` integration path and checks the bytes on
+the wire. Bash, fish, PowerShell, and the Windows shell-integration path are
+unchanged.
+
+Verified: `cargo fmt --check`; Clippy across all locked targets with warnings
+denied; 4,777 tests passed, 0 failed, and 29 were explicitly ignored at
+`RUST_TEST_THREADS=1`; the production file-size guard and RustSec gate passed;
+and GitHub CI passed on Ubuntu, macOS, and Windows. The macOS leg exercised the
+real-zsh assertion.
+
+---
+
 ## 2026-08-22 -- Runtime font fallback shares parsed faces under diverse Unicode output
 
 The glyph-atlas residency survey found that the atlases were not the dominant
