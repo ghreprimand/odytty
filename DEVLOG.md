@@ -7,6 +7,27 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-22 -- v0.11.1 memory baselines recorded for both measurement classes
+
+Two dated v0.11.1 host-side memory records now anchor the Phase 0 comparison:
+one from the Intel UHD 620 benchmark environment used for W6, and one from the
+NVIDIA development workstation. They remain separate evidence classes and are
+not pooled with protocol results.
+
+The benchmark environment's two idle launches averaged 205.462 MB RSS and
+176.453 MB PSS. The workstation's two idle launches averaged 226.689 MB RSS and
+210.018 MB PSS, with a maximum reported peak RSS of 280.314 MB. Each record
+retains byte totals and resident mapping classes, identifies the driver-library
+component, and states that mapping attribution is not an estimate of
+OdyTTY-owned GPU allocations.
+
+Both records use public environment classes and basenames only. They contain no
+hostname, username, command line, full filesystem path, terminal content, or
+machine identifier. They are idle baselines, not claims about scrollback
+retention or time-based memory growth.
+
+---
+
 ## 2026-08-22 -- File-transport boundary coverage no longer depends on the build directory
 
 The cross-platform named-transport test used its own executable as the readable
