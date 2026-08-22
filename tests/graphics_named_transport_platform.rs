@@ -91,13 +91,16 @@ fn file_transport_reads_from_the_platform_temporary_directory() {
 
 #[test]
 fn file_transport_refuses_a_path_outside_the_temporary_roots() {
-    // Built from the current executable's own path, so the case needs no
-    // platform-specific system file to point at.
-    let outside = std::env::current_exe().expect("path to this test binary");
+    // Deterministic path outside the allowlist. Never borrow current_exe():
+    // when the test binary lives under /tmp, /dev/shm, or $TMPDIR the premise
+    // inverts and the case measures EFBIG instead of EPERM.
+    let outside = path_outside_allowed_temp_roots();
+    assert_path_outside_allowed_temp_roots(&outside);
+
     let mut terminal = opted_in_terminal();
     terminal.advance(&transport_apc(
         'f',
-        outside.to_str().expect("executable path is valid UTF-8"),
+        outside.to_str().expect("outside path is valid UTF-8"),
         7002,
     ));
 
@@ -107,6 +110,70 @@ fn file_transport_refuses_a_path_outside_the_temporary_roots() {
         "a readable file outside the temp roots must be refused, got {answer:?}"
     );
     assert!(terminal.visible_graphics(0).is_empty());
+}
+
+/// A path whose parent is outside every directory `allowed_temp_dirs` admits.
+///
+/// Unix allowlist: `/tmp`, `/dev/shm`, and `$TMPDIR` when set. Windows
+/// allowlist: `std::env::temp_dir()` only. The chosen system path is asserted
+/// outside that set before the transport runs, so a future root addition fails
+/// as "premise unmet" rather than silently inverting the test.
+fn path_outside_allowed_temp_roots() -> std::path::PathBuf {
+    #[cfg(unix)]
+    {
+        std::path::PathBuf::from("/etc/hosts")
+    }
+    #[cfg(windows)]
+    {
+        std::path::PathBuf::from(r"C:\Windows\System32\drivers\etc\hosts")
+    }
+}
+
+fn assert_path_outside_allowed_temp_roots(path: &std::path::Path) {
+    let parent = path
+        .parent()
+        .expect("outside path must have a parent directory");
+    let canonical_parent = std::fs::canonicalize(parent).unwrap_or_else(|err| {
+        panic!(
+            "premise unmet: cannot canonicalize parent of {path:?}: {err}; \
+             the outside-roots fixture must exist on this platform"
+        )
+    });
+
+    let mut allowed = Vec::new();
+    #[cfg(unix)]
+    {
+        for base in ["/tmp", "/dev/shm"] {
+            if let Ok(canonical) = std::fs::canonicalize(base) {
+                allowed.push(canonical);
+            }
+        }
+        if let Ok(tmpdir) = std::env::var("TMPDIR")
+            && let Ok(canonical) = std::fs::canonicalize(&tmpdir)
+            && !allowed.contains(&canonical)
+        {
+            allowed.push(canonical);
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(canonical) = std::fs::canonicalize(std::env::temp_dir()) {
+            allowed.push(canonical);
+        }
+    }
+
+    assert!(
+        !allowed.is_empty(),
+        "premise unmet: no allowed temp roots could be resolved on this host"
+    );
+    assert!(
+        !allowed
+            .iter()
+            .any(|prefix| canonical_parent.starts_with(prefix)),
+        "premise unmet: {path:?} (parent {canonical_parent:?}) is inside an \
+         allowed temp root {allowed:?}; refusing to run a security-boundary \
+         case that would not exercise EPERM:path-not-allowed"
+    );
 }
 
 #[test]

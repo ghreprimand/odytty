@@ -7,6 +7,28 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-22 -- File-transport boundary coverage no longer depends on the build directory
+
+The cross-platform named-transport test used its own executable as the readable
+path that should sit outside OdyTTY's temporary-directory allowlist. That
+premise inverted whenever the test binary was built under `/tmp`, `/dev/shm`,
+or `$TMPDIR`: the path became allowed and the case reached the payload-size
+guard instead of exercising `EPERM:path-not-allowed`.
+
+The fixture now uses an existing platform system path and asserts that its
+canonical parent is outside every admitted temporary root before invoking the
+transport. A future allowlist change therefore fails as an unmet premise rather
+than silently turning a security-boundary test into a different test. Other
+`current_exe()` test uses were reviewed; they use the executable only as a
+subprocess target and do not stand in for a policy-relevant location.
+
+Verified: `RUST_TEST_THREADS=1 cargo test --locked --offline --test
+graphics_named_transport_platform` passes 5 tests with 0 failures. Unix uses
+`/etc/hosts`; Windows uses the system hosts-file path and remains subject to the
+authoritative `windows-latest` CI leg after publication.
+
+---
+
 ## 2026-08-22 -- fc-match is not a coverage claim: repairing the Linux glyph-coverage test
 
 The font-collection landing broke all three CI legs, in two unrelated ways,
