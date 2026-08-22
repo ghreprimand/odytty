@@ -7,6 +7,51 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-22 -- fc-match is not a coverage claim: repairing the Linux glyph-coverage test
+
+The font-collection landing broke all three CI legs, in two unrelated ways,
+both invisible to a Linux-only local gate.
+
+**Windows and macOS: a cfg-stranded import.** `load_font_face_at` was imported
+unconditionally in `src/text/symbols.rs` but consumed only inside the
+fontconfig backfill, which is gated to Linux and non-macOS Unix. Under the
+deny-warnings gate the unused import failed both non-Linux legs at clippy. The
+import now carries the same cfg gate as its one consumer, exactly as the
+neighboring `font_provides_outline_glyph` import already did, with the comment
+that explains why sitting directly above both.
+
+**Linux: the new coverage test built its premise on `fc-match`, and `fc-match`
+always answers.** Asked for a face covering a charset, `fc-match` names its
+best-effort match whether or not anything installed actually covers the
+codepoint; only `fc-list` filters to faces whose charset genuinely includes
+it. On a bare CI image nothing covers `U+23F5`, `fc-match` nominated DejaVu
+Sans anyway, the resolver checked the face, found no outline glyph, and
+correctly declined to install it -- and the test read that correct refusal as
+a resolution failure. The mechanism was confirmed on a fully-fonted host by
+querying a codepoint nothing covers: `fc-match` still names a face; `fc-list`
+returns nothing.
+
+The premise is now built in two steps. Coverage claims come from `fc-list`
+alone, and a claimed face obligates the resolver only after an independent
+whole-file read confirms it carries an outline glyph for the codepoint. The
+independent read deliberately bypasses the production reader: verifying
+through the path under test would let the original defect -- an oversized
+collection rejected whole -- empty the premise and pass the test vacuously,
+which is the precise blindness the test exists to prevent. On a host with no
+verifiable provider the test names what it could not check; on a host with
+one, resolution must succeed and a failure is a hard failure.
+
+The resolver itself needed no change: its candidate list still leads with
+`fc-match` (whose ranking reflects host preferences) and still verifies every
+candidate before installing it. The `fc-list`-only listing is a small split
+out of the existing candidate query, shared by both.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked
+-D warnings`, `cargo test --locked` at `RUST_TEST_THREADS=1` -- 4775 passed,
+0 failed. The Windows and macOS legs are the check for the import gate.
+
+---
+
 ## 2026-08-22 -- Benchmark protocol 1.5.0: a software-endpoint class, declared weaker
 
 The comparative benchmark protocol moves to 1.5.0. The geometry model, the
@@ -45,6 +90,71 @@ clean tree before the first one is, exactly as the protocol requires.
 Verified: harness self-test (all checks pass), `cargo fmt --check`,
 `cargo clippy --all-targets --locked -D warnings`, `cargo test --locked` at
 `RUST_TEST_THREADS=1` - 4775 passed, 0 failed.
+
+---
+
+## 2026-08-22 -- Releases carry keyless build provenance
+
+Every published artifact now ships a GitHub build provenance attestation
+alongside the existing Minisign signature. The two are additive and neither
+replaces the other, because they answer different questions: the signature
+proves `SHA256SUMS` was signed by the holder of the release key, and the
+attestation binds each artifact's digest to the workflow, repository, commit and
+run that produced it. A stolen release key forges the first and not the second.
+A tampered build forges neither.
+
+It is keyless, so nothing new has to be guarded. The signing key is generated in
+memory against the workflow's OIDC identity, certified by Sigstore for the life
+of the run, and discarded. The release job gains `id-token: write` and
+`attestations: write` and no other job holds them; Minisign signing, its
+fail-closed checks on a missing secret, a placeholder public key and a mismatched
+pair, are untouched.
+
+**Attestation runs before publication, and the workflow verifies its own
+output.** That mirrors what the Minisign step already does when it verifies the
+signature it just produced. A provenance record nobody has checked is
+scaffolding rather than evidence, so the workflow checks the manifest and one
+artifact per platform family, constrained to this repository's release workflow
+so an attestation from any other workflow is rejected. If provenance cannot be
+produced or verified, nothing publishes.
+
+Both the always-latest alias and its version-pinned twin are attested. They are
+byte-identical copies, so they share a digest and the attestation carries both
+names against it; verification is by digest, so either name checks out. That is
+the same invariant `SHA256SUMS` has always shown as matching hashes, not a
+duplication bug.
+
+**The platform code signing boundary is now stated in one place, in both
+directions.** The macOS app is ad-hoc signed and not notarized, so Gatekeeper
+refuses it on first launch and a user has to right-click and choose Open. The
+Windows executable is unsigned, so SmartScreen shows an unknown-publisher
+warning and a user has to choose "More info" and then "Run anyway". Both need
+paid certificates that are not purchased, so neither is claimed. Recorded with
+what it means concretely at a download, rather than left to be discovered.
+Provenance narrows that gap without closing it: it establishes where a binary
+was built, which is not what an operating system's publisher check tells you,
+and it does not stop the warning.
+
+`docs/release.md` and `docs/install.md` carry per-platform verification steps
+for the attestation beside the existing Minisign instructions, and the release
+checklist now includes verifying it from a clean machine as a user would, since
+the workflow verifying its own upload proves only that the upload worked.
+
+Workflow changes cannot be exercised locally. What was checked here: the file
+parses as YAML and the release job's permissions and step order are as intended;
+the action is pinned to a commit rather than a tag, matching every other action
+in the file; the `gh attestation verify` invocation and its `--signer-workflow`
+argument shape were checked against the installed GitHub CLI rather than assumed
+from documentation; and no `run:` block contains a workflow expression opener,
+comments included, which is a rule this repository has broken before and now
+tests for mechanically. What only a real tag run can prove: that the attestation
+uploads and verifies end to end. The plan's final provenance item stays open
+until the v0.12.0 tag publishes.
+
+**Windows:** the workflow change is platform-neutral. The Windows artifact is
+attested exactly as the others are, and the verification instructions are given
+for PowerShell as well. The unsigned-executable position is unchanged and now
+documented with its concrete consequence.
 
 ---
 

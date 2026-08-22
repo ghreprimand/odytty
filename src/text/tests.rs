@@ -1445,9 +1445,23 @@ fn windows_symbol_chain_resolves_reported_blank_glyphs() {
 /// independent and reports -- loudly, in the pass message -- what it could not
 /// check. A test that passes vacuously on a bare CI image and also passes on a
 /// fully-fonted workstation is worse than no test, because it reads as
-/// coverage. The distinction here is explicit: if fontconfig reports a provider
-/// for a codepoint, resolution MUST succeed, and a failure to load that
-/// provider is a hard failure rather than a fallthrough to "no coverage".
+/// coverage. The distinction here is explicit: if a face fontconfig claims
+/// covers the codepoint demonstrably carries an outline glyph, resolution MUST
+/// succeed, and a failure to use that face is a hard failure rather than a
+/// fallthrough to "no coverage".
+///
+/// Two subtleties in the premise, both learned from a failure:
+///
+/// - Coverage comes from `fc-list`, never `fc-match`. `fc-match` always names
+///   a best-effort face whether or not anything covers the charset, so on a
+///   bare CI image it nominates a non-covering face, the resolver rightly
+///   rejects it, and a premise built on `fc-match` fails the test against
+///   correct behavior. That happened; this comment is the record.
+/// - The claimed face is verified by an *independent* whole-file read before
+///   it can obligate the resolver. Verifying through the production reader
+///   would let the original defect (an oversized collection rejected whole)
+///   empty the premise and pass the test vacuously -- the exact blindness this
+///   test exists to prevent. The unbounded read is test-only and deliberate.
 #[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn linux_runtime_backfill_resolves_reported_blank_glyphs() {
@@ -1458,20 +1472,33 @@ fn linux_runtime_backfill_resolves_reported_blank_glyphs() {
     let mut skipped = Vec::new();
 
     for ch in reported {
-        // Ask the same question the resolver asks. No provider means the host
-        // genuinely cannot render it, which is a host fact and not a defect.
-        let providers = super::symbols::symbol_font_candidates_for_test(ch);
-        if providers.is_empty() {
-            skipped.push(format!("U+{:04X} (no host provider)", ch as u32));
+        let claimed = super::symbols::fc_list_covering_for_test(ch);
+        // A claimed face obligates the resolver only if an independent read
+        // (no size ceiling, not the production path) finds an outline glyph.
+        let verified = claimed.iter().find(|(path, index)| {
+            std::fs::read(path)
+                .ok()
+                .and_then(|data| ab_glyph::FontVec::try_from_vec_and_index(data, *index).ok())
+                .is_some_and(|font| font_provides_outline_glyph(&font, ch))
+        });
+        let Some(provider) = verified else {
+            skipped.push(if claimed.is_empty() {
+                format!("U+{:04X} (no host provider)", ch as u32)
+            } else {
+                format!(
+                    "U+{:04X} ({} claimed provider(s), none with a usable outline glyph)",
+                    ch as u32,
+                    claimed.len()
+                )
+            });
             continue;
-        }
+        };
         assert!(
             super::runtime_resolve_symbol_font(ch).is_some(),
-            "fontconfig reports {} provider(s) covering U+{:04X} {ch:?}, so the runtime \
-             backfill must resolve it. Providers: {providers:?}. This is the failure the \
-             size ceiling used to cause: a 377 MiB collection was the only provider and \
-             was rejected whole instead of read one face at a time.",
-            providers.len(),
+            "{provider:?} verifiably provides an outline glyph for U+{:04X} {ch:?}, so the \
+             runtime backfill must resolve it. This is the failure the size ceiling used to \
+             cause: a 377 MiB collection was the only provider and was rejected whole \
+             instead of read one face at a time.",
             ch as u32
         );
         checked += 1;

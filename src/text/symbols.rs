@@ -10,13 +10,13 @@ use std::path::{Path, PathBuf};
 
 use ab_glyph::FontVec;
 
-use super::bundled::{
-    load_font_at, load_font_face_at, resolve_bundled_symbol_font, resolve_bundled_symbol_fonts,
-};
+use super::bundled::{load_font_at, resolve_bundled_symbol_font, resolve_bundled_symbol_fonts};
 use super::discovery::{FontFileInventory, file_stem, font_search_dirs, normalize_family};
 // Used only by the fontconfig-backed runtime fallback, which exists on Linux
 // and other non-macOS Unix targets; the gate must match that item's gate or
 // the import is dead on macOS and Windows.
+#[cfg(all(unix, not(target_os = "macos")))]
+use super::bundled::load_font_face_at;
 #[cfg(all(unix, not(target_os = "macos")))]
 use super::metrics::font_provides_outline_glyph;
 
@@ -431,6 +431,25 @@ fn symbol_font_candidates(ch: char) -> Vec<(PathBuf, u32)> {
         found.extend(text.lines().filter_map(parse_fc_record));
     }
 
+    found.extend(fc_list_covering(ch));
+
+    bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES)
+}
+
+/// Faces fontconfig reports as actually *covering* `ch`, in `fc-list` order.
+///
+/// Distinct from `fc-match`, whose answer is not a coverage claim: `fc-match`
+/// always names a best-effort face whether or not any installed font covers
+/// the requested charset, which is why the resolver checks every candidate
+/// with [`font_provides_outline_glyph`] before installing it. Only `fc-list`
+/// filters to faces whose charset genuinely includes the codepoint. The
+/// candidate list still leads with `fc-match` because its ranking reflects
+/// host preferences; this listing exists so a caller can ask which candidates
+/// carry a real coverage claim.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn fc_list_covering(ch: char) -> Vec<(PathBuf, u32)> {
+    let charset = format!(":charset={:x}", ch as u32);
+    let mut found: Vec<(PathBuf, u32)> = Vec::new();
     if let Ok(output) = std::process::Command::new("fc-list")
         .args(["-f", FC_RECORD_FORMAT_NL, &charset])
         .output()
@@ -439,7 +458,6 @@ fn symbol_font_candidates(ch: char) -> Vec<(PathBuf, u32)> {
     {
         found.extend(text.lines().filter_map(parse_fc_record));
     }
-
     bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES)
 }
 
@@ -559,4 +577,13 @@ pub(super) fn bounded_unique_for_test(
     max: usize,
 ) -> Vec<(PathBuf, u32)> {
     bounded_unique(items, max)
+}
+
+/// Test window onto [`fc_list_covering`], so the coverage test can build its
+/// premise from fontconfig's actual coverage claim rather than from
+/// `fc-match`'s best-effort answer, which exists even on a host where nothing
+/// covers the codepoint.
+#[cfg(all(test, unix, not(target_os = "macos")))]
+pub(super) fn fc_list_covering_for_test(ch: char) -> Vec<(PathBuf, u32)> {
+    fc_list_covering(ch)
 }
