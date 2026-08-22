@@ -7,6 +7,49 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-22 -- Runtime font fallback shares parsed faces under diverse Unicode output
+
+The glyph-atlas residency survey found that the atlases were not the dominant
+term. Default monochrome content used 2.993 MB across the CPU bitmaps and GPU
+textures, a 40 px corpus used 11.780 MB, RGB subpixel used 10.406 MB, and a
+sustained color-glyph corpus used 7.571 MB. The CPU bitmaps remain live mutable
+state for insertion, growth, and complete texture refresh, so discarding them
+would require a new upload architecture for an ordinary saving too small to
+explain the resident-memory gap. The color atlas remains grow-only and bounded
+at 4,096 slots; the measured pressure case does not justify eviction.
+
+The pressure workload did expose a separate Linux heap defect. Runtime symbol
+fallback cached each glyph outcome by codepoint, but every successful outcome
+owned another parsed `FontVec` even when many codepoints selected the same font
+file and collection face. One face can cost several MiB, so diverse Unicode
+output retained dozens of byte-identical parsed faces.
+
+Runtime fallback now shares parsed faces through a weak cache keyed by the
+font's filesystem identity, size, modification time, and face index. Separate
+codepoints still cache their own coverage outcome, but their successful
+outcomes share one immutable `Arc<FontVec>`. The metadata identity changes when
+a font is replaced, and the weak entry releases its face when no atlas refers
+to it.
+
+On the exact 2,048-codepoint pressure workload, RSS fell from 879.776 MB to
+229.204 MB and heap RSS from 698.958 MB to 48.386 MB. The 650.572 MB reduction
+lands entirely in the heap mapping; reported atlas storage was only 7.571 MB
+before the correction. A two-second-per-page control remained at 228.688 MB
+RSS, so the result is not explained by faster rendering coalescing pages.
+
+The cache is specific to the Linux and non-macOS Unix fontconfig backfill.
+Windows and macOS have no runtime query and no code path change. Both glyph
+atlases remain platform-neutral and unchanged.
+
+Verified: `cargo fmt --check`; Clippy across all locked targets with warnings
+denied; 4,776 tests passed, 0 failed, and 29 were explicitly ignored at
+`RUST_TEST_THREADS=1`; the production file-size guard passed; and RustSec found
+no vulnerabilities, with the existing allowed `ttf-parser` maintenance
+warning. The focused 68-test text suite includes the pointer-identity
+regression, while the atlas suite and color-emoji pixel smoke remain green.
+
+---
+
 ## 2026-08-22 -- v0.11.1 memory baselines recorded for both measurement classes
 
 Two dated v0.11.1 host-side memory records now anchor the Phase 0 comparison:

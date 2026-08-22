@@ -20,6 +20,22 @@ use super::bundled::load_font_face_at;
 #[cfg(all(unix, not(target_os = "macos")))]
 use super::metrics::font_provides_outline_glyph;
 
+#[cfg(all(unix, not(target_os = "macos")))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct RuntimeFontFaceKey {
+    device: u64,
+    inode: u64,
+    length: u64,
+    modified_seconds: i64,
+    modified_nanoseconds: i64,
+    face_index: u32,
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+static RUNTIME_FONT_FACE_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<RuntimeFontFaceKey, std::sync::Weak<FontVec>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
 /// Environment variable naming an explicit symbol / Nerd-font file for the
 /// RV6 PUA-icon fallback. When set to a readable `.ttf`/`.otf`, it takes
 /// precedence over the family search in [`resolve_symbol_font`].
@@ -389,19 +405,61 @@ pub(crate) fn resolve_symbol_fonts_with_inventory(
 /// symbols at Thin weight beside a Regular body font.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn runtime_resolve_symbol_font(ch: char) -> Option<std::sync::Arc<FontVec>> {
-    for (path, face_index) in symbol_font_candidates(ch) {
+    resolve_symbol_font_from_candidates(ch, symbol_font_candidates(ch))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn resolve_symbol_font_from_candidates(
+    ch: char,
+    candidates: Vec<(PathBuf, u32)>,
+) -> Option<std::sync::Arc<FontVec>> {
+    for (path, face_index) in candidates {
         if !path.is_file() {
             continue;
         }
-        let Ok(font) = load_font_face_at(&path, face_index) else {
+        let Some(font) = cached_runtime_font_face(&path, face_index) else {
             continue;
         };
         if !font_provides_outline_glyph(&font, ch) {
             continue;
         }
-        return Some(std::sync::Arc::new(font));
+        return Some(font);
     }
     None
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn cached_runtime_font_face(path: &Path, face_index: u32) -> Option<std::sync::Arc<FontVec>> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = path.metadata().ok()?;
+    let key = RuntimeFontFaceKey {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        length: metadata.len(),
+        modified_seconds: metadata.mtime(),
+        modified_nanoseconds: metadata.mtime_nsec(),
+        face_index,
+    };
+
+    {
+        let cache = RUNTIME_FONT_FACE_CACHE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(font) = cache.get(&key).and_then(std::sync::Weak::upgrade) {
+            return Some(font);
+        }
+    }
+
+    let loaded = std::sync::Arc::new(load_font_face_at(path, face_index).ok()?);
+    let mut cache = RUNTIME_FONT_FACE_CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(font) = cache.get(&key).and_then(std::sync::Weak::upgrade) {
+        return Some(font);
+    }
+    cache.insert(key, std::sync::Arc::downgrade(&loaded));
+    Some(loaded)
 }
 
 /// Host faces covering `ch`, in preference order, as `(path, face index)`.
@@ -562,6 +620,14 @@ fn resolve_symbol_font_path_in_inventory(inventory: &FontFileInventory) -> Optio
 #[cfg(all(test, unix, not(target_os = "macos")))]
 pub(super) fn symbol_font_candidates_for_test(ch: char) -> Vec<(PathBuf, u32)> {
     symbol_font_candidates(ch)
+}
+
+#[cfg(all(test, unix, not(target_os = "macos")))]
+pub(super) fn resolve_symbol_font_from_candidates_for_test(
+    ch: char,
+    candidates: Vec<(PathBuf, u32)>,
+) -> Option<std::sync::Arc<FontVec>> {
+    resolve_symbol_font_from_candidates(ch, candidates)
 }
 
 /// Test window onto [`parse_fc_record`].

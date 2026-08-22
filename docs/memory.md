@@ -502,6 +502,35 @@ against the cold-path gain.
 platform-specific branch; the same code runs on every target and the
 `windows-latest` CI leg is the check.
 
+### Glyph atlases: measured, retained, and not the dominant term
+
+The Phase 4 workstation survey covers default and large font sizes, grayscale
+and RGB subpixel storage, an ordinary color-glyph page, and sustained distinct
+emoji pressure. The total CPU plus requested GPU atlas storage is 2.993 MB for
+the default monochrome corpus, 11.780 MB at 40 px, 10.406 MB for RGB subpixel,
+and 7.571 MB under the sustained color corpus. The complete record is
+[`glyph-atlas-residency-2026-08-22-workstation-class.md`](../bench-results/glyph-atlas-residency-2026-08-22-workstation-class.md).
+
+The CPU bitmaps stay. They are not upload-only staging: live glyph insertion
+writes into them, growth preserves old coverage in them, and every dirty
+revision currently rebuilds the texture from the complete bitmap. Removing
+them safely requires a different upload architecture, while the measured
+ordinary saving is too small to explain the resident-memory gap.
+
+The color atlas also stays grow-only. Its 4,096-slot ceiling bounds logical
+content, and the measured pressure case reaches 6.528 MB across its CPU bitmap
+and GPU texture. Adding eviction would add rerasterization and UV-lifetime risk
+without addressing the dominant observed term.
+
+That pressure run did find a different defect. Linux runtime fallback cached
+each codepoint's outcome but reparsed and retained another copy of the same
+font face for every codepoint. The exact workload reached 879.776 MB RSS, of
+which 698.958 MB was heap, while both atlas families totaled 7.571 MB. Sharing
+parsed faces by filesystem identity and face index reduced the identical
+workload to 229.204 MB RSS and 48.386 MB heap. The 650.572 MB RSS reduction
+lands entirely in the heap classification. This is a font-cache correction
+found by the atlas survey, not an atlas saving.
+
 ## What is deliberately not a goal
 
 **Matching Alacritty's 58.0 MB is a non-goal.** Not because it is hard, but

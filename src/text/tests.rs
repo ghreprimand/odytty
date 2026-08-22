@@ -1590,6 +1590,32 @@ fn collection_faces_load_at_the_index_fontconfig_reports() {
     );
 }
 
+/// Distinct codepoints resolved from one host face share the parsed font.
+///
+/// The runtime atlas cache is keyed by codepoint because each glyph can have a
+/// different outcome. The font bytes underneath successful outcomes must be
+/// keyed by face identity instead: reparsing a multi-megabyte collection face
+/// once per codepoint turns a diverse symbol stream into linear heap growth.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn runtime_backfill_shares_one_loaded_face_across_codepoints() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fonts/symbol-markers-inked.ttf");
+    let first = super::symbols::resolve_symbol_font_from_candidates_for_test(
+        '\u{2731}',
+        vec![(path.clone(), 0)],
+    )
+    .expect("fixture covers U+2731");
+    let second =
+        super::symbols::resolve_symbol_font_from_candidates_for_test('\u{25CF}', vec![(path, 0)])
+            .expect("fixture covers U+25CF");
+
+    assert!(
+        std::sync::Arc::ptr_eq(&first, &second),
+        "two glyph outcomes from one face must share one parsed FontVec"
+    );
+}
+
 /// A collection face costs the face, not the file.
 ///
 /// The defect this guards: reading a whole collection to rasterize one glyph.
