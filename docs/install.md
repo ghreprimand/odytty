@@ -23,6 +23,8 @@ the install is versioned, owned, removable, and visible to Odyssey-Mon.
 
 - [Release Artifact Names And Checksums](#release-artifact-names-and-checksums)
   - [Verify a signed release download](#verify-a-signed-release-download)
+  - [Verify build provenance](#verify-build-provenance)
+  - [What signing does and does not cover](#what-signing-does-and-does-not-cover)
 - [Linux](#linux)
   - [One-line installer (recommended)](#one-line-installer-recommended)
   - [.deb (Debian, Ubuntu, Mint, Pop)](#deb-debian-ubuntu-mint-pop)
@@ -134,11 +136,60 @@ $actual = (Get-FileHash odytty-windows-x86_64.zip -Algorithm SHA256).Hash.ToLowe
 if ($actual -ne $expected) { throw 'SHA-256 mismatch; do not run this download' }
 ```
 
-The checksum-manifest signature does not replace operating-system code signing.
-The macOS app remains ad-hoc signed and is not Developer ID signed or notarized.
-The Windows executable remains without Authenticode and can still trigger an
-unknown-publisher SmartScreen warning. Those platform credentials are not part
-of the release-signing scheme.
+### Verify build provenance
+
+Releases from v0.12.0 onward also carry a GitHub build provenance attestation,
+which binds each artifact's digest to the workflow, repository, and commit that
+produced it. It is additive to the Minisign signature above, not a replacement:
+the signature says who vouched for the manifest, the attestation says where the
+bytes were built.
+
+There is nothing extra to download. Attestations are stored by GitHub against
+the repository and looked up by the artifact's digest, so verification is an
+online query. It needs the GitHub CLI, version 2.97.0 or newer, on any platform.
+Older releases contain known attestation-verification bypasses and must not be
+used for this check:
+
+```sh
+gh attestation verify odytty-x86_64.AppImage --repo ghreprimand/odytty
+```
+
+Substitute the artifact you downloaded. The always-latest alias and its
+version-pinned twin are byte-identical, so either name verifies against the same
+attestation, exactly as they share a hash in `SHA256SUMS`. Use
+`odytty-x86_64.AppImage` or the Linux tarball/package name on Linux,
+`odytty-macos-arm64.zip` on macOS, and `odytty-windows-x86_64.zip` in
+PowerShell on Windows; the command syntax is otherwise identical.
+
+To also require that the attestation came from this project's release workflow
+and not merely from somewhere in the repository, add:
+
+```sh
+gh attestation verify odytty-x86_64.AppImage \
+  --repo ghreprimand/odytty \
+  --signer-workflow ghreprimand/odytty/.github/workflows/release.yml
+```
+
+Stop if verification fails. Releases before v0.12.0 have no attestation, and
+`gh attestation verify` correctly reports that rather than passing.
+
+### What signing does and does not cover
+
+Neither the checksum-manifest signature nor the provenance attestation replaces
+operating-system code signing, and you will still see a warning on first launch:
+
+- **macOS:** the app is ad-hoc signed, not Developer ID signed or notarized.
+  Gatekeeper refuses it on first launch; right-click the app and choose Open
+  (or clear the quarantine attribute) to run it.
+- **Windows:** the executable has no Authenticode signature. SmartScreen shows
+  an unknown-publisher warning; choose "More info" and then "Run anyway".
+- **Linux:** no platform signing authority is involved, so the manifest
+  signature and the attestation are the whole trust chain.
+
+The canonical platform-signing boundary and its cost rationale are recorded in
+[the release guide](release.md#platform-code-signing-boundary). Verifying the
+manifest signature and the attestation establishes that a download is the
+artifact this project built; it does not suppress operating-system warnings.
 
 ## Linux
 

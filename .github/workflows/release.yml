@@ -527,6 +527,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Build provenance attestation. `id-token: write` lets the attest action
+      # exchange the job's OIDC token for a short-lived Sigstore signing
+      # certificate; `attestations: write` lets it upload the signed statement.
+      # Binary attestations do not need the registry-only artifact-metadata
+      # permission. No long-lived key exists to leak: the signing key is
+      # generated in memory per run and discarded. These permissions are scoped
+      # to this job alone, so no producer job holds them.
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout release source
         # v4.2.2
@@ -618,6 +627,74 @@ jobs:
             -m out/SHA256SUMS \
             -x out/SHA256SUMS.minisig
           test -s out/SHA256SUMS.minisig
+
+      # Keyless build provenance, additive to the Minisign signature above and
+      # deliberately not a replacement for it. The two answer different
+      # questions: Minisign proves the manifest was signed by the holder of the
+      # OdyTTY release key, while the attestation binds each artifact's digest
+      # to the workflow, repository, and commit that produced it. A stolen
+      # signing key forges the first and not the second; post-build artifact
+      # tampering invalidates both. Provenance does not claim the source or
+      # workflow itself is safe.
+      #
+      # Runs BEFORE publication so the fail-closed posture is preserved: if an
+      # attestation cannot be produced or verified, nothing is published. This
+      # is the same shape as the Minisign step above, which verifies its own
+      # signature before the release is cut.
+      #
+      # Every file in out/ is attested, including both the always-latest alias
+      # and its version-pinned twin. They are byte-identical copies, so they
+      # share one digest and the attestation carries both names against it;
+      # verification is by digest, so either name verifies. That is the same
+      # invariant SHA256SUMS already shows as matching hashes, not a duplicate.
+      - name: Attest build provenance
+        # v4.2.2
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: out/*
+
+      - name: Verify the attestation before publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # v2.97.0 fixes CVE-2026-64655: older releases treated metacharacters
+          # in --signer-workflow as regex syntax and could accept a lookalike
+          # signer. Refuse to use an older preinstalled runner CLI.
+          required_gh_version=2.97.0
+          installed_gh_version="$(gh --version | awk 'NR == 1 { print $3 }')"
+          if [ "$(printf '%s\n' "$required_gh_version" "$installed_gh_version" | sort -V | head -n 1)" != "$required_gh_version" ]; then
+            echo "::error::gh ${required_gh_version} or newer is required; runner has ${installed_gh_version}" >&2
+            exit 1
+          fi
+          # An attestation nobody has verified is scaffolding, not evidence, so
+          # the workflow verifies its own output rather than trusting that the
+          # upload reported success.
+          #
+          # Every published file is checked individually rather than a sample.
+          # Checking a representative few would assume the others are covered by
+          # the same record, which is an assumption about how the attest action
+          # groups subjects; verifying each one asserts nothing and proves the
+          # property directly. The cost is one lookup per file.
+          #
+          # --signer-workflow pins the producer to this repository's release
+          # workflow, so an attestation created by any other workflow, including
+          # one in a fork, is rejected rather than accepted as provenance.
+          count=0
+          for subject in out/*; do
+            test -f "$subject" || continue
+            gh attestation verify "$subject" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
+            count=$((count + 1))
+          done
+          # A loop over an empty or mismatched directory would otherwise pass
+          # silently, reporting success for having verified nothing.
+          if [ "$count" -ne 16 ]; then
+            echo "::error::verified ${count} attested files, expected exactly 16" >&2
+            exit 1
+          fi
+          echo "verified build provenance for ${count} published files"
 
       - name: Publish GitHub Release
         # v2.3.3

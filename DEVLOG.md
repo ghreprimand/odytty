@@ -106,16 +106,17 @@ A tampered build forges neither.
 It is keyless, so nothing new has to be guarded. The signing key is generated in
 memory against the workflow's OIDC identity, certified by Sigstore for the life
 of the run, and discarded. The release job gains `id-token: write` and
-`attestations: write` and no other job holds them; Minisign signing, its
+`attestations: write` and no other job holds them. Binary attestations do not
+need the registry-only `artifact-metadata: write` permission. Minisign signing, its
 fail-closed checks on a missing secret, a placeholder public key and a mismatched
 pair, are untouched.
 
 **Attestation runs before publication, and the workflow verifies its own
 output.** That mirrors what the Minisign step already does when it verifies the
 signature it just produced. A provenance record nobody has checked is
-scaffolding rather than evidence, so the workflow checks the manifest and one
-artifact per platform family, constrained to this repository's release workflow
-so an attestation from any other workflow is rejected. If provenance cannot be
+scaffolding rather than evidence, so the workflow checks every one of the 16
+published files, constrained to this repository's release workflow so an
+attestation from any other workflow is rejected. If provenance cannot be
 produced or verified, nothing publishes.
 
 Both the always-latest alias and its version-pinned twin are attested. They are

@@ -9,6 +9,8 @@ the version being released.
 - [Continuous Integration](#continuous-integration)
 - [Release Readiness](#release-readiness)
 - [Release Artifacts](#release-artifacts)
+- [Build Provenance Attestation](#build-provenance-attestation)
+- [Platform Code Signing Boundary](#platform-code-signing-boundary)
 - [Release Signing Key](#release-signing-key)
 - [Create A Release](#create-a-release)
 - [Release Workflow Jobs](#release-workflow-jobs)
@@ -144,11 +146,73 @@ signature authenticates every published filename and digest without changing
 the byte-identical alias copies. Releases before v0.11.0 are checksum-only and
 remain unsigned; they were not retroactively signed.
 
-Manifest signing is separate from platform code signing. The macOS app remains
-ad-hoc signed, without Apple Developer ID signing or notarization. The Windows
-executable remains unsigned and may still trigger an unknown-publisher
-SmartScreen warning. Apple notarization and Windows Authenticode require paid
-certificates and are outside the release scope.
+## Build Provenance Attestation
+
+Releases from v0.12.0 onward also publish a GitHub build provenance
+attestation for every artifact. It is additive: Minisign signing is unchanged,
+and neither replaces the other because they answer different questions.
+
+- The Minisign signature proves `SHA256SUMS` was signed by the holder of the
+  OdyTTY release key. It says who vouched for the manifest.
+- The attestation binds each artifact's SHA-256 digest to the workflow,
+  repository, commit, and run that produced it, signed with a short-lived
+  Sigstore certificate issued against the workflow's OIDC identity. It says
+  where the bytes came from.
+
+A stolen release key forges the first but not the second. Modifying an artifact
+after the workflow finishes invalidates both. The attestation does not prove
+that the source or build workflow is safe; it makes the source and workflow
+identity inspectable. It is keyless, so there is no additional secret to guard
+or rotate: the signing key exists only in memory for the duration of the run.
+
+Attestations are stored by GitHub against the repository and keyed by artifact
+digest, not attached to the release as a file. Verification is therefore an
+online lookup rather than a downloaded signature, and because the always-latest
+alias and its version-pinned twin are byte-identical, both names verify against
+the same attestation. That is the same invariant `SHA256SUMS` already shows as
+matching hashes.
+
+The release workflow verifies its own attestation before publishing, the same
+way it already verifies its own Minisign signature. If an attestation cannot be
+produced or verified, the release does not publish.
+
+Users verify with the GitHub CLI (2.97.0 or newer). Older releases contain
+known attestation-verification bypasses and must not be used for this check:
+
+```sh
+gh attestation verify odytty-x86_64.AppImage --repo ghreprimand/odytty
+```
+
+Constrain the signer to this project's release workflow to reject an
+attestation produced by any other workflow, including one in a fork:
+
+```sh
+gh attestation verify odytty-x86_64.AppImage \
+  --repo ghreprimand/odytty \
+  --signer-workflow ghreprimand/odytty/.github/workflows/release.yml
+```
+
+## Platform Code Signing Boundary
+
+Manifest signing and build provenance are both separate from platform code
+signing, and neither substitutes for it. This is a cost decision, recorded
+plainly rather than left to be discovered at download time:
+
+- **macOS:** the app is ad-hoc signed, without Apple Developer ID signing or
+  notarization. Gatekeeper will refuse to open it on first launch; a user has to
+  right-click and choose Open, or clear the quarantine attribute, to run it.
+- **Windows:** the executable is unsigned. SmartScreen shows an
+  unknown-publisher warning, and a user has to choose "More info" and then "Run
+  anyway".
+- **Linux:** unaffected. No platform signing authority is involved, so the
+  checksum manifest and its signature are the whole trust chain.
+
+Apple notarization requires a paid Apple Developer Program membership and
+Windows Authenticode requires a paid code-signing certificate. Neither is
+purchased, so neither is claimed. The attestation narrows the gap without
+closing it: it proves where a binary was built, which is what an operating
+system's publisher check does not tell you anyway, but it does not stop the
+operating system warning.
 
 ## Release Signing Key
 
@@ -247,6 +311,20 @@ Confirm the release has 16 assets: seven aliases, seven pinned copies,
 `SHA256SUMS`, and `SHA256SUMS.minisig`. Verify the Minisign signature first,
 then verify that every alias/pinned pair has matching hashes.
 
+Then verify the build provenance attestation from a clean machine, as a user
+would. The workflow already verified its own attestation before publishing, but
+that proves the upload succeeded, not that a third party can check it:
+
+```sh
+gh attestation verify odytty-x86_64.AppImage \
+  --repo ghreprimand/odytty \
+  --signer-workflow ghreprimand/odytty/.github/workflows/release.yml
+```
+
+Repeat for the Windows and macOS zips. Confirm the reported commit matches the
+tag. The attestation is a repository-level record rather than a release asset,
+so it does not change the 16-asset count.
+
 Download the pinned source archive and confirm it builds:
 
 ```sh
@@ -277,7 +355,7 @@ four tag-only publication/channel jobs:
 | `windows` | Windows portable zip | Runs for tag and manual validation |
 | `macos` | Ad-hoc-signed macOS app zip | Runs for tag and manual validation |
 | `verify-ci` | Exact tagged-commit CI result | Tag only; requires a completed successful `ci.yml` run whose `head_sha` equals the tag commit |
-| `release` | GitHub Release, aliases, pinned copies, `SHA256SUMS`, and its Minisign signature | Tag only; requires `verify-ci` and all seven producers |
+| `release` | GitHub Release, aliases, pinned copies, `SHA256SUMS`, its Minisign signature, and a build provenance attestation over every artifact | Tag only; requires `verify-ci` and all seven producers. Attests and self-verifies before publishing, so a failed attestation publishes nothing |
 | `scoop` | In-repo Scoop manifest | Tag only; runs after `release` and pushes with `GITHUB_TOKEN` |
 | `homebrew` | External Homebrew tap | Tag only; runs after `release`; validates locally and publishes when `HOMEBREW_TAP_DEPLOY_KEY` is present |
 | `aur` | AUR package | Tag only; runs after `release` through `aur-publish.yml`; publishes when `AUR_SSH_PRIVATE_KEY` is present |
