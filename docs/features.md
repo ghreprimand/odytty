@@ -200,8 +200,30 @@ joining is shaped in **logical left-to-right cell order** - not bidi
 reordering; RTL visual layout remains deferred. Unsupported fonts and runs
 render through the normal per-cell path. Set `ligatures = off` in Settings or
 configuration, or `ODYTTY_LIGATURES=off` for one launch, to restore scalar
-rendering; the setting reloads live. See `docs/shaping-roadmap.md` for the
-shaping model, what has landed, and what remains deferred.
+rendering; the setting reloads live.
+
+The support boundary is explicit:
+
+| Surface | Current support | Standing position |
+| --- | --- | --- |
+| Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, and opt-in `ss01`/`ss02` overlays | More curated operators and bounded, explicit font-feature settings are candidates within the current overlay model |
+| Arabic | Contextual joining forms in logical left-to-right cell order; combining-marked cells stay on the monochrome path | More joining-script coverage that requires no visual reordering is a candidate; this is not bidirectional layout |
+| Full Unicode bidirectional layout | Not supported | Outside the current overlay model. Correct support first requires line-level logical-to-visual mapping shared by rendering, hit testing, cursor movement, selection, damage tracking, and copy semantics |
+| Complex Indic/Brahmic shaping | Not supported | Outside the current one-character-per-cell overlay model. Correct support requires grapheme-cluster ownership plus reordered glyph placement that remains reversible to logical cells |
+| Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |
+| SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Deferred implementation work, not a cell-model conflict. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
+
+A partial BiDi or complex-script approximation is not planned: visual order
+that disagrees with cursor, selection, search, or copy behavior would weaken
+terminal correctness. The detailed prerequisites, acceptance boundaries, and
+measurement are in [the text shaping roadmap](shaping-roadmap.md).
+
+The independent 2026-08-16 review's `ucs-detect` run covered 85 languages and
+recorded an aggregate 81.2% check pass rate. Failures appeared in 22 language
+cases, all Brahmic or derived from Southeast Asian Brahmic scripts; the run
+reported none in its Latin, Cyrillic, Greek, CJK, Hebrew, or non-conjunct Arabic
+cases. This is a result for that corpus, not a percentage of languages OdyTTY
+claims to support.
 
 Decomposed combining marks stay attached to their base glyph in the monochrome
 text path. Wrapped and rectangular selection copy the base followed by its marks
@@ -230,12 +252,21 @@ Segoe UI Emoji and other parseable COLR/CPAL faces. The shared raster and atlas
 logic is platform-neutral.
 
 Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
-supported. Text-default symbols stay on the monochrome fallback path, missing
-color glyphs fall back there instead of becoming tofu, and emoji pixels are not
-SGR-tinted. Cluster coverage is bounded by the host font: stock Windows Segoe
-UI Emoji ships no regional-indicator flag glyphs, so flag clusters on a stock
-Windows install render as the visible letter fallback - the same behavior as
-native Windows applications - rather than a color flag.
+supported by the color-glyph renderer. This is presentation support, not a
+claim that the terminal grid computes sequence width: grid occupancy is still
+assigned per codepoint, so VS15, VS16, and ZWJ sequences can occupy the wrong
+number of columns even when they draw as one color glyph. Text-default symbols
+stay on the monochrome fallback path, missing color glyphs fall back there
+instead of becoming tofu, and emoji pixels are not SGR-tinted. Cluster coverage
+is bounded by the host font: stock Windows Segoe UI Emoji ships no
+regional-indicator flag glyphs, so flag clusters on a stock Windows install
+render as the visible letter fallback - the same behavior as native Windows
+applications - rather than a color flag.
+
+Regional-indicator pairs currently total two columns by independent scalar
+arithmetic, not because the grid recognizes a flag cluster. The separate
+`unicode-width` versus Python `wcwidth` disagreement for a standalone regional
+indicator is an ecosystem compatibility decision, not an OdyTTY defect.
 
 Source preference is bitmap strike, then COLR v0, then COLR v1. The first two
 paths retain their established byte output; v1 is attempted only when they do

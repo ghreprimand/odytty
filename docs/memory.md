@@ -15,6 +15,7 @@ what "should" be cheap.
 - [The two instruments](#the-two-instruments)
 - [Reading a capture](#reading-a-capture)
 - [A worked baseline](#a-worked-baseline)
+- [Runtime font fallback reads one collection face](#runtime-font-fallback-reads-one-collection-face)
 - [What is deliberately not a goal](#what-is-deliberately-not-a-goal)
 
 ## The standing rule
@@ -530,6 +531,29 @@ parsed faces by filesystem identity and face index reduced the identical
 workload to 229.204 MB RSS and 48.386 MB heap. The 650.572 MB RSS reduction
 lands entirely in the heap classification. This is a font-cache correction
 found by the atlas survey, not an atlas saving.
+
+## Runtime font fallback reads one collection face
+
+Linux fontconfig can select one face inside a TrueType collection whose whole
+file is larger than OdyTTY's 256 MiB font-file limit. The adopted reader does
+not raise that limit and does not memory-map the collection. It validates the
+selected face directory, reads only the tables referenced by that face, and
+reconstructs a standalone font buffer. Parsed runtime fallback faces are then
+shared across codepoints that resolve to the same file and face index.
+
+On the development workstation's 395,439,184-byte Iosevka collection,
+fontconfig selected face index 54. A bounded helper calling the production
+`read_font_face` retained 9,841,432 bytes and added 9,908,224 bytes of RSS over
+an idle helper. A counterfactual `std::fs::read` of the whole collection retained
+395,439,184 bytes and added 395,567,104 bytes of RSS. Selected-face
+reconstruction therefore used 39.92 times less additional resident memory, a
+385,658,880-byte difference.
+
+The whole-file arm is a counterfactual cost, not a v0.11.1 run: v0.11.1 rejected
+this collection at the unchanged 256 MiB boundary. This workstation result is
+also not a W6 benchmark result and is not pooled with benchmark-machine data.
+The related application reproduction is recorded in
+[`issue2-musicfox-cjk-fallback-2026-08-22.md`](../bench-results/issue2-musicfox-cjk-fallback-2026-08-22.md).
 
 ## What is deliberately not a goal
 

@@ -7,6 +7,36 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-23 -- Shaping boundaries and font fallback evidence are explicit
+
+The shaping documentation now carries one synchronized support matrix and
+states the product boundary for full bidirectional layout, complex Indic and
+Brahmic shaping, and SVG-in-OpenType glyphs. It separates supported color-glyph
+presentation from the still scalar-based width calculation, records
+sequence-aware grapheme width as tractable follow-up work, and qualifies the
+independent 85-language result as a corpus measurement rather than a language
+coverage percentage.
+
+The Phase 11 reader was measured against the whole-collection allocation it was
+designed to avoid. On a 395,439,184-byte Iosevka collection, production
+selected-face reconstruction added 9,908,224 bytes of RSS over an idle helper;
+a counterfactual whole-file read added 395,567,104 bytes. The adopted path used
+39.92 times less additional resident memory while preserving the 256 MiB
+whole-file rejection boundary.
+
+This is selected-face reconstruction, not memory mapping. The whole-file arm is
+counterfactual because v0.11.1 rejected this fixture rather than reading it.
+The memory guide now states that distinction and records the exact measured
+delta.
+
+An exact MusicFox v5.1.0 application reproduction is also recorded under the
+benchmark evidence tree. The same Chinese chart and lyric workload used about
+1.41 GB RSS on v0.11.1 and about 222 MB on the fixed build. Both stayed flat
+during a 120-second non-visible interval, so the result reproduces the reported
+high-memory class without claiming a desktop-specific minimize leak.
+
+---
+
 ## 2026-08-22 -- zsh prompts emit the OSC 133 input-start mark as real bytes
 
 The zsh integration appended the OSC 133 `B` mark to `PS1` inside ordinary
