@@ -44,6 +44,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.12.0" date="2026-08-23">
+      <description>
+        <p>This release reduces OdyTTY-controlled memory with surface-sized background textures, releasable post-process targets, denser scrollback storage, and shared runtime fallback faces. It also adds bounded Kitty zlib payloads and image-number animation addressing, advertises Sixel through DA1, and reconstructs selected faces from over-limit font collections instead of retaining the collection.</p>
+        <p>Memory attribution and a pre-release regression guard make the reductions repeatable, the supported shaping boundary is documented with measured evidence, and release artifacts gain GitHub OIDC provenance alongside Minisign. The benchmark protocol adds separately classified software-endpoint workloads without presenting them as optical latency measurements.</p>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-08-09">
       <description>
         <p>This release is primarily an architecture, reliability, and security convergence release. Its bounded presentation additions show live terminal dimensions during resize, the effective font size during Ctrl+wheel zoom, and unseen tab and workspace activity. Every handwritten Rust source file that is compiled into the shipping binary is now under 2,000 physical lines, with the oversized settings, terminal screen, grid, text, atlas, snapshot, shell-integration, and native interface modules split along ownership boundaries; a repository-wide guard enforces that limit in blocking CI.</p>

@@ -110,6 +110,15 @@ The upstream release does not currently publish Nix, Flatpak, or Snap packages.
 A package must not silently change the user's default terminal; it should
 register OdyTTY as available and leave selection to the user.
 
+For v0.12.0, blocking Linux, macOS, and Windows CI remains a release gate, but
+maintainer-controlled Windows and macOS hardware is not available for a
+pre-publish install and runtime smoke pass. The first on-device checks of the
+published Windows portable/Scoop paths and macOS archive/Homebrew paths are
+therefore post-publish verification steps. Record their real outcome. A defect
+found there is fixed in a patch release; it is not rewritten as a successful
+v0.12.0 check. Historical device passes remain evidence for earlier artifacts,
+not proof about the new release.
+
 ## Release Artifacts
 
 Each release publishes seven artifact types under both an always-latest alias
@@ -287,6 +296,27 @@ The tag workflow smoke-tests the Windows and macOS binaries before packaging,
 the assembled AppImage, and the binary inside the Linux tarball staging tree.
 The `.deb` and `.rpm` packages receive metadata and file-list validation but are
 not executed.
+
+Then run the memory regression guard. It is a release step rather than a CI job
+because its subject is a running process on a real adapter, which the hosted
+runners cannot supply; the reasoning is recorded in
+[`memory.md`](memory.md#the-pre-release-regression-guard) and the guard's own
+self-test runs in CI.
+
+```sh
+# Capture with the window at the geometry the ceilings were recorded at, then:
+python3 scripts/memory-regression-guard.py \
+    --log "$TMPDIR/odytty-memory-report.log" \
+    --environment-class workstation-nvidia-wayland \
+    --geometry 1600x1000 \
+    --skip-first 8
+```
+
+Exit 0 is a clean run; 1 is a regression or a measurement gap; 2 is a fault in
+the guard's own inputs, such as an environment class with no recorded ceilings.
+A machine with no recorded class is not a pass and is not a failure of the
+build: record a baseline for it, or run the guard on a machine that has one. A
+ceiling is never widened to clear a red run.
 
 ### 3. Push The Release Tag
 

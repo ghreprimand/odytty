@@ -211,11 +211,14 @@ for every compared terminal must declare `gpu_memory` `unsupported` for that
 run set and must not approximate or fill one terminal from another.
 
 **SE retention.** `retention_delta_bytes` is `after - before` resident bytes
-around one software-endpoint burst, with peak sampled during the burst when
+around one software-endpoint burst and a fixed 30-second post-burst settle,
+with peak sampled during the burst when
 `memory.peak` is exposed. The signal detects retention per unit of work. It
 does not detect time-based creep in an idle process and is not a substitute
 for W7. A missing before/after sample is `unsupported` and is never filled
-from VmRSS or another nearby figure.
+from VmRSS or another nearby figure. During the active SE interval, CPU time
+charged to the private trial cgroup is subtracted from aggregate system busy
+time before the unrelated-background-load ceiling is applied.
 
 ## Measurement environment and resource limits
 

@@ -47,6 +47,7 @@ import sys
 import tempfile
 import threading
 import time
+from pathlib import Path
 
 import fixtures
 
@@ -340,6 +341,7 @@ def evaluate_software_endpoint_oracle(
     final_record_present: bool,
     child_alive: bool,
     waited_for_cpr: bool,
+    expected_cursor_report: tuple[int, int] | None = None,
 ) -> dict:
     """Oracle for SE1/SE2. Child-exit without a CPR wait cannot pass.
 
@@ -364,6 +366,14 @@ def evaluate_software_endpoint_oracle(
             )
     if cursor_report is None:
         reasons.append("no valid cursor-position report")
+    elif (
+        expected_cursor_report is not None
+        and cursor_report != expected_cursor_report
+    ):
+        reasons.append(
+            f"cursor-position report {cursor_report!r} is not "
+            f"{expected_cursor_report!r}"
+        )
     if not completion_patch_painted:
         reasons.append("completion patch was not painted")
     if not final_record_present:
@@ -380,17 +390,42 @@ def evaluate_software_endpoint_oracle(
 def run_software_stream(
     sink: OracleSink,
     fixture: str,
+    start_path: str,
+    release_path: str,
     stdin_stream=None,
     cpr_timeout_seconds: float = 30.0,
+    wait_for_edge=wait_for_start_edge,
+    output_stream=None,
+    payload_writer=write_payload,
+    terminal_size_reader=terminal_size,
 ) -> dict:
-    """SE1/SE2 child: write the payload, wait for CPR, then paint completion.
+    """SE1/SE2 child: wait, write, validate, then stay alive for sampling.
 
-    Elapsed time includes the CPR wait. A timeout or malformed reply is
-    recorded as an oracle failure, not as a fast finish.
+    The create-exclusive start edge lets the controller sample the complete
+    terminal process tree before the burst. The child remains alive after its
+    oracle record until the release edge arrives, so the controller can take
+    the fixed-settle post-burst sample against the same process tree. Elapsed
+    time includes the CPR wait. A timeout or malformed reply is recorded as an
+    oracle failure, not as a fast finish.
     """
-    stream = sys.stdout.buffer
+    stream = sys.stdout.buffer if output_stream is None else output_stream
+    columns, rows = terminal_size_reader()
+    workload = (
+        "software-ascii-stream" if fixture == "w3" else "software-sgr-stream"
+    )
+    sink.emit(
+        "software-endpoint-ready",
+        workload=workload,
+        **{
+            "class": "software-endpoint",
+            "fixture": fixture,
+            "pty_columns": columns,
+            "pty_rows": rows,
+        },
+    )
+    wait_for_edge(start_path)
     started = time.monotonic()
-    digest, written = write_payload(stream, fixture)
+    digest, written = payload_writer(stream, fixture)
     cursor_position_request(stream)
     report = wait_for_cursor_report(
         stdin_stream if stdin_stream is not None else sys.stdin.buffer,
@@ -398,6 +433,7 @@ def run_software_stream(
     )
     completion_patch(stream)
     elapsed = time.monotonic() - started
+    final_columns, final_rows = terminal_size_reader()
     verdict = evaluate_software_endpoint_oracle(
         fixture,
         digest,
@@ -408,11 +444,9 @@ def run_software_stream(
         True,
         True,
         True,
+        (rows, 1),
     )
-    workload = (
-        "software-ascii-stream" if fixture == "w3" else "software-sgr-stream"
-    )
-    return sink.emit(
+    record = sink.emit(
         "software-endpoint-complete",
         workload=workload,
         **{
@@ -422,6 +456,9 @@ def run_software_stream(
             "payload_bytes": written,
             "child_elapsed_seconds": elapsed,
             "cursor_report": None if report is None else list(report),
+            "expected_cursor_report": [rows, 1],
+            "pty_columns": final_columns,
+            "pty_rows": final_rows,
             "waited_for_cpr": True,
             "completion_patch_painted": True,
             "oracle": verdict["oracle"],
@@ -432,6 +469,8 @@ def run_software_stream(
             ),
         },
     )
+    wait_for_edge(release_path)
+    return record
 
 
 def evaluate_resize_oracle(
@@ -851,6 +890,22 @@ def self_test() -> list[str]:
     )
     if se_no_cpr["oracle"] != "fail":
         failures.append("driver: software-endpoint oracle passed with no CPR reply")
+    se_wrong_cpr = evaluate_software_endpoint_oracle(
+        "w3",
+        good_digest,
+        fixtures.W3_TOTAL_BYTES,
+        good_digest,
+        (24, 80),
+        True,
+        True,
+        True,
+        True,
+        (24, 1),
+    )
+    if se_wrong_cpr["oracle"] != "fail":
+        failures.append(
+            "driver: software-endpoint oracle passed at the wrong cursor position"
+        )
     se_no_patch = evaluate_software_endpoint_oracle(
         "w3",
         good_digest,
@@ -870,6 +925,66 @@ def self_test() -> list[str]:
         failures.append("driver: empty CPR wait returned a report")
     if wait_for_cursor_report(io.BytesIO(b"garbage"), 0.0) is not None:
         failures.append("driver: malformed CPR wait returned a report")
+
+    # The software-endpoint child must not emit the payload before the start
+    # edge, and it must not return before the controller's post-settle release
+    # edge. The oracle record is written before that release wait.
+    with tempfile.TemporaryDirectory() as tmp:
+        oracle_path = os.path.join(tmp, "software-endpoint.oracle.jsonl")
+        start_path = os.path.join(tmp, "start")
+        release_path = os.path.join(tmp, "release")
+        edges: list[str] = []
+
+        def fake_wait(path: str) -> None:
+            edges.append(path)
+            if path == start_path:
+                oracle_bytes = Path(oracle_path).read_bytes()
+                if b'"kind": "software-endpoint-ready"' not in oracle_bytes:
+                    failures.append(
+                        "driver: software-endpoint start edge preceded its ready oracle"
+                    )
+                if b'"kind": "software-endpoint-complete"' in oracle_bytes:
+                    failures.append(
+                        "driver: software-endpoint completion preceded its start edge"
+                    )
+            elif path == release_path:
+                oracle_bytes = Path(oracle_path).read_bytes()
+                if b'"kind": "software-endpoint-complete"' not in oracle_bytes:
+                    failures.append(
+                        "driver: software-endpoint release wait preceded its oracle"
+                    )
+
+        def fake_payload(stream, fixture: str) -> tuple[str, int]:
+            if edges != [start_path] or fixture != "w3":
+                failures.append(
+                    "driver: software-endpoint payload did not follow its start edge"
+                )
+            payload = b"bounded-payload"
+            stream.write(payload)
+            return hashlib.sha256(payload).hexdigest(), fixtures.W3_TOTAL_BYTES
+
+        sink = OracleSink(path=oracle_path)
+        record = run_software_stream(
+            sink,
+            "w3",
+            start_path,
+            release_path,
+            stdin_stream=io.BytesIO(b"\x1b[24;1R"),
+            cpr_timeout_seconds=1.0,
+            wait_for_edge=fake_wait,
+            output_stream=io.BytesIO(),
+            payload_writer=fake_payload,
+            terminal_size_reader=lambda: (80, 24),
+        )
+        sink.close()
+        if edges != [start_path, release_path]:
+            failures.append(
+                f"driver: software-endpoint edge order drifted: {edges!r}"
+            )
+        if record.get("oracle") != "pass":
+            failures.append(
+                f"driver: bounded software-endpoint handshake failed: {record!r}"
+            )
 
     # --- resize oracle ------------------------------------------------------
     expected = resize_schedule(200)
@@ -996,7 +1111,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--duration-seconds", type=float, default=600.0)
     parser.add_argument(
         "--start-path",
-        help="create-exclusive controller start edge required by idle-visible-10m",
+        help=(
+            "create-exclusive controller start edge required by "
+            "idle-visible-10m and software-endpoint workloads"
+        ),
+    )
+    parser.add_argument(
+        "--release-path",
+        help=(
+            "create-exclusive controller release edge required after "
+            "software-endpoint post-burst sampling"
+        ),
     )
     parser.add_argument(
         "--geometry-ready-path",
@@ -1050,8 +1175,18 @@ def main(argv: list[str] | None = None) -> int:
                 geometry_ready_path=args.geometry_ready_path,
             )
         elif args.workload in ("software-ascii-stream", "software-sgr-stream"):
+            if not args.start_path or not args.release_path:
+                raise ValueError(
+                    "software-endpoint workloads require --start-path and "
+                    "--release-path"
+                )
             fixture = "w3" if args.workload == "software-ascii-stream" else "w4"
-            run_software_stream(sink, fixture)
+            run_software_stream(
+                sink,
+                fixture,
+                args.start_path,
+                args.release_path,
+            )
         else:
             fixture = "w3" if args.workload == "ascii-stream-64mb" else "w4"
             run_stream(sink, fixture, await_start=not args.no_await_start)

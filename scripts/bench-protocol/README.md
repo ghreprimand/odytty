@@ -5,11 +5,11 @@ Preparation tooling for `docs/benchmark-protocol.md` (protocol version
 and cannot measure, and why.
 
 Every command here is offline, cheap, and side-effect free unless it is
-explicitly asked to write a fixture — with one deliberate exception. W6
-(`idle-visible-10m`) is the only workload whose endpoint is defined entirely in
-software, so it is the only one this comparison unit can execute at protocol
-strength without optical capture apparatus. `w6_runner.py` executes it, and
-nothing else in this directory takes a measurement.
+explicitly asked to write a fixture, with two deliberate exceptions. W6
+(`idle-visible-10m`) and the separate SE1/SE2 software-endpoint class have
+software-defined endpoints and can run without optical capture apparatus.
+`w6_runner.py` executes W6. `se_runner.py` executes SE1/SE2 and keeps their
+results separate from the optical W3/W4 pool.
 
 ## Commands
 
@@ -37,6 +37,7 @@ Per-module entry points, each with its own `--self-test`:
 | `result_schema.py` | canonical result document schema and validator |
 | `prereg.py` | preregistration record generator and readiness check |
 | `w6_runner.py` | W6 measured-run orchestrator: window-mapping qualification, session execution, result assembly |
+| `se_runner.py` | SE1/SE2 measured-run orchestrator with CPR validation and before/peak/after retention sampling |
 
 Useful one-offs:
 
@@ -50,6 +51,7 @@ python3 scripts/bench-protocol/prereg.py --generate --run-set-id <id> \
 python3 scripts/bench-protocol/prereg.py --check <record.json>
 python3 scripts/bench-protocol/result_schema.py --validate <result.json> \
     --preregistration <record.json>
+python3 scripts/bench-protocol/se_runner.py --estimate
 ```
 
 ## Executing W6
@@ -74,6 +76,23 @@ python3 scripts/bench-protocol/w6_runner.py --probe --preregistration <record.js
 python3 scripts/bench-protocol/w6_runner.py --run --preregistration <record.json> \
     --results-dir <public-dir> --private-evidence-dir <private-dir>
 ```
+
+## Executing SE1 And SE2
+
+```text
+python3 scripts/bench-protocol/se_runner.py --estimate
+python3 scripts/bench-protocol/se_runner.py --run \
+    --preregistration <record.json> \
+    --results-dir <new-public-dir> \
+    --private-evidence-dir <new-private-dir-outside-repository>
+```
+
+The measured command refuses a dirty or non-preregistered checkout, requires
+the exact public preregistration bytes, revalidates the frozen implementation
+set, and launches every trial in a private cgroup. Each child waits for the
+controller's pre-burst sample, completes the CPR oracle, then remains alive for
+the fixed 30-second settle and post-burst sample. Missing memory fields are
+`unsupported`; they are never filled from a different RSS source.
 
 `--calibration-diagnostic-output` is optional historical feasibility tooling
 from protocol 1.2.0, kept because its evidence is what retired the
@@ -304,17 +323,20 @@ The public anchor is limited to the canonical public repository,
 `github.com/ghreprimand/odytty`. The runner rejects local, file, private-host,
 credentialed, and lookalike `origin` URLs, resolves the public ref without
 local credentials, and downloads its preregistration blob from the public
-endpoint for a byte-for-byte comparison with the local input. A local-only ref is insufficient. A
-measured run also requires the exact clean checkout, orchestrator, driver,
-statistics module, collectors, terminal executable artifacts, and explicit
-repository-relative configuration files recorded by the preregistration.
+endpoint for a byte-for-byte comparison with the local input. A local-only ref
+is insufficient. A measured run also requires the exact clean checkout,
+workload orchestrator, driver, statistics module, collectors, terminal
+executable artifacts, and explicit repository-relative configuration files
+recorded by the preregistration.
 
-`--run` executes the session and writes a validated result document. It
-revalidates only the frozen qualified set; an implementation already recorded
+Each measured runner's `--run` action executes its session and writes a
+validated result document. It revalidates only the frozen qualified set; an
+implementation already recorded
 as unavailable is not retried during measurement. A measured run refuses to
 start on an incomplete preregistration record, and refuses to start at all
-where window mapping cannot be observed — W6's endpoint is a visible viewport,
-and an unobservable viewport cannot be asserted.
+where window mapping cannot be observed. W6 measures a visible viewport, while
+SE1/SE2 require an exact visible launch identity and CPR-processing oracle; an
+unobservable viewport cannot satisfy either class.
 
 The preregistration records the observed boot start and an externally fixed
 login-ready timestamp plus a not-before time at least five minutes later. The

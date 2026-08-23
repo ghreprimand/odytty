@@ -311,7 +311,11 @@ WORKLOADS: dict[str, dict] = {
             "reply fails the oracle; early finish is not a throughput score"
         ),
         "timeout_seconds": 120,
-        "sampling": {"warmup_blocks": 5, "measured_blocks": 30},
+        "sampling": {
+            "warmup_blocks": 5,
+            "measured_blocks": 30,
+            "after_settle_seconds": 30,
+        },
         "fixture": "w3",
         "apparatus": [APPARATUS_SOFTWARE_ONLY],
         "note": (
@@ -369,7 +373,11 @@ WORKLOADS: dict[str, dict] = {
             "the payload without a CPR reply fails the oracle"
         ),
         "timeout_seconds": 120,
-        "sampling": {"warmup_blocks": 5, "measured_blocks": 30},
+        "sampling": {
+            "warmup_blocks": 5,
+            "measured_blocks": 30,
+            "after_settle_seconds": 30,
+        },
         "fixture": "w4",
         "apparatus": [APPARATUS_SOFTWARE_ONLY],
         "note": (
@@ -560,6 +568,10 @@ def self_test() -> list[str]:
             )
         if WORKLOADS[name]["class"] != CLASS_SOFTWARE_ENDPOINT:
             failures.append(f"workloads: {name} is not classed software-endpoint")
+        if WORKLOADS[name]["sampling"].get("after_settle_seconds") != 30:
+            failures.append(
+                f"workloads: {name} does not pin the 30-second retention settle"
+            )
 
     # Throughput is optically gated too. A future edit that quietly relaxed
     # W3 or W4 to software timing would be the single most damaging change

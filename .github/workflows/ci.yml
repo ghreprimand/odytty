@@ -236,6 +236,19 @@ jobs:
         # the memory record exists to prevent.
         run: python3 scripts/memory-capture.py --self-test
 
+      - name: Memory regression-guard self-tests
+        # The guard itself cannot run here: it compares the attribution figures
+        # of a live process on a real adapter, and a hosted runner has no
+        # display server, no accelerated device, and no window, so any ceiling
+        # it cleared would describe the runner rather than the terminal. It is
+        # a release step for that reason (docs/memory.md). What does belong
+        # here is its decision rules over synthetic samples -- that an
+        # unmeasured field is not a pass, that a missing field is not a pass,
+        # and that a figure is never compared across platform, environment
+        # class, or window geometry. Those rules are the whole value of the
+        # guard, and they are pure text.
+        run: python3 scripts/memory-regression-guard.py --self-test
+
       - name: Production Rust file-size guard
         # The recorded backlog forgives the files the decomposition work has
         # not reached yet and nothing else: a new oversized file, a recorded

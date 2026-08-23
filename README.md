@@ -184,6 +184,17 @@ deeper fuzzing, Miri, and sanitizers. See the
 [contribution guide](CONTRIBUTING.md#test-battery) for the complete test battery,
 platform gates, and pre-commit checks.
 
+The project's maturity evidence is public and reproducible: the
+[compatibility corpus](docs/compatibility/corpus.md) turns conformance,
+real-application, differential, parser, and fuzz findings into permanent
+regressions; the [pinned vttest runner](docs/compatibility/vttest.md) records
+conformance results; the [fuzzing](fuzz/parser_graphics/README.md) and
+[mutation-testing](docs/mutation-testing.md) campaigns exercise hostile and
+fault-injected paths; and the
+[published benchmarks](docs/benchmark-results.md) follow a preregistered
+protocol. These are stronger claims than an unmeasured user-count proxy, while
+still not replacing wider third-party soak exposure.
+
 ## Documentation
 
 - [Install and update guide](docs/install.md)

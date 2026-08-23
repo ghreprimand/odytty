@@ -39,6 +39,7 @@ import prereg  # noqa: E402
 import prng  # noqa: E402
 import profiles  # noqa: E402
 import result_schema  # noqa: E402
+import se_runner  # noqa: E402
 import summaries  # noqa: E402
 import w6_runner  # noqa: E402
 import workloads  # noqa: E402
@@ -55,6 +56,7 @@ MODULES = (
     ("driver", lambda root: driver.self_test()),
     ("prereg", lambda root: prereg.self_test(root)),
     ("w6-runner", lambda root: w6_runner.self_test()),
+    ("se-runner", lambda root: se_runner.self_test()),
 )
 
 

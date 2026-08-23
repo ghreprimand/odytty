@@ -1368,6 +1368,42 @@ records live in `DEVLOG.md` and the documents named below.
       layout; bounded post-publish package checks on all three platforms
       (Linux artifact checks, macOS Homebrew channel, Windows Scoop channel).
 
+## Stage 11: v0.12.0 Memory, Measurement, and Provenance
+
+This cycle answers the measured memory regression and the remaining bounded
+review gaps without weakening terminal correctness. Detailed measurements and
+scope decisions live in `docs/memory.md`, `docs/benchmark-results.md`,
+`docs/shaping-roadmap.md`, and `DEVLOG.md`.
+
+- [x] Memory attribution and host-side capture distinguish OdyTTY-controlled
+      allocations from GPU and driver mappings, with dated v0.11.1 baselines.
+- [x] Background images are resampled to the drawable surface, inactive
+      post-process targets are released, and glyph-atlas residency is bounded
+      and measured.
+- [x] Scrollback storage no longer pays the full inline combining-mark cost per
+      cell, with differential, serialization, reflow, and index-integrity
+      coverage preserving terminal behavior.
+- [x] Runtime fallback faces are parsed once and shared across codepoints;
+      over-limit collections reconstruct only the selected face instead of
+      retaining the full collection. This fixes the reproduced MusicFox CJK
+      fallback memory growth.
+- [x] Kitty `o=z` payloads and image-number animation addressing are supported,
+      Sixel is advertised through DA1, and hostile compressed payloads remain
+      bounded.
+- [x] Release artifacts gain GitHub OIDC build provenance alongside Minisign,
+      with the native-signing cost boundary documented separately.
+- [x] The supported shaping boundary is explicit and grounded in the recorded
+      ucs-detect run; full BiDi, complex Indic/Brahmic reordering, and
+      SVG-in-OpenType remain outside the current cell model.
+- [x] Protocol 1.5.0 defines software-endpoint workloads and preserves the
+      optical-apparatus boundary for interactive latency claims.
+- [ ] Freeze the exact v0.12.0 candidate, preregister it, run the remaining
+      benchmark workload set, and publish the results without pooling evidence
+      classes. W7 remains explicitly deferred because of its approximately
+      50-hour exclusive-machine cost.
+- [ ] Publish v0.12.0, verify its provenance from a clean environment, and run
+      the documented post-publish package-channel checks.
+
 ## Archived First Prototype Checklist
 
 ## Core Readiness

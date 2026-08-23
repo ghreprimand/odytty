@@ -1,0 +1,1354 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+"""Execute the protocol 1.5.0 software-endpoint workload class.
+
+SE1 and SE2 are throughput-shaped software-endpoint measurements. They are
+never W3/W4 substitutes and never enter the optical-workload result pool. The
+controller uses a create-exclusive start edge, validates the child's CPR
+oracle, keeps the terminal alive for a fixed post-burst settle, and records
+cgroup v2 resident memory before, peak, and after each measured burst.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+import collectors
+import fixtures
+import prereg
+import profiles
+import w6_runner
+import workloads
+
+HERE = Path(__file__).resolve().parent
+DRIVER = HERE / "driver.py"
+
+AFTER_SETTLE_SECONDS = 30
+READY_TIMEOUT_SECONDS = 30
+POLL_SECONDS = 0.1
+WORKLOAD_BY_ID = {
+    "SE1": "software-ascii-stream",
+    "SE2": "software-sgr-stream",
+}
+STATUS_VALUES = {"pass", "fail", "invalid", "skip"}
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _utc_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def software_driver_command(
+    workload: str,
+    oracle_path: Path,
+    start_path: Path,
+    release_path: Path,
+) -> list[str]:
+    """Build the exact SE child command with both controller edges."""
+    if workload not in WORKLOAD_BY_ID.values():
+        raise ValueError(f"unknown software-endpoint workload {workload!r}")
+    return [
+        sys.executable,
+        str(DRIVER),
+        "--workload",
+        workload,
+        "--oracle-path",
+        str(oracle_path),
+        "--start-path",
+        str(start_path),
+        "--release-path",
+        str(release_path),
+    ]
+
+
+def read_oracle_records(path: Path | None) -> list[dict]:
+    """Read only complete JSONL oracle rows; a partial last row stays pending."""
+    if path is None:
+        return []
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return []
+    if data and not data.endswith(b"\n"):
+        data = data.rsplit(b"\n", 1)[0] + (b"\n" if b"\n" in data else b"")
+    records: list[dict] = []
+    for raw in data.splitlines():
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeError, ValueError):
+            continue
+        if isinstance(value, dict):
+            records.append(value)
+    return records
+
+
+def immutable_edge(path: Path, label: str) -> None:
+    """Create one controller edge without accepting stale evidence."""
+    with path.open("x", encoding="ascii") as handle:
+        handle.write(f"{label}\n")
+
+
+def validate_interval_environment(
+    observations: list[dict],
+    expected_environment: dict,
+    background_cpu_ceiling: float,
+    duration_seconds: float,
+) -> tuple[bool, str | None]:
+    """Apply the environment rules while excluding the measured cgroup CPU."""
+    if (
+        len(observations) < 2
+        or not all(isinstance(item, dict) for item in observations)
+        or not isinstance(background_cpu_ceiling, (int, float))
+        or isinstance(background_cpu_ceiling, bool)
+        or not math.isfinite(background_cpu_ceiling)
+        or not 0 <= background_cpu_ceiling <= 100
+        or not isinstance(duration_seconds, (int, float))
+        or isinstance(duration_seconds, bool)
+        or not math.isfinite(duration_seconds)
+        or duration_seconds <= 0
+    ):
+        return False, None
+    offsets = [item.get("controller_elapsed_seconds") for item in observations]
+    if (
+        any(
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+            or value < 0
+            for value in offsets
+        )
+        or not math.isclose(offsets[0], 0.0, rel_tol=0, abs_tol=1e-12)
+        or offsets[-1] < duration_seconds
+        or offsets[-1]
+        > duration_seconds
+        + w6_runner.result_schema.REHEARSAL_TIMING_TOLERANCE_SECONDS
+        or any(after <= before for before, after in zip(offsets, offsets[1:]))
+        or any(
+            after - before
+            > w6_runner.result_schema.ENVIRONMENT_SAMPLE_MAX_GAP_SECONDS
+            for before, after in zip(offsets, offsets[1:])
+        )
+    ):
+        return False, None
+    required = ("display_mode_signature", "external_power_state", "power_policy")
+    if any(expected_environment.get(field) is None for field in required):
+        return False, None
+    if any(
+        any(observation.get(field) is None for field in required)
+        for observation in observations
+    ):
+        return False, None
+    thermal = [item.get("thermal_throttle_count") for item in observations]
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in thermal
+    ) or any(after < before for before, after in zip(thermal, thermal[1:])):
+        return False, None
+    ticks = [item.get("system_cpu_ticks") for item in observations]
+    if any(
+        not isinstance(pair, (list, tuple))
+        or len(pair) != 2
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in pair
+        )
+        for pair in ticks
+    ):
+        return False, None
+    for before, after in zip(ticks, ticks[1:]):
+        total_delta = after[0] - before[0]
+        idle_delta = after[1] - before[1]
+        if total_delta <= 0 or idle_delta < 0 or idle_delta > total_delta:
+            return False, None
+    measured_cpu = [
+        item.get("measurement_cgroup_cpu_usec") for item in observations
+    ]
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+        for value in measured_cpu
+    ) or any(after < before for before, after in zip(measured_cpu, measured_cpu[1:])):
+        return False, None
+    try:
+        clock_ticks_per_second = os.sysconf("SC_CLK_TCK")
+    except (OSError, ValueError):
+        return False, None
+    if (
+        not isinstance(clock_ticks_per_second, int)
+        or isinstance(clock_ticks_per_second, bool)
+        or clock_ticks_per_second <= 0
+    ):
+        return False, None
+
+    baseline = observations[0]
+    if baseline.get("display_mode_signature") != expected_environment.get(
+        "display_mode_signature"
+    ):
+        return True, "display-mode-change"
+    if (
+        baseline.get("external_power_state")
+        != expected_environment.get("external_power_state")
+        or baseline.get("power_policy") != expected_environment.get("power_policy")
+    ):
+        return True, "power-policy-change"
+    if any(
+        observation.get("display_mode_signature")
+        != baseline.get("display_mode_signature")
+        for observation in observations[1:]
+    ):
+        return True, "display-mode-change"
+    if any(
+        observation.get("external_power_state")
+        != baseline.get("external_power_state")
+        or observation.get("power_policy") != baseline.get("power_policy")
+        for observation in observations[1:]
+    ):
+        return True, "power-policy-change"
+    if any(after > before for before, after in zip(thermal, thermal[1:])):
+        return True, "thermal-throttling"
+    total_delta = ticks[-1][0] - ticks[0][0]
+    idle_delta = ticks[-1][1] - ticks[0][1]
+    measured_cpu_delta_ticks = (
+        (measured_cpu[-1] - measured_cpu[0]) * clock_ticks_per_second / 1_000_000
+    )
+    unrelated_busy_ticks = max(
+        0.0, total_delta - idle_delta - measured_cpu_delta_ticks
+    )
+    busy_percent = 100.0 * unrelated_busy_ticks / total_delta
+    if busy_percent > background_cpu_ceiling:
+        return True, "background-load-above-ceiling"
+    return True, None
+
+
+class SoftwareEndpointLauncher(w6_runner.RealLauncher):
+    """Real terminal launcher for the SE start/release child contract."""
+
+    def launch_stream(
+        self,
+        implementation: str,
+        workload: str,
+        tag: str,
+        timeout_seconds: int,
+    ) -> dict:
+        recipe = w6_runner.LAUNCH_RECIPES.get(implementation)
+        if recipe is None:
+            return {"error": f"no launch recipe is defined for {implementation!r}"}
+        if self._resolve_executable(recipe[0]) is None:
+            return {"error": f"{recipe[0]!r} is not installed on this host"}
+        if not self.ensure_font_isolation():
+            return {"error": "private single-face font isolation failed verification"}
+
+        oracle_path = self.log_dir / f"{tag}.oracle.jsonl"
+        start_path = self.log_dir / f"{tag}.start"
+        release_path = self.log_dir / f"{tag}.release"
+        out_path = self.log_dir / f"{tag}.out"
+        if any(path.exists() for path in (oracle_path, start_path, release_path, out_path)):
+            return {"error": "immutable SE evidence path already exists"}
+
+        launch_env = w6_runner.child_launch_environment(self.launch_environment)
+        launch_env.update(self.font_isolation["environment"])
+        config = self.config_paths.get(implementation)
+        if implementation == "odytty" and config is not None:
+            launch_env["XDG_CONFIG_HOME"] = str(config.parent.parent)
+            launch_env["ODYTTY_FONT"] = str(self.font_isolation["font_path"])
+            calibration = self.calibration_record(implementation)
+            launch_env["ODYTTY_FONT_SIZE"] = f"{calibration['font_size']:g}"
+            launch_env["ODYTTY_LINE_HEIGHT"] = (
+                f"{calibration.get('line_height', 1.0):g}"
+            )
+
+        child = software_driver_command(
+            workload, oracle_path, start_path, release_path
+        )
+        unit = f"odytty-se-{tag}"
+        try:
+            window_tag = w6_runner.benchmark_window_tag(tag)
+            terminal_argv = self.terminal_argv(
+                implementation, child, window_tag=window_tag
+            )
+        except ValueError as error:
+            return {"error": str(error)}
+        argv = w6_runner.scope_command(
+            unit,
+            terminal_argv,
+            use_scope=self.use_scope,
+            runtime_seconds=(
+                timeout_seconds
+                + READY_TIMEOUT_SECONDS
+                + AFTER_SETTLE_SECONDS
+                + 30
+            ),
+        )
+
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            handle = out_path.open("xb")
+        except FileExistsError:
+            return {"error": f"immutable output path already exists: {out_path.name}"}
+        try:
+            process = self._spawn_process(argv, handle, launch_env)
+        except BaseException as error:
+            handle.close()
+            if isinstance(error, OSError):
+                return {"error": f"launch failed: {error}"}
+            raise
+        return {
+            "process": process,
+            "output_path": out_path,
+            "oracle_path": oracle_path,
+            "start_path": start_path,
+            "release_path": release_path,
+            "handle": handle,
+            "unit": f"{unit}.scope" if self.use_scope else None,
+            "sanitized_argv": self.sanitize_probe_argv(argv),
+            "sanitized_launch_environment": self.sanitize_probe_environment(
+                launch_env
+            ),
+            "requested_config": self.calibration_record(implementation),
+            "font_isolation": dict(self.font_isolation["proof"]),
+            "window_tag": window_tag,
+        }
+
+
+def _viewport_ready(
+    launcher,
+    launched: dict,
+    expected_grid: tuple[int, int],
+) -> tuple[bool, Path | None, set[int], dict | None, dict | None]:
+    process = launched["process"]
+    cgroup_resolver = getattr(launcher, "cgroup_path", None)
+    cgroup = (
+        cgroup_resolver(launched)
+        if cgroup_resolver is not None
+        else w6_runner.cgroup_of_pid(process.pid)
+    )
+    pids = w6_runner.cgroup_pids(cgroup) or set()
+    windows = launcher.windows()
+    window = w6_runner.window_for_pids(windows, pids)
+    ready = next(
+        (
+            record
+            for record in read_oracle_records(launched.get("oracle_path"))
+            if record.get("kind") == "software-endpoint-ready"
+        ),
+        None,
+    )
+    good = (
+        process.poll() is None
+        and cgroup is not None
+        and bool(pids)
+        and bool(w6_runner._driver_child_pids(pids))
+        and window is not None
+        and window.get("app_id") == launched.get("window_tag")
+        and window.get("focused") is True
+        and w6_runner.window_unobscured(window, windows) is True
+        and ready is not None
+        and (ready.get("pty_columns"), ready.get("pty_rows")) == expected_grid
+    )
+    return good, cgroup, pids, window, ready
+
+
+def _release_child(launched: dict) -> bool:
+    path = launched.get("release_path")
+    if not isinstance(path, Path):
+        return False
+    try:
+        immutable_edge(path, "release")
+        return True
+    except FileExistsError:
+        return False
+
+
+def _failed_sample(
+    workload_id: str,
+    implementation: str,
+    block: int,
+    phase: str,
+    order_position: int,
+    status: str,
+    detail: str,
+) -> dict:
+    return {
+        "workload_id": workload_id,
+        "workload": WORKLOAD_BY_ID[workload_id],
+        "implementation": implementation,
+        "block": block,
+        "phase": phase,
+        "order_position": order_position,
+        "configuration": "plain",
+        "status": status,
+        "detail": detail,
+        "oracle": "fail",
+    }
+
+
+def run_trial(
+    workload_id: str,
+    implementation: str,
+    block: int,
+    phase: str,
+    order_position: int,
+    launcher,
+    expected_environment: dict,
+    timeout_seconds: int,
+    background_cpu_ceiling: float,
+    sleep=time.sleep,
+    monotonic=time.monotonic,
+) -> dict:
+    """Execute one SE trial and return a public-safe raw sample."""
+    if hasattr(launcher, "trial_result"):
+        return launcher.trial_result(
+            workload_id, implementation, block, phase, order_position
+        )
+    workload = WORKLOAD_BY_ID[workload_id]
+    evidence_id = f"{workload_id.lower()}-{phase}-{block:02d}-{order_position:02d}"
+    tag = f"{implementation}-{evidence_id}"
+    launched = launcher.launch_stream(
+        implementation, workload, tag, timeout_seconds
+    )
+    if "error" in launched:
+        return _failed_sample(
+            workload_id,
+            implementation,
+            block,
+            phase,
+            order_position,
+            "fail",
+            launched["error"],
+        )
+
+    process = launched["process"]
+    cgroup = None
+    pids: set[int] = set()
+    window = None
+    ready = None
+    started_wait = monotonic()
+    try:
+        while monotonic() - started_wait < READY_TIMEOUT_SECONDS:
+            good, cgroup, pids, window, ready = _viewport_ready(
+                launcher,
+                launched,
+                (
+                    expected_environment["cell_geometry"]["columns"],
+                    expected_environment["cell_geometry"]["rows"],
+                ),
+            )
+            if good:
+                break
+            sleep(POLL_SECONDS)
+        else:
+            return _failed_sample(
+                workload_id,
+                implementation,
+                block,
+                phase,
+                order_position,
+                "invalid",
+                "controller did not observe the private cgroup, exact window, "
+                "live child, and preregistered PTY grid before the timeout",
+            )
+
+        before = collectors.read_resident_bytes(cgroup)
+        peak_reset = w6_runner.reset_memory_peak(cgroup)
+        environment_before = launcher.environment_observation()
+        environment_before["measurement_cgroup_cpu_usec"] = (
+            w6_runner.read_cpu_usec(cgroup)
+        )
+        try:
+            immutable_edge(launched["start_path"], "start")
+        except (OSError, FileExistsError):
+            return _failed_sample(
+                workload_id,
+                implementation,
+                block,
+                phase,
+                order_position,
+                "invalid",
+                "create-exclusive start edge failed",
+            )
+
+        completion = None
+        environment_observations = [environment_before]
+        environment_before["controller_elapsed_seconds"] = 0.0
+        burst_started = monotonic()
+        next_environment_sample = 1.0
+        while monotonic() - burst_started < timeout_seconds:
+            records = read_oracle_records(launched.get("oracle_path"))
+            completion = next(
+                (
+                    record
+                    for record in reversed(records)
+                    if record.get("kind") == "software-endpoint-complete"
+                ),
+                None,
+            )
+            if completion is not None:
+                break
+            elapsed = monotonic() - burst_started
+            if elapsed >= next_environment_sample:
+                observation = launcher.environment_observation()
+                observation["measurement_cgroup_cpu_usec"] = (
+                    w6_runner.read_cpu_usec(cgroup)
+                )
+                observation["controller_elapsed_seconds"] = elapsed
+                environment_observations.append(observation)
+                next_environment_sample += 1.0
+            if process.poll() is not None:
+                break
+            sleep(POLL_SECONDS)
+        if completion is None:
+            return _failed_sample(
+                workload_id,
+                implementation,
+                block,
+                phase,
+                order_position,
+                "fail",
+                "software-endpoint completion oracle was not received before timeout",
+            )
+
+        burst_elapsed = monotonic() - burst_started
+        final_observation = launcher.environment_observation()
+        final_observation["measurement_cgroup_cpu_usec"] = (
+            w6_runner.read_cpu_usec(cgroup)
+        )
+        final_observation["controller_elapsed_seconds"] = burst_elapsed
+        environment_observations.append(final_observation)
+        evidence_valid, invalid_reason = validate_interval_environment(
+            environment_observations,
+            expected_environment,
+            background_cpu_ceiling,
+            burst_elapsed,
+        )
+        if not evidence_valid:
+            invalid_reason = "controller-loss"
+        peak = collectors.read_peak_bytes(cgroup) if peak_reset else None
+
+        def viewport_ok() -> bool:
+            good, _cgroup, _pids, current_window, current_ready = _viewport_ready(
+                launcher,
+                launched,
+                (
+                    expected_environment["cell_geometry"]["columns"],
+                    expected_environment["cell_geometry"]["rows"],
+                ),
+            )
+            return (
+                good
+                and current_ready == ready
+                and current_window is not None
+                and window is not None
+                and all(
+                    current_window.get(field) == window.get(field)
+                    for field in ("x", "y", "width", "height")
+                )
+            )
+
+        settle_invalid, settle_observations = w6_runner._checked_sleep(
+            launcher,
+            AFTER_SETTLE_SECONDS,
+            sleep,
+            background_cpu_ceiling,
+            viewport_observer=viewport_ok,
+            expected_environment=expected_environment,
+            monotonic=monotonic,
+        )
+        invalid_reason = invalid_reason or settle_invalid
+        after = collectors.read_resident_bytes(cgroup)
+        retention = collectors.retention_record(before, peak, after)
+        process_alive = process.poll() is None
+        oracle = completion.get("oracle")
+        expected_grid = (
+            expected_environment["cell_geometry"]["columns"],
+            expected_environment["cell_geometry"]["rows"],
+        )
+        final_grid = (completion.get("pty_columns"), completion.get("pty_rows"))
+        oracle_reasons = list(completion.get("oracle_reasons", []))
+        if final_grid != expected_grid:
+            oracle = "fail"
+            oracle_reasons.append(
+                f"final PTY grid {final_grid!r} differs from {expected_grid!r}"
+            )
+        cursor_report = completion.get("cursor_report")
+        expected_cursor_report = [expected_grid[1], 1]
+        if cursor_report != expected_cursor_report:
+            oracle = "fail"
+            oracle_reasons.append(
+                f"cursor-position report {cursor_report!r} differs from "
+                f"{expected_cursor_report!r}"
+            )
+        if invalid_reason:
+            status = "invalid"
+        elif oracle != "pass" or not process_alive:
+            status = "fail"
+        else:
+            status = "pass"
+        elapsed = completion.get("child_elapsed_seconds")
+        payload_bytes = completion.get("payload_bytes")
+        rate = (
+            payload_bytes / elapsed
+            if isinstance(payload_bytes, int)
+            and isinstance(elapsed, (int, float))
+            and elapsed > 0
+            else None
+        )
+        sample = {
+            "workload_id": workload_id,
+            "workload": workload,
+            "implementation": implementation,
+            "block": block,
+            "phase": phase,
+            "order_position": order_position,
+            "configuration": "plain",
+            "status": status,
+            "invalid_reason": invalid_reason,
+            "oracle": oracle,
+            "oracle_reasons": oracle_reasons,
+            "fixture": completion.get("fixture"),
+            "fixture_sha256": completion.get("fixture_sha256"),
+            "cursor_report": cursor_report,
+            "expected_cursor_report": expected_cursor_report,
+            "process_alive_at_after_sample": process_alive,
+            "environment_observations": (
+                environment_observations + settle_observations
+            ),
+            "launch": {
+                "argv": launched.get("sanitized_argv"),
+                "environment": launched.get("sanitized_launch_environment"),
+                "requested_config": launched.get("requested_config"),
+                "font_isolation": launched.get("font_isolation"),
+                "window_tag": launched.get("window_tag"),
+            },
+        }
+        if status == "pass":
+            sample.update(
+                {
+                    "payload_bytes": payload_bytes,
+                    "elapsed_seconds": elapsed,
+                    "payload_bytes_per_second": rate,
+                    "retention": retention,
+                }
+            )
+        return sample
+    finally:
+        _release_child(launched)
+        launcher.stop(launched)
+
+
+def validate_document(document: dict, prereg_record: dict) -> list[str]:
+    """Validate SE result structure and exact preregistered attempt coverage."""
+    problems: list[str] = []
+    if document.get("record_type") != "software-endpoint-results":
+        problems.append("SE result record_type is wrong")
+    if document.get("protocol", {}).get("version") != prereg.PROTOCOL_VERSION:
+        problems.append("SE result protocol version is wrong")
+    attempts = document.get("attempts")
+    if not isinstance(attempts, list):
+        return problems + ["SE result attempts are missing"]
+    schedule = prereg_record.get("se_execution_order", [])
+    qualified = {
+        entry.get("name")
+        for entry in prereg_record.get("implementations", [])
+        if entry.get("availability") == "qualified"
+    }
+    implementations = {
+        entry.get("name"): entry
+        for entry in prereg_record.get("implementations", [])
+        if entry.get("availability") == "qualified"
+    }
+    fixture_digests = {
+        entry.get("name"): entry.get("sha256")
+        for entry in prereg_record.get("fixtures", [])
+    }
+    expected_count = len(WORKLOAD_BY_ID) * sum(
+        len(block.get("implementation_order", [])) for block in schedule
+    )
+    if len(attempts) != expected_count:
+        problems.append(
+            f"SE result has {len(attempts)} attempts, expected {expected_count}"
+        )
+    expected_attempts = []
+    for workload_id in prereg_record.get("se_workload_order", WORKLOAD_BY_ID):
+        sampling = workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]]["sampling"]
+        for block in schedule:
+            phase = (
+                "warmup"
+                if block.get("block", 0) <= sampling["warmup_blocks"]
+                else "measured"
+            )
+            for position, implementation in enumerate(
+                block.get("implementation_order", []), start=1
+            ):
+                expected_attempts.append(
+                    (workload_id, block.get("block"), implementation, position, phase)
+                )
+    observed_attempts = [
+        (
+            attempt.get("workload_id"),
+            attempt.get("block"),
+            attempt.get("implementation"),
+            attempt.get("order_position"),
+            attempt.get("phase"),
+        )
+        for attempt in attempts
+    ]
+    if observed_attempts != expected_attempts:
+        problems.append("SE result attempt order differs from preregistration")
+    for attempt in attempts:
+        if attempt.get("workload_id") not in WORKLOAD_BY_ID:
+            problems.append("SE result pooled a non-SE workload")
+        if attempt.get("implementation") not in qualified:
+            problems.append("SE result contains an unqualified implementation")
+        if attempt.get("status") not in STATUS_VALUES:
+            problems.append("SE result contains an unknown attempt status")
+        if attempt.get("status") != "pass" and any(
+            key in attempt
+            for key in (
+                "payload_bytes",
+                "elapsed_seconds",
+                "payload_bytes_per_second",
+                "retention",
+            )
+        ):
+            problems.append("SE non-pass attempt carries measured numbers")
+        if attempt.get("status") == "pass":
+            if attempt.get("oracle") != "pass":
+                problems.append("SE pass attempt lacks a passing oracle")
+            workload_id = attempt.get("workload_id")
+            workload_name = WORKLOAD_BY_ID.get(workload_id)
+            catalogue = workloads.WORKLOADS.get(workload_name, {})
+            fixture = catalogue.get("fixture")
+            expected_bytes = (
+                fixtures.W3_TOTAL_BYTES
+                if fixture == "w3"
+                else fixtures.W4_TOTAL_BYTES if fixture == "w4" else None
+            )
+            elapsed = attempt.get("elapsed_seconds")
+            rate = attempt.get("payload_bytes_per_second")
+            if (
+                attempt.get("fixture") != fixture
+                or fixture_digests.get(fixture) in (None, "")
+                or attempt.get("fixture_sha256") != fixture_digests.get(fixture)
+                or attempt.get("payload_bytes") != expected_bytes
+                or not isinstance(elapsed, (int, float))
+                or isinstance(elapsed, bool)
+                or not math.isfinite(elapsed)
+                or elapsed <= 0
+                or not isinstance(rate, (int, float))
+                or isinstance(rate, bool)
+                or not math.isfinite(rate)
+                or rate <= 0
+                or not math.isclose(
+                    rate,
+                    expected_bytes / elapsed if expected_bytes is not None else 0,
+                    rel_tol=1e-12,
+                    abs_tol=0,
+                )
+            ):
+                problems.append("SE pass attempt has invalid fixture or throughput data")
+            geometry = implementations.get(attempt.get("implementation"), {}).get(
+                "cell_geometry", {}
+            )
+            expected_cursor = [geometry.get("rows"), 1]
+            if (
+                attempt.get("cursor_report") != expected_cursor
+                or attempt.get("expected_cursor_report") != expected_cursor
+                or attempt.get("process_alive_at_after_sample") is not True
+                or attempt.get("invalid_reason") is not None
+            ):
+                problems.append("SE pass attempt has invalid cursor or liveness evidence")
+            retention = attempt.get("retention")
+            if not isinstance(retention, dict) or retention.get("status") not in {
+                collectors.AVAILABLE,
+                collectors.UNSUPPORTED,
+            }:
+                problems.append("SE pass attempt lacks an explicit retention status")
+            elif retention.get("status") == collectors.AVAILABLE:
+                before = retention.get("before")
+                after = retention.get("after")
+                if (
+                    not isinstance(before, int)
+                    or isinstance(before, bool)
+                    or before < 0
+                    or not isinstance(after, int)
+                    or isinstance(after, bool)
+                    or after < 0
+                    or retention.get("delta") != after - before
+                ):
+                    problems.append("SE pass attempt has invalid retention arithmetic")
+    return problems
+
+
+def finalize_evidence(
+    results_dir: Path,
+    result_path: Path,
+    private_dir: Path,
+) -> None:
+    """Bind public derivatives while retaining private terminal logs."""
+    private_files = [
+        path
+        for path in sorted(private_dir.rglob("*"))
+        if path.is_file() and path.name != "private-evidence-manifest.json"
+    ]
+    private_manifest = {
+        "schema_version": 1,
+        "files": [
+            {
+                "name": path.relative_to(private_dir).as_posix(),
+                "sha256": _sha256(path),
+                "bytes": path.stat().st_size,
+            }
+            for path in private_files
+        ],
+    }
+    private_manifest_path = private_dir / "private-evidence-manifest.json"
+    with private_manifest_path.open("x", encoding="utf-8") as handle:
+        handle.write(json.dumps(private_manifest, indent=2, sort_keys=True) + "\n")
+    private_manifest_path.chmod(0o600)
+
+    public_files = [
+        results_dir / "software-endpoint-availability.json",
+        results_dir / "software-endpoint-raw-samples.jsonl",
+        result_path,
+    ]
+    public_records = []
+    for path in public_files:
+        data = path.read_bytes()
+        text = data.decode("utf-8")
+        if path.suffix == ".jsonl":
+            for line in text.splitlines():
+                if line.strip():
+                    json.loads(line)
+        else:
+            json.loads(text)
+        for pattern in w6_runner.result_schema.FORBIDDEN_PUBLIC_PATTERNS:
+            if pattern.search(text):
+                raise ValueError(
+                    f"public SE evidence file {path.name!r} contains private content"
+                )
+        for token in (os.uname().nodename, os.environ.get("USER", "")):
+            if token and len(token) > 2 and re.search(
+                rf"\b{re.escape(token)}\b", text
+            ):
+                raise ValueError(
+                    f"public SE evidence file {path.name!r} contains a local identity"
+                )
+        public_records.append(
+            {"name": path.name, "sha256": _sha256(path), "bytes": len(data)}
+        )
+    public_manifest = {
+        "files": public_records,
+        "private_evidence": {
+            "published": False,
+            "disposition": "retained byte-identical outside the public package",
+            "manifest_sha256": _sha256(private_manifest_path),
+        },
+    }
+    manifest_path = results_dir / "software-endpoint-evidence-manifest.json"
+    with manifest_path.open("x", encoding="utf-8") as handle:
+        handle.write(json.dumps(public_manifest, indent=2, sort_keys=True) + "\n")
+
+
+def run_session(
+    prereg_record: dict,
+    prereg_sha256: str,
+    prereg_anchor_commit: str,
+    launcher,
+    results_dir: Path,
+    collector_probe: dict,
+    availability_record: dict,
+    sleep=time.sleep,
+) -> dict:
+    """Execute both SE workloads in the exact frozen order."""
+    if prereg_record.get("configurations") != ["plain"]:
+        raise ValueError("the SE runner requires the preregistered plain configuration")
+    schedule = prereg_record.get("se_execution_order")
+    workload_order = prereg_record.get("se_workload_order")
+    if workload_order != list(WORKLOAD_BY_ID):
+        raise ValueError("the SE workload order is absent or drifted")
+    if not isinstance(schedule, list) or not schedule:
+        raise ValueError("the SE execution order is absent")
+    for workload_id in workload_order:
+        sampling = workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]]["sampling"]
+        if sampling.get("after_settle_seconds") != AFTER_SETTLE_SECONDS:
+            raise ValueError("the SE post-burst settle duration drifted")
+
+    live_collectors = {
+        entry.get("collector"): entry for entry in collector_probe.get("collectors", [])
+    }
+    frozen_collectors = {
+        entry.get("collector"): entry
+        for entry in prereg_record.get("collectors", [])
+    }
+    for name, frozen in frozen_collectors.items():
+        live = live_collectors.get(name)
+        if live is None or live.get("status") != frozen.get("status"):
+            raise ValueError(f"collector {name!r} availability drifted")
+
+    frozen_environment = launcher.environment_observation()
+    expected_class = prereg_record.get("environment_class", {})
+    for field in ("display_mode_signature", "external_power_state", "power_policy"):
+        if frozen_environment.get(field) != expected_class.get(field):
+            raise ValueError(f"live environment control {field!r} drifted")
+    by_name = {
+        entry.get("name"): entry
+        for entry in prereg_record.get("implementations", [])
+        if entry.get("availability") == "qualified"
+    }
+    expected_environments = {
+        name: {
+            **frozen_environment,
+            "cell_geometry": entry.get("cell_geometry"),
+            "pty_pixel_envelope_model": entry.get("pty_pixel_envelope_model"),
+        }
+        for name, entry in by_name.items()
+    }
+
+    results_dir.mkdir(parents=True, exist_ok=False)
+    with (results_dir / "software-endpoint-availability.json").open(
+        "x", encoding="utf-8"
+    ) as handle:
+        handle.write(json.dumps(availability_record, indent=2, sort_keys=True) + "\n")
+    raw_path = results_dir / "software-endpoint-raw-samples.jsonl"
+    attempts: list[dict] = []
+    started = _utc_now()
+    with raw_path.open("x", encoding="utf-8") as raw:
+        for workload_id in workload_order:
+            timeout_seconds = workloads.WORKLOADS[
+                WORKLOAD_BY_ID[workload_id]
+            ]["timeout_seconds"]
+            for block_record in schedule:
+                block = block_record["block"]
+                phase = (
+                    "warmup"
+                    if block
+                    <= workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]]["sampling"][
+                        "warmup_blocks"
+                    ]
+                    else "measured"
+                )
+                for position, implementation in enumerate(
+                    block_record["implementation_order"], start=1
+                ):
+                    attempt = run_trial(
+                        workload_id,
+                        implementation,
+                        block,
+                        phase,
+                        position,
+                        launcher,
+                        expected_environments[implementation],
+                        timeout_seconds,
+                        prereg_record["background_cpu_ceiling_percent"],
+                        sleep=sleep,
+                    )
+                    attempts.append(attempt)
+                    raw.write(json.dumps(attempt, sort_keys=True) + "\n")
+                    raw.flush()
+                    os.fsync(raw.fileno())
+    return {
+        "record_type": "software-endpoint-results",
+        "schema_version": 1,
+        "protocol": {
+            "version": prereg_record["protocol"]["version"],
+            "sha256": prereg_record["protocol"]["sha256"],
+        },
+        "run_set_id": prereg_record["run_set"]["id"],
+        "preregistration_sha256": prereg_sha256,
+        "preregistration_anchor_commit": prereg_anchor_commit,
+        "started_utc": started,
+        "completed_utc": _utc_now(),
+        "workload_order": workload_order,
+        "after_settle_seconds": AFTER_SETTLE_SECONDS,
+        "attempts": attempts,
+        "measured_samples": [
+            attempt for attempt in attempts if attempt.get("phase") == "measured"
+        ],
+        "evidence_class": (
+            "software-endpoint; never pooled with W3/W4 optical samples and "
+            "never reported as interactive latency"
+        ),
+        "retention_limitation": collectors.RETENTION_LIMITATION,
+    }
+
+
+class _FakeLauncher:
+    fixture_digests = {"w3": "w3-digest", "w4": "w4-digest"}
+
+    def trial_result(
+        self,
+        workload_id: str,
+        implementation: str,
+        block: int,
+        phase: str,
+        order_position: int,
+    ) -> dict:
+        fixture = workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]]["fixture"]
+        return {
+            "workload_id": workload_id,
+            "workload": WORKLOAD_BY_ID[workload_id],
+            "implementation": implementation,
+            "block": block,
+            "phase": phase,
+            "order_position": order_position,
+            "configuration": "plain",
+            "status": "pass",
+            "oracle": "pass",
+            "invalid_reason": None,
+            "fixture": fixture,
+            "fixture_sha256": self.fixture_digests[fixture],
+            "payload_bytes": 64_000_000,
+            "elapsed_seconds": 1.0,
+            "payload_bytes_per_second": 64_000_000.0,
+            "cursor_report": [24, 1],
+            "expected_cursor_report": [24, 1],
+            "process_alive_at_after_sample": True,
+            "retention": collectors.retention_record(100, 140, 110),
+        }
+
+
+def self_test() -> list[str]:
+    failures: list[str] = []
+    command = software_driver_command(
+        "software-ascii-stream",
+        Path("oracle"),
+        Path("start"),
+        Path("release"),
+    )
+    for flag in ("--oracle-path", "--start-path", "--release-path"):
+        if command.count(flag) != 1:
+            failures.append(f"se-runner: child command does not bind {flag} once")
+    try:
+        software_driver_command("idle-visible-10m", Path("o"), Path("s"), Path("r"))
+    except ValueError:
+        pass
+    else:
+        failures.append("se-runner: non-SE workload was accepted")
+
+    fake_prereg = {
+        "protocol": {"version": prereg.PROTOCOL_VERSION},
+        "implementations": [
+            {
+                "name": "a",
+                "availability": "qualified",
+                "cell_geometry": {"rows": 24},
+            },
+            {
+                "name": "b",
+                "availability": "qualified",
+                "cell_geometry": {"rows": 24},
+            },
+        ],
+        "fixtures": [
+            {"name": name, "sha256": digest}
+            for name, digest in _FakeLauncher.fixture_digests.items()
+        ],
+        "se_execution_order": [
+            {"block": 6, "implementation_order": ["a", "b"]},
+            {"block": 7, "implementation_order": ["b", "a"]},
+        ],
+    }
+    attempts = []
+    launcher = _FakeLauncher()
+    for workload_id in WORKLOAD_BY_ID:
+        for block in fake_prereg["se_execution_order"]:
+            for position, implementation in enumerate(
+                block["implementation_order"], start=1
+            ):
+                attempts.append(
+                    launcher.trial_result(
+                        workload_id,
+                        implementation,
+                        block["block"],
+                        "measured",
+                        position,
+                    )
+                )
+    document = {
+        "record_type": "software-endpoint-results",
+        "protocol": {"version": prereg.PROTOCOL_VERSION},
+        "attempts": attempts,
+    }
+    problems = validate_document(document, fake_prereg)
+    if problems:
+        failures.append(f"se-runner: valid document was rejected: {problems}")
+    document["attempts"] = attempts[:-1]
+    if not validate_document(document, fake_prereg):
+        failures.append("se-runner: incomplete attempt set was accepted")
+    permuted = json.loads(json.dumps({**document, "attempts": attempts}))
+    permuted["attempts"][0], permuted["attempts"][1] = (
+        permuted["attempts"][1],
+        permuted["attempts"][0],
+    )
+    if not validate_document(permuted, fake_prereg):
+        failures.append("se-runner: permuted attempt order was accepted")
+    malformed = json.loads(json.dumps({**document, "attempts": attempts}))
+    malformed["attempts"][0]["payload_bytes_per_second"] = -1
+    if not validate_document(malformed, fake_prereg):
+        failures.append("se-runner: invalid pass throughput was accepted")
+    leaked = json.loads(json.dumps({**document, "attempts": attempts}))
+    leaked["attempts"][0]["status"] = "fail"
+    if not validate_document(leaked, fake_prereg):
+        failures.append("se-runner: non-pass numeric results were accepted")
+
+    environment = {
+        "display_mode_signature": [{"width": 1}],
+        "external_power_state": "external",
+        "power_policy": "performance",
+        "thermal_throttle_count": 0,
+        "system_cpu_ticks": (100, 80),
+        "measurement_cgroup_cpu_usec": 0,
+        "controller_elapsed_seconds": 0.0,
+    }
+    later = {
+        **environment,
+        "system_cpu_ticks": (200, 170),
+        "measurement_cgroup_cpu_usec": 50_000,
+        "controller_elapsed_seconds": 0.25,
+    }
+    valid, reason = validate_interval_environment(
+        [environment, later], environment, 20.0, 0.25
+    )
+    if not valid or reason is not None:
+        failures.append("se-runner: a valid fractional burst interval was rejected")
+    busy = {
+        **later,
+        "system_cpu_ticks": (200, 120),
+        "measurement_cgroup_cpu_usec": 50_000,
+    }
+    valid, reason = validate_interval_environment(
+        [environment, busy], environment, 20.0, 0.25
+    )
+    if not valid or reason != "background-load-above-ceiling":
+        failures.append("se-runner: burst background-load drift was not detected")
+
+    for workload_id in WORKLOAD_BY_ID:
+        sampling = workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]]["sampling"]
+        if sampling.get("after_settle_seconds") != AFTER_SETTLE_SECONDS:
+            failures.append(
+                "se-runner: AFTER_SETTLE_SECONDS drifted from the workload catalogue"
+            )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        edge = Path(tmp) / "edge"
+        immutable_edge(edge, "start")
+        try:
+            immutable_edge(edge, "again")
+        except FileExistsError:
+            pass
+        else:
+            failures.append("se-runner: a stale controller edge was accepted")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        public = root / "public"
+        private = root / "private"
+        public.mkdir()
+        private.mkdir()
+        (private / "terminal.log").write_text("private\n", encoding="utf-8")
+        availability = public / "software-endpoint-availability.json"
+        raw = public / "software-endpoint-raw-samples.jsonl"
+        result = public / "software-endpoint-results.json"
+        availability.write_text('{"status":"ok"}\n', encoding="utf-8")
+        raw.write_text('{"status":"pass"}\n', encoding="utf-8")
+        result.write_text('{"record_type":"software-endpoint-results"}\n', encoding="utf-8")
+        finalize_evidence(public, result, private)
+        if not (public / "software-endpoint-evidence-manifest.json").is_file():
+            failures.append("se-runner: public evidence manifest was not written")
+        if not (private / "private-evidence-manifest.json").is_file():
+            failures.append("se-runner: private evidence manifest was not written")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        public = root / "public"
+        private = root / "private"
+        public.mkdir()
+        private.mkdir()
+        (private / "terminal.log").write_text("private\n", encoding="utf-8")
+        availability = public / "software-endpoint-availability.json"
+        raw = public / "software-endpoint-raw-samples.jsonl"
+        result = public / "software-endpoint-results.json"
+        availability.write_text('{"status":"ok"}\n', encoding="utf-8")
+        raw.write_text('{"detail":"/home/example-user/secret"}\n', encoding="utf-8")
+        result.write_text('{"record_type":"software-endpoint-results"}\n', encoding="utf-8")
+        try:
+            finalize_evidence(public, result, private)
+        except ValueError:
+            pass
+        else:
+            failures.append("se-runner: public evidence with a home path was accepted")
+    return failures
+
+
+def _verify_se_runtime_identity(record: dict, repo_root: Path) -> None:
+    identity = record.get("software_endpoint_orchestrator", {})
+    if identity.get("name") != "scripts/bench-protocol/se_runner.py":
+        raise ValueError("SE orchestrator identity is absent")
+    if identity.get("revision") != record.get("checkout", {}).get("git_commit"):
+        raise ValueError("SE orchestrator revision differs from the checkout")
+    if identity.get("sha256") != _sha256(Path(__file__)):
+        raise ValueError("SE orchestrator digest differs from preregistration")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Execute protocol 1.5.0 SE1/SE2 software-endpoint trials."
+    )
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--estimate", action="store_true")
+    parser.add_argument("--run", action="store_true")
+    parser.add_argument("--preregistration", metavar="PATH")
+    parser.add_argument("--results-dir", metavar="PATH")
+    parser.add_argument("--private-evidence-dir", metavar="PATH")
+    args = parser.parse_args(argv)
+
+    if args.self_test:
+        problems = self_test()
+        for problem in problems:
+            print(f"self-test FAIL: {problem}", file=sys.stderr)
+        if problems:
+            print(f"{len(problems)} self-test failure(s)", file=sys.stderr)
+            return 1
+        print("se-runner self-test: all checks passed")
+        return 0
+
+    if args.estimate:
+        implementations = len(profiles.LAPTOP_IMPLEMENTATIONS)
+        blocks = sum(
+            workloads.WORKLOADS[name]["sampling"]["warmup_blocks"]
+            + workloads.WORKLOADS[name]["sampling"]["measured_blocks"]
+            for name in WORKLOAD_BY_ID.values()
+        )
+        lower_bound = implementations * blocks * AFTER_SETTLE_SECONDS
+        print(
+            f"fixed post-burst settle floor: {lower_bound / 3600:.2f} h; "
+            "payload, readiness, and cleanup time are additional"
+        )
+        return 0
+
+    if not args.run:
+        parser.print_help()
+        return 2
+    if not args.preregistration or not args.results_dir or not args.private_evidence_dir:
+        print(
+            "--run requires --preregistration, --results-dir, and "
+            "--private-evidence-dir",
+            file=sys.stderr,
+        )
+        return 2
+
+    repo_root = HERE.parents[1]
+    prereg_path = Path(args.preregistration)
+    try:
+        prereg_bytes = prereg_path.read_bytes()
+        record = json.loads(prereg_bytes.decode("utf-8"))
+    except (OSError, UnicodeError, ValueError) as error:
+        print(f"cannot read preregistration record: {error}", file=sys.stderr)
+        return 2
+    problems = prereg.check_record(record)
+    if problems:
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        print("no SE measurement is taken until preregistration is complete", file=sys.stderr)
+        return 1
+
+    results_dir = Path(args.results_dir)
+    private_dir = Path(args.private_evidence_dir)
+    try:
+        w6_runner.validate_private_evidence_location(
+            private_dir, results_dir, repo_root
+        )
+        if results_dir.exists() or private_dir.exists():
+            raise ValueError("result and private evidence targets must be new")
+        private_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
+        private_dir.chmod(0o700)
+        anchor_commit = w6_runner.resolve_public_preregistration_commit(
+            record, prereg_bytes, repo_root
+        )
+        w6_runner.verify_runtime_identities(record, repo_root)
+        _verify_se_runtime_identity(record, repo_root)
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        print(f"SE runtime verification failed: {error}", file=sys.stderr)
+        return 1
+
+    backend, launch_environment = w6_runner.preflight_window_backend()
+    if backend.get("status") != "available":
+        print(backend.get("reason", "window backend unavailable"), file=sys.stderr)
+        return 1
+    config_paths = {
+        entry["name"]: repo_root / entry["config_path"]
+        for entry in record["implementations"]
+        if entry.get("availability") == "qualified"
+    }
+    calibrations = {
+        entry["name"]: entry["calibration"]
+        for entry in record["implementations"]
+        if entry.get("availability") == "qualified"
+    }
+    launcher = SoftwareEndpointLauncher(
+        backend,
+        use_scope=True,
+        log_dir=private_dir / "terminal-logs",
+        config_paths=config_paths,
+        calibrations=calibrations,
+        launch_environment=launch_environment,
+        font_identity=record.get("shared_font"),
+    )
+    qualified = [
+        entry["name"]
+        for entry in record["implementations"]
+        if entry.get("availability") == "qualified"
+    ]
+    probes = w6_runner.probe_availability(qualified, launcher, calibrate=False)
+    try:
+        revalidated, unavailable = w6_runner.verify_frozen_probe(record, probes)
+        availability_record = {
+            "calibration_mode": "frozen-qualified-revalidation",
+            "probes": probes,
+            "revalidated_qualified": revalidated,
+            "frozen_unavailable": unavailable,
+        }
+        document = run_session(
+            record,
+            hashlib.sha256(prereg_bytes).hexdigest(),
+            anchor_commit,
+            launcher,
+            results_dir,
+            collectors.probe_all(),
+            availability_record,
+        )
+    except (OSError, ValueError) as error:
+        print(f"SE session failed: {error}", file=sys.stderr)
+        return 1
+
+    output_path = results_dir / "software-endpoint-results.json"
+    output_path.write_text(
+        json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    errors = validate_document(document, record)
+    for error in errors:
+        print(error, file=sys.stderr)
+    if errors:
+        print(f"{len(errors)} SE validation error(s)", file=sys.stderr)
+        return 1
+    try:
+        finalize_evidence(results_dir, output_path, private_dir)
+    except (OSError, UnicodeError, ValueError) as error:
+        print(f"SE evidence package validation failed: {error}", file=sys.stderr)
+        return 1
+    print(f"wrote {output_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

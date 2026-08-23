@@ -7,6 +7,103 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-23 -- Release v0.12.0 -- Measured memory reductions and stronger evidence
+
+This release reduces OdyTTY-controlled memory without weakening terminal
+correctness. Background images are resampled to the drawable surface, inactive
+post-process targets are released, scrollback storage is denser, and runtime
+font fallback shares parsed faces while reconstructing only the selected face
+from an over-limit collection. The reproduced MusicFox CJK workload falls from
+about 1.41 GB RSS on v0.11.1 to about 222 MB on the fixed build.
+
+Memory attribution now separates host allocations, GPU resources, and driver
+mappings, with dated captures and a pre-release regression guard. Kitty
+graphics support adds bounded zlib payloads and image-number animation
+addressing, while DA1 now advertises the existing Sixel implementation.
+Release artifacts add GitHub OIDC provenance alongside Minisign.
+
+The shaping boundary is explicit and measured. Full bidirectional layout,
+complex Indic and Brahmic reordering, and SVG-in-OpenType remain outside the
+current cell model; sequence-aware grapheme width remains tractable follow-up
+work. The benchmark protocol now has a separately named software-endpoint
+class with completion and cursor oracles. Those results remain distinct from
+optical latency evidence, and the approximately 50-hour W7 campaign remains
+explicitly deferred.
+
+Blocking Linux, macOS, and Windows CI still precedes publication. With no
+maintainer-controlled Windows or macOS hardware available before publication,
+the first install and runtime checks of those released packages are recorded
+afterward, and any defect found there requires a patch release.
+
+---
+
+## 2026-08-23 -- Memory attribution figures now have a guard behind them
+
+The memory work this cycle moved several subsystem figures. Nothing was
+re-checking them, so the next plausible change could put them back without
+anyone noticing until a benchmark run months later.
+`scripts/memory-regression-guard.py` reads an `ODYTTY_MEMORY_REPORT` capture
+and compares each attribution field against a recorded ceiling in
+`scripts/memory-regression-baseline.tsv`.
+
+It runs as a documented release step rather than a CI job, and the reason is
+recorded rather than assumed: the guard's subject is a running process on a
+real adapter. Hosted runners have no display server, no accelerated device and
+no window, so the GPU fields and every geometry-scaled field would describe the
+runner instead of the terminal, and a resident ceiling would describe whichever
+driver stack the runner mapped. What CI does run is the guard's decision rules
+over synthetic samples, which are pure text and stable everywhere.
+
+The decision rules are the guard. A figure is never compared across platform,
+environment class, or window geometry; `unmeasured` is a measurement gap rather
+than a pass; a ceiling whose field is absent from every retained sample fails,
+so the diagnostic cannot be renamed out from under it; and the worst retained
+sample decides, so a transient excursion cannot hide behind a settled final
+one.
+
+Geometry is part of the ceiling key because measurement put it there. Two
+captures taken minutes apart on the same workstation, differing only in which
+output the compositor placed the window on, reported
+`gpu_post_process_textures` of 19,200,000 and 55,024,000 bytes. Against that,
+two launches at a fixed geometry reported byte-identical values in every
+attribution field, which is what makes a four percent margin a real ceiling
+rather than a shrug. The first recorded class is the development workstation at
+1600x1000 device pixels; the benchmark unit gets its own row from its own
+capture, never a figure carried across from here.
+
+---
+
+## 2026-08-23 -- Software-endpoint retention now has an executable boundary
+
+Protocol 1.5.0 described SE1 and SE2 retention as resident memory before,
+peak, and after a burst, but the child began its payload immediately and exited
+after writing its oracle. That made the pre-burst and fixed-settle post-burst
+samples impossible to take against one live process tree.
+
+The child now emits a ready oracle, waits for a create-exclusive controller
+start edge, completes the payload and CPR oracle, and stays alive until a
+second edge releases it after the post-burst sample. The new SE runner executes
+the preregistered five warmup and 30 measured blocks in balanced order, uses a
+private cgroup per trial, and records `memory.current` before and after plus
+`memory.peak` immediately after the burst. The post-burst settle is pinned at
+30 seconds. Active-workload environment checks subtract CPU time charged to
+the trial cgroup before applying the unrelated-background-load ceiling. A
+missing field remains `unsupported` and is never filled from another RSS
+source. SE results remain separate from W3/W4 optical results and are never
+reported as interactive latency.
+
+The preregistration now binds the SE runner digest, workload order, full block
+order, and settle duration before measurement. No comparative sample was taken
+while adding this execution path. The complete benchmark-protocol self-test,
+including the new child handshake and result validator, passes.
+
+The v0.12.0 release documentation now also records Stage 11, links the public
+compatibility, vttest, fuzz, mutation, and benchmark evidence from the README,
+and states that blocking cross-platform CI precedes release while the available
+Windows and macOS on-device package checks occur after publication.
+
+---
+
 ## 2026-08-23 -- Shaping boundaries and font fallback evidence are explicit
 
 The shaping documentation now carries one synchronized support matrix and

@@ -1,0 +1,59 @@
+# Recorded memory-attribution ceilings for `scripts/memory-regression-guard.py`.
+#
+# Columns, tab separated:
+#   environment_class  rss_source  geometry  field  ceiling_bytes  basis
+#
+# `environment_class` names a machine class, never a machine. `rss_source` is
+# the diagnostic's own platform token, so a Windows working-set figure can
+# never be checked against a Linux VmRSS ceiling. `geometry` is the drawable
+# size in DEVICE pixels (logical window size times the output's scale factor),
+# or the fixed token `any` for a field whose size does not depend on the
+# drawable surface.
+#
+# Geometry is a required part of the key because measurement says so, not
+# because it is tidy. Two captures taken minutes apart on this workstation,
+# differing only in which output the compositor placed the window on, reported
+# gpu_post_process_textures of 19,200,000 and 55,024,000 bytes. A ceiling that
+# did not name its geometry would be either meaningless or permanently loose.
+#
+# Ceilings are the observed steady-state value plus roughly four percent. The
+# figures they are drawn from are exactly reproducible: two independent
+# launches at the same geometry reported byte-identical values in every
+# attribution field, so the margin exists to absorb allocator and font-cache
+# variation rather than measurement noise. A ceiling is re-recorded when a
+# change is intended to move a figure -- with the new capture, in the same
+# commit -- and never widened to make a red run green.
+#
+# Deliberately not given ceilings:
+#   * `rss_peak_bytes` -- a process high-water mark that includes startup
+#     transients before the idle state the procedure measures. It varied by
+#     about five percent across replicates whose steady-state figures were
+#     identical, so a ceiling on it would report scheduling, not retention.
+#   * `host_scrollback_ring`, `host_scrollback_projection`,
+#     `host_scrollback_ring_slack`, `host_graphics_image_store` -- zero
+#     throughout an idle capture. Pinning them at zero would pin the workload
+#     rather than the terminal; the per-line scrollback cost has its own
+#     measurement in the benchmark evidence tree.
+#
+# `host_background_image_buffer` IS pinned at zero, because that zero is a
+# workload-independent invariant: the decoded RGBA buffer is released once the
+# texture is uploaded, so any nonzero value is the retention regression the
+# pin exists to catch.
+#
+# Capture procedure for this record: `docs/memory.md`, "The pre-release
+# regression guard".
+#
+# Recorded 2026-08-23 against 1679cc2726a8cfcc9666fb89817545dd31fa0f2f.
+workstation-nvidia-wayland	proc_status	1600x1000	rss_bytes	236000000	idle steady state 227,221,504 / 226,680,832 across two launches
+workstation-nvidia-wayland	proc_status	1600x1000	host_accounted_bytes	1560000	idle steady state 1,493,776, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	host_glyph_atlas_bitmap	202000	idle steady state 194,688, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	host_color_glyph_atlas_bitmap	160000	idle steady state 153,600, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	host_grid_cells	240000	idle steady state 229,008, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	host_vertex_staging	954000	idle steady state 916,480, identical in both launches
+workstation-nvidia-wayland	proc_status	any	host_background_image_buffer	0	invariant: the decoded buffer is freed after upload, observed 0
+workstation-nvidia-wayland	proc_status	1600x1000	gpu_accounted_bytes	46800000	idle steady state 45,033,968, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	gpu_glyph_atlas_texture	170000	idle steady state 162,240, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	gpu_color_glyph_atlas_texture	160000	idle steady state 153,600, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	gpu_background_image_texture	25450000	idle steady state 24,468,480, resampled to the surface with headroom
+workstation-nvidia-wayland	proc_status	1600x1000	gpu_post_process_textures	19968000	idle steady state 19,200,000, effects at their default settings
+workstation-nvidia-wayland	proc_status	1600x1000	gpu_vertex_buffers	1092000	idle steady state 1,049,648, identical in both launches

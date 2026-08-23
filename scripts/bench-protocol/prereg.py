@@ -406,7 +406,7 @@ def build_record(
         ],
         "configurations": list(configurations),
         "driver": {
-            "name": "scripts/bench-protocol/driver.py (W6 idle-visible-10m child)",
+            "name": "scripts/bench-protocol/driver.py (W6 and SE child)",
             "revision": git_commit(repo_root),
             "sha256": file_sha256(repo_root / "scripts/bench-protocol/driver.py"),
         },
@@ -414,6 +414,11 @@ def build_record(
             "name": "scripts/bench-protocol/w6_runner.py",
             "revision": git_commit(repo_root),
             "sha256": file_sha256(repo_root / "scripts/bench-protocol/w6_runner.py"),
+        },
+        "software_endpoint_orchestrator": {
+            "name": "scripts/bench-protocol/se_runner.py",
+            "revision": git_commit(repo_root),
+            "sha256": file_sha256(repo_root / "scripts/bench-protocol/se_runner.py"),
         },
         "fixtures": [
             {
@@ -472,6 +477,18 @@ def build_record(
                 ),
             },
         },
+        "se_workload_order": ["SE1", "SE2"],
+        "se_execution_order": ordering.block_schedule(
+            implementations,
+            configurations,
+            order_seed,
+            workloads.WORKLOADS["software-ascii-stream"]["sampling"][
+                "warmup_blocks"
+            ]
+            + workloads.WORKLOADS["software-ascii-stream"]["sampling"][
+                "measured_blocks"
+            ],
+        ),
         "matched_colors": {"foreground": TODO, "background": TODO},
         "cell_geometry_policy": CELL_GEOMETRY_POLICY,
         "target_grid": {"columns": TARGET_GRID[0], "rows": TARGET_GRID[1]},
@@ -584,6 +601,14 @@ def check_record(record: dict) -> list[str]:
     for field in ("name", "revision", "sha256"):
         if orchestrator.get(field) in (None, ""):
             problems.append(f"benchmark orchestrator lacks {field}")
+    if orchestrator.get("name") != "scripts/bench-protocol/w6_runner.py":
+        problems.append("W6 orchestrator identity is not canonical")
+    se_orchestrator = record.get("software_endpoint_orchestrator", {})
+    for field in ("name", "revision", "sha256"):
+        if se_orchestrator.get(field) in (None, ""):
+            problems.append(f"software-endpoint orchestrator lacks {field}")
+    if se_orchestrator.get("name") != "scripts/bench-protocol/se_runner.py":
+        problems.append("software-endpoint orchestrator identity is not canonical")
     drm = next(
         (
             entry
@@ -790,6 +815,20 @@ def check_record(record: dict) -> list[str]:
                 "W6 execution order does not exactly match the qualified set, "
                 "configurations, seed, and planned replicate count"
             )
+        se_sampling = workloads.WORKLOADS["software-ascii-stream"]["sampling"]
+        expected_se = ordering.block_schedule(
+            qualified,
+            configurations,
+            order_seed,
+            se_sampling["warmup_blocks"] + se_sampling["measured_blocks"],
+        )
+        if record.get("se_execution_order") != expected_se:
+            problems.append(
+                "SE execution order does not exactly match the qualified set, "
+                "configurations, seed, and planned block count"
+            )
+    if record.get("se_workload_order") != ["SE1", "SE2"]:
+        problems.append("SE workload order must be pinned as SE1 then SE2")
     rehearsal = record.get("w6_rehearsal", {})
     if rehearsal.get("duration_seconds") != 120:
         problems.append("W6 rehearsal must be exactly 120 seconds")
@@ -898,6 +937,33 @@ def check_record(record: dict) -> list[str]:
     planned = [entry for entry in record.get("workloads", []) if entry.get("planned")]
     if not planned:
         problems.append("no workload is planned; there is nothing to measure")
+
+    recorded_workloads = record.get("workloads", [])
+    recorded_names = [entry.get("name") for entry in recorded_workloads]
+    if (
+        len(recorded_names) != len(set(recorded_names))
+        or set(recorded_names) != set(workloads.WORKLOADS)
+    ):
+        problems.append("preregistered workload catalogue membership drifted")
+    for entry in recorded_workloads:
+        name = entry.get("name")
+        catalogue = workloads.WORKLOADS.get(name)
+        if catalogue is None:
+            continue
+        expected = {
+            "id": catalogue["id"],
+            "endpoint": catalogue["endpoint"],
+            "oracle": catalogue["oracle"],
+            "timeout_seconds": catalogue["timeout_seconds"],
+            "sampling": catalogue["sampling"],
+            "metrics": workloads.metric_names(name),
+            "apparatus_required": catalogue["apparatus"],
+        }
+        for field, value in expected.items():
+            if entry.get(field) != value:
+                problems.append(
+                    f"preregistered workload {name!r} field {field!r} drifted"
+                )
 
     # Every non-planned workload must carry a declared skip, so a workload
     # cannot vanish from the record by simply not being mentioned.

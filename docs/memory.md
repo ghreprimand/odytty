@@ -16,6 +16,7 @@ what "should" be cheap.
 - [Reading a capture](#reading-a-capture)
 - [A worked baseline](#a-worked-baseline)
 - [Runtime font fallback reads one collection face](#runtime-font-fallback-reads-one-collection-face)
+- [The pre-release regression guard](#the-pre-release-regression-guard)
 - [What is deliberately not a goal](#what-is-deliberately-not-a-goal)
 
 ## The standing rule
@@ -554,6 +555,93 @@ this collection at the unchanged 256 MiB boundary. This workstation result is
 also not a W6 benchmark result and is not pooled with benchmark-machine data.
 The related application reproduction is recorded in
 [`issue2-musicfox-cjk-fallback-2026-08-22.md`](../bench-results/issue2-musicfox-cjk-fallback-2026-08-22.md).
+
+## The pre-release regression guard
+
+Every figure above is a measurement of a moment. Without a check that re-takes
+it, the subsystems this cycle shrank drift back up one plausible change at a
+time and the next person finds out from a benchmark run months later.
+`scripts/memory-regression-guard.py` is that check: it reads an
+`ODYTTY_MEMORY_REPORT` capture and compares each attribution field against a
+recorded ceiling in `scripts/memory-regression-baseline.tsv`.
+
+### Why it is a release step and not a CI job
+
+CI is where a guard belongs when its subject is source text, which is why the
+production-file guard runs there on every push. This guard's subject is a
+running process on a real adapter, and the hosted runners cannot supply one:
+
+- The `gpu_*` fields are sizes asked of an actual device. A runner has no
+  display server and no accelerated adapter, so the renderer either never
+  reaches those allocations or reaches them against a software ICD whose
+  sizing and format selection are not a user's.
+- Every geometry-scaled field is a function of the drawable surface, and a
+  runner has no window.
+- `rss_bytes` on a GPU-accelerated process is dominated by the driver stack
+  mapped into it, which differs per adapter and per driver version.
+
+A ceiling recorded under those conditions would measure the runner. The guard
+therefore runs on a named machine as a step in
+[`release.md`](release.md), and the cost of that placement is stated rather
+than hidden: it catches a regression at release time, not at merge time.
+
+What CI does run is the guard's own self-test, `--self-test`, alongside the
+other harness self-tests. That check is pure text over synthetic samples, it
+is stable everywhere, and it is what keeps the decision rules below from
+rotting silently.
+
+### What the guard refuses to do
+
+Each of these is a way a memory check can look green while meaning nothing:
+
+- **No cross-class comparison.** The environment class is supplied explicitly
+  and must match a recorded row. An unrecorded class exits 2 with an error,
+  never a pass.
+- **No cross-platform comparison.** The log's `rss_source` token must equal the
+  row's, so a Windows working-set figure is never checked against a Linux
+  `VmRSS` ceiling.
+- **No cross-geometry comparison.** Geometry is part of the key because
+  measurement forced it there: two captures on this workstation minutes apart,
+  differing only in which output the compositor placed the window on, reported
+  `gpu_post_process_textures` of 19,200,000 and 55,024,000 bytes. A ceiling with
+  no geometry would be either meaningless or permanently loose.
+- **`unmeasured` is not a pass.** It is its own status and exits non-zero, so a
+  platform that stops exposing a figure surfaces as a measurement gap.
+- **A missing field is not a pass.** A ceiling whose field is absent from every
+  retained sample fails, so the diagnostic cannot be renamed out from under its
+  own ceiling.
+- **The worst retained sample decides**, not the last one, so a transient
+  excursion cannot hide behind a settled final sample.
+
+### Running it
+
+The window must already be at the recorded geometry for the samples being
+checked, because the geometry-scaled fields describe whichever surface existed
+when the sample was taken. Drop the samples taken before it settled with
+`--skip-first`.
+
+```sh
+ODYTTY_MEMORY_REPORT=2 odytty -e sleep 40     # capture at the recorded geometry
+python3 scripts/memory-regression-guard.py \
+    --log "$TMPDIR/odytty-memory-report.log" \
+    --environment-class workstation-nvidia-wayland \
+    --geometry 1600x1000 \
+    --skip-first 8
+```
+
+Geometry is the drawable size in **device** pixels: the logical window size
+times the output's scale factor. Exit 0 is a clean run, 1 is a regression or a
+measurement gap, 2 is a fault in the guard's own inputs.
+
+### Re-recording a ceiling
+
+A ceiling is re-recorded when a change is intended to move a figure, with the
+new capture, in the same commit that moves it. It is never widened to make a
+red run green: that converts the guard into a record of what happened rather
+than a check on it. The recorded ceilings are the observed steady state plus
+roughly four percent, and the margin is for allocator and font-cache variation
+rather than for measurement noise -- two independent launches at the same
+geometry reported byte-identical values in every attribution field.
 
 ## What is deliberately not a goal
 

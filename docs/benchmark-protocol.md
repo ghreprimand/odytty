@@ -647,9 +647,18 @@ score.
 **What the class captures.** Byte-accurate fixture delivery through the
 terminal's PTY path, CPR correctness, completion-patch emission, and
 process-tree resident memory around the burst (before, peak during, after a
-fixed idle settle). `retention_delta_bytes` is `after - before`. That signal
-detects retention per unit of work; it does not detect time-based creep in an
-idle process and is not a substitute for W7.
+fixed 30-second idle settle). `retention_delta_bytes` is `after - before`.
+That signal detects retention per unit of work; it does not detect time-based
+creep in an idle process and is not a substitute for W7.
+
+The SE background-load decision subtracts CPU time charged to the trial's
+private measurement cgroup from the aggregate system busy interval. The
+remaining busy fraction is the unrelated load tested against the
+preregistered ceiling. Without that subtraction, the terminal's own work
+would be misclassified as background interference.
+
+The CPR must report the last PTY row and column one at the preregistered grid.
+A syntactically valid reply at another location fails the oracle.
 
 **What the class does not capture.** Compositor present, display scanout, and
 any photosensor-observed completion. The optical boundary sits outside every
@@ -705,6 +714,11 @@ measured events per implementation in ten blocks.
 SE1 and SE2 use the same block plan as W3 and W4: five unmeasured warmup
 blocks and `30` measured blocks, ordered by the same balanced Latin square.
 Their samples remain in a separate result pool from every `W*` sample.
+Each trial uses a create-exclusive controller start edge after the pre-burst
+resident sample. The child remains alive after the CPR oracle until a second
+create-exclusive edge releases it after the fixed 30-second settle and the
+post-burst sample. This prevents process exit from manufacturing a favourable
+retention result.
 
 W6 uses one unmeasured two-minute rehearsal and `5` measured replicates per
 implementation. W7 uses `3` measured replicates and no shortened substitute.
@@ -929,7 +943,8 @@ workload or metric was absent from preregistration.
 Each run set also publishes a Markdown report containing:
 
 1. protocol and preregistration identities;
-2. exact OdyTTY, reference, driver, fixture, and collector revisions;
+2. exact OdyTTY, reference, driver, workload-orchestrator, fixture, and
+   collector revisions;
 3. the public-safe environment class and matched configuration table,
    including the normalization target grid, each qualified implementation's
    own observed device-pixel cell grid, and an explicit statement of which
