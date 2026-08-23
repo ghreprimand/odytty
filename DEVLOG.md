@@ -7,6 +7,39 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-23 -- Fresh preregistration for the v0.12.0 comparison run
+
+`bench-results/preregistration-1.5.0.json` is superseded in place with a
+record anchored to the release-candidate commit `b759988f`. The previous
+record froze against the earlier protocol commit `8085818b`; the candidate
+then changed the benchmark driver, the SE orchestrator, and the
+preregistration generator itself, so every harness digest it pinned was
+stale. No sample was ever taken under the superseded record, so no published
+result is affected and no sample pool crosses the two records.
+
+Every volatile value was re-derived from live probes on the comparison unit
+at the candidate revision on the current boot: collector configurations and
+kernel identity, environment class, display-mode signature, power policy,
+boot-and-settle evidence, fixture digests, and implementation artifacts. The
+startup-geometry diagnostic was re-run for all four terminals; each mapped
+natively on Wayland, completed the handshake, and settled at the 80x24
+target grid with a stable per-implementation pixel envelope. The record now
+also binds the SE runner digest and the seeded SE execution order, which the
+superseded record predated. Run-set identity and both seeds are new and
+date-stamped; ordering was reshuffled under the new seed.
+
+One correction is recorded plainly: the superseded record pinned a ghostty
+artifact digest that matched neither the installed binary nor any prior
+evidence record. The package manager verifies the installed file as
+unaltered, and every earlier readiness and geometry record hashed the same
+bytes the disk holds today, so the stale digest was a population error at
+the earlier freeze, not a changed binary. The fresh record pins the verified
+digest. `prereg.py --check` reports the record ready; the first measured
+sample follows only after the record is public on the anchor ref, exactly as
+the protocol requires.
+
+---
+
 ## 2026-08-23 -- Release v0.12.0 -- Measured memory reductions and stronger evidence
 
 This release reduces OdyTTY-controlled memory without weakening terminal

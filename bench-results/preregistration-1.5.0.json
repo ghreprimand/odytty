@@ -9,20 +9,20 @@
   ],
   "background_cpu_ceiling_percent": 10.0,
   "boot_and_settle_evidence": {
-    "boot_started_utc": "2026-08-16T00:33:44Z",
-    "login_ready_utc": "2026-08-16T00:34:46Z",
-    "measurement_not_before_utc": "2026-08-16T00:39:46Z",
+    "boot_started_utc": "2026-08-23T12:55:54Z",
+    "login_ready_utc": "2026-08-23T12:56:53Z",
+    "measurement_not_before_utc": "2026-08-23T13:01:53Z",
     "minimum_post_login_settle_seconds": 300
   },
   "cell_geometry_policy": "per-implementation-stable-observed-grid",
   "checkout": {
     "dirty": false,
-    "git_commit": "8085818bd5a128127bb27dd2d3cbda70b7a01144"
+    "git_commit": "b759988f135bdca2dad12f442df0bdb729682ddd"
   },
   "collectors": [
     {
       "collector": "cgroup-cpu",
-      "configuration_sha256": "f58fd1c96232ea3e0426337e54a7513ee0d36e09c2505055d93f8a4891ef95a8",
+      "configuration_sha256": "4c4357b3a52f1330219c5006df31c820cc47f11b4a998290a01e62cdccce1f8e",
       "fields": [
         "usage_usec",
         "user_usec",
@@ -38,7 +38,7 @@
     },
     {
       "collector": "cgroup-memory",
-      "configuration_sha256": "0ec4f6987f2933b1319bb79d637ada6d3b5e039b9ae9ae7a312bba2981ed5fc7",
+      "configuration_sha256": "9718e3b658c0422249f481a8e6082834e397fbc06a66ce44b6c737d72e4da045",
       "fields": [
         "memory.current",
         "memory.peak",
@@ -55,7 +55,7 @@
     },
     {
       "collector": "sched-wakeup",
-      "configuration_sha256": "346d2ac39b15bfb96d1d80f46641612299c2cf61e723c56161dae9a961052bf7",
+      "configuration_sha256": "c2559457f72327d060430d57286f50a91410b3a2ed6b2c262a9ae8f8f481e706",
       "implementation_sha256": "6b047c03b0c55d3952fc59a52f697705d462de2a75b50b74fc4c99b0480bce47",
       "metric": "idle_wake_events",
       "reason": "/sys/kernel/tracing/events/sched/sched_wakeup/enable is not readable by this user (tracefs is root-restricted on a default install); perf_event_paranoid is 2, which withholds unprivileged tracepoint collection (a value of -1 or lower would permit it). Wake events are reported unsupported rather than approximated: the protocol names context switches as a separate diagnostic and forbids relabeling them as wakeups.",
@@ -66,7 +66,7 @@
     },
     {
       "collector": "context-switches",
-      "configuration_sha256": "74a46dfe60c508a74e9a316a00aec8b24419e9553220c8ce7eac398e1e0d23a9",
+      "configuration_sha256": "c972e35f5c614661e80bdf6180acfaac3aca8a18787c4129382fd11d452f4f53",
       "diagnostic_only": true,
       "implementation_sha256": "6b047c03b0c55d3952fc59a52f697705d462de2a75b50b74fc4c99b0480bce47",
       "metric": "context_switches",
@@ -78,7 +78,7 @@
     },
     {
       "collector": "drm-fdinfo",
-      "configuration_sha256": "6f98d8b8c30ccb37d760c9aad86acd1fc1bda2e0e3a918c96b09002029c2eac4",
+      "configuration_sha256": "6026fc10d2cfac9d3b6cd5a0fcda64d015f7fe04a8b58ab92b72d5461fdae2b8",
       "drivers": "i915",
       "fields": [
         "drm-resident-stolen-system0",
@@ -155,9 +155,9 @@
     }
   ],
   "driver": {
-    "name": "scripts/bench-protocol/driver.py (W6 idle + SE1/SE2 children)",
-    "revision": "8085818bd5a128127bb27dd2d3cbda70b7a01144",
-    "sha256": "ea218a58213464904498b58fa09c3cb7983fec678b2beb54cfbae5d81a2ea1f0"
+    "name": "scripts/bench-protocol/driver.py (W6 and SE child)",
+    "revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
+    "sha256": "d402607cfc7fe60b8e9a01c0b2363057421bdd7cdc34b0ef6b100639a18bb8d9"
   },
   "environment_class": {
     "compositor": "Hyprland v0.56.2, native Wayland",
@@ -174,7 +174,7 @@
     ],
     "external_power_state": "external",
     "gpu_class": "discrete/integrated class, kernel driver: i915",
-    "graphics_driver": "Intel UHD Graphics 620; i915 in Linux 7.1.8-arch1-3; Mesa (distribution)",
+    "graphics_driver": "Intel UHD Graphics 620; i915 in Linux 7.1.8-arch1-3; Mesa 1:26.1.7-1",
     "keyboard_connection_class": "integrated i8042/PS2-class keyboard",
     "memory_class": "8-16 GiB",
     "optical_apparatus_model_class": "none; no optical capture apparatus",
@@ -182,25 +182,25 @@
     "power_policy": "performance",
     "power_source": "AC",
     "storage_class": "NVME solid-state storage (LUKS-encrypted btrfs root)",
-    "thermal_and_cooling": "integrated active cooling (Processor, TCC Offset, intel_powerclamp); preparation CPU package 45 C; observed thermal-zone range 0-45 C",
+    "thermal_and_cooling": "integrated active cooling (Processor, TCC Offset, intel_powerclamp); preparation CPU package 44 C; observed thermal-zone range 0-44 C",
     "virtualized_or_remote": "no"
   },
   "fixtures": [
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "8085818bd5a128127bb27dd2d3cbda70b7a01144",
+      "generator_revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
       "name": "w3",
       "sha256": "6115e084c778270394b1111e75ae8d882b1e6e1a61ad7d832b96a9dc42dbf3d2"
     },
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "8085818bd5a128127bb27dd2d3cbda70b7a01144",
+      "generator_revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
       "name": "w4",
       "sha256": "6f536f28c5ec3f965c3600fd1e93701a4557605e1567d0c20210bc27db05bfea"
     },
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "8085818bd5a128127bb27dd2d3cbda70b7a01144",
+      "generator_revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
       "name": "w5",
       "sha256": "e9b4deb6703136053f9b0c4d1387640e248e8f442a3a9e879b0464a6c27b07c4"
     }
@@ -208,7 +208,7 @@
   "implementations": [
     {
       "artifact_class": "clean-source-release-build",
-      "artifact_sha256": "035b9afcbdc67c67230a4fe6be48b64c644c11869d28ec65f9ab0183b8961df1",
+      "artifact_sha256": "64d5f235b5eca43a32427d1dd76e707e9172c1b2ef60ca4caae9f06a50cf0aea",
       "availability": "qualified",
       "build_command": "CARGO_BUILD_JOBS=4 cargo build --release --locked",
       "build_profile": "release",
@@ -254,7 +254,7 @@
         "height_remainder_device_px": 0,
         "width_remainder_device_px": 0
       },
-      "revision": "8085818bd5a128127bb27dd2d3cbda70b7a01144",
+      "revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
       "target_grid_met": true,
       "unavailable_reason": "not applicable"
     },
@@ -307,7 +307,7 @@
     },
     {
       "artifact_class": "distribution-package",
-      "artifact_sha256": "8506a65ffe151226ed2c30e6724b4c9a42ab82390ba432bc80952a690b9a1b5c",
+      "artifact_sha256": "d943cc1d6c6d24de8964b689bb7de6c827731560b37122e649f75d9e23b57580",
       "availability": "qualified",
       "build_command": "not-built-in-this-run; installed distribution package",
       "build_profile": "installed-release",
@@ -419,14 +419,14 @@
   },
   "orchestrator": {
     "name": "scripts/bench-protocol/w6_runner.py",
-    "revision": "8085818bd5a128127bb27dd2d3cbda70b7a01144",
+    "revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
     "sha256": "6ad675fa03ec63c690be72931b80e9d730586f4d222bf7c0377ce2a9e37c0db1"
   },
   "outlier_rule": "no sample is removed by an outlier test; all valid numeric samples remain in the analysis",
   "protocol": {
-    "git_commit": "8085818bd5a128127bb27dd2d3cbda70b7a01144",
+    "git_commit": "b759988f135bdca2dad12f442df0bdb729682ddd",
     "path": "docs/benchmark-protocol.md",
-    "sha256": "699d6274ca6b307fda094548fdff74437a3ef2caca547c47afa7779f5ca7aa30",
+    "sha256": "2087a87681934471e269ca904f05e514c0f07a0c9fc0f30f0746fbc03540f2c5",
     "version": "1.5.0"
   },
   "public_anchor": {
@@ -440,20 +440,451 @@
   "replacement_limit_per_invalid_attempt": 1,
   "reporting_rule": "no significance threshold, composite score, weighted total, or overall winner; favourable and unfavourable results are published together",
   "run_set": {
-    "bootstrap_seed": "odytty-1.5.0-bootstrap-20260821",
-    "id": "odytty-v0.12.0-protocol-1.5.0-se-prep",
-    "order_seed": "odytty-1.5.0-order-20260821",
+    "bootstrap_seed": "odytty-1.5.0-bootstrap-20260823",
+    "id": "odytty-v0.12.0-protocol-1.5.0-rc-20260823",
+    "order_seed": "odytty-1.5.0-order-20260823",
     "statistics_implementation": "scripts/bench-protocol/summaries.py",
-    "statistics_revision": "8085818bd5a128127bb27dd2d3cbda70b7a01144",
+    "statistics_revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
     "statistics_sha256": "fd060b8d319c0d539c4086b21dccc82a739d51c9faedb1e62092b2ef69f6a88e"
   },
   "run_set_time_budget_hours": 4.05,
+  "se_execution_order": [
+    {
+      "block": 1,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "ghostty",
+        "odytty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 2,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "kitty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 3,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "odytty",
+        "ghostty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 4,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "kitty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 5,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "ghostty",
+        "odytty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 6,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "kitty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 7,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "odytty",
+        "ghostty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 8,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "kitty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 9,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "ghostty",
+        "odytty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 10,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "kitty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 11,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "odytty",
+        "ghostty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 12,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "kitty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 13,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "ghostty",
+        "odytty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 14,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "kitty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 15,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "odytty",
+        "ghostty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 16,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "kitty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 17,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "ghostty",
+        "odytty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 18,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "kitty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 19,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "odytty",
+        "ghostty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 20,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "kitty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 21,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "ghostty",
+        "odytty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 22,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "kitty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 23,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "odytty",
+        "ghostty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 24,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "kitty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 25,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "ghostty",
+        "odytty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 26,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "kitty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 27,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "odytty",
+        "ghostty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 28,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "kitty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 29,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "ghostty",
+        "odytty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 30,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "kitty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 31,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "odytty",
+        "ghostty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 32,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "kitty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 33,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "ghostty",
+        "odytty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 34,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "kitty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 35,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "odytty",
+        "ghostty",
+        "alacritty"
+      ]
+    }
+  ],
+  "se_workload_order": [
+    "SE1",
+    "SE2"
+  ],
   "shared_font": {
     "face_index": 0,
     "family": "DejaVu Sans Mono",
     "file_name": "DejaVuSansMono.ttf",
     "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
     "style": "Book"
+  },
+  "software_endpoint_orchestrator": {
+    "name": "scripts/bench-protocol/se_runner.py",
+    "revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
+    "sha256": "5c8079c4e3319c513b8ac298f9dee00681794b841ecd2e9f508fcb97602c615f"
   },
   "stopping_rule": "no precision-based early stopping; the run set ends when all planned samples are attempted or the fixed time budget expires, and an incomplete run set is published as incomplete",
   "target_grid": {
@@ -468,9 +899,9 @@
       ],
       "implementation_order": [
         "alacritty",
+        "ghostty",
         "odytty",
-        "kitty",
-        "ghostty"
+        "kitty"
       ]
     },
     {
@@ -479,10 +910,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
+        "odytty",
         "alacritty",
-        "ghostty",
-        "odytty"
+        "kitty",
+        "ghostty"
       ]
     },
     {
@@ -491,9 +922,9 @@
         "plain"
       ],
       "implementation_order": [
-        "ghostty",
         "kitty",
         "odytty",
+        "ghostty",
         "alacritty"
       ]
     },
@@ -503,10 +934,10 @@
         "plain"
       ],
       "implementation_order": [
-        "odytty",
         "ghostty",
+        "kitty",
         "alacritty",
-        "kitty"
+        "odytty"
       ]
     },
     {
@@ -516,9 +947,9 @@
       ],
       "implementation_order": [
         "alacritty",
+        "ghostty",
         "odytty",
-        "kitty",
-        "ghostty"
+        "kitty"
       ]
     },
     {
@@ -527,10 +958,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
+        "odytty",
         "alacritty",
-        "ghostty",
-        "odytty"
+        "kitty",
+        "ghostty"
       ]
     }
   ],
@@ -563,6 +994,7 @@
       "oracle": "exact fixture digest, a valid cursor-position report received before the completion patch is painted, the completion patch, the expected final record, and no child or terminal failure. A child that exits after writing the payload without a CPR reply fails the oracle; early finish is not a throughput score",
       "planned": true,
       "sampling": {
+        "after_settle_seconds": 30,
         "measured_blocks": 30,
         "warmup_blocks": 5
       },
@@ -588,6 +1020,7 @@
       "oracle": "exact fixture digest, a valid cursor-position report received before the completion patch is painted, the completion patch, reset style at completion, the expected final record, and no child or terminal failure. A child that exits after writing the payload without a CPR reply fails the oracle",
       "planned": true,
       "sampling": {
+        "after_settle_seconds": 30,
         "measured_blocks": 30,
         "warmup_blocks": 5
       },
