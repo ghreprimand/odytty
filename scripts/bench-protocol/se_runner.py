@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Execute the protocol 1.5.1 software-endpoint workload class.
+"""Execute the protocol 1.5.2 software-endpoint workload class.
 
 SE1 and SE2 are throughput-shaped software-endpoint measurements. They are
 never W3/W4 substitutes and never enter the optical-workload result pool. The
@@ -41,6 +41,7 @@ WORKLOAD_BY_ID = {
     "SE2": "software-sgr-stream",
 }
 STATUS_VALUES = {"pass", "fail", "invalid", "skip"}
+SMOKE_TOLERATED_INVALID_REASONS = {"thermal-throttling"}
 
 
 def _sha256(path: Path) -> str:
@@ -404,6 +405,7 @@ def _failed_sample(
     order_position: int,
     status: str,
     detail: str,
+    invalid_reason: str | None = None,
 ) -> dict:
     return {
         "workload_id": workload_id,
@@ -416,6 +418,7 @@ def _failed_sample(
         "status": status,
         "detail": detail,
         "oracle": "fail",
+        "invalid_reason": invalid_reason,
     }
 
 
@@ -483,6 +486,7 @@ def run_trial(
                 "invalid",
                 "controller did not observe the private cgroup, exact window, "
                 "live child, and preregistered PTY grid before the timeout",
+                invalid_reason="controller-loss",
             )
 
         before = collectors.read_resident_bytes(cgroup)
@@ -502,6 +506,7 @@ def run_trial(
                 order_position,
                 "invalid",
                 "create-exclusive start edge failed",
+                invalid_reason="controller-loss",
             )
 
         completion = None
@@ -696,16 +701,15 @@ def validate_document(document: dict, prereg_record: dict) -> list[str]:
         entry.get("name"): entry.get("sha256")
         for entry in prereg_record.get("fixtures", [])
     }
-    expected_count = len(WORKLOAD_BY_ID) * sum(
+    if prereg_record.get("replacement_limit_per_invalid_attempt") != 1:
+        problems.append("SE replacement limit is not one")
+    expected_primary_count = len(WORKLOAD_BY_ID) * sum(
         len(block.get("implementation_order", [])) for block in schedule
     )
-    if len(attempts) != expected_count:
-        problems.append(
-            f"SE result has {len(attempts)} attempts, expected {expected_count}"
-        )
-    expected_attempts = []
+    expected_attempts: dict[str, list[tuple]] = {}
     for workload_id in prereg_record.get("se_workload_order", WORKLOAD_BY_ID):
         sampling = workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]]["sampling"]
+        expected_attempts[workload_id] = []
         for block in schedule:
             phase = (
                 "warmup"
@@ -715,21 +719,73 @@ def validate_document(document: dict, prereg_record: dict) -> list[str]:
             for position, implementation in enumerate(
                 block.get("implementation_order", []), start=1
             ):
-                expected_attempts.append(
+                expected_attempts[workload_id].append(
                     (workload_id, block.get("block"), implementation, position, phase)
                 )
-    observed_attempts = [
-        (
-            attempt.get("workload_id"),
-            attempt.get("block"),
-            attempt.get("implementation"),
-            attempt.get("order_position"),
-            attempt.get("phase"),
+    cursor = 0
+    expected_total = expected_primary_count
+    for workload_id in prereg_record.get("se_workload_order", WORKLOAD_BY_ID):
+        expected_primary = expected_attempts.get(workload_id, [])
+        primary = attempts[cursor : cursor + len(expected_primary)]
+        observed_primary = [
+            (
+                attempt.get("workload_id"),
+                attempt.get("block"),
+                attempt.get("implementation"),
+                attempt.get("order_position"),
+                attempt.get("phase"),
+            )
+            for attempt in primary
+        ]
+        if observed_primary != expected_primary:
+            problems.append(
+                f"SE {workload_id} primary attempt order differs from preregistration"
+            )
+        if any(
+            attempt.get("attempt") != 1 or attempt.get("replacement") is not False
+            for attempt in primary
+        ):
+            problems.append(f"SE {workload_id} primary attempt metadata is invalid")
+        cursor += len(expected_primary)
+        invalid_primary = [
+            attempt for attempt in primary if attempt.get("status") == "invalid"
+        ]
+        expected_total += len(invalid_primary)
+        replacements = attempts[cursor : cursor + len(invalid_primary)]
+        expected_replacements = [
+            (
+                attempt.get("workload_id"),
+                attempt.get("block"),
+                attempt.get("implementation"),
+                attempt.get("order_position"),
+                attempt.get("phase"),
+            )
+            for attempt in invalid_primary
+        ]
+        observed_replacements = [
+            (
+                attempt.get("workload_id"),
+                attempt.get("block"),
+                attempt.get("implementation"),
+                attempt.get("order_position"),
+                attempt.get("phase"),
+            )
+            for attempt in replacements
+        ]
+        if observed_replacements != expected_replacements:
+            problems.append(
+                f"SE {workload_id} invalid attempts lack their exact replacements"
+            )
+        if any(
+            attempt.get("attempt") != 2 or attempt.get("replacement") is not True
+            for attempt in replacements
+        ):
+            problems.append(f"SE {workload_id} replacement metadata is invalid")
+        cursor += len(invalid_primary)
+    if len(attempts) != expected_total or cursor != len(attempts):
+        problems.append(
+            f"SE result has {len(attempts)} attempts, expected {expected_total}"
         )
-        for attempt in attempts
-    ]
-    if observed_attempts != expected_attempts:
-        problems.append("SE result attempt order differs from preregistration")
     for attempt in attempts:
         if attempt.get("workload_id") not in WORKLOAD_BY_ID:
             problems.append("SE result pooled a non-SE workload")
@@ -737,6 +793,13 @@ def validate_document(document: dict, prereg_record: dict) -> list[str]:
             problems.append("SE result contains an unqualified implementation")
         if attempt.get("status") not in STATUS_VALUES:
             problems.append("SE result contains an unknown attempt status")
+        if attempt.get("status") == "invalid":
+            if attempt.get("invalid_reason") not in prereg_record.get(
+                "allowed_invalid_reasons", []
+            ):
+                problems.append("SE invalid attempt lacks an allowed reason")
+        elif attempt.get("invalid_reason") is not None:
+            problems.append("SE non-invalid attempt carries an invalid reason")
         if attempt.get("status") != "pass" and any(
             key in attempt
             for key in (
@@ -902,6 +965,8 @@ def run_session(
     workload_order = prereg_record.get("se_workload_order")
     if workload_order != list(WORKLOAD_BY_ID):
         raise ValueError("the SE workload order is absent or drifted")
+    if prereg_record.get("replacement_limit_per_invalid_attempt") != 1:
+        raise ValueError("the SE replacement limit must be exactly one")
     if not isinstance(schedule, list) or not schedule:
         raise ValueError("the SE execution order is absent")
     for workload_id in workload_order:
@@ -938,6 +1003,7 @@ def run_session(
     started = _utc_now()
     with raw_path.open("x", encoding="utf-8") as raw:
         for workload_id in workload_order:
+            replacements: list[tuple[int, str, int, str]] = []
             timeout_seconds = workloads.WORKLOADS[
                 WORKLOAD_BY_ID[workload_id]
             ]["timeout_seconds"]
@@ -966,10 +1032,37 @@ def run_session(
                         prereg_record["background_cpu_ceiling_percent"],
                         sleep=sleep,
                     )
+                    attempt["attempt"] = 1
+                    attempt["replacement"] = False
                     attempts.append(attempt)
                     raw.write(json.dumps(attempt, sort_keys=True) + "\n")
                     raw.flush()
                     os.fsync(raw.fileno())
+                    if attempt.get("status") == "invalid":
+                        replacements.append(
+                            (block, implementation, position, phase)
+                        )
+            # Each invalid primary receives exactly one non-recursive
+            # replacement after the workload's frozen balanced sequence.
+            for block, implementation, position, phase in replacements:
+                attempt = run_trial(
+                    workload_id,
+                    implementation,
+                    block,
+                    phase,
+                    position,
+                    launcher,
+                    expected_environments[implementation],
+                    timeout_seconds,
+                    prereg_record["background_cpu_ceiling_percent"],
+                    sleep=sleep,
+                )
+                attempt["attempt"] = 2
+                attempt["replacement"] = True
+                attempts.append(attempt)
+                raw.write(json.dumps(attempt, sort_keys=True) + "\n")
+                raw.flush()
+                os.fsync(raw.fileno())
     return {
         "record_type": "software-endpoint-results",
         "schema_version": 1,
@@ -1046,26 +1139,42 @@ def run_smoke(
             prereg_record["background_cpu_ceiling_percent"],
             sleep=sleep,
         )
-        trials.append(
-            {
-                "implementation": implementation,
-                "status": attempt.get("status"),
-                "oracle": attempt.get("oracle"),
-                "detail": attempt.get("detail"),
-                "invalid_reason": attempt.get("invalid_reason"),
-                "oracle_reasons": attempt.get("oracle_reasons", []),
-            }
-        )
-    passed = all(trial["status"] == "pass" for trial in trials)
+        trial = {
+            "implementation": implementation,
+            "status": attempt.get("status"),
+            "oracle": attempt.get("oracle"),
+            "detail": attempt.get("detail"),
+            "invalid_reason": attempt.get("invalid_reason"),
+            "oracle_reasons": attempt.get("oracle_reasons", []),
+        }
+        trial["path_verified"] = _smoke_trial_path_verified(trial)
+        trials.append(trial)
+    passed = all(trial["path_verified"] for trial in trials)
     return {
         "record_type": "software-endpoint-smoke",
-        "schema_version": 1,
+        "schema_version": 2,
         "preregistration_sha256": prereg_sha256,
         "captured_utc": _utc_now(),
         "workload_id": workload_id,
         "status": "PASS" if passed else "FAIL",
         "trials": trials,
     }
+
+
+def _smoke_trial_path_verified(trial: dict) -> bool:
+    """Accept a verified live path despite a separately recorded thermal event."""
+    status = trial.get("status")
+    invalid_reason = trial.get("invalid_reason")
+    return (
+        trial.get("oracle") == "pass"
+        and (
+            (status == "pass" and invalid_reason is None)
+            or (
+                status == "invalid"
+                and invalid_reason in SMOKE_TOLERATED_INVALID_REASONS
+            )
+        )
+    )
 
 
 def validate_smoke_record(
@@ -1078,7 +1187,7 @@ def validate_smoke_record(
     return (
         isinstance(record, dict)
         and record.get("record_type") == "software-endpoint-smoke"
-        and record.get("schema_version") == 1
+        and record.get("schema_version") == 2
         and record.get("status") == "PASS"
         and record.get("preregistration_sha256") == prereg_sha256
         and record.get("workload_id") == next(iter(WORKLOAD_BY_ID))
@@ -1089,9 +1198,8 @@ def validate_smoke_record(
         == expected_implementations
         and all(
             isinstance(trial, dict)
-            and trial.get("status") == "pass"
-            and trial.get("oracle") == "pass"
-            and trial.get("invalid_reason") is None
+            and trial.get("path_verified") is True
+            and _smoke_trial_path_verified(trial)
             for trial in record["trials"]
         )
     )
@@ -1099,6 +1207,14 @@ def validate_smoke_record(
 
 class _FakeLauncher:
     fixture_digests = {"w3": "w3-digest", "w4": "w4-digest"}
+
+    @staticmethod
+    def environment_observation() -> dict:
+        return {
+            "display_mode_signature": [{"width": 1}],
+            "external_power_state": "external",
+            "power_policy": "performance",
+        }
 
     def trial_result(
         self,
@@ -1128,8 +1244,40 @@ class _FakeLauncher:
             "cursor_report": [24, 1],
             "expected_cursor_report": [24, 1],
             "process_alive_at_after_sample": True,
+            "attempt": 1,
+            "replacement": False,
             "retention": collectors.retention_record(100, 140, 110),
         }
+
+
+class _ReplacementFakeLauncher(_FakeLauncher):
+    def __init__(self):
+        self._calls: dict[tuple, int] = {}
+
+    def trial_result(
+        self,
+        workload_id: str,
+        implementation: str,
+        block: int,
+        phase: str,
+        order_position: int,
+    ) -> dict:
+        sample = super().trial_result(
+            workload_id, implementation, block, phase, order_position
+        )
+        key = (workload_id, implementation, block, phase, order_position)
+        self._calls[key] = self._calls.get(key, 0) + 1
+        if key == ("SE1", "a", 6, "measured", 1) and self._calls[key] == 1:
+            sample["status"] = "invalid"
+            sample["invalid_reason"] = "thermal-throttling"
+            for field in (
+                "payload_bytes",
+                "elapsed_seconds",
+                "payload_bytes_per_second",
+                "retention",
+            ):
+                sample.pop(field, None)
+        return sample
 
 
 def self_test() -> list[str]:
@@ -1233,7 +1381,7 @@ def self_test() -> list[str]:
 
     smoke_record = {
         "record_type": "software-endpoint-smoke",
-        "schema_version": 1,
+        "schema_version": 2,
         "preregistration_sha256": "a" * 64,
         "status": "PASS",
         "workload_id": "SE1",
@@ -1243,6 +1391,7 @@ def self_test() -> list[str]:
                 "status": "pass",
                 "oracle": "pass",
                 "invalid_reason": None,
+                "path_verified": True,
             }
         ],
     }
@@ -1254,6 +1403,7 @@ def self_test() -> list[str]:
         {"status": "FAIL"},
         {"record_type": "software-endpoint-results"},
         {"workload_id": "SE2"},
+        {"schema_version": 1},
         {"trials": []},
         {"trials": [{"implementation": "a", "status": "fail"}]},
     ):
@@ -1271,9 +1421,34 @@ def self_test() -> list[str]:
     }
     if validate_smoke_record(duplicated_smoke, "a" * 64, ["a", "b"]):
         failures.append("se-runner: duplicate implementation smoke set was accepted")
+    thermal_smoke = json.loads(json.dumps(smoke_record))
+    thermal_smoke["trials"][0].update(
+        {
+            "status": "invalid",
+            "invalid_reason": "thermal-throttling",
+            "path_verified": True,
+        }
+    )
+    if not validate_smoke_record(thermal_smoke, "a" * 64, ["a"]):
+        failures.append("se-runner: thermal-invalid verified smoke path was rejected")
+    background_smoke = json.loads(json.dumps(thermal_smoke))
+    background_smoke["trials"][0]["invalid_reason"] = (
+        "background-load-above-ceiling"
+    )
+    if validate_smoke_record(background_smoke, "a" * 64, ["a"]):
+        failures.append("se-runner: background-invalid smoke path gated a run")
 
     fake_prereg = {
-        "protocol": {"version": prereg.PROTOCOL_VERSION},
+        "protocol": {"version": prereg.PROTOCOL_VERSION, "sha256": "c" * 64},
+        "replacement_limit_per_invalid_attempt": 1,
+        "allowed_invalid_reasons": [
+            "background-load-above-ceiling",
+            "collector-loss",
+            "controller-loss",
+            "display-mode-change",
+            "power-policy-change",
+            "thermal-throttling",
+        ],
         "implementations": [
             {
                 "name": "a",
@@ -1337,6 +1512,87 @@ def self_test() -> list[str]:
     leaked["attempts"][0]["status"] = "fail"
     if not validate_document(leaked, fake_prereg):
         failures.append("se-runner: non-pass numeric results were accepted")
+
+    replaced_attempts = json.loads(json.dumps(attempts))
+    invalid_primary = replaced_attempts[0]
+    invalid_primary["status"] = "invalid"
+    invalid_primary["invalid_reason"] = "thermal-throttling"
+    for field in (
+        "payload_bytes",
+        "elapsed_seconds",
+        "payload_bytes_per_second",
+        "retention",
+    ):
+        invalid_primary.pop(field, None)
+    replacement = launcher.trial_result(
+        invalid_primary["workload_id"],
+        invalid_primary["implementation"],
+        invalid_primary["block"],
+        invalid_primary["phase"],
+        invalid_primary["order_position"],
+    )
+    replacement["attempt"] = 2
+    replacement["replacement"] = True
+    per_workload = len(fake_prereg["se_execution_order"]) * len(
+        fake_prereg["implementations"]
+    )
+    replaced_attempts.insert(per_workload, replacement)
+    replaced_document = {**document, "attempts": replaced_attempts}
+    if validate_document(replaced_document, fake_prereg):
+        failures.append("se-runner: exact invalid-attempt replacement was rejected")
+    missing_replacement = {
+        **document,
+        "attempts": (
+            replaced_attempts[:per_workload]
+            + replaced_attempts[per_workload + 1 :]
+        ),
+    }
+    if not validate_document(missing_replacement, fake_prereg):
+        failures.append("se-runner: missing invalid-attempt replacement was accepted")
+    invalid_replacement = json.loads(json.dumps(replaced_document))
+    invalid_replacement_attempt = invalid_replacement["attempts"][per_workload]
+    invalid_replacement_attempt["status"] = "invalid"
+    invalid_replacement_attempt["invalid_reason"] = "thermal-throttling"
+    for field in (
+        "payload_bytes",
+        "elapsed_seconds",
+        "payload_bytes_per_second",
+        "retention",
+    ):
+        invalid_replacement_attempt.pop(field, None)
+    if validate_document(invalid_replacement, fake_prereg):
+        failures.append("se-runner: non-recursive invalid replacement was rejected")
+    invented_invalid = json.loads(json.dumps(replaced_document))
+    invented_invalid["attempts"][0]["invalid_reason"] = "invented-reason"
+    if not validate_document(invented_invalid, fake_prereg):
+        failures.append("se-runner: invented invalid reason was accepted")
+
+    run_prereg = {
+        **fake_prereg,
+        "configurations": ["plain"],
+        "se_workload_order": list(WORKLOAD_BY_ID),
+        "collectors": [],
+        "environment_class": _FakeLauncher.environment_observation(),
+        "background_cpu_ceiling_percent": 10.0,
+        "run_set": {"id": "self-test"},
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        result = run_session(
+            run_prereg,
+            "a" * 64,
+            "b" * 40,
+            _ReplacementFakeLauncher(),
+            Path(tmp) / "results",
+            {"collectors": []},
+            {"status": "ok"},
+            sleep=lambda _seconds: None,
+        )
+        if validate_document(result, run_prereg):
+            failures.append("se-runner: live replacement sequence was rejected")
+        if len(result["attempts"]) != len(attempts) + 1:
+            failures.append("se-runner: live replacement sequence count drifted")
+        elif not result["attempts"][per_workload].get("replacement"):
+            failures.append("se-runner: replacement was not placed after its workload")
 
     environment = {
         "display_mode_signature": [{"width": 1}],
@@ -1453,7 +1709,7 @@ def _verify_se_runtime_identity(record: dict, repo_root: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Execute protocol 1.5.1 SE1/SE2 software-endpoint trials."
+        description="Execute protocol 1.5.2 SE1/SE2 software-endpoint trials."
     )
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--estimate", action="store_true")
@@ -1497,7 +1753,8 @@ def main(argv: list[str] | None = None) -> int:
         lower_bound = implementations * blocks * AFTER_SETTLE_SECONDS
         print(
             f"fixed post-burst settle floor: {lower_bound / 3600:.2f} h; "
-            "payload, readiness, and cleanup time are additional"
+            "invalid-attempt replacements, payload, readiness, and cleanup "
+            "time are additional"
         )
         return 0
 

@@ -1,6 +1,16 @@
 # OdyTTY Comparative Benchmark Protocol
 
-Protocol version: `1.5.1`
+Protocol version: `1.5.2`
+
+Version 1.5.2 corrects two software-endpoint execution gates before any
+measured sample. The mandatory smoke remains a live path proof: every
+terminal must map at its frozen geometry and pass the complete CPR and
+completion oracle. A thermal-counter increment is retained in the smoke
+record but no longer hides a verified path, because every measured attempt
+still classifies the same increment as `invalid`. All other invalid reasons
+continue to fail the smoke. SE1 and SE2 now also execute the preregistered
+single, non-recursive replacement for every invalid primary attempt, after
+that workload's frozen balanced primary sequence.
 
 Version 1.5.1 corrects the software-endpoint background-load decision. During
 an active render burst, GPU-driver kernel workers execute outside the
@@ -52,10 +62,10 @@ comparison unreachable. The remaining pitch difference is therefore stated as
 a limitation of the comparison (see *Cell geometry: a target, not an admission gate*) rather
 than asserted away.
 
-Version 1.5.1 requires a fresh preregistration and run-set identity. Protocol
-1.0.0 through 1.5.0 records and results remain historical evidence, are
+Version 1.5.2 requires a fresh preregistration and run-set identity. Protocol
+1.0.0 through 1.5.1 records and results remain historical evidence, are
 rejected by version rather than reinterpreted, and are never pooled with
-1.5.1 samples. Optical samples under 1.5.1 are never pooled with
+1.5.2 samples. Optical samples under 1.5.2 are never pooled with
 software-endpoint samples under the same version.
 
 This protocol defines how OdyTTY and independent terminal references are
@@ -663,11 +673,18 @@ fixed 30-second idle settle). `retention_delta_bytes` is `after - before`.
 That signal detects retention per unit of work; it does not detect time-based
 creep in an idle process and is not a substitute for W7.
 
-The SE background-load decision subtracts CPU time charged to the trial's
-private measurement cgroup from the aggregate system busy interval. The
-remaining busy fraction is the unrelated load tested against the
-preregistered ceiling. Without that subtraction, the terminal's own work
-would be misclassified as background interference.
+The active SE burst samples system and private-cgroup CPU counters to prove
+counter continuity, but does not classify background load: GPU-driver kernel
+workers induced by the terminal run outside its cgroup. The unchanged
+background ceiling is applied during the fixed post-burst idle settle, after
+that induced work has quiesced.
+
+Before measurement, the mandatory smoke executes one live SE1 path per
+qualified implementation. A passing terminal oracle proves the launch,
+geometry, payload, CPR, completion, and retention path. A simultaneous
+thermal-counter increment remains explicit in the smoke trial but does not
+erase that path proof. The measured runner applies the thermal invalidation to
+every attempt and never publishes the affected numeric result.
 
 The CPR must report the last PTY row and column one at the preregistered grid.
 A syntactically valid reply at another location fails the oracle.
@@ -731,6 +748,10 @@ resident sample. The child remains alive after the CPR oracle until a second
 create-exclusive edge releases it after the fixed 30-second settle and the
 post-burst sample. This prevents process exit from manufacturing a favourable
 retention result.
+After each workload's complete balanced primary sequence, every primary
+attempt classified `invalid` receives exactly one replacement in original
+occurrence order. Replacement attempts are retained even if invalid and are
+never replaced recursively.
 
 W6 uses one unmeasured two-minute rehearsal and `5` measured replicates per
 implementation. W7 uses `3` measured replicates and no shortened substitute.
@@ -761,6 +782,8 @@ Allowed `invalid` reasons are collector loss, controller loss, display-mode
 change, power-policy change, thermal throttling, or background load above the
 preregistered ceiling. Each invalid attempt remains in raw data and permits at
 most one replacement attempt at the end of the same balanced block sequence.
+For SE1 and SE2, that sequence is the complete primary schedule for the current
+workload; replacements retain the original block and order-position identity.
 
 A product crash, timeout, oracle mismatch, excessive latency, or unfavorable
 resource result is a `fail`, never `invalid`. A failed sample has no fabricated
@@ -853,9 +876,9 @@ shape:
 
 ```json
 {
-  "schema_version": "1.5.1",
+  "schema_version": "1.5.2",
   "protocol": {
-    "version": "1.5.1",
+    "version": "1.5.2",
     "git_commit": "<full-sha>",
     "sha256": "<protocol-sha256>"
   },

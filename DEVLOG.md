@@ -7,6 +7,42 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-24 -- Benchmark protocol 1.5.2 completes the SE validity path
+
+Three protocol 1.5.1 live smokes started from cool, low-load, stable-counter
+baselines. All twelve terminal trials passed their CPR and completion oracles,
+but four trials across OdyTTY, Ghostty, and Kitty observed a hardware thermal
+throttle-counter increment. Requiring all four smoke trials to be free of that
+event made the path-verification gate depend on a transient that the measured
+protocol already classifies per attempt.
+
+The schema-version-2 smoke now distinguishes path proof from that one
+environmental event. A trial with a passing full oracle and only
+`thermal-throttling` remains explicit as `invalid` but can prove its live path.
+Background load, controller loss, collector loss, display or power changes,
+and every oracle failure still block measurement. Measured trials are
+unchanged: every throttle-counter increment remains invalid and carries no
+numeric result.
+
+The same review found that the SE orchestrator recorded invalid primary
+attempts but did not execute the preregistered one-replacement allowance.
+SE1 and SE2 now queue each invalid primary and run exactly one non-recursive
+replacement after that workload's frozen balanced primary sequence. The
+validator reconstructs the expected replacement list from the primary record,
+pins attempt metadata and order, rejects missing or invented replacements, and
+requires every invalid reason to come from the preregistered vocabulary.
+
+Protocol 1.5.1 produced no measured sample and remains historical evidence.
+Protocol 1.5.2 requires a new run-set identity, seeds, public preregistration,
+and exact-record smoke before measurement.
+
+Verified: `python3 scripts/bench-protocol/bench-protocol.py --self-test` all
+checks passed, `cargo fmt --check` passed, `cargo clippy --all-targets --locked
+-- -D warnings` passed, and `RUST_TEST_THREADS=1 cargo test --locked` passed
+4,777 tests with zero failures.
+
+---
+
 ## 2026-08-24 -- Fresh preregistration for protocol 1.5.1
 
 `bench-results/preregistration-1.5.1.json` freezes a new run set against

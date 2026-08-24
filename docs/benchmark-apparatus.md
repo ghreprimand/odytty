@@ -1,6 +1,6 @@
 # Comparative Benchmark Apparatus and Availability
 
-Companion to `docs/benchmark-protocol.md` (protocol version `1.5.1`).
+Companion to `docs/benchmark-protocol.md` (protocol version `1.5.2`).
 
 The protocol defines how OdyTTY and independent terminal references are
 compared. This document records what the current comparison unit can actually
@@ -135,7 +135,7 @@ Consequences that are easy to get wrong:
    the apparatus requirement merely because their metric is a duration rather
    than a latency. There is no protocol-conforming fallback that republishes
    W3/W4 under software timing.
-2. **SE1 and SE2 are not that fallback.** Protocol 1.5.1 defines them as a
+2. **SE1 and SE2 are not that fallback.** Protocol 1.5.2 defines them as a
    separate class with separate identifiers. They reuse the W3/W4 fixture
    bytes and a CPR-plus-completion-patch oracle, but their endpoint excludes
    compositor present and display scanout. Their samples must never be pooled
@@ -255,7 +255,7 @@ machine-readable form of this document's availability tables against the live
 host.
 
 One comparative result set has been published under protocol 1.4.1: the W6
-idle comparison (`docs/benchmark-results.md`). Under 1.5.1, W6 and the
+idle comparison (`docs/benchmark-results.md`). Under 1.5.2, W6 and the
 software-endpoint class remain available on this unit; every optical-endpoint
 workload remains `skip` / `unavailable-hardware` for the reasons above -- not
 scheduling -- and must keep appearing in every preregistration and results
