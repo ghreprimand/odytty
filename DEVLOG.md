@@ -7,6 +7,33 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-24 -- Fresh preregistration for protocol 1.5.2
+
+`bench-results/preregistration-1.5.2.json` freezes the corrected
+software-endpoint campaign against candidate `d886787d`. Protocol 1.5.1
+produced no measured sample: its three mandatory smoke attempts retained four
+thermal invalidations while all twelve terminal oracles passed. Those records
+remain historical evidence and no sample pool crosses the protocol boundary.
+
+The 1.5.2 run-set identity, order seed, and bootstrap seed are new. Every
+volatile field was derived again from the same benchmark boot and a clean
+release build whose OdyTTY artifact digest is
+`8c3cab45f87f645852e2f62435d0e1c7ecea7212ebc2d12a9569e53a464b39cd`.
+A fresh four-terminal startup-geometry diagnostic passed at 80x24 and strictly
+bound the native Wayland path, cell geometry, and PTY pixel-envelope summary
+for every implementation.
+
+No measured sample has been taken under this record. Measurement remains
+blocked until its public anchor bytes match the local SHA-256 and a new live
+software-endpoint smoke verifies the exact record and implementation set.
+
+Verified: four-terminal startup-geometry diagnostic PASS with strict binding,
+`python3 scripts/bench-protocol/prereg.py --check
+bench-results/preregistration-1.5.2.json` ready, and preregistration SHA-256
+`50a39f6c3a0cf7f9a520ae7c25e3e46b550936a1ac3aa10020de24572f8215d2`.
+
+---
+
 ## 2026-08-24 -- Benchmark protocol 1.5.2 completes the SE validity path
 
 Three protocol 1.5.1 live smokes started from cool, low-load, stable-counter
