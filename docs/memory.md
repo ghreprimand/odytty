@@ -358,17 +358,43 @@ constraint on the explanation, not as an explanation: the capture was taken at a
 window size the benchmark protocol does not use, so its absolute totals are not
 comparable to the published figures and are not offered as such.
 
-### Allocator hints: measured and rejected
+### Allocator hints: adapter-dependent result and adoption
 
 `wgpu::MemoryHints::MemoryUsage` biases the suballocator toward smaller blocks
-than the performance-oriented default. Against a resource bundle matching
-OdyTTY's real texture set (~62 MB), three runs per arm measured 127.0–127.2 MB
-with the default and 127.1–127.3 MB with `MemoryUsage`: run-to-run variance
-larger than the difference between the arms. The footprint sits inside a single
-allocator block, so a smaller block granularity has nothing to divide. The
-adoption gate — a measured reduction with no frame-time regression — is not met,
-so the hint is not adopted. Recorded here because a negative result that cost
-machine time is worth keeping; it stops the same experiment being run twice.
+than the performance-oriented default. The development-workstation result
+remains a useful negative: against a resource bundle matching OdyTTY's real
+texture set (~62 MB), three runs per arm measured 127.0-127.2 MB with the
+default and 127.1-127.3 MB with `MemoryUsage`. Run-to-run variance was larger
+than the difference because the bundle already fit inside one allocator block.
+
+The integrated Intel benchmark adapter answered differently. Current-revision,
+exact-geometry, 60-second idle probes measured 277,835,776 bytes current and
+319,737,856 bytes peak with the default. Two `MemoryUsage` probes measured
+88,563,712-88,940,544 current and 130,371,584-130,781,184 peak. Every W6 oracle
+check passed. Against the larger hint replicate, the change cut current memory
+by 188,895,232 bytes (68.0%) and peak by 188,956,672 bytes (59.1%). This is the
+adapter class used for the published comparison, so the production device now
+requests `MemoryUsage`.
+
+The performance gate used alternating live-render intervals at the exact 80x24
+grid with the payload digest, CPR, completion patch, live child, and compositor
+geometry all checked. The full 64 MB fixture suggested a 2.2% mean slowdown,
+but thermal throttling invalidated nearly every arm. A 16 MB derivative stayed
+below that thermal boundary: across six valid pairs, the hint was slower twice
+and faster four times, with a 3.6% lower mean interval. That variance does not
+establish a speedup, but the earlier slowdown did not reproduce at this
+boundary.
+A manual 32-128 MiB range was also tested and rejected: it was slower in all six
+valid pairs, with a 22.9% mean regression despite saving memory. These are
+software-endpoint render intervals, not optical latency or GPU timestamp
+measurements, and they are recorded only as the allocator adoption gate.
+
+Only the single production device request carries the hint. Seven headless
+test-device requests retain the performance default deliberately: they test
+rendering correctness, not product allocator policy, and changing both at once
+would make a future fixture failure ambiguous. Windows follows the same device
+descriptor with no platform branch; DX12 may interpret the hint differently,
+so no Linux memory figure is carried across as a Windows claim.
 
 ### Scrollback: the projection was a second copy of the store
 

@@ -695,7 +695,11 @@ impl GpuState {
             required_features: enabled_features,
             required_limits,
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            memory_hints: wgpu::MemoryHints::default(),
+            // The integrated-GPU gate cut exact-geometry idle memory by 68%
+            // without a repeatable stream-interval regression. Headless test
+            // devices keep the default so allocator policy cannot perturb
+            // rendering-correctness fixtures.
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
             trace: wgpu::Trace::Off,
         }))
         .map_err(|err| NativeError::DeviceRequest(err.to_string()))?;

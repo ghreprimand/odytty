@@ -17,12 +17,12 @@
 # did not name its geometry would be either meaningless or permanently loose.
 #
 # Ceilings are the observed steady-state value plus roughly four percent. The
-# figures they are drawn from are exactly reproducible: two independent
-# launches at the same geometry reported byte-identical values in every
-# attribution field, so the margin exists to absorb allocator and font-cache
-# variation rather than measurement noise. A ceiling is re-recorded when a
-# change is intended to move a figure -- with the new capture, in the same
-# commit -- and never widened to make a red run green.
+# figures they are drawn from are reproducible: two independent first-frame
+# launches at the same geometry reported byte-identical grid and GPU fields;
+# RSS and vertex staging varied by less than two percent. The margin exists to
+# absorb allocator and font-cache variation rather than geometry drift. A
+# ceiling is re-recorded when a change is intended to move a figure -- with the
+# new capture, in the same commit -- and never widened to make a red run green.
 #
 # Deliberately not given ceilings:
 #   * `rss_peak_bytes` -- a process high-water mark that includes startup
@@ -43,17 +43,20 @@
 # Capture procedure for this record: `docs/memory.md`, "The pre-release
 # regression guard".
 #
-# Recorded 2026-08-23 against 1679cc2726a8cfcc9666fb89817545dd31fa0f2f.
-workstation-nvidia-wayland	proc_status	1600x1000	rss_bytes	236000000	idle steady state 227,221,504 / 226,680,832 across two launches
-workstation-nvidia-wayland	proc_status	1600x1000	host_accounted_bytes	1560000	idle steady state 1,493,776, identical in both launches
-workstation-nvidia-wayland	proc_status	1600x1000	host_glyph_atlas_bitmap	202000	idle steady state 194,688, identical in both launches
-workstation-nvidia-wayland	proc_status	1600x1000	host_color_glyph_atlas_bitmap	160000	idle steady state 153,600, identical in both launches
-workstation-nvidia-wayland	proc_status	1600x1000	host_grid_cells	240000	idle steady state 229,008, identical in both launches
-workstation-nvidia-wayland	proc_status	1600x1000	host_vertex_staging	954000	idle steady state 916,480, identical in both launches
+# Re-recorded 2026-08-24 from two first-frame 1600x1000 captures on the scale-1
+# output, against 941873e6 plus the production MemoryUsage allocator change.
+# The previous host_grid_cells basis came from a post-launch placement and did
+# not reproduce this geometry; both corrected captures report 382,592 exactly.
+workstation-nvidia-wayland	proc_status	1600x1000	rss_bytes	151000000	idle steady state 141,770,752 / 144,412,672 across two launches
+workstation-nvidia-wayland	proc_status	1600x1000	host_accounted_bytes	1530000	idle steady state 1,462,656 / 1,462,912 across two launches
+workstation-nvidia-wayland	proc_status	1600x1000	host_glyph_atlas_bitmap	135000	idle steady state 129,024, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	host_color_glyph_atlas_bitmap	96000	idle steady state 92,160, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	host_grid_cells	400000	idle steady state 382,592, identical in both corrected launches
+workstation-nvidia-wayland	proc_status	1600x1000	host_vertex_staging	894000	idle steady state 858,880 / 859,136 across two launches
 workstation-nvidia-wayland	proc_status	any	host_background_image_buffer	0	invariant: the decoded buffer is freed after upload, observed 0
-workstation-nvidia-wayland	proc_status	1600x1000	gpu_accounted_bytes	46800000	idle steady state 45,033,968, identical in both launches
-workstation-nvidia-wayland	proc_status	1600x1000	gpu_glyph_atlas_texture	170000	idle steady state 162,240, identical in both launches
-workstation-nvidia-wayland	proc_status	1600x1000	gpu_color_glyph_atlas_texture	160000	idle steady state 153,600, identical in both launches
-workstation-nvidia-wayland	proc_status	1600x1000	gpu_background_image_texture	25450000	idle steady state 24,468,480, resampled to the surface with headroom
+workstation-nvidia-wayland	proc_status	1600x1000	gpu_accounted_bytes	36300000	idle steady state 34,849,328, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	gpu_glyph_atlas_texture	112000	idle steady state 107,520, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	gpu_color_glyph_atlas_texture	96000	idle steady state 92,160, identical in both launches
+workstation-nvidia-wayland	proc_status	1600x1000	gpu_background_image_texture	14980000	idle steady state 14,400,000, identical in both launches
 workstation-nvidia-wayland	proc_status	1600x1000	gpu_post_process_textures	19968000	idle steady state 19,200,000, effects at their default settings
 workstation-nvidia-wayland	proc_status	1600x1000	gpu_vertex_buffers	1092000	idle steady state 1,049,648, identical in both launches

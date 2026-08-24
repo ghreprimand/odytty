@@ -7,6 +7,40 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-24 -- Integrated GPUs use the memory-biased wgpu allocator
+
+The production device request now selects `wgpu::MemoryHints::MemoryUsage`.
+At the exact W6 geometry on the Intel benchmark environment, the default
+allocator measured 277,835,776 bytes current and 319,737,856 bytes peak after
+the idle settle. Two independent memory-biased probes measured 88,563,712 to
+88,940,544 bytes current and 130,371,584 to 130,781,184 bytes peak. Against
+the larger replicate, that is a conservative 68.0 percent current reduction
+and 59.1 percent peak reduction.
+
+The original 64 MiB stream comparison was thermally invalid after its first
+sample in each cool period, so its slowdown signal is not treated as evidence.
+A shorter exact-grid follow-up kept six alternating pairs thermally valid;
+the memory-biased allocator was faster in four pairs and slower in two, with
+no repeatable interval regression. A manually constrained 32 to 128 MiB range
+was rejected after losing all six valid pairs by 22.9 percent on the mean.
+Only the production device request changes. Seven test-only device requests
+retain the default hint so their existing assumptions remain isolated.
+
+The workstation guard baseline was re-recorded from two first-frame
+1600x1000 captures on the scale-1 output. The RSS ceiling tightens from
+236 MB to 151 MB. Both corrected captures report 382,592 grid bytes exactly;
+the prior 229,008-byte basis came from post-launch placement and did not
+reproduce the recorded geometry. Both captures pass all 13 ceilings. Windows
+receives the same portable wgpu descriptor choice, but no Linux memory figure
+is carried across and Windows behavior remains unmeasured.
+
+Verified: `scripts/memory-regression-guard.py --self-test`, two independent
+guard captures, `cargo fmt --check`, `cargo clippy --all-targets --locked -D
+warnings`, and `cargo test --locked` at `RUST_TEST_THREADS=1`: 4,777 passed,
+0 failed.
+
+---
+
 ## 2026-08-24 -- Software-endpoint runs now require a passing live smoke
 
 The first software-endpoint campaign produced no valid samples despite the
