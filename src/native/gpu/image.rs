@@ -148,40 +148,39 @@ fn prepare_background(
     surface: (u32, u32),
     limit: u32,
 ) -> Option<PreparedBackground> {
+    // Size to the surface, then clamp to what the device can hold. Both caps
+    // are per-axis for the same reason the shader has no aspect correction.
+    // The sizing runs inside the decode seam so the resize happens before the
+    // RGBA8 conversion: a full-resolution RGBA copy of a 4K source never
+    // exists, which is what bounds the startup allocation transient.
+    let limit = limit.max(1);
+    let fit = |source_width: u32, source_height: u32| {
+        let (target_width, target_height) =
+            background_target_dimensions((source_width, source_height), surface);
+        let (width, height) = (target_width.min(limit), target_height.min(limit));
+        if (width, height) != (target_width, target_height) {
+            tracing::warn!(
+                "background_image: {target_width}x{target_height} exceeds the GPU limit {limit}; downscaled to {width}x{height}"
+            );
+        }
+        (width, height)
+    };
+
     // The bundled default background is compiled into the binary, so it
     // decodes from memory rather than a file — this is what makes the default
     // resolve identically on every target (dev build, source build,
     // relocatable AppImage, distro package) with no path lookup. A real user
     // path still takes the normal on-disk decode below.
     let decoded = if crate::settings::is_bundled_background(path) {
-        super::super::image_decode::decode_image_rgba_bytes(
+        super::super::image_decode::decode_image_rgba_fit_bytes(
             super::default_background::DEFAULT_BACKGROUND_WEBP,
+            fit,
         )
     } else {
-        super::super::image_decode::decode_image_rgba(path)
+        super::super::image_decode::decode_image_rgba_fit(path, fit)
     };
-    let (mut rgba, source_width, source_height) = decoded?;
-    let source = (source_width, source_height);
-
-    // Size to the surface, then clamp to what the device can hold. Both caps
-    // are per-axis for the same reason the shader has no aspect correction.
-    let limit = limit.max(1);
-    let (target_width, target_height) = background_target_dimensions(source, surface);
-    let (width, height) = (target_width.min(limit), target_height.min(limit));
-    if (width, height) != (target_width, target_height) {
-        tracing::warn!(
-            "background_image: {target_width}x{target_height} exceeds the GPU limit {limit}; downscaled to {width}x{height}"
-        );
-    }
-    if (width, height) != source {
-        rgba = super::super::texture_limits::resample_rgba8(
-            &rgba,
-            source_width,
-            source_height,
-            width,
-            height,
-        )?;
-    }
+    let (mut rgba, width, height, source) = decoded?;
+    let (source_width, source_height) = source;
 
     let blur_radius = blur_radius.min(MAX_BACKGROUND_BLUR_RADIUS);
     if blur_radius > 0 {
@@ -895,7 +894,7 @@ mod tests {
     #[test]
     fn oversized_background_is_downscaled_at_device_boundary() {
         let rgba = vec![0x80; 8_193 * 4];
-        let pixels = crate::native::texture_limits::resample_rgba8(&rgba, 8_193, 1, 8_192, 1)
+        let pixels = crate::native::texture_limits::resample_rgba8(rgba, 8_193, 1, 8_192, 1)
             .expect("valid RGBA");
         assert_eq!(pixels.len(), 8_192 * 4);
     }
@@ -1165,7 +1164,7 @@ mod tests {
         // 255, and a fixed 2x2 bilinear tap (what GPU minification without
         // mipmaps does) would leave a strong residual pattern.
         let source = checkerboard(64, 64);
-        let reduced = crate::native::texture_limits::resample_rgba8(&source, 64, 64, 8, 8)
+        let reduced = crate::native::texture_limits::resample_rgba8(source, 64, 64, 8, 8)
             .expect("valid RGBA");
         assert_eq!(reduced.len(), 8 * 8 * 4);
         for px in reduced.chunks_exact(4) {
@@ -1184,7 +1183,7 @@ mod tests {
 
         // Worst case for a dark theme: an image containing pure white.
         let source = checkerboard(256, 256);
-        let resampled = crate::native::texture_limits::resample_rgba8(&source, 256, 256, 64, 64)
+        let resampled = crate::native::texture_limits::resample_rgba8(source, 256, 256, 64, 64)
             .expect("valid RGBA");
         let (l_treat_max, l_treat_min) = worst_case_luminances(&resampled);
         let l_bg = theme_background_luminance(&dark_theme());
@@ -1219,7 +1218,7 @@ mod tests {
         // is the buffer that is sampled.
         let source = checkerboard(128, 128);
         let (source_max, source_min) = worst_case_luminances(&source);
-        let reduced = crate::native::texture_limits::resample_rgba8(&source, 128, 128, 16, 16)
+        let reduced = crate::native::texture_limits::resample_rgba8(source, 128, 128, 16, 16)
             .expect("valid RGBA");
         let (reduced_max, reduced_min) = worst_case_luminances(&reduced);
         assert!(reduced_max <= source_max + 1e-6);

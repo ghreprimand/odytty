@@ -7,6 +7,42 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-24 -- Startup peak: the background pipeline no longer holds full-resolution buffers
+
+A fine-grained trace of the first second of process life (cgroup
+`memory.current` sampled at 100 ms) showed a ~165 MB anonymous-memory spike
+during background-image preparation, freed within about 300 ms but setting the
+process peak all the same. Decomposition: the decode produced a
+full-resolution RGBA8 buffer (33 MB at 4K), the resample copied it again to
+satisfy a borrow, and the float resampler allocated an f32 intermediate of
+source-width by target-height (~75-100 MB for a 4K source). Several of these
+coexisted before any was freed.
+
+Three changes, one seam. Image decodes for the background now go through a
+fit-aware decoder (`decode_image_rgba_fit`, `decode_image_rgba_fit_bytes`)
+that sizes the image to the drawable surface *before* the RGBA8 conversion, so
+a full-resolution RGBA copy never exists. The downscale is the integer
+box-average (`thumbnail_exact`) rather than the float resampler: every source
+pixel contributes to exactly one target pixel, no floating-point intermediate
+image is allocated, and the averaging is still a convex combination, so the
+scrim's worst-case-luminance reasoning is unchanged. `resample_rgba8` now
+takes its buffer by value and truncates instead of copying; its remaining
+production caller (the graphics-image device-limit path, already capped at
+64 MiB) confines the one deliberate copy to the oversized case.
+
+Measured on the benchmark environment class, same trace method: the startup
+anonymous spike fell from ~210 MB to ~64 MB, and the process peak from
+297 MB to 180 MB. The decode bound, the resilience contract (a corrupt or
+oversized image degrades gracefully, never panics), and the
+never-upscale-past-source sizing rule all hold; the full suite passes
+unchanged plus the ported resample tests.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D
+warnings`, `cargo test --locked` at `RUST_TEST_THREADS=1`: 4,777 passed, 0
+failed.
+
+---
+
 ## 2026-08-23 -- Fresh preregistration for the v0.12.0 comparison run
 
 `bench-results/preregistration-1.5.0.json` is superseded in place with a

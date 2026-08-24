@@ -67,7 +67,16 @@ pub(super) fn fit_rgba8<'a>(
         return Some((Cow::Borrowed(&rgba[..needed]), width, height));
     }
 
-    let fitted = resample_rgba8(rgba, width, height, fitted_width, fitted_height)?;
+    // This copy is confined to the oversized case, which the graphics-image
+    // store already caps at 64 MiB; the borrow above keeps the common in-limit
+    // path copy-free.
+    let fitted = resample_rgba8(
+        rgba[..needed].to_vec(),
+        width,
+        height,
+        fitted_width,
+        fitted_height,
+    )?;
     Some((Cow::Owned(fitted), fitted_width, fitted_height))
 }
 
@@ -85,8 +94,13 @@ pub(super) fn fit_rgba8<'a>(
 ///
 /// Returns `None` for a zero-sized target or an under-length source buffer,
 /// rather than fabricating pixels.
+///
+/// Takes the source buffer by value and truncates rather than copying:
+/// duplicating a full-resolution RGBA image purely to satisfy a borrow was a
+/// measured term in the startup peak, so the caller decides whether a copy is
+/// made.
 pub(super) fn resample_rgba8(
-    rgba: &[u8],
+    mut rgba: Vec<u8>,
     width: u32,
     height: u32,
     target_width: u32,
@@ -99,7 +113,8 @@ pub(super) fn resample_rgba8(
     if width == 0 || height == 0 || target_width == 0 || target_height == 0 || rgba.len() < needed {
         return None;
     }
-    let source = image::RgbaImage::from_raw(width, height, rgba[..needed].to_vec())?;
+    rgba.truncate(needed);
+    let source = image::RgbaImage::from_raw(width, height, rgba)?;
     let resampled = image::imageops::resize(
         &source,
         target_width,

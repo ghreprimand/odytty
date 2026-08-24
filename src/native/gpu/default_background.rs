@@ -20,6 +20,8 @@
 
 /// The bundled default background, embedded into the binary at compile time.
 /// WebP, 3840×2160, ~1.3 MiB. Decoded once from memory at load via
-/// [`crate::native::image_decode::decode_image_rgba_bytes`].
+/// [`crate::native::image_decode::decode_image_rgba_fit_bytes`], which sizes
+/// it to the drawable surface before the RGBA8 conversion so a full-resolution
+/// RGBA copy never materializes.
 pub static DEFAULT_BACKGROUND_WEBP: &[u8] =
     include_bytes!("../../../assets/backgrounds/odytty-dark-waves.webp");

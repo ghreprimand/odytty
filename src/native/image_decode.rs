@@ -68,18 +68,104 @@ pub(in crate::native) fn decode_image_rgba(path: &Path) -> Option<(Vec<u8>, u32,
 }
 
 /// Decode image **bytes** to tightly-packed RGBA8 + dimensions, bounded by
-/// [`image_limits`]. Same contract as [`decode_image_rgba`]; this is the
-/// file-free seam used by two callers: the embedded default background
-/// ([`super::gpu::default_background`], which decodes compiled-in bytes), and
-/// the robustness tests that drive synthetic byte buffers (truncated headers,
-/// decompression bombs, garbage) so no test ever touches the real filesystem.
-pub(in crate::native) fn decode_image_rgba_bytes(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+/// [`image_limits`]. Same contract as [`decode_image_rgba`].
+///
+/// Test-only identity-fit convenience over [`decode_image_rgba_fit_bytes`]:
+/// production byte decodes (the embedded default background) always size to
+/// the surface through the fit seam, while the robustness tests that drive
+/// synthetic byte buffers (truncated headers, decompression bombs, garbage)
+/// only need the decode bound and not a resize.
+#[cfg(test)]
+fn decode_image_rgba_bytes(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    let (rgba, width, height, _source) =
+        decode_image_rgba_fit_bytes(bytes, |width, height| (width, height))?;
+    Some((rgba, width, height))
+}
+
+/// A fit-decoded image: tightly-packed RGBA8 bytes at target size, the target
+/// width and height, and the source dimensions the decoder saw.
+type FittedRgba = (Vec<u8>, u32, u32, (u32, u32));
+
+/// Decode an image **file** and resize it to the dimensions `fit` chooses,
+/// converting to RGBA8 only *after* the resize. Same bound and resilience
+/// contract as [`decode_image_rgba`].
+///
+/// The ordering is the point: a full-resolution RGBA8 copy of a large source
+/// never exists. For a 3840x2160 source that buffer alone is 33 MB, and the
+/// prior pipeline (decode to RGBA8, then copy, then resample) held three
+/// full-resolution buffers at once at startup. Resizing the decoder-native
+/// image first bounds the transient by the *decoded* size (24.9 MB for an
+/// opaque RGB8 source), and the RGBA8 conversion happens at target size.
+///
+/// `fit` receives the source dimensions and returns the target dimensions.
+/// Returning the source dimensions skips the resize. A zero target refuses the
+/// decode (`None`), matching the resilience contract.
+pub(in crate::native) fn decode_image_rgba_fit(
+    path: &Path,
+    fit: impl FnOnce(u32, u32) -> (u32, u32),
+) -> Option<FittedRgba> {
+    let mut reader = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?;
+    reader.limits(image_limits());
+    finish_fit(reader.decode().ok()?, fit)
+}
+
+/// Decode image **bytes** and resize to the dimensions `fit` chooses; the
+/// byte-input twin of [`decode_image_rgba_fit`], used for the embedded default
+/// background.
+pub(in crate::native) fn decode_image_rgba_fit_bytes(
+    bytes: &[u8],
+    fit: impl FnOnce(u32, u32) -> (u32, u32),
+) -> Option<FittedRgba> {
     let cursor = std::io::Cursor::new(bytes);
     let mut reader = image::ImageReader::new(cursor).with_guessed_format().ok()?;
     reader.limits(image_limits());
-    let image = reader.decode().ok()?.into_rgba8();
-    let (width, height) = image.dimensions();
-    Some((image.into_raw(), width, height))
+    finish_fit(reader.decode().ok()?, fit)
+}
+
+/// Shared tail of the fit decoders: choose target dimensions, downscale in
+/// the decoder-native colour type, then convert to RGBA8 at target size.
+/// Returns `(rgba, width, height, source_dimensions)`.
+fn finish_fit(
+    image: image::DynamicImage,
+    fit: impl FnOnce(u32, u32) -> (u32, u32),
+) -> Option<FittedRgba> {
+    let source_width = image.width();
+    let source_height = image.height();
+    let (target_width, target_height) = fit(source_width, source_height);
+    if target_width == 0 || target_height == 0 {
+        return None;
+    }
+    if (target_width, target_height) == (source_width, source_height) {
+        let rgba = image.into_rgba8();
+        return Some((
+            rgba.into_raw(),
+            source_width,
+            source_height,
+            (source_width, source_height),
+        ));
+    }
+    // `thumbnail_exact` is the integer box-average downscale: every source
+    // pixel contributes to exactly one target pixel, with no floating-point
+    // intermediate image. The float resampler's intermediate alone is
+    // source-width x target-height x 4 channels of f32 (a measured ~75-100 MB
+    // startup transient for a 4K source), while the box average allocates only
+    // the target. Averaging semantics are what the scrim's luminance reasoning
+    // needs (a convex combination can never widen the luminance bounds), and
+    // the background sizing never upscales past source resolution, so the
+    // downscale-only contract holds.
+    let rgba = image
+        .thumbnail_exact(target_width, target_height)
+        .into_rgba8()
+        .into_raw();
+    Some((
+        rgba,
+        target_width,
+        target_height,
+        (source_width, source_height),
+    ))
 }
 
 #[cfg(test)]
