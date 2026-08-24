@@ -154,6 +154,41 @@ def wait_for_start_edge(path: str, sleep=time.sleep) -> None:
         sleep(0.01)
 
 
+def await_startup_geometry(
+    sink: OracleSink, geometry_ready_path: str, sleep=time.sleep
+) -> None:
+    """Emit geometry observations until the controller releases the child.
+
+    The shared startup-geometry handshake: the child publishes its PTY grid
+    and pixel envelope through the oracle sink (changes immediately, stable
+    confirmations at a fixed cadence) while the controller floats and resizes
+    the window toward the normalization target, then releases the child by
+    creating the ready edge. Used identically by the W6 idle child and the
+    SE1/SE2 stream children, so every measured workload runs at its
+    preregistered grid rather than at whatever size the compositor tiled the
+    window to.
+    """
+    previous_geometry = None
+    last_geometry_emitted = None
+    while not os.path.exists(geometry_ready_path):
+        columns, rows = terminal_size()
+        pixels = terminal_pixel_size()
+        geometry = {
+            "pty_columns": columns,
+            "pty_rows": rows,
+            "content_width_device_px": pixels[0] if pixels else None,
+            "content_height_device_px": pixels[1] if pixels else None,
+        }
+        now = time.monotonic()
+        if geometry_observation_due(
+            geometry, previous_geometry, now, last_geometry_emitted
+        ):
+            sink.emit("geometry-observation", **geometry)
+            previous_geometry = geometry
+            last_geometry_emitted = now
+        sleep(0.05)
+
+
 def write_payload(stream, fixture: str) -> tuple[str, int]:
     """Feed a fixture to the measured stream, returning its digest and size.
 
@@ -331,6 +366,21 @@ def wait_for_cursor_report(stream, timeout_seconds: float) -> tuple[int, int] | 
     return parse_cursor_report(bytes(buf))
 
 
+def prepare_cpr_input(descriptor: int) -> tuple[int, list]:
+    """Make a PTY CPR readable without changing its output processing."""
+    import termios
+    import tty
+
+    saved = termios.tcgetattr(descriptor)
+    try:
+        tty.setcbreak(descriptor, when=termios.TCSANOW)
+        termios.tcflush(descriptor, termios.TCIFLUSH)
+    except BaseException:
+        termios.tcsetattr(descriptor, termios.TCSANOW, saved)
+        raise
+    return descriptor, saved
+
+
 def evaluate_software_endpoint_oracle(
     fixture: str,
     observed_digest: str,
@@ -398,8 +448,18 @@ def run_software_stream(
     output_stream=None,
     payload_writer=write_payload,
     terminal_size_reader=terminal_size,
+    geometry_ready_path: str | None = None,
+    sleep=time.sleep,
+    cpr_input_preparer=None,
 ) -> dict:
-    """SE1/SE2 child: wait, write, validate, then stay alive for sampling.
+    """SE1/SE2 child: normalize geometry, wait, write, validate, stay alive.
+
+    The startup-geometry handshake runs first when the controller provides a
+    ready edge, exactly as the W6 idle child does: the SE oracle asserts the
+    final PTY grid against the preregistered grid, so without normalization a
+    tiling compositor fails every trial at whatever size it mapped the window.
+    The `software-endpoint-ready` record is emitted only after release, so the
+    grid it carries is the settled one.
 
     The create-exclusive start edge lets the controller sample the complete
     terminal process tree before the burst. The child remains alive after its
@@ -409,6 +469,29 @@ def run_software_stream(
     oracle failure, not as a fast finish.
     """
     stream = sys.stdout.buffer if output_stream is None else output_stream
+    if geometry_ready_path is not None:
+        await_startup_geometry(sink, geometry_ready_path, sleep=sleep)
+    # The CPR reply arrives as PTY input with no terminating newline, so the
+    # terminal line discipline must be noncanonical for the reply to become
+    # readable (and it must not echo into the measured display). Cbreak mode
+    # preserves output processing, including the fixture's newline semantics;
+    # raw mode would silently change the measured byte stream. Only the real
+    # stdin PTY is switched; hermetic tests inject `stdin_stream` and are
+    # unaffected. The terminal state is restored before the child parks on
+    # the release edge.
+    terminal_restore = None
+    if cpr_input_preparer is not None:
+        terminal_restore = cpr_input_preparer()
+    elif stdin_stream is None and os.name != "nt":
+        try:
+            import termios
+        except ImportError:
+            termios = None  # type: ignore[assignment]
+        if termios is not None:
+            try:
+                terminal_restore = prepare_cpr_input(sys.stdin.fileno())
+            except (OSError, ValueError, io.UnsupportedOperation, termios.error) as error:
+                raise RuntimeError("cannot configure CPR input mode") from error
     columns, rows = terminal_size_reader()
     workload = (
         "software-ascii-stream" if fixture == "w3" else "software-sgr-stream"
@@ -423,16 +506,24 @@ def run_software_stream(
             "pty_rows": rows,
         },
     )
-    wait_for_edge(start_path)
-    started = time.monotonic()
-    digest, written = payload_writer(stream, fixture)
-    cursor_position_request(stream)
-    report = wait_for_cursor_report(
-        stdin_stream if stdin_stream is not None else sys.stdin.buffer,
-        cpr_timeout_seconds,
-    )
-    completion_patch(stream)
-    elapsed = time.monotonic() - started
+    try:
+        wait_for_edge(start_path)
+        started = time.monotonic()
+        digest, written = payload_writer(stream, fixture)
+        cursor_position_request(stream)
+        report = wait_for_cursor_report(
+            stdin_stream if stdin_stream is not None else sys.stdin.buffer,
+            cpr_timeout_seconds,
+        )
+        completion_patch(stream)
+        elapsed = time.monotonic() - started
+    finally:
+        if terminal_restore is not None:
+            descriptor, saved = terminal_restore
+            try:
+                termios.tcsetattr(descriptor, termios.TCSADRAIN, saved)
+            except (OSError, ValueError, termios.error):
+                pass
     final_columns, final_rows = terminal_size_reader()
     verdict = evaluate_software_endpoint_oracle(
         fixture,
@@ -595,25 +686,7 @@ def run_idle(
     if duration_seconds < 0:
         raise ValueError("idle duration must not be negative")
     if geometry_ready_path is not None:
-        previous_geometry = None
-        last_geometry_emitted = None
-        while not os.path.exists(geometry_ready_path):
-            columns, rows = terminal_size()
-            pixels = terminal_pixel_size()
-            geometry = {
-                "pty_columns": columns,
-                "pty_rows": rows,
-                "content_width_device_px": pixels[0] if pixels else None,
-                "content_height_device_px": pixels[1] if pixels else None,
-            }
-            now = time.monotonic()
-            if geometry_observation_due(
-                geometry, previous_geometry, now, last_geometry_emitted
-            ):
-                sink.emit("geometry-observation", **geometry)
-                previous_geometry = geometry
-                last_geometry_emitted = now
-            sleep(0.05)
+        await_startup_geometry(sink, geometry_ready_path, sleep=sleep)
     prompt = ("\x1b[2J\x1b[H\x1b[?25l" + IDLE_PROMPT).encode("ascii")
     columns, rows = terminal_size()
     sys.stdout.buffer.write(prompt)
@@ -928,16 +1001,24 @@ def self_test() -> list[str]:
 
     # The software-endpoint child must not emit the payload before the start
     # edge, and it must not return before the controller's post-settle release
-    # edge. The oracle record is written before that release wait.
+    # edge. The oracle record is written before that release wait. When a
+    # geometry-ready edge is supplied, ready must not precede that release.
     with tempfile.TemporaryDirectory() as tmp:
         oracle_path = os.path.join(tmp, "software-endpoint.oracle.jsonl")
         start_path = os.path.join(tmp, "start")
         release_path = os.path.join(tmp, "release")
+        geometry_ready_path = os.path.join(tmp, "geometry-ready")
         edges: list[str] = []
+        geometry_waits = 0
+        cpr_input_prepared = False
 
         def fake_wait(path: str) -> None:
             edges.append(path)
             if path == start_path:
+                if not cpr_input_prepared:
+                    failures.append(
+                        "driver: software-endpoint ready preceded CPR input setup"
+                    )
                 oracle_bytes = Path(oracle_path).read_bytes()
                 if b'"kind": "software-endpoint-ready"' not in oracle_bytes:
                     failures.append(
@@ -953,6 +1034,33 @@ def self_test() -> list[str]:
                     failures.append(
                         "driver: software-endpoint release wait preceded its oracle"
                     )
+
+        def fake_cpr_input_preparer():
+            nonlocal cpr_input_prepared
+            if Path(oracle_path).is_file() and b'"kind": "software-endpoint-ready"' in Path(
+                oracle_path
+            ).read_bytes():
+                failures.append(
+                    "driver: software-endpoint ready preceded CPR input setup"
+                )
+            cpr_input_prepared = True
+            return None
+
+        def fake_geometry_sleep(_seconds: float) -> None:
+            nonlocal geometry_waits
+            geometry_waits += 1
+            if Path(oracle_path).is_file():
+                oracle_bytes = Path(oracle_path).read_bytes()
+                if (
+                    b'"kind": "software-endpoint-ready"' in oracle_bytes
+                    and not os.path.exists(geometry_ready_path)
+                ):
+                    failures.append(
+                        "driver: software-endpoint ready preceded geometry release"
+                    )
+            if not os.path.exists(geometry_ready_path):
+                with open(geometry_ready_path, "xb"):
+                    pass
 
         def fake_payload(stream, fixture: str) -> tuple[str, int]:
             if edges != [start_path] or fixture != "w3":
@@ -975,8 +1083,15 @@ def self_test() -> list[str]:
             output_stream=io.BytesIO(),
             payload_writer=fake_payload,
             terminal_size_reader=lambda: (80, 24),
+            geometry_ready_path=geometry_ready_path,
+            sleep=fake_geometry_sleep,
+            cpr_input_preparer=fake_cpr_input_preparer,
         )
         sink.close()
+        if geometry_waits < 1:
+            failures.append(
+                "driver: software-endpoint geometry await did not wait for release"
+            )
         if edges != [start_path, release_path]:
             failures.append(
                 f"driver: software-endpoint edge order drifted: {edges!r}"
@@ -985,6 +1100,39 @@ def self_test() -> list[str]:
             failures.append(
                 f"driver: bounded software-endpoint handshake failed: {record!r}"
             )
+
+    # CPR replies have no terminating newline. On a real PTY, cooked line
+    # discipline holds them until newline; cbreak mode makes them readable
+    # without changing output processing. Hermetic tests that inject
+    # stdin_stream skip that path, so pin both properties here.
+    if os.name != "nt":
+        import pty
+        import termios
+
+        master, slave = pty.openpty()
+        try:
+            attrs = termios.tcgetattr(slave)
+            attrs[3] |= termios.ICANON
+            termios.tcsetattr(slave, termios.TCSANOW, attrs)
+            with open(slave, "rb", buffering=0, closefd=False) as slave_stream:
+                original_output_flags = termios.tcgetattr(slave)[1]
+                os.write(master, b"\x1b[23;9R")
+                descriptor, saved = prepare_cpr_input(slave)
+                if termios.tcgetattr(slave)[1] != original_output_flags:
+                    failures.append(
+                        "driver: CPR mode changed PTY output processing"
+                    )
+                if wait_for_cursor_report(slave_stream, 0.0) is not None:
+                    failures.append("driver: CPR mode retained queued PTY input")
+                os.write(master, b"\x1b[24;1R")
+                if wait_for_cursor_report(slave_stream, 0.3) != (24, 1):
+                    failures.append(
+                        "driver: cbreak PTY did not deliver a newline-free CPR reply"
+                    )
+                termios.tcsetattr(descriptor, termios.TCSANOW, saved)
+        finally:
+            os.close(master)
+            os.close(slave)
 
     # --- resize oracle ------------------------------------------------------
     expected = resize_schedule(200)
@@ -1186,6 +1334,7 @@ def main(argv: list[str] | None = None) -> int:
                 fixture,
                 args.start_path,
                 args.release_path,
+                geometry_ready_path=args.geometry_ready_path,
             )
         else:
             fixture = "w3" if args.workload == "ascii-stream-64mb" else "w4"

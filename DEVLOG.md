@@ -7,6 +7,38 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-24 -- Software-endpoint runs now require a passing live smoke
+
+The first software-endpoint campaign produced no valid samples despite the
+hermetic harness checks passing. Live evidence exposed three independent gaps:
+SE children did not participate in the startup-geometry handshake, canonical
+PTY input buffered the newline-free cursor-position reply, and raw mode fixed
+that buffering by also disabling output processing and changing the fixture's
+newline semantics.
+
+SE1 and SE2 now use the same create-exclusive geometry release as W6, so the
+child emits readiness only after the compositor controller has settled the
+preregistered grid. CPR input uses cbreak mode, preserves PTY output flags,
+flushes queued input before readiness, and restores the original terminal
+state after the reply. A live OdyTTY diagnostic at the pinned 80x24 grid now
+reports the required `(24, 1)` position with a passing oracle.
+
+A multi-hour SE run also requires a live smoke record covering one SE1 trial
+for every qualified implementation. The record is bound to the exact
+preregistration bytes, workload identity, complete ordered implementation set,
+and passing trial oracles. Truncated, duplicated, reordered, stale, or
+synthetic pass-only records are rejected before measurement begins. This is a
+benchmark-harness change with no OdyTTY product-runtime surface; the Unix CPR
+line-discipline setup is guarded from Windows, whose existing driver path is
+unchanged.
+
+Verified: `python3 scripts/bench-protocol/bench-protocol.py --self-test` (all
+12 modules), `cargo fmt --check`, `cargo clippy --all-targets --locked -D
+warnings`, and `cargo test --locked` at `RUST_TEST_THREADS=1`: 4,777 passed,
+0 failed.
+
+---
+
 ## 2026-08-24 -- Startup peak: the background pipeline no longer holds full-resolution buffers
 
 A fine-grained trace of the first second of process life (cgroup

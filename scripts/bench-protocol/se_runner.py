@@ -56,11 +56,17 @@ def software_driver_command(
     oracle_path: Path,
     start_path: Path,
     release_path: Path,
+    geometry_ready_path: Path | None = None,
 ) -> list[str]:
-    """Build the exact SE child command with both controller edges."""
+    """Build the exact SE child command with the controller edges.
+
+    The optional geometry-ready edge engages the same startup-geometry
+    handshake the W6 idle child uses, so the trial runs at the preregistered
+    grid instead of whatever size the compositor tiled the window to.
+    """
     if workload not in WORKLOAD_BY_ID.values():
         raise ValueError(f"unknown software-endpoint workload {workload!r}")
-    return [
+    command = [
         sys.executable,
         str(DRIVER),
         "--workload",
@@ -72,6 +78,9 @@ def software_driver_command(
         "--release-path",
         str(release_path),
     ]
+    if geometry_ready_path is not None:
+        command += ["--geometry-ready-path", str(geometry_ready_path)]
+    return command
 
 
 def read_oracle_records(path: Path | None) -> list[dict]:
@@ -253,8 +262,18 @@ class SoftwareEndpointLauncher(w6_runner.RealLauncher):
         oracle_path = self.log_dir / f"{tag}.oracle.jsonl"
         start_path = self.log_dir / f"{tag}.start"
         release_path = self.log_dir / f"{tag}.release"
+        geometry_ready_path = self.log_dir / f"{tag}.geometry-ready"
         out_path = self.log_dir / f"{tag}.out"
-        if any(path.exists() for path in (oracle_path, start_path, release_path, out_path)):
+        if any(
+            path.exists()
+            for path in (
+                oracle_path,
+                start_path,
+                release_path,
+                geometry_ready_path,
+                out_path,
+            )
+        ):
             return {"error": "immutable SE evidence path already exists"}
 
         launch_env = w6_runner.child_launch_environment(self.launch_environment)
@@ -270,13 +289,20 @@ class SoftwareEndpointLauncher(w6_runner.RealLauncher):
             )
 
         child = software_driver_command(
-            workload, oracle_path, start_path, release_path
+            workload,
+            oracle_path,
+            start_path,
+            release_path,
+            geometry_ready_path=geometry_ready_path,
         )
         unit = f"odytty-se-{tag}"
         try:
             window_tag = w6_runner.benchmark_window_tag(tag)
             terminal_argv = self.terminal_argv(
                 implementation, child, window_tag=window_tag
+            )
+            geometry_control = self.prepare_geometry_control(
+                window_tag, geometry_ready_path
             )
         except ValueError as error:
             return {"error": str(error)}
@@ -301,6 +327,7 @@ class SoftwareEndpointLauncher(w6_runner.RealLauncher):
             process = self._spawn_process(argv, handle, launch_env)
         except BaseException as error:
             handle.close()
+            self.release_geometry_control({"geometry_control": geometry_control})
             if isinstance(error, OSError):
                 return {"error": f"launch failed: {error}"}
             raise
@@ -319,6 +346,7 @@ class SoftwareEndpointLauncher(w6_runner.RealLauncher):
             "requested_config": self.calibration_record(implementation),
             "font_isolation": dict(self.font_isolation["proof"]),
             "window_tag": window_tag,
+            "geometry_control": geometry_control,
         }
 
 
@@ -337,13 +365,30 @@ def _viewport_ready(
     pids = w6_runner.cgroup_pids(cgroup) or set()
     windows = launcher.windows()
     window = w6_runner.window_for_pids(windows, pids)
+    records = read_oracle_records(launched.get("oracle_path"))
     ready = next(
         (
             record
-            for record in read_oracle_records(launched.get("oracle_path"))
+            for record in records
             if record.get("kind") == "software-endpoint-ready"
         ),
         None,
+    )
+    # Drive the startup-geometry controller exactly as the W6 probe loop
+    # does: while the window is mapped and the child has not yet emitted its
+    # ready record, each freshly emitted geometry observation advances the
+    # float/resize/release workflow. After release (or for launchers without
+    # geometry control) this is a no-op, so the post-completion viewport
+    # revalidation can never move a window.
+    normalize = getattr(launcher, "normalize_startup_geometry", None)
+    if window is not None and ready is None and normalize is not None:
+        for observation in w6_runner._pending_geometry_observations(
+            records, launched
+        ):
+            normalize(launched, window, observation)
+    control = launched.get("geometry_control")
+    geometry_settled = not isinstance(control, dict) or (
+        control.get("released") is True and control.get("command_failed") is not True
     )
     good = (
         process.poll() is None
@@ -354,6 +399,7 @@ def _viewport_ready(
         and window.get("app_id") == launched.get("window_tag")
         and window.get("focused") is True
         and w6_runner.window_unobscured(window, windows) is True
+        and geometry_settled
         and ready is not None
         and (ready.get("pty_columns"), ready.get("pty_rows")) == expected_grid
     )
@@ -902,19 +948,7 @@ def run_session(
     for field in ("display_mode_signature", "external_power_state", "power_policy"):
         if frozen_environment.get(field) != expected_class.get(field):
             raise ValueError(f"live environment control {field!r} drifted")
-    by_name = {
-        entry.get("name"): entry
-        for entry in prereg_record.get("implementations", [])
-        if entry.get("availability") == "qualified"
-    }
-    expected_environments = {
-        name: {
-            **frozen_environment,
-            "cell_geometry": entry.get("cell_geometry"),
-            "pty_pixel_envelope_model": entry.get("pty_pixel_envelope_model"),
-        }
-        for name, entry in by_name.items()
-    }
+    expected_environments = _expected_environments(prereg_record, launcher)
 
     results_dir.mkdir(parents=True, exist_ok=False)
     with (results_dir / "software-endpoint-availability.json").open(
@@ -984,6 +1018,107 @@ def run_session(
     }
 
 
+def _expected_environments(prereg_record: dict, launcher) -> dict:
+    """Frozen per-implementation environment expectations for trial validation."""
+    frozen_environment = launcher.environment_observation()
+    return {
+        entry["name"]: {
+            **frozen_environment,
+            "cell_geometry": entry.get("cell_geometry"),
+            "pty_pixel_envelope_model": entry.get("pty_pixel_envelope_model"),
+        }
+        for entry in prereg_record.get("implementations", [])
+        if entry.get("availability") == "qualified"
+    }
+
+
+def run_smoke(
+    prereg_record: dict,
+    prereg_sha256: str,
+    launcher,
+    sleep=time.sleep,
+) -> dict:
+    """Execute exactly one live SE trial per qualified implementation.
+
+    A mandatory pre-run gate, not a measurement: one SE1 trial per terminal
+    proves the full live path (window mapping, startup-geometry normalization
+    to the preregistered grid, CPR oracle, retention sampling) against the
+    real compositor before the multi-hour session is allowed to start. The
+    hermetic self-tests cannot see a live-compositor gap; this can. Trials
+    carry the phase `smoke`, are never written into a results document, and
+    consume no run identity, so the smoke is safe to rerun until measurement
+    begins.
+    """
+    workload_id = next(iter(WORKLOAD_BY_ID))
+    timeout_seconds = workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]][
+        "timeout_seconds"
+    ]
+    expected = _expected_environments(prereg_record, launcher)
+    trials = []
+    for position, implementation in enumerate(sorted(expected), start=1):
+        attempt = run_trial(
+            workload_id,
+            implementation,
+            0,
+            "smoke",
+            position,
+            launcher,
+            expected[implementation],
+            timeout_seconds,
+            prereg_record["background_cpu_ceiling_percent"],
+            sleep=sleep,
+        )
+        trials.append(
+            {
+                "implementation": implementation,
+                "status": attempt.get("status"),
+                "oracle": attempt.get("oracle"),
+                "detail": attempt.get("detail"),
+                "invalid_reason": attempt.get("invalid_reason"),
+                "oracle_reasons": attempt.get("oracle_reasons", []),
+            }
+        )
+    passed = all(trial["status"] == "pass" for trial in trials)
+    return {
+        "record_type": "software-endpoint-smoke",
+        "schema_version": 1,
+        "preregistration_sha256": prereg_sha256,
+        "captured_utc": _utc_now(),
+        "workload_id": workload_id,
+        "status": "PASS" if passed else "FAIL",
+        "trials": trials,
+    }
+
+
+def validate_smoke_record(
+    record: object,
+    prereg_sha256: str,
+    qualified_implementations: list[str],
+) -> bool:
+    """Return whether smoke covers the exact frozen implementation set."""
+    expected_implementations = sorted(qualified_implementations)
+    return (
+        isinstance(record, dict)
+        and record.get("record_type") == "software-endpoint-smoke"
+        and record.get("schema_version") == 1
+        and record.get("status") == "PASS"
+        and record.get("preregistration_sha256") == prereg_sha256
+        and record.get("workload_id") == next(iter(WORKLOAD_BY_ID))
+        and bool(expected_implementations)
+        and isinstance(record.get("trials"), list)
+        and all(isinstance(trial, dict) for trial in record["trials"])
+        and [trial.get("implementation") for trial in record["trials"]]
+        == expected_implementations
+        and all(
+            isinstance(trial, dict)
+            and trial.get("status") == "pass"
+            and trial.get("oracle") == "pass"
+            and trial.get("invalid_reason") is None
+            for trial in record["trials"]
+        )
+    )
+
+
 class _FakeLauncher:
     fixture_digests = {"w3": "w3-digest", "w4": "w4-digest"}
 
@@ -1036,6 +1171,128 @@ def self_test() -> list[str]:
         pass
     else:
         failures.append("se-runner: non-SE workload was accepted")
+    geometry_command = software_driver_command(
+        "software-ascii-stream",
+        Path("oracle"),
+        Path("start"),
+        Path("release"),
+        geometry_ready_path=Path("geometry-ready"),
+    )
+    if geometry_command.count("--geometry-ready-path") != 1:
+        failures.append(
+            "se-runner: child command does not bind --geometry-ready-path once"
+        )
+
+    # An unreleased or failed geometry controller must block trial readiness
+    # even when the child's ready record already carries the expected grid:
+    # accepting it would measure a window the controller never proved settled.
+    class _GeometryGateLauncher:
+        def __init__(self, tmp_path: Path):
+            self._tmp = tmp_path
+
+        def cgroup_path(self, launched):
+            return self._tmp
+
+        def windows(self):
+            return [
+                {
+                    "app_id": "org.odytty.bench.w" + "1" * 24,
+                    "pid": os.getpid(),
+                    "focused": True,
+                    "floating": True,
+                    "x": 0,
+                    "y": 0,
+                    "width": 800,
+                    "height": 456,
+                }
+            ]
+
+    class _AliveProcess:
+        pid = os.getpid()
+
+        @staticmethod
+        def poll():
+            return None
+
+    with tempfile.TemporaryDirectory() as gate_tmp:
+        gate_dir = Path(gate_tmp)
+        gate_oracle = gate_dir / "gate.oracle.jsonl"
+        gate_oracle.write_text(
+            json.dumps(
+                {
+                    "kind": "software-endpoint-ready",
+                    "pty_columns": 80,
+                    "pty_rows": 24,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        for released, command_failed, expect in (
+            (False, False, False),
+            (True, True, False),
+            (True, False, True),
+        ):
+            gate_launched = {
+                "process": _AliveProcess(),
+                "oracle_path": gate_oracle,
+                "window_tag": "org.odytty.bench.w" + "1" * 24,
+                "geometry_control": {
+                    "released": released,
+                    "command_failed": command_failed,
+                    "window_tag": "org.odytty.bench.w" + "1" * 24,
+                },
+            }
+            good, _cg, _pids, _window, _ready = _viewport_ready(
+                _GeometryGateLauncher(gate_dir), gate_launched, (80, 24)
+            )
+            # The gate check needs a driver child in the cgroup; this hermetic
+            # fake cannot provide one, so only the negative half is assertable.
+            if expect is False and good:
+                failures.append(
+                    "se-runner: unsettled geometry control did not block readiness"
+                )
+
+    smoke_record = {
+        "record_type": "software-endpoint-smoke",
+        "schema_version": 1,
+        "preregistration_sha256": "a" * 64,
+        "status": "PASS",
+        "workload_id": "SE1",
+        "trials": [
+            {
+                "implementation": "a",
+                "status": "pass",
+                "oracle": "pass",
+                "invalid_reason": None,
+            }
+        ],
+    }
+    if not validate_smoke_record(smoke_record, "a" * 64, ["a"]):
+        failures.append("se-runner: valid smoke record was rejected")
+    if validate_smoke_record(smoke_record, "b" * 64, ["a"]):
+        failures.append("se-runner: smoke record for other prereg bytes was accepted")
+    for mutation in (
+        {"status": "FAIL"},
+        {"record_type": "software-endpoint-results"},
+        {"workload_id": "SE2"},
+        {"trials": []},
+        {"trials": [{"implementation": "a", "status": "fail"}]},
+    ):
+        if validate_smoke_record(
+            {**smoke_record, **mutation}, "a" * 64, ["a"]
+        ):
+            failures.append(
+                f"se-runner: defective smoke record was accepted: {mutation}"
+            )
+    if validate_smoke_record(smoke_record, "a" * 64, ["a", "b"]):
+        failures.append("se-runner: truncated implementation smoke set was accepted")
+    duplicated_smoke = {
+        **smoke_record,
+        "trials": [smoke_record["trials"][0], smoke_record["trials"][0]],
+    }
+    if validate_smoke_record(duplicated_smoke, "a" * 64, ["a", "b"]):
+        failures.append("se-runner: duplicate implementation smoke set was accepted")
 
     fake_prereg = {
         "protocol": {"version": prereg.PROTOCOL_VERSION},
@@ -1207,6 +1464,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--estimate", action="store_true")
     parser.add_argument("--run", action="store_true")
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help=(
+            "run one live SE trial per qualified implementation and write a "
+            "smoke record; a passing record is required by --run"
+        ),
+    )
+    parser.add_argument("--smoke-output", metavar="PATH")
+    parser.add_argument(
+        "--smoke-record",
+        metavar="PATH",
+        help="passing smoke record from --smoke; required by --run",
+    )
     parser.add_argument("--preregistration", metavar="PATH")
     parser.add_argument("--results-dir", metavar="PATH")
     parser.add_argument("--private-evidence-dir", metavar="PATH")
@@ -1236,13 +1507,33 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    if not args.run:
+    if not args.run and not args.smoke:
         parser.print_help()
         return 2
-    if not args.preregistration or not args.results_dir or not args.private_evidence_dir:
+    if args.run and args.smoke:
+        print("select exactly one of --run and --smoke", file=sys.stderr)
+        return 2
+    if args.smoke and (
+        not args.preregistration
+        or not args.smoke_output
+        or not args.private_evidence_dir
+    ):
         print(
-            "--run requires --preregistration, --results-dir, and "
+            "--smoke requires --preregistration, --smoke-output, and "
             "--private-evidence-dir",
+            file=sys.stderr,
+        )
+        return 2
+    if args.run and (
+        not args.preregistration
+        or not args.results_dir
+        or not args.private_evidence_dir
+        or not args.smoke_record
+    ):
+        print(
+            "--run requires --preregistration, --results-dir, "
+            "--private-evidence-dir, and --smoke-record from a passing "
+            "--smoke gate",
             file=sys.stderr,
         )
         return 2
@@ -1262,19 +1553,50 @@ def main(argv: list[str] | None = None) -> int:
         print("no SE measurement is taken until preregistration is complete", file=sys.stderr)
         return 1
 
-    results_dir = Path(args.results_dir)
+    prereg_sha256 = hashlib.sha256(prereg_bytes).hexdigest()
+    smoke_gate = None
+    if args.run:
+        try:
+            smoke_gate = json.loads(
+                Path(args.smoke_record).read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, ValueError) as error:
+            print(f"cannot read smoke record: {error}", file=sys.stderr)
+            return 1
+        qualified_implementations = [
+            entry["name"]
+            for entry in record.get("implementations", [])
+            if entry.get("availability") == "qualified"
+        ]
+        if not validate_smoke_record(
+            smoke_gate, prereg_sha256, qualified_implementations
+        ):
+            print(
+                "the smoke record does not gate this run: it must be a passing "
+                "software-endpoint-smoke record for these exact "
+                "preregistration bytes",
+                file=sys.stderr,
+            )
+            return 1
+
+    results_dir = Path(args.results_dir) if args.run else None
+    smoke_output = Path(args.smoke_output) if args.smoke else None
+    public_target = results_dir if args.run else smoke_output
     private_dir = Path(args.private_evidence_dir)
     try:
         w6_runner.validate_private_evidence_location(
-            private_dir, results_dir, repo_root
+            private_dir, public_target, repo_root
         )
-        if results_dir.exists() or private_dir.exists():
+        if (results_dir is not None and results_dir.exists()) or private_dir.exists():
             raise ValueError("result and private evidence targets must be new")
+        if smoke_output is not None and smoke_output.exists():
+            raise ValueError("smoke record target must be new")
         private_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
         private_dir.chmod(0o700)
-        anchor_commit = w6_runner.resolve_public_preregistration_commit(
-            record, prereg_bytes, repo_root
-        )
+        if args.run:
+            anchor_commit = w6_runner.resolve_public_preregistration_commit(
+                record, prereg_bytes, repo_root
+            )
         w6_runner.verify_runtime_identities(record, repo_root)
         _verify_se_runtime_identity(record, repo_root)
     except (OSError, subprocess.SubprocessError, ValueError) as error:
@@ -1304,6 +1626,22 @@ def main(argv: list[str] | None = None) -> int:
         launch_environment=launch_environment,
         font_identity=record.get("shared_font"),
     )
+    if args.smoke:
+        try:
+            smoke = run_smoke(record, prereg_sha256, launcher)
+            with smoke_output.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(smoke, indent=2, sort_keys=True) + "\n")
+        except (OSError, ValueError) as error:
+            print(f"SE smoke failed: {error}", file=sys.stderr)
+            return 1
+        json.dump(smoke, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        if smoke["status"] != "PASS":
+            print("SE smoke did not pass; no measured run is gated", file=sys.stderr)
+            return 1
+        print(f"wrote {smoke_output}", file=sys.stderr)
+        return 0
+
     qualified = [
         entry["name"]
         for entry in record["implementations"]
@@ -1320,7 +1658,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         document = run_session(
             record,
-            hashlib.sha256(prereg_bytes).hexdigest(),
+            prereg_sha256,
             anchor_commit,
             launcher,
             results_dir,
