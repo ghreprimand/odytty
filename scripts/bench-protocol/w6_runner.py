@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # W6 (idle-visible-10m) measured-run orchestrator for the OdyTTY comparative
-# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.5.0).
+# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.5.1).
 #
 # Every other module in this directory is preparation: it computes, checks, or
 # describes, and never takes a measurement. This module is the one exception,
@@ -67,7 +67,7 @@ import summaries  # noqa: E402
 import workloads  # noqa: E402
 
 WORKLOAD = "idle-visible-10m"
-RUNNER_VERSION = "1.5.0"
+RUNNER_VERSION = "1.5.1"
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 PUBLIC_API_BASE = "https://api.github.com/repos/ghreprimand/odytty"
 PUBLIC_RAW_BASE = "https://raw.githubusercontent.com/ghreprimand/odytty"
@@ -11767,7 +11767,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
         f"{PUBLIC_API_BASE}/git/ref/{encoded_ref}",
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "OdyTTY-benchmark-protocol/1.5.0",
+            "User-Agent": "OdyTTY-benchmark-protocol/1.5.1",
         },
     )
     with urllib.request.urlopen(ref_request, timeout=30) as response:
@@ -11781,7 +11781,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
     encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
     request = urllib.request.Request(
         f"{PUBLIC_RAW_BASE}/{commit}/{encoded_path}",
-        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.5.0"},
+        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.5.1"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return commit, response.read()

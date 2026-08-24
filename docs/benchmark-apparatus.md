@@ -1,6 +1,6 @@
 # Comparative Benchmark Apparatus and Availability
 
-Companion to `docs/benchmark-protocol.md` (protocol version `1.5.0`).
+Companion to `docs/benchmark-protocol.md` (protocol version `1.5.1`).
 
 The protocol defines how OdyTTY and independent terminal references are
 compared. This document records what the current comparison unit can actually
@@ -135,7 +135,7 @@ Consequences that are easy to get wrong:
    the apparatus requirement merely because their metric is a duration rather
    than a latency. There is no protocol-conforming fallback that republishes
    W3/W4 under software timing.
-2. **SE1 and SE2 are not that fallback.** Protocol 1.5.0 defines them as a
+2. **SE1 and SE2 are not that fallback.** Protocol 1.5.1 defines them as a
    separate class with separate identifiers. They reuse the W3/W4 fixture
    bytes and a CPR-plus-completion-patch oracle, but their endpoint excludes
    compositor present and display scanout. Their samples must never be pooled
@@ -216,9 +216,12 @@ with peak sampled during the burst when
 `memory.peak` is exposed. The signal detects retention per unit of work. It
 does not detect time-based creep in an idle process and is not a substitute
 for W7. A missing before/after sample is `unsupported` and is never filled
-from VmRSS or another nearby figure. During the active SE interval, CPU time
-charged to the private trial cgroup is subtracted from aggregate system busy
-time before the unrelated-background-load ceiling is applied.
+from VmRSS or another nearby figure. During the active SE interval, system and
+cgroup CPU counters remain continuous evidence, but no unrelated-load decision
+is made: GPU-driver kernel workers execute outside the terminal cgroup and
+cannot be separated from unrelated work there. The unchanged background-load
+ceiling applies to the fixed 30-second post-burst idle settle, after
+terminal-induced kernel work has quiesced.
 
 ## Measurement environment and resource limits
 
@@ -252,7 +255,7 @@ machine-readable form of this document's availability tables against the live
 host.
 
 One comparative result set has been published under protocol 1.4.1: the W6
-idle comparison (`docs/benchmark-results.md`). Under 1.5.0, W6 and the
+idle comparison (`docs/benchmark-results.md`). Under 1.5.1, W6 and the
 software-endpoint class remain available on this unit; every optical-endpoint
 workload remains `skip` / `unavailable-hardware` for the reasons above -- not
 scheduling -- and must keep appearing in every preregistration and results

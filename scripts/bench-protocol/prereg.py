@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Preregistration-record generator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.5.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.5.1).
 #
 # The protocol's first requirement is that every run set have a public
 # preregistration record committed before its first measured sample, and it
@@ -54,7 +54,7 @@ import ordering
 import profiles
 import workloads
 
-PROTOCOL_VERSION = "1.5.0"
+PROTOCOL_VERSION = "1.5.1"
 PROTOCOL_DOC = Path("docs/benchmark-protocol.md")
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 

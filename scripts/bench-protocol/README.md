@@ -1,7 +1,7 @@
 # `scripts/bench-protocol/` — comparative benchmark harness
 
 Preparation tooling for `docs/benchmark-protocol.md` (protocol version
-`1.5.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
+`1.5.1`). See `docs/benchmark-apparatus.md` for what this comparison unit can
 and cannot measure, and why.
 
 Every command here is offline, cheap, and side-effect free unless it is
@@ -81,10 +81,15 @@ python3 scripts/bench-protocol/w6_runner.py --run --preregistration <record.json
 
 ```text
 python3 scripts/bench-protocol/se_runner.py --estimate
+python3 scripts/bench-protocol/se_runner.py --smoke \
+    --preregistration <record.json> \
+    --smoke-output <new-smoke-record.json> \
+    --private-evidence-dir <new-private-dir-outside-repository>
 python3 scripts/bench-protocol/se_runner.py --run \
     --preregistration <record.json> \
     --results-dir <new-public-dir> \
-    --private-evidence-dir <new-private-dir-outside-repository>
+    --private-evidence-dir <new-private-dir-outside-repository> \
+    --smoke-record <passing-smoke-record.json>
 ```
 
 The measured command refuses a dirty or non-preregistered checkout, requires
@@ -344,9 +349,11 @@ runner verifies their ordering, the same live boot, and refuses to start
 before that time. At runtime it separately
 observes the pinned display-mode signature, external power state, eligible
 `performance` CPU power policy, thermal counters, background CPU load, and
-viewport state throughout each attempt. Background load is the aggregate
-system busy fraction over the attempt; one-second observations prove counter
-continuity without turning a single transient spike into an invalid sample.
+viewport state throughout each attempt. W6 uses the aggregate system busy
+fraction over its interval. SE1 and SE2 apply the same ceiling to their fixed
+post-burst idle settle because active GPU-driver kernel workers are not charged
+to the terminal cgroup. One-second observations prove counter continuity
+without turning a single transient spike into an invalid sample.
 
 Preregistration and the measurement runner decide the CPU power policy with
 one shared detector (`profiles.effective_power_policy`), so a machine cannot

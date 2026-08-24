@@ -1,6 +1,16 @@
 # OdyTTY Comparative Benchmark Protocol
 
-Protocol version: `1.5.0`
+Protocol version: `1.5.1`
+
+Version 1.5.1 corrects the software-endpoint background-load decision. During
+an active render burst, GPU-driver kernel workers execute outside the
+terminal's private cgroup, so aggregate busy CPU minus cgroup CPU is not a
+measurement of unrelated load. SE1 and SE2 now apply the unchanged
+preregistered background CPU ceiling to the fixed 30-second post-burst idle
+settle, after terminal-induced kernel work has quiesced. The active interval
+still samples and validates display state, power policy, thermal counters,
+system CPU counters, cgroup CPU counters, geometry, liveness, and the complete
+CPR oracle. W6 and optical-workload background decisions are unchanged.
 
 Version 1.5.0 retains the 1.4.1 geometry model, optical workloads W1-W7, and
 background-load decision, and adds an explicitly named **software-endpoint**
@@ -42,10 +52,10 @@ comparison unreachable. The remaining pitch difference is therefore stated as
 a limitation of the comparison (see *Cell geometry: a target, not an admission gate*) rather
 than asserted away.
 
-Version 1.5.0 requires a fresh preregistration and run-set identity. Protocol
-1.0.0 through 1.4.1 records and results remain historical evidence, are
+Version 1.5.1 requires a fresh preregistration and run-set identity. Protocol
+1.0.0 through 1.5.0 records and results remain historical evidence, are
 rejected by version rather than reinterpreted, and are never pooled with
-1.5.0 samples. Optical samples under 1.5.0 are never pooled with
+1.5.1 samples. Optical samples under 1.5.1 are never pooled with
 software-endpoint samples under the same version.
 
 This protocol defines how OdyTTY and independent terminal references are
@@ -461,10 +471,12 @@ Each run set uses the following controls:
 
 Sustained system-wide background CPU above the preregistered ceiling, thermal
 throttling, or collector loss makes a sample invalid only under the fixed rules
-below. The background-load decision uses the aggregate busy fraction between
-the first and last per-attempt system CPU observations. Individual intervals
-remain structural evidence for counter monotonicity and sampling continuity,
-but a transient one-second spike does not invalidate an otherwise controlled
+below. W6 and optical-workload decisions use the aggregate busy fraction
+between the first and last per-attempt system CPU observations. SE1 and SE2 use
+the aggregate busy fraction across their fixed post-burst idle settle and do
+not classify active-burst CPU as unrelated load. Individual intervals remain
+structural evidence for counter monotonicity and sampling continuity, but a
+transient one-second spike does not invalidate an otherwise controlled
 attempt. Performance alone never makes a sample invalid.
 
 ## Workloads and Correctness Oracles
@@ -841,9 +853,9 @@ shape:
 
 ```json
 {
-  "schema_version": "1.5.0",
+  "schema_version": "1.5.1",
   "protocol": {
-    "version": "1.5.0",
+    "version": "1.5.1",
     "git_commit": "<full-sha>",
     "sha256": "<protocol-sha256>"
   },

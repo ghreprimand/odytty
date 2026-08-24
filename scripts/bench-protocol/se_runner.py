@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Execute the protocol 1.5.0 software-endpoint workload class.
+"""Execute the protocol 1.5.1 software-endpoint workload class.
 
 SE1 and SE2 are throughput-shaped software-endpoint measurements. They are
 never W3/W4 substitutes and never enter the optical-workload result pool. The
@@ -113,17 +113,18 @@ def immutable_edge(path: Path, label: str) -> None:
 def validate_interval_environment(
     observations: list[dict],
     expected_environment: dict,
-    background_cpu_ceiling: float,
     duration_seconds: float,
 ) -> tuple[bool, str | None]:
-    """Apply the environment rules while excluding the measured cgroup CPU."""
+    """Validate active-burst controls without classifying system CPU load.
+
+    GPU-driver kernel workers execute outside the terminal's cgroup, so total
+    busy CPU minus cgroup CPU is not an unrelated-load measurement while the
+    terminal is rendering. The fixed idle settle applies that ceiling after
+    terminal-induced kernel work has quiesced.
+    """
     if (
         len(observations) < 2
         or not all(isinstance(item, dict) for item in observations)
-        or not isinstance(background_cpu_ceiling, (int, float))
-        or isinstance(background_cpu_ceiling, bool)
-        or not math.isfinite(background_cpu_ceiling)
-        or not 0 <= background_cpu_ceiling <= 100
         or not isinstance(duration_seconds, (int, float))
         or isinstance(duration_seconds, bool)
         or not math.isfinite(duration_seconds)
@@ -190,17 +191,6 @@ def validate_interval_environment(
         for value in measured_cpu
     ) or any(after < before for before, after in zip(measured_cpu, measured_cpu[1:])):
         return False, None
-    try:
-        clock_ticks_per_second = os.sysconf("SC_CLK_TCK")
-    except (OSError, ValueError):
-        return False, None
-    if (
-        not isinstance(clock_ticks_per_second, int)
-        or isinstance(clock_ticks_per_second, bool)
-        or clock_ticks_per_second <= 0
-    ):
-        return False, None
-
     baseline = observations[0]
     if baseline.get("display_mode_signature") != expected_environment.get(
         "display_mode_signature"
@@ -227,17 +217,6 @@ def validate_interval_environment(
         return True, "power-policy-change"
     if any(after > before for before, after in zip(thermal, thermal[1:])):
         return True, "thermal-throttling"
-    total_delta = ticks[-1][0] - ticks[0][0]
-    idle_delta = ticks[-1][1] - ticks[0][1]
-    measured_cpu_delta_ticks = (
-        (measured_cpu[-1] - measured_cpu[0]) * clock_ticks_per_second / 1_000_000
-    )
-    unrelated_busy_ticks = max(
-        0.0, total_delta - idle_delta - measured_cpu_delta_ticks
-    )
-    busy_percent = 100.0 * unrelated_busy_ticks / total_delta
-    if busy_percent > background_cpu_ceiling:
-        return True, "background-load-above-ceiling"
     return True, None
 
 
@@ -575,7 +554,6 @@ def run_trial(
         evidence_valid, invalid_reason = validate_interval_environment(
             environment_observations,
             expected_environment,
-            background_cpu_ceiling,
             burst_elapsed,
         )
         if not evidence_valid:
@@ -1376,7 +1354,7 @@ def self_test() -> list[str]:
         "controller_elapsed_seconds": 0.25,
     }
     valid, reason = validate_interval_environment(
-        [environment, later], environment, 20.0, 0.25
+        [environment, later], environment, 0.25
     )
     if not valid or reason is not None:
         failures.append("se-runner: a valid fractional burst interval was rejected")
@@ -1386,10 +1364,26 @@ def self_test() -> list[str]:
         "measurement_cgroup_cpu_usec": 50_000,
     }
     valid, reason = validate_interval_environment(
-        [environment, busy], environment, 20.0, 0.25
+        [environment, busy], environment, 0.25
+    )
+    if not valid or reason is not None:
+        failures.append("se-runner: terminal-induced burst CPU was called background load")
+    settle_environment = {
+        key: value
+        for key, value in environment.items()
+        if key != "measurement_cgroup_cpu_usec"
+    }
+    settle_busy = {
+        key: value
+        for key, value in busy.items()
+        if key != "measurement_cgroup_cpu_usec"
+    }
+    settle_busy["controller_elapsed_seconds"] = 1.0
+    valid, reason = w6_runner.result_schema.derive_environment_invalid_reason(
+        [settle_environment, settle_busy], settle_environment, 20.0, 1.0
     )
     if not valid or reason != "background-load-above-ceiling":
-        failures.append("se-runner: burst background-load drift was not detected")
+        failures.append("se-runner: idle-settle background-load drift was not detected")
 
     for workload_id in WORKLOAD_BY_ID:
         sampling = workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]]["sampling"]
@@ -1459,7 +1453,7 @@ def _verify_se_runtime_identity(record: dict, repo_root: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Execute protocol 1.5.0 SE1/SE2 software-endpoint trials."
+        description="Execute protocol 1.5.1 SE1/SE2 software-endpoint trials."
     )
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--estimate", action="store_true")

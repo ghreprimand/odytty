@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Canonical protocol 1.5.0 terminal profiles and launch identities."""
+"""Canonical protocol 1.5.1 terminal profiles and launch identities."""
 
 from __future__ import annotations
 

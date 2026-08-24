@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Resource collectors for the OdyTTY comparative benchmark protocol
-# (`docs/benchmark-protocol.md`, protocol version 1.5.0), Linux column.
+# (`docs/benchmark-protocol.md`, protocol version 1.5.1), Linux column.
 #
 # Software-endpoint retention sampling (SE1/SE2) lives here too: it reads
 # the same cgroup v2 memory.current / memory.peak files and never approximates

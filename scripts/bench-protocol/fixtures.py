@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Deterministic workload fixture generators for the OdyTTY comparative
-# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.5.0).
+# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.5.1).
 #
 # The protocol specifies W3 and W4 byte-for-byte and requires that the fixture
 # generator test its own record widths and total byte count. It also requires

@@ -7,6 +7,39 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-24 -- Benchmark protocol 1.5.1 measures SE background load at idle
+
+The mandatory live smoke exposed a systematic false invalidation before any
+measured sample began. Kitty passed the complete 64 MB stream, CPR, completion,
+geometry, liveness, and thermal gates, but the active-burst background check
+reported `background-load-above-ceiling` in two independent cool-start smokes.
+A retained diagnostic measured 17.91 percent total busy CPU during the burst.
+Only 3.05 percentage points were charged to Kitty's private cgroup, leaving
+14.86 percent that the 1.5.0 harness called unrelated load. The fixed 30-second
+idle settle measured 0.62 percent, with zero thermal-counter movement.
+
+The subtraction was not a valid boundary during rendering. GPU-driver kernel
+workers execute outside the terminal cgroup even when the terminal caused the
+work, so total system busy time minus cgroup time mixes product work with
+background work. Protocol 1.5.1 keeps the preregistered 10 percent ceiling but
+applies it to the post-burst idle settle, after terminal-induced kernel work
+has quiesced. The active burst still continuously validates display mode,
+power policy, thermal counters, system and cgroup CPU counter continuity,
+geometry, process liveness, and the full software-endpoint oracle. W6 and the
+optical workload rules do not change.
+
+The same live Kitty diagnostic passes under the corrected decision with all
+64,000,000 payload bytes and the expected `(24, 1)` cursor report. This is a
+protocol identity break, not a threshold adjustment: 1.5.0 records remain
+historical, and a fresh 1.5.1 preregistration is required before measurement.
+
+Verified: `python3 scripts/bench-protocol/bench-protocol.py --self-test` (all
+12 modules), `cargo fmt --check`, `cargo clippy --all-targets --locked -D
+warnings`, and `cargo test --locked` at `RUST_TEST_THREADS=1`: 4,777 passed,
+0 failed.
+
+---
+
 ## 2026-08-24 -- Fresh preregistration for the repaired v0.12.0 candidate
 
 `bench-results/preregistration-1.5.0.json` is superseded in place again, now
