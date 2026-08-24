@@ -9,15 +9,15 @@
   ],
   "background_cpu_ceiling_percent": 10.0,
   "boot_and_settle_evidence": {
-    "boot_started_utc": "2026-08-23T12:55:54Z",
-    "login_ready_utc": "2026-08-23T12:56:53Z",
-    "measurement_not_before_utc": "2026-08-23T13:01:53Z",
+    "boot_started_utc": "2026-08-24T04:03:45Z",
+    "login_ready_utc": "2026-08-24T04:04:14Z",
+    "measurement_not_before_utc": "2026-08-24T04:09:14Z",
     "minimum_post_login_settle_seconds": 300
   },
   "cell_geometry_policy": "per-implementation-stable-observed-grid",
   "checkout": {
     "dirty": false,
-    "git_commit": "b759988f135bdca2dad12f442df0bdb729682ddd"
+    "git_commit": "010a195425819a09cc84ca684927646a2b5ed41b"
   },
   "collectors": [
     {
@@ -156,8 +156,8 @@
   ],
   "driver": {
     "name": "scripts/bench-protocol/driver.py (W6 and SE child)",
-    "revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
-    "sha256": "d402607cfc7fe60b8e9a01c0b2363057421bdd7cdc34b0ef6b100639a18bb8d9"
+    "revision": "010a195425819a09cc84ca684927646a2b5ed41b",
+    "sha256": "a7a9eca0a8214dab47220fab862c1fcac9bb0b9544f8e550180f87bdfd07e2fa"
   },
   "environment_class": {
     "compositor": "Hyprland v0.56.2, native Wayland",
@@ -182,25 +182,25 @@
     "power_policy": "performance",
     "power_source": "AC",
     "storage_class": "NVME solid-state storage (LUKS-encrypted btrfs root)",
-    "thermal_and_cooling": "integrated active cooling (Processor, TCC Offset, intel_powerclamp); preparation CPU package 44 C; observed thermal-zone range 0-44 C",
+    "thermal_and_cooling": "integrated active cooling (Processor, TCC Offset, intel_powerclamp); preparation CPU package 50 C; observed thermal-zone range 0-50 C",
     "virtualized_or_remote": "no"
   },
   "fixtures": [
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
+      "generator_revision": "010a195425819a09cc84ca684927646a2b5ed41b",
       "name": "w3",
       "sha256": "6115e084c778270394b1111e75ae8d882b1e6e1a61ad7d832b96a9dc42dbf3d2"
     },
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
+      "generator_revision": "010a195425819a09cc84ca684927646a2b5ed41b",
       "name": "w4",
       "sha256": "6f536f28c5ec3f965c3600fd1e93701a4557605e1567d0c20210bc27db05bfea"
     },
     {
       "generator": "scripts/bench-protocol/fixtures.py",
-      "generator_revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
+      "generator_revision": "010a195425819a09cc84ca684927646a2b5ed41b",
       "name": "w5",
       "sha256": "e9b4deb6703136053f9b0c4d1387640e248e8f442a3a9e879b0464a6c27b07c4"
     }
@@ -208,7 +208,7 @@
   "implementations": [
     {
       "artifact_class": "clean-source-release-build",
-      "artifact_sha256": "64d5f235b5eca43a32427d1dd76e707e9172c1b2ef60ca4caae9f06a50cf0aea",
+      "artifact_sha256": "749007ccebefdfb40751cf9f1ef4c0d5701140340b6c4b7e8ec33999fa8cfea1",
       "availability": "qualified",
       "build_command": "CARGO_BUILD_JOBS=4 cargo build --release --locked",
       "build_profile": "release",
@@ -254,7 +254,7 @@
         "height_remainder_device_px": 0,
         "width_remainder_device_px": 0
       },
-      "revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
+      "revision": "010a195425819a09cc84ca684927646a2b5ed41b",
       "target_grid_met": true,
       "unavailable_reason": "not applicable"
     },
@@ -419,12 +419,12 @@
   },
   "orchestrator": {
     "name": "scripts/bench-protocol/w6_runner.py",
-    "revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
+    "revision": "010a195425819a09cc84ca684927646a2b5ed41b",
     "sha256": "6ad675fa03ec63c690be72931b80e9d730586f4d222bf7c0377ce2a9e37c0db1"
   },
   "outlier_rule": "no sample is removed by an outlier test; all valid numeric samples remain in the analysis",
   "protocol": {
-    "git_commit": "b759988f135bdca2dad12f442df0bdb729682ddd",
+    "git_commit": "010a195425819a09cc84ca684927646a2b5ed41b",
     "path": "docs/benchmark-protocol.md",
     "sha256": "2087a87681934471e269ca904f05e514c0f07a0c9fc0f30f0746fbc03540f2c5",
     "version": "1.5.0"
@@ -440,11 +440,11 @@
   "replacement_limit_per_invalid_attempt": 1,
   "reporting_rule": "no significance threshold, composite score, weighted total, or overall winner; favourable and unfavourable results are published together",
   "run_set": {
-    "bootstrap_seed": "odytty-1.5.0-bootstrap-20260823",
-    "id": "odytty-v0.12.0-protocol-1.5.0-rc-20260823",
-    "order_seed": "odytty-1.5.0-order-20260823",
+    "bootstrap_seed": "odytty-1.5.0-bootstrap-20260824",
+    "id": "odytty-v0.12.0-protocol-1.5.0-rc-20260824",
+    "order_seed": "odytty-1.5.0-order-20260824",
     "statistics_implementation": "scripts/bench-protocol/summaries.py",
-    "statistics_revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
+    "statistics_revision": "010a195425819a09cc84ca684927646a2b5ed41b",
     "statistics_sha256": "fd060b8d319c0d539c4086b21dccc82a739d51c9faedb1e62092b2ef69f6a88e"
   },
   "run_set_time_budget_hours": 4.05,
@@ -455,10 +455,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -468,9 +468,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -479,10 +479,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
-        "odytty",
         "ghostty",
-        "alacritty"
+        "odytty",
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -491,9 +491,9 @@
         "plain"
       ],
       "implementation_order": [
+        "alacritty",
         "ghostty",
         "kitty",
-        "alacritty",
         "odytty"
       ]
     },
@@ -503,10 +503,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -516,9 +516,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -527,10 +527,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
-        "odytty",
         "ghostty",
-        "alacritty"
+        "odytty",
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -539,9 +539,9 @@
         "plain"
       ],
       "implementation_order": [
+        "alacritty",
         "ghostty",
         "kitty",
-        "alacritty",
         "odytty"
       ]
     },
@@ -551,10 +551,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -564,9 +564,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -575,10 +575,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
-        "odytty",
         "ghostty",
-        "alacritty"
+        "odytty",
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -587,9 +587,9 @@
         "plain"
       ],
       "implementation_order": [
+        "alacritty",
         "ghostty",
         "kitty",
-        "alacritty",
         "odytty"
       ]
     },
@@ -599,10 +599,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -612,9 +612,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -623,10 +623,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
-        "odytty",
         "ghostty",
-        "alacritty"
+        "odytty",
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -635,9 +635,9 @@
         "plain"
       ],
       "implementation_order": [
+        "alacritty",
         "ghostty",
         "kitty",
-        "alacritty",
         "odytty"
       ]
     },
@@ -647,10 +647,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -660,9 +660,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -671,10 +671,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
-        "odytty",
         "ghostty",
-        "alacritty"
+        "odytty",
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -683,9 +683,9 @@
         "plain"
       ],
       "implementation_order": [
+        "alacritty",
         "ghostty",
         "kitty",
-        "alacritty",
         "odytty"
       ]
     },
@@ -695,10 +695,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -708,9 +708,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -719,10 +719,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
-        "odytty",
         "ghostty",
-        "alacritty"
+        "odytty",
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -731,9 +731,9 @@
         "plain"
       ],
       "implementation_order": [
+        "alacritty",
         "ghostty",
         "kitty",
-        "alacritty",
         "odytty"
       ]
     },
@@ -743,10 +743,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -756,9 +756,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -767,10 +767,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
-        "odytty",
         "ghostty",
-        "alacritty"
+        "odytty",
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -779,9 +779,9 @@
         "plain"
       ],
       "implementation_order": [
+        "alacritty",
         "ghostty",
         "kitty",
-        "alacritty",
         "odytty"
       ]
     },
@@ -791,10 +791,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -804,9 +804,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -815,10 +815,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
-        "odytty",
         "ghostty",
-        "alacritty"
+        "odytty",
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -827,9 +827,9 @@
         "plain"
       ],
       "implementation_order": [
+        "alacritty",
         "ghostty",
         "kitty",
-        "alacritty",
         "odytty"
       ]
     },
@@ -839,10 +839,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -852,9 +852,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -863,10 +863,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
-        "odytty",
         "ghostty",
-        "alacritty"
+        "odytty",
+        "alacritty",
+        "kitty"
       ]
     }
   ],
@@ -883,8 +883,8 @@
   },
   "software_endpoint_orchestrator": {
     "name": "scripts/bench-protocol/se_runner.py",
-    "revision": "b759988f135bdca2dad12f442df0bdb729682ddd",
-    "sha256": "5c8079c4e3319c513b8ac298f9dee00681794b841ecd2e9f508fcb97602c615f"
+    "revision": "010a195425819a09cc84ca684927646a2b5ed41b",
+    "sha256": "77d8ecab17c4cba5d435aee235417ccaffab8853389d7c62100488589461e01e"
   },
   "stopping_rule": "no precision-based early stopping; the run set ends when all planned samples are attempted or the fixed time budget expires, and an incomplete run set is published as incomplete",
   "target_grid": {
@@ -898,10 +898,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -911,9 +911,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     },
     {
@@ -922,10 +922,10 @@
         "plain"
       ],
       "implementation_order": [
-        "kitty",
-        "odytty",
         "ghostty",
-        "alacritty"
+        "odytty",
+        "alacritty",
+        "kitty"
       ]
     },
     {
@@ -934,9 +934,9 @@
         "plain"
       ],
       "implementation_order": [
+        "alacritty",
         "ghostty",
         "kitty",
-        "alacritty",
         "odytty"
       ]
     },
@@ -946,10 +946,10 @@
         "plain"
       ],
       "implementation_order": [
+        "kitty",
         "alacritty",
-        "ghostty",
         "odytty",
-        "kitty"
+        "ghostty"
       ]
     },
     {
@@ -959,9 +959,9 @@
       ],
       "implementation_order": [
         "odytty",
-        "alacritty",
         "kitty",
-        "ghostty"
+        "ghostty",
+        "alacritty"
       ]
     }
   ],

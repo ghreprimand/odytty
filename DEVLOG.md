@@ -7,6 +7,35 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-24 -- Fresh preregistration for the repaired v0.12.0 candidate
+
+`bench-results/preregistration-1.5.0.json` is superseded in place again, now
+anchored to candidate `010a1954`. The previous candidate produced a valid W6
+diagnostic campaign but an unusable software-endpoint campaign because its
+live startup and CPR path had not been exercised before measurement. It also
+predated the background startup-peak fix and the integrated-GPU allocator
+change. Those results remain archived as diagnosis and are not pooled with or
+published as the v0.12.0 comparison.
+
+The protocol remains 1.5.0, while the run-set identity, order seed, and
+bootstrap seed are newly date-stamped for 2026-08-24. All volatile fields were
+derived again on the benchmark environment's current boot from a clean release
+build of the candidate. A four-terminal startup-geometry diagnostic passed at
+the 80x24 target and strictly bound each terminal's native Wayland path, cell
+geometry, and four-field PTY pixel-envelope summary. OdyTTY's pinned artifact
+digest is `749007ccebefdfb40751cf9f1ef4c0d5701140340b6c4b7e8ec33999fa8cfea1`.
+
+No measured sample has been taken under this record. The preregistration check
+reports ready, and measurement remains blocked until the record is committed,
+published on its declared anchor ref with explicit operator approval, and its
+public bytes are verified against the local SHA-256.
+
+Verified: four-terminal startup-geometry diagnostic PASS with strict evidence
+binding and `python3 scripts/bench-protocol/prereg.py --check
+bench-results/preregistration-1.5.0.json` ready.
+
+---
+
 ## 2026-08-24 -- Integrated GPUs use the memory-biased wgpu allocator
 
 The production device request now selects `wgpu::MemoryHints::MemoryUsage`.
