@@ -1,0 +1,1220 @@
+{
+  "allowed_invalid_reasons": [
+    "background-load-above-ceiling",
+    "collector-loss",
+    "controller-loss",
+    "display-mode-change",
+    "power-policy-change",
+    "thermal-start-above-ceiling",
+    "thermal-throttling"
+  ],
+  "background_cpu_ceiling_percent": 10.0,
+  "boot_and_settle_evidence": {
+    "boot_started_utc": "2026-08-27T04:08:29Z",
+    "login_ready_utc": "2026-08-27T04:08:49Z",
+    "measurement_not_before_utc": "2026-08-27T04:13:49Z",
+    "minimum_post_login_settle_seconds": 300
+  },
+  "cell_geometry_policy": "per-implementation-stable-observed-grid",
+  "checkout": {
+    "dirty": false,
+    "git_commit": "ee6dcd3a57bf3e5a4a9fe977cfbb2047c7fd8b9e"
+  },
+  "collectors": [
+    {
+      "collector": "cgroup-cpu",
+      "configuration_sha256": "4c4357b3a52f1330219c5006df31c820cc47f11b4a998290a01e62cdccce1f8e",
+      "fields": [
+        "usage_usec",
+        "user_usec",
+        "system_usec"
+      ],
+      "implementation_sha256": "a4b098ddb51607c0ffaeaf5bedc2e1dbe36321e46d3650e4908e3404997a1d55",
+      "metric": "process_tree_cpu",
+      "required_privilege": "none",
+      "semantics": "cgroup v2 cpu.stat usage delta",
+      "status": "available",
+      "unit": "microseconds",
+      "version": "protocol-1.5.4; linux-kernel-7.1.8-arch1-3"
+    },
+    {
+      "collector": "cgroup-memory",
+      "configuration_sha256": "9718e3b658c0422249f481a8e6082834e397fbc06a66ce44b6c737d72e4da045",
+      "fields": [
+        "memory.current",
+        "memory.peak",
+        "memory.stat:anon",
+        "memory.stat:file"
+      ],
+      "implementation_sha256": "a4b098ddb51607c0ffaeaf5bedc2e1dbe36321e46d3650e4908e3404997a1d55",
+      "metric": "resident_and_footprint_memory",
+      "required_privilege": "none",
+      "semantics": "cgroup v2 memory.current and memory.peak in bytes; breakdown fields reported under their exact cgroup field names",
+      "status": "available",
+      "unit": "bytes",
+      "version": "protocol-1.5.4; linux-kernel-7.1.8-arch1-3"
+    },
+    {
+      "collector": "sched-wakeup",
+      "configuration_sha256": "c2559457f72327d060430d57286f50a91410b3a2ed6b2c262a9ae8f8f481e706",
+      "implementation_sha256": "a4b098ddb51607c0ffaeaf5bedc2e1dbe36321e46d3650e4908e3404997a1d55",
+      "metric": "idle_wake_events",
+      "reason": "/sys/kernel/tracing/events/sched/sched_wakeup/enable is not readable by this user (tracefs is root-restricted on a default install); perf_event_paranoid is 2, which withholds unprivileged tracepoint collection (a value of -1 or lower would permit it). Wake events are reported unsupported rather than approximated: the protocol names context switches as a separate diagnostic and forbids relabeling them as wakeups.",
+      "remedy": "a privileged collector run (root-owned tracefs access) would make this metric available; it must then be preregistered as a privileged collector for every compared implementation equally",
+      "required_privilege": "none",
+      "status": "unsupported",
+      "version": "protocol-1.5.4; linux-kernel-7.1.8-arch1-3"
+    },
+    {
+      "collector": "context-switches",
+      "configuration_sha256": "c972e35f5c614661e80bdf6180acfaac3aca8a18787c4129382fd11d452f4f53",
+      "diagnostic_only": true,
+      "implementation_sha256": "a4b098ddb51607c0ffaeaf5bedc2e1dbe36321e46d3650e4908e3404997a1d55",
+      "metric": "context_switches",
+      "required_privilege": "none",
+      "semantics": "voluntary and involuntary context switches summed over the process tree, diagnostic only",
+      "status": "available",
+      "unit": "switches",
+      "version": "protocol-1.5.4; linux-kernel-7.1.8-arch1-3"
+    },
+    {
+      "collector": "drm-fdinfo",
+      "configuration_sha256": "6026fc10d2cfac9d3b6cd5a0fcda64d015f7fe04a8b58ab92b72d5461fdae2b8",
+      "drivers": "i915",
+      "fields": [
+        "drm-resident-stolen-system0",
+        "drm-resident-system0"
+      ],
+      "fields_by_implementation": {
+        "alacritty": [
+          "drm-resident-stolen-system0",
+          "drm-resident-system0"
+        ],
+        "ghostty": [
+          "drm-resident-stolen-system0",
+          "drm-resident-system0"
+        ],
+        "kitty": [
+          "drm-resident-stolen-system0",
+          "drm-resident-system0"
+        ],
+        "odytty": [
+          "drm-resident-stolen-system0",
+          "drm-resident-system0"
+        ]
+      },
+      "implementation_sha256": "a4b098ddb51607c0ffaeaf5bedc2e1dbe36321e46d3650e4908e3404997a1d55",
+      "metric": "gpu_memory",
+      "qualification": "qualified evidence only if every compared implementation is measured through the same fields on the same driver; shared and dedicated regions stay separate",
+      "required_privilege": "none",
+      "semantics": "standardized DRM client resident-region fields from /proc/<pid>/fdinfo, attributed to the registered process tree",
+      "status": "available",
+      "unit": "bytes",
+      "version": "protocol-1.5.4; linux-kernel-7.1.8-arch1-3"
+    }
+  ],
+  "configurations": [
+    "plain"
+  ],
+  "declared_skip_reasons": [
+    "budget-exhausted",
+    "not-attempted",
+    "unavailable-hardware",
+    "unavailable-implementation"
+  ],
+  "declared_skips": [
+    {
+      "detail": "this comparison unit lacks the apparatus the protocol requires for this endpoint: display-photosensor-with-shared-capture-clock, external-stimulus-controller. The endpoint is not re-defined in software; a software-timed substitute would measure a different quantity under the protocol's name.",
+      "reason": "unavailable-hardware",
+      "workload": "startup-ready"
+    },
+    {
+      "detail": "this comparison unit lacks the apparatus the protocol requires for this endpoint: display-photosensor-with-shared-capture-clock, hardware-key-switch-actuator. The endpoint is not re-defined in software; a software-timed substitute would measure a different quantity under the protocol's name.",
+      "reason": "unavailable-hardware",
+      "workload": "input-present"
+    },
+    {
+      "detail": "this comparison unit lacks the apparatus the protocol requires for this endpoint: display-photosensor-with-shared-capture-clock, external-stimulus-controller. The endpoint is not re-defined in software; a software-timed substitute would measure a different quantity under the protocol's name.",
+      "reason": "unavailable-hardware",
+      "workload": "ascii-stream-64mb"
+    },
+    {
+      "detail": "this comparison unit lacks the apparatus the protocol requires for this endpoint: display-photosensor-with-shared-capture-clock, external-stimulus-controller. The endpoint is not re-defined in software; a software-timed substitute would measure a different quantity under the protocol's name.",
+      "reason": "unavailable-hardware",
+      "workload": "sgr-stream-64mb"
+    },
+    {
+      "detail": "this comparison unit lacks the apparatus the protocol requires for this endpoint: display-photosensor-with-shared-capture-clock, external-stimulus-controller, pinned-platform-window-control-adapter. The endpoint is not re-defined in software; a software-timed substitute would measure a different quantity under the protocol's name.",
+      "reason": "unavailable-hardware",
+      "workload": "resize-reflow-100k"
+    },
+    {
+      "detail": "not attempted in the v0.12.0 run set: three four-hour replicates across four implementations require about 50 hours of exclusive comparison-unit time; W7 remains the next planned measurement",
+      "reason": "not-attempted",
+      "workload": "long-session-4h"
+    }
+  ],
+  "declared_unsupported": [
+    {
+      "collector": "sched-wakeup",
+      "metric": "idle_wake_events",
+      "reason": "/sys/kernel/tracing/events/sched/sched_wakeup/enable is not readable by this user (tracefs is root-restricted on a default install); perf_event_paranoid is 2, which withholds unprivileged tracepoint collection (a value of -1 or lower would permit it). Wake events are reported unsupported rather than approximated: the protocol names context switches as a separate diagnostic and forbids relabeling them as wakeups."
+    }
+  ],
+  "driver": {
+    "name": "scripts/bench-protocol/driver.py (W6 and SE child)",
+    "revision": "ee6dcd3a57bf3e5a4a9fe977cfbb2047c7fd8b9e",
+    "sha256": "2055fe35c7718442f19fba7126ed2cabfbe036701bd0a959f822482b19fdc3f5"
+  },
+  "environment_class": {
+    "compositor": "Hyprland v0.56.2, native Wayland",
+    "cpu_class": "x86_64 desktop class, 8 logical cores",
+    "display": "1920x1080, 60.010 Hz, scale 1.0, transform 0",
+    "display_mode_signature": [
+      {
+        "height": 1080,
+        "refresh_millihz": 60010,
+        "scale": 1,
+        "transform": 0,
+        "width": 1920
+      }
+    ],
+    "external_power_state": "external",
+    "gpu_class": "discrete/integrated class, kernel driver: i915",
+    "graphics_driver": "Intel UHD Graphics 620; i915 in Linux 7.1.8-arch1-3; Mesa 1:26.1.7-1",
+    "keyboard_connection_class": "integrated i8042/PS2-class keyboard",
+    "memory_class": "8-16 GiB",
+    "optical_apparatus_model_class": "none; no optical capture apparatus",
+    "os_build": "linux 7.1.8-arch1-3",
+    "power_policy": "performance",
+    "power_source": "AC",
+    "storage_class": "NVME solid-state storage (LUKS-encrypted btrfs root)",
+    "thermal_and_cooling": "integrated active cooling (Processor, TCC Offset, intel_powerclamp); preparation CPU package 55 C; observed thermal-zone range 0-57 C",
+    "virtualized_or_remote": "no"
+  },
+  "fixtures": [
+    {
+      "generator": "scripts/bench-protocol/fixtures.py",
+      "generator_revision": "ee6dcd3a57bf3e5a4a9fe977cfbb2047c7fd8b9e",
+      "name": "w3",
+      "sha256": "6115e084c778270394b1111e75ae8d882b1e6e1a61ad7d832b96a9dc42dbf3d2"
+    },
+    {
+      "generator": "scripts/bench-protocol/fixtures.py",
+      "generator_revision": "ee6dcd3a57bf3e5a4a9fe977cfbb2047c7fd8b9e",
+      "name": "w4",
+      "sha256": "6f536f28c5ec3f965c3600fd1e93701a4557605e1567d0c20210bc27db05bfea"
+    },
+    {
+      "generator": "scripts/bench-protocol/fixtures.py",
+      "generator_revision": "ee6dcd3a57bf3e5a4a9fe977cfbb2047c7fd8b9e",
+      "name": "w5",
+      "sha256": "e9b4deb6703136053f9b0c4d1387640e248e8f442a3a9e879b0464a6c27b07c4"
+    }
+  ],
+  "implementations": [
+    {
+      "artifact_class": "clean-source-release-build",
+      "artifact_sha256": "e39296e9bc680f03596d641e790b7336e415d195c0220f5d779089b126960fc8",
+      "availability": "qualified",
+      "build_command": "CARGO_BUILD_JOBS=4 cargo build --release --locked",
+      "build_profile": "release",
+      "calibration": {
+        "font_size": 12,
+        "line_height": 1,
+        "method": "canonical-profile"
+      },
+      "cell_geometry": {
+        "cell_height_device_px": 12,
+        "cell_width_device_px": 7,
+        "columns": 80,
+        "content_height_device_px": 288,
+        "content_width_device_px": 560,
+        "rows": 24
+      },
+      "config_path": "scripts/bench-protocol/configs/odytty/odytty.conf",
+      "config_sha256": "596770f886805db62e6cf788b7735e81c84fc94e9a7890e7c8b353227db16549",
+      "dirty_tree": false,
+      "display_path": "wayland-native",
+      "font_identity": {
+        "face_index": 0,
+        "family": "DejaVu Sans Mono",
+        "file_name": "DejaVuSansMono.ttf",
+        "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "style": "Book"
+      },
+      "launch_executable": "odytty",
+      "name": "odytty",
+      "profile_files": [
+        {
+          "path": "scripts/bench-protocol/configs/odytty/odytty.conf",
+          "sha256": "596770f886805db62e6cf788b7735e81c84fc94e9a7890e7c8b353227db16549"
+        },
+        {
+          "path": "scripts/bench-protocol/configs/odytty/themes/benchmark.theme",
+          "sha256": "db4846d2bc6405bccb4c6e1d5c84545ad58231ac07e60b8069c60499f96c63c3"
+        }
+      ],
+      "pty_pixel_envelope_model": {
+        "cell_height_device_px": 12,
+        "cell_width_device_px": 7,
+        "height_remainder_device_px": 0,
+        "width_remainder_device_px": 0
+      },
+      "revision": "ee6dcd3a57bf3e5a4a9fe977cfbb2047c7fd8b9e",
+      "target_grid_met": true,
+      "unavailable_reason": "not applicable"
+    },
+    {
+      "artifact_class": "distribution-package",
+      "artifact_sha256": "940cbe42c8cf1dcb342f20b32ee35f51818bbcd8deffc11029f5766d844783a4",
+      "availability": "qualified",
+      "build_command": "not-built-in-this-run; installed distribution package",
+      "build_profile": "installed-release",
+      "calibration": {
+        "font_size": 12,
+        "method": "canonical-profile"
+      },
+      "cell_geometry": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "columns": 80,
+        "content_height_device_px": 456,
+        "content_width_device_px": 800,
+        "rows": 24
+      },
+      "config_path": "scripts/bench-protocol/configs/kitty.conf",
+      "config_sha256": "ec1ecb34ea1734a85a432a78d6faa585fe846263baec71c54e562ef59c7558fa",
+      "dirty_tree": false,
+      "display_path": "wayland-native",
+      "font_identity": {
+        "face_index": 0,
+        "family": "DejaVu Sans Mono",
+        "file_name": "DejaVuSansMono.ttf",
+        "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "style": "Book"
+      },
+      "launch_executable": "kitty",
+      "name": "kitty",
+      "profile_files": [
+        {
+          "path": "scripts/bench-protocol/configs/kitty.conf",
+          "sha256": "ec1ecb34ea1734a85a432a78d6faa585fe846263baec71c54e562ef59c7558fa"
+        }
+      ],
+      "pty_pixel_envelope_model": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "height_remainder_device_px": 0,
+        "width_remainder_device_px": 0
+      },
+      "revision": "0.48.2-1",
+      "target_grid_met": true,
+      "unavailable_reason": "not applicable"
+    },
+    {
+      "artifact_class": "distribution-package",
+      "artifact_sha256": "d943cc1d6c6d24de8964b689bb7de6c827731560b37122e649f75d9e23b57580",
+      "availability": "qualified",
+      "build_command": "not-built-in-this-run; installed distribution package",
+      "build_profile": "installed-release",
+      "calibration": {
+        "font_size": 12,
+        "method": "canonical-profile"
+      },
+      "cell_geometry": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "columns": 80,
+        "content_height_device_px": 456,
+        "content_width_device_px": 800,
+        "rows": 24
+      },
+      "config_path": "scripts/bench-protocol/configs/ghostty.conf",
+      "config_sha256": "2fcc1b1eea030a36c57a34abc7b1d6455b30c8f019b14a00992af7ccbaf9d614",
+      "dirty_tree": false,
+      "display_path": "wayland-native",
+      "font_identity": {
+        "face_index": 0,
+        "family": "DejaVu Sans Mono",
+        "file_name": "DejaVuSansMono.ttf",
+        "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "style": "Book"
+      },
+      "launch_executable": "ghostty",
+      "name": "ghostty",
+      "profile_files": [
+        {
+          "path": "scripts/bench-protocol/configs/ghostty.conf",
+          "sha256": "2fcc1b1eea030a36c57a34abc7b1d6455b30c8f019b14a00992af7ccbaf9d614"
+        }
+      ],
+      "pty_pixel_envelope_model": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "height_remainder_device_px": 16,
+        "width_remainder_device_px": 0
+      },
+      "revision": "1.3.1-2",
+      "target_grid_met": true,
+      "unavailable_reason": "not applicable"
+    },
+    {
+      "artifact_class": "distribution-package",
+      "artifact_sha256": "0cf523596ad06112922350a3d7c0eb0875c7c45b7c05b0dcc405a40afc50e624",
+      "availability": "qualified",
+      "build_command": "not-built-in-this-run; installed distribution package",
+      "build_profile": "installed-release",
+      "calibration": {
+        "font_size": 12,
+        "method": "canonical-profile"
+      },
+      "cell_geometry": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "columns": 80,
+        "content_height_device_px": 456,
+        "content_width_device_px": 800,
+        "rows": 24
+      },
+      "config_path": "scripts/bench-protocol/configs/alacritty.toml",
+      "config_sha256": "eac7b4e86e5172f2b286e5f8de86b56dad0e40939c7cea16123fd9389c881e4d",
+      "dirty_tree": false,
+      "display_path": "wayland-native",
+      "font_identity": {
+        "face_index": 0,
+        "family": "DejaVu Sans Mono",
+        "file_name": "DejaVuSansMono.ttf",
+        "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+        "style": "Book"
+      },
+      "launch_executable": "alacritty",
+      "name": "alacritty",
+      "profile_files": [
+        {
+          "path": "scripts/bench-protocol/configs/alacritty.toml",
+          "sha256": "eac7b4e86e5172f2b286e5f8de86b56dad0e40939c7cea16123fd9389c881e4d"
+        }
+      ],
+      "pty_pixel_envelope_model": {
+        "cell_height_device_px": 19,
+        "cell_width_device_px": 10,
+        "height_remainder_device_px": 0,
+        "width_remainder_device_px": 0
+      },
+      "revision": "0.17.0-1",
+      "target_grid_met": true,
+      "unavailable_reason": "not applicable"
+    }
+  ],
+  "instrumentation_overhead_ceiling_percent": 5.0,
+  "machine_scope_exclusions": [
+    {
+      "detail": "known nonfunctional on this laptop; it is not launched, readiness-tested, probed, rehearsed, measured, or retried",
+      "name": "wezterm",
+      "reason": "excluded-by-preregistered-machine-scope"
+    }
+  ],
+  "matched_colors": {
+    "background": "#101010",
+    "foreground": "#c0c0c0"
+  },
+  "noise_control_attestations": {
+    "continuous_per_attempt_environment_checks": true,
+    "external_power": true,
+    "fixed_performance_policy": true
+  },
+  "orchestrator": {
+    "name": "scripts/bench-protocol/w6_runner.py",
+    "revision": "ee6dcd3a57bf3e5a4a9fe977cfbb2047c7fd8b9e",
+    "sha256": "a2a3697dfa962fa329c411f423a4d18293a3ff8ddc7d1bb5a6d780c17b058440"
+  },
+  "outlier_rule": "no sample is removed by an outlier test; all valid numeric samples remain in the analysis",
+  "protocol": {
+    "git_commit": "ee6dcd3a57bf3e5a4a9fe977cfbb2047c7fd8b9e",
+    "path": "docs/benchmark-protocol.md",
+    "sha256": "e4d6a54d145ba3a4199c7a0d5c46975686b3a6fcab9057c53ca3f49de5604ede",
+    "version": "1.5.4"
+  },
+  "public_anchor": {
+    "path": "bench-results/preregistration-1.5.4.json",
+    "public_origin_confirmed": true,
+    "ref": "refs/heads/master",
+    "remote": "origin",
+    "repository": "github.com/ghreprimand/odytty"
+  },
+  "record_type": "preregistration",
+  "replacement_limit_per_invalid_attempt": 1,
+  "reporting_rule": "no significance threshold, composite score, weighted total, or overall winner; favourable and unfavourable results are published together",
+  "run_set": {
+    "bootstrap_seed": "odytty-1.5.4-bootstrap-20260827",
+    "id": "odytty-v0.12.0-protocol-1.5.4-rc-20260827",
+    "order_seed": "odytty-1.5.4-order-20260827",
+    "statistics_implementation": "scripts/bench-protocol/summaries.py",
+    "statistics_revision": "ee6dcd3a57bf3e5a4a9fe977cfbb2047c7fd8b9e",
+    "statistics_sha256": "c7b14a8c7a6b76124800ce304b5b85403adddc765cd7950349f271672871d154"
+  },
+  "run_set_time_budget_hours": 4.5,
+  "se_execution_order": [
+    {
+      "block": 1,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 2,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 3,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "kitty",
+        "odytty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 4,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "ghostty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 5,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 6,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 7,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "kitty",
+        "odytty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 8,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "ghostty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 9,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 10,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 11,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "kitty",
+        "odytty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 12,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "ghostty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 13,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 14,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 15,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "kitty",
+        "odytty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 16,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "ghostty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 17,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 18,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 19,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "kitty",
+        "odytty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 20,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "ghostty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 21,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 22,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 23,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "kitty",
+        "odytty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 24,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "ghostty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 25,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 26,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 27,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "kitty",
+        "odytty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 28,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "ghostty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 29,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 30,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 31,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "kitty",
+        "odytty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 32,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "ghostty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 33,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 34,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 35,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "kitty",
+        "odytty",
+        "ghostty"
+      ]
+    }
+  ],
+  "se_workload_order": [
+    "SE1",
+    "SE2"
+  ],
+  "shared_font": {
+    "face_index": 0,
+    "family": "DejaVu Sans Mono",
+    "file_name": "DejaVuSansMono.ttf",
+    "sha256": "b5babc084554ebdd142fe099d8b7c573ff161738bca913723d3e84f5c3df1c78",
+    "style": "Book"
+  },
+  "software_endpoint_orchestrator": {
+    "name": "scripts/bench-protocol/se_runner.py",
+    "revision": "ee6dcd3a57bf3e5a4a9fe977cfbb2047c7fd8b9e",
+    "sha256": "5ccd1f8b81a755f3a1a94dd50bd2d35071e0d239adcb3034541c122f05c80354"
+  },
+  "software_endpoint_start_temperature_ceiling_celsius": 80.0,
+  "software_endpoint_temperature_source": "hwmon:coretemp:temp3_input",
+  "software_endpoint_time_budget_hours": 6.0,
+  "stopping_rule": "no precision-based early stopping; W6 and SE each end when all planned samples are attempted or that runner's fixed time budget expires, and every unattempted sample is retained as a budget-exhausted skip",
+  "target_grid": {
+    "columns": 80,
+    "rows": 24
+  },
+  "w6_execution_order": [
+    {
+      "block": 1,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 2,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    },
+    {
+      "block": 3,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "alacritty",
+        "kitty",
+        "odytty",
+        "ghostty"
+      ]
+    },
+    {
+      "block": 4,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "odytty",
+        "alacritty",
+        "ghostty",
+        "kitty"
+      ]
+    },
+    {
+      "block": 5,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "ghostty",
+        "odytty",
+        "kitty",
+        "alacritty"
+      ]
+    },
+    {
+      "block": 6,
+      "configuration_order": [
+        "plain"
+      ],
+      "implementation_order": [
+        "kitty",
+        "ghostty",
+        "alacritty",
+        "odytty"
+      ]
+    }
+  ],
+  "w6_rehearsal": {
+    "duration_seconds": 120,
+    "instrumentation_overhead": {
+      "evaluation": "compare one 120-second uninstrumented run with one 120-second instrumented run per qualified implementation",
+      "paired_uninstrumented_and_instrumented": true
+    },
+    "replicates_per_qualified_implementation": 1
+  },
+  "workloads": [
+    {
+      "apparatus_required": [
+        "software-only"
+      ],
+      "endpoint": "child payload start to a validated cursor-position report, then the displayed completion patch",
+      "id": "SE1",
+      "metrics": [
+        "elapsed_seconds",
+        "payload_bytes_per_second",
+        "resident_bytes_before",
+        "resident_bytes_peak",
+        "resident_bytes_after",
+        "retention_delta_bytes"
+      ],
+      "metrics_declared_unsupported": [],
+      "missing_apparatus": [],
+      "name": "software-ascii-stream",
+      "oracle": "exact fixture digest, a valid cursor-position report received before the completion patch is painted, the completion patch, the expected final record, and no child or terminal failure. A child that exits after writing the payload without a CPR reply fails the oracle; early finish is not a throughput score",
+      "planned": true,
+      "sampling": {
+        "after_settle_seconds": 30,
+        "measured_blocks": 30,
+        "warmup_blocks": 5
+      },
+      "timeout_seconds": 120
+    },
+    {
+      "apparatus_required": [
+        "software-only"
+      ],
+      "endpoint": "child payload start to a validated cursor-position report, then the displayed completion patch",
+      "id": "SE2",
+      "metrics": [
+        "elapsed_seconds",
+        "payload_bytes_per_second",
+        "resident_bytes_before",
+        "resident_bytes_peak",
+        "resident_bytes_after",
+        "retention_delta_bytes"
+      ],
+      "metrics_declared_unsupported": [],
+      "missing_apparatus": [],
+      "name": "software-sgr-stream",
+      "oracle": "exact fixture digest, a valid cursor-position report received before the completion patch is painted, the completion patch, reset style at completion, the expected final record, and no child or terminal failure. A child that exits after writing the payload without a CPR reply fails the oracle",
+      "planned": true,
+      "sampling": {
+        "after_settle_seconds": 30,
+        "measured_blocks": 30,
+        "warmup_blocks": 5
+      },
+      "timeout_seconds": 120
+    },
+    {
+      "apparatus_required": [
+        "external-stimulus-controller",
+        "display-photosensor-with-shared-capture-clock"
+      ],
+      "endpoint": "physical launch stimulus to the first displayed ready patch",
+      "id": "W1",
+      "metrics": [
+        "optical_latency"
+      ],
+      "metrics_declared_unsupported": [],
+      "missing_apparatus": [
+        "display-photosensor-with-shared-capture-clock",
+        "external-stimulus-controller"
+      ],
+      "name": "startup-ready",
+      "oracle": "one window, the expected 80 by 24 PTY size, the exact ODYTTY_BENCH_READY marker, the expected ready patch, and a live child",
+      "planned": false,
+      "sampling": {
+        "measured_blocks": 30,
+        "warmup_blocks": 5
+      },
+      "timeout_seconds": 30
+    },
+    {
+      "apparatus_required": [
+        "hardware-key-switch-actuator",
+        "display-photosensor-with-shared-capture-clock"
+      ],
+      "endpoint": "electrical switch closure to the first detected luminance transition in the response cell",
+      "id": "W2",
+      "metrics": [
+        "optical_latency"
+      ],
+      "metrics_declared_unsupported": [],
+      "missing_apparatus": [
+        "display-photosensor-with-shared-capture-clock",
+        "hardware-key-switch-actuator"
+      ],
+      "name": "input-present",
+      "oracle": "exactly one expected input byte and one black-to-white transition per stimulus, with no missing, duplicate, or reordered event",
+      "planned": false,
+      "sampling": {
+        "blocks": 10,
+        "measured_events": 100,
+        "warmup_events": 20
+      },
+      "timeout_seconds": 2
+    },
+    {
+      "apparatus_required": [
+        "external-stimulus-controller",
+        "display-photosensor-with-shared-capture-clock"
+      ],
+      "endpoint": "external start signal to the first displayed completion patch",
+      "id": "W3",
+      "metrics": [
+        "elapsed_seconds",
+        "payload_bytes_per_second"
+      ],
+      "metrics_declared_unsupported": [],
+      "missing_apparatus": [
+        "display-photosensor-with-shared-capture-clock",
+        "external-stimulus-controller"
+      ],
+      "name": "ascii-stream-64mb",
+      "oracle": "exact fixture digest, expected cursor report, completion patch, expected final record, and no child or terminal failure",
+      "planned": false,
+      "sampling": {
+        "measured_blocks": 30,
+        "warmup_blocks": 5
+      },
+      "timeout_seconds": 120
+    },
+    {
+      "apparatus_required": [
+        "external-stimulus-controller",
+        "display-photosensor-with-shared-capture-clock"
+      ],
+      "endpoint": "external start signal to the first displayed completion patch",
+      "id": "W4",
+      "metrics": [
+        "elapsed_seconds",
+        "payload_bytes_per_second"
+      ],
+      "metrics_declared_unsupported": [],
+      "missing_apparatus": [
+        "display-photosensor-with-shared-capture-clock",
+        "external-stimulus-controller"
+      ],
+      "name": "sgr-stream-64mb",
+      "oracle": "exact fixture digest, expected cursor report, reset style at completion, expected final record, and no child or terminal failure",
+      "planned": false,
+      "sampling": {
+        "measured_blocks": 30,
+        "warmup_blocks": 5
+      },
+      "timeout_seconds": 120
+    },
+    {
+      "apparatus_required": [
+        "pinned-platform-window-control-adapter",
+        "external-stimulus-controller",
+        "display-photosensor-with-shared-capture-clock"
+      ],
+      "endpoint": "first resize request to the first displayed final marker",
+      "id": "W5",
+      "metrics": [
+        "total_seconds",
+        "acknowledged_transitions_per_second"
+      ],
+      "metrics_declared_unsupported": [],
+      "missing_apparatus": [
+        "display-photosensor-with-shared-capture-clock",
+        "external-stimulus-controller",
+        "pinned-platform-window-control-adapter"
+      ],
+      "name": "resize-reflow-100k",
+      "oracle": "all 200 ordered PTY sizes, correct final size and cursor position, fixed final marker, and no lost content in the final visible transcript",
+      "planned": false,
+      "sampling": {
+        "measured_blocks": 30,
+        "warmup_blocks": 5
+      },
+      "timeout_seconds": 120
+    },
+    {
+      "apparatus_required": [
+        "software-only"
+      ],
+      "endpoint": "no external endpoint; 60 seconds of settling followed by 600 measured seconds of a static, focused, unobscured viewport",
+      "id": "W6",
+      "metrics": [
+        "process_tree_cpu_seconds",
+        "normalized_cpu_percent",
+        "idle_wake_events",
+        "context_switches",
+        "current_memory",
+        "peak_memory",
+        "gpu_memory"
+      ],
+      "metrics_declared_unsupported": [
+        "idle_wake_events"
+      ],
+      "missing_apparatus": [],
+      "name": "idle-visible-10m",
+      "oracle": "the process and child remain alive, the viewport is unchanged, and no input or output event occurs",
+      "planned": true,
+      "sampling": {
+        "measured_replicates": 5,
+        "rehearsals": 1
+      },
+      "timeout_seconds": 720
+    },
+    {
+      "apparatus_required": [
+        "software-only"
+      ],
+      "endpoint": "no external endpoint; a four-hour mixed session sampled once per minute, with the first hour retained as the stabilization segment",
+      "id": "W7",
+      "metrics": [
+        "memory_growth_slope_per_hour",
+        "memory_start_to_end_delta",
+        "process_tree_cpu_seconds",
+        "idle_wake_events",
+        "failed_heartbeats"
+      ],
+      "metrics_declared_unsupported": [
+        "idle_wake_events"
+      ],
+      "missing_apparatus": [],
+      "name": "long-session-4h",
+      "oracle": "240 ordered heartbeats, the scheduled payload and resize counts, bounded scrollback behaviour, correct final size, and a live child",
+      "planned": false,
+      "sampling": {
+        "measured_replicates": 3,
+        "shortened_substitute": false
+      },
+      "timeout_seconds": 15000
+    }
+  ]
+}

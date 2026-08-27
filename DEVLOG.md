@@ -7,6 +7,29 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-27 -- Preregister the protocol 1.5.4 measured campaign
+
+`bench-results/preregistration-1.5.4.json` freezes the replacement v0.12.0
+campaign against candidate `ee6dcd3a`. It uses a new run-set identity, order
+seed, and bootstrap seed. No protocol 1.5.3 sample enters this run set.
+
+The fresh laptop record retains separate 4.5-hour W6 and 6-hour SE budgets.
+SE attempts must start at or below 80 C on the frozen
+`hwmon:coretemp:temp3_input` sensor. W7 is explicitly `not-attempted`; W1
+through W5 remain `unavailable-hardware`.
+
+The startup-geometry diagnostic passed for every qualified terminal. OdyTTY,
+Kitty, Ghostty, and Alacritty each reached the preregistered 80 by 24 grid on
+the native Wayland path. The schema-version-3 live smoke then passed all eight
+primary and replacement paths, with passing CPR oracles and no invalid reason.
+`prereg.py --check` reports the record ready.
+
+The public anchor is
+`bench-results/preregistration-1.5.4.json` on `refs/heads/master`. Its exact
+bytes must be published and verified before any measured sample begins.
+
+---
+
 ## 2026-08-27 -- Bind SE temperature samples to the frozen sensor
 
 The protocol 1.5.3 live smoke completed all eight primary and replacement
