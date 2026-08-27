@@ -38,7 +38,7 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 #[cfg(not(test))]
 use winit::event_loop::EventLoopProxy;
 
@@ -1253,17 +1253,15 @@ impl WorkspaceSet {
     }
 
     /// Capture the exit code of a session's local PTY child after its reader has
-    /// reached EOF. The child is already dead at the EOF fork, so `try_wait()`
-    /// returns synchronously — no blocking `wait()` is introduced. `None` means
-    /// no code was available: a Unix signal death (`.code() == None`) or, on
-    /// Windows, a post-EOF `STILL_ACTIVE` (259) sentinel that `try_wait` maps to
-    /// `Ok(None)`; both are treated as "unknown status", never "still running".
-    /// An attached session has no local PTY and also yields `None`.
+    /// reached EOF. Closing the PTY can become visible a few scheduler ticks
+    /// before the child status becomes waitable, so a bounded post-EOF poll
+    /// closes that race without an unbounded `wait()` on the event-loop thread.
+    /// `None` means no code became available within the bound: a Unix signal
+    /// death (`.code() == None`), a backend error, or a child whose status did
+    /// not settle. An attached session has no local PTY and also yields `None`.
     pub(super) fn capture_exit_code(&self, token: SessionToken) -> Option<i32> {
         match &self.sessions.get(&token)?.source {
-            SessionSource::Local { pty } => {
-                pty.lock().ok()?.try_wait().ok()?.and_then(|s| s.code())
-            }
+            SessionSource::Local { pty } => capture_local_exit_code(pty),
             #[cfg(unix)]
             SessionSource::Attached { .. } => None,
             #[cfg(test)]
@@ -1426,5 +1424,22 @@ impl WorkspaceSet {
         command: SshCommand,
     ) -> Result<SessionToken, std::io::Error> {
         self.spawn_ssh_command_in_new_tab(grid, command, Some("synthetic ssh".to_owned()))
+    }
+}
+
+const EXIT_STATUS_SETTLE_TIMEOUT: Duration = Duration::from_millis(50);
+const EXIT_STATUS_POLL_INTERVAL: Duration = Duration::from_millis(1);
+
+fn capture_local_exit_code(pty: &Arc<Mutex<PtySession>>) -> Option<i32> {
+    let deadline = Instant::now() + EXIT_STATUS_SETTLE_TIMEOUT;
+    let mut pty = pty.lock().ok()?;
+    loop {
+        match pty.try_wait() {
+            Ok(Some(status)) => return status.code(),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(EXIT_STATUS_POLL_INTERVAL);
+            }
+            Ok(None) | Err(_) => return None,
+        }
     }
 }

@@ -7,6 +7,20 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-27 -- Settle child status after PTY EOF
+
+The Linux CI leg exposed a scheduler race in the `--hold` exit path. PTY EOF
+can become visible immediately before the child status becomes waitable, so a
+single `try_wait()` could paint an unknown status even when the command exited
+with a numeric code.
+
+Exit-code capture now polls for at most 50 milliseconds after EOF, at one
+millisecond intervals. The bound prevents an unbounded wait on the event-loop
+thread while allowing the normal child-reap transition to settle. The held-exit
+regression passed 100 consecutive Linux runs after the change.
+
+---
+
 ## 2026-08-27 -- Preregister the throughput-remediation campaign
 
 `bench-results/preregistration-1.5.4-throughput-remediation.json` freezes a new
