@@ -1995,8 +1995,8 @@ def main(argv: list[str] | None = None) -> int:
         "--smoke",
         action="store_true",
         help=(
-            "run one live SE trial per qualified implementation and write a "
-            "smoke record; a passing record is required by --run"
+            "run live primary and replacement SE1 trials per qualified "
+            "implementation; a passing smoke record is required by --run"
         ),
     )
     parser.add_argument("--smoke-output", metavar="PATH")
