@@ -7,6 +7,28 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-26 -- Preregister the protocol 1.5.3 measured campaign
+
+`bench-results/preregistration-1.5.3.json` freezes the replacement v0.12.0
+campaign against candidate `5f27f297`. It uses a new run-set identity, order
+seed, and bootstrap seed. No protocol 1.5.2 software-endpoint sample enters
+this run set.
+
+The fresh laptop record pins separate 4.5-hour W6 and 6-hour SE budgets. SE
+attempts must start at or below 80 C on the frozen `coretemp` sensor, while
+subsequent throttle-counter changes remain recorded telemetry. W7 is
+explicitly `not-attempted`; W1 through W5 remain `unavailable-hardware`.
+
+The startup-geometry diagnostic passed for every qualified terminal. OdyTTY,
+Kitty, Ghostty, and Alacritty each reached the preregistered 80 by 24 grid on
+the native Wayland path. `prereg.py --check` reports the record ready.
+
+The public anchor is
+`bench-results/preregistration-1.5.3.json` on `refs/heads/master`. Its exact
+bytes must be published and verified before any measured sample begins.
+
+---
+
 ## 2026-08-26 -- Benchmark protocol 1.5.3 makes the SE campaign executable
 
 The first protocol 1.5.2 campaign completed and validated W6, then exposed two
