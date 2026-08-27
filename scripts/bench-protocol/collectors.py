@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Resource collectors for the OdyTTY comparative benchmark protocol
-# (`docs/benchmark-protocol.md`, protocol version 1.5.2), Linux column.
+# (`docs/benchmark-protocol.md`, protocol version 1.5.3), Linux column.
 #
 # Software-endpoint retention sampling (SE1/SE2) lives here too: it reads
 # the same cgroup v2 memory.current / memory.peak files and never approximates
@@ -42,6 +42,53 @@ import json
 import os
 import sys
 from pathlib import Path
+
+
+def cpu_temperature_observation(
+    hwmon_root: Path = Path("/sys/class/hwmon"),
+    thermal_root: Path = Path("/sys/class/thermal"),
+) -> dict | None:
+    """Return the hottest CPU sensor with a stable public source identity."""
+    candidates: list[tuple[float, str]] = []
+    try:
+        hwmon_dirs = list(hwmon_root.glob("hwmon*"))
+    except OSError:
+        hwmon_dirs = []
+    for directory in hwmon_dirs:
+        try:
+            name = (directory / "name").read_text(encoding="utf-8").strip().lower()
+        except OSError:
+            continue
+        if name not in {"coretemp", "k10temp", "zenpower"}:
+            continue
+        for path in directory.glob("temp*_input"):
+            try:
+                value = int(path.read_text(encoding="utf-8").strip()) / 1000.0
+            except (OSError, ValueError):
+                continue
+            if -20.0 <= value <= 150.0:
+                candidates.append((value, f"hwmon:{name}:{path.name}"))
+    if not candidates:
+        try:
+            zones = list(thermal_root.glob("thermal_zone*"))
+        except OSError:
+            zones = []
+        for zone in zones:
+            try:
+                kind = (zone / "type").read_text(encoding="utf-8").strip().lower()
+                value = int((zone / "temp").read_text(encoding="utf-8").strip()) / 1000.0
+            except (OSError, ValueError):
+                continue
+            if (
+                kind
+                in {"x86_pkg_temp", "cpu-thermal", "cpu_thermal", "soc_thermal"}
+                and -20.0 <= value <= 150.0
+            ):
+                candidates.append((value, f"thermal:{kind}"))
+    if not candidates:
+        return None
+    value, source = max(candidates, key=lambda item: (item[0], item[1]))
+    return {"celsius": round(value, 3), "source": source}
 
 CGROUP_ROOT = Path("/sys/fs/cgroup")
 TRACING_ROOT = Path("/sys/kernel/tracing")

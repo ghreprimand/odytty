@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Preregistration-record generator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.5.2).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.5.3).
 #
 # The protocol's first requirement is that every run set have a public
 # preregistration record committed before its first measured sample, and it
@@ -54,7 +54,7 @@ import ordering
 import profiles
 import workloads
 
-PROTOCOL_VERSION = "1.5.2"
+PROTOCOL_VERSION = "1.5.3"
 PROTOCOL_DOC = Path("docs/benchmark-protocol.md")
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 
@@ -74,6 +74,13 @@ TARGET_GRID = profiles.TARGET_GRID
 # that cannot be discovered automatically. The record is not valid while any
 # remain, and `--check` refuses such a record.
 TODO = "<unpinned>"
+DEFERRED_WORKLOADS = {
+    "long-session-4h": (
+        "not attempted in the v0.12.0 run set: three four-hour replicates "
+        "across four implementations require about 50 hours of exclusive "
+        "comparison-unit time; W7 remains the next planned measurement"
+    )
+}
 
 # Memory-capacity buckets keep the environment record public-safe: a bucket
 # describes the machine class without identifying the machine.
@@ -269,6 +276,7 @@ def build_record(
 
     collector_probe = probe if probe is not None else collectors.probe_all()
     availability = workloads.availability_report(available_apparatus)
+    temperature_observation = collectors.cpu_temperature_observation()
 
     unsupported_collectors = [
         {
@@ -287,6 +295,7 @@ def build_record(
         name = entry["workload"]
         catalogue = workloads.WORKLOADS[name]
         metrics = workloads.metric_names(name)
+        planned = entry["runnable"] and name not in DEFERRED_WORKLOADS
         declared_workloads.append(
             {
                 "name": name,
@@ -299,12 +308,20 @@ def build_record(
                 "metrics_declared_unsupported": sorted(
                     metric for metric in metrics if metric in unsupported_metrics
                 ),
-                "planned": entry["runnable"],
+                "planned": planned,
                 "apparatus_required": catalogue["apparatus"],
                 "missing_apparatus": entry["missing_apparatus"],
             }
         )
-        if not entry["runnable"]:
+        if name in DEFERRED_WORKLOADS:
+            declared_skips.append(
+                {
+                    "workload": name,
+                    "reason": "not-attempted",
+                    "detail": DEFERRED_WORKLOADS[name],
+                }
+            )
+        elif not entry["runnable"]:
             declared_skips.append(
                 {
                     "workload": name,
@@ -504,9 +521,10 @@ def build_record(
             "minimum_post_login_settle_seconds": 300,
         },
         "stopping_rule": (
-            "no precision-based early stopping; the run set ends when all "
-            "planned samples are attempted or the fixed time budget expires, "
-            "and an incomplete run set is published as incomplete"
+            "no precision-based early stopping; W6 and SE each end when all "
+            "planned samples are attempted or that runner's fixed time budget "
+            "expires, and every unattempted sample is retained as a "
+            "budget-exhausted skip"
         ),
         "outlier_rule": (
             "no sample is removed by an outlier test; all valid numeric "
@@ -518,6 +536,13 @@ def build_record(
             "together"
         ),
         "run_set_time_budget_hours": TODO,
+        "software_endpoint_time_budget_hours": TODO,
+        "software_endpoint_start_temperature_ceiling_celsius": 80.0,
+        "software_endpoint_temperature_source": (
+            temperature_observation.get("source")
+            if temperature_observation is not None
+            else TODO
+        ),
         "instrumentation_overhead_ceiling_percent": TODO,
         "background_cpu_ceiling_percent": TODO,
     }
@@ -918,7 +943,32 @@ def check_record(record: dict) -> list[str]:
 
     budget = record.get("run_set_time_budget_hours")
     if not isinstance(budget, (int, float)) or isinstance(budget, bool) or budget <= 0:
-        problems.append("aggregate run-set time budget must be a positive number")
+        problems.append("W6 time budget must be a positive number")
+    se_budget = record.get("software_endpoint_time_budget_hours")
+    if (
+        not isinstance(se_budget, (int, float))
+        or isinstance(se_budget, bool)
+        or se_budget <= 0
+    ):
+        problems.append("software-endpoint time budget must be a positive number")
+    start_temperature_ceiling = record.get(
+        "software_endpoint_start_temperature_ceiling_celsius"
+    )
+    if (
+        not isinstance(start_temperature_ceiling, (int, float))
+        or isinstance(start_temperature_ceiling, bool)
+        or not 60 <= start_temperature_ceiling <= 95
+    ):
+        problems.append(
+            "software-endpoint start-temperature ceiling must be between 60 and 95 C"
+        )
+    temperature_source = record.get("software_endpoint_temperature_source")
+    if not isinstance(temperature_source, str) or re.fullmatch(
+        r"(?:hwmon:(?:coretemp|k10temp|zenpower):temp[0-9]+_input|"
+        r"thermal:(?:x86_pkg_temp|cpu-thermal|cpu_thermal|soc_thermal))",
+        temperature_source,
+    ) is None:
+        problems.append("software-endpoint CPU-temperature source is not pinned")
     ceiling = record.get("instrumentation_overhead_ceiling_percent")
     if (
         not isinstance(ceiling, (int, float))
@@ -1200,12 +1250,13 @@ def self_test(repo_root: Path) -> list[str]:
             failures.append(f"prereg: {name} is not declared an unavailable-hardware skip")
     for name in (
         "idle-visible-10m",
-        "long-session-4h",
         "software-ascii-stream",
         "software-sgr-stream",
     ):
         if name in skipped:
             failures.append(f"prereg: {name} was skipped despite being runnable")
+    if skipped.get("long-session-4h") != "not-attempted":
+        failures.append("prereg: deferred W7 is not declared as not-attempted")
     for name in ("software-ascii-stream", "software-sgr-stream"):
         entry = next(w for w in record["workloads"] if w["name"] == name)
         if not entry.get("planned"):
@@ -1322,6 +1373,8 @@ def self_test(repo_root: Path) -> list[str]:
     for name in pinned["noise_control_attestations"]:
         pinned["noise_control_attestations"][name] = True
     pinned["run_set_time_budget_hours"] = 24
+    pinned["software_endpoint_time_budget_hours"] = 24
+    pinned["software_endpoint_temperature_source"] = "hwmon:coretemp:temp1_input"
     pinned["instrumentation_overhead_ceiling_percent"] = 5
     pinned["background_cpu_ceiling_percent"] = 10
     problems = check_record(pinned)

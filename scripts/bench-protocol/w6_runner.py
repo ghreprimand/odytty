@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # W6 (idle-visible-10m) measured-run orchestrator for the OdyTTY comparative
-# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.5.2).
+# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.5.3).
 #
 # Every other module in this directory is preparation: it computes, checks, or
 # describes, and never takes a measurement. This module is the one exception,
@@ -67,7 +67,7 @@ import summaries  # noqa: E402
 import workloads  # noqa: E402
 
 WORKLOAD = "idle-visible-10m"
-RUNNER_VERSION = "1.5.2"
+RUNNER_VERSION = "1.5.3"
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 PUBLIC_API_BASE = "https://api.github.com/repos/ghreprimand/odytty"
 PUBLIC_RAW_BASE = "https://raw.githubusercontent.com/ghreprimand/odytty"
@@ -1428,11 +1428,18 @@ class RealLauncher:
         # recognized active-pstate `powersave` governors with `performance`
         # energy/performance preferences both normalize to `performance`,
         # while mixed or unreadable evidence fails the run closed.
+        temperature = collectors.cpu_temperature_observation()
         return {
             "display_mode_signature": self.display_mode_signature(),
             "external_power_state": _external_power_state(),
             "power_policy": profiles.effective_power_policy(),
             "thermal_throttle_count": _thermal_throttle_count(),
+            "cpu_temperature_celsius": (
+                temperature.get("celsius") if temperature is not None else None
+            ),
+            "cpu_temperature_source": (
+                temperature.get("source") if temperature is not None else None
+            ),
             "system_cpu_ticks": _system_cpu_ticks(),
         }
 
@@ -5181,7 +5188,7 @@ def run_session(
     minimum_seconds = estimate_duration_seconds(len(qualified), per_replicate_overhead=0)
     if budget_seconds < minimum_seconds:
         raise ValueError(
-            "aggregate run-set time budget is shorter than the frozen W6 schedule"
+            "W6 time budget is shorter than the frozen W6 schedule"
         )
 
     samples: list[dict] = []
@@ -5519,7 +5526,7 @@ def run_session(
             "workload": WORKLOAD,
             "reason": "budget-exhausted",
             "detail": (
-                "the fixed aggregate run-set time budget expired before every "
+                "the fixed W6 time budget expired before every "
                 "planned W6 attempt could start"
             ),
         }
@@ -6356,6 +6363,22 @@ def self_test() -> list[str]:
     import tempfile
 
     failures: list[str] = []
+
+    with tempfile.TemporaryDirectory(prefix="w6-temperature-") as raw_root:
+        sensor_root = Path(raw_root)
+        hwmon = sensor_root / "hwmon" / "hwmon0"
+        hwmon.mkdir(parents=True)
+        (hwmon / "name").write_text("coretemp\n", encoding="utf-8")
+        (hwmon / "temp1_input").write_text("51000\n", encoding="utf-8")
+        (hwmon / "temp2_input").write_text("74500\n", encoding="utf-8")
+        observed_temperature = collectors.cpu_temperature_observation(
+            sensor_root / "hwmon", sensor_root / "thermal"
+        )
+        if observed_temperature != {
+            "celsius": 74.5,
+            "source": "hwmon:coretemp:temp2_input",
+        }:
+            failures.append("temperature: hottest CPU sysfs sensor was not selected")
 
     failures.extend(f"profiles: {failure}" for failure in profiles.validate_profiles(HERE.parents[1]))
     resolved_font = profiles.resolve_shared_font_identity()
@@ -11767,7 +11790,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
         f"{PUBLIC_API_BASE}/git/ref/{encoded_ref}",
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "OdyTTY-benchmark-protocol/1.5.2",
+            "User-Agent": "OdyTTY-benchmark-protocol/1.5.3",
         },
     )
     with urllib.request.urlopen(ref_request, timeout=30) as response:
@@ -11781,7 +11804,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
     encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
     request = urllib.request.Request(
         f"{PUBLIC_RAW_BASE}/{commit}/{encoded_path}",
-        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.5.2"},
+        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.5.3"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return commit, response.read()

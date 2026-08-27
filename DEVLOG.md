@@ -7,6 +7,43 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-26 -- Benchmark protocol 1.5.3 makes the SE campaign executable
+
+The first protocol 1.5.2 campaign completed and validated W6, then exposed two
+software-endpoint runner defects. Normal performance-mode operation produced
+thermal throttle-counter increments at observed CPU temperatures around 45 to
+52 C, invalidating otherwise complete CPR and retention samples. Replacement
+attempts then reused their primary attempt's immutable evidence identity, so
+every queued replacement failed before launch. The stopped partial campaign
+remains historical evidence and no sample crosses the protocol boundary.
+
+Protocol 1.5.3 separates initial thermal state from load-correlated hardware
+behaviour. SE attempts must begin at or below a preregistered 80 C ceiling from
+one frozen sysfs CPU-temperature source. Temperatures and throttle-counter
+changes remain recorded throughout, but counter increments after the start no
+longer discard a result. Primary and replacement attempt numbers now form part
+of every immutable evidence identity. The mandatory live smoke executes both
+paths for every qualified terminal before measurement can begin.
+
+W6 and SE now carry separate preregistered time budgets because their runners
+execute independently. SE records every budget-exhausted attempt as an
+explicit skip and reserves the full bounded attempt wall time before launch.
+W7 is explicitly `not-attempted` in the v0.12.0 run set instead of remaining
+marked as planned without its approximately 50-hour execution campaign.
+
+Protocol 1.5.2 produced no publishable SE sample. Protocol 1.5.3 requires a
+new run-set identity, seeds, public preregistration, and schema-version-3 live
+smoke before measurement.
+
+Verified: `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`,
+and `RUST_TEST_THREADS=1 cargo test --locked` passed, with
+4,777 tests passing and none failing. `python3
+scripts/bench-protocol/bench-protocol.py --self-test` passed all protocol
+modules, including temperature-source, budget-exhaustion, and live
+replacement-path identity coverage.
+
+---
+
 ## 2026-08-24 -- Fresh preregistration for protocol 1.5.2
 
 `bench-results/preregistration-1.5.2.json` freezes the corrected

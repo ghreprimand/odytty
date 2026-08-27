@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Execute the protocol 1.5.2 software-endpoint workload class.
+"""Execute the protocol 1.5.3 software-endpoint workload class.
 
 SE1 and SE2 are throughput-shaped software-endpoint measurements. They are
 never W3/W4 substitutes and never enter the optical-workload result pool. The
@@ -36,12 +36,12 @@ DRIVER = HERE / "driver.py"
 AFTER_SETTLE_SECONDS = 30
 READY_TIMEOUT_SECONDS = 30
 POLL_SECONDS = 0.1
+CLEANUP_ALLOWANCE_SECONDS = 30
 WORKLOAD_BY_ID = {
     "SE1": "software-ascii-stream",
     "SE2": "software-sgr-stream",
 }
 STATUS_VALUES = {"pass", "fail", "invalid", "skip"}
-SMOKE_TOLERATED_INVALID_REASONS = {"thermal-throttling"}
 
 
 def _sha256(path: Path) -> str:
@@ -50,6 +50,20 @@ def _sha256(path: Path) -> str:
 
 def _utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _thermal_throttle_delta(observations: list[dict]) -> int | None:
+    counts = [entry.get("thermal_throttle_count") for entry in observations]
+    if (
+        len(counts) < 2
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in counts
+        )
+        or any(after < before for before, after in zip(counts, counts[1:]))
+    ):
+        return None
+    return counts[-1] - counts[0]
 
 
 def software_driver_command(
@@ -115,6 +129,8 @@ def validate_interval_environment(
     observations: list[dict],
     expected_environment: dict,
     duration_seconds: float,
+    start_temperature_ceiling_celsius: float,
+    temperature_source: str,
 ) -> tuple[bool, str | None]:
     """Validate active-burst controls without classifying system CPU load.
 
@@ -168,6 +184,24 @@ def validate_interval_environment(
         for value in thermal
     ) or any(after < before for before, after in zip(thermal, thermal[1:])):
         return False, None
+    temperatures = [item.get("cpu_temperature_celsius") for item in observations]
+    temperature_sources = [item.get("cpu_temperature_source") for item in observations]
+    if (
+        not isinstance(start_temperature_ceiling_celsius, (int, float))
+        or isinstance(start_temperature_ceiling_celsius, bool)
+        or not math.isfinite(start_temperature_ceiling_celsius)
+        or any(
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+            or not -20 <= value <= 150
+            for value in temperatures
+        )
+        or not isinstance(temperature_source, str)
+        or not temperature_source
+        or any(source != temperature_source for source in temperature_sources)
+    ):
+        return False, None
     ticks = [item.get("system_cpu_ticks") for item in observations]
     if any(
         not isinstance(pair, (list, tuple))
@@ -216,8 +250,8 @@ def validate_interval_environment(
         for observation in observations[1:]
     ):
         return True, "power-policy-change"
-    if any(after > before for before, after in zip(thermal, thermal[1:])):
-        return True, "thermal-throttling"
+    if temperatures[0] > start_temperature_ceiling_celsius:
+        return True, "thermal-start-above-ceiling"
     return True, None
 
 
@@ -432,16 +466,29 @@ def run_trial(
     expected_environment: dict,
     timeout_seconds: int,
     background_cpu_ceiling: float,
+    start_temperature_ceiling_celsius: float,
+    temperature_source: str,
+    attempt_number: int,
     sleep=time.sleep,
     monotonic=time.monotonic,
 ) -> dict:
     """Execute one SE trial and return a public-safe raw sample."""
+    if attempt_number not in {1, 2}:
+        raise ValueError("SE attempt number must be one or two")
     if hasattr(launcher, "trial_result"):
         return launcher.trial_result(
-            workload_id, implementation, block, phase, order_position
+            workload_id,
+            implementation,
+            block,
+            phase,
+            order_position,
+            attempt_number,
         )
     workload = WORKLOAD_BY_ID[workload_id]
-    evidence_id = f"{workload_id.lower()}-{phase}-{block:02d}-{order_position:02d}"
+    evidence_id = (
+        f"{workload_id.lower()}-{phase}-{block:02d}-{order_position:02d}"
+        f"-attempt-{attempt_number:02d}"
+    )
     tag = f"{implementation}-{evidence_id}"
     launched = launcher.launch_stream(
         implementation, workload, tag, timeout_seconds
@@ -560,6 +607,8 @@ def run_trial(
             environment_observations,
             expected_environment,
             burst_elapsed,
+            start_temperature_ceiling_celsius,
+            temperature_source,
         )
         if not evidence_valid:
             invalid_reason = "controller-loss"
@@ -594,6 +643,8 @@ def run_trial(
             expected_environment=expected_environment,
             monotonic=monotonic,
         )
+        if settle_invalid == "thermal-throttling":
+            settle_invalid = None
         invalid_reason = invalid_reason or settle_invalid
         after = collectors.read_resident_bytes(cgroup)
         retention = collectors.retention_record(before, peak, after)
@@ -633,6 +684,7 @@ def run_trial(
             and elapsed > 0
             else None
         )
+        all_environment_observations = environment_observations + settle_observations
         sample = {
             "workload_id": workload_id,
             "workload": workload,
@@ -650,8 +702,9 @@ def run_trial(
             "cursor_report": cursor_report,
             "expected_cursor_report": expected_cursor_report,
             "process_alive_at_after_sample": process_alive,
-            "environment_observations": (
-                environment_observations + settle_observations
+            "environment_observations": all_environment_observations,
+            "thermal_throttle_delta": _thermal_throttle_delta(
+                all_environment_observations
             ),
             "launch": {
                 "argv": launched.get("sanitized_argv"),
@@ -683,6 +736,18 @@ def validate_document(document: dict, prereg_record: dict) -> list[str]:
         problems.append("SE result record_type is wrong")
     if document.get("protocol", {}).get("version") != prereg.PROTOCOL_VERSION:
         problems.append("SE result protocol version is wrong")
+    if document.get("software_endpoint_time_budget_hours") != prereg_record.get(
+        "software_endpoint_time_budget_hours"
+    ):
+        problems.append("SE result time budget differs from preregistration")
+    elapsed = document.get("session_elapsed_seconds")
+    if (
+        not isinstance(elapsed, (int, float))
+        or isinstance(elapsed, bool)
+        or not math.isfinite(elapsed)
+        or elapsed < 0
+    ):
+        problems.append("SE result session elapsed time is invalid")
     attempts = document.get("attempts")
     if not isinstance(attempts, list):
         return problems + ["SE result attempts are missing"]
@@ -793,6 +858,11 @@ def validate_document(document: dict, prereg_record: dict) -> list[str]:
             problems.append("SE result contains an unqualified implementation")
         if attempt.get("status") not in STATUS_VALUES:
             problems.append("SE result contains an unknown attempt status")
+        if attempt.get("status") == "skip":
+            if attempt.get("skip_reason") != "budget-exhausted":
+                problems.append("SE skip lacks the budget-exhausted reason")
+        elif attempt.get("skip_reason") is not None:
+            problems.append("SE non-skip attempt carries a skip reason")
         if attempt.get("status") == "invalid":
             if attempt.get("invalid_reason") not in prereg_record.get(
                 "allowed_invalid_reasons", []
@@ -856,6 +926,52 @@ def validate_document(document: dict, prereg_record: dict) -> list[str]:
                 or attempt.get("invalid_reason") is not None
             ):
                 problems.append("SE pass attempt has invalid cursor or liveness evidence")
+            observations = attempt.get("environment_observations")
+            thermal_counts = (
+                [entry.get("thermal_throttle_count") for entry in observations]
+                if isinstance(observations, list)
+                and len(observations) >= 2
+                and all(isinstance(entry, dict) for entry in observations)
+                else []
+            )
+            temperatures = (
+                [entry.get("cpu_temperature_celsius") for entry in observations]
+                if thermal_counts
+                else []
+            )
+            temperature_sources = (
+                [entry.get("cpu_temperature_source") for entry in observations]
+                if thermal_counts
+                else []
+            )
+            if (
+                not thermal_counts
+                or any(
+                    not isinstance(value, int)
+                    or isinstance(value, bool)
+                    or value < 0
+                    for value in thermal_counts
+                )
+                or any(
+                    after < before
+                    for before, after in zip(thermal_counts, thermal_counts[1:])
+                )
+                or any(
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or not math.isfinite(value)
+                    or not -20 <= value <= 150
+                    for value in temperatures
+                )
+                or any(
+                    source
+                    != prereg_record.get("software_endpoint_temperature_source")
+                    for source in temperature_sources
+                )
+                or attempt.get("thermal_throttle_delta")
+                != thermal_counts[-1] - thermal_counts[0]
+            ):
+                problems.append("SE pass attempt has invalid thermal telemetry")
             retention = attempt.get("retention")
             if not isinstance(retention, dict) or retention.get("status") not in {
                 collectors.AVAILABLE,
@@ -957,6 +1073,7 @@ def run_session(
     collector_probe: dict,
     availability_record: dict,
     sleep=time.sleep,
+    monotonic=time.monotonic,
 ) -> dict:
     """Execute both SE workloads in the exact frozen order."""
     if prereg_record.get("configurations") != ["plain"]:
@@ -967,6 +1084,24 @@ def run_session(
         raise ValueError("the SE workload order is absent or drifted")
     if prereg_record.get("replacement_limit_per_invalid_attempt") != 1:
         raise ValueError("the SE replacement limit must be exactly one")
+    try:
+        budget_seconds = (
+            float(prereg_record["software_endpoint_time_budget_hours"]) * 3600
+        )
+        start_temperature_ceiling = float(
+            prereg_record[
+                "software_endpoint_start_temperature_ceiling_celsius"
+            ]
+        )
+        temperature_source = prereg_record["software_endpoint_temperature_source"]
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("the SE time and start-temperature limits must be numeric") from error
+    if budget_seconds <= 0:
+        raise ValueError("the SE time budget must be positive")
+    if not 60 <= start_temperature_ceiling <= 95:
+        raise ValueError("the SE start-temperature ceiling must be between 60 and 95 C")
+    if not isinstance(temperature_source, str) or not temperature_source:
+        raise ValueError("the SE CPU-temperature source must be pinned")
     if not isinstance(schedule, list) or not schedule:
         raise ValueError("the SE execution order is absent")
     for workload_id in workload_order:
@@ -991,6 +1126,15 @@ def run_session(
     for field in ("display_mode_signature", "external_power_state", "power_policy"):
         if frozen_environment.get(field) != expected_class.get(field):
             raise ValueError(f"live environment control {field!r} drifted")
+    if frozen_environment.get("cpu_temperature_source") != temperature_source:
+        raise ValueError("live CPU-temperature source drifted from preregistration")
+    live_temperature = frozen_environment.get("cpu_temperature_celsius")
+    if (
+        not isinstance(live_temperature, (int, float))
+        or isinstance(live_temperature, bool)
+        or not math.isfinite(live_temperature)
+    ):
+        raise ValueError("live CPU-temperature value is unavailable")
     expected_environments = _expected_environments(prereg_record, launcher)
 
     results_dir.mkdir(parents=True, exist_ok=False)
@@ -1001,6 +1145,57 @@ def run_session(
     raw_path = results_dir / "software-endpoint-raw-samples.jsonl"
     attempts: list[dict] = []
     started = _utc_now()
+    session_started = monotonic()
+
+    def execute_attempt(
+        workload_id: str,
+        implementation: str,
+        block: int,
+        phase: str,
+        position: int,
+        timeout_seconds: int,
+        attempt_number: int,
+    ) -> dict:
+        reserved_wall_seconds = (
+            READY_TIMEOUT_SECONDS
+            + timeout_seconds
+            + AFTER_SETTLE_SECONDS
+            + CLEANUP_ALLOWANCE_SECONDS
+        )
+        if (
+            monotonic() - session_started + reserved_wall_seconds
+            > budget_seconds
+        ):
+            sample = _failed_sample(
+                workload_id,
+                implementation,
+                block,
+                phase,
+                position,
+                "skip",
+                "software-endpoint time budget exhausted before this attempt",
+            )
+            sample["skip_reason"] = "budget-exhausted"
+        else:
+            sample = run_trial(
+                workload_id,
+                implementation,
+                block,
+                phase,
+                position,
+                launcher,
+                expected_environments[implementation],
+                timeout_seconds,
+                prereg_record["background_cpu_ceiling_percent"],
+                start_temperature_ceiling,
+                temperature_source,
+                attempt_number,
+                sleep=sleep,
+            )
+        sample["attempt"] = attempt_number
+        sample["replacement"] = attempt_number == 2
+        return sample
+
     with raw_path.open("x", encoding="utf-8") as raw:
         for workload_id in workload_order:
             replacements: list[tuple[int, str, int, str]] = []
@@ -1020,20 +1215,15 @@ def run_session(
                 for position, implementation in enumerate(
                     block_record["implementation_order"], start=1
                 ):
-                    attempt = run_trial(
+                    attempt = execute_attempt(
                         workload_id,
                         implementation,
                         block,
                         phase,
                         position,
-                        launcher,
-                        expected_environments[implementation],
                         timeout_seconds,
-                        prereg_record["background_cpu_ceiling_percent"],
-                        sleep=sleep,
+                        1,
                     )
-                    attempt["attempt"] = 1
-                    attempt["replacement"] = False
                     attempts.append(attempt)
                     raw.write(json.dumps(attempt, sort_keys=True) + "\n")
                     raw.flush()
@@ -1045,20 +1235,15 @@ def run_session(
             # Each invalid primary receives exactly one non-recursive
             # replacement after the workload's frozen balanced sequence.
             for block, implementation, position, phase in replacements:
-                attempt = run_trial(
+                attempt = execute_attempt(
                     workload_id,
                     implementation,
                     block,
                     phase,
                     position,
-                    launcher,
-                    expected_environments[implementation],
                     timeout_seconds,
-                    prereg_record["background_cpu_ceiling_percent"],
-                    sleep=sleep,
+                    2,
                 )
-                attempt["attempt"] = 2
-                attempt["replacement"] = True
                 attempts.append(attempt)
                 raw.write(json.dumps(attempt, sort_keys=True) + "\n")
                 raw.flush()
@@ -1077,6 +1262,8 @@ def run_session(
         "completed_utc": _utc_now(),
         "workload_order": workload_order,
         "after_settle_seconds": AFTER_SETTLE_SECONDS,
+        "software_endpoint_time_budget_hours": budget_seconds / 3600,
+        "session_elapsed_seconds": monotonic() - session_started,
         "attempts": attempts,
         "measured_samples": [
             attempt for attempt in attempts if attempt.get("phase") == "measured"
@@ -1109,16 +1296,13 @@ def run_smoke(
     launcher,
     sleep=time.sleep,
 ) -> dict:
-    """Execute exactly one live SE trial per qualified implementation.
+    """Execute live primary and replacement paths per qualified implementation.
 
-    A mandatory pre-run gate, not a measurement: one SE1 trial per terminal
-    proves the full live path (window mapping, startup-geometry normalization
-    to the preregistered grid, CPR oracle, retention sampling) against the
-    real compositor before the multi-hour session is allowed to start. The
-    hermetic self-tests cannot see a live-compositor gap; this can. Trials
-    carry the phase `smoke`, are never written into a results document, and
-    consume no run identity, so the smoke is safe to rerun until measurement
-    begins.
+    This mandatory pre-run gate is not a measurement. One primary-shaped and
+    one replacement-shaped SE1 trial per terminal prove the full live path,
+    including distinct immutable evidence identities, before the multi-hour
+    session can start. Trials carry the phase `smoke`, never enter a results
+    document, and consume no run identity.
     """
     workload_id = next(iter(WORKLOAD_BY_ID))
     timeout_seconds = workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]][
@@ -1127,32 +1311,40 @@ def run_smoke(
     expected = _expected_environments(prereg_record, launcher)
     trials = []
     for position, implementation in enumerate(sorted(expected), start=1):
-        attempt = run_trial(
-            workload_id,
-            implementation,
-            0,
-            "smoke",
-            position,
-            launcher,
-            expected[implementation],
-            timeout_seconds,
-            prereg_record["background_cpu_ceiling_percent"],
-            sleep=sleep,
-        )
-        trial = {
-            "implementation": implementation,
-            "status": attempt.get("status"),
-            "oracle": attempt.get("oracle"),
-            "detail": attempt.get("detail"),
-            "invalid_reason": attempt.get("invalid_reason"),
-            "oracle_reasons": attempt.get("oracle_reasons", []),
-        }
-        trial["path_verified"] = _smoke_trial_path_verified(trial)
-        trials.append(trial)
+        for attempt_number in (1, 2):
+            attempt = run_trial(
+                workload_id,
+                implementation,
+                0,
+                "smoke",
+                position,
+                launcher,
+                expected[implementation],
+                timeout_seconds,
+                prereg_record["background_cpu_ceiling_percent"],
+                prereg_record[
+                    "software_endpoint_start_temperature_ceiling_celsius"
+                ],
+                prereg_record["software_endpoint_temperature_source"],
+                attempt_number,
+                sleep=sleep,
+            )
+            trial = {
+                "implementation": implementation,
+                "attempt": attempt_number,
+                "replacement": attempt_number == 2,
+                "status": attempt.get("status"),
+                "oracle": attempt.get("oracle"),
+                "detail": attempt.get("detail"),
+                "invalid_reason": attempt.get("invalid_reason"),
+                "oracle_reasons": attempt.get("oracle_reasons", []),
+            }
+            trial["path_verified"] = _smoke_trial_path_verified(trial)
+            trials.append(trial)
     passed = all(trial["path_verified"] for trial in trials)
     return {
         "record_type": "software-endpoint-smoke",
-        "schema_version": 2,
+        "schema_version": 3,
         "preregistration_sha256": prereg_sha256,
         "captured_utc": _utc_now(),
         "workload_id": workload_id,
@@ -1162,18 +1354,11 @@ def run_smoke(
 
 
 def _smoke_trial_path_verified(trial: dict) -> bool:
-    """Accept a verified live path despite a separately recorded thermal event."""
-    status = trial.get("status")
-    invalid_reason = trial.get("invalid_reason")
+    """Require a complete valid oracle path for every smoke trial."""
     return (
-        trial.get("oracle") == "pass"
-        and (
-            (status == "pass" and invalid_reason is None)
-            or (
-                status == "invalid"
-                and invalid_reason in SMOKE_TOLERATED_INVALID_REASONS
-            )
-        )
+        trial.get("status") == "pass"
+        and trial.get("invalid_reason") is None
+        and trial.get("oracle") == "pass"
     )
 
 
@@ -1187,15 +1372,22 @@ def validate_smoke_record(
     return (
         isinstance(record, dict)
         and record.get("record_type") == "software-endpoint-smoke"
-        and record.get("schema_version") == 2
+        and record.get("schema_version") == 3
         and record.get("status") == "PASS"
         and record.get("preregistration_sha256") == prereg_sha256
         and record.get("workload_id") == next(iter(WORKLOAD_BY_ID))
         and bool(expected_implementations)
         and isinstance(record.get("trials"), list)
         and all(isinstance(trial, dict) for trial in record["trials"])
-        and [trial.get("implementation") for trial in record["trials"]]
-        == expected_implementations
+        and [
+            (trial.get("implementation"), trial.get("attempt"), trial.get("replacement"))
+            for trial in record["trials"]
+        ]
+        == [
+            (implementation, attempt, attempt == 2)
+            for implementation in expected_implementations
+            for attempt in (1, 2)
+        ]
         and all(
             isinstance(trial, dict)
             and trial.get("path_verified") is True
@@ -1214,6 +1406,8 @@ class _FakeLauncher:
             "display_mode_signature": [{"width": 1}],
             "external_power_state": "external",
             "power_policy": "performance",
+            "cpu_temperature_celsius": 50.0,
+            "cpu_temperature_source": "hwmon:coretemp:temp1_input",
         }
 
     def trial_result(
@@ -1223,6 +1417,7 @@ class _FakeLauncher:
         block: int,
         phase: str,
         order_position: int,
+        attempt_number: int,
     ) -> dict:
         fixture = workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]]["fixture"]
         return {
@@ -1244,8 +1439,21 @@ class _FakeLauncher:
             "cursor_report": [24, 1],
             "expected_cursor_report": [24, 1],
             "process_alive_at_after_sample": True,
-            "attempt": 1,
-            "replacement": False,
+            "attempt": attempt_number,
+            "replacement": attempt_number == 2,
+            "environment_observations": [
+                {
+                    "thermal_throttle_count": 0,
+                    "cpu_temperature_celsius": 50.0,
+                    "cpu_temperature_source": "hwmon:coretemp:temp1_input",
+                },
+                {
+                    "thermal_throttle_count": 0,
+                    "cpu_temperature_celsius": 51.0,
+                    "cpu_temperature_source": "hwmon:coretemp:temp1_input",
+                },
+            ],
+            "thermal_throttle_delta": 0,
             "retention": collectors.retention_record(100, 140, 110),
         }
 
@@ -1261,15 +1469,21 @@ class _ReplacementFakeLauncher(_FakeLauncher):
         block: int,
         phase: str,
         order_position: int,
+        attempt_number: int,
     ) -> dict:
         sample = super().trial_result(
-            workload_id, implementation, block, phase, order_position
+            workload_id,
+            implementation,
+            block,
+            phase,
+            order_position,
+            attempt_number,
         )
         key = (workload_id, implementation, block, phase, order_position)
         self._calls[key] = self._calls.get(key, 0) + 1
         if key == ("SE1", "a", 6, "measured", 1) and self._calls[key] == 1:
             sample["status"] = "invalid"
-            sample["invalid_reason"] = "thermal-throttling"
+            sample["invalid_reason"] = "thermal-start-above-ceiling"
             for field in (
                 "payload_bytes",
                 "elapsed_seconds",
@@ -1381,18 +1595,29 @@ def self_test() -> list[str]:
 
     smoke_record = {
         "record_type": "software-endpoint-smoke",
-        "schema_version": 2,
+        "schema_version": 3,
         "preregistration_sha256": "a" * 64,
         "status": "PASS",
         "workload_id": "SE1",
         "trials": [
             {
                 "implementation": "a",
+                "attempt": 1,
+                "replacement": False,
                 "status": "pass",
                 "oracle": "pass",
                 "invalid_reason": None,
                 "path_verified": True,
-            }
+            },
+            {
+                "implementation": "a",
+                "attempt": 2,
+                "replacement": True,
+                "status": "pass",
+                "oracle": "pass",
+                "invalid_reason": None,
+                "path_verified": True,
+            },
         ],
     }
     if not validate_smoke_record(smoke_record, "a" * 64, ["a"]):
@@ -1403,7 +1628,7 @@ def self_test() -> list[str]:
         {"status": "FAIL"},
         {"record_type": "software-endpoint-results"},
         {"workload_id": "SE2"},
-        {"schema_version": 1},
+        {"schema_version": 2},
         {"trials": []},
         {"trials": [{"implementation": "a", "status": "fail"}]},
     ):
@@ -1415,32 +1640,27 @@ def self_test() -> list[str]:
             )
     if validate_smoke_record(smoke_record, "a" * 64, ["a", "b"]):
         failures.append("se-runner: truncated implementation smoke set was accepted")
-    duplicated_smoke = {
-        **smoke_record,
-        "trials": [smoke_record["trials"][0], smoke_record["trials"][0]],
-    }
-    if validate_smoke_record(duplicated_smoke, "a" * 64, ["a", "b"]):
-        failures.append("se-runner: duplicate implementation smoke set was accepted")
-    thermal_smoke = json.loads(json.dumps(smoke_record))
-    thermal_smoke["trials"][0].update(
+    duplicated_smoke = json.loads(json.dumps(smoke_record))
+    duplicated_smoke["trials"][1] = duplicated_smoke["trials"][0]
+    if validate_smoke_record(duplicated_smoke, "a" * 64, ["a"]):
+        failures.append("se-runner: duplicate primary smoke path was accepted")
+    invalid_smoke = json.loads(json.dumps(smoke_record))
+    invalid_smoke["trials"][0].update(
         {
             "status": "invalid",
-            "invalid_reason": "thermal-throttling",
-            "path_verified": True,
+            "invalid_reason": "background-load-above-ceiling",
+            "path_verified": False,
         }
     )
-    if not validate_smoke_record(thermal_smoke, "a" * 64, ["a"]):
-        failures.append("se-runner: thermal-invalid verified smoke path was rejected")
-    background_smoke = json.loads(json.dumps(thermal_smoke))
-    background_smoke["trials"][0]["invalid_reason"] = (
-        "background-load-above-ceiling"
-    )
-    if validate_smoke_record(background_smoke, "a" * 64, ["a"]):
-        failures.append("se-runner: background-invalid smoke path gated a run")
+    if validate_smoke_record(invalid_smoke, "a" * 64, ["a"]):
+        failures.append("se-runner: invalid smoke path gated a run")
 
     fake_prereg = {
         "protocol": {"version": prereg.PROTOCOL_VERSION, "sha256": "c" * 64},
         "replacement_limit_per_invalid_attempt": 1,
+        "software_endpoint_time_budget_hours": 24.0,
+        "software_endpoint_start_temperature_ceiling_celsius": 80.0,
+        "software_endpoint_temperature_source": "hwmon:coretemp:temp1_input",
         "allowed_invalid_reasons": [
             "background-load-above-ceiling",
             "collector-loss",
@@ -1448,6 +1668,7 @@ def self_test() -> list[str]:
             "display-mode-change",
             "power-policy-change",
             "thermal-throttling",
+            "thermal-start-above-ceiling",
         ],
         "implementations": [
             {
@@ -1484,11 +1705,14 @@ def self_test() -> list[str]:
                         block["block"],
                         "measured",
                         position,
+                        1,
                     )
                 )
     document = {
         "record_type": "software-endpoint-results",
         "protocol": {"version": prereg.PROTOCOL_VERSION},
+        "software_endpoint_time_budget_hours": 24.0,
+        "session_elapsed_seconds": 1.0,
         "attempts": attempts,
     }
     problems = validate_document(document, fake_prereg)
@@ -1516,7 +1740,7 @@ def self_test() -> list[str]:
     replaced_attempts = json.loads(json.dumps(attempts))
     invalid_primary = replaced_attempts[0]
     invalid_primary["status"] = "invalid"
-    invalid_primary["invalid_reason"] = "thermal-throttling"
+    invalid_primary["invalid_reason"] = "thermal-start-above-ceiling"
     for field in (
         "payload_bytes",
         "elapsed_seconds",
@@ -1530,6 +1754,7 @@ def self_test() -> list[str]:
         invalid_primary["block"],
         invalid_primary["phase"],
         invalid_primary["order_position"],
+        2,
     )
     replacement["attempt"] = 2
     replacement["replacement"] = True
@@ -1552,7 +1777,7 @@ def self_test() -> list[str]:
     invalid_replacement = json.loads(json.dumps(replaced_document))
     invalid_replacement_attempt = invalid_replacement["attempts"][per_workload]
     invalid_replacement_attempt["status"] = "invalid"
-    invalid_replacement_attempt["invalid_reason"] = "thermal-throttling"
+    invalid_replacement_attempt["invalid_reason"] = "thermal-start-above-ceiling"
     for field in (
         "payload_bytes",
         "elapsed_seconds",
@@ -1574,6 +1799,9 @@ def self_test() -> list[str]:
         "collectors": [],
         "environment_class": _FakeLauncher.environment_observation(),
         "background_cpu_ceiling_percent": 10.0,
+        "software_endpoint_time_budget_hours": 24.0,
+        "software_endpoint_start_temperature_ceiling_celsius": 80.0,
+        "software_endpoint_temperature_source": "hwmon:coretemp:temp1_input",
         "run_set": {"id": "self-test"},
     }
     with tempfile.TemporaryDirectory() as tmp:
@@ -1594,11 +1822,39 @@ def self_test() -> list[str]:
         elif not result["attempts"][per_workload].get("replacement"):
             failures.append("se-runner: replacement was not placed after its workload")
 
+    budget_prereg = {
+        **run_prereg,
+        "software_endpoint_time_budget_hours": 1.0,
+    }
+    budget_clock_values = iter([0.0] + [4000.0] * 32)
+    with tempfile.TemporaryDirectory() as tmp:
+        budget_result = run_session(
+            budget_prereg,
+            "a" * 64,
+            "b" * 40,
+            _FakeLauncher(),
+            Path(tmp) / "results",
+            {"collectors": []},
+            {"status": "ok"},
+            sleep=lambda _seconds: None,
+            monotonic=lambda: next(budget_clock_values),
+        )
+        if validate_document(budget_result, budget_prereg):
+            failures.append("se-runner: budget-exhausted document was rejected")
+        if not budget_result["attempts"] or any(
+            attempt.get("status") != "skip"
+            or attempt.get("skip_reason") != "budget-exhausted"
+            for attempt in budget_result["attempts"]
+        ):
+            failures.append("se-runner: exhausted budget did not skip remaining attempts")
+
     environment = {
         "display_mode_signature": [{"width": 1}],
         "external_power_state": "external",
         "power_policy": "performance",
         "thermal_throttle_count": 0,
+        "cpu_temperature_celsius": 50.0,
+        "cpu_temperature_source": "hwmon:coretemp:temp1_input",
         "system_cpu_ticks": (100, 80),
         "measurement_cgroup_cpu_usec": 0,
         "controller_elapsed_seconds": 0.0,
@@ -1610,7 +1866,7 @@ def self_test() -> list[str]:
         "controller_elapsed_seconds": 0.25,
     }
     valid, reason = validate_interval_environment(
-        [environment, later], environment, 0.25
+        [environment, later], environment, 0.25, 80.0, "hwmon:coretemp:temp1_input"
     )
     if not valid or reason is not None:
         failures.append("se-runner: a valid fractional burst interval was rejected")
@@ -1620,10 +1876,31 @@ def self_test() -> list[str]:
         "measurement_cgroup_cpu_usec": 50_000,
     }
     valid, reason = validate_interval_environment(
-        [environment, busy], environment, 0.25
+        [environment, busy], environment, 0.25, 80.0, "hwmon:coretemp:temp1_input"
     )
     if not valid or reason is not None:
         failures.append("se-runner: terminal-induced burst CPU was called background load")
+    throttled = {**later, "thermal_throttle_count": 1}
+    valid, reason = validate_interval_environment(
+        [environment, throttled],
+        environment,
+        0.25,
+        80.0,
+        "hwmon:coretemp:temp1_input",
+    )
+    if not valid or reason is not None:
+        failures.append("se-runner: load-correlated throttle telemetry invalidated a trial")
+    hot_start = {**environment, "cpu_temperature_celsius": 81.0}
+    hot_later = {**later, "cpu_temperature_celsius": 82.0}
+    valid, reason = validate_interval_environment(
+        [hot_start, hot_later],
+        environment,
+        0.25,
+        80.0,
+        "hwmon:coretemp:temp1_input",
+    )
+    if not valid or reason != "thermal-start-above-ceiling":
+        failures.append("se-runner: hot start was not invalidated")
     settle_environment = {
         key: value
         for key, value in environment.items()
@@ -1709,7 +1986,7 @@ def _verify_se_runtime_identity(record: dict, repo_root: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Execute protocol 1.5.2 SE1/SE2 software-endpoint trials."
+        description="Execute protocol 1.5.3 SE1/SE2 software-endpoint trials."
     )
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--estimate", action="store_true")

@@ -1,6 +1,19 @@
 # OdyTTY Comparative Benchmark Protocol
 
-Protocol version: `1.5.2`
+Protocol version: `1.5.3`
+
+Version 1.5.3 corrects the validity and evidence-identity defects exposed by
+the first 1.5.2 measured campaign. SE throttle-counter increments are retained
+as telemetry but are not an invalidation: an active throughput workload can
+cause power, current, or frequency limiting, so excluding that observation
+would discard part of the product result. Instead, each SE attempt must begin
+at or below the preregistered 80 C CPU-temperature ceiling. Temperature and
+counter changes remain in every passing sample. Primary and replacement
+attempts now use distinct immutable evidence identities, and the mandatory
+live smoke executes both paths for every qualified terminal. W6 and SE also
+carry separate frozen time budgets because their runners execute independently.
+W7 is explicitly `skip` / `not-attempted` for the v0.12.0 run set rather than
+remaining nominally planned without a 50-hour execution path.
 
 Version 1.5.2 corrects two software-endpoint execution gates before any
 measured sample. The mandatory smoke remains a live path proof: every
@@ -62,10 +75,10 @@ comparison unreachable. The remaining pitch difference is therefore stated as
 a limitation of the comparison (see *Cell geometry: a target, not an admission gate*) rather
 than asserted away.
 
-Version 1.5.2 requires a fresh preregistration and run-set identity. Protocol
-1.0.0 through 1.5.1 records and results remain historical evidence, are
+Version 1.5.3 requires a fresh preregistration and run-set identity. Protocol
+1.0.0 through 1.5.2 records and results remain historical evidence, are
 rejected by version rather than reinterpreted, and are never pooled with
-1.5.2 samples. Optical samples under 1.5.2 are never pooled with
+1.5.3 samples. Optical samples under 1.5.3 are never pooled with
 software-endpoint samples under the same version.
 
 This protocol defines how OdyTTY and independent terminal references are
@@ -104,7 +117,8 @@ first measured sample. The record must contain:
 - the complete implementation order for every block;
 - allowed invalid-run reasons, replacement limits, timeouts, and planned
   sample counts;
-- the aggregate run-set time budget and instrumentation-overhead ceiling; and
+- the separate W6 and software-endpoint time budgets and the
+  instrumentation-overhead ceiling; and
 - the statistics implementation revision and bootstrap seed.
 
 The protocol file digest is calculated after checkout; it is not embedded in
@@ -679,12 +693,20 @@ workers induced by the terminal run outside its cgroup. The unchanged
 background ceiling is applied during the fixed post-burst idle settle, after
 that induced work has quiesced.
 
-Before measurement, the mandatory smoke executes one live SE1 path per
-qualified implementation. A passing terminal oracle proves the launch,
-geometry, payload, CPR, completion, and retention path. A simultaneous
-thermal-counter increment remains explicit in the smoke trial but does not
-erase that path proof. The measured runner applies the thermal invalidation to
-every attempt and never publishes the affected numeric result.
+Before measurement, the mandatory smoke executes one primary-shaped and one
+replacement-shaped live SE1 path per qualified implementation. A passing pair
+proves the launch, distinct immutable evidence identities, geometry, payload,
+CPR, completion, and retention paths. Any smoke invalidation or oracle failure
+blocks measurement.
+
+SE validity distinguishes initial thermal state from load-correlated hardware
+behaviour. An attempt whose first CPU-temperature observation exceeds the
+preregistered 80 C ceiling is `invalid`. A throttle-counter increment after
+the attempt starts remains recorded but does not invalidate the result. The
+sysfs sensor identity is frozen in preregistration and must remain available
+for every observation. The balanced order distributes accumulated heat across
+implementations rather than consistently assigning a hotter position to one
+terminal.
 
 The CPR must report the last PTY row and column one at the preregistered grid.
 A syntactically valid reply at another location fails the oracle.
@@ -762,10 +784,11 @@ preregistered seed. When needed, the square and its reverse alternate so each
 implementation occupies every order position equally. Configuration order is
 balanced independently.
 
-There is no precision-based early stopping. A run set ends only when all planned
-samples are attempted or the fixed run-set time budget expires. An incomplete
-run set is published as incomplete; its available samples are not promoted to a
-complete comparison.
+There is no precision-based early stopping. W6 and SE each carry their own
+fixed preregistered time budget because their runners execute independently.
+Each runner ends when all planned samples are attempted or its budget expires.
+Unattempted samples are recorded as `skip` / `budget-exhausted`; available
+samples are not promoted to a complete comparison.
 
 ## Invalid Runs, Failures, and Outliers
 
@@ -779,8 +802,9 @@ An attempted sample has exactly one status:
 - `unsupported`: the platform or tool cannot represent the metric semantics.
 
 Allowed `invalid` reasons are collector loss, controller loss, display-mode
-change, power-policy change, thermal throttling, or background load above the
-preregistered ceiling. Each invalid attempt remains in raw data and permits at
+change, power-policy change, W6 thermal throttling, SE start temperature above
+the preregistered ceiling, or background load above its preregistered ceiling.
+Each invalid attempt remains in raw data and permits at
 most one replacement attempt at the end of the same balanced block sequence.
 For SE1 and SE2, that sequence is the complete primary schedule for the current
 workload; replacements retain the original block and order-position identity.
@@ -876,9 +900,9 @@ shape:
 
 ```json
 {
-  "schema_version": "1.5.2",
+  "schema_version": "1.5.3",
   "protocol": {
-    "version": "1.5.2",
+    "version": "1.5.3",
     "git_commit": "<full-sha>",
     "sha256": "<protocol-sha256>"
   },

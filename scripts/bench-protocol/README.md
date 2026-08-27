@@ -1,7 +1,7 @@
 # `scripts/bench-protocol/` — comparative benchmark harness
 
 Preparation tooling for `docs/benchmark-protocol.md` (protocol version
-`1.5.2`). See `docs/benchmark-apparatus.md` for what this comparison unit can
+`1.5.3`). See `docs/benchmark-apparatus.md` for what this comparison unit can
 and cannot measure, and why.
 
 Every command here is offline, cheap, and side-effect free unless it is
@@ -92,12 +92,12 @@ python3 scripts/bench-protocol/se_runner.py --run \
     --smoke-record <passing-smoke-record.json>
 ```
 
-The SE smoke proves the live launch, geometry, payload, CPR, completion, and
-retention path for every qualified terminal. A thermal-counter increment stays
-visible as an invalid smoke trial but does not erase an otherwise verified
-path. Every measured thermal-invalid attempt remains invalid and receives the
-single preregistered, non-recursive replacement after the workload's primary
-sequence. Any other smoke invalidation or any oracle failure blocks the run.
+The SE smoke proves the live launch, geometry, payload, CPR, completion,
+retention, and distinct primary/replacement evidence paths for every qualified
+terminal. Any smoke invalidation or oracle failure blocks the run. Measured SE
+attempts record temperature and throttle-counter telemetry. They invalidate a
+start above the preregistered 80 C ceiling, but do not discard
+load-correlated counter increments after the attempt begins.
 
 The measured command refuses a dirty or non-preregistered checkout, requires
 the exact public preregistration bytes, revalidates the frozen implementation
