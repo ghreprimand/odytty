@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Workload catalogue for the OdyTTY comparative benchmark protocol
-# (`docs/benchmark-protocol.md`, protocol version 1.5.3).
+# (`docs/benchmark-protocol.md`, protocol version 1.5.4).
 #
 # Two classes live in this file and must never be pooled:
 #

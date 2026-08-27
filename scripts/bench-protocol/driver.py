@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Benchmark driver for the OdyTTY comparative benchmark protocol
-# (`docs/benchmark-protocol.md`, protocol version 1.5.3).
+# (`docs/benchmark-protocol.md`, protocol version 1.5.4).
 #
 # The protocol requires that all benchmark child behaviour be supplied by one
 # public, version-pinned driver that behaves identically on Linux, Windows,

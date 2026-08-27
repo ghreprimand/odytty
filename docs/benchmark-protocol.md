@@ -1,6 +1,13 @@
 # OdyTTY Comparative Benchmark Protocol
 
-Protocol version: `1.5.3`
+Protocol version: `1.5.4`
+
+Version 1.5.4 corrects the temperature-source binding defect exposed by the
+1.5.3 live smoke. The preregistration freezes one sysfs CPU-temperature
+source, and every SE observation now reads that exact source. The collector
+must not reselect whichever core is hottest during a trial. All eight 1.5.3
+smoke oracles passed, but their changing sensor identities correctly blocked
+measurement as controller loss. Protocol 1.5.3 produced no measured sample.
 
 Version 1.5.3 corrects the validity and evidence-identity defects exposed by
 the first 1.5.2 measured campaign. SE throttle-counter increments are retained
@@ -75,10 +82,10 @@ comparison unreachable. The remaining pitch difference is therefore stated as
 a limitation of the comparison (see *Cell geometry: a target, not an admission gate*) rather
 than asserted away.
 
-Version 1.5.3 requires a fresh preregistration and run-set identity. Protocol
-1.0.0 through 1.5.2 records and results remain historical evidence, are
+Version 1.5.4 requires a fresh preregistration and run-set identity. Protocol
+1.0.0 through 1.5.3 records and results remain historical evidence, are
 rejected by version rather than reinterpreted, and are never pooled with
-1.5.3 samples. Optical samples under 1.5.3 are never pooled with
+1.5.4 samples. Optical samples under 1.5.4 are never pooled with
 software-endpoint samples under the same version.
 
 This protocol defines how OdyTTY and independent terminal references are
@@ -900,9 +907,9 @@ shape:
 
 ```json
 {
-  "schema_version": "1.5.3",
+  "schema_version": "1.5.4",
   "protocol": {
-    "version": "1.5.3",
+    "version": "1.5.4",
     "git_commit": "<full-sha>",
     "sha256": "<protocol-sha256>"
   },

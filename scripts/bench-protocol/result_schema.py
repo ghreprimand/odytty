@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Result-document schema and validator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.5.3).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.5.4).
 #
 # The protocol specifies the canonical result as UTF-8 JSON with sorted object
 # keys and a minimum shape, and it specifies exactly what validation must
@@ -64,8 +64,8 @@ _matches_target_grid = profiles.matches_target_grid
 # implementation's stable observed grid and records whether it reached the
 # 80x24 target. Documents written under earlier versions are rejected by
 # version, not reinterpreted under these different geometry semantics.
-SCHEMA_VERSION = "1.5.3"
-PROTOCOL_VERSION = "1.5.3"
+SCHEMA_VERSION = "1.5.4"
+PROTOCOL_VERSION = "1.5.4"
 REHEARSAL_TIMING_TOLERANCE_SECONDS = 2.0
 ENVIRONMENT_SAMPLE_PERIOD_SECONDS = 1.0
 ENVIRONMENT_SAMPLE_MAX_GAP_SECONDS = 2.0

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Execute the protocol 1.5.3 software-endpoint workload class.
+"""Execute the protocol 1.5.4 software-endpoint workload class.
 
 SE1 and SE2 are throughput-shaped software-endpoint measurements. They are
 never W3/W4 substitutes and never enter the optical-workload result pool. The
@@ -257,6 +257,26 @@ def validate_interval_environment(
 
 class SoftwareEndpointLauncher(w6_runner.RealLauncher):
     """Real terminal launcher for the SE start/release child contract."""
+
+    _temperature_source: str | None = None
+
+    def pin_temperature_source(self, source: str) -> None:
+        """Use the exact preregistered sensor throughout the SE session."""
+        self._temperature_source = source
+
+    def environment_observation(self) -> dict:
+        observation = super().environment_observation()
+        if self._temperature_source is not None:
+            temperature = collectors.cpu_temperature_observation(
+                source=self._temperature_source
+            )
+            observation["cpu_temperature_celsius"] = (
+                temperature.get("celsius") if temperature is not None else None
+            )
+            observation["cpu_temperature_source"] = (
+                temperature.get("source") if temperature is not None else None
+            )
+        return observation
 
     def launch_stream(
         self,
@@ -1102,6 +1122,9 @@ def run_session(
         raise ValueError("the SE start-temperature ceiling must be between 60 and 95 C")
     if not isinstance(temperature_source, str) or not temperature_source:
         raise ValueError("the SE CPU-temperature source must be pinned")
+    temperature_setter = getattr(launcher, "pin_temperature_source", None)
+    if temperature_setter is not None:
+        temperature_setter(temperature_source)
     if not isinstance(schedule, list) or not schedule:
         raise ValueError("the SE execution order is absent")
     for workload_id in workload_order:
@@ -1304,6 +1327,10 @@ def run_smoke(
     session can start. Trials carry the phase `smoke`, never enter a results
     document, and consume no run identity.
     """
+    temperature_source = prereg_record["software_endpoint_temperature_source"]
+    temperature_setter = getattr(launcher, "pin_temperature_source", None)
+    if temperature_setter is not None:
+        temperature_setter(temperature_source)
     workload_id = next(iter(WORKLOAD_BY_ID))
     timeout_seconds = workloads.WORKLOADS[WORKLOAD_BY_ID[workload_id]][
         "timeout_seconds"
@@ -1325,7 +1352,7 @@ def run_smoke(
                 prereg_record[
                     "software_endpoint_start_temperature_ceiling_celsius"
                 ],
-                prereg_record["software_endpoint_temperature_source"],
+                temperature_source,
                 attempt_number,
                 sleep=sleep,
             )
@@ -1986,7 +2013,7 @@ def _verify_se_runtime_identity(record: dict, repo_root: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Execute protocol 1.5.3 SE1/SE2 software-endpoint trials."
+        description="Execute protocol 1.5.4 SE1/SE2 software-endpoint trials."
     )
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--estimate", action="store_true")

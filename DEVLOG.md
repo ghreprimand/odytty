@@ -7,6 +7,32 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-27 -- Bind SE temperature samples to the frozen sensor
+
+The protocol 1.5.3 live smoke completed all eight primary and replacement
+paths with passing CPR, completion, and retention oracles, but correctly
+blocked measurement because every path lost its controller evidence. The
+preregistration pinned `hwmon:coretemp:temp2_input`, while the collector
+reselected whichever CPU core was hottest at each observation. A later sample
+therefore reported `temp4_input` and violated the frozen source identity.
+
+Protocol 1.5.4 keeps the same 80 C start rule and makes its source binding
+executable. Preparation still selects the hottest available CPU sensor to pin,
+but every subsequent SE observation reads that exact source instead of
+performing a new selection. The failed 1.5.3 smoke remains diagnostic evidence;
+no measured sample was taken under that version.
+
+Protocol 1.5.4 requires a new run-set identity, seeds, public preregistration,
+and live smoke before measurement.
+
+Verified: `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`,
+and `RUST_TEST_THREADS=1 cargo test --locked` passed, with 4,777 tests passing
+and none failing. `python3 scripts/bench-protocol/bench-protocol.py --self-test`
+passed all protocol modules, including exact-source selection and fail-closed
+coverage.
+
+---
+
 ## 2026-08-26 -- Preregister the protocol 1.5.3 measured campaign
 
 `bench-results/preregistration-1.5.3.json` freezes the replacement v0.12.0

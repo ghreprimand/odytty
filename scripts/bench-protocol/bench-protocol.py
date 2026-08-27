@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Entry point for the OdyTTY comparative benchmark protocol harness
-# (`docs/benchmark-protocol.md`, protocol version 1.5.3).
+# (`docs/benchmark-protocol.md`, protocol version 1.5.4).
 #
 # One command runs every module's self-tests, and one command reports what
 # this comparison unit can actually measure. Both are cheap, offline, and

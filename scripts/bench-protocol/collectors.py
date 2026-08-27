@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Resource collectors for the OdyTTY comparative benchmark protocol
-# (`docs/benchmark-protocol.md`, protocol version 1.5.3), Linux column.
+# (`docs/benchmark-protocol.md`, protocol version 1.5.4), Linux column.
 #
 # Software-endpoint retention sampling (SE1/SE2) lives here too: it reads
 # the same cgroup v2 memory.current / memory.peak files and never approximates
@@ -47,8 +47,9 @@ from pathlib import Path
 def cpu_temperature_observation(
     hwmon_root: Path = Path("/sys/class/hwmon"),
     thermal_root: Path = Path("/sys/class/thermal"),
+    source: str | None = None,
 ) -> dict | None:
-    """Return the hottest CPU sensor with a stable public source identity."""
+    """Return the pinned CPU sensor, or choose the hottest source to pin."""
     candidates: list[tuple[float, str]] = []
     try:
         hwmon_dirs = list(hwmon_root.glob("hwmon*"))
@@ -68,7 +69,7 @@ def cpu_temperature_observation(
                 continue
             if -20.0 <= value <= 150.0:
                 candidates.append((value, f"hwmon:{name}:{path.name}"))
-    if not candidates:
+    if not candidates or (source is not None and source.startswith("thermal:")):
         try:
             zones = list(thermal_root.glob("thermal_zone*"))
         except OSError:
@@ -87,6 +88,10 @@ def cpu_temperature_observation(
                 candidates.append((value, f"thermal:{kind}"))
     if not candidates:
         return None
+    if source is not None:
+        candidates = [item for item in candidates if item[1] == source]
+        if not candidates:
+            return None
     value, source = max(candidates, key=lambda item: (item[0], item[1]))
     return {"celsius": round(value, 3), "source": source}
 
