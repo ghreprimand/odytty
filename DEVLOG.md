@@ -7,6 +7,31 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-27 -- Preregister the throughput-remediation campaign
+
+`bench-results/preregistration-1.5.4-throughput-remediation.json` freezes a new
+protocol 1.5.4 run set against candidate `79b58f69`. It uses new execution and
+bootstrap seeds, so no sample from the earlier candidate can enter this run
+set.
+
+The OdyTTY artifact was rebuilt from the clean candidate on the benchmark
+machine. Kitty, Ghostty, and Alacritty retain their previously pinned artifact
+identities after their executable digests were reverified. The environment,
+geometry, font, and boot-settle evidence remain valid for the same machine and
+unchanged login session.
+
+The record keeps W6 and software-endpoint time budgets separate, preserves the
+80 C SE start ceiling and exact temperature source, and retains all unavailable
+hardware and deferred-workload declarations. `prereg.py --check` reports the
+record ready.
+
+Its public anchor is
+`bench-results/preregistration-1.5.4-throughput-remediation.json` on
+`refs/heads/master`. Its exact bytes must be published and verified before the
+first measured sample begins.
+
+---
+
 ## 2026-08-27 -- Remove the deep-scrollback output bottleneck
 
 Bulk-output profiling on the benchmark machine isolated a repeated projection
