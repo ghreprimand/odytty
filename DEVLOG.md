@@ -7,6 +7,33 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-27 -- Remove the deep-scrollback output bottleneck
+
+Bulk-output profiling on the benchmark machine isolated a repeated projection
+cache rebuild in the render path. Each output frame asked for the physical
+scrollback length after `Scrollback::push_row` had invalidated the cached
+shape, forcing a walk over all 100,000 retained logical lines while the
+terminal mutex was held.
+
+The projection shape now updates incrementally when output extends the open
+tail, appends a logical line, or evicts lines from the front. A monotonic row
+origin and `VecDeque` starts preserve absolute-row lookup without shifting the
+retained cache. Width changes and non-append structural mutations still take
+the existing full rebuild path.
+
+On the Intel UHD 620 benchmark machine, diagnostic SE1 throughput increased
+from 2.39 MiB/s to 8.04 MiB/s and SE2 increased from 1.31 MiB/s to 8.32 MiB/s.
+The SE1 terminal-lock wait fell from 20.39 seconds to 0.14 seconds, and frame
+rebuild work fell from 24.08 seconds to 0.72 seconds. Every diagnostic settled
+at 80 columns by 24 rows and passed the completion oracle.
+
+Regression tests require a valid projection cache to survive hard-line append,
+steady-state front eviction, and open-line extension while matching a fresh
+full projection. The exact protocol SE1 and SE2 fixtures are also available in
+the performance harness for parser and model isolation.
+
+---
+
 ## 2026-08-27 -- Preregister the protocol 1.5.4 measured campaign
 
 `bench-results/preregistration-1.5.4.json` freezes the replacement v0.12.0

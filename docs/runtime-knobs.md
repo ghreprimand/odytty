@@ -936,6 +936,12 @@ These affect `cargo bench --bench perf` only.
 | --- | --- | --- |
 | `ODYTTY_PERF_PROFILE` | `default`, `legacy`, `quick` | `default` |
 | `ODYTTY_PERF_GEOMETRY_ONLY` | Any non-empty value | unset |
+| `ODYTTY_PERF_SE_ONLY` | Any non-empty value | unset |
+
+`ODYTTY_PERF_SE_ONLY=1` runs exact 64,000,000-byte SE1 and SE2 fixtures through
+the parser alone, the terminal model with one retained line, and the terminal
+model with the protocol's 100,000-line history bound. It isolates the core from
+the PTY, native event loop, geometry builder, and GPU presenter.
 
 ## Launch CLI
 

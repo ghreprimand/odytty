@@ -497,6 +497,45 @@ fn push_row_evicts_oldest_past_the_limit() {
 }
 
 #[test]
+fn push_row_updates_a_valid_projection_cache_incrementally() {
+    let mut sb = Scrollback::with_limit(3);
+    for text in ["0", "1", "2"] {
+        sb.push_row(content(text));
+    }
+    assert_eq!(sb.physical_len(W), 3);
+    assert!(sb.projection_cached_at(W));
+
+    for text in ["3", "4", "5", "6"] {
+        sb.push_row(content(text));
+        assert!(
+            sb.projection_cached_at(W),
+            "an append must not invalidate a projection at the same width"
+        );
+        assert_eq!(sb.physical_len(W), 3);
+        assert_eq!(sb.physical_len(W), sb.physical_all(W).len());
+    }
+
+    let rows = sb.physical(W);
+    assert_eq!(rows, vec![content("4"), content("5"), content("6")]);
+}
+
+#[test]
+fn push_row_updates_cached_open_line_wrap_count() {
+    let mut sb = Scrollback::with_limit(10);
+    sb.push_row(wrapped_full('a'));
+    assert_eq!(sb.physical_len(W), 1);
+
+    sb.push_row(wrapped_full('b'));
+    assert!(sb.projection_cached_at(W));
+    assert_eq!(sb.physical_len(W), 2);
+
+    sb.push_row(content("tail"));
+    assert!(sb.projection_cached_at(W));
+    assert_eq!(sb.physical_len(W), 3);
+    assert_eq!(sb.physical_len(W), sb.physical_all(W).len());
+}
+
+#[test]
 fn unbounded_limit_never_trims() {
     let mut sb = Scrollback::with_limit(0);
     for i in 0..5000 {

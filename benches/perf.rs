@@ -18,6 +18,7 @@
 //! `ODYTTY_PERF_PROFILE=legacy` to run the original large P1/P2-sized workloads,
 //! or `ODYTTY_PERF_PROFILE=quick` for a short smoke. `ODYTTY_PERF_GEOMETRY_ONLY=1`
 //! skips feed/resize rows and uses the quick geometry profile.
+//! `ODYTTY_PERF_SE_ONLY=1` runs the exact protocol 1.5.4 SE1/SE2 isolation.
 //!
 //! Each row reports wall-clock time for a fixed workload plus a derived rate
 //! (bytes/sec for feed workloads, ops/sec for snapshot/geometry workloads). The
@@ -259,6 +260,36 @@ fn gen_plain(lines: usize) -> Vec<u8> {
     s.into_bytes()
 }
 
+/// Exact SE1 fixture bytes from benchmark protocol 1.5.4.
+fn gen_se_ascii() -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(64_000_000);
+    for record in 0..800_000 {
+        write!(&mut bytes, "{record:08}:").expect("write SE1 record prefix");
+        for column in 0..70 {
+            bytes.push(b'a' + ((record + column) % 26) as u8);
+        }
+        bytes.push(b'\n');
+    }
+    assert_eq!(bytes.len(), 64_000_000);
+    bytes
+}
+
+/// Exact SE2 fixture bytes from benchmark protocol 1.5.4.
+fn gen_se_sgr() -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(64_000_000);
+    for record in 0..400_000 {
+        let color = record % 256;
+        write!(&mut bytes, "\x1b[38;5;{color:03}m\x1b[1;4m{record:08}")
+            .expect("write SE2 record prefix");
+        for column in 0..130 {
+            bytes.push(b'A' + ((record + column) % 26) as u8);
+        }
+        bytes.extend_from_slice(b"\x1b[0m\n");
+    }
+    assert_eq!(bytes.len(), 64_000_000);
+    bytes
+}
+
 /// Scroll-region churn: set a region, then emit reverse-index + index pairs and
 /// content so the region scrolls repeatedly without touching the whole screen.
 fn gen_scroll_region_churn(iterations: usize) -> Vec<u8> {
@@ -407,6 +438,16 @@ fn feed_all(bytes: &[u8]) -> Terminal {
     term
 }
 
+/// Feed one exact software-endpoint fixture with a selected logical-line cap.
+fn feed_all_with_scrollback(bytes: &[u8], scrollback_lines: usize) -> Terminal {
+    let mut term = Terminal::new(COLS, ROWS);
+    term.set_scrollback_limit(scrollback_lines);
+    for chunk in bytes.chunks(64 * 1024) {
+        term.advance(chunk);
+    }
+    term
+}
+
 /// No-op [`VtDispatch`] sink: every callback discards its arguments. Used by
 /// the parser-only feed benches to isolate parser throughput from `Screen` work
 /// (the live `Terminal::advance` path combines both costs).
@@ -472,8 +513,29 @@ fn parser_feed_all(bytes: &[u8]) -> u64 {
     sink.n
 }
 
+fn run_se_isolation() {
+    println!("== Exact protocol 1.5.4 software-endpoint isolation ==");
+    for (name, bytes) in [("SE1 exact", gen_se_ascii()), ("SE2 exact", gen_se_sgr())] {
+        start_row(&format!("{name} parser only"));
+        let elapsed = time_once(|| parser_feed_all(black_box(&bytes)));
+        report_feed(&format!("{name} parser only"), bytes.len(), elapsed);
+
+        start_row(&format!("{name} model, history 1"));
+        let elapsed = time_once(|| feed_all_with_scrollback(black_box(&bytes), 1));
+        report_feed(&format!("{name} model, history 1"), bytes.len(), elapsed);
+
+        start_row(&format!("{name} model, history 100k"));
+        let elapsed = time_once(|| feed_all_with_scrollback(black_box(&bytes), 100_000));
+        report_feed(&format!("{name} model, history 100k"), bytes.len(), elapsed);
+    }
+}
+
 fn main() {
     println!("odytty perf — {COLS}x{ROWS} grid, best-of timings\n");
+    if std::env::var_os("ODYTTY_PERF_SE_ONLY").is_some() {
+        run_se_isolation();
+        return;
+    }
     let font = load_font().ok();
     if font.is_none() {
         println!("(no system font found: geometry benchmarks will be skipped)\n");

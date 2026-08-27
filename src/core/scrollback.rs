@@ -16,7 +16,8 @@
 //!
 //! What is memoized is the projection's **shape**, not the projection
 //! ([`Projection`]): each logical line's first physical row index at the
-//! current width, rebuilt only when the width changes or the store mutates.
+//! current width. Width changes rebuild it; output appends and front eviction
+//! update it incrementally.
 //! Rows themselves are produced on demand. Memoizing the rows instead meant
 //! retaining a full second physical copy of the store — measured at parity with
 //! the logical ring at depth, so a deep scrollback was paid for twice — while
@@ -225,7 +226,11 @@ struct Projection {
     /// increasing (every logical line projects to at least one row), which is
     /// what lets an absolute row index be resolved to its owning line by binary
     /// search rather than by walking the store.
-    row_starts: Vec<usize>,
+    row_starts: VecDeque<usize>,
+    /// Absolute start represented by local physical row zero. Keeping starts
+    /// monotonic lets front eviction advance this origin without shifting the
+    /// remaining entries.
+    base_row: usize,
     /// Total physical rows, so a length query is O(1) and the last line's row
     /// count is derivable without a special case.
     total_rows: usize,
@@ -235,7 +240,8 @@ impl Projection {
     fn empty() -> Self {
         Self {
             width: None,
-            row_starts: Vec::new(),
+            row_starts: VecDeque::new(),
+            base_row: 0,
             total_rows: 0,
         }
     }
@@ -243,8 +249,8 @@ impl Projection {
     /// Index of the logical line owning absolute physical row `row`, with that
     /// line's first row index. `None` when `row` is past the end.
     ///
-    /// `partition_point` over the strictly-increasing starts, so a point query
-    /// costs O(log lines) rather than O(lines). That matters because the
+    /// Binary search over the strictly-increasing starts makes a point query
+    /// cost O(log lines) rather than O(lines). That matters because the
     /// pointer hit-test resolves a row on every mouse move, and a linear walk
     /// would have made deep scrollback progressively more expensive to hover
     /// over — trading the bytes this change saves for a latency regression.
@@ -252,9 +258,53 @@ impl Projection {
         if row >= self.total_rows {
             return None;
         }
-        let line_index = self.row_starts.partition_point(|&start| start <= row) - 1;
-        Some((line_index, self.row_starts[line_index]))
+        let absolute_row = self.base_row + row;
+        let mut low = 0usize;
+        let mut high = self.row_starts.len();
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if self.row_starts[middle] <= absolute_row {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        let line_index = low - 1;
+        Some((line_index, self.row_starts[line_index] - self.base_row))
     }
+
+    fn push_line(&mut self, rows: usize) {
+        let start = self.base_row + self.total_rows;
+        self.row_starts.push_back(start);
+        self.total_rows += rows;
+    }
+
+    fn update_last_line(&mut self, rows: usize) {
+        let start = *self
+            .row_starts
+            .back()
+            .expect("an extended logical line has a cached start");
+        self.total_rows = start - self.base_row + rows;
+    }
+
+    fn evict_front(&mut self, count: usize) {
+        for _ in 0..count {
+            self.row_starts.pop_front();
+        }
+        let new_base = self
+            .row_starts
+            .front()
+            .copied()
+            .unwrap_or(self.base_row + self.total_rows);
+        self.total_rows -= new_base - self.base_row;
+        self.base_row = new_base;
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct LimitEnforcement {
+    changed: bool,
+    evicted_lines: usize,
 }
 
 /// Default maximum number of logical lines retained in scrollback. Each scrolled
@@ -379,7 +429,7 @@ impl Scrollback {
     /// lowered limit takes effect at once. `0` disables trimming (unbounded).
     pub(in crate::core) fn set_limit(&mut self, limit: usize) {
         self.limit = limit;
-        if self.enforce_limit() {
+        if self.enforce_limit().changed {
             self.invalidate();
         }
     }
@@ -415,6 +465,12 @@ impl Scrollback {
     #[cfg(test)]
     pub(in crate::core) fn is_empty(&self) -> bool {
         self.lines.is_empty()
+    }
+
+    /// Test window proving that a hot-path append preserved the cached shape.
+    #[cfg(test)]
+    pub(in crate::core) fn projection_cached_at(&self, width: usize) -> bool {
+        self.cache.borrow().width == Some(width)
     }
 
     /// The **whole** physical projection at `width` (oldest first),
@@ -510,7 +566,7 @@ impl Scrollback {
         let mut out = Vec::new();
         for (line, &start) in self.lines.iter().zip(cache.row_starts.iter()) {
             if let Some(kind) = line.prompt_mark {
-                out.push((start, kind));
+                out.push((start - cache.base_row, kind));
             }
         }
         out
@@ -538,6 +594,7 @@ impl Scrollback {
     pub(in crate::core) fn push_row(&mut self, row: Line) {
         self.pushed_rows = self.pushed_rows.wrapping_add(1);
         let wrapped = row.wrapped;
+        let mut appended_line = false;
         if let Some(last) = self.lines.back_mut()
             && last.open
         {
@@ -594,17 +651,37 @@ impl Scrollback {
                 line.finalize_capacity();
             }
             self.lines.push_back(line);
+            appended_line = true;
         }
-        self.enforce_limit();
-        self.invalidate();
+        let enforcement = self.enforce_limit();
+
+        // A valid projection shape stays valid across the hot append path.
+        // Count only the changed trailing line, then discard starts evicted
+        // from the front. This avoids walking the full history while the
+        // terminal lock is held on every output frame.
+        let cached_width = self.cache.borrow().width;
+        if let Some(width) = cached_width {
+            let last_rows = self
+                .lines
+                .back()
+                .map_or(0, |line| count_projected_rows(line, width));
+            let mut cache = self.cache.borrow_mut();
+            if appended_line {
+                cache.push_line(last_rows);
+            } else {
+                cache.update_last_line(last_rows);
+            }
+            cache.evict_front(enforcement.evicted_lines);
+        }
     }
 
     /// Evict oldest history so the store stays within `limit` logical lines and
     /// no single (open) logical line exceeds [`MAX_LOGICAL_LINE_CELLS`] cells.
-    /// Returns `true` if anything was trimmed. Called after every `push_row` and
-    /// on `set_limit`; a `0` limit only enforces the per-line cell ceiling.
-    fn enforce_limit(&mut self) -> bool {
-        let mut trimmed = false;
+    /// Reports whether anything changed and how many whole lines left the
+    /// front. Called after every `push_row` and on `set_limit`; a `0` limit only
+    /// enforces the per-line cell ceiling.
+    fn enforce_limit(&mut self) -> LimitEnforcement {
+        let mut result = LimitEnforcement::default();
 
         if self.limit != 0 && self.lines.len() > self.limit {
             // VecDeque front eviction: each `pop_front` is O(1) (no memmove of the
@@ -621,7 +698,8 @@ impl Scrollback {
                         .extend(line.button_spans.iter().map(|span| span.id));
                 }
             }
-            trimmed = true;
+            result.changed = true;
+            result.evicted_lines = excess;
         }
 
         // Bound the pathological no-terminator case: a never-closed logical
@@ -678,13 +756,13 @@ impl Scrollback {
                 }
                 last.button_spans = kept;
             }
-            trimmed = true;
+            result.changed = true;
         }
 
-        if trimmed {
+        if result.changed {
             self.trim_epoch = self.trim_epoch.wrapping_add(1);
         }
-        trimmed
+        result
     }
 
     /// Clear all scrollback.
@@ -844,6 +922,7 @@ impl Scrollback {
         let mut cache = self.cache.borrow_mut();
         cache.width = None;
         cache.row_starts.clear();
+        cache.base_row = 0;
         cache.total_rows = 0;
     }
 
@@ -865,17 +944,18 @@ impl Scrollback {
             }
         }
         let mut scratch: Vec<Line> = Vec::new();
-        let mut row_starts = Vec::with_capacity(self.lines.len());
+        let mut row_starts = VecDeque::with_capacity(self.lines.len());
         let mut total_rows = 0usize;
         for line in &self.lines {
             scratch.clear();
             project_line_into(line.counting_view(), width, line.open, false, &mut scratch);
-            row_starts.push(total_rows);
+            row_starts.push_back(total_rows);
             total_rows += scratch.len();
         }
         let mut cache = self.cache.borrow_mut();
         cache.width = Some(width);
         cache.row_starts = row_starts;
+        cache.base_row = 0;
         cache.total_rows = total_rows;
     }
 }
