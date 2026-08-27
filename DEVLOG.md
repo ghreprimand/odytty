@@ -7,6 +7,20 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-27 -- Replace the pre-measurement throughput preregistration
+
+`bench-results/preregistration-1.5.4-throughput-remediation-r2.json` replaces
+the first throughput-remediation record before any formal sample was taken.
+The candidate is now `80b2fd2d`, which includes both the scrollback projection
+fix and the bounded PTY exit-status settlement required by the Linux CI gate.
+
+The replacement record has a new run-set identity, order seed, bootstrap seed,
+execution order, and OdyTTY artifact digest. The original record remains
+immutable evidence of the superseded candidate and contributes no samples to
+the replacement run set. `prereg.py --check` reports the replacement ready.
+
+---
+
 ## 2026-08-27 -- Settle child status after PTY EOF
 
 The Linux CI leg exposed a scheduler race in the `--hold` exit path. PTY EOF
