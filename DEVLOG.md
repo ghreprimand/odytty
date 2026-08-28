@@ -7,6 +7,32 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-28 -- Publish and independently verify v0.12.0
+
+Tag `v0.12.0` points to release commit `2437ad81`. The blocking release
+workflow rebuilt and smoke-tested all seven producers, required the successful
+same-commit Linux, macOS, and Windows CI run, passed the locked dependency
+audit, signed the checksum manifest, generated GitHub OIDC provenance, verified
+that provenance before publication, and completed the Scoop, Homebrew, and AUR
+channel jobs.
+
+The published release was then checked independently from fresh temporary
+directories. All sixteen expected assets are present; the Minisign signature,
+all SHA-256 entries, and every alias/pinned byte pair pass. External
+`gh attestation verify` checks for the AppImage and the Windows and macOS zips
+bind the artifacts to the release workflow, tag, and full commit
+`2437ad811d291d0da435be60119f0806b9550059`. The published source archive builds
+under the documented resource cap and embeds `2437ad8`; the Linux tarball and
+AppImage both report 0.12.0 and embed the full release commit.
+
+The in-repository Scoop manifest, external Homebrew cask and formula, and AUR
+Git repository all publish 0.12.0 with hashes matching the signed release
+manifest. Linux shipped bytes were exercised locally. The blocking Windows and
+macOS producer smoke tests passed, but no new physical Windows or macOS device
+was available for a post-publish upgrade/install pass; v0.11.1 therefore
+remains the latest completed physical-device upgrade evidence for those two
+channels rather than being silently promoted from CI.
+
 ## 2026-08-28 -- Complete the auxiliary memory analysis
 
 The final v0.12.0 artifacts now have a cross-terminal idle memory-composition

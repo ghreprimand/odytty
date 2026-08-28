@@ -1403,7 +1403,7 @@ scope decisions live in `docs/memory.md`, `docs/benchmark-results.md`,
       throughput improvement and the unfavourable SE2 burst retention. W7
       remains explicitly deferred because of its approximately 50-hour
       exclusive-machine cost.
-- [ ] Publish v0.12.0, verify its provenance from a clean environment, and run
+- [x] Publish v0.12.0, verify its provenance from a clean environment, and run
       the documented post-publish package-channel checks.
 
 ## Archived First Prototype Checklist
