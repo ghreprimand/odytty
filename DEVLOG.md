@@ -542,7 +542,7 @@ the protocol requires.
 
 ---
 
-## 2026-08-23 -- Release v0.12.0 -- Measured memory reductions and stronger evidence
+## 2026-08-28 -- Release v0.12.0 -- Measured memory reductions and stronger evidence
 
 This release reduces OdyTTY-controlled memory without weakening terminal
 correctness. Background images are resampled to the drawable surface, inactive

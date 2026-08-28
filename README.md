@@ -139,22 +139,23 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.11.1 is published; its four
-Linux packages received bounded post-publish artifact checks (Minisign
-signature and checksum verification, package metadata inspection, and
-execution of each package's binary), and the macOS Homebrew and Windows Scoop
-upgrade paths were each confirmed on real hardware (automated version bump
-picked up, package upgraded, app launches and runs). The fuller
-cross-platform package smoke pass remains recorded against v0.10.0: bounded post-release checks of the
-v0.10.0 shipped Linux, macOS Apple Silicon, and Windows packages completed
-without a reported blocker, and a matched visual pass against comparable
-terminal emulators found no release-blocking difference in the tested text,
-Unicode, box-drawing, or interaction surfaces.
-A published, preregistered idle-resource comparison against Kitty, Ghostty,
-and Alacritty is summarized in
-[docs/benchmark-results.md](docs/benchmark-results.md). These checks
-complement blocking CI; they do not cover every GPU, compositor, IME, font, or
-hardware configuration.
+OdyTTY is a broad pre-1.0 terminal. Version 0.12.0 is the current release. Its
+preregistered W6 run records 89.0 MB current and 130.7 MB peak memory on the
+benchmark environment, down 68.9 and 60.1 percent respectively from the prior
+OdyTTY result and below Kitty and Ghostty in both memory measures. Idle CPU
+remains in the same low band as Kitty and Alacritty. Separately classified
+software-endpoint results, memory composition, and scrollback scaling are
+published alongside W6 without pooling their evidence classes; W7's four-hour
+memory-growth workload remains explicitly deferred.
+
+Blocking Linux, macOS, and Windows CI, the local release suite, and the live
+GPU-backed memory regression guard pass on the release commit. Post-publish
+artifact, provenance, package-channel, and on-device checks are recorded from
+the shipped bytes rather than inferred from CI. The most recent completed
+real-hardware upgrade checks remain v0.11.1 until that v0.12.0 verification is
+finished. The full results and their limitations are in
+[docs/benchmark-results.md](docs/benchmark-results.md). These checks do not
+cover every GPU, compositor, IME, font, or hardware configuration.
 
 Linux is the primary target. macOS and Windows are supported, shipped, and
 blocking CI targets. Known gaps include Windows detached and resumable session
