@@ -1,6 +1,6 @@
 # Text Shaping Roadmap
 
-Companion to the shaping summary in `docs/features.md`. This document states
+Companion to the shaping summary in [`docs/features.md`](features.md). This document states
 the current model, its measured limit, the standing scope boundaries, and the
 work that remains possible without weakening terminal semantics.
 
@@ -29,7 +29,7 @@ boundaries, below).
 
 ## Current support boundary
 
-This matrix is the same support statement carried by `docs/features.md`:
+This matrix is the same support statement carried by [`docs/features.md`](features.md):
 
 | Surface | Current support | Standing position |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ This matrix is the same support statement carried by `docs/features.md`:
 - **Static color glyphs (COLR/CPAL v0).** The color-glyph path renders static
   COLR/CPAL v0 layer compositions in addition to the existing bitmap-strike
   formats, including stock Windows Segoe UI Emoji, which previously fell back
-  to the monochrome path. See `docs/features.md` for the full color-emoji
+  to the monochrome path. See [`docs/features.md`](features.md) for the full color-emoji
   support statement.
 - **COLR v1 Paint graphs.** The same color-glyph atlas now accepts v1-only
   glyphs through Fontations' guarded graph traversal. Solid fills, gradients,

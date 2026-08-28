@@ -251,7 +251,7 @@ Promotion from `probe` to `required` requires all of:
 1. A completed run on the pinned toolchain, with the log retained.
 2. A `pass` result for that filter in that run.
 3. The status change landing together with the identity of the run that
-   justified it, recorded in `DEVLOG.md`.
+   justified it, recorded in [`DEVLOG.md`](../DEVLOG.md).
 
 A filter that has never passed is never promoted. Demotion from `required`
 back to `probe` requires a stated reason recorded here; it is not a way to

@@ -27,6 +27,12 @@ canonical documentation because it is versioned with the code, reviewed in the
 same changes, included in release sources, and covered by the repository's
 documentation checks.
 
+A repository-wide navigation pass converts 112 resolvable cross-document
+references in maintained prose into relative Markdown links. Inline-code paths
+remain appropriate for non-navigational examples and preserved historical or
+generated evidence. Contributor guidance now records that distinction so new
+documentation does not regress to visually named but non-clickable references.
+
 ## 2026-08-28 -- Audit the public documentation after v0.12.0
 
 All 58 tracked Markdown files received a post-release consistency pass. Every

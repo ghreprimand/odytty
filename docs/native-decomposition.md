@@ -141,7 +141,7 @@ paths.
 
 Focused state-transition tests must execute rather than return successfully
 through an event-loop construction guard. The captured baseline finding in
-`stabilization-baseline.md` is therefore a prerequisite to using those tests as
+[`stabilization-baseline.md`](stabilization-baseline.md) is therefore a prerequisite to using those tests as
 evidence.
 
 Lifecycle invariants:

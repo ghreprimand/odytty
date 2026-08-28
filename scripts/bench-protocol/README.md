@@ -1,7 +1,7 @@
 # `scripts/bench-protocol/` — comparative benchmark harness
 
-Preparation tooling for `docs/benchmark-protocol.md` (protocol version
-`1.5.4`). See `docs/benchmark-apparatus.md` for what this comparison unit can
+Preparation tooling for [`docs/benchmark-protocol.md`](../../docs/benchmark-protocol.md) (protocol version
+`1.5.4`). See [`docs/benchmark-apparatus.md`](../../docs/benchmark-apparatus.md) for what this comparison unit can
 and cannot measure, and why.
 
 Every command here is offline, cheap, and side-effect free unless it is

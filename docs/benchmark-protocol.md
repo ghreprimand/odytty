@@ -92,7 +92,7 @@ This protocol defines how OdyTTY and independent terminal references are
 compared before any comparative numbers are collected. It measures complete
 terminal products under matched conditions. The existing `benches/perf.rs`
 harness remains an internal hotspot-ranking microbenchmark and is not evidence
-for comparative product claims. `docs/benchmark-apparatus.md` is this
+for comparative product claims. [`docs/benchmark-apparatus.md`](benchmark-apparatus.md) is this
 protocol's companion document: it records what the current comparison unit can
 and cannot measure under it, classified before any sample is taken.
 

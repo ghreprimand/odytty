@@ -148,7 +148,7 @@ keycaps, skin-tone modifiers, variation selectors) via a dedicated RGBA
 color-glyph atlas covering bitmap strikes, COLR/CPAL v0 layers, and COLR v1
 Paint graphs, including stock Windows Segoe UI Emoji, whose cluster coverage
 is bounded by the host font (no regional-indicator flag glyphs on stock
-Windows; see `docs/features.md`).
+Windows; see [`docs/features.md`](features.md)).
 
 ### Text Rendering Quality
 
@@ -386,7 +386,7 @@ Sharp, stable, comfortable text is a primary product pillar.
   as a slashed or dotted zero) is the near-term slice. Ligature coverage now
   spans the ASCII contextual path, a curated non-ASCII operator/arrow
   allowlist, Latin `liga` alongside `calt`, and explicit `ss01`/`ss02`
-  settings (see `docs/shaping-roadmap.md`); open-ended stylistic sets and
+  settings (see [`docs/shaping-roadmap.md`](shaping-roadmap.md)); open-ended stylistic sets and
   arbitrary font features remain deferred.
 - **Someday - SVG-in-OT color-font expansion**, after the shipped bitmap,
   COLR/CPAL v0, and COLR v1 Paint-graph paths, only from real evidence.
@@ -715,7 +715,7 @@ Making OdyTTY installable and maintainable outside the source tree.
 - **Shipped — Crash & logging story.** A predictable diagnostics path (bounded,
   local, privacy-preserving) for when something does go wrong; shipped in v0.7.5
   (panic hook, freeze watchdog, rotated logging) and documented in
-  `docs/diagnostics.md`.
+  [`docs/diagnostics.md`](diagnostics.md).
 - **Shipped — macOS release artifact.** The release workflow now emits an
   ad-hoc-signed `OdyTTY.app` bundle, zipped as `odytty-macos-arm64.zip`
   (Apple Silicon / arm64), from the macos-latest CI leg — checksummed in

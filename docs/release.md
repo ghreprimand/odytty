@@ -266,7 +266,7 @@ Set `Cargo.toml` to `X.Y.Z` and refresh `Cargo.lock`. Keep the declared MSRV in
 
 Add the newest `<release>` entry to
 `dist/linux/io.unfinished_works.odytty.metainfo.xml`. Add the release headline
-to `DEVLOG.md` using this shape:
+to [`DEVLOG.md`](../DEVLOG.md) using this shape:
 
 ```text
 ## YYYY-MM-DD -- Release vX.Y.Z

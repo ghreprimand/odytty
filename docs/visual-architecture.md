@@ -241,7 +241,7 @@ glyph-coverage gamma matters for text rendering).
 
 **The theme update closed the fg/bg/clear-only limitation.** The palette and semantic roles
 are live in the theme. The full theme epic is now complete — see the
-Theme and appearance system section below and `docs/themes.md` for details.
+Theme and appearance system section below and [`docs/themes.md`](themes.md) for details.
 
 ### Color-vision-deficiency adaptation
 
@@ -412,7 +412,7 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
   focused pane's live dynamic colors.
 
 The indexed-color render path is theme-driven; OSC-4 / dynamic-color overrides
-layer on top with correct precedence. See `docs/themes.md` for the full roster
+layer on top with correct precedence. See [`docs/themes.md`](themes.md) for the full roster
 and attribution.
 
 ### In-app configuration UX

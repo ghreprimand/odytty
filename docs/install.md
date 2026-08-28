@@ -814,9 +814,9 @@ Unix:   $XDG_CONFIG_HOME/odytty/themes
 ```
 
 The file is line-based `key = value`; environment variables set at startup
-override matching keys. See `docs/runtime-knobs.md` for every key, default, and
-range, `docs/keybindings.md` for the keyboard reference, and
-`docs/accessibility.md` for color-vision-deficiency modes, the minimum-contrast
+override matching keys. See [`docs/runtime-knobs.md`](runtime-knobs.md) for every key, default, and
+range, [`docs/keybindings.md`](keybindings.md) for the keyboard reference, and
+[`docs/accessibility.md`](accessibility.md) for color-vision-deficiency modes, the minimum-contrast
 floor, and the bell.
 
 ## User-Local Install

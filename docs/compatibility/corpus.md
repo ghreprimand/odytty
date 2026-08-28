@@ -276,7 +276,7 @@ incoming/  ── intake ──▶  staged/  ── review, then accept ──�
 - **reject** moves the pair to `rejected/` and records the payload hash with
   the reason. **quarantine** moves it to `quarantine/` with a reason file —
   the path for anything that looks security- or privacy-sensitive, which
-  also gets reported per `SECURITY.md`.
+  also gets reported per [`SECURITY.md`](../../SECURITY.md).
 
 There is no bulk import. Cases land one at a time because each one is read.
 

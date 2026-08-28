@@ -11,7 +11,7 @@ arena belongs to `WorkspaceSet`, with a workspace level above the §2 design-tim
 tab shape (`WorkspaceSet` → `Workspace` → `Tab` → `PaneNode`). `TabSet` was the
 design name, not a shipped type. Read §1 as a historical snapshot of the
 pre-refactor code and §2's names as design-time. For the current user-facing
-keyboard and session model, see `docs/keybindings.md`. The shipped geometry now
+keyboard and session model, see [`docs/keybindings.md`](keybindings.md). The shipped geometry now
 applies `window_padding` at divider-facing edges, permits a zero-cell drawable
 axis while retaining a valid one-cell PTY backing size, clips all pane content
 to the drawable rectangle, and settles affected panes at window-resize and
@@ -380,7 +380,7 @@ math the window-unfocus path uses in `grid.rs`). Apply a configurable dim amount
 to **unfocused panes** only, behind a new setting (e.g. `inactive_pane_dim`,
 default `0.0` = off). At `0.0` the multi-pane path is unchanged; the single-pane
 path never computes it. Plain-path safe. (`inactive_pane_dim` and the related
-`focus_dim` are documented in `docs/accessibility.md`.)
+`focus_dim` are documented in [`docs/accessibility.md`](accessibility.md).)
 
 ---
 
@@ -769,7 +769,7 @@ pressed, every existing binding and all ordinary input is byte-identical to toda
 
 The prefix is a transient one-keystroke mode — the next key resolves against the
 prefix table, then input returns to normal; a timeout or an unrecognized key
-cancels cleanly back to normal typing. (See `docs/keybindings.md` for the full
+cancels cleanly back to normal typing. (See [`docs/keybindings.md`](keybindings.md) for the full
 default chord set.)
 
 **Mechanism.** A configurable prefix chord (default `Ctrl-b`) puts the input layer
@@ -835,7 +835,7 @@ Mapped onto the `PaneNode` ops from §2–§5, matching tmux semantics:
 | `Ctrl-b Space` / `Ctrl-b =` | Equalize | reset split ratios to even |
 
 All entries live in the prefix-bindings table and are rebindable via the existing
-keybinds path. The prefix table is documented in `docs/runtime-knobs.md` and
+keybinds path. The prefix table is documented in [`docs/runtime-knobs.md`](runtime-knobs.md) and
 `docs/odytty.conf.example`. (Note: tmux's `Ctrl-b "` and `%` axis convention is
 preserved exactly — `"` stacks, `%` splits side-by-side.)
 
@@ -869,7 +869,7 @@ engine is single-pane-inert.
 Plus a `prefix`/`pane-prefix` setting for the configurable prefix chord (K3.1) and
 the doubled-prefix passthrough behavior (K3.2). Remap recipes (changing the
 prefix, rebinding individual pane actions) are documented as opt-in in
-`docs/runtime-knobs.md` / `odytty.conf.example`.
+[`docs/runtime-knobs.md`](runtime-knobs.md) / `odytty.conf.example`.
 
 ---
 

@@ -342,7 +342,7 @@ to approved temporary roots, Unix opens no-follow regular-file handles without
 blocking on FIFOs, `t=t` requires its protocol marker before deletion, and
 `t=s` unlinks only after validation succeeds. POSIX shared memory is unsupported
 on Windows. File transports carry the fuller security rationale in
-`docs/graphics.md`. Chunked transfer (`m=1`/`m=0`) is supported under a 96 MiB
+[`docs/graphics.md`](docs/graphics.md). Chunked transfer (`m=1`/`m=0`) is supported under a 96 MiB
 encoded-payload cap.
 
 Placement ids,
@@ -368,7 +368,7 @@ image; set keeps the cursor in place. Hard caps: 10,000 × 10,000 pixels or
 payloads through the shared image layer. `inline=0` download requests are never
 honored, and animated containers decode as one still frame.
 
-See `docs/graphics.md` for user-facing protocol detail, security rationale, and
+See [`docs/graphics.md`](docs/graphics.md) for user-facing protocol detail, security rationale, and
 examples.
 
 ## Configuration Architecture
@@ -388,7 +388,7 @@ Settings follow a three-level precedence chain, lowest to highest:
    the config file.
 
 The config format is a dependency-free `key = value` text file with `#`
-comments, mirroring every runtime knob. See `docs/runtime-knobs.md` for the
+comments, mirroring every runtime knob. See [`docs/runtime-knobs.md`](docs/runtime-knobs.md) for the
 full key reference and `docs/odytty.conf.example` for an annotated example.
 
 **In-app writeback.** The settings panel is a presentation-only overlay until
@@ -405,7 +405,7 @@ immediately. Env-pinned keys are preserved: any setting that was supplied via
 `ODYTTY_*` at startup is held at that value for the session lifetime; live
 reload cannot override it.
 
-All settings in `docs/runtime-knobs.md` except `native_autoclose_ms` are
+All settings in [`docs/runtime-knobs.md`](docs/runtime-knobs.md) except `native_autoclose_ms` are
 live-reloadable when their environment variable was not set at startup. Font
 path, family, size, weight, line height, subpixel, synthetic style, stem
 darkening, symbol fallback, and geometric box-drawing changes rebuild or
@@ -425,7 +425,7 @@ ambiguous.
 **CLI introspection.** Startup flags (`src/cli.rs`) print information and exit
 without opening a window: `--list-themes` prints built-in themes,
 `--list-fonts` inventories discoverable system font files, and `--show-config`
-prints the current stable effective-config dump. `docs/runtime-knobs.md` remains
+prints the current stable effective-config dump. [`docs/runtime-knobs.md`](docs/runtime-knobs.md) remains
 the full settings authority.
 
 **Launch-scoped CLI controls.** `--app-id` and `--class` are equivalent Linux
@@ -810,10 +810,10 @@ v1 color glyphs, shaping-run infrastructure with extended ligatures and Arabic
 contextual joining, Kitty Unicode placeholders and animation, iTerm2 inline
 images, instanced cell rendering, theme capture from live dynamic colors, and
 a published preregistered W6 idle-resource comparison
-(`docs/benchmark-results.md`).
+([`docs/benchmark-results.md`](docs/benchmark-results.md)).
 
 Version 0.12.0 completed the memory, measurement, provenance, and throughput
-scope recorded in `TODO.md`: attributed and substantially reduced resident
+scope recorded in [`TODO.md`](TODO.md): attributed and substantially reduced resident
 memory; denser scrollback storage; bounded font-fallback reconstruction; Kitty
 compressed payload and image-number support; honest shaping boundaries;
 protocol 1.5.4 W6 and software-endpoint results; GitHub OIDC artifact
@@ -1878,7 +1878,7 @@ Draw order: cell backgrounds → below-text images → coverage glyphs and line
 decorations → color emoji glyphs → cursor and overlays. SVG-in-OT is deferred
 but architecturally permitted; the boundary rule (rasterization external,
 placement owned) applies to that path as well. The delivery ladder is tracked
-in `TODO.md`.
+in [`TODO.md`](TODO.md).
 
 ### First Emoji Increment
 

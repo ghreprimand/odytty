@@ -639,7 +639,7 @@ the most deliberate omissions.
   corpus of malformed and truncated font files, run under bounded memory.
 - **Residual risk:** the metadata parser's informational unmaintained-dependency
   advisory is time-bounded through 2026-10-15 by the dependency audit gate and
-  documented in `docs/release.md`. Finding **C** records the closed file-read
+  documented in [`docs/release.md`](release.md). Finding **C** records the closed file-read
   boundary rather than an outstanding unbounded allocation.
 
 ### B14 — Resource exhaustion

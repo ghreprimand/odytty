@@ -36,7 +36,7 @@ The fingerprint is recorded in full rather than as a short key id, because a
 short id is collidable and cannot support a trust decision.
 
 Changing any of those values is a **new pin**, not an update. Record the reason
-in `DEVLOG.md` and re-run the whole verification path. Never edit a digest to
+in [`DEVLOG.md`](../../DEVLOG.md) and re-run the whole verification path. Never edit a digest to
 make a mismatch pass — a mismatch means the bytes changed, and that is the
 finding, not an obstacle.
 

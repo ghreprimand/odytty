@@ -2,8 +2,8 @@
 
 Post-prototype checklist for making OdyTTY comfortable enough for repeated short
 sessions before broader product features. The first meaningful prototype is
-complete; see `DEVLOG.md` for the running record, `SPEC.md` for durable
-decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
+complete; see [`DEVLOG.md`](DEVLOG.md) for the running record, [`SPEC.md`](SPEC.md) for durable
+decisions, and [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) for the full build roadmap.
 
 The v0.10.0 architecture, compatibility, correctness, security, evidence,
 documentation, and release-convergence scope is complete and published, and
@@ -210,7 +210,7 @@ before implementation.
   - [x] H3: headless scale-matrix coverage for CellSize integrality and
         monotonicity, grid dimensions, rebuild invalidation, debounce final
         scale, and fractional-scale UV seams, plus
-        `docs/hidpi-validation.md` maintainer-run manual
+        [`docs/hidpi-validation.md`](docs/hidpi-validation.md) maintainer-run manual
         matrix (23 cells across 5 sections). All H1/H2 seams confirmed correct.
 - [ ] Improve glyph atlas management, including cache growth, invalidation, and
       missing-glyph behavior.
@@ -249,7 +249,7 @@ before implementation.
       (ASCII graphics plus a curated non-ASCII operator allowlist, with
       `calt`+`liga` on Latin/operator runs). Explicit optional `ss01`/`ss02`
       (off by default); open-ended `ssXX` and full complex-script shaping
-      remain deferred; see `docs/shaping-roadmap.md`.
+      remain deferred; see [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md).
   - [x] Shaping-run infrastructure: grapheme-cluster grouping, byte-to-column
         anchoring, and compatible-run boundary detection (combining marks,
         mixed styles, color-glyph/ZWJ coverage, and wide cells never merge
@@ -353,7 +353,7 @@ before implementation.
         output, and resize behavior without geometry corruption. Runtime CJK
         font coverage was unavailable and is not claimed by this check. Metal
         and DX12 passed their named CI build/test legs at the same commit but
-        remain manual-unverified; their rows in `docs/manual-validation.md`
+        remain manual-unverified; their rows in [`docs/manual-validation.md`](docs/manual-validation.md)
         were not executed.
   - [ ] Row-granular dirty regions: `mark_dirty` still promotes visible changes
         to a full rebuild. Retained and cursor-only frames already avoid the
@@ -619,7 +619,7 @@ before implementation.
         name, monospace on/off) from the renderer's bounded search directories.
         Pure introspection; no settings key or render-path change.
   - [x] `--show-config`: print the current stable effective-config dump. The
-        full settings authority remains `docs/runtime-knobs.md`.
+        full settings authority remains [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 
 ## Visual Capability Parity (Stage 6 parity half)
 
@@ -951,7 +951,7 @@ feature validates against.
   - [x] Perceptual colorblind palette adaptation: remap the ANSI palette in
         OKLCH for protan/deutan/tritan, adaptive on output, in an Accessibility
         settings group. The contrast floor, CVD modes, focus dim, and bell are
-        described for users in `docs/accessibility.md`.
+        described for users in [`docs/accessibility.md`](docs/accessibility.md).
   - [x] Readability-scrim primitive for background treatments (core) —
         pure math that caps (dark) or lifts (light) the composited background
         luminance so a treatment cannot breach the contrast floor; native
@@ -1007,7 +1007,7 @@ feature validates against.
         item, to open an in-window viewer; `Esc` or click-outside dismisses it.
   - [x] Path right-click menu: Open, Open in OdyTTY (images), Open With… (the
         `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
-        in File Manager. See `docs/keybindings.md` for the chord reference.
+        in File Manager. See [`docs/keybindings.md`](docs/keybindings.md) for the chord reference.
 - [ ] Theme library and config UX.
   - [x] Built-in theme library expanded to 142 contrast-validated themes
         (data-only, ongoing).
@@ -1236,7 +1236,7 @@ feature validates against.
       default `Ctrl+Shift+A`; also the "Manage Sessions" right-click item): a
       keyboard-driven list of live detached sessions that attaches the selected
       session without leaving the window. The default chord and the full bindable
-      action set are catalogued in `docs/keybindings.md`.
+      action set are catalogued in [`docs/keybindings.md`](docs/keybindings.md).
   - [x] Attach dedup + New tab / Replace prompt: attaching a session already
         open in a tab focuses the existing tab; otherwise the `AttachChoice`
         dialog offers New tab (attach alongside) or Replace (close the current
@@ -1267,7 +1267,7 @@ stay pinned to the revisions they measured.
         screen, grid, text and font handling, glyph atlas, snapshot envelope,
         shell integration, and the native context menu, settings panel, and tab
         rail were split along ownership boundaries, each behind a facade that
-        owns no logic. `docs/native-decomposition.md` records the resulting
+        owns no logic. [`docs/native-decomposition.md`](docs/native-decomposition.md) records the resulting
         boundaries.
 - [x] One audited bounded-reader policy for externally influenced files: check
       the target before opening it so a directory, device, or FIFO is refused
@@ -1303,17 +1303,17 @@ stay pinned to the revisions they measured.
       rail rows show a static unseen-activity dot. No animation phase, no wake
       at rest, and no change to terminal state or input routing.
 - [ ] Complete the real-application matrix rows in
-      `docs/compatibility/real-application-smoke.md` with an exact artifact,
+      [`docs/compatibility/real-application-smoke.md`](docs/compatibility/real-application-smoke.md) with an exact artifact,
       application version, and evidence reference per row. The bounded
       post-release package smoke pass does not fill them.
 - [ ] Comparative performance numbers under the preregistered protocol in
-      `docs/benchmark-protocol.md` — partially delivered. The W6 idle
-      comparison is executed and published (`docs/benchmark-results.md`,
+      [`docs/benchmark-protocol.md`](docs/benchmark-protocol.md) — partially delivered. The W6 idle
+      comparison is executed and published ([`docs/benchmark-results.md`](docs/benchmark-results.md),
       raw samples in `bench-results/`): OdyTTY, Kitty, Ghostty, and
       Alacritty at protocol 1.4.1, five measured replicates each, zero
       failures or deviations, no overall winner declared. The remaining
       workloads stay deferred for the specific reasons recorded in
-      `docs/benchmark-apparatus.md`: the interactive and stream workloads
+      [`docs/benchmark-apparatus.md`](docs/benchmark-apparatus.md): the interactive and stream workloads
       define optical measurement endpoints (external stimulus controller and
       display photosensor on a shared capture clock) that the current
       apparatus does not provide, and the protocol forbids substituting
@@ -1328,20 +1328,20 @@ stay pinned to the revisions they measured.
       remaining pitch difference as a limitation instead of asserting a match
       that no declared configuration produces.
 - [ ] The external daily-driver evidence program
-      (`docs/external-daily-driver.md`) remains a 1.0 gate and is unstarted.
+      ([`docs/external-daily-driver.md`](docs/external-daily-driver.md)) remains a 1.0 gate and is unstarted.
 
 ## Stage 10: v0.11.0 External-Review Response
 
 A response to an independent technical review rather than feature-driven
 expansion, published as v0.11.0 with a v0.11.1 patch on top. The detailed
-records live in `DEVLOG.md` and the documents named below.
+records live in [`DEVLOG.md`](DEVLOG.md) and the documents named below.
 
 - [x] Documentation accuracy: a full-tree comment and docs drift sweep, with
       every confirmed stale claim corrected against the code it describes and
       repeated literal claims converted to intra-doc constant references.
 - [x] Release-chain signing: `SHA256SUMS` signed with Minisign from v0.11.0
       onward, the public key committed at `docs/keys/odytty-release.pub`, and
-      per-platform verification instructions in `docs/install.md`. macOS stays
+      per-platform verification instructions in [`docs/install.md`](docs/install.md). macOS stays
       ad-hoc signed without notarization and the Windows executable stays
       unsigned; releases before v0.11.0 were not retroactively signed.
 - [x] Color-font and shaping maturity: COLR/CPAL v0 layers and COLR v1 Paint
@@ -1349,18 +1349,18 @@ records live in `DEVLOG.md` and the documents named below.
       infrastructure with grapheme-cluster grouping beyond ASCII, Arabic
       contextual joining forms in logical cell order, and the curated
       non-ASCII ligature allowlist with `liga` and explicit `ss01`/`ss02`.
-      `docs/shaping-roadmap.md` states what remains deferred.
+      [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md) states what remains deferred.
 - [x] Graphics protocol completeness: Kitty Unicode placeholders (`U=1`),
       Kitty animation frame/control/composition actions, and iTerm2 inline
       images (`OSC 1337 ; File=`) under the established parser-limit
-      discipline. `docs/graphics.md` holds the support matrix.
+      discipline. [`docs/graphics.md`](docs/graphics.md) holds the support matrix.
 - [x] Instanced cell geometry: one compact per-quad instance expanded in the
       vertex shader, pixel output unchanged, recorded in
-      `docs/visual-architecture.md`.
+      [`docs/visual-architecture.md`](docs/visual-architecture.md).
 - [x] Theme capture from live dynamic colors: "Create Theme From Current
       Colors" snapshots the focused pane's effective dynamic-color state into
       a theme-builder draft.
-- [x] The published W6 idle comparison (`docs/benchmark-results.md`), executed
+- [x] The published W6 idle comparison ([`docs/benchmark-results.md`](docs/benchmark-results.md)), executed
       under the preregistered protocol against Kitty, Ghostty, and Alacritty
       with results reported exactly as measured.
 - [x] v0.11.1 patch: theme-builder back navigation restored to the
@@ -1372,8 +1372,8 @@ records live in `DEVLOG.md` and the documents named below.
 
 This cycle answers the measured memory regression and the remaining bounded
 review gaps without weakening terminal correctness. Detailed measurements and
-scope decisions live in `docs/memory.md`, `docs/benchmark-results.md`,
-`docs/shaping-roadmap.md`, and `DEVLOG.md`.
+scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-results.md`](docs/benchmark-results.md),
+[`docs/shaping-roadmap.md`](docs/shaping-roadmap.md), and [`DEVLOG.md`](DEVLOG.md).
 
 - [x] Memory attribution and host-side capture distinguish OdyTTY-controlled
       allocations from GPU and driver mappings, with dated v0.11.1 baselines.

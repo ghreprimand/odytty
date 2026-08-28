@@ -423,7 +423,7 @@ for that.
 The starting-state table above remains historical. The live exception for
 `RUSTSEC-2026-0192` now expires on **2026-10-15**. The audit script fails on or
 after that date while the exact advisory remains in the scan; disappearance of
-the advisory clears the fuse. `docs/release.md` records the dependency graph,
+the advisory clears the fuse. [`docs/release.md`](release.md) records the dependency graph,
 runtime reachability, mitigations, ownership, and removal paths. Upstream's
 transferred repository entered maintenance mode on 2026-08-06 with correctness
 and security fixes in scope, but no post-transfer crates.io release exists yet.
@@ -499,7 +499,7 @@ test seams, state boundaries, and the 2,000-line reviewability guard.
   compatibility evidence.
 - The existing performance harness was a hotspot-ranking microbenchmark, not a
   matched comparative product benchmark.
-- Historical test totals in `DEVLOG.md` were dated records rather than current
+- Historical test totals in [`DEVLOG.md`](../DEVLOG.md) were dated records rather than current
   claims.
 
 These findings are inputs to the later public-claims audit. They do not alter

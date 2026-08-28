@@ -25,7 +25,7 @@ For that v0.10.0 decision the gates bound in the following narrowed form:
   published pinned `vttest` path and the regression-intake corpus. The full
   application matrix and curated differential transcripts remain 1.0 work.
 - G2 narrowed to the audit of performance language under G7. The protocol in
-  `docs/benchmark-protocol.md` remained preregistered, but collecting matched
+  [`docs/benchmark-protocol.md`](benchmark-protocol.md) remained preregistered, but collecting matched
   comparative numbers was deferred and did not block v0.10.0.
 - G3 bound as written: fresh release-profile manual validation on Linux,
   macOS, and Windows, including the matched visual comparison.
@@ -92,7 +92,7 @@ Requirements:
 - Raw machine-specific logs stay out of tracked text; only sanitized,
   public-safe results are published.
 
-**Evidence:** `docs/stabilization-baseline.md`.
+**Evidence:** [`docs/stabilization-baseline.md`](stabilization-baseline.md).
 **Confirmed by:** core contributors.
 
 ### G1 — Compatibility evidence
@@ -145,7 +145,7 @@ Requirements:
 - After results are known, the workload or configuration may not be changed
   without publishing a new protocol version and re-collecting.
 
-**Evidence:** `docs/benchmark-protocol.md` and `docs/benchmark-results.md`,
+**Evidence:** [`docs/benchmark-protocol.md`](benchmark-protocol.md) and [`docs/benchmark-results.md`](benchmark-results.md),
 backed by `benches/`.
 **Confirmed by:** the project maintainer for hardware-class runs; core
 contributors for harness correctness.
@@ -177,7 +177,7 @@ Requirements:
   completed, with each difference classified as defect, intentional design,
   platform limitation, or unresolved.
 
-**Evidence:** `docs/manual-validation.md`, with `docs/hidpi-validation.md` as
+**Evidence:** [`docs/manual-validation.md`](manual-validation.md), with [`docs/hidpi-validation.md`](hidpi-validation.md) as
 the precedent format.
 **Confirmed by:** the project maintainer, per platform, explicitly.
 
@@ -209,15 +209,15 @@ Requirements:
 - Malformed input fails closed: no panic, no uncontrolled allocation, no
   unintended file access, and no secret-bearing diagnostics.
 
-**Evidence:** `docs/threat-model.md`, `docs/dynamic-analysis.md`,
-`fuzz/parser_graphics/README.md`, `.github/workflows/coverage-fuzz.yml`, and the
+**Evidence:** [`docs/threat-model.md`](threat-model.md), [`docs/dynamic-analysis.md`](dynamic-analysis.md),
+[`fuzz/parser_graphics/README.md`](../fuzz/parser_graphics/README.md), `.github/workflows/coverage-fuzz.yml`, and the
 fuzz targets and regression fixtures in-tree.
 **Confirmed by:** core contributors.
 
 The Miri and sanitizer requirement is deliberately worded as *landed with
 unsupported targets recorded*, not as a clean result. A lane that reports
 nothing because it could not execute anything satisfies neither half. This
-gate stays open until `docs/dynamic-analysis.md` records executed runs rather
+gate stays open until [`docs/dynamic-analysis.md`](dynamic-analysis.md) records executed runs rather
 than declared intent, and its unsupported and unmeasured entries are read as
 the gaps they describe.
 
@@ -243,8 +243,8 @@ Requirements:
   high-risk survivors as explicit tasks. Assertions are never weakened to
   shorten a run.
 
-**Evidence:** `docs/native-decomposition.md`, plus the coverage and mutation
-results referenced from `docs/stabilization-baseline.md`.
+**Evidence:** [`docs/native-decomposition.md`](native-decomposition.md), plus the coverage and mutation
+results referenced from [`docs/stabilization-baseline.md`](stabilization-baseline.md).
 **Confirmed by:** core contributors.
 
 ### G6 — Dependency advisory exceptions
@@ -266,7 +266,7 @@ Requirements:
   change, never a side effect.
 
 **Evidence:** `.github/scripts/rustsec-audit.sh` and the advisory section of
-`docs/release.md`.
+[`docs/release.md`](release.md).
 **Confirmed by:** core contributors; the project maintainer approves any new
 bounded exception.
 
@@ -277,7 +277,7 @@ bounded exception.
 Requirements:
 
 - Every substantive reliability, compatibility, security, and performance claim
-  in `README.md`, `SPEC.md`, `TODO.md`, the docs tree, the website, and release
+  in [`README.md`](../README.md), [`SPEC.md`](../SPEC.md), [`TODO.md`](../TODO.md), the docs tree, the website, and release
   notes links to a test, a dated report, or a dated manual result.
 - Unmeasured speed is described as a design goal, not a comparative fact.
 - Daily-driver and "ready for" language stays absent while the compatibility
@@ -351,12 +351,12 @@ gate is out of scope until the contract is satisfied.
 
 | Track | Gates closed | Primary evidence location | Confirmed by |
 | --- | --- | --- | --- |
-| Baseline and contract | G0, and this document for G7 | `docs/stabilization-baseline.md`, `docs/pre-1.0-acceptance.md` | core contributors |
-| Architecture stabilization | G5 | `docs/native-decomposition.md` | core contributors |
+| Baseline and contract | G0, and this document for G7 | [`docs/stabilization-baseline.md`](stabilization-baseline.md), `docs/pre-1.0-acceptance.md` | core contributors |
+| Architecture stabilization | G5 | [`docs/native-decomposition.md`](native-decomposition.md) | core contributors |
 | Compatibility evidence | G1 | `docs/compatibility-evidence.md` | core contributors; maintainer for visual cases |
-| Performance evidence | G2 | `docs/benchmark-protocol.md`, `docs/benchmark-results.md` | maintainer for hardware runs |
-| Security and supply chain | G4, G6 | `docs/threat-model.md`, `docs/dynamic-analysis.md`, `fuzz/parser_graphics/README.md`, `.github/workflows/coverage-fuzz.yml`, `.github/scripts/rustsec-audit.sh` | core contributors |
-| Manual and field validation | G3, G8 | `docs/manual-validation.md`, `docs/field-report.md` | project maintainer |
+| Performance evidence | G2 | [`docs/benchmark-protocol.md`](benchmark-protocol.md), [`docs/benchmark-results.md`](benchmark-results.md) | maintainer for hardware runs |
+| Security and supply chain | G4, G6 | [`docs/threat-model.md`](threat-model.md), [`docs/dynamic-analysis.md`](dynamic-analysis.md), [`fuzz/parser_graphics/README.md`](../fuzz/parser_graphics/README.md), `.github/workflows/coverage-fuzz.yml`, `.github/scripts/rustsec-audit.sh` | core contributors |
+| Manual and field validation | G3, G8 | [`docs/manual-validation.md`](manual-validation.md), `docs/field-report.md` | project maintainer |
 | Convergence | G7, and traceability of all gates | tracked docs plus the pre-1.0 evidence bundle | project maintainer |
 
 Where an evidence file listed above does not exist yet, that absence is the
@@ -387,7 +387,7 @@ readiness.
    automated Linux, macOS, and Windows legs green at that revision.
 3. The unresolved-risk list is published rather than trimmed.
 4. The go/no-go decision and the exact evidence revision are recorded in
-   `DEVLOG.md`.
+   [`DEVLOG.md`](../DEVLOG.md).
 
 If any gate remains `OPEN`, stabilization continues and the pre-release line
 continues. Incompleteness is not renamed readiness, and 1.0 is not a schedule

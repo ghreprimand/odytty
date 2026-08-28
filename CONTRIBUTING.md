@@ -1,9 +1,9 @@
 # Contributing to OdyTTY
 
 OdyTTY is developed in the open in a public repository. These are the working
-conventions for changes and commits. See `DEVLOG.md` for current state, `TODO.md`
-for the milestone checklist, and `SPEC.md` for durable product/architecture
-decisions.
+conventions for changes and commits. See [`DEVLOG.md`](DEVLOG.md) for current
+state, [`TODO.md`](TODO.md) for the milestone checklist, and
+[`SPEC.md`](SPEC.md) for durable product/architecture decisions.
 
 ## Contents
 
@@ -54,7 +54,7 @@ across duplicate surfaces.
 ## Project status and contributions
 
 OdyTTY is a maintainer-led project with a specific design vision (see
-`SPEC.md` and the OdysseyOS visual identity). Contributions are welcome within
+[`SPEC.md`](SPEC.md) and the OdysseyOS visual identity). Contributions are welcome within
 that vision — the project is developed in the open, and outside eyes make it
 better.
 
@@ -74,8 +74,9 @@ For anything larger, use the
 and ask before writing code, so effort isn't sunk into something that won't
 land. The design vision and the
 owned-core boundary are not up for renegotiation by PR: changes that stray
-from `SPEC.md`, the roadmap (`TODO.md`, `docs/full-build-roadmap.md`), or the
-ownership boundary will be declined regardless of quality. Review is
+from [`SPEC.md`](SPEC.md), the roadmap ([`TODO.md`](TODO.md),
+[`docs/full-build-roadmap.md`](docs/full-build-roadmap.md)), or the ownership
+boundary will be declined regardless of quality. Review is
 best-effort — small, self-contained changes get reviewed fastest; large
 unsolicited changes may wait.
 
@@ -172,7 +173,7 @@ By making a contribution to this project, I certify that:
 
 ## Scope discipline
 
-- Keep changes small and reviewable, tied to a milestone in `TODO.md`.
+- Keep changes small and reviewable, tied to a milestone in [`TODO.md`](TODO.md).
 - Preserve the separation between terminal correctness (the owned core) and the
   visual experience layer. Visual experiments must not destabilize core
   behavior.
@@ -189,7 +190,7 @@ GPU shaders in `src/shaders/` must preserve that boundary — no new
 terminal-semantic dependencies belong inside it. External crates for font
 rasterization, GPU API, windowing, clipboard transport, and Unicode width data
 are acceptable below the product line but must not own terminal semantics. See
-`SPEC.md` for the full ownership boundary statement.
+[`SPEC.md`](SPEC.md) for the full ownership boundary statement.
 
 ## Module map
 
@@ -201,7 +202,7 @@ The source tree is organized into clear ownership lanes:
 | `src/core/` | Terminal model, screen, grid state, SGR/mode dispatch, protocol handlers (Kitty, Sixel routing, query, rect ops, search). Core never imports windowing, GPU, or rendering code. |
 | `src/grid.rs` + `src/grid/` | Render geometry and color resolution: backgrounds, glyphs, decorations, cursor/selection/search overlays, inverse/dim/minimum-contrast handling, and image/emoji ordering seams. |
 | `src/text.rs` + `src/text/` + `src/atlas/` | Font discovery and resolution plus glyph rasterization: R8 and RGBA atlas, coverage/subpixel paths, synthetic bold/italic, and the symbol fallback chain. |
-| `src/native/` | GPU renderer (`gpu.rs`, `gpu/`), event loop (`app/mod.rs`), settings panel and overlays (`settings_panel/` directory, `overlay.rs`, `theme_builder.rs`), selection, search, input/keybindings (see `docs/keybindings.md`). |
+| `src/native/` | GPU renderer (`gpu.rs`, `gpu/`), event loop (`app/mod.rs`), settings panel and overlays (`settings_panel/` directory, `overlay.rs`, `theme_builder.rs`), selection, search, input/keybindings (see [`docs/keybindings.md`](docs/keybindings.md)). |
 | `src/shaders/` | WGSL shader sources (`cell.wgsl`, `cell_subpixel.wgsl`, `bloom.wgsl`, `background_image.wgsl`, `cursor_glow.wgsl`, `cursor_streak.wgsl`) consumed by the `src/native/` renderer. |
 | `src/theme/` | `Theme` struct, `.theme` file format and parser (`spec.rs`), built-in registry (`builtins.rs`, `builtins/`), contrast validation, live reload. |
 | `src/settings/` | `Settings` struct, config file round-trip, live reload, atomic writeback, `SettingInfo` inventory for the in-app panel. |
@@ -254,7 +255,7 @@ Two corollaries from the Windows port worth reusing:
   every OS while behaving wrong on one. Anything that resolves a config dir, temp
   dir, or font dir needs a per-OS `#[cfg]` arm (XDG/POSIX vs `%APPDATA%`/`%TEMP%`/
   `%WINDIR%\Fonts`) and must be verified to actually *function*, not just build.
-  See the Cross-Platform Architecture section in `SPEC.md` for the current arms.
+  See the Cross-Platform Architecture section in [`SPEC.md`](SPEC.md) for the current arms.
 
 A practical CI note: line-ending normalization is pinned by `.gitattributes`
 (`* text=auto eol=lf`) so text fixtures (e.g. `.wgsl` shader sources split on
@@ -379,7 +380,7 @@ Before every commit, run through this gate and stop if anything is unclear:
 `rust-toolchain.toml` (`channel = "1.96.0"`) and `Cargo.toml`
 (`rust-version = "1.96"`) must stay in step, and CI builds at that floor on every
 run. If you adopt a language feature that raises the real floor, bump both files
-in the same commit and note it in `DEVLOG.md`; treat a mismatch between them as a
+in the same commit and note it in [`DEVLOG.md`](DEVLOG.md); treat a mismatch between them as a
 bug.
 
 The repository toolchain file selects 1.96.0 automatically only when `cargo`
@@ -401,14 +402,17 @@ configuration. If anything looks ambiguous, stop and confirm before committing.
 - Commit at noteworthy milestones: a completed change, a docs/process
   checkpoint, or a prototype slice. Avoid noisy partial commits, but do not let
   finished work sit uncommitted.
-- Update `DEVLOG.md` as part of each change (what landed, verified
+- Update [`DEVLOG.md`](DEVLOG.md) as part of each change (what landed, verified
   `cargo test` / `cargo fmt --check` status, remaining gaps) so the running
   record stays in lockstep with the code.
 - Write clear commit messages describing what changed and why.
+- In prose, make references to other maintained Markdown documents clickable
+  with relative links. Reserve plain inline-code paths for non-navigational
+  examples, generated evidence, and historical text.
 - Push after each completed change, once the tree is clean, `cargo test`,
   `cargo clippy --all-targets --locked -- -D warnings`, and `cargo fmt --check`
-  pass, public docs and `DEVLOG.md` match the state of the project, and
-  tracked/staged content has been scanned for secrets or local-only data.
+  pass, public docs and [`DEVLOG.md`](DEVLOG.md) match the state of the project,
+  and tracked/staged content has been scanned for secrets or local-only data.
   Frequent pushed commits are preferred so the public history is a living record
   of development; the public-repo safety boundary is the gate, not deliberate
   infrequency.
@@ -428,7 +432,7 @@ hard rules:
   to the plain path without visual corruption or a crash.
 - **Readability-gated.** The minimum-contrast floor (`min_contrast`) is the
   safety net. No visual enhancement may make text less legible at the user's
-  configured contrast floor. See `docs/accessibility.md` for the contrast floor,
+  configured contrast floor. See [`docs/accessibility.md`](docs/accessibility.md) for the contrast floor,
   CVD modes, focus dimming, and bell behavior.
 
 | Tier | Label | Examples | Status |
@@ -437,7 +441,7 @@ hard rules:
 | 2 | Identity and depth | Themed cursor/selection/search, focus dimming, background treatments, chrome/padding | Delivered for themed roles, focus dimming, padding, border, gradient/vignette, and static image backgrounds; blur-behind remains future |
 | 3 | Atmospheric (opt-in) | Post-process pipeline, bloom/glow, CRT profile, cursor motion, GPU quality | Delivered for post-process, bloom, CRT/retro, cursor glow/motion/trail, and new-output fade |
 
-See `docs/visual-architecture.md` for the full tier breakdown and source
+See [`docs/visual-architecture.md`](docs/visual-architecture.md) for the full tier breakdown and source
 references.
 
 ## Adding a built-in theme
@@ -447,8 +451,8 @@ The `REGISTRY` slice in `src/theme/builtins.rs` maps names to
 `include_str!`-embedded sources. Adding a new built-in is five steps:
 
 1. **Write the `.theme` file** in `src/theme/builtins/`. Use an existing file
-   as a template; every color role must have a value. See `SPEC.md` for the
-   format and `docs/themes.md` for the family/attribution conventions.
+   as a template; every color role must have a value. See [`SPEC.md`](SPEC.md) for the
+   format and [`docs/themes.md`](docs/themes.md) for the family/attribution conventions.
 2. **Register it.** Add one line to the `REGISTRY` slice in
    `src/theme/builtins.rs`:
    ```rust
@@ -462,7 +466,7 @@ The `REGISTRY` slice in `src/theme/builtins.rs` maps names to
    floor.
 4. **Update the roster count.** Change `library_has_the_full_roster` in
    `src/theme/builtins.rs` and every public count that names the old total.
-5. **Update `docs/themes.md`.** Add the theme to the built-in roster. External
+5. **Update [`docs/themes.md`](docs/themes.md).** Add the theme to the built-in roster. External
    palettes must include their family, origin, and license attribution; OdyTTY
    originals are covered by the library's project attribution.
 

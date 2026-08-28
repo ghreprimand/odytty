@@ -68,4 +68,4 @@ address or other personal contact is required.
 - Issues that require the user to deliberately enable an explicitly-documented
   unsafe option, or to run an obviously hostile command themselves.
 - Visual or rendering glitches with no safety impact — file those as normal
-  issues (subject to the contribution policy in `CONTRIBUTING.md`).
+  issues (subject to the contribution policy in [`CONTRIBUTING.md`](CONTRIBUTING.md)).

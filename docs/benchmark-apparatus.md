@@ -1,6 +1,6 @@
 # Comparative Benchmark Apparatus and Availability
 
-Companion to `docs/benchmark-protocol.md` (protocol version `1.5.4`).
+Companion to [`docs/benchmark-protocol.md`](benchmark-protocol.md) (protocol version `1.5.4`).
 
 The protocol defines how OdyTTY and independent terminal references are
 compared. This document records what the current comparison unit can actually
@@ -257,6 +257,6 @@ host.
 A historical W6 comparative result set was published under protocol 1.4.1.
 The v0.12.0 result set published under protocol 1.5.4 contains a fresh W6 run
 and the separately classified SE1/SE2 software-endpoint results
-(`docs/benchmark-results.md`). Every optical-endpoint workload remains `skip` /
+([`docs/benchmark-results.md`](benchmark-results.md)). Every optical-endpoint workload remains `skip` /
 `unavailable-hardware` for the reasons above -- not scheduling -- and must keep
 appearing in every preregistration and results table as such.

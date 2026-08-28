@@ -196,7 +196,7 @@ drops while resident stays flat has moved a cost, not removed one.
 From an idle v0.11.1 process on a development workstation (NVIDIA adapter,
 Wayland), for illustration of how the two records compose. **This is not the
 benchmark unit and these are not protocol figures** — the published comparison
-is `benchmark-results.md` and nothing here supersedes it. Dated baseline
+is [`benchmark-results.md`](benchmark-results.md) and nothing here supersedes it. Dated baseline
 captures for both machines live in the benchmark evidence tree.
 
 Host-side, resident bytes by class:
