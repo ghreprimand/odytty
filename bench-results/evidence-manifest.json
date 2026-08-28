@@ -3,22 +3,22 @@
     {
       "bytes": 24085,
       "name": "availability.json",
-      "sha256": "2394af5fc3b239a75930394bd24ec1f162474623575472d5c0a84acb844ed165"
+      "sha256": "7b0e741fc4704c078b8c46d5223a76411f32404b5daec3b9ed0b31f05392da99"
     },
     {
-      "bytes": 5121819,
+      "bytes": 6433769,
       "name": "raw-samples.jsonl",
-      "sha256": "e3b470b9ab15ec24aa75b0e005b80b77b9378c84965ab6d9f3d33882ca9700f0"
+      "sha256": "dcb67ed23e4dd25ec2597ba49cebf50c8963ca9c07944d3f1c2e825220dc525e"
     },
     {
-      "bytes": 753991,
+      "bytes": 872237,
       "name": "w6-results.json",
-      "sha256": "d59231cf0b2018c6bd34159b2ecd3a5167dd46de96f6cd59e4d99e08470be374"
+      "sha256": "64850ea42083156dd0b700b9f7ef41ac9191af5594155c47c5aa705532dbb54a"
     }
   ],
   "private_evidence": {
     "disposition": "retained byte-identical outside the public package",
-    "manifest_sha256": "e03ada75ededcdf26b0fef8c124e6bd8fdc05e48c76285ea320884ed888af926",
+    "manifest_sha256": "17fbc50a141c1d47f501fa05a4e7cf283d0a081ddf1f83419da777f62ad967f8",
     "omission_reason": "raw terminal output may contain private shell content",
     "published": false
   }

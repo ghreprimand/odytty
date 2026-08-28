@@ -1,0 +1,24 @@
+{
+  "files": [
+    {
+      "bytes": 24113,
+      "name": "software-endpoint-availability.json",
+      "sha256": "a9e2ebef91dd23e8b1f7200f2fffc26eada18149f6be64aa69e6cab3b3610f9c"
+    },
+    {
+      "bytes": 5849785,
+      "name": "software-endpoint-raw-samples.jsonl",
+      "sha256": "b1874ef3b5191ec7700a30cd46d5621f53667ca8c2093fc3910505a49a2412dd"
+    },
+    {
+      "bytes": 16632067,
+      "name": "software-endpoint-results.json",
+      "sha256": "d36999f0b799d34a3203620ea28272e8af7d59f511c740bdb744bcbf50bc2e71"
+    }
+  ],
+  "private_evidence": {
+    "disposition": "retained byte-identical outside the public package",
+    "manifest_sha256": "b84cd664539c4bfdfcbde877543e6e9e1bbf048f3d5bd8c331df8332213b284a",
+    "published": false
+  }
+}

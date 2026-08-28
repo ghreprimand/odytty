@@ -1,11 +1,10 @@
 # Memory: model, measurement, and target
 
-OdyTTY's resident footprint is the one place the published comparative
-benchmark puts it last. That result is not disputed here and is not softened
-here. This document exists so the next figure is arrived at the same way the
-first one was: from a capture, on a named machine, with the components
-separated — never from an estimate and never from a plausible argument about
-what "should" be cheap.
+The v0.11 W6 comparison put OdyTTY's resident footprint last. The v0.12 rerun
+does not: the measured work reduced current memory by 68.9 percent and peak
+memory by 60.1 percent. This document records how that result was reached from
+captures on a named machine with the components separated, never from an
+estimate or an argument about what "should" be cheap.
 
 ## Contents
 
@@ -41,26 +40,27 @@ Two corollaries follow, and both are binding:
 
 ## Where the target is
 
-The published W6 (idle, ten minutes, five replicates) comparison on the
+The current published W6 comparison (idle, ten minutes, five replicates) on the
 benchmark unit, from [`benchmark-results.md`](benchmark-results.md):
 
 | Implementation | Current | Peak |
 | --- | --- | --- |
-| Alacritty | 58.0 MB | 81.4 MB |
-| Ghostty | 92.1 MB | 164.2 MB |
-| Kitty | 136.5 MB | 150.0 MB |
-| OdyTTY | 286.3 MB | 327.9 MB |
+| Alacritty | 59.0 MB | 82.4 MB |
+| OdyTTY | 89.0 MB | 130.7 MB |
+| Ghostty | 93.7 MB | 165.6 MB |
+| Kitty | 132.2 MB | 147.7 MB |
 
-**The target is to beat Kitty: below 136.5 MB current and below 150.0 MB peak
-on the W6 configuration, on the same unit, under the same protocol.** Kitty is
-the right benchmark because it is the closest comparable — a GPU-rendered
-terminal with graphics-protocol support, tabs and splits, and a comparable
-feature surface. Beating it means the footprint is a consequence of what OdyTTY
-does rather than of how it does it.
+**The target was to beat Kitty's prior 136.5 MB current and 150.0 MB peak on
+the W6 configuration, on the same unit, under the same protocol discipline.
+The v0.12 result meets both thresholds and also beats Kitty's fresh 132.2 MB
+current and 147.7 MB peak medians.** Kitty is the right benchmark because it
+is the closest comparable: a GPU-rendered terminal with graphics-protocol
+support, tabs and splits, and a comparable feature surface.
 
-Nothing about that target is met by measuring differently. It is met by the same
-workload, the same replicate count, and the same reporting rules that produced
-the row above.
+Nothing about that target was met by measuring differently. It was met by the
+same workload, replicate count, comparison unit, and reporting rules. The prior
+OdyTTY medians were 286.3 MB current and 327.9 MB peak. The fresh 89.0 MB and
+130.7 MB medians are reductions of 68.9 percent and 60.1 percent respectively.
 
 ## What OdyTTY controls, and what it does not
 
@@ -376,6 +376,13 @@ by 188,895,232 bytes (68.0%) and peak by 188,956,672 bytes (59.1%). This is the
 adapter class used for the published comparison, so the production device now
 requests `MemoryUsage`.
 
+The formal five-replicate W6 rerun confirmed the probe. OdyTTY measured a
+median 89,010,176 bytes current with a 95 percent confidence interval of
+88,236,032 to 89,083,904 bytes, and a median 130,666,496 bytes peak with an
+interval of 129,744,896 to 131,321,856 bytes. All W6 oracles passed. The fresh
+idle CPU median was 1.4 percent lower than the prior OdyTTY W6 median, so the
+allocator decision did not introduce a measured idle CPU regression.
+
 The performance gate used alternating live-render intervals at the exact 80x24
 grid with the payload digest, CPR, completion patch, live child, and compositor
 geometry all checked. The full 64 MB fixture suggested a 2.2% mean slowdown,
@@ -671,14 +678,15 @@ geometry reported byte-identical values in every attribution field.
 
 ## What is deliberately not a goal
 
-**Matching Alacritty's 58.0 MB is a non-goal.** Not because it is hard, but
-because it is a different product. Alacritty ships no background image, no
+**Matching Alacritty's footprint remains a non-goal.** Its prior median was
+58.0 MB and its fresh median is 59.0 MB. This is not because the gap is hard,
+but because it is a different product. Alacritty ships no background image, no
 post-process pipeline, and no tabs, panes, or session host, and it renders
 through OpenGL rather than a Vulkan-class backend whose loader maps every
 installed ICD into the process. Reaching that figure would mean deleting the
-features that make OdyTTY what it is, which is not optimization — it is scope
+features that make OdyTTY what it is, which is not optimization; it is scope
 reversal. The comparison stays published, because it is true and it is
 informative; it is simply not the target.
 
-The target is Kitty's row: the same class of terminal, doing the same class of
-work, at a footprint OdyTTY should be able to beat.
+The target was Kitty's row: the same class of terminal, doing the same class of
+work. The v0.12 W6 result meets it.

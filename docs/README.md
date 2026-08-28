@@ -56,7 +56,7 @@ scaling behavior.
 - [Native decomposition record](native-decomposition.md)
 - [Comparative benchmark protocol](benchmark-protocol.md)
 - [Comparative benchmark apparatus statement](benchmark-apparatus.md)
-- [Comparative benchmark results: W6 idle](benchmark-results.md)
+- [Comparative benchmark results: W6 idle and software endpoints](benchmark-results.md)
 - [Memory model, measurement, and target](memory.md)
 - [Terminal threat model](threat-model.md)
 - [Pinned vttest methodology and results](compatibility/vttest.md)

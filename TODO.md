@@ -1397,10 +1397,12 @@ scope decisions live in `docs/memory.md`, `docs/benchmark-results.md`,
       SVG-in-OpenType remain outside the current cell model.
 - [x] Protocol 1.5.0 defines software-endpoint workloads and preserves the
       optical-apparatus boundary for interactive latency claims.
-- [ ] Freeze the exact v0.12.0 candidate, preregister it, run the remaining
-      benchmark workload set, and publish the results without pooling evidence
-      classes. W7 remains explicitly deferred because of its approximately
-      50-hour exclusive-machine cost.
+- [x] Freeze the exact v0.12.0 candidate, preregister it, run W6 plus SE1 and
+      SE2, and publish the results without pooling evidence classes. The fresh
+      W6 result meets the Kitty memory target; the SE result publishes both the
+      throughput improvement and the unfavourable SE2 burst retention. W7
+      remains explicitly deferred because of its approximately 50-hour
+      exclusive-machine cost.
 - [ ] Publish v0.12.0, verify its provenance from a clean environment, and run
       the documented post-publish package-channel checks.
 

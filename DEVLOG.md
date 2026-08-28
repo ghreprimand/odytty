@@ -7,6 +7,42 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-27 -- Publish the remediated W6 and software-endpoint baselines
+
+The protocol 1.5.4 throughput-remediation campaign completed against exact
+candidate `80b2fd2d` and anchored preregistration `6bddf833`. Both runners used
+run set `odytty-v0.12.0-protocol-1.5.4-throughput-remediation-r2-20260827`.
+The W6 result contains eight rehearsal records and twenty measured records;
+the software-endpoint result contains forty warmups and 240 measured attempts.
+Every attempt and oracle passed, with no W6 failures, invalid samples,
+deviations, or incomplete reasons.
+
+OdyTTY's five-replicate W6 median is 89.0 MB current and 130.7 MB peak. Against
+the prior published 286.3 MB current and 327.9 MB peak, those are reductions of
+68.9 percent and 60.1 percent. OdyTTY now measures below Kitty's fresh 132.2 MB
+current and 147.7 MB peak medians, meeting the release target on both fields.
+Its idle CPU median improved 1.4 percent relative to the prior OdyTTY W6 run.
+
+The thirty-sample software-endpoint medians are 7.965 MiB/s on SE1 and
+8.511 MiB/s on SE2. OdyTTY is last on SE1, within 8.3 percent of Ghostty, and
+second on SE2, 17.5 percent ahead of Ghostty. It remains behind Alacritty and
+Kitty on both workloads, so this is published as a competitive result rather
+than a fastest-terminal claim. The bounded pre-fix diagnostics were 2.39 and
+1.31 MiB/s; the fix moved the corresponding diagnostic paths to 8.04 and
+8.32 MiB/s, about 3.4x and 6.4x faster.
+
+The burst-retention results are also published without softening. OdyTTY's SE1
+retained median is 240.9 MB, between Alacritty and Kitty. Its SE2 retained
+median is 465.6 MB, the largest of the four, with a 552.8 MB peak. This bounded
+signal does not measure time-based creep and does not replace W7.
+
+The public W6 and SE result files, raw samples, availability records, and
+evidence manifests are committed under `bench-results/`. Both result formats
+validate against the frozen preregistration, and every manifest digest and byte
+count matches its installed evidence file.
+
+---
+
 ## 2026-08-27 -- Replace the pre-measurement throughput preregistration
 
 `bench-results/preregistration-1.5.4-throughput-remediation-r2.json` replaces

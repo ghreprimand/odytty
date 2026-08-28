@@ -1,8 +1,9 @@
 {
   "calibration_mode": "frozen-qualified-revalidation",
+  "frozen_unavailable": [],
   "probes": [
     {
-      "attempt_sha256": "36c1b3c9f52daca576bb9072319160bc5649a6d5e73ed24bedc91f19e5daa1c7",
+      "attempt_sha256": "ba8c684c0c98626298470e01dc9f8ea0db889bda06fb634f2d96172f43415ed3",
       "calibration": {
         "font_size": 12,
         "line_height": 1,
@@ -167,7 +168,7 @@
         "--",
         "odytty",
         "--app-id",
-        "org.odytty.bench.we1ec74e82b79632c85b71d38",
+        "org.odytty.bench.waae17e51215bab8aa0b639c7",
         "-e",
         "$PYTHON",
         "$REPOSITORY/scripts/bench-protocol/driver.py",
@@ -192,14 +193,14 @@
       },
       "schema_version": 3,
       "window": {
-        "app_id": "org.odytty.bench.we1ec74e82b79632c85b71d38",
+        "app_id": "org.odytty.bench.waae17e51215bab8aa0b639c7",
         "height": 288,
         "width": 562
       },
       "window_mapped": true
     },
     {
-      "attempt_sha256": "d96af8e6d6723570765c28dbfefe1223a0d5d8d23d8df0f6c16e17344578fbc5",
+      "attempt_sha256": "a78bf470bbc96b825e197836109af0f9824758ada9f8b2b1c448a818b2f41ed0",
       "calibration": {
         "font_size": 12,
         "method": "canonical-profile"
@@ -364,7 +365,7 @@
         "--config",
         "$REPOSITORY/scripts/bench-protocol/configs/kitty.conf",
         "--class",
-        "org.odytty.bench.w510b8e1ad393f16981e565f2",
+        "org.odytty.bench.wbb7d4225da9c4b95766ce6fd",
         "--",
         "$PYTHON",
         "$REPOSITORY/scripts/bench-protocol/driver.py",
@@ -385,14 +386,14 @@
       },
       "schema_version": 3,
       "window": {
-        "app_id": "org.odytty.bench.w510b8e1ad393f16981e565f2",
+        "app_id": "org.odytty.bench.wbb7d4225da9c4b95766ce6fd",
         "height": 472,
         "width": 800
       },
       "window_mapped": true
     },
     {
-      "attempt_sha256": "90efb20f2391dcc083124d66b81da8e6796107ae2e2b5f3def68129437ce7f37",
+      "attempt_sha256": "8b820bb176dc83872bb06f442b99a835eebbda219000fd6122863de81bfac2b6",
       "calibration": {
         "font_size": 12,
         "method": "canonical-profile"
@@ -543,7 +544,7 @@
         "--",
         "ghostty",
         "--config-file=$REPOSITORY/scripts/bench-protocol/configs/ghostty.conf",
-        "--class=org.odytty.bench.wd1cbbe049d5b870c4ac112f7",
+        "--class=org.odytty.bench.w4169ef10e6adb3e04575b426",
         "-e",
         "$PYTHON",
         "$REPOSITORY/scripts/bench-protocol/driver.py",
@@ -564,14 +565,14 @@
       },
       "schema_version": 3,
       "window": {
-        "app_id": "org.odytty.bench.wd1cbbe049d5b870c4ac112f7",
+        "app_id": "org.odytty.bench.w4169ef10e6adb3e04575b426",
         "height": 472,
         "width": 800
       },
       "window_mapped": true
     },
     {
-      "attempt_sha256": "c2741871fc0b960ae1fdf7bba24c4f8a4b16086ae8981b2ad02443f7c2e9c581",
+      "attempt_sha256": "d902f67b8fd3b3c891fcd11cfc77ede31b93ba4253aa343d60acaf4b98154e2d",
       "calibration": {
         "font_size": 12,
         "method": "canonical-profile"
@@ -736,7 +737,7 @@
         "--config-file",
         "$REPOSITORY/scripts/bench-protocol/configs/alacritty.toml",
         "--class",
-        "org.odytty.bench.w0e74cc1a829cbf7e7da7860f",
+        "org.odytty.bench.w560e01bb7a91161254fd77c0",
         "-e",
         "$PYTHON",
         "$REPOSITORY/scripts/bench-protocol/driver.py",
@@ -757,7 +758,7 @@
       },
       "schema_version": 3,
       "window": {
-        "app_id": "org.odytty.bench.w0e74cc1a829cbf7e7da7860f",
+        "app_id": "org.odytty.bench.w560e01bb7a91161254fd77c0",
         "height": 472,
         "width": 800
       },
