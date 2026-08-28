@@ -27,11 +27,11 @@ AppImage both report 0.12.0 and embed the full release commit.
 
 The in-repository Scoop manifest, external Homebrew cask and formula, and AUR
 Git repository all publish 0.12.0 with hashes matching the signed release
-manifest. Linux shipped bytes were exercised locally. The blocking Windows and
-macOS producer smoke tests passed, but no new physical Windows or macOS device
-was available for a post-publish upgrade/install pass; v0.11.1 therefore
-remains the latest completed physical-device upgrade evidence for those two
-channels rather than being silently promoted from CI.
+manifest. The blocking Windows and macOS producer smoke tests passed, and the
+published release subsequently completed install/update and use checks through
+Scoop, Homebrew, the Linux channels, and a source build. These post-publish
+checks exercise the distributed paths rather than promoting CI results into
+device evidence.
 
 ## 2026-08-28 -- Complete the auxiliary memory analysis
 

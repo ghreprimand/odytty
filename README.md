@@ -153,9 +153,9 @@ GPU-backed memory regression guard pass on the release commit. The published
 v0.12.0 assets pass their signed-manifest checks, external GitHub provenance
 verification, clean source-archive build, and Linux artifact checks. Scoop,
 Homebrew, and AUR all carry the matching release hashes. The Windows and macOS
-binaries passed their blocking pre-package smoke tests; v0.11.1 remains the
-most recent completed physical-device upgrade check for those two channels.
-The full results and their limitations are in
+binaries passed their blocking pre-package smoke tests, and post-publish
+install/update checks completed successfully through Scoop, Homebrew, the Linux
+channels, and a source build. The full results and their limitations are in
 [docs/benchmark-results.md](docs/benchmark-results.md). These checks do not
 cover every GPU, compositor, IME, font, or hardware configuration.
 
