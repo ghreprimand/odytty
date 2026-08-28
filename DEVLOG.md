@@ -7,6 +7,30 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-28 -- Complete the auxiliary memory analysis
+
+The final v0.12.0 artifacts now have a cross-terminal idle memory-composition
+record on the benchmark environment. Two fresh 60-second native-Wayland
+launches per implementation produced eight complete `memory-capture.py`
+records with exact class arithmetic. OdyTTY averaged 71.2 MB single-process
+RSS, against 211.5 MB for Kitty, 237.2 MB for Ghostty, and 166.5 MB for
+Alacritty. These are explanatory single-process captures, not W6 cgroup totals,
+and remain separated from the protocol result.
+
+The composition identifies a large fixed mapping difference. Kitty, Ghostty,
+and Alacritty each page 88.6-89.4 MB of driver-classified mappings dominated by
+`libLLVM.so.22.1`; OdyTTY's accelerated Vulkan path pages 11.6 MB of driver
+mappings dominated by `libvulkan_intel.so`. The record states the distinction
+as observed mapping composition rather than application-owned GPU allocation.
+
+The previously measured scrollback-fill scaling curve is now public beside the
+composition record. OdyTTY's fitted slope fell from 5,775.9 to 3,956.5 bytes per
+line after the stored-cell change, narrowing to 2.00x Kitty and 2.48x Ghostty.
+The robust 100,000-line estimate remains near parity with Kitty rather than a
+clean win, and its substantial launch variance stays explicit. Composition,
+scrollback scaling, and SE burst retention narrow but do not replace the
+deferred W7 time-based memory-growth workload.
+
 ## 2026-08-27 -- Publish the remediated W6 and software-endpoint baselines
 
 The protocol 1.5.4 throughput-remediation campaign completed against exact

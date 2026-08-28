@@ -339,8 +339,9 @@ instance-side change removes it. It is a cost of choosing Vulkan that a
 GL-only process does not pay: measured, understood, and not fixable from here.
 
 That last point wants a boundary drawn carefully, because the obvious
-generalization from it is wrong. A capture on the benchmark unit — Intel
-integrated graphics on Mesa, not a vendor blob — put the driver-library total at
+generalization from it is wrong. A preliminary pre-remediation capture on the
+benchmark unit — Intel integrated graphics on Mesa, not a vendor blob — put the
+driver-library total at
 88.6 MB for Alacritty, 89.4 MB for Ghostty, and 100.1 MB for OdyTTY, with
 `libLLVM.so` the dominant single mapping in all three. Alacritty renders through
 OpenGL and Ghostty likewise, so on that stack the large driver tax is not a
@@ -357,6 +358,26 @@ than a structural difference visible in a single sample. Recorded here as a
 constraint on the explanation, not as an explanation: the capture was taken at a
 window size the benchmark protocol does not use, so its absolute totals are not
 comparable to the published figures and are not offered as such.
+
+The final-candidate composition capture changes that historical picture. Two
+fresh 60-second launches per implementation used the exact W6/SE artifacts and
+profiles, isolated font, native Wayland, and one fixed 1900x1010 tiled window.
+OdyTTY averaged 71.2 MB single-process RSS: 11.6 MB driver mappings, 16.9 MB
+mapped binary, 35.4 MB heap, 0.5 MB anonymous, and 6.5 MB other libraries.
+Kitty, Ghostty, and Alacritty averaged 211.5, 237.2, and 166.5 MB respectively.
+
+The reference terminals each page 88.6-89.4 MB of driver-classified mappings,
+dominated by the same 87.5 MB `libLLVM.so.22.1` mapping. OdyTTY's accelerated
+Vulkan path instead pages 10.8 MB of `libvulkan_intel.so`; its complete driver
+class is 11.6 MB. This is a mapping observation, not an application-owned GPU
+allocation estimate. It also means the preliminary 100.1 MB OdyTTY driver row
+above does not describe the final candidate.
+
+These single-process figures do not replace W6's cgroup process-tree totals or
+its ten-minute measurement window. They explain composition only. The complete
+record, exact bytes, and the separately measured scrollback scaling curve are
+published in
+[`v0.12.0-auxiliary-memory-analysis-2026-08-28.md`](../bench-results/v0.12.0-auxiliary-memory-analysis-2026-08-28.md).
 
 ### Allocator hints: adapter-dependent result and adoption
 

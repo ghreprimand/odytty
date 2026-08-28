@@ -180,6 +180,41 @@ while remaining 58.5 percent above Alacritty. The idle CPU median improved
 1.4 percent relative to the prior OdyTTY W6 result, so the memory reduction
 did not purchase a measured idle CPU regression.
 
+## Auxiliary memory analysis (not protocol results)
+
+Two fresh 60-second idle captures per implementation used the exact artifacts,
+profiles, isolated font, native-Wayland path, and benchmark environment from
+this run. This is a single-process `/proc/<pid>/smaps` decomposition, not W6's
+cgroup process-tree measurement, and is never pooled with W6.
+
+| Implementation | RSS | Driver mappings | Mapped binary | Heap | Anonymous | Other libraries |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| OdyTTY | 71.2 MB | 11.6 MB | 16.9 MB | 35.4 MB | 0.5 MB | 6.5 MB |
+| Kitty | 211.5 MB | 88.6 MB | 0.1 MB | 20.8 MB | 21.2 MB | 72.5 MB |
+| Ghostty | 237.2 MB | 89.4 MB | 6.9 MB | 33.7 MB | 8.5 MB | 90.8 MB |
+| Alacritty | 166.5 MB | 88.6 MB | 6.9 MB | 11.3 MB | 3.5 MB | 55.3 MB |
+
+The three OpenGL reference paths page the same 87.5 MB `libLLVM.so.22.1`
+mapping. OdyTTY's accelerated Vulkan path instead pages 10.8 MB of
+`libvulkan_intel.so`, for an 11.6 MB driver-class mean. That difference helps
+explain the candidate's fixed idle composition; it does not replace the W6
+headline, which remains the complete process-tree total over the declared
+window.
+
+The separately measured scrollback-fill curve also remains non-protocol
+evidence. OdyTTY's fitted slope fell from 5,775.9 to 3,956.5 bytes per line
+after the narrower stored-cell change. The resulting slope is 2.00x Kitty and
+2.48x Ghostty. At 100,000 lines, the robust OdyTTY estimate is 451.0 MB, against
+401.3 MB for Kitty, 390.9 MB for Ghostty, and 692.5 MB for Alacritty. OdyTTY's
+launch variance makes that point near parity with Kitty rather than a clean
+win. Full per-replicate composition bytes, curve depths, method, and limitations
+are retained in
+[`v0.12.0-auxiliary-memory-analysis-2026-08-28.md`](../bench-results/v0.12.0-auxiliary-memory-analysis-2026-08-28.md).
+
+The composition, scaling curve, and SE retained-memory signal answer different
+bounded questions. They narrow but do not close the time-based memory-growth
+question reserved for the deferred W7 four-hour workload.
+
 ## Results: software-endpoint throughput (2026-08-27)
 
 These results are the protocol's explicitly weaker software-endpoint evidence
@@ -286,3 +321,4 @@ All in `bench-results/` at the repository root:
 | `software-endpoint-raw-samples.jsonl` | One record per SE attempt, warmups included |
 | `software-endpoint-availability.json` | The live SE qualification and smoke record |
 | `software-endpoint-evidence-manifest.json` | Digests binding the public SE evidence set |
+| `v0.12.0-auxiliary-memory-analysis-2026-08-28.md` | Non-protocol idle composition and scrollback-fill scaling evidence, kept separate from W6 and SE |
