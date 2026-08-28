@@ -25,7 +25,8 @@ OdyTTY began as an answer to a Linux From Scratch system called
 OdysseyOS: if a system has a distinct working environment, what would its
 terminal feel like if it were built from the ground up rather than skinned from
 something else? OdysseyOS remains the naming and visual inspiration, but OdyTTY
-is a standalone public Linux terminal emulator, not an OdysseyOS-only tool.
+is a standalone public, Linux-first terminal emulator with shipped macOS and
+Windows builds, not an OdysseyOS-only tool.
 
 The open questions that drive the project: can a terminal emulator add richer
 visual effects, better themes, a stronger sense of identity, and features that
@@ -74,8 +75,10 @@ The privacy guarantees are structural:
 - **No account layer.** There is no sign-in, cloud sync, or server-side
   component.
 
-- **User-owned state.** Settings, themes, and scrollback stay on the local
-  filesystem, and `odytty.conf` is plain text the user can inspect.
+- **User-owned state.** Settings, themes, and terminal state stay on the local
+  machine. Configuration is plain text the user can inspect; live grids and
+  bounded scrollback remain in process memory unless the user explicitly uses
+  a local persistence feature.
 
 - **Verifiable behavior.** GPL-3.0 source makes the absence of data collection
   auditable from the implementation.
@@ -1756,8 +1759,9 @@ builder, and image layer, consuming core snapshots through a narrow seam.
 
 ### Render Cell-Based Text
 
-Text is cell-based: each codepoint occupies one or two columns (`unicode-width`
-consistent with core), and all coordinate systems are per-cell. The default
+Text is cell-based: each printable base scalar occupies one or two columns
+(`unicode-width` consistent with core), zero-width combining marks attach to
+their base cell, and all coordinate systems are per-cell. The default
 body font is bundled **Victor Mono** (SIL OFL 1.1) at 20 logical pixels;
 **JetBrains Mono** is also bundled and remains selectable. SGR italic maps to
 Victor Mono's roman-slant Oblique faces. The font picker lists families in two
@@ -1783,9 +1787,9 @@ tail.
 `symbol_map` per-range overrides and the settings toggle remain in effect.
 `--show-config` reports the live `symbol_fallback` state and the resolved
 `symbol_font_source` as the full chain, joined with ` > ` (e.g.
-`bundled > bundled > host:<path>`, or `disabled`). The
-glyph atlas uses one monospace face for regular text, with bold/italic/bold-italic faces
-loaded when discovered by filename convention.
+`bundled > bundled > host:<path>`, or `disabled`). The glyph atlas uses one
+monospace face for regular text, with bold/italic/bold-italic faces selected
+from matching family metadata when they are available.
 
 When a style face is absent,
 `StyleFonts::synthetic_mask()` derives a per-face synthesis flag by comparing
@@ -1793,8 +1797,9 @@ loaded `Arc` identities; `GlyphAtlas::set_synthetic_styles` receives those bits
 and applies a `SynthTransform` during rasterization — italic via horizontal
 shear (tan 12° ≈ 0.2126), bold via double-strike at a sub-pixel embolden offset,
 bold-italic by composing both. Real faces always take precedence; synthesis
-activates only for genuinely absent slots. The ordinary path remains one
-character rasterized into its cell or two-cell slot. Default programming
+activates only for genuinely absent slots. The ordinary path remains one base
+glyph, plus any resident combining marks, rasterized into its cell or two-cell
+slot. Default programming
 ligatures use the bounded, cell-preserving design recorded below; broader
 complex-text shaping remains outside this terminal-grid model.
 
@@ -1832,9 +1837,11 @@ Wrapped and rectangular selection copy the base followed by those stored marks.
 `Attrs` stores its eight boolean display flags (bold, dim, italic, underline,
 blink, strikethrough, inverse, hidden) in a single private `flags: u16`
 bitfield. The public API is `&self` getters (`bold()` … `hidden()`) and `&mut
-self` setters (`set_bold()` … `set_hidden()`). `protected` and
-`wide_continuation` remain public `bool` fields on `Cell` because they do not
-benefit from the same packing (`Cell` is 36 B with or without them). The
+self` setters (`set_bold()` … `set_hidden()`). `Attrs` is 20 B and the live-grid
+`Cell` is 44 B; scrollback uses a 28 B `StoredCell` plus a per-line combining-mark
+side table, so the grid stays self-describing while ordinary history does not
+pay for four empty mark slots per cell. `protected` and `wide_continuation`
+remain public `bool` fields on `Cell`. The
 hand-written `Debug` impl reads through the getters and emits the same field
 names and values as the previous `#[derive(Debug)]` output, so parser-oracle
 golden fixtures do not need to change when the representation does — the same

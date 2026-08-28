@@ -12,6 +12,7 @@ use crate::atlas::SubpixelMode;
 use crate::core::CursorStyle;
 use crate::theme::Theme;
 
+use super::config::ConfigValues;
 use super::config::{config_key_to_env, env_to_config_key};
 use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
@@ -109,6 +110,65 @@ fn setting_env_keys_have_symmetric_config_mappings() {
             "canonical config key {config_key:?} does not map back to {env_key}"
         );
     }
+}
+
+/// Keep the exhaustive runtime reference coupled to the canonical setting
+/// table. A setting is not discoverable enough if its config-file spelling or
+/// environment override silently disappears from the maintained reference.
+#[test]
+fn runtime_reference_documents_every_setting_identity() {
+    let reference = include_str!("../../../docs/runtime-knobs.md");
+
+    for &env_key in SETTING_ENV_KEYS {
+        let config_key = env_to_config_key(env_key)
+            .unwrap_or_else(|| panic!("{env_key} has no canonical config-file key"));
+        assert!(
+            reference.contains(&format!("`{config_key}`")),
+            "docs/runtime-knobs.md does not document config key {config_key:?}"
+        );
+        assert!(
+            reference.contains(&format!("`{env_key}`")),
+            "docs/runtime-knobs.md does not document environment key {env_key:?}"
+        );
+    }
+}
+
+#[test]
+fn annotated_config_mentions_every_canonical_config_key() {
+    let example = include_str!("../../../docs/odytty.conf.example");
+
+    for &env_key in SETTING_ENV_KEYS {
+        let config_key = env_to_config_key(env_key)
+            .unwrap_or_else(|| panic!("{env_key} has no canonical config-file key"));
+        assert!(
+            example.lines().any(|line| {
+                line.trim_start()
+                    .strip_prefix('#')
+                    .unwrap_or(line.trim_start())
+                    .trim_start()
+                    .starts_with(&format!("{config_key} ="))
+            }),
+            "docs/odytty.conf.example does not mention config key {config_key:?}"
+        );
+    }
+}
+
+#[test]
+fn annotated_config_active_values_parse_without_warning() {
+    let example = include_str!("../../../docs/odytty.conf.example");
+    let mut warnings = Vec::new();
+    let config = ConfigValues::parse(example, |message| warnings.push(message));
+    let _settings = Settings::from_source(
+        |key| config.get(key).cloned(),
+        |message| warnings.push(message.to_owned()),
+        |_| Some(PathBuf::from("/synthetic/font.ttf")),
+        |_| None,
+    );
+
+    assert!(
+        warnings.is_empty(),
+        "docs/odytty.conf.example produced warnings: {warnings:?}"
+    );
 }
 
 #[cfg(not(windows))]

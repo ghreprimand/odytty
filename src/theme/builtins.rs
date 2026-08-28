@@ -613,6 +613,18 @@ mod tests {
     }
 
     #[test]
+    fn theme_reference_documents_every_builtin_name() {
+        let reference = include_str!("../../docs/themes.md");
+
+        for name in names() {
+            assert!(
+                reference.contains(&format!("| `{name}` |")),
+                "docs/themes.md does not list built-in theme {name:?}"
+            );
+        }
+    }
+
+    #[test]
     fn every_builtin_parses_without_warnings() {
         for &(name, source) in REGISTRY {
             ThemeSpec::parse(source, |m| panic!("built-in {name:?} warned: {m}"));

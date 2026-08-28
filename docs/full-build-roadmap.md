@@ -810,9 +810,9 @@ the readability-safe background treatments, the interactive paths and image
 viewer, the session attach launcher, and the multi-context epic (panes,
 persistent sessions, command palette, and connection manager) all ship:
 
-1. **Treat v0.10.0 field reports as regression input.** Address confirmed
-   correctness or security problems with narrow patch releases and permanent
-   regression coverage.
+1. **Treat current-release field reports as regression input.** Address
+   confirmed correctness or security problems with narrow patch releases and
+   permanent regression coverage.
 2. **Keep the release evidence machinery current.** Maintain blocking
    cross-platform CI, bounded dynamic analysis and fuzzing, package channels,
    documentation, and the time-bounded dependency-advisory review.

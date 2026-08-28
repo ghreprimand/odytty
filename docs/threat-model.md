@@ -232,8 +232,10 @@ write plants a command that the user later pastes into a shell.
 - **Existing tests:** screen-level clipboard sequence tests under
   `src/core/tests`; native policy and consent-state tests in
   `src/native/app/osc52.rs`.
-- **Planned fuzz target:** covered by the operating-system-command arm of the
-  planned parser target; the base64 decoder should be reachable from it.
+- **Fuzz coverage:** `tests/protocol_fuzz.rs` generates OSC 52 set/query traffic
+  biased toward invalid and oversized base64. The coverage-guided
+  `terminal_stream` target also feeds arbitrary bounded OSC input through the
+  owned parser and terminal model under multiple chunk schedules.
 - **Residual risk:** the focus requirement is a strong mitigation but not a
   complete one — output rendered while the window is focused is the normal case,
   and a user who leaves a hostile process running in a focused window can still

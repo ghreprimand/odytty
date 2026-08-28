@@ -160,6 +160,19 @@ fn bindable_action_names_round_trip_through_parse() {
 }
 
 #[test]
+fn keyboard_reference_documents_every_bindable_action() {
+    let reference = include_str!("../../../docs/keybindings.md");
+
+    for action in BindableAction::ALL {
+        let name = bindable_action_name(action);
+        assert!(
+            reference.contains(&format!("`{name}`")),
+            "docs/keybindings.md does not document bindable action {name:?}"
+        );
+    }
+}
+
+#[test]
 fn keybinds_value_round_trips_for_every_action() {
     // Bind a distinct chord to every action, serialize via the same path the
     // in-app keybinding editor saves through, then re-parse — proving the full

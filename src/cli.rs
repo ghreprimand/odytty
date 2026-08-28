@@ -50,7 +50,7 @@ pub fn shell_integration_output(args: &[String]) -> Result<Option<String>, Strin
         return Ok(None);
     }
     let shell = args.get(1).ok_or_else(|| {
-        "odytty shell-integration requires a shell: bash, zsh, or fish".to_owned()
+        "odytty shell-integration requires a shell: bash, zsh, fish, or powershell".to_owned()
     })?;
     if args.len() != 2 {
         return Err("odytty shell-integration takes exactly one shell".to_owned());
@@ -498,7 +498,7 @@ pub fn usage_text() -> String {
     out.push('\n');
     out.push_str("Shell integration:\n");
     out.push_str("  shell-integration SHELL\n");
-    out.push_str("                  print OSC 133 setup for bash, zsh, or fish\n");
+    out.push_str("                  print OSC 133 setup for bash, zsh, fish, or powershell\n");
     out.push('\n');
     out.push_str("Session commands:\n");
     out.push_str("  new [--detached] [-e COMMAND...]\n");
@@ -1182,14 +1182,11 @@ mod tests {
 
     #[test]
     fn shell_integration_subcommand_prints_supported_shell_snippets() {
-        for shell in ["bash", "zsh", "fish"] {
+        for shell in ["bash", "zsh", "fish", "powershell"] {
             let output = shell_integration_output(&strings(&["shell-integration", shell]))
                 .expect("parse")
                 .expect("output");
-            assert!(
-                output.contains("\\e]133;A"),
-                "{shell}: missing prompt start"
-            );
+            assert!(output.contains("133;A"), "{shell}: missing prompt start");
             assert!(output.contains("133;B"), "{shell}: missing input start");
             assert!(output.contains("133;C"), "{shell}: missing command start");
             assert!(output.contains("133;D"), "{shell}: missing command end");
@@ -1201,6 +1198,52 @@ mod tests {
         let err = shell_integration_output(&strings(&["shell-integration", "cmd"]))
             .expect_err("unknown shell");
         assert!(err.contains("unsupported shell"));
+    }
+
+    #[test]
+    fn shell_integration_missing_argument_lists_every_supported_family() {
+        let err =
+            shell_integration_output(&strings(&["shell-integration"])).expect_err("missing shell");
+        for shell in ["bash", "zsh", "fish", "powershell"] {
+            assert!(err.contains(shell), "missing {shell} from error: {err}");
+        }
+
+        let usage = usage_text();
+        for shell in ["bash", "zsh", "fish", "powershell"] {
+            assert!(usage.contains(shell), "missing {shell} from help: {usage}");
+        }
+    }
+
+    #[test]
+    fn runtime_reference_documents_public_help_surface() {
+        let reference = include_str!("../docs/runtime-knobs.md");
+
+        for spelling in [
+            "--native",
+            "-e",
+            "--execute",
+            "--working-directory",
+            "--working-dir",
+            "--title",
+            "--app-id",
+            "--class",
+            "--hold",
+            "--version",
+            "--list-themes",
+            "--list-fonts",
+            "--show-config",
+            "--core-smoke",
+            "-h",
+            "--help",
+            "shell-integration",
+            "new --detached",
+            "attach --diagnostic",
+        ] {
+            assert!(
+                reference.contains(spelling),
+                "docs/runtime-knobs.md does not document public CLI spelling {spelling:?}"
+            );
+        }
     }
 
     #[test]

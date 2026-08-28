@@ -34,6 +34,10 @@ synthetic_styles = on
 # Contextual programming ligatures are on by default. Logical cells, selection,
 # and copied text remain unchanged; set this to off for scalar rendering.
 ligatures = on
+# Optional OpenType stylistic sets for fonts that provide them. Both are off by
+# default and affect presentation only.
+ss01 = off
+ss02 = off
 symbol_fallback = on
 # symbol_font = auto
 # symbol_map = U+E000-U+F8FF=Symbols Nerd Font
@@ -79,6 +83,8 @@ colored_bg_opacity = 0.9
 # Show the tab bar even with a single tab. Off by default (a lone unnamed tab
 # hides the bar). A single tab you have renamed always shows the bar regardless.
 always_show_tab_bar = off
+# Height of the top tab bar: auto (one text row) or a fixed 1-5 rows.
+tab_bar_height = auto
 
 # Tabs always render on the top bar. `workspace_rail_side` selects which side the
 # WORKSPACE rail sits on when it is shown: left (default) or right. The legacy
@@ -102,6 +108,12 @@ workspace_rail_width = auto
 workspace_rail_max_width = 24
 workspace_rail_gap = 1
 workspace_rail_slot_rows = 2
+# Legacy spellings remain accepted for existing configs. The workspace_rail_*
+# keys above win when both spellings are present.
+# tab_rail_width = auto
+# tab_rail_max_width = 24
+# tab_rail_gap = 1
+# tab_rail_slot_rows = 2
 
 # Tab panel: a quiet translucent surface behind the tab bar/rail so labels read
 # against it. Strength 0 turns the panel off (bare labels over the wallpaper);
@@ -118,6 +130,9 @@ tab_seam = off
 # `tab_rail_reveal_px` names are still accepted. Off by default.
 workspace_rail_autohide = off
 workspace_rail_reveal_px = 16
+# Legacy aliases for the two settings above:
+# tab_rail_autohide = off
+# tab_rail_reveal_px = 16
 
 # Background treatments. OdyTTY ships with the bundled "Dark Waves" background
 # on by default. To turn it OFF, use `background_treatment = color` (theme
@@ -193,6 +208,9 @@ copy_on_select = off
 smart_ctrl_c = copy-or-interrupt
 # smart_ctrl_c = off   # plain Ctrl+C always interrupts (pre-v0.6.0 behavior)
 confirm_close = on
+# What happens when the last shell in a workspace exits: close that workspace,
+# or close the entire application.
+shell_exit_closes = workspace
 # Terminal bell (BEL) handling. There is no audible bell; off/visual/urgent/all
 # are the accepted values (urgent raises the window's urgency hint).
 bell = urgent
@@ -295,6 +313,10 @@ remote_integration = on
 # integrated sessions only. No effect on a Windows client (OpenSSH there has no
 # connection multiplexing).
 remote_reuse = on
+
+# How long an idle reusable SSH master may remain alive after its last tab
+# closes. Accepted values: off, 10m, 30m, 1h, or 2h.
+remote_persist = 10m
 
 # tmux persistence for integrated SSH tabs. Default OFF (opt-in). When on, an
 # integrated SSH tab wraps the remote shell in "tmux new-session -A -s odytty",

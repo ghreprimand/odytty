@@ -118,6 +118,8 @@ environment variable was not set at startup.
 | `subpixel` | `ODYTTY_SUBPIXEL` | `off`, `rgb`, `bgr` | `off` |
 | `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` |
 | `ligatures` | `ODYTTY_LIGATURES` | `on`, `off` | `on` |
+| `ss01` | `ODYTTY_LIGATURE_SS01` | `on`, `off` | `off` |
+| `ss02` | `ODYTTY_LIGATURE_SS02` | `on`, `off` | `off` |
 | `kitty_named_transports` | `ODYTTY_KITTY_NAMED_TRANSPORTS` | `on`, `off` | `off` |
 | `geometric_boxdraw` | `ODYTTY_GEOMETRIC_BOXDRAW` | `on`, `off` | `on` |
 | `box_thickness` | `ODYTTY_BOX_THICKNESS` | Float, `0.5..=3.0` | `1.0` |
@@ -945,13 +947,24 @@ the PTY, native event loop, geometry builder, and GPU presenter.
 
 ## Launch CLI
 
-The native window accepts launch-scoped application identity and command-exit
-handling:
+The native window accepts launch-scoped title, directory, application identity,
+command, and command-exit handling:
 
 ```sh
-odytty [--app-id APP_ID | --app-id=APP_ID] [--hold[=true|false]] [-e COMMAND...]
-odytty [--class APP_ID | --class=APP_ID] [--hold[=true|false]] [-e COMMAND...]
+odytty [--native] [--title TITLE] [--working-directory DIR] \
+  [--app-id APP_ID | --class APP_ID] [--hold[=true|false]] [-e COMMAND...]
 ```
+
+With no arguments, OdyTTY opens the native window and the user's default shell.
+`--native` is a compatibility alias for that same launch. `--title` sets the
+initial window title, and `--working-directory` sets the initial PTY directory;
+both also accept `--flag=value`. `--working-dir` is an accepted compatibility
+alias for `--working-directory`.
+
+`-e` or `--execute` runs the remaining argv as the initial command instead of
+the default shell. A bare `--` has the same command-boundary meaning. Anything
+after the command boundary belongs to the child, even when it resembles an
+OdyTTY option.
 
 `--app-id` and `--class` are aliases. On Linux, their value becomes this
 window's Wayland `app_id` and the class half of X11 `WM_CLASS`; the X11 instance
@@ -971,6 +984,31 @@ nothing. While the held pane is focused, the first press or repeat is consumed,
 closes it through normal cleanup, and either exits the window or focuses the
 surviving pane/tab/workspace. A dropped remote session's reconnect prompt still
 takes precedence over hold.
+
+### Introspection and shell-integration commands
+
+These commands print and exit without opening a window:
+
+```sh
+odytty --version
+odytty --help  # -h is an alias
+odytty --list-themes
+odytty --list-fonts
+odytty --show-config
+odytty --core-smoke
+odytty shell-integration SHELL  # bash, zsh, fish, powershell, or pwsh
+```
+
+`--list-themes` and `--list-fonts` emit stable, machine-friendly inventories;
+`--show-config` emits the stable diagnostic subset of the effective settings;
+and `--core-smoke` prints a small owned-parser/terminal-model transcript. The
+shell-integration command prints the requested setup snippet to stdout (`pwsh`
+is accepted as an alias for `powershell`).
+
+The Unix-only `--interactive` mode retains the original headless terminal
+frontend for diagnostics and development; it uses the caller's terminal for
+display and reserves Ctrl+Q as its local quit chord. It is not the normal native
+application path and is rejected cleanly on Windows.
 
 ## Detached-Session CLI
 

@@ -10,7 +10,10 @@ documentation, and release-convergence scope is complete and published, and
 the v0.11.0 external-review response scope (documentation accuracy, release
 signing, color-font and shaping maturity, graphics protocol completeness,
 instanced rendering, theme capture, and the published W6 idle comparison) is
-complete and published on top of it. Unchecked feature ideas below are
+complete and published on top of it. The v0.12.0 memory, measurement,
+provenance, graphics-gap, and software-endpoint scope is also complete and
+published, including the recorded W6 and SE results and post-release channel
+verification. Unchecked feature ideas below are
 longer-range roadmap candidates; they require a separately recorded milestone
 before implementation.
 
@@ -131,7 +134,9 @@ before implementation.
         `take_working_directory_changed` poll flag, and survive RIS. Malformed
         URLs / truncated escapes / `%00` / oversized payloads are ignored
         non-panicking; OSC 7 emits no response and never leaks into the grid.
-        OSC 6 accepted-and-ignored. Native consumer is follow-up work.
+        OSC 6 accepted-and-ignored. Native consumers subsequently landed for
+        recent-directory history, spawn-directory inheritance, duplicate
+        tabs/windows, layouts, persistence, and interactive paths.
 - [x] Add mouse reporting modes required by real TUIs.
   - [x] Core: DECSET/DECRST tracking (9/1000/1002/1003) and encoding
         (1005/1006/1015) state plus pure report encoders.
@@ -306,9 +311,13 @@ before implementation.
         rect/SGR-subparam rows + a `size_of` diagnostic and flagged a -23% `seq`
         regression from `Cell` growth; `PERF1` root-caused it to per-cell write /
         blank-row fill cost (not scroll memmove); `PERF1b` packed `Attrs`'s eight
-        `bool` fields into a private `u16` (Attrs 28->20 B, Cell 44->36 B),
+        `bool` fields into a private `u16` (Attrs 28->20 B, Cell 44->36 B at
+        that revision),
         recovering `seq` +24% with parser-oracle goldens unchanged. Public
-        `bold`..`hidden` fields became getters/setters.
+        `bold`..`hidden` fields became getters/setters. The later four-slot
+        combining-mark array returned live-grid `Cell` to 44 B; current
+        scrollback instead stores 28 B `StoredCell` values with marks in a
+        per-line side table.
   - [x] Native render-loop mitigation: reusable CPU vertex storage plus a
         grow-only GPU vertex buffer remove steady-state vertex-buffer
         allocation/recreation, and resize debounce coalesces drag bursts before

@@ -2,10 +2,37 @@
 
 Public running record of how OdyTTY is built, in reverse-chronological order.
 Each entry captures what landed, the current state, and the known gaps in the
-pre-1.0 line. See `TODO.md` for the milestone checklist and `SPEC.md` for
-durable product/architecture decisions.
+pre-1.0 line. See [`TODO.md`](TODO.md) for the milestone checklist and
+[`SPEC.md`](SPEC.md) for durable product/architecture decisions.
 
 ---
+
+## 2026-08-28 -- Reconcile maintained documentation with the v0.12.0 implementation
+
+A semantic source-to-documentation audit followed the post-release link and
+navigation pass. The specification now describes the shipped three-platform
+product, in-memory terminal state, combining-mark model, metadata-based font
+selection, and the current live and scrollback cell layouts. The roadmap keeps
+its historical size milestone while explaining the later representation
+change, and its release summary now includes the completed v0.12.0 work.
+
+The runtime reference and annotated configuration now cover every canonical
+setting and environment key, including the two stylistic-set toggles, and the
+reference documents the complete public launch and diagnostic CLI surface.
+PowerShell shell-integration support is now listed by the executable's own help
+and error output. The threat model records the existing OSC 52 protocol and
+coverage-guided fuzz paths instead of calling that work future scope.
+
+New tests couple the maintained runtime reference, annotated configuration,
+keyboard reference, and theme roster to the source of truth for settings, CLI
+spellings, bindable actions, and built-in themes. Historical benchmarks,
+evidence, vendored material, and revision-anchored design records remain
+unchanged where their original context is part of the record.
+
+The complete documentation map now links the benchmark harness's maintained
+operator guide as well as the protocol, apparatus, and published results.
+The forward roadmap now directs maintainers to current-release field reports
+instead of naming v0.10.0 as the ongoing intake point.
 
 ## 2026-08-28 -- Clarify GitHub contribution routes
 
