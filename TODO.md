@@ -1,9 +1,11 @@
 # OdyTTY — TODO
 
-Post-prototype checklist for making OdyTTY comfortable enough for repeated short
-sessions before broader product features. The first meaningful prototype is
-complete; see [`DEVLOG.md`](DEVLOG.md) for the running record, [`SPEC.md`](SPEC.md) for durable
-decisions, and [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) for the full build roadmap.
+Living delivery record and forward backlog for OdyTTY. Historical stage
+sections preserve what shipped in each development cycle; the unchecked items
+identify current future work. See [`DEVLOG.md`](DEVLOG.md) for the running
+record, [`SPEC.md`](SPEC.md) for durable decisions, and
+[`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) for the full build
+roadmap.
 
 The v0.10.0 architecture, compatibility, correctness, security, evidence,
 documentation, and release-convergence scope is complete and published, and
@@ -13,9 +15,12 @@ instanced rendering, theme capture, and the published W6 idle comparison) is
 complete and published on top of it. The v0.12.0 memory, measurement,
 provenance, graphics-gap, and software-endpoint scope is also complete and
 published, including the recorded W6 and SE results and post-release channel
-verification. Unchecked feature ideas below are
-longer-range roadmap candidates; they require a separately recorded milestone
-before implementation.
+verification. A checked item is delivered at the current head (or at the
+historical milestone its section names). An unchecked item is concrete
+remaining work or an unmet evidence gate. Standing policies and explicit
+non-goals are prose rather than unchecked boxes, so this file does not present
+them as implementation commitments. Longer-range candidates require a
+separately recorded milestone before implementation.
 
 ## Stage 4.5: Foundation Ownership
 
@@ -99,23 +104,26 @@ before implementation.
       prototype.
 - [x] Keep default startup behavior unchanged unless a setting explicitly
       overrides it.
-- [ ] Run a short manual session after stabilization changes and capture new
-      friction as concrete packets.
+- [x] Run short manual sessions after stabilization changes and capture new
+      friction as concrete packets. Later release, platform, application, and
+      package-channel validation records supersede the original prototype pass.
 
 ## Stage 2: Terminal Correctness Hardening
 
-- [ ] Expand compatibility only from observed shell/TUI failures or clearly
-      documented standards gaps.
-  - [x] Core reporting probes: DECRQM/DECRPM, XTWINOPS size reports, Secondary
-        DA, and XTVERSION.
-  - [x] IRM (insert/replace mode, ANSI mode 4 `CSI 4 h`/`CSI 4 l`): printing in
-        insert mode shifts cells at and right of the cursor toward the right edge
-        (dropping cells past the edge), reset by RIS/DECSTR, with DECRQM
-        reporting the live set/reset state. Closes the macOS `pico`/`nano`
-        incremental-redraw corruption gap.
-- [ ] Add deterministic fixtures for every reproducible terminal-core
-      regression.
-- [ ] Improve OSC support, including title handling and common shell/editor
+Standing compatibility policy: expand behavior only from observed shell/TUI
+failures or clearly documented standards gaps, and add a deterministic fixture
+for every reproducible terminal-core regression.
+
+Delivered compatibility work under that policy:
+
+- [x] Core reporting probes: DECRQM/DECRPM, XTWINOPS size reports, Secondary
+      DA, and XTVERSION.
+- [x] IRM (insert/replace mode, ANSI mode 4 `CSI 4 h`/`CSI 4 l`): printing in
+      insert mode shifts cells at and right of the cursor toward the right edge
+      (dropping cells past the edge), reset by RIS/DECSTR, with DECRQM
+      reporting the live set/reset state. Closes the macOS `pico`/`nano`
+      incremental-redraw corruption gap.
+- [x] Improve the named OSC support needed for titles and common shell/editor
       sequences.
   - [x] Core: OSC 0/2 window-title capture with dirty flag; unknown OSC payloads
         consumed (no grid leakage).
@@ -176,20 +184,26 @@ before implementation.
   - [x] A2-F3: `cursor_visible` saved/restored in StoredScreen.
   - [x] A2-F4: `current_attrs` saved/restored in StoredScreen.
   - [x] A2: 11 new fixtures pinning per-mode cursor, cursor_visible, and attrs.
-- [ ] Improve Unicode, wide-character, combining-mark, and ambiguous-width
-      handling.
+- [ ] Complete the remaining Unicode-width policy work; wide characters,
+      combining marks, and supported emoji clusters already render correctly,
+      while an ambiguous-width setting remains future work.
   - [x] Core: wide-cell write/erase coherence — overwrite-half clears the pair,
         wide glyph wraps whole at EOL, erase/ICH/DCH/ECH repair pairs. Ambiguous
         width stays narrow (future setting).
-  - [x] Core: zero-width combining marks attach to the preceding cell's grapheme
-        (inline per-cell buffer, cap 2); safe no-op at line start. Renderer
-        composition of marks is later work.
+  - [x] Core and renderer: up to four zero-width combining marks attach to the
+        preceding cell's grapheme, render over the base glyph, survive
+        selection/copy, reflow, snapshot, and session-host serialization, and
+        move into a per-line side table in scrollback. A mark at line start is
+        a safe no-op and excess marks are dropped at the documented bound.
+  - [ ] Decide whether to add a user-selectable ambiguous-width policy; the
+        current implementation intentionally treats East Asian Ambiguous
+        codepoints as narrow.
 - [x] Grow PTY-backed smoke coverage without making default tests flaky or slow.
 
 ## Stage 3: High-Quality Text And Rendering
 
-- [ ] Treat mature-terminal visible text quality as the baseline target, not a
-      stretch goal.
+Standing quality policy: mature-terminal visible text quality is the baseline,
+not a stretch goal.
 - [x] Add configurable font family after the settings path is stable.
   - [x] `ODYTTY_FONT_FAMILY` resolves a monospace face by family name (system
         font lookup across standard Linux dirs) or a direct `.ttf`/`.otf`/`.ttc`
@@ -217,7 +231,7 @@ before implementation.
         scale, and fractional-scale UV seams, plus
         [`docs/hidpi-validation.md`](docs/hidpi-validation.md) maintainer-run manual
         matrix (23 cells across 5 sections). All H1/H2 seams confirmed correct.
-- [ ] Improve glyph atlas management, including cache growth, invalidation, and
+- [x] Improve glyph atlas management, including cache growth, invalidation, and
       missing-glyph behavior.
   - [x] Atlas extracted to `src/atlas/`; missing-glyph fallback box, dynamic
         glyph cache with page-append growth (no eviction), and full-rebuild
@@ -250,6 +264,9 @@ before implementation.
         cell geometry. Deferred (post-v0.1.6): diagonal-edged blocks
         `U+1FB3C..1FB67` and negative diagonals `U+1FBBD..1FBBF` (need a general
         antialiased polygon filler).
+- [ ] Add a general antialiased polygon filler before claiming geometric
+      rendering for diagonal-edged Symbols for Legacy Computing
+      (`U+1FB3C..U+1FB67`, `U+1FBBD..U+1FBBF`).
 - [x] Ship grid-preserving contextual ligatures behind a live setting
       (ASCII graphics plus a curated non-ASCII operator allowlist, with
       `calt`+`liga` on Latin/operator runs). Explicit optional `ss01`/`ss02`
@@ -271,7 +288,7 @@ before implementation.
         init/medi/fina/isol and length-changing joining ligatures (e.g.
         lam-alef). Harakat-bearing cells still break runs. Active fonts without
         Arabic coverage emit no overlay.
-- [ ] Improve rasterization quality: pixel alignment, baseline consistency,
+- [x] Improve rasterization quality: pixel alignment, baseline consistency,
       padding, gamma, blending, and contrast.
   - [x] Raster side (`src/atlas/`): single documented baseline for every
         glyph, nearest-pixel rounding, and a per-slot transparent padding gutter
@@ -407,7 +424,7 @@ before implementation.
         multiclick stays byte-identical to before; OFF restores the historical
         finalize-on-multiclick path. Replaces the `selecting` bool with a typed
         `PointerDrag` scaffold reserved for autoscroll/scrollbar/rect packets.
-- [ ] Improve clipboard behavior, including large paste behavior, diagnostics,
+- [x] Improve clipboard behavior, including large paste behavior, diagnostics,
       and primary selection if appropriate.
   - [x] Large paste writes use a background PTY writer thread and 16 KiB chunks,
         with one writer lock held for the whole paste to preserve byte order and
@@ -481,7 +498,7 @@ before implementation.
   - [x] Cursor glow (`cursor_glow`, on by default): one soft shape-aware analytic
         aura behind the cursor glyph; its restrained alpha keeps nearby text
         readable.
-- [ ] Add window title and focus behavior.
+- [x] Add window title and focus behavior.
   - [x] Apply OSC title changes to the native window title.
   - [x] Emit DECSET 1004 focus-in/out reports from native window focus events.
 - [x] Handle the bell (BEL `0x07`). Core latches a one-shot `bell_pending`
@@ -621,7 +638,7 @@ before implementation.
   - [x] Clarify `cursor_blink = auto`: on Linux it intentionally resolves to
         the conventional blinking terminal default because `winit` exposes no
         OS caret-blink preference; the settings help text now says this plainly.
-- [ ] Profiles and CLI config introspection.
+- [x] Add CLI config introspection.
   - [x] `--list-themes`: enumerate the 142 built-in themes as
         `name`/appearance/family rows.
   - [x] `--list-fonts`: enumerate discoverable font files (path, filename-stem
@@ -629,13 +646,14 @@ before implementation.
         Pure introspection; no settings key or render-path change.
   - [x] `--show-config`: print the current stable effective-config dump. The
         full settings authority remains [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
+- [ ] Profiles remain future work.
 
 ## Visual Capability Parity (Stage 6 parity half)
 
 Design decision: visual capability parity with the strongest GPU terminals is
 a floor; surpassing it is the standing ambition.
 
-- [ ] Wide-glyph raster quality: double-width (CJK/wide) atlas slot sizing.
+- [x] Wide-glyph raster quality: double-width (CJK/wide) atlas slot sizing.
   - [x] Audit: width-2 glyphs were clipped — a single-cell atlas slot caps
         ink at `cell.width + overflow_margin` (~`cell.width + cell.height/4`),
         losing the rightmost ~27% of a full-em width-2 glyph, and the slot is
@@ -936,7 +954,7 @@ feature validates against.
   - [x] Honest fail-safe selection-delete: with a selection but no known prompt
         boundary, Delete/Backspace clears the stale selection and surfaces the
         shell-integration hint instead of sending blind edit bytes.
-- [ ] Perceptual color moat (OKLab/OKLCH pipeline + readability floor).
+- [x] Perceptual color foundation (OKLab/OKLCH pipeline + readability floor).
   - [x] Universal legibility: the contrast floor provably covers every
         text color type (ANSI, 256-color, truecolor, explicit underline color),
         lifting foregrounds in OKLab while preserving hue and chroma. The
@@ -989,7 +1007,7 @@ feature validates against.
         alpha compositing (X11 with no compositor); the opaque path is
         byte-identical, and wallpaper backgrounds compose under the same window
         alpha. macOS uses the system compositor and Windows uses DWM.
-- [ ] Pointer excellence — make the mouse a joy, without disturbing TUI mouse
+- [x] Deliver the defined pointer-excellence scope without disturbing TUI mouse
       reporting (Shift stays the selection-vs-passthrough seam).
   - [x] Extend an existing selection: Shift+click, double-click-then-drag by
         word, triple-click-then-drag by line.
@@ -1017,7 +1035,7 @@ feature validates against.
   - [x] Path right-click menu: Open, Open in OdyTTY (images), Open With… (the
         `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
         in File Manager. See [`docs/keybindings.md`](docs/keybindings.md) for the chord reference.
-- [ ] Theme library and config UX.
+- [x] Deliver the current theme-library and configuration UX scope.
   - [x] Built-in theme library expanded to 142 contrast-validated themes
         (data-only, ongoing).
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
@@ -1256,8 +1274,6 @@ feature validates against.
       session in the focused pane's current working directory (OSC 7 cwd) and
       switch to it, with an honest spawn-not-live-migration framing and a
       Swap / Keep both / Cancel dialog.
-- [ ] Profiles remain future work.
-
 ## Stage 9: v0.10.0 Release Convergence
 
 Architecture, correctness, security, and evidence work rather than feature
@@ -1315,18 +1331,17 @@ stay pinned to the revisions they measured.
       [`docs/compatibility/real-application-smoke.md`](docs/compatibility/real-application-smoke.md) with an exact artifact,
       application version, and evidence reference per row. The bounded
       post-release package smoke pass does not fill them.
-- [ ] Comparative performance numbers under the preregistered protocol in
-      [`docs/benchmark-protocol.md`](docs/benchmark-protocol.md) — partially delivered. The W6 idle
-      comparison is executed and published ([`docs/benchmark-results.md`](docs/benchmark-results.md),
-      raw samples in `bench-results/`): OdyTTY, Kitty, Ghostty, and
-      Alacritty at protocol 1.4.1, five measured replicates each, zero
-      failures or deviations, no overall winner declared. The remaining
-      workloads stay deferred for the specific reasons recorded in
-      [`docs/benchmark-apparatus.md`](docs/benchmark-apparatus.md): the interactive and stream workloads
-      define optical measurement endpoints (external stimulus controller and
-      display photosensor on a shared capture clock) that the current
-      apparatus does not provide, and the protocol forbids substituting
-      software timestamps. Internal before/after microbenchmarks remain
+- [ ] Complete the still-open comparative workloads under the preregistered
+      protocol in [`docs/benchmark-protocol.md`](docs/benchmark-protocol.md).
+      Protocol 1.5.4 W6 idle and SE1/SE2 software-endpoint comparisons are
+      executed and published for OdyTTY, Kitty, Ghostty, and Alacritty
+      ([`docs/benchmark-results.md`](docs/benchmark-results.md), raw samples in
+      `bench-results/`), with every attempt and oracle passing. W1-W5 remain
+      unavailable because their frozen optical endpoints require an external
+      stimulus controller and display photosensor on a shared capture clock;
+      the protocol forbids substituting software timestamps. W7 remains
+      deferred because its frozen run costs about 50 hours of exclusive
+      benchmark-machine time. Internal before/after microbenchmarks remain
       implementation measurements, not product comparisons.
       Protocol 1.3.0 additionally records a measured feasibility finding: the
       complete declared calibration search over OdyTTY, Kitty, Ghostty, and
@@ -1583,20 +1598,20 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
         that carries no password; and a saved-host right-click menu (Open in New
         Tab / Open in New Workspace / Bind Current Workspace, plus Edit / Remove
         for OdyTTY-owned rows). A `Protocol` field is reserved (`ssh` only).
-- [ ] Plugin systems, AI features, dashboards, or rich nonstandard workflows.
-- [ ] Heavy animation or effects that can compromise readability or latency.
-- [ ] Platform support beyond the shipped Linux, Windows, and macOS targets.
+Explicit non-goals: plugin systems, AI features, dashboards, rich nonstandard
+workflows, heavy effects that compromise readability or latency, and platform
+support beyond the shipped Linux, Windows, and macOS targets.
+
 - [ ] Windows on-device hardening. Interactive Windows behaviour has now been
       validated on-device across several passes for the 0.7.0 cycle (local
       shells, tabs, splits, selection/copy-paste, minimize/restore, wheel
       routing, shell integration, and clickable paths incl. inline images);
       CI additionally proves compile + automated tests on every push. A bounded
       v0.10.0 post-release package smoke pass completed without a reported
-      blocker, and the v0.11.1 Scoop upgrade path was confirmed on real
-      hardware (automated manifest bump picked up, package upgraded, app
-      launches and runs), while broader Windows hardware and application
-      coverage remains ongoing. It remains a newer target with a lower polish
-      bar than Linux. A
+      blocker; the v0.11.1 and v0.12.0 Scoop upgrade/install paths were
+      confirmed on real hardware, and the application launched and ran after
+      each update. Broader Windows hardware and application coverage remains
+      ongoing. It remains a newer target with a lower polish bar than Linux. A
       child-process waiter now
       closes the pseudoconsole when a shell exits naturally, so the tab follows
       the normal reader-EOF teardown path.
@@ -1606,9 +1621,8 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       registration), so it cannot be selected as the system default terminal
       that Explorer/other apps hand consoles to. Future work; needs COM/registry
       registration and on-device validation.
-- [ ] Daily-driver claims against comparable terminal emulators before
-      compatibility and performance are proven. The published W6 idle
-      comparison is partial performance evidence for one workload on one
-      machine (see the Stage 9 benchmark item); the real-application matrix
-      and the external daily-driver program remain the open compatibility
-      evidence.
+- [ ] Clear the evidence gate for broad daily-driver claims against comparable
+      terminal emulators. Published W6 idle and SE1/SE2 results cover memory and
+      software-endpoint throughput on one machine; the real-application matrix,
+      unavailable optical workloads, W7, and the external daily-driver program
+      remain open evidence.

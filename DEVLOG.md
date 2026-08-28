@@ -34,6 +34,14 @@ operator guide as well as the protocol, apparatus, and published results.
 The forward roadmap now directs maintainers to current-release field reports
 instead of naming v0.10.0 as the ongoing intake point.
 
+A focused checkbox audit also makes `TODO.md` mean what its name implies:
+completed parent scopes are checked, standing policies and explicit non-goals
+are no longer presented as unfinished implementation tasks, and every remaining
+unchecked item names concrete work or an unmet evidence gate. The Unicode entry
+now reflects four rendered combining marks and scrollback side-table storage;
+the benchmark entry now reflects the published protocol 1.5.4 W6 and SE results
+while retaining W1-W5 apparatus and W7 duration as the open work.
+
 ## 2026-08-28 -- Clarify GitHub contribution routes
 
 The contributor entry point now opens with direct routes for bugs, change
