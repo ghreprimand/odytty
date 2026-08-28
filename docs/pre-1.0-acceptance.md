@@ -10,12 +10,13 @@ hosts shells, credentials, and long-lived work on three platforms, and it
 parses adversarial byte streams by design. Declaring 1.0 asserts that the
 project has measured its own behavior rather than assumed it.
 
-## Most recent release decision: v0.10.0
+## Recorded v0.10.0 release decision
 
 This contract remains the definition of 1.0 readiness, and 1.0 remains
 reserved for the explicit decision made from the complete evidence bundle.
-The most recent narrower decision produced `v0.10.0`, a pre-1.0 release cut
-from the release-hardening program; publishing it did not assert 1.0 readiness.
+The first narrower decision recorded under this contract produced `v0.10.0`, a
+pre-1.0 release cut from the release-hardening program; publishing it did not
+assert 1.0 readiness.
 For that v0.10.0 decision the gates bound in the following narrowed form:
 
 - G0, G4, G5, G6, and G7 bound as written. The v0.10.0 baseline was re-recorded

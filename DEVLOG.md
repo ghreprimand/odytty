@@ -7,6 +7,24 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-28 -- Audit the public documentation after v0.12.0
+
+All 58 tracked Markdown files received a post-release consistency pass. Every
+relative link and image target resolves, all 19 external Markdown hyperlinks
+returned a successful HTTP response, and a GitHub-style anchor check exposed
+one stale threat-model contents link, now corrected. The documentation index
+now includes the shaping roadmap it previously omitted despite describing
+itself as complete.
+
+Release-state language now agrees across the project overview, specification,
+acceptance contract, stabilization policy, benchmark apparatus statement, and
+release records. The specification records the completed v0.12.0 scope; the
+two v0.10.0 policy records no longer describe that historical decision as the
+most recent release; and the apparatus document distinguishes the historical
+protocol 1.4.1 W6 set from the published protocol 1.5.4 W6 and SE result set.
+Historical benchmarks, baselines, and changelog entries retain their original
+version identities.
+
 ## 2026-08-28 -- Publish and independently verify v0.12.0
 
 Tag `v0.12.0` points to release commit `2437ad81`. The blocking release

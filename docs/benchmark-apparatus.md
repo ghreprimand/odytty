@@ -254,9 +254,9 @@ the preregistration record generator.
 machine-readable form of this document's availability tables against the live
 host.
 
-One comparative result set has been published under protocol 1.4.1: the W6
-idle comparison (`docs/benchmark-results.md`). Under 1.5.4, W6 and the
-software-endpoint class remain available on this unit; every optical-endpoint
-workload remains `skip` / `unavailable-hardware` for the reasons above -- not
-scheduling -- and must keep appearing in every preregistration and results
-table as such.
+A historical W6 comparative result set was published under protocol 1.4.1.
+The v0.12.0 result set published under protocol 1.5.4 contains a fresh W6 run
+and the separately classified SE1/SE2 software-endpoint results
+(`docs/benchmark-results.md`). Every optical-endpoint workload remains `skip` /
+`unavailable-hardware` for the reasons above -- not scheduling -- and must keep
+appearing in every preregistration and results table as such.

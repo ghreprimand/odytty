@@ -21,7 +21,7 @@ as unresolved rather than softened.
 - [Boundary catalog](#boundary-catalog)
 - [Platform process and privilege boundaries](#platform-process-and-privilege-boundaries)
 - [Test and fuzz coverage map](#test-and-fuzz-coverage-map)
-- [Unresolved residual risks](#unresolved-residual-risks)
+- [Residual risks and completed closures](#residual-risks-and-completed-closures)
 - [What this model does not cover](#what-this-model-does-not-cover)
 
 ## Method and scope

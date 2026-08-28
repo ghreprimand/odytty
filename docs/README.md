@@ -27,6 +27,7 @@ This is the complete map of OdyTTY's tracked project documentation.
 - [Themes](themes.md)
 - [Effects](effects.md)
 - [Graphics](graphics.md)
+- [Shaping roadmap](shaping-roadmap.md)
 - [Visual architecture](visual-architecture.md)
 - [HiDPI validation](hidpi-validation.md)
 

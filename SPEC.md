@@ -810,9 +810,19 @@ v1 color glyphs, shaping-run infrastructure with extended ligatures and Arabic
 contextual joining, Kitty Unicode placeholders and animation, iTerm2 inline
 images, instanced cell rendering, theme capture from live dynamic colors, and
 a published preregistered W6 idle-resource comparison
-(`docs/benchmark-results.md`). The project remains pre-1.0; any later
-milestone requires a separately recorded scope rather than silently inheriting
-deferred work from a prior release.
+(`docs/benchmark-results.md`).
+
+Version 0.12.0 completed the memory, measurement, provenance, and throughput
+scope recorded in `TODO.md`: attributed and substantially reduced resident
+memory; denser scrollback storage; bounded font-fallback reconstruction; Kitty
+compressed payload and image-number support; honest shaping boundaries;
+protocol 1.5.4 W6 and software-endpoint results; GitHub OIDC artifact
+provenance alongside Minisign; and verified Linux, Homebrew, Scoop, and source
+distribution paths. W7 remains explicitly deferred at its recorded execution
+cost rather than being represented as measured.
+
+The project remains pre-1.0; any later milestone requires a separately recorded
+scope rather than silently inheriting deferred work from a prior release.
 
 ### Parser And Protocols
 
