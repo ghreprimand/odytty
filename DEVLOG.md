@@ -7,10 +7,30 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-28 -- Clarify GitHub contribution routes
+
+The contributor entry point now opens with direct routes for bugs, change
+proposals, questions, accepted-issue implementation, and private vulnerability
+reports. The existing bug form is linked explicitly and gains duplicate-search
+confirmation and automatic labeling. New structured forms cover change
+proposals and questions without imposing an identity-based contributor gate.
+
+An issue-chooser configuration disables ambiguous blank reports and links the
+private security path and documentation index. A pull-request template now
+requests the related accepted issue, exact verification, per-platform impact,
+user-visible behavior changes, DCO sign-off, documentation, and public-data
+safety checks. The issue tracker remains the single public coordination queue;
+Discussions stay disabled to avoid splitting a small project's traffic.
+
+The empty GitHub Wiki was disabled. OdyTTY's tracked Markdown remains the
+canonical documentation because it is versioned with the code, reviewed in the
+same changes, included in release sources, and covered by the repository's
+documentation checks.
+
 ## 2026-08-28 -- Audit the public documentation after v0.12.0
 
 All 58 tracked Markdown files received a post-release consistency pass. Every
-relative link and image target resolves, all 19 external Markdown hyperlinks
+relative link and image target resolves, every external Markdown hyperlink
 returned a successful HTTP response, and a GitHub-style anchor check exposed
 one stale threat-model contents link, now corrected. The documentation index
 now includes the shaping roadmap it previously omitted despite describing

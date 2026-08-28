@@ -1,6 +1,7 @@
 name: Bug report
 description: Report a reproducible problem in OdyTTY
 title: "[Bug]: "
+labels: ["bug"]
 body:
   - type: markdown
     attributes:
@@ -8,6 +9,8 @@ body:
         Thanks for helping improve OdyTTY. Please describe one problem per report and remove secrets, private paths, hostnames, and other personal data from logs or screenshots.
 
         Do not use this form for security vulnerabilities. Follow the private reporting instructions in SECURITY.md instead.
+
+        Search existing open and closed issues before filing. If an existing report matches, add only new reproduction details or evidence there.
 
   - type: textarea
     id: problem
@@ -65,7 +68,9 @@ body:
   - type: checkboxes
     id: safety
     attributes:
-      label: Public report safety
+      label: Report checks
       options:
+        - label: I searched open and closed issues and did not find this problem already reported.
+          required: true
         - label: I have removed secrets, private hostnames, private URLs, personal data, and identifying local paths from this report.
           required: true

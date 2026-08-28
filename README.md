@@ -215,8 +215,12 @@ still not replacing wider third-party soak exposure.
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for what
 lands easily, the test requirements, the Developer Certificate of Origin, and
-the public-repository safety rules. Report vulnerabilities through the private
-process in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
+the public-repository safety rules. Use the structured
+[bug-report](https://github.com/ghreprimand/odytty/issues/new?template=bug_report.yml),
+[change-proposal](https://github.com/ghreprimand/odytty/issues/new?template=change_proposal.yml),
+or [question](https://github.com/ghreprimand/odytty/issues/new?template=question.yml)
+form rather than guessing which route fits. Report vulnerabilities through the
+private process in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 
 OdyTTY is licensed under **GPL-3.0-only**. You may use, study, share, and modify
 the source under that license; distributed modifications must use the same

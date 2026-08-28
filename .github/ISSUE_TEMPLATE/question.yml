@@ -1,0 +1,36 @@
+name: Question or help
+description: Ask about using, configuring, packaging, or contributing to OdyTTY
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check README.md, docs/README.md, and existing open and closed issues first. Use the bug-report form when OdyTTY behaves incorrectly and the change-proposal form for a new feature or substantial change.
+
+        Do not include credentials, private hosts or URLs, identifying paths, or other personal data.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do, and where are you stuck?
+      placeholder: Include the goal and the specific point that is unclear.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Relevant context
+      description: Include the OdyTTY version, platform, configuration excerpt, commands, and documentation already checked when relevant.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Question checks
+      options:
+        - label: I checked the documentation and searched open and closed issues.
+          required: true
+        - label: I have removed secrets, private hostnames, private URLs, personal data, and identifying local paths.
+          required: true

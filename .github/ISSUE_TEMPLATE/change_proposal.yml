@@ -1,0 +1,72 @@
+name: Change proposal
+description: Propose a feature, refactor, or substantial documentation change before implementation
+title: "[Proposal]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an OdyTTY change. Please read CONTRIBUTING.md and search open and closed issues first.
+
+        This form is a scope discussion, not an approval gate for who may contribute. Small fixes for an existing accepted issue can go directly to a pull request; substantial new work should reach agreement here before implementation.
+
+  - type: textarea
+    id: change
+    attributes:
+      label: Proposed change
+      description: What should change? Link any related issue, documentation, comparison, or prior discussion.
+      placeholder: Describe one concrete change and its user-visible result.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What problem does this solve, who encounters it, and why is the current behavior insufficient?
+      placeholder: Explain the problem before prescribing the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and compatibility
+      description: Identify affected platforms and surfaces, compatibility risks, and any behavior that must remain unchanged.
+      placeholder: |
+        Platforms:
+        Terminal/rendering/settings surfaces:
+        Compatibility constraints:
+        Deliberate behavior changes:
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Note workarounds or narrower approaches and why they do not address the problem.
+
+  - type: dropdown
+    id: implementation_intent
+    attributes:
+      label: Would you like to implement this change?
+      description: This coordinates work; it does not reserve the issue or guarantee acceptance.
+      options:
+        - yes - after scope agreement
+        - maybe - guidance wanted
+        - no - proposal only
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Proposal checks
+      options:
+        - label: I searched open and closed issues and did not find an existing proposal covering this change.
+          required: true
+        - label: I will wait for scope agreement before beginning substantial implementation work.
+          required: true
+        - label: I have removed secrets, private hostnames, private URLs, personal data, and identifying local paths.
+          required: true

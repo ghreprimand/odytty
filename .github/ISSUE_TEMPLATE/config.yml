@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ghreprimand/odytty/security/advisories/new
+    about: Report security vulnerabilities privately; do not open a public issue.
+  - name: Documentation index
+    url: https://github.com/ghreprimand/odytty/blob/master/docs/README.md
+    about: Browse installation, configuration, feature, compatibility, and troubleshooting documentation.

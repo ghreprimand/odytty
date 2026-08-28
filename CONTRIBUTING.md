@@ -7,6 +7,7 @@ decisions.
 
 ## Contents
 
+- [Quick guide](#quick-guide)
 - [Project status and contributions](#project-status-and-contributions)
 - [Reporting bugs and coordinating fixes](#reporting-bugs-and-coordinating-fixes)
 - [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
@@ -21,6 +22,34 @@ decisions.
 - [Visual-enhancement contributions](#visual-enhancement-contributions)
 - [Adding a built-in theme](#adding-a-built-in-theme)
 - [Performance benchmarks](#performance-benchmarks)
+
+## Quick guide
+
+Choose the route that matches the work:
+
+- **OdyTTY behaves incorrectly:** search open and closed issues, then use the
+  [bug-report form](https://github.com/ghreprimand/odytty/issues/new?template=bug_report.yml)
+  with a minimal reproduction and sanitized diagnostics.
+- **You want to propose a feature, refactor, or substantial documentation
+  change:** use the
+  [change-proposal form](https://github.com/ghreprimand/odytty/issues/new?template=change_proposal.yml)
+  and wait for scope agreement before beginning substantial implementation.
+- **You have a usage, configuration, packaging, or contribution question:**
+  check the [documentation index](docs/README.md), then use the
+  [question form](https://github.com/ghreprimand/odytty/issues/new?template=question.yml)
+  if the answer is still unclear.
+- **You want to implement an accepted issue:** comment on that issue to
+  coordinate, keep the patch focused, follow the test and DCO requirements
+  below, and open a pull request that links the issue.
+- **You found a security vulnerability:** use GitHub's
+  [private vulnerability report](https://github.com/ghreprimand/odytty/security/advisories/new),
+  never a public issue.
+
+OdyTTY does not require a contributor vouch. Agreement is about the proposed
+scope, not the contributor's identity. The issue tracker is the single public
+coordination queue; GitHub Discussions and the Wiki are intentionally disabled
+so questions, proposals, decisions, and maintained documentation do not split
+across duplicate surfaces.
 
 ## Project status and contributions
 
@@ -40,8 +69,10 @@ The lowest-friction contributions, likely to land quickly:
 - **Built-in themes** — see [Adding a built-in
   theme](#adding-a-built-in-theme) below for the recipe.
 
-For anything larger, **open an issue first and ask before writing code**, so
-effort isn't sunk into something that won't land. The design vision and the
+For anything larger, use the
+[change-proposal form](https://github.com/ghreprimand/odytty/issues/new?template=change_proposal.yml)
+and ask before writing code, so effort isn't sunk into something that won't
+land. The design vision and the
 owned-core boundary are not up for renegotiation by PR: changes that stray
 from `SPEC.md`, the roadmap (`TODO.md`, `docs/full-build-roadmap.md`), or the
 ownership boundary will be declined regardless of quality. Review is
@@ -58,8 +89,10 @@ for one. See [`SECURITY.md`](SECURITY.md) for private reporting.
 
 ## Reporting bugs and coordinating fixes
 
-Use the public bug-report form for non-security defects. It asks whether the
-reporter wants to implement the fix:
+Use the
+[public bug-report form](https://github.com/ghreprimand/odytty/issues/new?template=bug_report.yml)
+for non-security defects. It asks whether the reporter wants to implement the
+fix:
 
 - `yes - confirm approach` means the reporter wants to contribute a fix after
   agreeing on the approach and scope with a maintainer.
