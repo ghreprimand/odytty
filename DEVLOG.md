@@ -7,6 +7,26 @@ pre-1.0 line. See [`TODO.md`](TODO.md) for the milestone checklist and
 
 ---
 
+## 2026-08-29 -- Release v0.12.1 -- Isolate reused SSH connections
+
+This security patch replaces OdyTTY's 32-bit hash of the textual SSH
+destination with OpenSSH's `%C` connection hash for every ControlMaster path.
+OpenSSH derives that identity from the effective local host, remote host, port,
+and remote user, so two services reached through the same `user@host` on
+different ports cannot alias one multiplexing socket. The interactive connect,
+remote image upload, and uploaded-image cleanup paths use the same corrected
+template, and regression coverage pins the `%C` contract and expanded Unix
+socket-path budget.
+
+The reusable AUR publication workflow now declares and receives only
+`AUR_SSH_PRIVATE_KEY`; it no longer inherits unrelated release credentials.
+The release is otherwise a narrow patch over v0.12.0. Rendering, terminal
+storage, GPU allocation, and presentation timing are unchanged, so no new
+benchmark campaign or live GPU memory measurement was run and none is claimed.
+The published v0.12.0 performance evidence remains the applicable baseline.
+
+---
+
 ## 2026-08-28 -- Reconcile maintained documentation with the v0.12.0 implementation
 
 A semantic source-to-documentation audit followed the post-release link and

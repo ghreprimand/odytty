@@ -306,12 +306,12 @@ remote_integration = on
 
 # ControlMaster connection reuse for integrated SSH tabs. Default on. An
 # integrated SSH tab adds OpenSSH ControlMaster/ControlPersist with a control
-# socket OdyTTY owns under its state dir, so a second tab to the same host
-# multiplexes over the first with no new handshake. If the shared master is gone
-# the tab falls back to a normal fresh connect. A per-host "Reuse off" line in
-# hosts.conf opts a single host out; off globally disables it. Reuse layers onto
-# integrated sessions only. No effect on a Windows client (OpenSSH there has no
-# connection multiplexing).
+# socket OdyTTY owns under its state dir, so a second tab to the same effective
+# SSH endpoint multiplexes over the first with no new handshake. If the shared
+# master is gone the tab falls back to a normal fresh connect. A per-host "Reuse
+# off" line in hosts.conf opts a single host out; off globally disables it.
+# Reuse layers onto integrated sessions only. No effect on a Windows client
+# (OpenSSH there has no connection multiplexing).
 remote_reuse = on
 
 # How long an idle reusable SSH master may remain alive after its last tab

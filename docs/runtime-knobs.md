@@ -1193,12 +1193,17 @@ titles itself `user@host` when no explicit per-host `Title` is set.
 
 With `remote_reuse = on` (the default; `ODYTTY_REMOTE_REUSE=on`), an integrated
 SSH tab adds OpenSSH `ControlMaster=auto` / `ControlPersist` multiplexing with a
-control socket OdyTTY owns under its state directory. The first tab to a host
-establishes a shared master connection; later tabs to the same host reuse it, so
-they open with no second authentication or handshake. If the shared master is
-gone, the tab degrades to an ordinary fresh connect. A per-host `Reuse off` line
-in `hosts.conf` opts a single host out, and `remote_reuse = off` disables it
-globally.
+control socket OdyTTY owns under its state directory. The first tab to an
+effective SSH endpoint establishes a shared master connection; later tabs to
+that endpoint reuse it, so they open with no second authentication or handshake.
+If the shared master is gone, the tab degrades to an ordinary fresh connect. A
+per-host `Reuse off` line in `hosts.conf` opts a single host out, and
+`remote_reuse = off` disables it globally.
+
+The socket template uses OpenSSH's `%C` connection hash. OpenSSH derives that
+identity from the effective local host, remote host, port, and remote user, so
+profiles for different endpoints cannot alias one multiplexed connection even
+when they share a textual hostname or an OdyTTY control directory.
 
 Reuse layers onto integrated sessions only, so with `remote_integration` off the
 SSH argv stays byte-identical to a plain `ssh` launch regardless of this

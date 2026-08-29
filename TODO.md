@@ -15,12 +15,14 @@ instanced rendering, theme capture, and the published W6 idle comparison) is
 complete and published on top of it. The v0.12.0 memory, measurement,
 provenance, graphics-gap, and software-endpoint scope is also complete and
 published, including the recorded W6 and SE results and post-release channel
-verification. A checked item is delivered at the current head (or at the
-historical milestone its section names). An unchecked item is concrete
-remaining work or an unmet evidence gate. Standing policies and explicit
-non-goals are prose rather than unchecked boxes, so this file does not present
-them as implementation commitments. Longer-range candidates require a
-separately recorded milestone before implementation.
+verification. Version 0.12.1 is the narrow security patch that isolates
+ControlMaster reuse by OpenSSH's effective connection identity and narrows the
+AUR publication workflow to its dedicated secret. A checked item is delivered
+at the current head (or at the historical milestone its section names). An
+unchecked item is concrete remaining work or an unmet evidence gate. Standing
+policies and explicit non-goals are prose rather than unchecked boxes, so this
+file does not present them as implementation commitments. Longer-range
+candidates require a separately recorded milestone before implementation.
 
 ## Stage 4.5: Foundation Ownership
 

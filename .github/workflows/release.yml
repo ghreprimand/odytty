@@ -989,4 +989,5 @@ jobs:
     uses: ./.github/workflows/aur-publish.yml
     with:
       version: ${{ github.ref_name }}
-    secrets: inherit
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}

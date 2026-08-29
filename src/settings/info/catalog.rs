@@ -1694,7 +1694,7 @@ impl Settings {
                 env: REMOTE_REUSE_ENV,
                 name: "Reuse SSH connections",
                 value: bool_display(self.remote_reuse).to_owned(),
-                description: "Multiplex integrated SSH tabs over a shared connection with ControlMaster/ControlPersist and an OdyTTY-owned control socket, so a second tab to the same host connects with no new handshake. On by default; if the shared master is gone the tab degrades to a normal fresh connect. A per-host 'Reuse off' in hosts.conf opts a single host out. No effect on a Windows client, where OpenSSH has no connection multiplexing.",
+                description: "Multiplex integrated SSH tabs over a shared connection with ControlMaster/ControlPersist and an OdyTTY-owned control socket, so a second tab to the same effective SSH endpoint connects with no new handshake. On by default; if the shared master is gone the tab degrades to a normal fresh connect. A per-host 'Reuse off' in hosts.conf opts a single host out. No effect on a Windows client, where OpenSSH has no connection multiplexing.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

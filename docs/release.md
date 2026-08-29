@@ -318,6 +318,13 @@ A machine with no recorded class is not a pass and is not a failure of the
 build: record a baseline for it, or run the guard on a machine that has one. A
 ceiling is never widened to clear a red run.
 
+Version 0.12.1 does not repeat the benchmark campaign or live GPU memory
+capture. The patch changes SSH argument construction, release-secret scope,
+help/reference text, and version metadata; it does not touch terminal storage,
+rendering, GPU allocation, or presentation timing. Those measurements are
+recorded as **not run**, never promoted to a pass, and the published v0.12.0
+results remain the applicable performance evidence.
+
 ### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful

@@ -21,6 +21,10 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      AUR_SSH_PRIVATE_KEY:
+        description: "SSH private key used to publish the stamped package to the AUR."
+        required: false
   workflow_dispatch:
     inputs:
       version:

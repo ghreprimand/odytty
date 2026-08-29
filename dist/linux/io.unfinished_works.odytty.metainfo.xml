@@ -44,6 +44,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.12.1" date="2026-08-29">
+      <description>
+        <p>This security patch isolates reused SSH connections with OpenSSH's effective connection hash, including remote host, port, and user, so profiles for distinct endpoints cannot alias the same ControlMaster socket. Interactive sessions, remote image uploads, and uploaded-image cleanup all share the corrected path template.</p>
+        <p>The AUR release job now receives only its dedicated publishing key instead of inheriting every release secret. Rendering and memory paths are unchanged, so the v0.12.0 benchmark evidence is carried forward without a new benchmark campaign.</p>
+      </description>
+    </release>
     <release version="0.12.0" date="2026-08-28">
       <description>
         <p>This release reduces OdyTTY-controlled memory with surface-sized background textures, releasable post-process targets, denser scrollback storage, and shared runtime fallback faces. It also adds bounded Kitty zlib payloads and image-number animation addressing, advertises Sixel through DA1, and reconstructs selected faces from over-limit font collections instead of retaining the collection.</p>

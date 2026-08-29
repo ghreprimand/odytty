@@ -842,7 +842,7 @@ Saved hosts support these connection behaviors:
 | Setting | Default | Behavior |
 | --- | --- | --- |
 | `remote_integration` | `on` | Sends a temporary bash-only integration wrapper and opens an interactive shell against it |
-| `remote_reuse` | `on` | Reuses a shared ControlMaster connection for later tabs to the same host |
+| `remote_reuse` | `on` | Reuses a shared ControlMaster connection for later tabs to the same effective SSH endpoint |
 | `remote_persist` | 10 minutes | Keeps the master socket alive after the last tab closes |
 | `remote_tmux` | `off` | Wraps the remote shell in a persistent tmux session named `odytty` |
 
@@ -858,7 +858,9 @@ tmux new-session -A -s odytty
 
 Each saved host can override Integration, Reuse, and Tmux in `hosts.conf`.
 Connection reuse is available on Unix clients; Windows clients authenticate
-each connection independently through `ssh.exe`.
+each connection independently through `ssh.exe`. Unix socket names use
+OpenSSH's `%C` hash of the effective host, port, and user, keeping different
+endpoints isolated while preserving a fixed-width path.
 
 When a remote connection drops, the tab stays open with a reconnect prompt.
 `Enter` reconnects in place, while `Esc` or `Ctrl+D` closes the tab.

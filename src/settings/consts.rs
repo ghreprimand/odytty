@@ -994,12 +994,13 @@ pub const DEFAULT_REMOTE_INTEGRATION: bool = true;
 
 /// ControlMaster connection reuse for integrated SSH tabs (`ODYTTY_REMOTE_REUSE`):
 /// when on, an integrated SSH tab adds `-o ControlMaster=auto -o ControlPersist`
-/// with an OdyTTY-owned `ControlPath`, so the first tab to a host establishes a
-/// shared master and later tabs multiplex over it with no fresh handshake. On by
-/// default; the failure mode (master gone) degrades to a normal fresh connect. A
-/// per-host `Reuse off` in `hosts.conf` opts a single host out. OpenSSH for
-/// Windows has no socket multiplexing, so reuse is a silent no-op on a Windows
-/// client (the control options are never emitted).
+/// with an OdyTTY-owned `ControlPath`, so the first tab to an effective SSH
+/// endpoint establishes a shared master and later tabs to that endpoint
+/// multiplex over it with no fresh handshake. On by default; the failure mode
+/// (master gone) degrades to a normal fresh connect. A per-host `Reuse off` in
+/// `hosts.conf` opts a single host out. OpenSSH for Windows has no socket
+/// multiplexing, so reuse is a silent no-op on a Windows client (the control
+/// options are never emitted).
 pub const DEFAULT_REMOTE_REUSE: bool = true;
 
 /// tmux persistence for integrated SSH tabs (`ODYTTY_REMOTE_TMUX`): when on, an

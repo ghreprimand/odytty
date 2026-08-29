@@ -824,6 +824,12 @@ provenance alongside Minisign; and verified Linux, Homebrew, Scoop, and source
 distribution paths. W7 remains explicitly deferred at its recorded execution
 cost rather than being represented as measured.
 
+Version 0.12.1 is a narrow security patch. Unix SSH connection reuse delegates
+its socket identity to OpenSSH's effective local host, remote host, port, and
+remote user, preventing distinct endpoints from aliasing one ControlMaster.
+The AUR publication workflow receives only its dedicated secret. No fresh
+performance measurement is attributed to this patch.
+
 The project remains pre-1.0; any later milestone requires a separately recorded
 scope rather than silently inheriting deferred work from a prior release.
 
@@ -1358,8 +1364,12 @@ scope rather than silently inheriting deferred work from a prior release.
   carrying OdyTTY's OSC 133 boundaries onto the remote with nothing persisted
   there; a non-bash shell or any failure degrades to a byte-identical plain
   `ssh`. Reuse layers `ControlMaster=auto`/`ControlPersist` over an
-  OdyTTY-owned control socket so repeat tabs to a host skip the handshake;
-  tmux wraps the remote shell in `tmux new-session -A -s odytty` for
+  OdyTTY-owned control socket so repeat tabs to the same effective SSH endpoint
+  skip the handshake. The socket template delegates identity to OpenSSH's `%C`
+  hash of its effective local host, remote host, port, and remote user; OdyTTY
+  never substitutes a shorter destination-only discriminator that could alias
+  separate endpoints.
+  Tmux wraps the remote shell in `tmux new-session -A -s odytty` for
   reconnect-survivable persistence. Each is globally configurable and
   per-host-overridable in `hosts.conf` (`Integration`/`Reuse`/`Tmux`).
 

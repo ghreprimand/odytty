@@ -514,17 +514,22 @@ the most deliberate omissions.
 - **Validation and caps:** `DEFAULT_SSH_CONFIG_MAX_BYTES` = 256 KiB,
   `DEFAULT_SSH_CONFIG_MAX_ENTRIES` = 1024, and
   `DEFAULT_SSH_CONFIG_MAX_FIELD_CHARS` = 512. Connection invocation is
-  argv-only, never a shell string (`src/ssh_connect.rs`). Reachability probes
-  use `BatchMode=yes` so no authentication prompt can be triggered by a probe,
-  with probe error output bounded at `PROBE_STDERR_CAP` = 8 KiB
+  argv-only, never a shell string (`src/ssh_connect.rs`). On Unix, multiplexed
+  connections use OpenSSH's `%C` hash of `%l%h%p%r` as their socket identity,
+  keeping the effective local host, remote host, port, and remote user in the
+  connection boundary without exposing them in the pathname. The containing
+  directory is effective-UID-owned, non-symlink, and mode `0700`. Reachability
+  probes use `BatchMode=yes` so no authentication prompt can be triggered by a
+  probe, with probe error output bounded at `PROBE_STDERR_CAP` = 8 KiB
   (`src/native/app/connection_probe.rs`).
 - **Failure behavior:** over-cap files are truncated at the entry level rather
   than partially parsed into malformed entries; unparseable lines are skipped.
 - **Diagnostic exposure:** host aliases and user names are personal data.
   Connection diagnostics must not record a combined user-and-host string at
   default log levels.
-- **Existing tests:** parser and limit tests in `src/ssh_config.rs`; argv
-  construction and probe classification tests in `src/ssh_connect.rs`.
+- **Existing tests:** parser and limit tests in `src/ssh_config.rs`; argv,
+  `%C` socket-template/path-budget, directory-boundary, and probe classification
+  tests in `src/ssh_connect.rs`.
 - **Planned fuzz target:** a configuration-shaped target asserting bounded
   parsing, no panic, and no field leakage across entries for arbitrary bytes.
 - **Residual risk:** low. The connection-host parser and every mutation path now

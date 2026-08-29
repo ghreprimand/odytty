@@ -139,23 +139,25 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.12.0 is the current release. Its
-preregistered W6 run records 89.0 MB current and 130.7 MB peak memory on the
-benchmark environment, down 68.9 and 60.1 percent respectively from the prior
-OdyTTY result and below Kitty and Ghostty in both memory measures. Idle CPU
-remains in the same low band as Kitty and Alacritty. Separately classified
-software-endpoint results, memory composition, and scrollback scaling are
-published alongside W6 without pooling their evidence classes; W7's four-hour
-memory-growth workload remains explicitly deferred.
+OdyTTY is a broad pre-1.0 terminal. Version 0.12.1 is the current security patch
+release. It prevents distinct SSH endpoints from aliasing the same reused
+connection by delegating the ControlMaster socket identity to OpenSSH's complete
+connection hash. The patch does not alter rendering or memory behavior, so it
+carries forward rather than reruns the v0.12.0 performance evidence.
 
-Blocking Linux, macOS, and Windows CI, the local release suite, and the live
-GPU-backed memory regression guard pass on the release commit. The published
-v0.12.0 assets pass their signed-manifest checks, external GitHub provenance
-verification, clean source-archive build, and Linux artifact checks. Scoop,
-Homebrew, and AUR all carry the matching release hashes. The Windows and macOS
-binaries passed their blocking pre-package smoke tests, and post-publish
-install/update checks completed successfully through Scoop, Homebrew, the Linux
-channels, and a source build. The full results and their limitations are in
+That preregistered v0.12.0 W6 run records 89.0 MB current and 130.7 MB peak
+memory on the benchmark environment, down 68.9 and 60.1 percent respectively
+from the prior OdyTTY result and below Kitty and Ghostty in both memory
+measures. Idle CPU remains in the same low band as Kitty and Alacritty.
+Separately classified software-endpoint results, memory composition, and
+scrollback scaling are published alongside W6 without pooling their evidence
+classes; W7's four-hour memory-growth workload remains explicitly deferred.
+
+The v0.12.1 publication remains gated by blocking Linux, macOS, and Windows CI,
+the local release suite, signed manifests, and GitHub provenance verification.
+The v0.12.0 artifacts passed those gates plus their clean source-archive, Linux
+artifact, package-channel, and post-publish platform checks. The full benchmark
+results and their limitations are in
 [docs/benchmark-results.md](docs/benchmark-results.md). These checks do not
 cover every GPU, compositor, IME, font, or hardware configuration.
 

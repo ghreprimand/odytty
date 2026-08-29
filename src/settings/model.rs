@@ -1524,10 +1524,11 @@ pub struct Settings {
     pub remote_integration: bool,
     /// ControlMaster connection reuse for integrated SSH tabs. On by default: an
     /// integrated SSH tab adds ControlMaster/ControlPersist with an OdyTTY-owned
-    /// ControlPath so a second tab to the same host multiplexes over the first
-    /// with no new handshake. A per-host `Reuse off` opts a single host out. A
-    /// Windows client emits no control options (OpenSSH there has no socket
-    /// multiplexing), so reuse is a silent no-op on Windows.
+    /// ControlPath so a second tab to the same effective SSH endpoint
+    /// multiplexes over the first with no new handshake. A per-host `Reuse off`
+    /// opts a single host out. A Windows client emits no control options
+    /// (OpenSSH there has no socket multiplexing), so reuse is a silent no-op on
+    /// Windows.
     pub remote_reuse: bool,
     /// tmux persistence for integrated SSH tabs. Off by default: when on, an
     /// integrated SSH tab's bootstrap `exec`s `tmux new-session -A -s odytty` so

@@ -290,7 +290,7 @@ pub fn ssh_command_for_host_with_options(
     if opts.reuse
         && let Some(dir) = opts.control_dir.as_deref()
     {
-        let socket = control_socket_path(dir, &destination);
+        let socket = control_socket_path(dir);
         args.push(OsString::from("-o"));
         args.push(OsString::from("ControlMaster=auto"));
         args.push(OsString::from("-o"));
@@ -428,7 +428,7 @@ fn build_remote_exec_args(
     // builder so a Windows client never emits a control option.
     #[cfg(not(windows))]
     if let Some(dir) = control_dir {
-        let socket = control_socket_path(dir, destination);
+        let socket = control_socket_path(dir);
         args.push(OsString::from("-o"));
         let mut control_path = OsString::from("ControlPath=");
         control_path.push(socket.as_os_str());
@@ -516,26 +516,17 @@ fn parse_duration_secs(s: &str) -> Option<u64> {
     saw_unit.then_some(total)
 }
 
-/// The `ControlMaster` socket path for a destination under OdyTTY's owned
-/// control dir. The file name is `ssh-<hash>` where `<hash>` is a short,
-/// dependency-free FNV-1a hash of the destination — never the raw `user@host` —
-/// so the full socket path stays well under the platform `sun_path` limit
-/// (104 bytes on macOS/BSD, 108 on Linux) even for long hostnames.
+/// The `ControlMaster` socket template under OdyTTY's owned control dir.
+///
+/// `%C` is expanded by OpenSSH to a hash over its effective connection identity
+/// (`%l%h%p%r`: local host, remote host, port, and remote user). Delegating the
+/// key to OpenSSH is load-bearing: hashing only OdyTTY's textual `user@host`
+/// destination would alias profiles that use different ports or routing config.
+/// The fixed-width expansion also keeps the path under the platform `sun_path`
+/// limit (104 bytes on macOS/BSD, 108 on Linux) without exposing the destination.
 #[cfg(not(windows))]
-fn control_socket_path(control_dir: &std::path::Path, destination: &str) -> PathBuf {
-    control_dir.join(format!("ssh-{:08x}", fnv1a_32(destination.as_bytes())))
-}
-
-/// 32-bit FNV-1a. Not cryptographic — only a short, stable, dependency-free file
-/// name discriminator for control sockets.
-#[cfg(not(windows))]
-fn fnv1a_32(bytes: &[u8]) -> u32 {
-    let mut hash: u32 = 0x811c_9dc5;
-    for &byte in bytes {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    hash
+fn control_socket_path(control_dir: &std::path::Path) -> PathBuf {
+    control_dir.join("ssh-%C")
 }
 
 /// Create OdyTTY's `ControlMaster` socket directory with owner-only `0700`
@@ -1054,7 +1045,7 @@ mod tests {
         // destination after `--`.
         assert!(
             args.iter()
-                .any(|a| a.starts_with("ControlPath=/run/user/1000/odytty/ssh/ssh-"))
+                .any(|a| a == "ControlPath=/run/user/1000/odytty/ssh/ssh-%C")
         );
         let p = args.iter().position(|a| a == "-p").expect("-p");
         assert_eq!(args[p + 1], "2222");
@@ -1210,7 +1201,7 @@ mod tests {
         assert!(args.iter().any(|a| a == "ControlPersist=600"));
         assert!(
             args.iter()
-                .any(|a| a.starts_with("ControlPath=/run/user/1000/odytty/ssh/ssh-"))
+                .any(|a| a == "ControlPath=/run/user/1000/odytty/ssh/ssh-%C")
         );
         // Exactly three `-o` flags for the three control options.
         assert_eq!(args.iter().filter(|a| a.as_str() == "-o").count(), 3);
@@ -1365,18 +1356,17 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
-    fn control_socket_path_stays_within_sun_path_limit() {
-        // A pathological long hostname must not blow the sun_path budget: the
-        // file name is a fixed-width hash, so only the control dir length varies.
+    fn control_socket_path_uses_openssh_connection_hash_within_sun_path_limit() {
+        // `%C` expands to OpenSSH's 40-hex-character hash over `%l%h%p%r`, so
+        // the same destination on ports 22 and 2222 cannot share a socket. The
+        // expansion is fixed-width: only the control-dir length varies.
         let dir = std::path::Path::new("/run/user/1000/odytty/ssh");
-        let dest = format!("verylongusername@{}.example.invalid", "a".repeat(200));
-        let socket = control_socket_path(dir, &dest);
-        assert!(socket.as_os_str().len() < 104, "socket path fits sun_path");
-        // Same destination hashes stably; different destinations differ.
-        assert_eq!(socket, control_socket_path(dir, &dest));
-        assert_ne!(
-            socket,
-            control_socket_path(dir, "other@host.example.invalid")
+        let socket = control_socket_path(dir);
+        assert_eq!(socket, dir.join("ssh-%C"));
+        let expanded_len = dir.as_os_str().len() + 1 + "ssh-".len() + 40;
+        assert!(
+            expanded_len < 104,
+            "expanded socket path fits the shortest sun_path"
         );
     }
 
