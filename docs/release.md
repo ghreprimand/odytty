@@ -325,6 +325,11 @@ rendering, GPU allocation, or presentation timing. Those measurements are
 recorded as **not run**, never promoted to a pass, and the published v0.12.0
 results remain the applicable performance evidence.
 
+The published v0.12.1 artifacts subsequently passed bounded post-publish checks
+on macOS, Windows, and the Linux package channels. That validates the exercised
+release paths without turning the carried-forward performance evidence into a
+new measurement or claiming broader hardware coverage.
+
 ### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful

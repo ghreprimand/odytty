@@ -827,8 +827,10 @@ cost rather than being represented as measured.
 Version 0.12.1 is a narrow security patch. Unix SSH connection reuse delegates
 its socket identity to OpenSSH's effective local host, remote host, port, and
 remote user, preventing distinct endpoints from aliasing one ControlMaster.
-The AUR publication workflow receives only its dedicated secret. No fresh
-performance measurement is attributed to this patch.
+The AUR publication workflow receives only its dedicated secret. The release
+passed its three-platform CI, signed-manifest, provenance, and package-channel
+gates, followed by bounded post-publish checks on macOS, Windows, and the Linux
+channels. No fresh performance measurement is attributed to this patch.
 
 The project remains pre-1.0; any later milestone requires a separately recorded
 scope rather than silently inheriting deferred work from a prior release.

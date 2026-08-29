@@ -17,12 +17,14 @@ provenance, graphics-gap, and software-endpoint scope is also complete and
 published, including the recorded W6 and SE results and post-release channel
 verification. Version 0.12.1 is the narrow security patch that isolates
 ControlMaster reuse by OpenSSH's effective connection identity and narrows the
-AUR publication workflow to its dedicated secret. A checked item is delivered
-at the current head (or at the historical milestone its section names). An
-unchecked item is concrete remaining work or an unmet evidence gate. Standing
-policies and explicit non-goals are prose rather than unchecked boxes, so this
-file does not present them as implementation commitments. Longer-range
-candidates require a separately recorded milestone before implementation.
+AUR publication workflow to its dedicated secret; publication and bounded
+post-publish checks on the shipped macOS, Windows, and Linux package paths are
+complete. A checked item is delivered at the current head (or at the historical
+milestone its section names). An unchecked item is concrete remaining work or
+an unmet evidence gate. Standing policies and explicit non-goals are prose
+rather than unchecked boxes, so this file does not present them as
+implementation commitments. Longer-range candidates require a separately
+recorded milestone before implementation.
 
 ## Stage 4.5: Foundation Ownership
 

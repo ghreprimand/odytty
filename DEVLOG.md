@@ -25,6 +25,14 @@ storage, GPU allocation, and presentation timing are unchanged, so no new
 benchmark campaign or live GPU memory measurement was run and none is claimed.
 The published v0.12.0 performance evidence remains the applicable baseline.
 
+The tagged release passed same-commit blocking CI on Linux, macOS, and Windows,
+the locked dependency audit, Minisign checksum signing, and GitHub provenance
+verification. Every versioned artifact matches its always-latest alias in the
+published checksum manifest. Homebrew, Scoop, and AUR updates completed, and
+bounded hands-on post-publish checks passed on macOS, Windows, and the Linux
+package channels. These checks establish the shipped release paths, not broad
+hardware or application compatibility.
+
 ---
 
 ## 2026-08-28 -- Reconcile maintained documentation with the v0.12.0 implementation

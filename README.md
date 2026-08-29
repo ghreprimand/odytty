@@ -153,11 +153,12 @@ Separately classified software-endpoint results, memory composition, and
 scrollback scaling are published alongside W6 without pooling their evidence
 classes; W7's four-hour memory-growth workload remains explicitly deferred.
 
-The v0.12.1 publication remains gated by blocking Linux, macOS, and Windows CI,
-the local release suite, signed manifests, and GitHub provenance verification.
-The v0.12.0 artifacts passed those gates plus their clean source-archive, Linux
-artifact, package-channel, and post-publish platform checks. The full benchmark
-results and their limitations are in
+The v0.12.1 release passed blocking Linux, macOS, and Windows CI, the local
+release suite, the locked dependency audit, signed-manifest checks, and GitHub
+provenance verification. Its versioned and always-latest artifacts have matching
+published hashes; Homebrew, Scoop, and AUR updates completed successfully; and
+bounded post-publish checks passed on macOS, Windows, and the Linux package
+channels. The full benchmark results and their limitations are in
 [docs/benchmark-results.md](docs/benchmark-results.md). These checks do not
 cover every GPU, compositor, IME, font, or hardware configuration.
 
