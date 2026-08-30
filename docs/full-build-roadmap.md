@@ -7,6 +7,7 @@ deferrals, and durable product boundaries.
 
 - [Product Direction](#product-direction)
 - [How To Use This Roadmap](#how-to-use-this-roadmap)
+- [Planned Release Sequence](#planned-release-sequence)
 - [Shipped Foundations](#shipped-foundations)
 - [Track 1: Configuration And In-App UX](#track-1--configuration-and-in-app-ux)
 - [Track 2: Text And Rendering Quality](#track-2--text-and-rendering-quality)
@@ -74,6 +75,48 @@ Two rules govern every feature in every track:
 2. **Readability is a floor, not a preference.** A minimum-contrast guarantee is
    the safety net that every visual feature validates against; no effect may
    push text below the legibility floor.
+
+---
+
+## Planned Release Sequence
+
+The next product program is split into independently releasable checkpoints so
+useful work ships without waiting for the entire roadmap. Version assignments
+are provisional: confirmed correctness or security reports can still insert a
+narrow patch release, and a feature moves rather than shipping incomplete when
+its cross-platform or evidence gate is not met.
+
+- **v0.13.0 — Safer, command-aware work.** Multiline-paste confirmation,
+  select/copy/search/export actions over OSC 133 command ranges, and bounded
+  command-completion, progress, activity, and notification presentation.
+- **v0.14.0 — Profiles and navigation.** Named launch profiles with a fully
+  in-app editor, deterministic precedence, fast cached startup, and one
+  searchable navigator over workspaces, tabs, panes, and detachable sessions.
+- **v0.15.0 — Fast access and local control.** A cross-platform quick terminal,
+  an owner-scoped local automation API and CLI, and external file drop with
+  shell-aware path quoting and no implicit execution.
+- **v0.16.0 — Pane and window productivity.** Read-only panes, safe scrollback
+  export, guarded input broadcast, tab/pane tear-out, floating and stacked
+  layouts, and the remaining bounded window-management controls.
+- **v0.17.0 — International text and display correctness.** Bounded bidi and
+  complex-script work, remaining grapheme/width fixtures, SVG-in-OpenType color
+  glyphs, legacy-symbol fallback, and HiDPI validation.
+- **v0.18.0 — Windows parity.** Supported default-terminal registration and a
+  secure ConPTY detached/resumable-session path, with Linux and macOS regression
+  coverage kept intact.
+- **v0.19.0 — Targeted efficiency.** Evidence-led work on styled-output retained
+  memory, scrollback density, and demonstrated parser/model bottlenecks. It is
+  not a general benchmark campaign or a license to trade correctness for speed.
+- **v0.20.0 — Bounded operator capabilities and consolidation.** Safe
+  presentation-only triggers, opt-in logging/replay export, an evidence-gated
+  serial-port decision, accumulated compatibility polish, and explicit
+  deferrals for capabilities that do not meet OdyTTY's trust boundary.
+
+Every checkpoint carries the same local gates, blocking Ubuntu/macOS/Windows
+CI, public-repository audit, monthly DEVLOG update, documentation reconciliation,
+package verification, and evidence discipline. AI/cloud/account features,
+embedded browsers, plugin runtimes, owned SSH cryptography, and indiscriminate
+legacy-protocol expansion remain outside this sequence.
 
 ---
 
@@ -321,12 +364,21 @@ labels, and visible font-load failure reporting all ship today.
   actions — and the panel's keybinds-row option hint now enumerates the same 40
   in `BindableAction::ALL` order. See [keybindings.md](./keybindings.md) for the
   full keyboard reference.
-- **Someday — Profiles.** Named configuration profiles once the base config
-  model has settled.
+- **Planned v0.14.0 — Named profiles.** Reusable local/remote launch contexts
+  spanning command, working directory, bounded environment, appearance, layout,
+  and connection references. The ordinary local launch reads cached state;
+  WSL, remote, shell, and large-profile discovery never block the first usable
+  prompt.
 
 ## Track 2 — Text And Rendering Quality
 
 Sharp, stable, comfortable text is a primary product pillar.
+
+- **Planned v0.17.0 — International text correctness.** Close the documented
+  Brahmic and Southeast Asian grapheme/width failures, then add bounded bidi and
+  complex-script reordering with explicit cursor, hit-testing, selection, copy,
+  wrapping, and reflow behavior. SVG-in-OpenType color glyphs, remaining legacy
+  symbol geometry, and HiDPI validation travel with the same correctness gate.
 
 - **Next — Effect default-tuning pass.** Once a human-eye baseline exists,
   revisit the conservative default strengths of stem darkening, standalone
@@ -446,10 +498,16 @@ The terminal cooperating with the shell and prompt. This is the highest-leverage
 gap to close and unlocks the most downstream value. Semantic prompt marking
 (OSC 133) ships today as the foundation.
 
-- **Shipped — Command-aware UX.** Built on prompt marking: jump to the previous or
-  next prompt and show a per-command success/failure indicator in the gutter.
-  Selecting and copying a single command's output has a core range helper
-  (`command_output_cell_range`) but is not yet wired to a UI action.
+- **Shipped — Command-aware foundation.** Built on prompt marking: jump to the
+  previous or next prompt and show a per-command success/failure indicator in
+  the gutter. A core range helper already identifies one command's output.
+- **Planned v0.13.0 — Command-output actions.** Wire those ranges to
+  select/copy, range-scoped search, failed-command navigation, and safe plain-text
+  export without replacing the terminal grid with a block document model.
+- **Planned v0.13.0 — Completion and progress awareness.** Keep the existing
+  BEL attention modes, while adding explicit command-finish, progress, activity,
+  silence, and failure indicators. Users choose in-app badges, an OS attention
+  request, desktop notification, or off; completion never steals keyboard focus.
 - **Shipped — Click to position the cursor** at a prompt, using the prompt-marking
   click events. The click slice only — not a takeover of shell input editing.
 - **Shipped — Remote shell integration.** Connecting to a saved SSH host carries
@@ -486,6 +544,18 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   panel in Track 1.)
 
 ### Other Ergonomics
+
+- **Planned v0.13.0 — Risky-paste confirmation.** Preview multiline or
+  control-bearing text before it reaches a child that has not enabled bracketed
+  paste. Single-line and child-enabled bracketed paste remain unchanged, and
+  OdyTTY never tries to judge whether a shell command itself is safe.
+- **Planned v0.15.0 — Quick terminal, local automation, and file drop.** Summon a
+  dedicated terminal through platform-supported global shortcuts; provide an
+  owner-scoped local structural-control API with no network listener; and insert
+  dropped local paths with shell-aware quoting and no implicit Enter.
+- **Planned v0.16.0 — Pane and window controls.** Read-only panes, sanitized
+  scrollback export, conspicuously guarded broadcast input, cross-window
+  tab/pane movement, and floating or stacked layouts.
 
 - **Shipped — Keyboard pattern-select / quick-select.** Label on-screen URLs,
   paths, and hashes for keyboard selection and copy.
@@ -587,6 +657,11 @@ and open — ships today (see [Shipped Foundations](#shipped-foundations)).
 
 - **Later — Performance-tuning knob** (repaint cadence / input delay) only after
   a measured latency baseline exists. No unbacked performance claims.
+- **Planned v0.19.0 — Targeted retained-memory and scrollback work.** Reproduce
+  the existing styled-output result, identify its owner, and retain a change only
+  when same-machine before/after evidence shows a correctness-preserving gain.
+  Scrollback representation and parser/model throughput follow the same rule;
+  optical latency remains unavailable until the registered apparatus exists.
 
 ## Track 9 — Multiple Contexts: Tabs, Panes, And Sessions
 
@@ -680,7 +755,9 @@ handful of deliberately-deferred niceties.
 - **Shipped on Unix — Detach & switch.** A context-menu action that spawns a fresh managed
   session in the focused pane's current directory and switches to it, so a window
   can hand off to a new detached session without leaving the keyboard.
-- **Someday — Broadcast input** to multiple panes at once.
+- **Planned v0.16.0 — Guarded broadcast input.** Only explicitly selected panes
+  receive input, with persistent receiver highlights, hidden-receiver warnings,
+  multiline confirmation, and a fast escape hatch.
 - **Shipped — Window-state persistence and named layouts.** Opt-in restore,
   off by default, reopens the previous window shape when launched with no
   arguments. The shape includes workspaces, tabs, and pane splits at their
@@ -690,7 +767,9 @@ handful of deliberately-deferred niceties.
   still-live Unix session hosts reattach, and SSH panes reconnect to fresh
   remote login shells. Named layouts capture the whole session and reopen with
   a replace-or-add prompt.
-- **Someday — Multi-window** management.
+- **Planned v0.16.0 — Multi-window movement and layout.** Tear tabs and panes
+  into another window without changing PTY/session ownership, and preserve the
+  resulting structure through named layouts and restoration.
 
 ## Track 10 — Packaging, Release, And Platform
 
@@ -743,6 +822,10 @@ Making OdyTTY installable and maintainable outside the source tree.
   blocking CI and ship release artifacts. Linux remains the primary target;
   Windows uses ConPTY and macOS uses the Unix backend. Confirm behavior under
   both Wayland and X11 where relevant and continue on-device platform hardening.
+- **Planned v0.18.0 — Windows integration parity.** Add supported,
+  user-controlled default-terminal registration and a same-user ConPTY
+  detached/resumable-session host. Neither may silently change OS settings or
+  infer Windows lifecycle/security behavior from Unix.
 
 ## Track 11 — Exploratory And Far Future
 
@@ -756,6 +839,13 @@ and only if they never compromise terminal trust.
   command-aware UX deliver most of the value without this large scrollback
   departure; far future, if ever.
 - **Someday — Workflows / notebooks / saved snippets.** Scope-creepy; deferred.
+- **Planned v0.20.0 — Bounded triggers and recording.** Presentation-only
+  highlight/notification triggers may not send input, run commands, open URLs,
+  upload files, or mutate profiles. Logging/replay export stays opt-in, visibly
+  active, size-bounded, and private by default.
+- **Decision gate v0.20.0 — Serial ports.** Implement only with real hardware
+  validation and explicit Linux, macOS, and Windows device/permission contracts;
+  otherwise record the result as deferred rather than shipped.
 
 ---
 
@@ -805,10 +895,9 @@ Named here so they get decided deliberately rather than by default:
 
 ## Near-term focus
 
-The honest current ordering, now that the command-aware UX, the ergonomic cores,
-the readability-safe background treatments, the interactive paths and image
-viewer, the session attach launcher, and the multi-context epic (panes,
-persistent sessions, command palette, and connection manager) all ship:
+The honest current ordering, now that the core terminal, multi-context work,
+graphics, shell marking, connection manager, settings UX, and packaging all
+ship:
 
 1. **Treat current-release field reports as regression input.** Address
    confirmed correctness or security problems with narrow patch releases and
@@ -816,9 +905,11 @@ persistent sessions, command palette, and connection manager) all ship:
 2. **Keep the release evidence machinery current.** Maintain blocking
    cross-platform CI, bounded dynamic analysis and fuzzing, package channels,
    documentation, and the time-bounded dependency-advisory review.
-3. **Choose the next product milestone explicitly before resuming deferred
-   feature or effect work.** The conservative defaults remain unchanged unless
-   a separately recorded scope authorizes tuning (see Track 2).
+3. **Execute the provisional release sequence above one checkpoint at a time.**
+   Begin with v0.13.0 paste safety, command-output actions, and completion/
+   progress awareness. Do not hold a completed checkpoint for later roadmap
+   work, and do not pull a later feature forward without its platform, security,
+   documentation, and evidence gates.
 
 Everything beyond a plain terminal stays measured, opt-out-able, and — above all
 — never something you are forced to hand-edit a config file to reach.
