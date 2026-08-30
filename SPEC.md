@@ -842,6 +842,12 @@ without a locale-specific CJK rule. Rendering, storage, GPU allocation, and
 presentation timing remain unchanged, so v0.12.0 remains the applicable
 performance evidence.
 
+The tagged v0.12.2 release passed same-commit blocking Linux, macOS, and Windows
+CI, artifact smoke tests, the locked dependency audit, Minisign checksum signing,
+and GitHub provenance verification. Homebrew, Scoop, and AUR publication also
+completed. These are automated release-path results; the original live pacman
+workload has not yet been rerun against the published binary.
+
 The project remains pre-1.0; any later milestone requires a separately recorded
 scope rather than silently inheriting deferred work from a prior release.
 

@@ -21,8 +21,11 @@ AUR publication workflow to its dedicated secret; publication and bounded
 post-publish checks on the shipped macOS, Windows, and Linux package paths are
 complete. Version 0.12.2 adds the missing CNL/CPL cursor controls used by
 pacman's parallel-download display, with explicit count, margin, pending-wrap,
-and multiline redraw coverage in the platform-neutral core. A checked item is
-delivered at the current head (or at the historical
+and multiline redraw coverage in the platform-neutral core. Its same-commit
+three-platform CI, signed release, provenance, and Homebrew, Scoop, and AUR
+publication gates are complete; a live rerun of the original pacman workload
+is not claimed. A checked item is delivered at the current head (or at the
+historical
 milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as

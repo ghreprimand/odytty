@@ -335,6 +335,12 @@ capture. It adds two platform-neutral CSI cursor controls and their compatibilit
 fixtures without changing terminal storage, rendering, GPU allocation, or
 presentation timing. The v0.12.0 results remain the applicable performance
 evidence, and the omitted v0.12.2 measurements are recorded as **not run**.
+The tagged release passed same-commit Linux, macOS, and Windows CI, its locked
+dependency audit, artifact smoke tests, Minisign signing, GitHub provenance
+verification, and Homebrew, Scoop, and AUR publication. Bounded post-publish
+checks confirmed that all three package-manager channels offered v0.12.2. A
+live rerun of the reported pacman workload is also **not run** until independent
+confirmation is received.
 
 ### 3. Push The Release Tag
 

@@ -35,6 +35,17 @@ audit including the fuzz lockfile under the existing documented `ttf-parser`
 exception, and the production-file size guard. The pinned Rust 1.96.0 toolchain
 continues to match the declared Rust 1.96 MSRV.
 
+Tag `v0.12.2` points to release commit `82a11d60`. Same-commit blocking CI
+passed on Linux, macOS, and Windows before the tag was created. The release
+workflow then passed its locked dependency audit, platform artifact smoke tests,
+Minisign checksum signing, and GitHub provenance verification. All seven
+versioned artifacts match their always-latest aliases in the 16-asset release,
+and Homebrew, Scoop, and AUR publication completed. Bounded post-publish checks
+confirmed that all three package-manager channels offered v0.12.2. The original
+live pacman workload has not yet been rerun against the published binary; the
+reporter was asked to confirm it rather than that check being represented as
+complete.
+
 ---
 
 ## 2026-08-29 -- Release v0.12.1 -- Isolate reused SSH connections
