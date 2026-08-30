@@ -1,9 +1,9 @@
 # Contributing to OdyTTY
 
 OdyTTY is developed in the open in a public repository. These are the working
-conventions for changes and commits. See [`DEVLOG.md`](DEVLOG.md) for current
-state, [`TODO.md`](TODO.md) for the milestone checklist, and
-[`SPEC.md`](SPEC.md) for durable product/architecture decisions.
+conventions for changes and commits. See the [`DEVLOG.md`](DEVLOG.md) index for
+the monthly development record, [`TODO.md`](TODO.md) for the milestone
+checklist, and [`SPEC.md`](SPEC.md) for durable product/architecture decisions.
 
 ## Contents
 
@@ -380,8 +380,8 @@ Before every commit, run through this gate and stop if anything is unclear:
 `rust-toolchain.toml` (`channel = "1.96.0"`) and `Cargo.toml`
 (`rust-version = "1.96"`) must stay in step, and CI builds at that floor on every
 run. If you adopt a language feature that raises the real floor, bump both files
-in the same commit and note it in [`DEVLOG.md`](DEVLOG.md); treat a mismatch between them as a
-bug.
+in the same commit and note it in the current monthly log linked from
+[`DEVLOG.md`](DEVLOG.md); treat a mismatch between them as a bug.
 
 The repository toolchain file selects 1.96.0 automatically only when `cargo`
 and `rustc` are rustup-managed proxies. A distribution-provided direct compiler
@@ -402,16 +402,18 @@ configuration. If anything looks ambiguous, stop and confirm before committing.
 - Commit at noteworthy milestones: a completed change, a docs/process
   checkpoint, or a prototype slice. Avoid noisy partial commits, but do not let
   finished work sit uncommitted.
-- Update [`DEVLOG.md`](DEVLOG.md) as part of each change (what landed, verified
+- Update the current `devlog/YYYY-MM.md` archive linked from
+  [`DEVLOG.md`](DEVLOG.md) as part of each change (what landed, verified
   `cargo test` / `cargo fmt --check` status, remaining gaps) so the running
-  record stays in lockstep with the code.
+  record stays in lockstep with the code. When the month changes, create the
+  archive and add its exact relative link to the index in the same commit.
 - Write clear commit messages describing what changed and why.
 - In prose, make references to other maintained Markdown documents clickable
   with relative links. Reserve plain inline-code paths for non-navigational
   examples, generated evidence, and historical text.
 - Push after each completed change, once the tree is clean, `cargo test`,
   `cargo clippy --all-targets --locked -- -D warnings`, and `cargo fmt --check`
-  pass, public docs and [`DEVLOG.md`](DEVLOG.md) match the state of the project,
+  pass, public docs and the current monthly devlog match the state of the project,
   and tracked/staged content has been scanned for secrets or local-only data.
   Frequent pushed commits are preferred so the public history is a living record
   of development; the public-repo safety boundary is the gate, not deliberate

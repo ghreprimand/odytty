@@ -9,8 +9,8 @@
 # cache directory outside the working tree.
 #
 # Changing any value in [release] is a new pin, not an update. Record the reason
-# in DEVLOG.md and re-run the full verification path; never edit a digest to
-# make a mismatch pass.
+# in the current monthly devlog and re-run the full verification path; never
+# edit a digest to make a mismatch pass.
 
 [pin]
 # Schema version of this manifest, independent of the upstream release.

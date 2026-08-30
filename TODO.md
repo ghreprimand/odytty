@@ -2,8 +2,8 @@
 
 Living delivery record and forward backlog for OdyTTY. Historical stage
 sections preserve what shipped in each development cycle; the unchecked items
-identify current future work. See [`DEVLOG.md`](DEVLOG.md) for the running
-record, [`SPEC.md`](SPEC.md) for durable decisions, and
+identify current future work. See the [`DEVLOG.md`](DEVLOG.md) index for the
+monthly development record, [`SPEC.md`](SPEC.md) for durable decisions, and
 [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) for the full build
 roadmap.
 

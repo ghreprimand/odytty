@@ -77,7 +77,7 @@ unsupported, skipped, deferred, and unmeasured surfaces.
 ## History And Roadmap
 
 - [Current work](../TODO.md)
-- [Development log](../DEVLOG.md)
+- [Development log index and monthly archives](../DEVLOG.md)
 - [Full build roadmap](full-build-roadmap.md)
 - [Idle-wakeups investigation](idle-wakeups-investigation.md)
 

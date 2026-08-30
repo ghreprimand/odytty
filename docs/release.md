@@ -266,11 +266,15 @@ Set `Cargo.toml` to `X.Y.Z` and refresh `Cargo.lock`. Keep the declared MSRV in
 
 Add the newest `<release>` entry to
 `dist/linux/io.unfinished_works.odytty.metainfo.xml`. Add the release headline
-to [`DEVLOG.md`](../DEVLOG.md) using this shape:
+to the current `devlog/YYYY-MM.md` archive linked from
+[`DEVLOG.md`](../DEVLOG.md), using this shape:
 
 ```text
 ## YYYY-MM-DD -- Release vX.Y.Z
 ```
+
+If the release begins a new month, create that archive and add its exact
+newest-first relative link to `DEVLOG.md` in the same commit.
 
 Commit these changes together and push `master`. Wait for the complete CI
 workflow on that exact commit to pass: the Linux, macOS, and Windows matrix jobs
