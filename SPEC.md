@@ -832,6 +832,16 @@ passed its three-platform CI, signed-manifest, provenance, and package-channel
 gates, followed by bounded post-publish checks on macOS, Windows, and the Linux
 channels. No fresh performance measurement is attributed to this patch.
 
+Version 0.12.2 is a narrow terminal-compatibility patch. The platform-neutral
+CSI dispatcher implements cursor-next-line (`CSI Ps E`) and cursor-preceding-
+line (`CSI Ps F`) as CUD/CUU-style vertical movement followed by a return to
+column zero. Omitted and zero counts mean one; movement respects the same
+screen and DECSTBM bounds as CUD/CUU and clears pending wrap. This restores
+in-place redraws for pacman's parallel-download interface on every platform
+without a locale-specific CJK rule. Rendering, storage, GPU allocation, and
+presentation timing remain unchanged, so v0.12.0 remains the applicable
+performance evidence.
+
 The project remains pre-1.0; any later milestone requires a separately recorded
 scope rather than silently inheriting deferred work from a prior release.
 

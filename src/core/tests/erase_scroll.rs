@@ -507,6 +507,76 @@ fn cud_below_region_travels_to_screen_bottom() {
 }
 
 #[test]
+fn cnl_and_cpl_move_rows_and_reset_to_left_margin() {
+    let mut terminal = Terminal::new(12, 6);
+    terminal.advance(b"\x1b[2;7H");
+
+    terminal.advance(b"\x1b[2E");
+    assert_eq!(terminal.screen().cursor(), Position { row: 3, column: 0 });
+
+    terminal.advance(b"\x1b[3F");
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+}
+
+#[test]
+fn cnl_and_cpl_omitted_and_zero_counts_mean_one() {
+    let mut terminal = Terminal::new(12, 6);
+    terminal.advance(b"\x1b[3;8H");
+
+    terminal.advance(b"\x1b[E");
+    assert_eq!(terminal.screen().cursor(), Position { row: 3, column: 0 });
+
+    terminal.advance(b"\x1b[0F");
+    assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 0 });
+}
+
+#[test]
+fn cnl_and_cpl_respect_scroll_region_bounds() {
+    let mut terminal = Terminal::new(12, 7);
+    terminal.advance(b"\x1b[3;5r");
+
+    terminal.advance(b"\x1b[4;9H\x1b[99E");
+    assert_eq!(terminal.screen().cursor(), Position { row: 4, column: 0 });
+
+    terminal.advance(b"\x1b[4;9H\x1b[99F");
+    assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 0 });
+}
+
+#[test]
+fn cnl_cancels_pending_wrap_before_the_next_print() {
+    let mut terminal = Terminal::new(4, 3);
+    terminal.advance(b"abcd");
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 3 });
+
+    terminal.advance(b"\x1b[EZ");
+
+    assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 1 });
+    assert_eq!(terminal.screen().plain_text(), "abcd\nZ\n");
+}
+
+#[test]
+fn pacman_parallel_progress_rows_redraw_in_place() {
+    let mut terminal = Terminal::new(24, 5);
+    terminal.advance(b"pkg-a      0%\r\npkg-b      0%\r\nTotal (0/2)  0%");
+
+    // pacman tracks its cursor relative to the active bar list and uses CPL
+    // and CNL to select an individual bar or the aggregate Total row.
+    terminal.advance(b"\x1b[2Fpkg-a    100%");
+    terminal.advance(b"\x1b[2ETotal (1/2) 50%");
+    terminal.advance(b"\x1b[1Fpkg-b    100%");
+    terminal.advance(b"\x1b[1ETotal (2/2)100%");
+
+    assert!(
+        terminal
+            .screen()
+            .plain_text()
+            .starts_with("pkg-a    100%\npkg-b    100%\nTotal (2/2)100%"),
+        "parallel progress rows must replace their prior contents: {:?}",
+        terminal.screen().plain_text()
+    );
+}
+
+#[test]
 fn origin_mode_makes_cup_relative_to_region_top() {
     let mut terminal = Terminal::new(8, 6);
     // Region rows index 2..=4 (1-based 3;5), enable DECOM.

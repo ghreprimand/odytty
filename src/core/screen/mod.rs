@@ -1299,6 +1299,8 @@ impl Screen {
             'B' => self.move_down(param_or_one(params, 0)),
             'C' => self.move_right(param_or_one(params, 0)),
             'D' => self.move_left(param_or_one(params, 0)),
+            'E' => self.move_next_line(param_or_one(params, 0)),
+            'F' => self.move_previous_line(param_or_one(params, 0)),
             'G' => self.move_to(self.cursor.row + 1, param_or_one(params, 0)),
             'H' | 'f' => self.move_to_origin(param_or_one(params, 0), param_or_one(params, 1)),
             // SU/SD are the unprefixed forms only. A private-parameter or

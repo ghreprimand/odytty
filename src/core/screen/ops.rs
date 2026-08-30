@@ -468,6 +468,20 @@ impl Screen {
         self.mark_dirty();
     }
 
+    /// CNL (CSI Ps E): move down as CUD does, then return to the left margin.
+    /// Pacman's parallel-download UI uses this to select a later progress row.
+    pub(super) fn move_next_line(&mut self, count: usize) {
+        self.move_down(count);
+        self.carriage_return();
+    }
+
+    /// CPL (CSI Ps F): move up as CUU does, then return to the left margin.
+    /// Pacman's parallel-download UI uses this to select an earlier progress row.
+    pub(super) fn move_previous_line(&mut self, count: usize) {
+        self.move_up(count);
+        self.carriage_return();
+    }
+
     pub(super) fn move_right(&mut self, count: usize) {
         self.cursor.column = (self.cursor.column + count).min(self.dimensions.columns - 1);
         self.pending_wrap = false;

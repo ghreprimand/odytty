@@ -96,7 +96,7 @@ shells and full-screen terminal applications:
 | Area | Supported behavior |
 | --- | --- |
 | Text and attributes | Printing, UTF-8 chunking, SGR attributes including legacy SGR 21 double underline, 256-color, and truecolor |
-| Cursor and editing | Cursor movement, erase, insert/delete character and line, insert/replace mode (IRM), repeat, and reverse index |
+| Cursor and editing | Cursor movement including CNL/CPL line-relative redraw controls, erase, insert/delete character and line, insert/replace mode (IRM), repeat, and reverse index |
 | Screen state | Scroll regions, origin mode, tab stops, bracketed paste, focus reporting, and alternate-screen modes 47/1047/1048/1049 |
 | Character sets | G0/G1 designation, SO/SI selection, and DEC Special Graphics mapping for ncurses ACS line drawing |
 | OSC sequences | OSC 0/2 titles, OSC 7 working directories, OSC 8 hyperlinks, OSC 52 clipboard write plus opt-in read, OSC 133 prompt marks, and OSC 4/10/11/12 dynamic colors |

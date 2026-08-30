@@ -139,11 +139,17 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.12.1 is the current security patch
-release. It prevents distinct SSH endpoints from aliasing the same reused
-connection by delegating the ControlMaster socket identity to OpenSSH's complete
-connection hash. The patch does not alter rendering or memory behavior, so it
-carries forward rather than reruns the v0.12.0 performance evidence.
+OdyTTY is a broad pre-1.0 terminal. Version 0.12.2 is a narrow terminal-
+compatibility patch. It implements the ECMA-48 cursor-next-line and cursor-
+preceding-line controls used by pacman's parallel-download display, so progress
+rows redraw in place instead of overlapping or appearing out of order. The
+behavior is shared by Linux, macOS, and Windows and does not depend on the text
+locale. Version 0.12.1 remains the preceding security patch that isolated SSH
+ControlMaster reuse by OpenSSH's complete connection identity.
+
+The v0.12.2 patch does not alter rendering, terminal storage, GPU allocation,
+or presentation timing, so it carries forward rather than reruns the v0.12.0
+performance evidence.
 
 That preregistered v0.12.0 W6 run records 89.0 MB current and 130.7 MB peak
 memory on the benchmark environment, down 68.9 and 60.1 percent respectively

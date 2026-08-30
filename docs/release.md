@@ -330,6 +330,12 @@ on macOS, Windows, and the Linux package channels. That validates the exercised
 release paths without turning the carried-forward performance evidence into a
 new measurement or claiming broader hardware coverage.
 
+Version 0.12.2 also does not repeat the benchmark campaign or live GPU memory
+capture. It adds two platform-neutral CSI cursor controls and their compatibility
+fixtures without changing terminal storage, rendering, GPU allocation, or
+presentation timing. The v0.12.0 results remain the applicable performance
+evidence, and the omitted v0.12.2 measurements are recorded as **not run**.
+
 ### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful

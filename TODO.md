@@ -19,7 +19,10 @@ verification. Version 0.12.1 is the narrow security patch that isolates
 ControlMaster reuse by OpenSSH's effective connection identity and narrows the
 AUR publication workflow to its dedicated secret; publication and bounded
 post-publish checks on the shipped macOS, Windows, and Linux package paths are
-complete. A checked item is delivered at the current head (or at the historical
+complete. Version 0.12.2 adds the missing CNL/CPL cursor controls used by
+pacman's parallel-download display, with explicit count, margin, pending-wrap,
+and multiline redraw coverage in the platform-neutral core. A checked item is
+delivered at the current head (or at the historical
 milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as
@@ -1445,7 +1448,7 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
 - [x] Core compatibility primitives: printing, cursor movement, SGR, erase,
       scrollback, alternate screen, save/restore, scroll regions, bracketed
       paste, RI, IL/DL, SU/SD, DECOM, RIS/DECSTR, ICH/DCH, ECH, REP, tab
-      stops, DA reply.
+      stops, CNL/CPL, DA reply.
 - [x] Headless transcript smoke harness with deterministic default fixtures.
 - [x] Add further compatibility sequences as the prototype needs them, decided
       from evidence rather than guesswork (e.g. BCE, SU/SD + DECOM).

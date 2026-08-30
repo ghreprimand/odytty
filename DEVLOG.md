@@ -7,6 +7,36 @@ pre-1.0 line. See [`TODO.md`](TODO.md) for the milestone checklist and
 
 ---
 
+## 2026-08-30 -- Release v0.12.2 -- Restore multiline progress redraws
+
+Pacman's parallel-download display exposed two missing ECMA-48 cursor controls:
+`CSI Ps E` (CNL, cursor next line) and `CSI Ps F` (CPL, cursor preceding line).
+Pacman uses them to select an active package row or its aggregate Total row,
+with both motions returning to column zero. OdyTTY previously ignored both
+sequences, so the next update started on the current row and column; completed
+package names, aggregate counters, and progress bars accumulated as overlapping
+or reordered output.
+
+The CSI dispatcher now applies the same vertical margin behavior as CUD/CUU and
+then returns to the left margin. Omitted and zero parameters mean one, large
+counts clamp at the applicable screen or scroll-region boundary, and either
+control cancels pending wrap. Focused control tests and a pacman-shaped
+multiline fixture pin those semantics across the platform-neutral terminal
+core. The original report is tracked as [issue #7](https://github.com/ghreprimand/odytty/issues/7).
+
+This patch does not change rendering, terminal storage, GPU allocation, or
+presentation timing. No benchmark campaign or live GPU-memory capture is run
+for v0.12.2; the published v0.12.0 performance evidence remains the applicable
+baseline.
+
+The release-candidate gate passes formatting, Clippy across all locked targets,
+the full locked test suite (4,587 passed, 0 failed, 16 ignored), the dependency
+audit including the fuzz lockfile under the existing documented `ttf-parser`
+exception, and the production-file size guard. The pinned Rust 1.96.0 toolchain
+continues to match the declared Rust 1.96 MSRV.
+
+---
+
 ## 2026-08-29 -- Release v0.12.1 -- Isolate reused SSH connections
 
 This security patch replaces OdyTTY's 32-bit hash of the textual SSH
