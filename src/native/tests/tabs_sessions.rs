@@ -158,6 +158,72 @@ fn add_workspace(app: &mut App) -> bool {
     true
 }
 
+/// Reusable Phase A ownership fixture: workspace 0 has two panes and workspace
+/// 1 has one. The returned ids let later command/notification tests assert that
+/// state is attributed to the exact pane and restored with its workspace.
+struct PaneWorkspaceOwnershipFixture {
+    app: App,
+    first_pane: usize,
+    split_pane: usize,
+    second_workspace_pane: usize,
+}
+
+fn pane_workspace_ownership_fixture() -> Option<PaneWorkspaceOwnershipFixture> {
+    let (mut app, _bytes) = single_session_app()?;
+    let first_pane = app.focused_pane_id_for_test();
+    let dims = NativeOptions::default().initial_grid;
+
+    let (terminal, writer, pty, _bytes) = recorded_session(dims)?;
+    let split_pane = app.seed_split_pane_for_test(true, terminal, writer, pty);
+
+    let (terminal, writer, pty, _bytes) = recorded_session(dims)?;
+    let second_workspace = app.push_workspace_for_test(terminal, writer, pty);
+    assert_eq!(second_workspace, 1);
+    let second_workspace_pane = app.focused_pane_id_for_test();
+
+    Some(PaneWorkspaceOwnershipFixture {
+        app,
+        first_pane,
+        split_pane,
+        second_workspace_pane,
+    })
+}
+
+#[test]
+fn pane_focus_is_owned_and_restored_by_its_workspace() {
+    let Some(mut fixture) = pane_workspace_ownership_fixture() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    assert_ne!(fixture.first_pane, fixture.split_pane);
+    assert_ne!(fixture.split_pane, fixture.second_workspace_pane);
+    assert_eq!(fixture.app.workspace_count_for_test(), 2);
+    assert_eq!(fixture.app.active_workspace_index_for_test(), 1);
+    assert_eq!(
+        fixture.app.focused_pane_id_for_test(),
+        fixture.second_workspace_pane
+    );
+    assert_eq!(fixture.app.active_pane_count_for_test(), 1);
+
+    fixture
+        .app
+        .dispatch_workspace_action_for_test(BindableAction::PrevWorkspace);
+    assert_eq!(fixture.app.active_workspace_index_for_test(), 0);
+    assert_eq!(fixture.app.focused_pane_id_for_test(), fixture.split_pane);
+    assert_eq!(fixture.app.active_pane_count_for_test(), 2);
+
+    fixture
+        .app
+        .dispatch_workspace_action_for_test(BindableAction::NextWorkspace);
+    assert_eq!(fixture.app.active_workspace_index_for_test(), 1);
+    assert_eq!(
+        fixture.app.focused_pane_id_for_test(),
+        fixture.second_workspace_pane
+    );
+    assert_eq!(fixture.app.active_pane_count_for_test(), 1);
+}
+
 /// WP1 capture: a headless multi-workspace, multi-pane `App` captures into a
 /// `ShapeSnapshot` that mirrors names, tab count/order, the split tree, and
 /// per-pane cwd — and the captured shape round-trips through the JSON layer.
@@ -175,7 +241,7 @@ fn capture_shape_records_workspaces_tabs_panes_and_cwd() {
         .0
         .lock()
         .expect("terminal")
-        .seed_working_directory("/home/tester/project".to_owned());
+        .seed_working_directory("/tmp/odytty-fixture/project".to_owned());
 
     // Split the ACTIVE tab (tab 0) so it becomes a two-pane split; tab 1 stays
     // a lone leaf. `push` appends tabs without switching, so tab 0 is active.
@@ -215,7 +281,7 @@ fn capture_shape_records_workspaces_tabs_panes_and_cwd() {
             assert_eq!(
                 **first,
                 PaneShape::Leaf {
-                    cwd: Some("/home/tester/project".to_owned()),
+                    cwd: Some("/tmp/odytty-fixture/project".to_owned()),
                     session_host_id: None,
                     remote_host: None,
                 }

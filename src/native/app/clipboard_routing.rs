@@ -8,6 +8,15 @@
 use super::*;
 
 impl App {
+    /// Test-only clipboard source for the production shortcut route. Keeping
+    /// this beside the route avoids growing the oversized general App seam
+    /// file and never touches the process clipboard.
+    #[cfg(test)]
+    pub(in crate::native) fn inject_paste_text_for_test(&mut self, text: &str) {
+        self.clipboard.injected_clipboard_text = Some(text.to_owned());
+        self.clipboard.read_text_calls = 0;
+    }
+
     /// Paste clipboard text into the PTY if the platform clipboard is
     /// reachable. Clipboard failures are deliberately non-fatal: a terminal
     /// should keep running even when the compositor denies clipboard access.

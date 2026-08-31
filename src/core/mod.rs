@@ -70,6 +70,8 @@ mod scrollback_tests;
 mod search_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) use tests::v013_fixtures;
 
 pub use button::{
     ButtonEntry, ButtonHit, ButtonIcon, ButtonId, ButtonScope, ButtonSpan, ButtonState,

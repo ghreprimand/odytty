@@ -309,6 +309,43 @@ fn selected_text_includes_combining_marks() {
 }
 
 #[test]
+fn osc133_output_row_selection_preserves_grapheme_boundary_fixtures() {
+    use crate::core::v013_fixtures::{GRAPHEME_BOUNDARY_FIXTURES, OscTerminator, osc133};
+
+    for fixture in GRAPHEME_BOUNDARY_FIXTURES {
+        let mut terminal = Terminal::new(64, 4);
+        terminal.advance(&osc133(b"A", OscTerminator::Bell));
+        terminal.advance(b"prompt$ ");
+        terminal.advance(&osc133(b"B", OscTerminator::Bell));
+        terminal.advance(b"show-output\r\n");
+        terminal.advance(&osc133(b"C", OscTerminator::Bell));
+        terminal.advance(fixture.text.as_bytes());
+        terminal.advance(b"\r\n");
+        terminal.advance(&osc133(b"D;0", OscTerminator::Bell));
+
+        let blocks = command_blocks(&terminal.prompt_marks());
+        let block = blocks.first().expect("one completed command block");
+        let (start, end) = command_output_cell_range(block, 3, 64)
+            .expect("fixture command has addressable output");
+        let copied = selected_text(
+            &terminal.snapshot(),
+            SelectionRange {
+                start: CellPoint {
+                    row: start.row,
+                    column: start.column,
+                },
+                end: CellPoint {
+                    row: end.row,
+                    column: end.column,
+                },
+            },
+        );
+
+        assert_eq!(copied, fixture.text, "grapheme fixture: {}", fixture.label);
+    }
+}
+
+#[test]
 fn transcript_shaped_export_matches_visible_grapheme_concatenation() {
     // Transcript export of the grid is the row-wise concatenation of
     // non-continuation graphemes. Pin it here so a storage change cannot

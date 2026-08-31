@@ -95,9 +95,48 @@ fn recording_writer() -> RecordingWriterParts {
 
 #[test]
 fn plain_paste_chunks_normalize_line_endings_to_carriage_return() {
-    let chunks = encode_paste_chunks("one\ntwo\r\nthree\rfour", false, PASTE_CHUNK_SIZE);
+    for fixture in crate::core::v013_fixtures::PLAIN_PASTE_FIXTURES {
+        let chunks = encode_paste_chunks(fixture.source, false, PASTE_CHUNK_SIZE);
 
-    assert_eq!(&flatten_chunks(&chunks), b"one\rtwo\rthree\rfour");
+        assert_eq!(
+            flatten_chunks(&chunks),
+            fixture.expected,
+            "plain-paste fixture: {}",
+            fixture.label
+        );
+    }
+}
+
+#[test]
+fn shortcut_route_reads_original_fixture_text_then_uses_plain_encoder() {
+    let dimensions = Dimensions::new(80, 24);
+    for fixture in crate::core::v013_fixtures::PLAIN_PASTE_FIXTURES {
+        let recorder = RecordingWriter::default();
+        let bytes = recorder.bytes.clone();
+        let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+        let (mut app, _terminal) = headless_app_with_writer(
+            NativeOptions::default(),
+            dimensions,
+            Settings::default(),
+            writer,
+        );
+        app.inject_paste_text_for_test(fixture.source);
+
+        app.handle_paste_shortcut_for_test();
+
+        assert_eq!(
+            &*bytes.lock().expect("paste bytes"),
+            fixture.expected,
+            "shortcut paste fixture: {}",
+            fixture.label
+        );
+        assert_eq!(
+            app.clipboard_read_text_calls_for_test(),
+            1,
+            "shortcut reads the fixture once: {}",
+            fixture.label
+        );
+    }
 }
 
 #[test]

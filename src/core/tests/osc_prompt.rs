@@ -208,7 +208,7 @@ fn osc133_stream_is_byte_identical_to_stripped_text() {
     // the marks never reach the rendering surface.
     let mut marked = Terminal::new(20, 4);
     marked.advance(&osc133("A"));
-    marked.advance(b"user@host:~$ ");
+    marked.advance(b"prompt$ ");
     marked.advance(&osc133("B"));
     marked.advance(b"echo hi\r\n");
     marked.advance(&osc133("C"));
@@ -216,7 +216,7 @@ fn osc133_stream_is_byte_identical_to_stripped_text() {
     marked.advance(&osc133("D;0"));
 
     let mut plain = Terminal::new(20, 4);
-    plain.advance(b"user@host:~$ ");
+    plain.advance(b"prompt$ ");
     plain.advance(b"echo hi\r\n");
     plain.advance(b"hi\r\n");
 
@@ -562,14 +562,14 @@ fn command_blocks_derive_from_a_real_transcript() {
     // finished block keeps its verdict after the next prompt appears.
     let mut terminal = Terminal::new(20, 6);
     terminal.advance(&osc133("A"));
-    terminal.advance(b"user@host:~$ ");
+    terminal.advance(b"prompt$ ");
     terminal.advance(&osc133("B"));
     terminal.advance(b"echo hi\r\n");
     terminal.advance(&osc133("C"));
     terminal.advance(b"hi\r\n");
     terminal.advance(&osc133("D;0"));
     terminal.advance(&osc133("A")); // same row as D: the merge case
-    terminal.advance(b"user@host:~$ ");
+    terminal.advance(b"prompt$ ");
     terminal.advance(&osc133("B")); // second same-row prompt stamp keeps the exit
 
     assert_eq!(
@@ -588,6 +588,113 @@ fn command_blocks_derive_from_a_real_transcript() {
     assert_eq!(blocks[1].prompt_row, 2);
     assert_eq!(blocks[1].output, CommandOutput::Empty);
     assert_eq!(blocks[1].exit, None);
+}
+
+#[test]
+fn supported_shell_shaped_streams_share_one_command_range_contract() {
+    use crate::core::v013_fixtures::SHELL_OSC133_FIXTURES;
+
+    for fixture in SHELL_OSC133_FIXTURES {
+        let mut terminal = Terminal::new(96, 5);
+        terminal.advance(&fixture.stream());
+
+        let blocks = command_blocks(&terminal.prompt_marks());
+        assert_eq!(blocks.len(), 2, "{} block count", fixture.shell);
+        assert_eq!(blocks[0].prompt_row, 0, "{} prompt row", fixture.shell);
+        assert_eq!(
+            blocks[0].output,
+            CommandOutput::Rows { start: 1, end: 1 },
+            "{} output rows",
+            fixture.shell
+        );
+        assert_eq!(blocks[0].exit, Some(fixture.exit), "{} exit", fixture.shell);
+        assert_eq!(
+            command_status(&blocks[0]),
+            if fixture.exit == 0 {
+                CommandStatus::Success
+            } else {
+                CommandStatus::Fail
+            },
+            "{} status",
+            fixture.shell
+        );
+        assert!(
+            terminal.screen().plain_text().contains(fixture.output),
+            "{} visible output",
+            fixture.shell
+        );
+        assert!(
+            terminal.take_host_output().is_empty(),
+            "{} OSC 133 must not emit a reply",
+            fixture.shell
+        );
+    }
+}
+
+#[test]
+fn missing_and_partial_shell_marks_fail_closed_without_guessing() {
+    let mut open = Terminal::new(32, 4);
+    open.advance(&osc133("A"));
+    open.advance(b"prompt$ ");
+    open.advance(&osc133("B"));
+    open.advance(b"run\r\n");
+    open.advance(&osc133("C"));
+    open.advance(b"still-running");
+    let blocks = command_blocks(&open.prompt_marks());
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].output, CommandOutput::Open { start: 1 });
+    assert_eq!(command_status(&blocks[0]), CommandStatus::Running);
+
+    let mut no_output_start = Terminal::new(32, 4);
+    no_output_start.advance(&osc133("A"));
+    no_output_start.advance(b"prompt$ ");
+    no_output_start.advance(&osc133("B"));
+    no_output_start.advance(b"silent\r\n");
+    no_output_start.advance(&osc133("D;2"));
+    no_output_start.advance(&osc133("A"));
+    let blocks = command_blocks(&no_output_start.prompt_marks());
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0].output, CommandOutput::Empty);
+    assert_eq!(blocks[0].exit, Some(2));
+    assert_eq!(command_status(&blocks[0]), CommandStatus::Fail);
+
+    let mut stray = Terminal::new(32, 4);
+    stray.advance(&osc133("C"));
+    stray.advance(b"orphan\r\n");
+    stray.advance(&osc133("D;9"));
+    stray.advance(&osc133("A"));
+    let blocks = command_blocks(&stray.prompt_marks());
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].output, CommandOutput::Empty);
+    assert_eq!(blocks[0].exit, None);
+}
+
+#[test]
+fn hostile_and_unterminated_marks_are_inert_or_conservative() {
+    use crate::core::v013_fixtures::{HOSTILE_OSC133_FIXTURES, OscTerminator};
+
+    for fixture in HOSTILE_OSC133_FIXTURES {
+        let mut terminal = Terminal::new(16, 2);
+        terminal.advance(&crate::core::v013_fixtures::osc133(
+            fixture.payload,
+            OscTerminator::Bell,
+        ));
+
+        assert_eq!(
+            terminal.prompt_mark_at(0),
+            fixture.expected,
+            "hostile OSC 133 fixture: {}",
+            fixture.label
+        );
+        assert!(terminal.screen().plain_text().trim().is_empty());
+        assert!(terminal.take_host_output().is_empty());
+    }
+
+    let mut unterminated = Terminal::new(16, 2);
+    unterminated.advance(b"\x1b]133;D;0");
+    assert!(unterminated.prompt_marks().is_empty());
+    assert!(unterminated.screen().plain_text().trim().is_empty());
+    assert!(unterminated.take_host_output().is_empty());
 }
 
 #[test]
