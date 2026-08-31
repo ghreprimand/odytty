@@ -10,10 +10,13 @@
 //! survives scroll-out into scrollback and re-wrapping at a new width (it always
 //! rides the first physical row of the re-wrapped logical line).
 //!
-//! This is **inert foundation state** (SH1): the marks are captured and made
-//! queryable through the [`super::screen::Screen`] poll API, but nothing on the
-//! render path reads them and they never reach the [`super::types::Snapshot`].
-//! The command-aware UX that consumes them lands later (SH2/SH-CLICK).
+//! The marks remain render-neutral: they never enter the cell
+//! [`super::types::Snapshot`] or change terminal bytes. Shipped consumers read
+//! them through the [`super::screen::Screen`] API to jump between prompts,
+//! derive command/output ranges and status gutters, and support prompt-aware
+//! click/edit behavior. Versioned terminal snapshot envelopes serialize the
+//! marks separately so an attached or restored terminal retains its semantic
+//! boundaries without turning the grid into a block document.
 //!
 //! Parsing here is pure and defensive: any malformed or unrecognized payload
 //! yields `None` (the caller leaves the row's existing mark untouched) and no
@@ -28,9 +31,9 @@ use super::search::AbsolutePoint;
 /// Sub-command mapping (OSC 133 letter → kind):
 /// - `A` (prompt start) and `B` (command/input start) → [`PromptKind::PromptStart`].
 ///   Both sit on the prompt row; OdyTTY's row-anchored model keeps a single
-///   "prompt region" boundary rather than distinguishing the prompt text from
-///   the typed command on the same line. A dedicated command-input boundary can
-///   be added later if SH2 needs the A/B split.
+///   "prompt region" boundary for block derivation rather than distinguishing
+///   the prompt text from typed input in this enum. The screen separately tracks
+///   the OSC 133 `B` row and column for the shipped [`InputRegion`](super::input_region::InputRegion).
 /// - `C` (command executed / output start) → [`PromptKind::OutputStart`].
 /// - `D` (command finished) → [`PromptKind::CommandEnd`] with the optional exit
 ///   status.

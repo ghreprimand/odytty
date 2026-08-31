@@ -38,7 +38,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Full Unicode bidirectional layout | Not supported | Outside the current overlay model. Correct support first requires line-level logical-to-visual mapping shared by rendering, hit testing, cursor movement, selection, damage tracking, and copy semantics |
 | Complex Indic/Brahmic shaping | Not supported | Outside the current one-character-per-cell overlay model. Correct support requires grapheme-cluster ownership plus reordered glyph placement that remains reversible to logical cells |
 | Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |
-| SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Deferred implementation work, not a cell-model conflict. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
+| SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Planned for v0.17.0. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
 
 ## What the overlay model supports
 
@@ -137,10 +137,10 @@ OpenType script tags to the existing overlay is not sufficient.
 
 ### SVG-in-OpenType
 
-SVG-in-OpenType remains deferred, but it is not a conflict with the cell model.
-An SVG glyph can rasterize into the same bounded one-cell or two-cell color
-atlas slot used by bitmap, COLR v0, and COLR v1 sources. The logical grid does
-not need to change.
+SVG-in-OpenType is planned for v0.17.0 and is not a conflict with the cell
+model. An SVG glyph can rasterize into the same bounded one-cell or two-cell
+color atlas slot used by bitmap, COLR v0, and COLR v1 sources. The logical grid
+does not need to change.
 
 Enablement requires a bounded rasterizer with external resource loading,
 network access, scripts, animation, and unbounded document expansion disabled;
@@ -188,8 +188,9 @@ only with differential tests proving those properties.
   combining path. This is a candidate within the overlay model, not a claim of
   current joining support for marked bases.
 - **Open-ended stylistic sets** beyond the explicit `ss01`/`ss02` settings.
-  Additional explicit features may be considered, but an unrestricted `ssXX`
-  surface stays deferred.
+  v0.17.0 adds named, bounded legibility controls such as the OpenType `zero`
+  feature when the selected font supports them, but an unrestricted `ssXX` or
+  raw feature-tag surface stays deferred.
 
 ## Sequencing rationale
 
@@ -203,5 +204,5 @@ Sequence-aware width follows the cell-storage work because it changes cluster
 ownership without requiring visual reordering. Full complex-script shaping and
 BiDi remain outside the overlay model because they require a reversible mapping
 between logical terminal cells and a different visual order. SVG-in-OpenType is
-independent of that sequence and remains gated by its rasterization and security
-prerequisites.
+independent of that sequence and enters the v0.17.0 work only after its bounded
+rasterization and security prerequisites are implemented and tested.

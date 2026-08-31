@@ -40,6 +40,7 @@ scaling behavior.
 - [Interactive paths design](interactive-paths-design.md)
 - [Panes and sessions design](panes-and-sessions-design.md)
 - [Session attach launcher design](session-attach-launcher-design.md)
+- [v0.13.0 foundation contract](v0.13.0-foundation.md)
 
 ## Stabilization And Evidence
 

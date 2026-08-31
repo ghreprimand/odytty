@@ -32,6 +32,24 @@ rather than unchecked boxes, so this file does not present them as
 implementation commitments. Longer-range candidates require a separately
 recorded milestone before implementation.
 
+## v0.13.0: Safer Command-Aware Work
+
+- [x] Freeze the pre-implementation surface inventory, architecture decisions,
+      security/privacy boundaries, four-leg platform acceptance target, and
+      existing performance baseline in
+      [`docs/v0.13.0-foundation.md`](docs/v0.13.0-foundation.md). This is a
+      documentation-only foundation and changes no runtime behavior.
+- [ ] Add one cross-platform policy for risky non-bracketed text paste while
+      preserving ordinary single-line and child-enabled bracketed paste.
+- [ ] Add select, copy, scoped-search, failed-command navigation, and safe
+      plain-text export actions over verified OSC 133 command ranges.
+- [ ] Add bounded command completion, progress, activity, silence, failure, and
+      notification presentation without changing BEL semantics or stealing
+      focus.
+- [ ] Close the release only after retained local gates, independent Linux
+      Wayland/X11, macOS, and Windows evidence, blocking three-platform CI,
+      package checks, documentation convergence, and artifact verification.
+
 ## Stage 4.5: Foundation Ownership
 
 - [x] Replace the former parser dependency with an OdyTTY-owned DEC ANSI state

@@ -19,6 +19,7 @@ as unresolved rather than softened.
 - [Assets and security goals](#assets-and-security-goals)
 - [Supported and unsupported boundaries](#supported-and-unsupported-boundaries)
 - [Boundary catalog](#boundary-catalog)
+- [Planned workflow boundaries](#planned-workflow-boundaries)
 - [Platform process and privilege boundaries](#platform-process-and-privilege-boundaries)
 - [Test and fuzz coverage map](#test-and-fuzz-coverage-map)
 - [Residual risks and completed closures](#residual-risks-and-completed-closures)
@@ -443,20 +444,25 @@ the reference implementation.
   boundary has no attack surface today. It is recorded here so a future
   implementation inherits an explicit contract rather than starting from
   silence.
-- **Validation and caps:** paste payloads bounded at
-  `MAX_BRACKETED_PASTE_BYTES` = 32 MiB and chunked at `PASTE_CHUNK_SIZE` =
-  16 KiB so bracketed framing can never tear mid-payload
-  (`src/native/clipboard.rs`, `src/native/pty.rs`). An over-cap paste is refused
-  whole rather than truncated, because delivering a truncated body is the
-  dangerous option — a partial command line is still a command line.
-- **Failure behavior:** an over-cap paste is refused with a notice; no partial
-  bytes are written to the pseudoterminal.
+- **Validation and caps:** bracketed paste is bounded at
+  `MAX_BRACKETED_PASTE_BYTES` = 32 MiB and queued as one transaction so its
+  framing can never tear mid-payload (`src/native/clipboard.rs`,
+  `src/native/pty.rs`). An over-cap bracketed paste is refused whole rather than
+  truncated, because a partial command line is still a command line. Plain
+  paste has no comparable whole-payload cap and is deliberately written in
+  `PASTE_CHUNK_SIZE` = 16 KiB chunks while one writer lock preserves ordering.
+- **Failure behavior:** an over-cap bracketed paste is refused with a notice;
+  no partial bytes are written to the pseudoterminal. Plain paste retains its
+  existing chunked behavior.
 - **Diagnostic exposure:** paste contents are not logged.
 - **Existing tests:** paste chunking, framing, and cap tests in
   `src/native/clipboard.rs`.
 - **Planned fuzz target:** a paste-shaped target asserting that chunk framing is
   never split across a bracketed-paste boundary for any input length.
-- **Residual risk:** the platform clipboard library acquires its RGBA buffer
+- **Residual risk:** when bracketed-paste mode is inactive, multiline or
+  control-bearing text can still be interpreted immediately by the child.
+  v0.13.0 adds the confirmation boundary specified in B15 without trying to
+  classify shell commands as safe or dangerous. The platform clipboard library acquires its RGBA buffer
   before handing it to OdyTTY; dimensions, raw bytes, and PNG output are bounded
   immediately after that handoff (finding **B**). Bracketed paste depends on the
   receiving application enabling it; a shell that does not is outside OdyTTY's
@@ -674,6 +680,330 @@ from a bound that was applied to one path and missed on a sibling.
 - **Residual risk:** unbounded *time* is less well covered than unbounded
   memory. Several boundaries cap allocation without capping work.
 
+## Planned workflow boundaries
+
+The boundaries in this section are forward contracts. They describe behavior
+that is planned but not necessarily implemented at the revision carrying this
+document. Each implementation must replace its planned statements with source
+anchors, exact caps, failure behavior, diagnostics, and executed tests before it
+can be described as shipped.
+
+Three prohibitions apply to every boundary below:
+
+1. OdyTTY does not create a network listener for automation or terminal
+   control.
+2. Terminal output cannot confirm, authorize, arm, or trigger input to a child.
+3. OdyTTY does not store credentials, authentication tokens, API keys, or other
+   secrets for these features.
+
+### B15 - Risky clipboard and PRIMARY paste
+
+- **Attacker control:** A4 controls every pasted byte and may choose newlines,
+  carriage returns, tabs, escape bytes, terminal controls, empty lines, and an
+  oversized payload. A focus change can race a confirmation UI.
+- **Trust assumption:** the paste gesture selects the destination pane, not the
+  safety of the clipboard contents. A string is never classified by shell
+  meaning.
+- **Planned default:** when the child has not enabled bracketed-paste mode,
+  multiline or disallowed-control-bearing text is held before any byte reaches
+  the PTY. The UI shows a size-bounded escaped preview plus byte and line counts
+  and offers Paste, a lossless explicit one-line transform when available, or
+  Cancel. Child-enabled bracketed paste and ordinary single-line text preserve
+  current behavior.
+- **Validation and caps:** the predicate operates on the complete transaction,
+  inspecting the original source text before the shipped plain-paste encoder
+  normalizes LF, CRLF, and CR to CR. It normalizes no bytes merely for
+  classification and uses a bounded preview allocation independent of payload
+  size. Shortcut, palette/menu, PRIMARY, and future automation or drop sources
+  use one authority. PRIMARY is unsupported on macOS and Windows because those
+  platforms have no such selection surface.
+- **Failure behavior:** cancel, focus/owner change, pane exit, preview failure,
+  or stale bracketed-paste state writes nothing. A confirmed transaction never
+  gains an implicit Enter and is not split into implicit commands.
+- **Privacy:** clipboard bytes are not logged, persisted in workspaces, copied
+  into diagnostics, or included in notification text. The preview exists only
+  in transient UI state and is cleared on dismissal.
+- **Required coverage:** CR, LF, CRLF, empty lines, tabs, C0/C1/escape bytes,
+  large payloads, cancellation, focus changes, alternate screen, bracketed mode
+  transitions, PRIMARY, and platform routes.
+- **Residual risk:** after explicit confirmation, the child interprets the
+  bytes according to its own input rules. Confirmation reduces accidental
+  execution; it does not make a command safe.
+
+### B16 - OSC notifications and progress
+
+- **Attacker control:** A1 controls payload text, progress values, repetition,
+  timing, malformed separators, spoofed titles, terminal controls, and attempts
+  to keep an indicator alive forever.
+- **Trust assumption:** none. An OSC notification/progress sequence is an
+  untrusted request for bounded presentation, never a privileged application
+  instruction.
+- **Planned default:** supported OSC 9, OSC 777, and OSC 9;4 variants are
+  explicitly enumerated. Unknown variants are consumed or ignored according to
+  the parser contract. Output-derived state is owned by the emitting pane and
+  rolls up only to that pane's tab, workspace, and session entry. Desktop
+  notifications default to explicit one-shot requests or background/unfocused
+  owners under user policy.
+- **Validation and caps:** text is length-bounded plain text with control
+  characters stripped. It cannot become markup, a URL, a command, an action,
+  or persistent chrome. Progress numbers are parsed into a bounded state
+  machine, not rendered from attacker-supplied markup. Per-pane and global rate
+  limits, deduplication, expiry, and dismissal are mandatory.
+- **Failure behavior:** malformed or over-cap requests are discarded. Native
+  adapter absence, permission denial, or API failure leaves in-app state only
+  and is not reported as a native-delivery pass. Completion never steals focus.
+- **Privacy:** OS notifications use generic application-owned wording by
+  default. Raw OSC text, remote identities, credential-shaped text, and
+  unredacted working-directory paths are not copied into desktop-notification
+  chrome. Raw OSC payloads are not logged or persisted.
+- **Required coverage:** hostile controls, maximum lengths, malformed progress,
+  floods, focus/unfocus, owner exit, clear/reset, restoration, and independent
+  Linux Wayland, Linux X11, macOS, and Windows adapter seams.
+- **Residual risk:** sanitization cannot determine whether ordinary plain text
+  is socially deceptive. The defense is untrusted-source labeling, bounded
+  presentation, ownership, and policy rather than content guessing.
+
+### B17 - Local automation
+
+- **Attacker control:** A3 may attempt to connect, impersonate the user, replay
+  frames, send oversized requests, address stale pane identities, or race
+  application shutdown. A1 may print text resembling an automation request.
+- **Trust assumption:** only a verified same-user local peer is eligible to
+  request an operation. Same-user eligibility is necessary but does not turn a
+  request into terminal-output authority.
+- **Planned default:** platform-native local IPC only, disabled or read-only
+  until explicitly enabled. No TCP, UDP, HTTP, WebSocket, or other network
+  listener exists. Requests use a versioned typed schema and structural object
+  identities rather than shell command strings.
+- **Validation and caps:** endpoint ownership/ACL, peer identity, frame length,
+  field lengths, object generation, action authorization, and per-client rate
+  are checked before mutation. Text insertion and multi-pane effects require an
+  explicit authorized mode and still traverse paste or broadcast policy.
+- **Failure behavior:** unverifiable peers, stale identities, unknown actions,
+  partial frames, and over-cap requests fail closed without changing terminal
+  state. Shutdown removes or invalidates the endpoint.
+- **Privacy:** the protocol does not expose scrollback, clipboard contents,
+  environment, credentials, command history, private paths, or terminal output
+  by default. It stores no bearer secret.
+- **Required coverage:** wrong-user/ACL fixtures, stale and replayed IDs,
+  oversized/partial frames, authorization changes, startup and shutdown races,
+  and Windows-native lifecycle tests separate from Unix.
+- **Residual risk:** a fully compromised same-user process can usually control
+  the desktop session by other means. The boundary still prevents accidental
+  cross-user and output-driven control and keeps capability scope reviewable.
+
+### B18 - External file drop
+
+- **Attacker control:** A4 chooses path text, path count, separators, shell
+  metacharacters, newlines, invalid encodings, network/UNC forms, and drop
+  timing. A path may name a symlink, device, or file whose contents are hostile.
+- **Trust assumption:** a drop gesture selects path text for a pane. It does not
+  authorize opening, reading, uploading, executing, or submitting the path.
+- **Planned default:** quote each path for the positively identified shell
+  family, combine paths as inert arguments, and insert them through the shared
+  paste policy with no implicit Enter. An unknown shell or unimplemented
+  shell/platform quoting combination has no direct-insert action.
+- **Validation and caps:** bound the number and encoded length of paths before
+  building preview text. Quoters are argv/text transformations with synthetic
+  tests for Bash, Zsh, Fish, PowerShell, Windows drive paths, and UNC paths.
+- **Failure behavior:** unknown shell, invalid path encoding, over-cap input,
+  focus change, or cancellation writes nothing. Copy-to-clipboard may be
+  offered as a separate explicit action.
+- **Privacy:** dropped paths are not logged, restored, included in workspace
+  metadata, or exposed through notifications. File contents are never read by
+  the drop path.
+- **Required coverage:** spaces, quotes, newlines, leading dashes, shell
+  metacharacters, multiple paths, drive letters, UNC paths, missing files,
+  focus changes, and all four platform legs.
+- **Residual risk:** a correctly quoted path may still name a dangerous file;
+  only the user's later shell command determines what happens to it.
+
+### B19 - Broadcast input
+
+- **Attacker control:** A1 can print convincing prompts or instructions and can
+  try to trigger terminal modes. A4 can synthesize ordinary input events within
+  the limits of the trusted desktop session.
+- **Trust assumption:** only an explicit user gesture may select panes and arm
+  broadcast. Focus alone is not authorization.
+- **Planned default:** off. Armed state is conspicuous, names the exact pane
+  group, is bounded to the current application ownership graph, and has a
+  discoverable one-action dismissal. New panes never join implicitly.
+- **Validation and caps:** pane membership is resolved by stable identities at
+  every transaction. Paste traverses the risky-paste policy before fan-out.
+  Per-pane bracketed mode is honored independently; one destination failure does
+  not silently change the bytes for the others.
+- **Failure behavior:** owner/window change, pane exit, restoration, or stale
+  membership disarms or removes the affected target. Terminal output and
+  automation without the explicit capability cannot arm or confirm broadcast.
+- **Privacy:** input bytes are not logged. Broadcast membership is transient
+  unless a future explicit persistence contract says otherwise.
+- **Required coverage:** group edits, mixed bracketed modes, pane exit, window
+  moves, focus changes, paste cancellation, partial writer failure, and
+  restoration.
+- **Residual risk:** a user can intentionally broadcast destructive input. The
+  defense is explicit scope and durable visibility, not command classification.
+
+### B20 - Presentation triggers
+
+- **Attacker control:** A1 controls all matchable output and can flood, overlap,
+  or conceal trigger text with terminal controls.
+- **Trust assumption:** trigger matching is presentation-only.
+- **Planned default:** disabled until the user defines a bounded literal or
+  regular-expression rule. A match may highlight or request a bounded
+  notification. It may not send input, run a command, open a URL, upload a
+  file, mutate a profile, call automation, or arm broadcast.
+- **Validation and caps:** cap rule count, pattern length/complexity, scan
+  window, matches per update, retained state, and notification rate. Matching
+  uses logical plain text and never raw OSC metadata.
+- **Failure behavior:** invalid or over-budget rules are disabled with a
+  bounded diagnostic. Output continues through the ordinary terminal path.
+- **Privacy:** matched text is not persisted or logged unless separately and
+  explicitly exported under the logging boundary.
+- **Required coverage:** pathological patterns, output floods, overlapping
+  matches, reflow, scrollback eviction, restore, and proof that every prohibited
+  side effect is unreachable.
+- **Residual risk:** a hostile program can intentionally produce configured
+  match text and cause visual noise within rate limits.
+
+### B21 - Session logging and replay export
+
+- **Attacker control:** A1 controls terminal content, including secrets printed
+  by programs, private paths, control sequences, and high-volume output. A2 may
+  control a selected destination file.
+- **Trust assumption:** logging is an explicit user decision with a visible
+  active state. Merely opening replay does not authorize persistence.
+- **Planned default:** off and private. Export is plain text or an explicitly
+  versioned sanitized format, never a hidden background transcript.
+- **Validation and caps:** require an explicit destination, owner-private file
+  creation where the platform supports it, total and per-session byte limits,
+  rotation/stop policy, and control-sequence stripping for plain text. Existing
+  files are not silently overwritten.
+- **Failure behavior:** write error, cap exhaustion, destination replacement,
+  or loss of permission stops logging visibly. Terminal I/O continues and no
+  expected output is regenerated.
+- **Privacy:** logs may contain highly sensitive user data. They are excluded
+  from workspace/layout snapshots, diagnostics, crash reports, test corpora,
+  and notifications. OdyTTY stores no encryption key or secret for them.
+- **Required coverage:** exact cap, cap plus one, symlink/reparse-point sibling
+  paths, disk-full/write failure, rotation, control stripping, shutdown, and
+  platform permissions.
+- **Residual risk:** explicit logs can capture secrets that applications print.
+  The product cannot reliably redact arbitrary terminal content.
+
+### B22 - Serial devices
+
+- **Attacker control:** a connected device controls every incoming byte and may
+  stall reads/writes, disconnect mid-frame, change identity, or emit hostile
+  terminal sequences. A4/A2 may influence the selected device path.
+- **Trust assumption:** device selection and permission grant are explicit.
+  Device output is as untrusted as PTY output.
+- **Planned default:** no serial support ships without real Linux, macOS, and
+  Windows hardware validation. No automatic device discovery result opens a
+  session or writes bytes.
+- **Validation and caps:** a future implementation must pin supported device
+  identity rules, permissions, baud/framing options, bounded queues, timeout and
+  disconnect behavior, and platform-specific enumeration. It reuses the parser
+  bounds but not PTY lifecycle assumptions.
+- **Failure behavior:** unavailable hardware, permission denial, or unsupported
+  platform behavior is reported distinctly and does not fall back to a guessed
+  device.
+- **Privacy:** device names and serial numbers are personal identifiers and are
+  not logged or committed in fixtures. Synthetic aliases are used in tests.
+- **Required coverage:** real hardware on all claimed platforms plus synthetic
+  disconnect, stall, flood, encoding, and permission fixtures.
+- **Residual risk:** until those gates exist, serial remains deferred rather
+  than described as supported.
+
+### B23 - Restored workflow metadata
+
+- **Attacker control:** A2 controls workspace, layout, profile, future monitor,
+  and session metadata files. A1 may have supplied OSC titles, cwd values,
+  prompt marks, or notification text before the snapshot was written.
+- **Trust assumption:** restored data is descriptive structure, not an
+  instruction to replay commands or recreate output-derived authority.
+- **Planned default:** workspace/layout restore continues to create fresh
+  shells except for an authenticated supported detached-session reattach.
+  Transient notification text, automation grants, broadcast armed state,
+  trigger matches, risky-paste confirmations, and logging-active state are not
+  restored. A profile is referenced by name and resolved through current policy.
+- **Validation and caps:** existing state-file size/depth/count and ownership
+  bounds remain. Every new field is versioned, length-bounded, and has a safe
+  absent/default value. Stable object IDs are never trusted without a current
+  generation and owner check.
+- **Failure behavior:** unknown, stale, hostile, or unsupported fields are
+  ignored or degrade that pane to a fresh shell. No field causes input, URL
+  opening, file upload, notification delivery, automation, or profile mutation.
+- **Privacy:** command text, scrollback, environment, clipboard contents,
+  notification bodies, dropped paths, logs, and secrets remain excluded.
+- **Required coverage:** malformed and oversized metadata, stale IDs, missing
+  profiles, Unix reattach, Windows fresh-shell restore, partial version upgrades,
+  and proof that transient authority does not survive restart.
+- **Residual risk:** user-chosen titles, host aliases, and working directories
+  remain personal metadata. Existing owner-private storage and public-fixture
+  rules continue to apply.
+
+### B24 - Command-output export egress
+
+- **Attacker control:** A1 controls the displayed command output, including
+  escape sequences, hyperlinks, inline images, OSC metadata, private paths,
+  large Unicode text, and attempts to conceal content. A2/A3 may race or replace
+  the user-selected destination with a symlink, Windows reparse point, or
+  different file before completion.
+- **Trust assumption:** an explicit export action authorizes one verified OSC
+  133 command range, and the native dialog authorizes one destination. Neither
+  action makes terminal metadata trustworthy. Terminal output cannot choose the
+  path, filename, overwrite decision, or export format.
+- **Planned default:** export is unavailable without a current non-stale command
+  range. The internal `rfd` adapter in AD-13-11 obtains a destination through the
+  platform-native save dialog. Cancellation writes nothing. Only sanitized
+  plain text from the canonical cell-text projection crosses the egress
+  boundary.
+- **Content validation and cap:** the export includes visible logical text and
+  line breaks only. Terminal escape bytes, OSC/DCS/APC payloads, hidden prompt
+  metadata, hyperlinks' targets/IDs, image payloads/placement data, private cwd
+  metadata, and session fields are excluded. UTF-8 output is capped at
+  `MAX_COMMAND_EXPORT_BYTES` = 32 MiB before any destination is created. An
+  over-cap export is refused whole and never truncated. Grapheme clusters are
+  not split at range or size boundaries.
+- **Destination validation:** the application supplies only a neutral suggested
+  filename. The selected destination's parent and final component are opened or
+  inspected without following the final component. An existing Unix symlink or
+  Windows reparse point is refused. An existing regular file is replaced only
+  after explicit native-dialog overwrite consent and a final identity/type
+  recheck; a raced or changed destination fails closed.
+- **Private atomic write:** create a same-directory, unpredictable,
+  create-exclusive temporary regular file with mode 0600 on Linux/macOS and an
+  owner-restricting security descriptor on Windows. Write the complete bounded
+  bytes, flush and sync according to the platform contract, then atomically
+  rename/replace the validated destination. Failure or cancellation leaves no
+  partial final file and removes the temporary file best-effort. If the
+  filesystem cannot provide the required atomic replacement semantics, export
+  fails rather than falling back to truncate-in-place.
+- **Platform contract:** Linux Wayland and Linux X11 independently exercise the
+  XDG-portal dialog plus the same Unix writer boundary. macOS exercises the
+  native windowed dialog, Unix no-follow/private-mode writer, and atomic rename.
+  Windows exercises the native dialog, reparse-point refusal, owner-restricted
+  creation, replacement consent, and Windows atomic replacement behavior. No
+  platform result is inferred from another leg.
+- **Failure behavior:** stale range, over-cap output, dialog unavailability,
+  cancellation, invalid parent, symlink/reparse destination, missing overwrite
+  consent, create/write/sync/rename error, or destination race writes no partial
+  final file and surfaces a bounded in-app error. Terminal operation continues.
+- **Privacy and diagnostics:** exported text can contain secrets that were
+  visibly printed, so export is always explicit. Content, destination paths,
+  suggested names derived from terminal output, and temporary names are not
+  logged, restored, notified, or added to test corpora. No secret or credential
+  is stored to support export.
+- **Required coverage:** sanitized controls/OSC/DCS/APC, hyperlinks, images,
+  cwd metadata, exact 32 MiB/cap-plus-one behavior, combining/ZWJ boundaries,
+  cancel, new file, overwrite accept/deny, symlink/reparse refusal, destination
+  race, short write, sync/rename failure, temp cleanup, and all four platform
+  legs.
+- **Residual risk:** plain visible output may itself contain sensitive content;
+  OdyTTY cannot infer or redact arbitrary secrets without changing the requested
+  text. The explicit action, destination choice, bounded private write, and lack
+  of background export are the security boundary.
+
 ## Platform process and privilege boundaries
 
 ### Linux
@@ -773,6 +1103,16 @@ behavior, and a Linux or macOS result is never a substitute for a Windows one.
 | B11 sessions and state | stalling-writer and protocol tests | metadata and snapshot parsing |
 | B12 settings and themes | cap and parse tests | settings parsing with Windows forms |
 | B13 fonts | glyph corpus and raster smoke tests | malformed font corpus |
+| B15 risky paste | current framing, cap, and writer-order tests only | shared policy, preview, cancellation, and four-leg route fixtures |
+| B16 notifications/progress | bounded OSC parser framing only | sanitization, ownership, rate-limit, restoration, and native-adapter fixtures |
+| B17 local automation | no product surface | same-user IPC, authorization, schema, stale-ID, and lifecycle fixtures |
+| B18 file drop | no product surface | shell quoting, paste policy, platform event, and hostile-path fixtures |
+| B19 broadcast input | no product surface | explicit group ownership, mixed-mode fan-out, disarm, and failure fixtures |
+| B20 triggers | no product surface | bounded matching and proof of prohibited side-effect isolation |
+| B21 session logging | transient in-memory replay bounds only | private file creation, cap, write-failure, rotation, and sanitization fixtures |
+| B22 serial devices | no product surface | real-hardware gates plus bounded disconnect, stall, and flood fixtures |
+| B23 restored workflow metadata | current bounded workspace/session restore suites | new-field versioning, transient-authority exclusion, and platform restore fixtures |
+| B24 command-output export | current plain-text projection and path-hardening patterns only | sanitized cap, native dialog, no-follow/reparse, overwrite, private atomic writer, cleanup, and four-leg fixtures |
 
 Every planned target must retain a provenance-safe public corpus, run under
 bounded allocation and bounded time, reproduce crashes deterministically, and

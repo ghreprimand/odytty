@@ -88,7 +88,11 @@ its cross-platform or evidence gate is not met.
 
 - **v0.13.0 — Safer, command-aware work.** Multiline-paste confirmation,
   select/copy/search/export actions over OSC 133 command ranges, and bounded
-  command-completion, progress, activity, and notification presentation.
+  command-completion, progress, activity, and notification presentation. The
+  pre-implementation inventory, accepted architecture decisions, threat
+  boundaries, four-leg platform matrix, and carried-forward performance
+  baseline are frozen in
+  [`v0.13.0-foundation.md`](v0.13.0-foundation.md).
 - **v0.14.0 — Profiles and navigation.** Named launch profiles with a fully
   in-app editor, deterministic precedence, fast cached startup, and one
   searchable navigator over workspaces, tabs, panes, and detachable sessions.
@@ -434,14 +438,19 @@ Sharp, stable, comfortable text is a primary product pillar.
   platform-specific surface.
 - **Shipped — Stem-darkening default activation.** The rasterization machinery
   ships default-on at `0.7`, with `0.0` as the byte-identical opt-out.
-- **Someday — Legibility font features.** A narrow, charter-clean subset (such
-  as a slashed or dotted zero) is the near-term slice. Ligature coverage now
-  spans the ASCII contextual path, a curated non-ASCII operator/arrow
-  allowlist, Latin `liga` alongside `calt`, and explicit `ss01`/`ss02`
-  settings (see [`docs/shaping-roadmap.md`](shaping-roadmap.md)); open-ended stylistic sets and
-  arbitrary font features remain deferred.
-- **Someday - SVG-in-OT color-font expansion**, after the shipped bitmap,
-  COLR/CPAL v0, and COLR v1 Paint-graph paths, only from real evidence.
+- **Planned v0.17.0 - Legibility font features.** Add named, bounded visual
+  controls for an alternate zero form (`zero`, rendered as the selected font
+  provides it) and other explicitly selected legibility features that preserve
+  terminal-cell metrics. Ligature coverage already spans the ASCII contextual
+  path, a curated non-ASCII operator/arrow allowlist, Latin `liga` alongside
+  `calt`, and explicit `ss01`/`ss02` settings (see
+  [`docs/shaping-roadmap.md`](shaping-roadmap.md)). These controls belong in the
+  in-app settings surface; open-ended stylistic sets and arbitrary raw feature
+  tags remain deferred.
+- **Planned v0.17.0 - SVG-in-OpenType color-font expansion.** Add bounded,
+  non-networked SVG glyph rasterization after the shipped bitmap, COLR/CPAL v0,
+  and COLR v1 Paint-graph paths, with portable SVG-only fixtures, deterministic
+  fallback, and explicit document, raster, cache, and GPU resource limits.
 
 ## Track 3 — Readability And Perceptual Color
 

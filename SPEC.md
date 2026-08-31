@@ -394,6 +394,12 @@ The config format is a dependency-free `key = value` text file with `#`
 comments, mirroring every runtime knob. See [`docs/runtime-knobs.md`](docs/runtime-knobs.md) for the
 full key reference and `docs/odytty.conf.example` for an annotated example.
 
+The accepted forward precedence and ownership decisions for named profiles,
+command ranges, notifications, quick-terminal ownership, automation, file
+drop, window movement, Unicode, and Windows session hosting are recorded in
+[`docs/v0.13.0-foundation.md`](docs/v0.13.0-foundation.md). That record is a
+design contract, not a claim that the later-release features already ship.
+
 **In-app writeback.** The settings panel is a presentation-only overlay until
 the user explicitly saves. `Ctrl+S` writes only changed rows back to the
 resolved config file, preserving comments, blank lines, key order, and
@@ -1506,8 +1512,10 @@ formats and install channels are defined in the
 
 - Open-ended font-feature selection beyond the bounded supported set
 
-- Profiles and cross-session multiplexing (panes/splits within a window are now
-  supported — see above)
+- Named profiles are planned for v0.14.0 under the precedence contract in
+  `docs/v0.13.0-foundation.md`. Cross-session multiplexing remains out of scope
+  (panes/splits within a window and Unix detached-session attachment are the
+  supported boundaries described above).
 
 - Shell integration beyond OSC 7 cwd tracking and OSC 133 prompt/command marks
   plus the current command-aware native actions

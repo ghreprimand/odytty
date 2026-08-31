@@ -173,7 +173,11 @@ Linux is the primary target. macOS and Windows are supported, shipped, and
 blocking CI targets. Known gaps include Windows detached and resumable session
 hosting, profiles, full bidi and complex-script reordering, and SVG-in-OpenType
 color glyphs.
-See [current work](TODO.md) and the [full roadmap](docs/full-build-roadmap.md).
+The documentation-only [v0.13.0 foundation contract](docs/v0.13.0-foundation.md)
+inventories the existing seams and freezes the security, architecture,
+platform, and measurement boundaries for the next release without claiming its
+features are shipped. See [current work](TODO.md) and the
+[full roadmap](docs/full-build-roadmap.md).
 
 The terminal core and visual experience layer are deliberately separate.
 See the [ownership boundary](SPEC.md#ownership-boundary),
