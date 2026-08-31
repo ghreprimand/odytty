@@ -153,16 +153,17 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.12.2 is a narrow terminal-
-compatibility patch. It implements the ECMA-48 cursor-next-line and cursor-
-preceding-line controls used by pacman's parallel-download display, so progress
-rows redraw in place instead of overlapping or appearing out of order. The
-behavior is shared by Linux, macOS, and Windows and does not depend on the text
-locale. Version 0.12.1 remains the preceding security patch that isolated SSH
-ControlMaster reuse by OpenSSH's complete connection identity.
+OdyTTY is a broad pre-1.0 terminal. Version 0.13.0 adds safer paste,
+command-aware output actions, and bounded completion and progress awareness.
+Risky non-bracketed text waits behind an explicit bounded preview, while
+ordinary single-line and child-enabled bracketed paste keep their existing byte
+paths. Verified OSC 133 ranges support select, copy, scoped search, explicit
+failure navigation, and bounded plain-text export without replacing the
+terminal grid with a document model. Pane-owned notification, progress, and
+monitor state remains bounded, dismissible, and separate from BEL behavior.
 
-The v0.12.2 patch does not alter rendering, terminal storage, GPU allocation,
-or presentation timing, so it carries forward rather than reruns the v0.12.0
+The v0.13.0 work does not optimize rendering, terminal storage, GPU allocation,
+or presentation timing, so it carries forward rather than relabels the v0.12.0
 performance evidence.
 
 That preregistered v0.12.0 W6 run records 89.0 MB current and 130.7 MB peak
@@ -173,27 +174,19 @@ Separately classified software-endpoint results, memory composition, and
 scrollback scaling are published alongside W6 without pooling their evidence
 classes; W7's four-hour memory-growth workload remains explicitly deferred.
 
-The v0.12.2 release passed blocking Linux, macOS, and Windows CI, the local
-release suite, the locked dependency audit, signed-manifest checks, and GitHub
-provenance verification. Its seven versioned artifacts match their always-latest
-aliases in the published checksum manifest, and Homebrew, Scoop, and AUR updates
-completed successfully. Bounded checks confirmed that each package-manager
-channel offered v0.12.2; the original live pacman workload remains unrerun on
-the published binary. The full benchmark results and their limitations are in
-[docs/benchmark-results.md](docs/benchmark-results.md). These checks do not
-cover every GPU, compositor, IME, font, or hardware configuration.
+The v0.13.0 release evidence and its limitations are recorded in the
+[release guide](docs/release.md). The full benchmark results remain in
+[docs/benchmark-results.md](docs/benchmark-results.md); carried-forward results
+do not cover every GPU, compositor, IME, font, or hardware configuration.
 
 Linux is the primary target. macOS and Windows are supported, shipped, and
 blocking CI targets. Known gaps include Windows detached and resumable session
 hosting, profiles, full bidi and complex-script reordering, and SVG-in-OpenType
 color glyphs.
-The [v0.13.0 foundation contract](docs/v0.13.0-foundation.md) inventories the
-existing seams and freezes the security, architecture, platform, and
-measurement boundaries for the next release. Paste protection and semantic
-command-output actions are implemented on the development branch; v0.13.0 is
-not released until its remaining awareness work and release gates pass. See
-[current work](TODO.md) and the
-[full roadmap](docs/full-build-roadmap.md).
+The [v0.13.0 foundation contract](docs/v0.13.0-foundation.md) records the
+security, architecture, platform, and measurement boundaries used by this
+release. See [current work](TODO.md) and the
+[full roadmap](docs/full-build-roadmap.md) for later milestones.
 
 The terminal core and visual experience layer are deliberately separate.
 See the [ownership boundary](SPEC.md#ownership-boundary),

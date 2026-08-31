@@ -898,6 +898,20 @@ and GitHub provenance verification. Homebrew, Scoop, and AUR publication also
 completed. These are automated release-path results; the original live pacman
 workload has not yet been rerun against the published binary.
 
+Version 0.13.0 adds safer paste, semantic command-output actions, and bounded
+completion and progress awareness under the contracts in
+[`docs/v0.13.0-foundation.md`](docs/v0.13.0-foundation.md). One shared policy
+holds risky non-bracketed text behind a bounded escaped preview without
+changing ordinary single-line or child-enabled bracketed paste. Durable OSC 133
+ranges remain metadata over the existing grid and fail closed when boundaries
+are absent or stale. Their actions select, copy, search, navigate explicit
+failures, and export bounded visible plain text. OSC notification and progress
+state is transient, rate-limited, pane-owned, and presented with OdyTTY-authored
+chrome; it cannot type input, steal focus, or persist terminal-authored text.
+Native notification delivery is attempted on demand and degrades to in-app
+state when unavailable, so it adds no startup discovery to the default local
+terminal path.
+
 The project remains pre-1.0; any later milestone requires a separately recorded
 scope rather than silently inheriting deferred work from a prior release.
 

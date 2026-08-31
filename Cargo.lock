@@ -1344,7 +1344,7 @@ dependencies = [
 
 [[package]]
 name = "odytty"
-version = "0.12.2"
+version = "0.13.0"
 dependencies = [
  "ab_glyph",
  "anyhow",

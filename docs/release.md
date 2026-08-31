@@ -110,13 +110,13 @@ The upstream release does not currently publish Nix, Flatpak, or Snap packages.
 A package must not silently change the user's default terminal; it should
 register OdyTTY as available and leave selection to the user.
 
-For v0.12.0, blocking Linux, macOS, and Windows CI remains a release gate, but
+For v0.13.0, blocking Linux, macOS, and Windows CI remains a release gate, but
 maintainer-controlled Windows and macOS hardware is not available for a
 pre-publish install and runtime smoke pass. The first on-device checks of the
 published Windows portable/Scoop paths and macOS archive/Homebrew paths are
 therefore post-publish verification steps. Record their real outcome. A defect
 found there is fixed in a patch release; it is not rewritten as a successful
-v0.12.0 check. Historical device passes remain evidence for earlier artifacts,
+v0.13.0 check. Historical device passes remain evidence for earlier artifacts,
 not proof about the new release.
 
 ## Release Artifacts
@@ -345,6 +345,15 @@ verification, and Homebrew, Scoop, and AUR publication. Bounded post-publish
 checks confirmed that all three package-manager channels offered v0.12.2. A
 live rerun of the reported pacman workload is also **not run** until independent
 confirmation is received.
+
+Version 0.13.0 also does not repeat the benchmark campaign or live GPU memory
+capture. It adds paste policy, command-range metadata and actions, and bounded
+notification/progress state without changing terminal storage, GPU allocation,
+or presentation timing. The frozen v0.12.0 performance results remain the
+applicable evidence; a fresh performance campaign is **not run** and is not
+claimed for v0.13.0. Native Linux, macOS, and Windows delivery remains subject
+to the independent platform evidence recorded for this release rather than
+being inferred from parser or command-specification tests.
 
 ### 3. Push The Release Tag
 

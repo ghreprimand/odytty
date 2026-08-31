@@ -44,6 +44,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.13.0" date="2026-08-31">
+      <description>
+        <p>This release adds one cross-platform policy for risky non-bracketed paste, with a bounded escaped preview and explicit paste, one-line, or cancel choices, while preserving ordinary single-line and child-enabled bracketed paste.</p>
+        <p>Verified OSC 133 command ranges now support select, copy, scoped search, failed-command navigation, and bounded plain-text export. Bounded OSC notification and progress handling adds pane-owned completion, activity, silence, bell, process-finish, and command-failure monitors without changing terminal-grid semantics, exposing terminal-authored text in trusted chrome, or delaying the first local terminal.</p>
+      </description>
+    </release>
+    <release version="0.12.2" date="2026-08-30">
+      <description>
+        <p>This compatibility patch adds the ECMA-48 cursor-next-line and cursor-preceding-line controls used by pacman's parallel-download display, preserving the existing movement bounds and pending-wrap behavior on Linux, macOS, and Windows.</p>
+      </description>
+    </release>
     <release version="0.12.1" date="2026-08-29">
       <description>
         <p>This security patch isolates reused SSH connections with OpenSSH's effective connection hash, including remote host, port, and user, so profiles for distinct endpoints cannot alias the same ControlMaster socket. Interactive sessions, remote image uploads, and uploaded-image cleanup all share the corrected path template.</p>

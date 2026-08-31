@@ -24,7 +24,10 @@ pacman's parallel-download display, with explicit count, margin, pending-wrap,
 and multiline redraw coverage in the platform-neutral core. Its same-commit
 three-platform CI, signed release, provenance, and Homebrew, Scoop, and AUR
 publication gates are complete; a live rerun of the original pacman workload
-is not claimed. A checked item is delivered at the current head (or at the
+is not claimed. Version 0.13.0 implements the safer-paste, verified
+command-range action, and bounded completion/progress scope recorded below;
+its release checkbox remains the authoritative closure state. A checked item
+is delivered at the current head (or at the
 historical
 milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
