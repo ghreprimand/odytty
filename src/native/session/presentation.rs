@@ -705,9 +705,8 @@ impl WorkspaceSet {
     }
 
     /// Whether any tab of the workspace at `ws_idx` carries an unseen-activity
-    /// latch (the DERIVED workspace-level rollup signal; the rail rollup UI will
-    /// read this). No reader outside tests yet — the rollup UI is deferred.
-    #[allow(dead_code)]
+    /// latch or pane-owned notification state. The workspace rail reads this
+    /// derived rollup; no parallel state is stored on the rail itself.
     pub(in crate::native) fn workspace_has_activity(&self, ws_idx: usize) -> bool {
         self.workspaces.get(ws_idx).is_some_and(|workspace| {
             workspace

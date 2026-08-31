@@ -516,10 +516,12 @@ gap to close and unlocks the most downstream value. Semantic prompt marking
   select/copy, range-scoped search, explicit-status failed-command navigation,
   and bounded plain-text export without replacing the terminal grid with a
   block document model. Missing or stale boundaries disable the actions.
-- **Planned v0.13.0 — Completion and progress awareness.** Keep the existing
-  BEL attention modes, while adding explicit command-finish, progress, activity,
-  silence, and failure indicators. Users choose in-app badges, an OS attention
-  request, desktop notification, or off; completion never steals keyboard focus.
+- **Implemented for v0.13.0 - Completion and progress awareness.** Existing BEL
+  attention modes remain separate while bounded OSC notification/progress state,
+  explicit command-finish, activity, silence, bell, process-finish, and failure
+  monitors feed pane-owned in-app badges. Users choose in-app presentation, an
+  OS attention request, desktop notification, or off; completion never steals
+  keyboard focus.
 - **Shipped — Click to position the cursor** at a prompt, using the prompt-marking
   click events. The click slice only — not a takeover of shell input editing.
 - **Shipped — Remote shell integration.** Connecting to a saved SSH host carries
