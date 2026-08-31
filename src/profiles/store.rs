@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::settings::config_base_dir_from_env;
 use crate::settings::fs_read;
@@ -13,6 +14,10 @@ use super::limits::*;
 use super::schema::{
     LaunchProfile, ProfileError, profile_file_name, profile_name_from_path, validate_profile_name,
 };
+
+/// Test-only counter of [`load_catalog_from_dir`] calls. Default launch must
+/// leave this at zero; the Profile Manager increments it only when opened.
+static CATALOG_LOAD_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// In-memory catalog of locally stored named profiles.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -89,6 +94,7 @@ pub fn profiles_dir_path() -> Option<PathBuf> {
 /// filesystem. Missing directories yield an empty catalog; malformed files warn
 /// and are skipped so one bad profile cannot block startup.
 pub fn load_catalog_from_dir(dir: &Path) -> ProfileCatalog {
+    CATALOG_LOAD_COUNT.fetch_add(1, Ordering::Relaxed);
     let mut catalog = ProfileCatalog::default();
     let mut suppressed = 0usize;
     let mut warn = |message: String| {
@@ -167,6 +173,28 @@ pub fn write_profile_file(path: &Path, profile: &LaunchProfile) -> Result<(), Pr
         crate::state_dir::WriteMode::Sensitive,
     )?;
     Ok(())
+}
+
+/// Export a validated profile to a user-chosen destination using the shared
+/// export egress (`WriteMode::Export`). Still routes through
+/// [`LaunchProfile::validated_serialization`] so secrets and over-limit fields
+/// cannot leave the manager.
+pub fn export_profile_file(path: &Path, profile: &LaunchProfile) -> Result<(), ProfileStoreError> {
+    let bytes = profile.validated_serialization()?;
+    crate::state_dir::write_atomic(path, bytes.as_bytes(), crate::state_dir::WriteMode::Export)?;
+    Ok(())
+}
+
+/// Number of times [`load_catalog_from_dir`] has run in this process. Used by
+/// startup-isolation tests to prove the default launch path never enumerates
+/// profiles.
+pub fn catalog_load_count_for_test() -> usize {
+    CATALOG_LOAD_COUNT.load(Ordering::Relaxed)
+}
+
+/// Reset [`catalog_load_count_for_test`] between isolation cases.
+pub fn reset_catalog_load_count_for_test() {
+    CATALOG_LOAD_COUNT.store(0, Ordering::Relaxed);
 }
 
 pub fn delete_profile_file(path: &Path) -> io::Result<()> {

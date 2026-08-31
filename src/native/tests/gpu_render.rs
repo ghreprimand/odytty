@@ -1402,6 +1402,7 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             channel: "L (lightness)",
             selected_color: (0, 0, 0),
         },
+        profile_manager: crate::native::profile_manager::ProfileManagerSignature::default(),
         font_picker: FontPickerSignature {
             selected: 0,
             scroll: 0,

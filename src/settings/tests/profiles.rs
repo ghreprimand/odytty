@@ -8,11 +8,12 @@ use std::time::{Duration, Instant};
 use crate::profiles::{
     LaunchCliOverrides, LaunchProfile, LiveLaunchOverrides, MAX_PROFILE_ENTRIES,
     MAX_PROFILE_ENV_ENTRIES, MAX_PROFILE_FILE_BYTES, PrecedenceLayer, ProfileCatalog, ProfileError,
-    ProfilePlatform, ProfileStoreError, RestoredLaunchOverrides, load_catalog_from_dir,
-    precedence::resolve_effective_launch, precedence_chain, profile_path_in_dir,
-    quarantine_malformed_file, read_profile_file, write_profile_file,
+    ProfilePlatform, ProfileStoreError, RestoredLaunchOverrides, catalog_load_count_for_test,
+    load_catalog_from_dir, precedence::resolve_effective_launch, precedence_chain,
+    profile_path_in_dir, quarantine_malformed_file, read_profile_file,
+    reset_catalog_load_count_for_test, validate_profile_name, write_profile_file,
 };
-use crate::settings::{ConfigValues, DEFAULT_THEME, FONT_FAMILY_ENV, THEME_ENV};
+use crate::settings::{ConfigValues, DEFAULT_THEME, FONT_FAMILY_ENV, Settings, THEME_ENV};
 use crate::theme::Theme;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -109,6 +110,29 @@ fn bare_launch_without_profile_selection_keeps_default_theme() {
     );
     assert_eq!(effective.settings.theme, DEFAULT_THEME);
     assert_eq!(effective.profile_name, None);
+}
+
+#[test]
+fn default_settings_load_does_not_enumerate_profiles() {
+    // Observable startup seam: ordinary Settings::from_env (default first-
+    // terminal path) must not call load_catalog_from_dir. The Profile Manager
+    // is the only intentional catalog enumeration entry.
+    reset_catalog_load_count_for_test();
+    let before = catalog_load_count_for_test();
+    let _ = Settings::from_env();
+    let _ = resolve_effective_launch(
+        None,
+        &HashMap::new(),
+        &ProfileCatalog::default(),
+        &LaunchCliOverrides::default(),
+        &RestoredLaunchOverrides::default(),
+        &LiveLaunchOverrides::default(),
+    );
+    assert_eq!(
+        catalog_load_count_for_test(),
+        before,
+        "default launch must not enumerate named profiles"
+    );
 }
 
 #[test]
@@ -379,5 +403,92 @@ fn a_file_name_mismatching_its_document_name_is_rejected() {
         read_profile_file(&path, Some("someone-else")),
         Err(ProfileStoreError::Validation(ProfileError::InvalidName(_)))
     ));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn write_profile_file_replaces_a_same_named_file_without_a_store_level_guard() {
+    // Store contract tripwire: collision policy belongs to callers. The
+    // manager and import flow reject same-name collisions, while this atomic
+    // persistence primitive intentionally replaces its exact destination.
+    // Keeping that distinction explicit prevents a future caller from assuming
+    // the store supplies user-facing collision confirmation.
+    let dir = temp_profiles_dir("overwrite-guard");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let path = profile_path_in_dir(&dir, "dev").expect("path");
+
+    let mut first = LaunchProfile::new("dev").expect("profile");
+    first.launch.shell = Some("/bin/original".to_owned());
+    write_profile_file(&path, &first).expect("write original");
+
+    let mut replacement = LaunchProfile::new("dev").expect("profile");
+    replacement.launch.shell = Some("/bin/imported".to_owned());
+    // No guard: the second write succeeds and replaces the first.
+    write_profile_file(&path, &replacement).expect("write replacement");
+
+    let reloaded = read_profile_file(&path, Some("dev")).expect("reload");
+    assert_eq!(
+        reloaded.launch.shell.as_deref(),
+        Some("/bin/imported"),
+        "the store write replaces a same-named profile with no collision guard"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn path_separators_and_traversal_in_a_profile_name_are_rejected() {
+    // Path-traversal defense: a profile name is restricted to ASCII
+    // [A-Za-z0-9._-], so no name can escape the profiles directory or address
+    // an arbitrary file, on either Unix or Windows separator conventions. This
+    // guards profile_path_in_dir (which joins dir + name + suffix) against a
+    // name sourced from an imported file or a future host-directory switch.
+    for bad in [
+        "../evil",
+        "..\\evil",
+        "/etc/passwd",
+        "C:\\Windows\\system32",
+        "a/b",
+        "a\\b",
+        "with space",
+        "tab\tname",
+        "null\0name",
+    ] {
+        assert!(
+            validate_profile_name(bad).is_err(),
+            "name {bad:?} must be rejected before it can address a path"
+        );
+        // The path builder rejects the same names rather than composing a path.
+        let dir = std::path::Path::new("/tmp/odytty-nonexistent");
+        assert!(
+            profile_path_in_dir(dir, bad).is_err(),
+            "profile_path_in_dir must refuse {bad:?} rather than join it"
+        );
+    }
+    // Sanity: an ordinary name is accepted and stays inside the directory.
+    let ok = profile_path_in_dir(std::path::Path::new("/tmp/odytty-x"), "dev").expect("ok name");
+    assert!(ok.ends_with("dev.profile.json"));
+}
+
+#[test]
+fn a_malformed_import_file_is_rejected_and_never_reaches_the_catalog() {
+    // Import egress: the App import path is read_profile_file -> (on Ok)
+    // save_overlay_profile. A malformed source file must fail at the read, so
+    // no write is ever attempted and the catalog is unaffected.
+    let dir = temp_profiles_dir("malformed-import");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let src = dir.join("import-source.json");
+    std::fs::write(&src, b"{ this is not valid json ]").expect("write source");
+
+    let result = read_profile_file(&src, None);
+    assert!(
+        matches!(result, Err(ProfileStoreError::Validation(_))),
+        "a malformed import file must be rejected at read, before any write"
+    );
+    // Nothing was persisted into the profiles directory beyond the source file.
+    let catalog = load_catalog_from_dir(&dir);
+    assert!(
+        catalog.profiles.is_empty(),
+        "a rejected import must not create any profile entry"
+    );
     let _ = std::fs::remove_dir_all(dir);
 }

@@ -148,6 +148,151 @@ impl App {
         }
     }
 
+    pub(super) fn save_overlay_profile(
+        &mut self,
+        profile: crate::profiles::LaunchProfile,
+        replace: Option<String>,
+    ) {
+        let Some(dir) = crate::profiles::profiles_dir_path() else {
+            self.overlay
+                .save_failed("could not resolve profiles directory".to_owned());
+            return;
+        };
+        let path = match crate::profiles::profile_path_in_dir(&dir, &profile.name) {
+            Ok(path) => path,
+            Err(error) => {
+                self.overlay.save_failed(error.to_string());
+                return;
+            }
+        };
+        if let Err(error) = crate::profiles::write_profile_file(&path, &profile) {
+            self.overlay.save_failed(error.to_string());
+            return;
+        }
+        if let Some(old_name) = replace.as_deref()
+            && old_name != profile.name
+            && let Ok(old_path) = crate::profiles::profile_path_in_dir(&dir, old_name)
+        {
+            let _ = crate::profiles::delete_profile_file(&old_path);
+        }
+        let catalog = crate::profiles::load_catalog_from_dir(&dir);
+        self.overlay.open_profile_manager(catalog);
+        self.overlay
+            .set_profile_manager_message(format!("Saved profile {}", profile.name));
+        self.request_selection_redraw();
+    }
+
+    pub(super) fn delete_overlay_profile(&mut self, name: &str) {
+        let Some(dir) = crate::profiles::profiles_dir_path() else {
+            self.overlay
+                .save_failed("could not resolve profiles directory".to_owned());
+            return;
+        };
+        let path = match crate::profiles::profile_path_in_dir(&dir, name) {
+            Ok(path) => path,
+            Err(error) => {
+                self.overlay.save_failed(error.to_string());
+                return;
+            }
+        };
+        if let Err(error) = crate::profiles::delete_profile_file(&path) {
+            self.overlay.save_failed(error.to_string());
+            return;
+        }
+        let catalog = crate::profiles::load_catalog_from_dir(&dir);
+        self.overlay.open_profile_manager(catalog);
+        self.overlay
+            .set_profile_manager_message(format!("Deleted profile {name}"));
+        self.request_selection_redraw();
+    }
+
+    pub(super) fn import_overlay_profile(&mut self) {
+        let selection = std::panic::catch_unwind(|| {
+            pollster::block_on(crate::native::save_dialog::choose_open_path(
+                "Named profiles",
+                &["profile.json", "json"],
+            ))
+        })
+        .unwrap_or(crate::native::save_dialog::SaveDialogSelection::Unavailable);
+        match selection {
+            crate::native::save_dialog::SaveDialogSelection::Selected(path) => {
+                match crate::profiles::read_profile_file(&path, None) {
+                    Ok(profile) => {
+                        // Refuse silent overwrite of an existing catalog entry.
+                        // Create/rename/duplicate already guard collisions in
+                        // ProfileManager::try_save; import bypasses that path.
+                        if let Some(dir) = crate::profiles::profiles_dir_path()
+                            && let Ok(dest) =
+                                crate::profiles::profile_path_in_dir(&dir, &profile.name)
+                            && dest.is_file()
+                        {
+                            self.overlay.save_failed(format!(
+                                "profile {:?} already exists - rename before importing",
+                                profile.name
+                            ));
+                            return;
+                        }
+                        self.save_overlay_profile(profile, None);
+                    }
+                    Err(error) => self.overlay.save_failed(error.to_string()),
+                }
+            }
+            crate::native::save_dialog::SaveDialogSelection::Cancelled => {}
+            crate::native::save_dialog::SaveDialogSelection::Unavailable => {
+                self.overlay
+                    .save_failed("Native profile import is unavailable.".to_owned());
+            }
+        }
+    }
+
+    pub(super) fn export_overlay_profile(&mut self, name: &str) {
+        let Some(dir) = crate::profiles::profiles_dir_path() else {
+            self.overlay
+                .save_failed("could not resolve profiles directory".to_owned());
+            return;
+        };
+        let path = match crate::profiles::profile_path_in_dir(&dir, name) {
+            Ok(path) => path,
+            Err(error) => {
+                self.overlay.save_failed(error.to_string());
+                return;
+            }
+        };
+        let profile = match crate::profiles::read_profile_file(&path, Some(name)) {
+            Ok(profile) => profile,
+            Err(error) => {
+                self.overlay.save_failed(error.to_string());
+                return;
+            }
+        };
+        let suggested = crate::profiles::profile_file_name(name);
+        let selection = std::panic::catch_unwind(|| {
+            pollster::block_on(crate::native::save_dialog::choose_save_path(
+                &suggested,
+                "Named profiles",
+                &["profile.json", "json"],
+            ))
+        })
+        .unwrap_or(crate::native::save_dialog::SaveDialogSelection::Unavailable);
+        match selection {
+            crate::native::save_dialog::SaveDialogSelection::Selected(dest) => {
+                match crate::profiles::export_profile_file(&dest, &profile) {
+                    Ok(()) => {
+                        self.overlay
+                            .set_profile_manager_message(format!("Exported profile {name}"));
+                        self.request_selection_redraw();
+                    }
+                    Err(error) => self.overlay.save_failed(error.to_string()),
+                }
+            }
+            crate::native::save_dialog::SaveDialogSelection::Cancelled => {}
+            crate::native::save_dialog::SaveDialogSelection::Unavailable => {
+                self.overlay
+                    .save_failed("Native profile export is unavailable.".to_owned());
+            }
+        }
+    }
+
     pub(super) fn save_overlay_theme(
         &mut self,
         request: crate::native::theme_builder::ThemeBuilderSaveRequest,

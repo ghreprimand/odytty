@@ -145,7 +145,7 @@ impl SettingsPanel {
         for entry in &mut self.entries {
             // The synthetic action row carries no live value; skip it so it never
             // forces a spurious full rebuild (its value is static by design).
-            if entry.key == THEME_BUILDER_ACTION_KEY {
+            if entry.key == THEME_BUILDER_ACTION_KEY || entry.key == PROFILE_MANAGER_ACTION_KEY {
                 continue;
             }
             match settings.display_value_for_key(entry.key) {

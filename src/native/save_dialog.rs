@@ -15,14 +15,25 @@ pub(super) enum SaveDialogSelection {
 }
 
 pub(super) async fn choose_save_path(
-    suggested_filename: &'static str,
-    filter_label: &'static str,
-    extensions: &'static [&'static str],
+    suggested_filename: &str,
+    filter_label: &str,
+    extensions: &[&str],
 ) -> SaveDialogSelection {
     let dialog = rfd::AsyncFileDialog::new()
         .set_file_name(suggested_filename)
         .add_filter(filter_label, extensions);
     match dialog.save_file().await {
+        Some(handle) => SaveDialogSelection::Selected(handle.path().to_path_buf()),
+        None => SaveDialogSelection::Cancelled,
+    }
+}
+
+pub(super) async fn choose_open_path(
+    filter_label: &str,
+    extensions: &[&str],
+) -> SaveDialogSelection {
+    let dialog = rfd::AsyncFileDialog::new().add_filter(filter_label, extensions);
+    match dialog.pick_file().await {
         Some(handle) => SaveDialogSelection::Selected(handle.path().to_path_buf()),
         None => SaveDialogSelection::Cancelled,
     }

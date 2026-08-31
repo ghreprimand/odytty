@@ -15,6 +15,7 @@ use crate::native::key_remap_ui::KeyRemapSignature;
 use crate::native::onboarding::OnboardingSignature;
 use crate::native::open_with_overlay::OpenWithOverlaySignature;
 use crate::native::palette_overlay::PaletteOverlaySignature;
+use crate::native::profile_manager::ProfileManagerSignature;
 use crate::native::replay_overlay::ReplayOverlaySignature;
 use crate::native::session::SessionToken;
 use crate::native::session_attach_overlay::SessionAttachOverlaySignature;
@@ -59,6 +60,8 @@ pub(in crate::native) enum OverlayOutcome {
     CloseOnboarding,
     OpenThemePicker,
     OpenThemeBuilder,
+    /// Open the named-profile manager from Settings (v0.14.0 A2).
+    OpenProfileManager,
     /// The theme editor asked to (re-)capture the focused pane's live colors
     /// into its draft (THEME-CAPTURE). The App resolves the pane's effective
     /// dynamic-color state and feeds the resulting draft back into the builder;
@@ -75,6 +78,18 @@ pub(in crate::native) enum OverlayOutcome {
     ApplySettings(Box<Settings>),
     SaveSettings(Vec<crate::settings::SettingEdit>),
     SaveTheme(ThemeBuilderSaveRequest),
+    /// Persist a named profile from the profile manager (create/edit/duplicate/
+    /// rename). `replace` deletes the prior profile file after a successful write.
+    SaveProfile {
+        profile: Box<crate::profiles::LaunchProfile>,
+        replace: Option<String>,
+    },
+    /// Delete a named profile after confirmation.
+    DeleteProfile(String),
+    /// Open a file-picker to import a `.profile.json` document.
+    ImportProfile,
+    /// Open a save dialog to export the named profile.
+    ExportProfile(String),
     /// Run the right-click menu's Copy / Paste / Select All action (IN2). The
     /// overlay has already closed itself by the time these are emitted; the App
     /// dispatches them to the existing copy/paste shortcuts and `handle_select_all`.
@@ -394,6 +409,10 @@ pub(in crate::native) enum OverlayMode {
     Settings,
     ThemePicker,
     ThemeBuilder,
+    /// Named-profile manager (v0.14.0 A2): list, create, duplicate, rename,
+    /// edit, validate, import, export, and delete local profiles. Opened from
+    /// Settings; catalog load is on-demand and never runs on default startup.
+    ProfileManager,
     /// Font-family picker (FONT-PICKER). Lists monospace families from the
     /// host's font search dirs; type-to-filter + Enter saves `font_family`.
     FontPicker,
@@ -585,6 +604,7 @@ pub(in crate::native) struct OverlayRenderSignature {
     pub(in crate::native) panel: SettingsPanelSignature,
     pub(in crate::native) theme_picker: ThemePickerSignature,
     pub(in crate::native) theme_builder: ThemeBuilderSignature,
+    pub(in crate::native) profile_manager: ProfileManagerSignature,
     pub(in crate::native) font_picker: FontPickerSignature,
     pub(in crate::native) key_remap: KeyRemapSignature,
     pub(in crate::native) onboarding: OnboardingSignature,

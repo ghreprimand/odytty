@@ -83,6 +83,7 @@ mod palette_overlay;
 mod panic_log;
 mod paste_policy;
 mod persistence;
+mod profile_manager;
 mod pty;
 mod pty_writer;
 mod render_helpers;

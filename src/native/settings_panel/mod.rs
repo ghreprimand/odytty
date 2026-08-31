@@ -35,6 +35,7 @@ const ABOUT_COPY_ROW: usize = ABOUT_LINKS.len();
 /// Activate emits [`SettingsPanelOutcome::OpenThemeBuilder`]. The sentinel key
 /// must not collide with any real setting key.
 const THEME_BUILDER_ACTION_KEY: &str = "__action_open_theme_builder";
+const PROFILE_MANAGER_ACTION_KEY: &str = "__action_open_profile_manager";
 
 /// Build the synthetic "Open Theme Builder" action entry. Rendered as an action
 /// row (a `→` affordance in the value column) rather than an editable setting;
@@ -48,6 +49,22 @@ fn theme_builder_action_entry() -> SettingInfo {
         name: "Open Theme Builder",
         value: "\u{2192}".to_owned(),
         description: "Clone the active theme and edit its colors, then save it as a new theme.",
+        kind: SettingKind::String,
+        range: None,
+        numeric: None,
+        options: &[],
+        reloadable: true,
+    }
+}
+
+fn profile_manager_action_entry() -> SettingInfo {
+    SettingInfo {
+        group: "Profiles",
+        key: PROFILE_MANAGER_ACTION_KEY,
+        env: "",
+        name: "Open Profile Manager",
+        value: "\u{2192}".to_owned(),
+        description: "Create, duplicate, rename, edit, import, export, or delete named launch profiles.",
         kind: SettingKind::String,
         range: None,
         numeric: None,
@@ -162,6 +179,9 @@ pub(super) enum SettingsPanelOutcome {
     Save(Vec<SettingEdit>),
     OpenThemePicker,
     OpenThemeBuilder,
+    /// Open the named-profile manager (v0.14.0 A2). Emitted from the Profiles
+    /// section's action row.
+    OpenProfileManager,
     OpenKeyBindings,
     /// Open the font-family picker (FONT-PICKER). Emitted from the Fonts
     /// section's `font_family` row. The picker overlay

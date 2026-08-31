@@ -171,6 +171,7 @@ pub(in crate::native) fn overlay_rect(
         OverlayMode::Settings => overlay.panel.desired_width(columns),
         OverlayMode::ThemePicker => overlay.theme_picker.desired_width(columns),
         OverlayMode::ThemeBuilder => overlay.theme_builder.desired_width(columns),
+        OverlayMode::ProfileManager => overlay.profile_manager.desired_width(columns),
         OverlayMode::FontPicker => overlay.font_picker.desired_width(columns),
         OverlayMode::KeyBindings => overlay.key_remap.desired_width(columns),
         OverlayMode::Onboarding => overlay.onboarding.desired_width(columns),

@@ -690,10 +690,10 @@ not a stretch goal.
   - [x] `--show-config`: print the current stable effective-config dump. The
         full settings authority remains [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 - [ ] Named launch profiles (v0.14.0): schema, precedence resolver, local
-      storage, migration helpers, and startup-safe catalog loading are in-tree
-      (`docs/v0.14.0-profiles-foundation.md`). Settings UI, palette/CLI launch
-      routing, Windows/macOS/Linux shell discovery, and host-aware switching
-      remain open.
+      storage, migration helpers, startup-safe catalog loading, and settings
+      Profile Manager CRUD are in-tree
+      (`docs/v0.14.0-profiles-foundation.md`). Palette/CLI launch routing,
+      Windows/macOS/Linux shell discovery, and host-aware switching remain open.
 
 ## Visual Capability Parity (Stage 6 parity half)
 

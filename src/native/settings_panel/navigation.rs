@@ -23,6 +23,9 @@ impl SettingsPanel {
         if section.name == "Themes" {
             entries.push(theme_builder_action_entry());
         }
+        if section.name == "Profiles" {
+            entries.push(profile_manager_action_entry());
+        }
         entries
     }
 

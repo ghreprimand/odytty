@@ -18,6 +18,10 @@ impl SettingsPanel {
             self.message = Some("Opening theme builder.".to_owned());
             return SettingsPanelOutcome::OpenThemeBuilder;
         }
+        if entry.key == PROFILE_MANAGER_ACTION_KEY {
+            self.message = Some("Opening profile manager.".to_owned());
+            return SettingsPanelOutcome::OpenProfileManager;
+        }
         // Key-specific overrides (run before kind dispatch):
         // - theme: Enter opens the theme picker (not RowEdit) in the two-level model.
         // - font_family: Enter opens the font picker (key is String kind, not Enum).

@@ -212,6 +212,7 @@ mod overlay_pointer;
 mod overlay_registry;
 mod overlay_small_window;
 mod poison_recovery;
+mod profile_manager_ui;
 mod replay_isolation;
 mod restore_theme;
 mod scrollbar;

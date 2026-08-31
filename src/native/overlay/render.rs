@@ -39,6 +39,7 @@ impl OverlayUi {
             OverlayMode::Settings => self.panel.panel_title(),
             OverlayMode::ThemePicker => "\u{2190} OdyTTY Themes  (Esc = back)".to_owned(),
             OverlayMode::ThemeBuilder => "\u{2190} OdyTTY Theme Builder  (Esc = back)".to_owned(),
+            OverlayMode::ProfileManager => self.profile_manager.title(),
             OverlayMode::FontPicker => "\u{2190} OdyTTY Font Picker  (Esc = back)".to_owned(),
             OverlayMode::KeyBindings => "\u{2190} OdyTTY Key Bindings  (Esc = back)".to_owned(),
             OverlayMode::Onboarding => "Welcome to OdyTTY".to_owned(),
@@ -87,6 +88,7 @@ impl OverlayUi {
             OverlayMode::WorkspacePicker => self.workspace_picker.scroll_indicator(body_height),
             OverlayMode::CommandPalette => self.command_palette.scroll_indicator(body_height),
             OverlayMode::ThemeBuilder => self.theme_builder.scroll_indicator(body_height),
+            OverlayMode::ProfileManager => self.profile_manager.scroll_indicator(body_height),
             // Replay (read-only frame preview whose scroll axis is time, not a
             // list) keeps a different body model; it draws no list affordance
             // here. Its scrubbing and the static Onboarding/close cards have
@@ -115,6 +117,7 @@ impl OverlayUi {
             panel: self.panel.render_signature(),
             theme_picker: self.theme_picker.render_signature(),
             theme_builder: self.theme_builder.render_signature(),
+            profile_manager: self.profile_manager.render_signature(),
             font_picker: self.font_picker.render_signature(),
             key_remap: self.key_remap.render_signature(),
             onboarding: self.onboarding.render_signature(),
@@ -389,6 +392,12 @@ impl OverlayUi {
                 .collect(),
             OverlayMode::ThemeBuilder => self
                 .theme_builder
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
+            OverlayMode::ProfileManager => self
+                .profile_manager
                 .visible_lines(body_width, body_height)
                 .into_iter()
                 .map(OverlayLine::from)
@@ -842,6 +851,17 @@ impl From<ThemeBuilderLine> for OverlayLine {
             focused: line.focused,
             swatch: line.swatch,
             bold: false,
+        }
+    }
+}
+
+impl From<crate::native::profile_manager::ProfileManagerLine> for OverlayLine {
+    fn from(line: crate::native::profile_manager::ProfileManagerLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
+            bold: line.bold,
         }
     }
 }

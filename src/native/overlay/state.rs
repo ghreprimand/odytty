@@ -16,6 +16,7 @@ use crate::native::key_remap_ui::KeyRemapUi;
 use crate::native::onboarding::OnboardingPanel;
 use crate::native::open_with_overlay::OpenWithOverlay;
 use crate::native::palette_overlay::PaletteOverlay;
+use crate::native::profile_manager::ProfileManager;
 use crate::native::replay_overlay::ReplayOverlay;
 use crate::native::session::SessionToken;
 use crate::native::session_attach_overlay::SessionAttachOverlay;
@@ -39,6 +40,7 @@ pub(in crate::native) struct OverlayUi {
     pub(super) panel: SettingsPanel,
     pub(super) theme_picker: ThemePicker,
     pub(super) theme_builder: ThemeBuilder,
+    pub(super) profile_manager: ProfileManager,
     pub(super) font_picker: FontPicker,
     pub(super) key_remap: KeyRemapUi,
     pub(super) onboarding: OnboardingPanel,
@@ -145,6 +147,7 @@ impl OverlayUi {
             panel: SettingsPanel::new(settings),
             theme_picker: ThemePicker::new(settings),
             theme_builder: ThemeBuilder::new(settings),
+            profile_manager: ProfileManager::new(),
             font_picker: FontPicker::new(settings),
             key_remap: KeyRemapUi::new(settings),
             onboarding: OnboardingPanel::new(settings),
@@ -308,6 +311,23 @@ impl OverlayUi {
         // panel); the standalone keyboard-shortcut path leaves it `None`
         // (close).
         self.builder_from_picker = false;
+    }
+
+    /// Open the named-profile manager with an already-loaded local catalog.
+    /// Catalog loading is the App's responsibility and happens only when this
+    /// overlay opens, never on the default launch path.
+    pub(in crate::native) fn open_profile_manager(
+        &mut self,
+        catalog: crate::profiles::ProfileCatalog,
+    ) {
+        self.panel.end_slider_drag();
+        self.profile_manager.open(catalog);
+        self.mode = OverlayMode::ProfileManager;
+        self.open = true;
+    }
+
+    pub(in crate::native) fn set_profile_manager_message(&mut self, message: impl Into<String>) {
+        self.profile_manager.set_message(message);
     }
 
     /// Open the font-family picker (FONT-PICKER). Runs a fresh metadata scan on
@@ -614,6 +634,7 @@ impl OverlayUi {
                 self.font_picker.save_succeeded(changed);
             }
             OverlayMode::ThemeBuilder => {}
+            OverlayMode::ProfileManager => {}
             // KB-REMAP stays open after an in-modal Ctrl+S so the user can keep
             // editing; the modal reports the saved count and adopts the persisted
             // bindings as its new restore baseline. But if the save came from the
@@ -660,6 +681,9 @@ impl OverlayUi {
             }
             OverlayMode::ThemePicker => self.theme_picker.save_failed(message),
             OverlayMode::ThemeBuilder => self.theme_builder.save_failed(message),
+            OverlayMode::ProfileManager => {
+                self.profile_manager.set_message(message);
+            }
             OverlayMode::FontPicker => self.font_picker.save_failed(message),
             OverlayMode::KeyBindings => {
                 // Same latch-clear for the keybind-editor lane: a failed save leaves
@@ -751,6 +775,12 @@ impl OverlayUi {
                     level: self.panel.current_level(),
                 });
                 OverlayOutcome::OpenThemeBuilder
+            }
+            SettingsPanelOutcome::OpenProfileManager => {
+                self.picker_return = Some(PickerReturn {
+                    level: self.panel.current_level(),
+                });
+                OverlayOutcome::OpenProfileManager
             }
             SettingsPanelOutcome::OpenKeyBindings => OverlayOutcome::OpenKeyBindings,
             SettingsPanelOutcome::OpenFontPicker => {

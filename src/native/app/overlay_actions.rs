@@ -262,6 +262,10 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.open_theme_builder_overlay();
             }
+            OverlayOutcome::OpenProfileManager => {
+                self.flush_pending_overlay_settings();
+                self.open_profile_manager_overlay();
+            }
             OverlayOutcome::CaptureThemeColors => {
                 // THEME-CAPTURE, in-editor `C`: resolve the focused pane's
                 // live colors and feed them into the open editor. The overlay
@@ -289,6 +293,22 @@ impl App {
             OverlayOutcome::SaveTheme(request) => {
                 self.flush_pending_overlay_settings();
                 self.save_overlay_theme(request);
+            }
+            OverlayOutcome::SaveProfile { profile, replace } => {
+                self.flush_pending_overlay_settings();
+                self.save_overlay_profile(*profile, replace);
+            }
+            OverlayOutcome::DeleteProfile(name) => {
+                self.flush_pending_overlay_settings();
+                self.delete_overlay_profile(&name);
+            }
+            OverlayOutcome::ImportProfile => {
+                self.flush_pending_overlay_settings();
+                self.import_overlay_profile();
+            }
+            OverlayOutcome::ExportProfile(name) => {
+                self.flush_pending_overlay_settings();
+                self.export_overlay_profile(&name);
             }
             // IN2: the menu closed itself before emitting these; run the action.
             OverlayOutcome::ContextMenuCopy => {

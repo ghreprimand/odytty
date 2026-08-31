@@ -618,6 +618,19 @@ impl App {
         self.request_selection_redraw();
     }
 
+    pub(super) fn open_profile_manager_overlay(&mut self) {
+        if self.search.is_open() {
+            self.close_search(true);
+        }
+        self.reset_pointer_state_for_overlay();
+        let catalog = match crate::profiles::profiles_dir_path() {
+            Some(dir) => crate::profiles::load_catalog_from_dir(&dir),
+            None => crate::profiles::ProfileCatalog::default(),
+        };
+        self.overlay.open_profile_manager(catalog);
+        self.request_selection_redraw();
+    }
+
     /// Capture the focused pane's live colors into a theme draft and open the
     /// theme editor on it (THEME-CAPTURE). Entry point for both the command
     /// palette row and the settings/menu surface.

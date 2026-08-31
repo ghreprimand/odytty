@@ -194,10 +194,11 @@ hosting, profiles, full bidi and complex-script reordering, and SVG-in-OpenType
 color glyphs.
 The [v0.13.0 foundation contract](docs/v0.13.0-foundation.md) records the
 security, architecture, platform, and measurement boundaries used by this
-release. Named launch profiles have a versioned on-disk foundation
+release. Named launch profiles have a versioned on-disk foundation and a settings Profile
+Manager for local create/edit/import/export/delete
 ([schema, precedence, and migration](docs/v0.14.0-profiles-foundation.md));
-settings UI and launch routing are not wired yet, so default startup is
-unchanged. See [current work](TODO.md) and the
+launch routing is not wired yet, so default startup is unchanged. See
+[current work](TODO.md) and the
 [full roadmap](docs/full-build-roadmap.md) for later milestones.
 
 The terminal core and visual experience layer are deliberately separate.

@@ -36,6 +36,7 @@ impl OverlayUi {
         match self.mode {
             OverlayMode::ThemePicker => return self.handle_theme_picker_input(input),
             OverlayMode::ThemeBuilder => return self.handle_theme_builder_input(input),
+            OverlayMode::ProfileManager => return self.handle_profile_manager_input(input),
             OverlayMode::FontPicker => return self.handle_font_picker_input(input),
             OverlayMode::KeyBindings => return self.handle_key_remap_input(input),
             OverlayMode::Onboarding => return self.handle_onboarding_input(input),
@@ -136,6 +137,42 @@ impl OverlayUi {
                             button,
                         );
                         self.apply_builder_outcome(outcome)
+                    }
+                    OverlayMode::ProfileManager => {
+                        if button == PointerButton::Left {
+                            use crate::native::profile_manager::ProfileManagerOutcome;
+                            match self.profile_manager.handle_pointer_press(
+                                rect.body_width,
+                                rect.body_height,
+                                row_in_body,
+                                col_in_body,
+                            ) {
+                                ProfileManagerOutcome::Consumed => OverlayOutcome::Consumed,
+                                ProfileManagerOutcome::Close => {
+                                    if self.picker_return.is_some() {
+                                        self.return_to_settings_panel();
+                                        OverlayOutcome::Consumed
+                                    } else {
+                                        self.close();
+                                        OverlayOutcome::Close
+                                    }
+                                }
+                                ProfileManagerOutcome::Persist { profile, replace } => {
+                                    OverlayOutcome::SaveProfile { profile, replace }
+                                }
+                                ProfileManagerOutcome::Delete(name) => {
+                                    OverlayOutcome::DeleteProfile(name)
+                                }
+                                ProfileManagerOutcome::RequestImport => {
+                                    OverlayOutcome::ImportProfile
+                                }
+                                ProfileManagerOutcome::RequestExport(name) => {
+                                    OverlayOutcome::ExportProfile(name)
+                                }
+                            }
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
                     }
                     OverlayMode::ContextMenu => {
                         let outcome =
@@ -382,7 +419,9 @@ impl OverlayUi {
                     | OverlayMode::ConfirmRemoveHost
                     | OverlayMode::ConfirmOverwriteLayout
                     | OverlayMode::ConfirmOpenLayout => OverlayOutcome::Consumed,
-                    OverlayMode::ConnectionForm => OverlayOutcome::Consumed,
+                    OverlayMode::ConnectionForm | OverlayMode::ProfileManager => {
+                        OverlayOutcome::Consumed
+                    }
                 }
             }
             OverlayPointer::Release { .. } => {
@@ -410,7 +449,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmRemoveHost
                     | OverlayMode::ConfirmOverwriteLayout
                     | OverlayMode::ConfirmOpenLayout => {}
-                    OverlayMode::ConnectionForm => {}
+                    OverlayMode::ConnectionForm | OverlayMode::ProfileManager => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -468,6 +507,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmOverwriteLayout
                     | OverlayMode::ConfirmOpenLayout
                     | OverlayMode::ConnectionForm
+                    | OverlayMode::ProfileManager
                     | OverlayMode::ImageView => {}
                 }
                 OverlayOutcome::Consumed
@@ -503,7 +543,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmRemoveHost
             | OverlayMode::ConfirmOverwriteLayout
             | OverlayMode::ConfirmOpenLayout => false,
-            OverlayMode::ConnectionForm => false,
+            OverlayMode::ConnectionForm | OverlayMode::ProfileManager => false,
         }
     }
 
@@ -535,7 +575,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmRemoveHost
             | OverlayMode::ConfirmOverwriteLayout
             | OverlayMode::ConfirmOpenLayout => {}
-            OverlayMode::ConnectionForm => {}
+            OverlayMode::ConnectionForm | OverlayMode::ProfileManager => {}
         }
     }
 
@@ -645,6 +685,28 @@ impl OverlayUi {
     pub(super) fn handle_theme_builder_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         let outcome = self.theme_builder.handle_input(input);
         self.apply_builder_outcome(outcome)
+    }
+
+    pub(super) fn handle_profile_manager_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        use crate::native::profile_manager::ProfileManagerOutcome;
+        match self.profile_manager.handle_input(input) {
+            ProfileManagerOutcome::Consumed => OverlayOutcome::Consumed,
+            ProfileManagerOutcome::Close => {
+                if self.picker_return.is_some() {
+                    self.return_to_settings_panel();
+                    OverlayOutcome::Consumed
+                } else {
+                    self.close();
+                    OverlayOutcome::Close
+                }
+            }
+            ProfileManagerOutcome::Persist { profile, replace } => {
+                OverlayOutcome::SaveProfile { profile, replace }
+            }
+            ProfileManagerOutcome::Delete(name) => OverlayOutcome::DeleteProfile(name),
+            ProfileManagerOutcome::RequestImport => OverlayOutcome::ImportProfile,
+            ProfileManagerOutcome::RequestExport(name) => OverlayOutcome::ExportProfile(name),
+        }
     }
 
     pub(super) fn handle_font_picker_input(&mut self, input: OverlayInput) -> OverlayOutcome {

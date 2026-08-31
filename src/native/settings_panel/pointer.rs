@@ -866,6 +866,10 @@ impl SettingsPanel {
             self.message = Some("Opening theme builder.".to_owned());
             return SettingsPanelOutcome::OpenThemeBuilder;
         }
+        if entry.key == super::PROFILE_MANAGER_ACTION_KEY {
+            self.message = Some("Opening profile manager.".to_owned());
+            return SettingsPanelOutcome::OpenProfileManager;
+        }
         match entry.kind {
             // Key-specific overrides run before kind dispatch (theme is Enum,
             // font_family is String — both open pickers not editors).
