@@ -289,6 +289,8 @@ or endorsement from any of those vendors.
 | `zenburn` | dark | Community — low-glare classic dark palette |
 | `oceanic-next` | dark | Community — deep ocean blue-gray palette |
 | `iceberg-dark` | dark | Community — cool blue high-latitude dark palette |
+| `red-planet` | dark | Community - warm, muted planetary palette |
+| `red-planet-dark` | dark | Community variant - Red Planet over a deeper OdyTTY canvas |
 | `github-light` | light | Community — GitHub-style light palette, no affiliation |
 | `gruvbox-light` | light | Community — warm retro light palette |
 | `one-light` | light | Community — Atom-style light palette |
@@ -371,6 +373,7 @@ ports are used and adapted under the MIT license.
 | `palenight` | Palenight (Astorino) | MIT-class, ported; no endorsement implied |
 | `papercolor-light` | PaperColor (NLKNguyen) | MIT, ported; no endorsement implied |
 | `rose-pine`, `rose-pine-dawn` | Rose Pine | MIT, ported; no endorsement implied |
+| `red-planet`, `red-planet-dark` | Red Planet (ibrokemypie, based on eliquious; collected by [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)) | Published palette; `red-planet-dark` changes only the OdyTTY background and clear roles |
 | `tokyo-night-day` | Tokyo Night Day (enkia) | MIT, ported; no endorsement implied |
 | `zenburn` | Zenburn (Jani Nurminen) | Freely ported; no endorsement implied |
 | `apple-ii-green` | Inspired by Apple II display | Apple is a trademark; no affiliation or endorsement |

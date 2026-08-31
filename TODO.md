@@ -672,7 +672,7 @@ not a stretch goal.
         the conventional blinking terminal default because `winit` exposes no
         OS caret-blink preference; the settings help text now says this plainly.
 - [x] Add CLI config introspection.
-  - [x] `--list-themes`: enumerate the 142 built-in themes as
+  - [x] `--list-themes`: enumerate the 144 built-in themes as
         `name`/appearance/family rows.
   - [x] `--list-fonts`: enumerate discoverable font files (path, filename-stem
         name, monospace on/off) from the renderer's bounded search directories.
@@ -1069,7 +1069,7 @@ feature validates against.
         `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
         in File Manager. See [`docs/keybindings.md`](docs/keybindings.md) for the chord reference.
 - [x] Deliver the current theme-library and configuration UX scope.
-  - [x] Built-in theme library expanded to 142 contrast-validated themes
+  - [x] Built-in theme library expanded to 144 contrast-validated themes
         (data-only, ongoing).
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
         entry.

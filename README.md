@@ -129,7 +129,7 @@ sessions.
   layouts, restore, Unix managed and detached sessions, an SSH connection
   manager, connection reuse, and optional `tmux` persistence.
 - **Configuration without ceremony:** a live settings panel, command palette,
-  font and theme pickers, 142 built-in themes, user themes, a theme builder
+  font and theme pickers, 144 built-in themes, user themes, a theme builder
   (including capture of a pane's live colors into a new theme),
   backgrounds, transparency, bloom, CRT, and retro effects. Config-file editing
   remains available with hot reload.

@@ -980,11 +980,16 @@ scope rather than silently inheriting deferred work from a prior release.
 
 - Theme system: full 16-color ANSI palette + semantic roles (cursor, selection,
   search highlight, reserved border/inactive) per theme; a curated,
-  contrast-validated built-in library plus user `.theme` files through one
-  shared dependency-free parse path (see [`docs/themes.md`](docs/themes.md) for
-  the current roster and file format); `ODYTTY_THEME` accepts a built-in name,
-  directory-relative name, or file path; OSC-4 / OSC-10/11/12 dynamic overrides
-  layer on top with correct precedence; optional CRT scanline visual effect (`visual=ambient`/`scanlines` are back-compat aliases for the CRT path when no explicit `crt` setting is present; explicit `crt` always wins)
+  contrast-validated 144-theme built-in library plus user `.theme` files through
+  one shared dependency-free parse path (see
+  [`docs/themes.md`](docs/themes.md) for the current roster and file format);
+  `ODYTTY_THEME` accepts a built-in name, directory-relative name, or file path;
+  OSC-4 / OSC-10/11/12 dynamic overrides layer on top with correct precedence;
+  optional CRT scanline visual effect (`visual=ambient`/`scanlines` are
+  back-compat aliases for the CRT path when no explicit `crt` setting is
+  present; explicit `crt` always wins). The community roster includes the
+  published `red-planet` palette and `red-planet-dark`, which preserves its
+  accents while lowering only the background and clear roles.
 
 - In-window overlay framework (`src/native/overlay.rs`): a native multi-row
   panel layer rendered through the existing cell path — text fields, lists,

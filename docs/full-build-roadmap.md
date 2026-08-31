@@ -225,7 +225,7 @@ live-applied, and written back to the config file; a live theme picker; an
 in-app custom theme builder (clone, tweak, live preview, save, and capture of
 the pane's current dynamic colors as a new draft); and CLI config
 introspection. A dependency-free `.theme` format, a full 16-color + bright ANSI
-palette plus semantic roles, and a curated 142-theme built-in library (dark and
+palette plus semantic roles, and a curated 144-theme built-in library (dark and
 light, all contrast-validated).
 
 ### The Visual Engine
@@ -654,12 +654,14 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   ship under their upstream names. `theme_family()` classifies every built-in as
   `baseline`, `odyssey`, or `community`, and `--list-themes` exposes the family.
 - **Later — Theme-library expansion** past 100, using data-only additions. The
-  roster is now 142 after six more contrast-validated original OdysseyOS
-  palettes: four dark palettes (inkwell navy, citadel slate, verdigris teal, and
-  wildfire ember) and two light palettes (moonstone and primrose). Earlier
-  batches brought the roster to 112, 124, and then 136. Expansion was paused
-  during the v0.10.0 scope freeze; resuming it requires a separate scope
-  decision.
+  roster is now 144 after the published Red Planet palette and an OdyTTY
+  Red Planet Dark companion joined the prior six contrast-validated original
+  OdysseyOS palettes: four dark palettes (inkwell navy, citadel slate,
+  verdigris teal, and wildfire ember) and two light palettes (moonstone and
+  primrose). Earlier
+  batches brought the roster to 112, 124, and then 136. Expansion was explicitly
+  resumed for this focused pair; further additions remain paused until a
+  separate scope decision.
 
 ## Track 8 — Positioning And Performance Posture
 

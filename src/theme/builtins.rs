@@ -58,6 +58,8 @@
 //! `nord`, `dracula`, `tokyo-night`, `catppuccin-mocha`, `one-dark`, `monokai`,
 //! `everforest-dark`, `kanagawa`, `rose-pine`, `ayu-mirage`, `night-owl`,
 //! `palenight`, `github-dark`, `zenburn`, `oceanic-next`, and `iceberg-dark`.
+//! The published `red-planet` palette and OdyTTY's background-darkened
+//! `red-planet-dark` companion complete the dark community roster.
 //! Light palettes: `solarized-light`, `catppuccin-latte`, `github-light`,
 //! `gruvbox-light`, `one-light`, `ayu-light`, `rose-pine-dawn`,
 //! `tokyo-night-day`, `papercolor-light`, and `everforest-light`.
@@ -434,6 +436,11 @@ const REGISTRY: &[(&str, &str)] = &[
     ("zenburn", include_str!("builtins/zenburn.theme")),
     ("oceanic-next", include_str!("builtins/oceanic-next.theme")),
     ("iceberg-dark", include_str!("builtins/iceberg-dark.theme")),
+    ("red-planet", include_str!("builtins/red-planet.theme")),
+    (
+        "red-planet-dark",
+        include_str!("builtins/red-planet-dark.theme"),
+    ),
     // Light palettes.
     (
         "solarized-light",
@@ -609,7 +616,7 @@ mod tests {
     #[test]
     fn library_has_the_full_roster() {
         assert_eq!(all().len(), REGISTRY.len());
-        assert_eq!(all().len(), 142, "roster size changed — update docs + this");
+        assert_eq!(all().len(), 144, "roster size changed - update docs + this");
     }
 
     #[test]
@@ -655,6 +662,24 @@ mod tests {
                 "ODYTTY_THEME={name:?} must resolve"
             );
         }
+    }
+
+    #[test]
+    fn red_planet_dark_changes_only_the_canvas() {
+        let original = Theme::from_name("red-planet").expect("red-planet theme");
+        let dark = Theme::from_name("red-planet-dark").expect("red-planet-dark theme");
+
+        assert_eq!(original.background, (0x22, 0x22, 0x22));
+        assert_eq!(original.clear, (0x22, 0x22, 0x22));
+        assert_eq!(dark.background, (0x16, 0x16, 0x16));
+        assert_eq!(dark.clear, (0x16, 0x16, 0x16));
+        assert_eq!(dark.foreground, original.foreground);
+        assert_eq!(dark.palette, original.palette);
+        assert_eq!(dark.cursor, original.cursor);
+        assert_eq!(dark.selection, original.selection);
+        assert_eq!(dark.search, original.search);
+        assert_eq!(dark.border, original.border);
+        assert_eq!(dark.inactive, original.inactive);
     }
 
     #[test]
