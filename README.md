@@ -125,12 +125,17 @@ sessions.
   and explicit Paste, reversible Paste as One Line when available, or Cancel.
   Safe single-line and child-enabled bracketed paste retain their existing byte
   path; `warn_on_risky_paste = off` is an advanced global opt-out.
+  Complete, current OSC 133 command ranges also expose output-only or
+  prompt-inclusive select/copy, output-scoped search, failed-command
+  navigation, and explicit bounded plain-text export. Missing, partial, or
+  stale shell integration disables these actions instead of guessing.
 - **Workspaces and remote work:** tabs, resizable panes, named workspaces,
   layouts, restore, Unix managed and detached sessions, an SSH connection
   manager, connection reuse, and optional `tmux` persistence.
 - **Configuration without ceremony:** a live settings panel, command palette,
   font and theme pickers, 144 built-in themes, user themes, a theme builder
-  (including capture of a pane's live colors into a new theme),
+  with sliders and click-to-edit hex values (including capture of a pane's live
+  colors into a new theme),
   backgrounds, transparency, bloom, CRT, and retro effects. Config-file editing
   remains available with hot reload.
 - **Accessibility and privacy:** contrast controls, color-vision modes,
@@ -177,10 +182,12 @@ Linux is the primary target. macOS and Windows are supported, shipped, and
 blocking CI targets. Known gaps include Windows detached and resumable session
 hosting, profiles, full bidi and complex-script reordering, and SVG-in-OpenType
 color glyphs.
-The documentation-only [v0.13.0 foundation contract](docs/v0.13.0-foundation.md)
-inventories the existing seams and freezes the security, architecture,
-platform, and measurement boundaries for the next release without claiming its
-features are shipped. See [current work](TODO.md) and the
+The [v0.13.0 foundation contract](docs/v0.13.0-foundation.md) inventories the
+existing seams and freezes the security, architecture, platform, and
+measurement boundaries for the next release. Paste protection and semantic
+command-output actions are implemented on the development branch; v0.13.0 is
+not released until its remaining awareness work and release gates pass. See
+[current work](TODO.md) and the
 [full roadmap](docs/full-build-roadmap.md).
 
 The terminal core and visual experience layer are deliberately separate.

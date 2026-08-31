@@ -126,6 +126,11 @@ impl App {
         } else {
             None
         };
+        let command_handle = matches!(surface, ContextMenuSurface::Content)
+            .then(|| self.command_handle_for_action())
+            .flatten();
+        self.context_command_handle =
+            command_handle.map(|handle| (self.sessions.active_id(), handle));
         self.overlay.open_context_menu_with_prompt_editing_hint(
             spawn,
             copy_enabled,
@@ -142,6 +147,10 @@ impl App {
             path_target,
             accelerators,
         );
+        if matches!(surface, ContextMenuSurface::Content) {
+            self.overlay
+                .set_context_menu_command_actions_enabled(command_handle.is_some());
+        }
         // MENU-DEBOUNCE: stamp the open instant so a stale queued press flushed
         // into the just-opened menu is swallowed rather than activating an item
         // (the "phantom New Workspace" replay). Cleared implicitly -- the check
@@ -213,6 +222,20 @@ impl App {
         outcome: OverlayOutcome,
         coalesce_apply: bool,
     ) {
+        if !matches!(
+            &outcome,
+            OverlayOutcome::Consumed
+                | OverlayOutcome::ContextMenuSelectCommandOutput
+                | OverlayOutcome::ContextMenuSelectCommandWithPrompt
+                | OverlayOutcome::ContextMenuCopyCommandOutput
+                | OverlayOutcome::ContextMenuCopyCommandWithPrompt
+                | OverlayOutcome::ContextMenuSearchCommandOutput
+                | OverlayOutcome::ContextMenuJumpFailedCommandPrev
+                | OverlayOutcome::ContextMenuJumpFailedCommandNext
+                | OverlayOutcome::ContextMenuExportCommandOutput
+        ) {
+            self.context_command_handle = None;
+        }
         match outcome {
             OverlayOutcome::Consumed => {}
             OverlayOutcome::Close => {
@@ -287,6 +310,66 @@ impl App {
             OverlayOutcome::ContextMenuSelectAll => {
                 self.flush_pending_overlay_settings();
                 self.handle_select_all();
+            }
+            OverlayOutcome::ContextMenuSelectCommandOutput => {
+                self.flush_pending_overlay_settings();
+                if let Some(handle) = self.take_context_command_handle() {
+                    self.select_command_range_from_handle(
+                        handle,
+                        crate::core::CommandRangePart::Output,
+                    );
+                }
+            }
+            OverlayOutcome::ContextMenuSelectCommandWithPrompt => {
+                self.flush_pending_overlay_settings();
+                if let Some(handle) = self.take_context_command_handle() {
+                    self.select_command_range_from_handle(
+                        handle,
+                        crate::core::CommandRangePart::PromptAndCommand,
+                    );
+                }
+            }
+            OverlayOutcome::ContextMenuCopyCommandOutput => {
+                self.flush_pending_overlay_settings();
+                if let Some(handle) = self.take_context_command_handle() {
+                    self.copy_command_range_from_handle(
+                        handle,
+                        crate::core::CommandRangePart::Output,
+                    );
+                }
+            }
+            OverlayOutcome::ContextMenuCopyCommandWithPrompt => {
+                self.flush_pending_overlay_settings();
+                if let Some(handle) = self.take_context_command_handle() {
+                    self.copy_command_range_from_handle(
+                        handle,
+                        crate::core::CommandRangePart::PromptAndCommand,
+                    );
+                }
+            }
+            OverlayOutcome::ContextMenuSearchCommandOutput => {
+                self.flush_pending_overlay_settings();
+                if let Some(handle) = self.take_context_command_handle() {
+                    self.search_command_output_from_handle(handle);
+                }
+            }
+            OverlayOutcome::ContextMenuJumpFailedCommandPrev => {
+                self.flush_pending_overlay_settings();
+                if self.take_context_command_handle().is_some() {
+                    self.jump_failed_command(crate::core::CommandDirection::Prev);
+                }
+            }
+            OverlayOutcome::ContextMenuJumpFailedCommandNext => {
+                self.flush_pending_overlay_settings();
+                if self.take_context_command_handle().is_some() {
+                    self.jump_failed_command(crate::core::CommandDirection::Next);
+                }
+            }
+            OverlayOutcome::ContextMenuExportCommandOutput => {
+                self.flush_pending_overlay_settings();
+                if let Some(handle) = self.take_context_command_handle() {
+                    self.begin_command_output_export_from_handle(handle);
+                }
             }
             OverlayOutcome::ContextMenuNewTab => {
                 self.flush_pending_overlay_settings();
@@ -734,6 +817,11 @@ impl App {
                 self.pending_exit = true;
             }
         }
+    }
+
+    fn take_context_command_handle(&mut self) -> Option<crate::core::CommandRangeHandle> {
+        let (session, handle) = self.context_command_handle.take()?;
+        (session == self.sessions.active_id()).then_some(handle)
     }
 
     /// Translate a winit mouse button edge over an open overlay into an

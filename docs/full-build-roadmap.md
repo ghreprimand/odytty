@@ -248,8 +248,9 @@ legibility guarantee that extends the minimum-contrast floor to all application
 text (256-color and truecolor), nudging the foreground in perceptual color space
 to clear the floor while preserving hue; a perceptual-safe theme builder with
 mouse-driven OKLCH (Lightness/Chroma/Hue) sliders, a live contrast readout, and
-snap-to-floor so it cannot author an unreadable theme (raw-hex entry stays as the
-expert fallback); contrast-aware palette generation that turns a seed color into
+snap-to-floor so it cannot author an unreadable theme (clicking a displayed role
+value opens raw-hex entry as the expert fallback); contrast-aware palette
+generation that turns a seed color into
 a readability-validated theme starting point; and colorblind palette adaptation
 that remaps the ANSI palette in perceptual space for color-vision deficiencies.
 
@@ -363,9 +364,9 @@ labels, and visible font-load failure reporting all ship today.
   display sections, so no shipped knob is unreachable from the panel; a field
   inventory confirmed every user-facing `Settings` field surfaces through a reachable
   `SettingInfo` row (`native_autoclose` included, via the Development → Advanced
-  section). The `keybinds` parser and the in-app key-remap editor cover all 40
+  section). The `keybinds` parser and the in-app key-remap editor cover all 48
   bindable actions — including the theme-builder, session-attach, and workspace
-  actions — and the panel's keybinds-row option hint now enumerates the same 40
+  actions - and the panel's keybinds-row option hint now enumerates the same 48
   in `BindableAction::ALL` order. See [keybindings.md](./keybindings.md) for the
   full keyboard reference.
 - **Planned v0.14.0 — Named profiles.** Reusable local/remote launch contexts
@@ -510,9 +511,11 @@ gap to close and unlocks the most downstream value. Semantic prompt marking
 - **Shipped — Command-aware foundation.** Built on prompt marking: jump to the
   previous or next prompt and show a per-command success/failure indicator in
   the gutter. A core range helper already identifies one command's output.
-- **Planned v0.13.0 — Command-output actions.** Wire those ranges to
-  select/copy, range-scoped search, failed-command navigation, and safe plain-text
-  export without replacing the terminal grid with a block document model.
+- **Implemented for v0.13.0 - Command-output actions.** Verified,
+  generation-bound OSC 133 ranges now drive output-only and prompt-inclusive
+  select/copy, range-scoped search, explicit-status failed-command navigation,
+  and bounded plain-text export without replacing the terminal grid with a
+  block document model. Missing or stale boundaries disable the actions.
 - **Planned v0.13.0 — Completion and progress awareness.** Keep the existing
   BEL attention modes, while adding explicit command-finish, progress, activity,
   silence, and failure indicators. Users choose in-app badges, an OS attention
@@ -653,6 +656,8 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   the primary OdyTTY identity, while licensed and attributed community palettes
   ship under their upstream names. `theme_family()` classifies every built-in as
   `baseline`, `odyssey`, or `community`, and `--list-themes` exposes the family.
+  The original blue-black palette is listed canonically as `odyssey-classic`;
+  the former `odyssey` name remains a compatibility alias.
 - **Later — Theme-library expansion** past 100, using data-only additions. The
   roster is now 144 after the published Red Planet palette and an OdyTTY
   Red Planet Dark companion joined the prior six contrast-validated original

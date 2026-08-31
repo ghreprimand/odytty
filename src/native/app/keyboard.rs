@@ -242,6 +242,38 @@ impl App {
                         return;
                     }
                 }
+                Some(BindableAction::SelectCommandOutput) => {
+                    self.select_command_range(crate::core::CommandRangePart::Output);
+                    return;
+                }
+                Some(BindableAction::SelectCommandWithPrompt) => {
+                    self.select_command_range(crate::core::CommandRangePart::PromptAndCommand);
+                    return;
+                }
+                Some(BindableAction::CopyCommandOutput) => {
+                    self.copy_command_range(crate::core::CommandRangePart::Output);
+                    return;
+                }
+                Some(BindableAction::CopyCommandWithPrompt) => {
+                    self.copy_command_range(crate::core::CommandRangePart::PromptAndCommand);
+                    return;
+                }
+                Some(BindableAction::SearchCommandOutput) => {
+                    self.search_current_command_output();
+                    return;
+                }
+                Some(BindableAction::JumpFailedCommandPrev) => {
+                    self.jump_failed_command(crate::core::CommandDirection::Prev);
+                    return;
+                }
+                Some(BindableAction::JumpFailedCommandNext) => {
+                    self.jump_failed_command(crate::core::CommandDirection::Next);
+                    return;
+                }
+                Some(BindableAction::ExportCommandOutput) => {
+                    self.begin_command_output_export();
+                    return;
+                }
                 Some(BindableAction::CopyMode) => {
                     if self.enter_copy_mode() {
                         return;

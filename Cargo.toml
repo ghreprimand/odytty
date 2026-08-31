@@ -47,6 +47,11 @@ flate2 = "1.1.9"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 png = "0.18.1"
 pollster = "0.4.0"
+# Native save dialogs for explicit command-output export. Linux uses the
+# desktop portal backend on both Wayland and X11; macOS and Windows use rfd's
+# native platform implementations. Exact pin and minimal feature set keep the
+# reviewed dependency surface stable.
+rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
 # Direct use of the already-transitive Fontations stack evaluates guarded COLR
 # v1 Paint graphs. `swash` remains the shaping and bitmap/COLR v0 rasterizer.
 skrifa = "0.42.1"
@@ -89,6 +94,8 @@ rustix = { version = "1.1.4", features = ["pipe", "pty", "termios", "process"] }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
     "Win32_System_Console",
     "Win32_System_Environment",
     "Win32_System_JobObjects",

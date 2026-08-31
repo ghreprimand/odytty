@@ -83,6 +83,14 @@ pub(in crate::native) enum OverlayOutcome {
     ContextMenuPaste,
     ContextMenuDelete,
     ContextMenuSelectAll,
+    ContextMenuSelectCommandOutput,
+    ContextMenuSelectCommandWithPrompt,
+    ContextMenuCopyCommandOutput,
+    ContextMenuCopyCommandWithPrompt,
+    ContextMenuSearchCommandOutput,
+    ContextMenuJumpFailedCommandPrev,
+    ContextMenuJumpFailedCommandNext,
+    ContextMenuExportCommandOutput,
     ContextMenuNewTab,
     /// Open a local shell in a new tab from a bound-workspace tab menu (F6-W5
     /// escape hatch). The overlay has closed itself; the App dispatches this to

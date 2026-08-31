@@ -130,16 +130,19 @@ impl App {
         };
         match write_settings_changes_to_path(path, changes) {
             Ok(result) => {
-                self.overlay.save_succeeded(result.changed);
                 // BUG 2 (FONT-SAVE-CORRECTNESS): a Save must also apply LIVE, not
                 // only at restart. Re-read the just-written config as startup does
                 // (`Settings::from_env`, same path + env) and route it through the
                 // shared reload seam — no duplicated reload logic. Idempotent: a
                 // live-previewed value and the later background poll both no-op.
+                // Apply before notifying the overlay: pickers return to Settings
+                // on success, and rebasing while their mode is still active keeps
+                // the panel's displayed config token aligned with the new theme.
                 if result.changed > 0 {
                     let reloaded = Settings::from_env();
                     self.apply_overlay_settings(reloaded);
                 }
+                self.overlay.save_succeeded(result.changed);
             }
             Err(error) => self.overlay.save_failed(error.to_string()),
         }
@@ -175,6 +178,12 @@ impl App {
         }];
         match write_settings_changes_to_path(config_path, &changes) {
             Ok(result) => {
+                // The theme file itself may have changed even when the config
+                // already names it, so always re-read before closing the builder.
+                // This also replaces preview-only color state and stale config
+                // metadata with the canonical saved theme in one transition.
+                let reloaded = Settings::from_env();
+                self.apply_overlay_settings(reloaded);
                 self.overlay
                     .theme_builder_save_succeeded(&saved_name, &path, result.changed)
             }

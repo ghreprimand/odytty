@@ -966,7 +966,7 @@ Three prohibitions apply to every boundary below:
   133 command range, and the native dialog authorizes one destination. Neither
   action makes terminal metadata trustworthy. Terminal output cannot choose the
   path, filename, overwrite decision, or export format.
-- **Planned default:** export is unavailable without a current non-stale command
+- **Implemented default:** export is unavailable without a current non-stale command
   range. The internal `rfd` adapter in AD-13-11 obtains a destination through the
   platform-native save dialog. Cancellation writes nothing. Only sanitized
   plain text from the canonical cell-text projection crosses the egress

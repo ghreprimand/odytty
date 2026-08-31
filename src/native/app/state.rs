@@ -91,6 +91,13 @@ pub(in crate::native) struct App {
     /// (slider drag / key repeat). Coalesced so expensive live applies such as
     /// font-size atlas rebuilds happen at most once per frame/event burst.
     pub(super) pending_overlay_settings: Option<Settings>,
+    /// In-flight native save dialogs. Only opaque range authority is retained;
+    /// command text is projected after the dialog returns and its generation is
+    /// revalidated.
+    pub(super) pending_command_exports: HashMap<u64, command_output::PendingCommandExport>,
+    pub(super) next_command_export_id: u64,
+    /// Opaque command authority captured when the content context menu opens.
+    pub(super) context_command_handle: Option<(SessionToken, crate::core::CommandRangeHandle)>,
     /// ID1: when set, the authored theme `cursor`/`selection`/`search` roles
     /// drive cursor color and selection/search highlight fills (with
     /// RV1-floored foregrounds) instead of the historical inverse / hardcoded
@@ -524,6 +531,9 @@ impl App {
             settings,
             settings_reloader,
             pending_overlay_settings: None,
+            pending_command_exports: HashMap::new(),
+            next_command_export_id: 1,
+            context_command_handle: None,
             themed_ui_roles,
             overlay,
             clipboard: NativeClipboard::default(),

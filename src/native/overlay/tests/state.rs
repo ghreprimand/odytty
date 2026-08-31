@@ -177,6 +177,58 @@ fn theme_picker_save_returns_to_settings_when_launched_from_settings_panel() {
 }
 
 #[test]
+fn theme_picker_canonical_reload_replaces_stale_user_theme_label_before_return() {
+    let mut overlay = OverlayUi::new(&Settings {
+        // Model a file-loaded theme: its runtime name is the static `custom`
+        // placeholder while the configured token remains displayable.
+        theme: crate::theme::Theme {
+            name: "custom",
+            ..crate::theme::Theme::ODYSSEY
+        },
+        theme_config: Some("red-planet-dark".to_owned()),
+        ..Settings::default()
+    });
+    overlay.open_settings();
+
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        OverlayOutcome::Consumed
+    );
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        OverlayOutcome::OpenThemePicker
+    );
+    let settings = overlay.settings.clone();
+    overlay.open_theme_picker(&settings);
+
+    let OverlayOutcome::ApplySettings(preview) = overlay.handle_input(OverlayInput::Down) else {
+        panic!("expected theme preview");
+    };
+    let selected = preview.theme;
+    overlay.apply_settings(&preview);
+    let OverlayOutcome::SaveSettings(_) = overlay.handle_input(OverlayInput::Activate) else {
+        panic!("expected theme picker save request");
+    };
+
+    // Production re-reads odytty.conf and applies this canonical Settings while
+    // ThemePicker is still active, before save_succeeded returns to Settings.
+    let canonical = Settings {
+        theme: selected,
+        theme_config: None,
+        theme_is_system: false,
+        ..overlay.settings.clone()
+    };
+    overlay.apply_settings(&canonical);
+    overlay.save_succeeded(1);
+
+    assert_eq!(
+        overlay.settings_panel_value_for_test("theme"),
+        Some(selected.name.to_owned()),
+        "the parent panel must show the canonical saved theme, not the old user-theme token"
+    );
+}
+
+#[test]
 fn theme_picker_save_then_panel_commit_keeps_external_theme() {
     let mut overlay = OverlayUi::default();
     overlay.open_settings();

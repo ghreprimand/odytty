@@ -199,11 +199,12 @@ impl App {
     /// time. Shared by the copy-mode (keyboard) yank and the mouse
     /// PRIMARY/CLIPBOARD/copy-on-select choke point so the two can never drift.
     ///
-    /// `block == false` reproduces [`selection::selected_text`] semantics
-    /// (first/last row partial, interior rows full width); `block == true`
-    /// reproduces [`selection::selected_text_block`] (the same inclusive column
-    /// band on every row). The per-row rule (trailing-trim, wide-continuation
-    /// drop, newline join) is reproduced directly rather than routed through
+    /// `block == false` reproduces terminal selection semantics (first/last row
+    /// partial, interior rows full width, and no inserted newline across a soft
+    /// wrap); `block == true` reproduces [`selection::selected_text_block`] (the
+    /// same inclusive column band on every row, always newline-separated). The
+    /// per-row rule (trailing-trim and wide-continuation drop) is reproduced
+    /// directly rather than routed through
     /// `visible_range_from_absolute`, whose `normalize_range` collapses a
     /// single-cell row span to `None` (which would silently drop a boundary
     /// row). Blank interior rows are preserved as empty strings; an entirely
@@ -213,14 +214,15 @@ impl App {
         range: AbsoluteSelectionRange,
         block: bool,
     ) -> Option<String> {
-        let rows = self.grid.rows;
-        let cols = self.grid.columns;
-        if rows == 0 || cols == 0 {
-            return None;
-        }
         // Poison-recover rather than abort across the AppKit/Rust FFI on this
         // copy / PRIMARY-selection choke point; byte-identical when healthy.
         let terminal = crate::native::lock_recover(&self.terminal);
+        let dimensions = terminal.screen().dimensions();
+        let rows = dimensions.rows;
+        let cols = dimensions.columns;
+        if rows == 0 || cols == 0 {
+            return None;
+        }
         let scrollback_len = terminal.screen().scrollback_len();
 
         // A block selection's column band is fixed on every row; its two corner
@@ -228,27 +230,27 @@ impl App {
         let block_lo = range.start.column.min(range.end.column);
         let block_hi = range.start.column.max(range.end.column);
 
-        let mut lines: Vec<String> = Vec::new();
+        let mut text = String::new();
+        let mut previous_wrapped = false;
+        let mut have_previous = false;
         let mut abs_row = range.start.row;
         while abs_row <= range.end.row {
             // Window placing `abs_row` at (or below) the viewport top.
             let offset = scrollback_len.saturating_sub(abs_row);
-            let snapshot = terminal.snapshot_with_scrollback(offset);
-            let snap_cols = snapshot.dimensions.columns;
-            let snap_rows = snapshot.dimensions.rows;
-            if snap_cols == 0 {
+            let visible_rows = terminal.screen().visible_search_rows(offset);
+            if visible_rows.is_empty() {
                 break;
             }
-            let last_col = snap_cols - 1;
+            let last_col = cols - 1;
             let top = scrollback_len.saturating_sub(offset);
             let window_bottom = top + rows - 1;
             let chunk_end = window_bottom.min(range.end.row);
 
             for r in abs_row..=chunk_end {
                 let vrow = r - top;
-                if vrow >= snap_rows {
+                let Some(row) = visible_rows.get(vrow) else {
                     break;
-                }
+                };
                 let (start_col, end_col) = if block {
                     (block_lo.min(last_col), block_hi.min(last_col))
                 } else {
@@ -266,19 +268,28 @@ impl App {
                     };
                     (start_col, end_col)
                 };
-                let off = vrow * snap_cols;
-                let line: String = snapshot.cells[off + start_col..=off + end_col]
-                    .iter()
-                    .filter(|cell| !cell.wide_continuation)
-                    .flat_map(selection::cell_grapheme_chars)
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned();
-                lines.push(line);
+                let line = row
+                    .cells
+                    .get(start_col..=end_col)
+                    .map(|cells| {
+                        cells
+                            .iter()
+                            .filter(|cell| !cell.wide_continuation)
+                            .flat_map(selection::cell_grapheme_chars)
+                            .collect::<String>()
+                            .trim_end()
+                            .to_owned()
+                    })
+                    .unwrap_or_default();
+                if have_previous && (block || !previous_wrapped) {
+                    text.push('\n');
+                }
+                text.push_str(&line);
+                previous_wrapped = row.wrapped;
+                have_previous = true;
             }
             abs_row = chunk_end + 1;
         }
-        let text = lines.join("\n");
         (!text.is_empty()).then_some(text)
     }
 
@@ -746,6 +757,25 @@ mod tests {
             text, "e\u{0301} a\u{0308} n\u{0303}",
             "combining marks survive the live copy path"
         );
+    }
+
+    #[test]
+    fn absolute_selection_does_not_insert_newlines_at_soft_wraps() {
+        let Some(app) = build_app() else {
+            return;
+        };
+        let content = "x".repeat(45);
+        seed(&app, &content);
+        let text = app
+            .absolute_selection_text(
+                AbsoluteSelectionRange {
+                    start: AbsoluteCellPoint { row: 0, column: 0 },
+                    end: AbsoluteCellPoint { row: 1, column: 4 },
+                },
+                false,
+            )
+            .expect("wrapped selection yields text");
+        assert_eq!(text, content);
     }
 
     /// C24 (app-level, real provider): a word motion from a caret parked in

@@ -82,9 +82,12 @@ pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};
 pub use input_region::{EditRegionSignal, InputCertainty, InputRegion, RowJoin};
 pub use placeholder::PLACEHOLDER_CHAR;
 pub use prompt_marks::{
-    Align, CommandBlock, CommandOutput, CommandStatus, JumpDirection, PromptKind, command_blocks,
-    command_output_cell_range, command_output_range, command_status, jump_target, prompt_jump,
-    viewport_offset_for_row,
+    Align, CommandBlock, CommandDirection, CommandOutput, CommandRangeHandle, CommandRangePart,
+    CommandStatus, JumpDirection, PromptKind, VerifiedCommandRange, command_blocks,
+    command_output_cell_range, command_output_range, command_status, failed_command_target,
+    jump_target, prompt_jump, resolve_verified_command_handle, verified_command_cell_range,
+    verified_command_for_rows, verified_command_handle_for_rows, verified_command_handles,
+    verified_command_ranges, viewport_offset_for_row,
 };
 pub use screen::{Screen, SnapshotButton, Terminal, VisibleRow};
 pub use search::{

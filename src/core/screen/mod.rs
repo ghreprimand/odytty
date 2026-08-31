@@ -410,10 +410,9 @@ pub struct Screen {
     /// reset); consumed by [`Screen::input_region`] to make the input region's
     /// right edge exact. `None` until a shell emits the private OSC.
     active_edit_region: Option<super::input_region::EditRegionSignal>,
-    /// Absolute row of the active OSC 133 `A` prompt-start boundary. During a
-    /// width-changing resize, rows from this anchor through the cursor belong
-    /// to the shell's live prompt repaint and must not grow extra wrap rows.
-    active_prompt_start: Option<usize>,
+    /// Active OSC 133 `A` prompt-start boundary and whether its logical line is
+    /// safe for the live-prompt collapse used during width-changing resize.
+    active_prompt_start: Option<ActivePromptStart>,
     /// Effective cursor shape (DECSCUSR `CSI Ps SP q`, or the host default).
     cursor_style: CursorStyle,
     /// Effective cursor blink policy (DECSCUSR, or the host default).
@@ -495,7 +494,15 @@ struct StoredScreen {
     /// isolation rationale as `active_prompt_input_start`).
     active_edit_region: Option<super::input_region::EditRegionSignal>,
     /// OSC 133 `A` prompt-start anchor saved with the primary buffer.
-    active_prompt_start: Option<usize>,
+    active_prompt_start: Option<ActivePromptStart>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ActivePromptStart {
+    absolute_row: usize,
+    /// False when the prompt begins after unterminated command output on the
+    /// same logical line. Collapsing that line would discard the output prefix.
+    collapse_on_reflow: bool,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SavedCursor {
@@ -604,7 +611,7 @@ impl Screen {
             }
             return;
         }
-        let Some(kind) = prompt_marks::parse_osc133(parts) else {
+        let Some(mut kind) = prompt_marks::parse_osc133(parts) else {
             return;
         };
         match code {
@@ -650,11 +657,34 @@ impl Screen {
         while row > 0 && self.rows[row - 1].wrapped {
             row -= 1;
         }
+        if let PromptKind::CommandEnd { exit } = kind {
+            let boundary_column = if self.pending_wrap {
+                self.cursor.column.saturating_add(1)
+            } else {
+                self.cursor.column
+            };
+            let logical_offset = self
+                .cursor
+                .row
+                .saturating_sub(row)
+                .saturating_mul(self.dimensions.columns)
+                .saturating_add(boundary_column);
+            let Ok(logical_offset) = u32::try_from(logical_offset) else {
+                return;
+            };
+            kind = PromptKind::CommandEndAt {
+                exit,
+                logical_offset,
+            };
+        }
+        let mut stamped_kind = None;
         if let Some(line) = self.rows.get_mut(row) {
             // Merge, not overwrite: shells emit `D` and the next prompt's `A`
             // back to back on one row, and the prompt stamp must preserve the
             // displaced exit status (see `prompt_marks::merge_mark`).
-            line.prompt_mark = Some(prompt_marks::merge_mark(line.prompt_mark, kind));
+            let merged = prompt_marks::merge_mark(line.prompt_mark, kind);
+            line.prompt_mark = Some(merged);
+            stamped_kind = Some(merged);
             self.prompt_marks_changed = true;
         }
         if code == Some(b'A') {
@@ -662,7 +692,17 @@ impl Screen {
                 .scrollback
                 .physical_len(self.dimensions.columns)
                 .saturating_add(row);
-            self.active_prompt_start = Some(absolute_row);
+            let collapse_on_reflow = !matches!(
+                stamped_kind,
+                Some(PromptKind::PromptStartAfterEndAt {
+                    end_logical_offset: 1..,
+                    ..
+                })
+            );
+            self.active_prompt_start = Some(ActivePromptStart {
+                absolute_row,
+                collapse_on_reflow,
+            });
         }
     }
 
@@ -1669,7 +1709,7 @@ fn default_tab_stops(columns: usize) -> Vec<bool> {
     stops
 }
 fn active_prompt_start_visible_row(
-    active_prompt_start: Option<usize>,
+    active_prompt_start: Option<ActivePromptStart>,
     scrollback_rows: usize,
     cursor_row: usize,
     visible_rows: usize,
@@ -1679,7 +1719,10 @@ fn active_prompt_start_visible_row(
         return None;
     }
     let start = active_prompt_start?;
-    let visible = start.checked_sub(scrollback_rows)?;
+    if !start.collapse_on_reflow {
+        return None;
+    }
+    let visible = start.absolute_row.checked_sub(scrollback_rows)?;
     (visible < visible_rows && visible <= cursor_row).then_some(visible)
 }
 /// Repair wide-character pairs broken by a row-local shift (ICH/DCH). A

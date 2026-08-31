@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use std::collections::HashMap;
 use std::io::Write;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
@@ -98,6 +99,7 @@ mod clipboard_routing;
 // Session, tab, workspace, pane, and window commands. Extracted from this file
 // without behavior change.
 pub(in crate::native) mod click_hint;
+mod command_output;
 mod commands;
 // Configuration lifecycle: settings reload, settings application, autosave and
 // restore maintenance. Extracted from this file without behavior change.

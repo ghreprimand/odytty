@@ -124,6 +124,87 @@ fn finished_success_command() -> &'static [u8] {
     b"\x1b]133;A\x07$ true\r\n\x1b]133;C\x07\x1b]133;D;0\x07"
 }
 
+fn finished_command_with_output() -> &'static [u8] {
+    b"\x1b]133;A\x07$ printf demo\r\n\x1b]133;C\x07alpha\r\nbeta\r\n\x1b]133;D;0\x07"
+}
+
+#[test]
+fn verified_command_actions_select_copy_and_project_visible_text() {
+    let Some(mut app) = build_app(Settings::default(), finished_command_with_output()) else {
+        return;
+    };
+
+    assert_eq!(
+        app.command_output_text_for_export_for_test().as_deref(),
+        Some("alpha\nbeta")
+    );
+    app.copy_command_output_for_test(false);
+    assert_eq!(
+        app.last_clipboard_write_for_test().as_deref(),
+        Some("alpha\nbeta")
+    );
+
+    app.select_command_output_for_test(true);
+    assert_eq!(
+        app.selection_text_for_test().as_deref(),
+        Some("$ printf demo\nalpha\nbeta")
+    );
+}
+
+#[test]
+fn command_export_projection_drops_terminal_metadata() {
+    let stream = b"\x1b]133;A\x07$ demo\r\n\x1b]133;C\x07\x1b]7;file:///private/path\x07\x1b]8;;https://example.invalid/secret\x07LINK\x1b]8;;\x07\r\n\x1b]133;D;0\x07";
+    let Some(app) = build_app(Settings::default(), stream) else {
+        return;
+    };
+    assert_eq!(
+        app.command_output_text_for_export_for_test().as_deref(),
+        Some("LINK")
+    );
+}
+
+#[test]
+fn partial_or_stale_command_authority_fails_closed() {
+    let partial = b"\x1b]133;A\x07$ demo\r\n\x1b]133;C\x07output";
+    let Some(mut partial_app) = build_app(Settings::default(), partial) else {
+        return;
+    };
+    partial_app.select_command_output_for_test(false);
+    assert!(
+        partial_app
+            .open_notice_message_for_test()
+            .is_some_and(|message| message.contains("complete current OSC 133 range"))
+    );
+
+    let Some(mut app) = build_app(Settings::default(), finished_command_with_output()) else {
+        return;
+    };
+    let handle = app.command_handle_for_test().expect("verified handle");
+    app.advance_primary_terminal_for_test(b"changed");
+    app.select_command_handle_for_test(handle);
+    assert!(
+        app.open_notice_message_for_test()
+            .is_some_and(|message| message.contains("complete current OSC 133 range"))
+    );
+}
+
+#[test]
+fn command_scoped_search_excludes_other_commands_and_invalidates_on_change() {
+    let stream = b"\x1b]133;A\x07$ first\r\n\x1b]133;C\x07needle old\r\n\x1b]133;D;1\x07\x1b]133;A\x07$ second\r\n\x1b]133;C\x07needle new\r\n\x1b]133;D;0\x07";
+    let Some(mut app) = build_app(Settings::default(), stream) else {
+        return;
+    };
+    app.search_command_output_for_test();
+    app.drive_scoped_command_search_for_test("needle");
+    assert_eq!(app.command_search_match_count_for_test(), 1);
+
+    app.advance_primary_terminal_for_test(b"changed");
+    app.drive_scoped_command_search_for_test("");
+    assert_eq!(app.command_search_match_count_for_test(), 0);
+
+    app.jump_failed_command_for_test(false);
+}
+
 #[test]
 fn gutter_off_emits_no_overlays_even_with_marks() {
     let off = Settings {

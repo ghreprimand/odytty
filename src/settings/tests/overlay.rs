@@ -291,11 +291,21 @@ fn empty_cursor_settings_are_silent_defaults() {
 
 #[test]
 fn builtin_theme_name_does_not_consult_theme_files() {
-    // A built-in name resolves to its const without touching `read_theme`.
-    let (settings, warnings) = settings_from_theme("odyssey", |_| {
+    // The canonical built-in name resolves without touching `read_theme`.
+    let (settings, warnings) = settings_from_theme("odyssey-classic", |_| {
         panic!("read_theme must not be called for built-ins")
     });
-    assert_eq!(settings.theme, Theme::ODYSSEY);
+    assert_eq!(settings.theme, Theme::ODYSSEY_CLASSIC);
+    assert_eq!(settings.theme.name, "odyssey-classic");
+    assert!(warnings.is_empty());
+
+    // The former short name remains a compatibility alias, but canonicalizes
+    // to the descriptive name for display and subsequent writeback.
+    let (legacy, warnings) = settings_from_theme("odyssey", |_| {
+        panic!("legacy built-in aliases must not consult theme files")
+    });
+    assert_eq!(legacy.theme, Theme::ODYSSEY_CLASSIC);
+    assert_eq!(legacy.theme.name, "odyssey-classic");
     assert!(warnings.is_empty());
 }
 

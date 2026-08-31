@@ -22,7 +22,18 @@
 //! yields `None` (the caller leaves the row's existing mark untouched) and no
 //! input byte sequence can panic — mirroring the OSC 7 parse policy.
 
+#[cfg(test)]
 use super::search::AbsolutePoint;
+
+mod command_ranges;
+
+pub use command_ranges::{
+    CommandBlock, CommandDirection, CommandOutput, CommandRangeHandle, CommandRangePart,
+    CommandStatus, JumpDirection, VerifiedCommandRange, command_blocks, command_output_cell_range,
+    command_output_range, command_status, failed_command_target, jump_target,
+    resolve_verified_command_handle, verified_command_cell_range, verified_command_for_rows,
+    verified_command_handle_for_rows, verified_command_handles, verified_command_ranges,
+};
 
 /// A semantic boundary reported by the shell via OSC 133, anchored to a single
 /// physical row. Small and `Copy` so it rides on every [`super::screen::Line`]
@@ -46,6 +57,16 @@ pub enum PromptKind {
     /// The command finished (OSC 133 `D`); `exit` is its status when the shell
     /// reported a numeric code (absent / non-numeric → `None`).
     CommandEnd { exit: Option<i32> },
+    /// A stamped command end with its cell offset inside the logical line.
+    ///
+    /// The parser produces [`PromptKind::CommandEnd`]; the screen enriches it
+    /// at stamp time. Keeping the offset with the logical-line mark lets
+    /// command-output actions retain a final unterminated output fragment
+    /// across reflow without selecting the following prompt.
+    CommandEndAt {
+        exit: Option<i32>,
+        logical_offset: u32,
+    },
     /// The row begins a shell prompt AND carried the previous command's end
     /// before the prompt was stamped. Real shells emit `D` (command finished)
     /// and the next prompt's `A` back to back in the same hook with no
@@ -57,6 +78,12 @@ pub enum PromptKind {
     /// `D` was closing. For every prompt-shaped question (jump targets, block
     /// delimiting) this row IS a [`PromptKind::PromptStart`].
     PromptStartAfterEnd { prev_exit: Option<i32> },
+    /// A same-line command end followed by the next prompt, retaining the
+    /// command-end offset as well as its exit status.
+    PromptStartAfterEndAt {
+        prev_exit: Option<i32>,
+        end_logical_offset: u32,
+    },
 }
 
 /// Merge a freshly parsed OSC 133 mark into a row's existing mark (SH1 stamps
@@ -86,9 +113,29 @@ pub(in crate::core) fn merge_mark(existing: Option<PromptKind>, new: PromptKind)
         (Some(PromptKind::CommandEnd { exit }), PromptKind::PromptStart) => {
             PromptKind::PromptStartAfterEnd { prev_exit: exit }
         }
+        (
+            Some(PromptKind::CommandEndAt {
+                exit,
+                logical_offset,
+            }),
+            PromptKind::PromptStart,
+        ) => PromptKind::PromptStartAfterEndAt {
+            prev_exit: exit,
+            end_logical_offset: logical_offset,
+        },
         (Some(PromptKind::PromptStartAfterEnd { prev_exit }), PromptKind::PromptStart) => {
             PromptKind::PromptStartAfterEnd { prev_exit }
         }
+        (
+            Some(PromptKind::PromptStartAfterEndAt {
+                prev_exit,
+                end_logical_offset,
+            }),
+            PromptKind::PromptStart,
+        ) => PromptKind::PromptStartAfterEndAt {
+            prev_exit,
+            end_logical_offset,
+        },
         (_, new) => new,
     }
 }
@@ -189,315 +236,6 @@ pub(in crate::core) fn parse_click_events(parts: &[&[u8]]) -> Option<ClickEvents
         };
     }
     None
-}
-
-/// The output region of a [`CommandBlock`], derived from the marks that bound
-/// it. Absolute-row coordinates (row `0` = oldest scrollback), matching
-/// [`super::screen::Screen::prompt_marks`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandOutput {
-    /// The command produced no addressable output region: either no
-    /// [`PromptKind::OutputStart`] (`C`) mark exists in the block (the prompt is
-    /// awaiting input), or the command finished without printing — in which case
-    /// the `C` and `D` marks collide on one row and `D` wins, leaving the block
-    /// with a [`PromptKind::CommandEnd`] but no `OutputStart`. Nothing to select.
-    Empty,
-    /// Output spans these inclusive absolute rows, bounded above by the first
-    /// mark following the `OutputStart` (the block's own `CommandEnd`, or — when
-    /// no `D` arrived — the next prompt).
-    Rows { start: usize, end: usize },
-    /// Output began at `start` but no following mark bounds it yet: the command
-    /// is still running, or this is the last block in the buffer. The consumer
-    /// clamps the end to the live buffer's last row.
-    Open { start: usize },
-}
-
-/// A single shell command, derived from the ordered OSC 133 mark list produced
-/// by [`super::screen::Screen::prompt_marks`]. This is the shared substance the
-/// command-aware UX (jump-to-prompt, command-output select/copy, the
-/// success/fail gutter) and OSC 133 click-to-position all consume; deriving it
-/// once in core keeps one coordinate convention and one set of edge-case rules.
-///
-/// All rows are absolute (row `0` = oldest scrollback). The derivation tolerates
-/// partial / malformed transcripts without panicking, mirroring the parser's
-/// defensive posture: a prompt with no `C` is awaiting input
-/// ([`CommandOutput::Empty`], no `exit`); a `C` with no `D` is still running
-/// ([`CommandOutput::Open`], `exit: None`); a stray `D`/`C` before the first
-/// prompt belongs to no block and is ignored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CommandBlock {
-    /// Absolute row of the [`PromptKind::PromptStart`] (`A`/`B`) opening the
-    /// block — the prompt and typed command line.
-    pub prompt_row: usize,
-    /// Absolute row of the [`PromptKind::OutputStart`] (`C`), once the command
-    /// has executed; `None` while the prompt is awaiting input.
-    pub output_start: Option<usize>,
-    /// The output region (see [`CommandOutput`]).
-    pub output: CommandOutput,
-    /// Exit status from the block's closing [`PromptKind::CommandEnd`] (`D`):
-    /// `Some(0)` = success, `Some(n)` = failure, `None` = still running or the
-    /// shell reported no numeric code.
-    pub exit: Option<i32>,
-}
-
-/// Derive the ordered list of [`CommandBlock`]s from the ascending
-/// `(absolute_row, kind)` mark list returned by
-/// [`super::screen::Screen::prompt_marks`].
-///
-/// A block opens at each [`PromptKind::PromptStart`] and runs until the next
-/// `PromptStart` (or the end of the marks). Within that span the first
-/// [`PromptKind::OutputStart`] begins the output region and the first
-/// [`PromptKind::CommandEnd`] supplies the exit status.
-///
-/// **Exit-association nuance:** the shell emits `D` immediately *before* the
-/// next prompt, so a block's `CommandEnd` lands on a row below its output but
-/// still above the next `PromptStart`. Because the block span is
-/// `[PromptStart, next PromptStart)`, that `D` falls inside this block — its
-/// exit is associated with the *preceding* output, never the following prompt.
-///
-/// The function is pure and never panics on any mark sequence (out-of-order,
-/// missing, or duplicate marks degrade gracefully).
-pub fn command_blocks(marks: &[(usize, PromptKind)]) -> Vec<CommandBlock> {
-    // Indices of the prompt marks — the block delimiters. A merged
-    // PromptStartAfterEnd row is a prompt for delimiting purposes; its
-    // displaced exit is consumed by the PREVIOUS block below.
-    let prompt_indices: Vec<usize> = marks
-        .iter()
-        .enumerate()
-        .filter(|(_, (_, kind))| {
-            matches!(
-                kind,
-                PromptKind::PromptStart | PromptKind::PromptStartAfterEnd { .. }
-            )
-        })
-        .map(|(index, _)| index)
-        .collect();
-
-    let mut blocks = Vec::with_capacity(prompt_indices.len());
-    for (slot, &start_index) in prompt_indices.iter().enumerate() {
-        let prompt_row = marks[start_index].0;
-        // This block owns the marks in (start_index, end_index): everything
-        // between this prompt and the next prompt (or the end of the list).
-        let end_index = prompt_indices.get(slot + 1).copied().unwrap_or(marks.len());
-        let next_prompt_row = prompt_indices.get(slot + 1).map(|&index| marks[index].0);
-
-        let mut output_start = None;
-        let mut command_end_row = None;
-        let mut exit = None;
-        for &(row, kind) in &marks[start_index + 1..end_index] {
-            match kind {
-                PromptKind::OutputStart if output_start.is_none() => output_start = Some(row),
-                PromptKind::CommandEnd { exit: code } if command_end_row.is_none() => {
-                    command_end_row = Some(row);
-                    exit = code;
-                }
-                _ => {}
-            }
-        }
-        // A next prompt that merged over this block's `D` (the universal
-        // same-row `D`+`A` shape) carries the displaced exit: treat it as a
-        // virtual CommandEnd on the next prompt's row. It bounds the output
-        // exactly where the next prompt row already did, so output regions
-        // are unchanged. A real interior `D` (first-wins, as ever) takes
-        // precedence over the displaced one.
-        if command_end_row.is_none()
-            && let Some(&next_index) = prompt_indices.get(slot + 1)
-            && let (row, PromptKind::PromptStartAfterEnd { prev_exit }) = marks[next_index]
-        {
-            command_end_row = Some(row);
-            exit = prev_exit;
-        }
-
-        let output = match output_start {
-            None => CommandOutput::Empty,
-            Some(start) => {
-                // Bound the output by the first mark after it. The CommandEnd
-                // (`D`) bounds it most tightly when present; otherwise the next
-                // prompt does. The `D` row itself is the "finished" marker, not
-                // output, so output ends at `bound - 1`.
-                let bound = match (command_end_row, next_prompt_row) {
-                    (Some(end), Some(next)) => Some(end.min(next)),
-                    (Some(end), None) => Some(end),
-                    (None, Some(next)) => Some(next),
-                    (None, None) => None,
-                };
-                match bound {
-                    Some(bound) if bound > start => CommandOutput::Rows {
-                        start,
-                        end: bound - 1,
-                    },
-                    // Degenerate (a bounding mark at or before the output start):
-                    // no addressable output region.
-                    Some(_) => CommandOutput::Empty,
-                    None => CommandOutput::Open { start },
-                }
-            }
-        };
-
-        blocks.push(CommandBlock {
-            prompt_row,
-            output_start,
-            output,
-            exit,
-        });
-    }
-    blocks
-}
-
-/// Direction for [`jump_target`]: navigate to the previous (older) or next
-/// (newer) prompt relative to a cursor row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JumpDirection {
-    /// Toward older scrollback — the nearest [`PromptKind::PromptStart`] whose
-    /// row is strictly *less* than the current row.
-    Prev,
-    /// Toward newer output — the nearest [`PromptKind::PromptStart`] whose row is
-    /// strictly *greater* than the current row.
-    Next,
-}
-
-/// Return the absolute row of the previous / next [`PromptKind::PromptStart`]
-/// relative to `current_row`, or `None` when there is no prompt past the cursor
-/// in that direction (a no-op at the buffer's first / last prompt).
-///
-/// This backs the prompt-jump navigation (Ctrl+Shift+Up/Down): from any cursor
-/// row, hop to the nearest prompt boundary. The comparison is **strict**, so a
-/// cursor already sitting on a prompt row jumps clear of it rather than sticking.
-///
-/// Pure and order-independent: it scans for the min-above / max-below
-/// `PromptStart` rather than assuming the mark list is sorted, so an
-/// out-of-order or partial transcript still yields the correct neighbour and
-/// never panics. Non-`PromptStart` marks (`C` / `D`) are not jump targets.
-pub fn jump_target(
-    marks: &[(usize, PromptKind)],
-    current_row: usize,
-    direction: JumpDirection,
-) -> Option<usize> {
-    marks
-        .iter()
-        .filter(|(_, kind)| {
-            matches!(
-                kind,
-                PromptKind::PromptStart | PromptKind::PromptStartAfterEnd { .. }
-            )
-        })
-        .map(|&(row, _)| row)
-        .filter(|&row| match direction {
-            JumpDirection::Prev => row < current_row,
-            JumpDirection::Next => row > current_row,
-        })
-        .reduce(|best, row| match direction {
-            // Prev wants the largest row still below the cursor (closest from
-            // above); Next wants the smallest row still above it.
-            JumpDirection::Prev => best.max(row),
-            JumpDirection::Next => best.min(row),
-        })
-}
-
-/// The inclusive absolute-row range to select for a command's output, or `None`
-/// when the block has nothing addressable to select.
-///
-/// `last_row` is the live buffer's last absolute row, used to clamp an
-/// [`CommandOutput::Open`] region (a still-running command, or the final block):
-/// the open output runs from its start through the current tail.
-///
-/// - [`CommandOutput::Rows`] `{ start, end }` → `Some((start, end))` (the bounded
-///   span as derived; `end` is clamped to `last_row` defensively).
-/// - [`CommandOutput::Open`] `{ start }` → `Some((start, last_row))`, clamped so
-///   `end >= start` even if the buffer is somehow shorter than the mark.
-/// - [`CommandOutput::Empty`] → `None` (a prompt awaiting input, or a command
-///   that printed nothing — there is no output region to select).
-///
-/// Backs command-output select/copy (select-only by default). Pure; never
-/// panics regardless of `last_row` relative to the block's rows.
-pub fn command_output_range(block: &CommandBlock, last_row: usize) -> Option<(usize, usize)> {
-    match block.output {
-        CommandOutput::Empty => None,
-        CommandOutput::Rows { start, end } => Some((start, end.min(last_row).max(start))),
-        CommandOutput::Open { start } => Some((start, last_row.max(start))),
-    }
-}
-
-/// The inclusive absolute **cell** range to select for a command's output, as an
-/// [`AbsolutePoint`] `(start, end)` pair, or `None` when the block has nothing
-/// addressable to select.
-///
-/// Command output is line-oriented, so the selection spans whole rows: it begins
-/// at the first output row's column `0` and ends at the last output row's last
-/// column (`columns - 1`). This is the authoritative span — the native
-/// select/copy layer highlights `start..=end` directly and expands nothing, so
-/// the coordinate convention lives in exactly one place (consistent with
-/// [`jump_target`] / [`prompt_jump`]).
-///
-/// `last_row` clamps an open (still-running / final) region exactly as in
-/// [`command_output_range`], which this builds on. `columns` is the grid width;
-/// the inclusive last column is `columns - 1`. The `end` is **inclusive**,
-/// matching the [`super::search::SearchMatch`] convention the highlighter
-/// already consumes.
-///
-/// Edge cases (pure; never panics):
-/// - [`CommandOutput::Empty`] → `None`.
-/// - `columns == 0` (a zero-width grid) → the last column saturates to `0`, so
-///   the range degenerates to column `0` on each row rather than underflowing.
-pub fn command_output_cell_range(
-    block: &CommandBlock,
-    last_row: usize,
-    columns: usize,
-) -> Option<(AbsolutePoint, AbsolutePoint)> {
-    let (start_row, end_row) = command_output_range(block, last_row)?;
-    let last_column = columns.saturating_sub(1);
-    Some((
-        AbsolutePoint {
-            row: start_row,
-            column: 0,
-        },
-        AbsolutePoint {
-            row: end_row,
-            column: last_column,
-        },
-    ))
-}
-
-/// The display status of a command block for the success/fail gutter.
-///
-/// Deliberately conservative: it **never assumes success** from absence. A
-/// command only reads [`CommandStatus::Success`] on an explicit `exit 0`; a
-/// missing exit degrades to [`CommandStatus::Running`] (output still open) or
-/// [`CommandStatus::Unknown`] (no exit was ever recorded — e.g. a shell that
-/// emits prompts but no `D`, or a transcript truncated mid-block). The
-/// same-row `D`+`A` stamp no longer loses the exit: [`merge_mark`] preserves
-/// it as [`PromptKind::PromptStartAfterEnd`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandStatus {
-    /// The command finished with an explicit exit status of `0`.
-    Success,
-    /// The command finished with an explicit non-zero exit status.
-    Fail,
-    /// No exit status yet and the output region is still open — the command is
-    /// (or may be) still running.
-    Running,
-    /// No exit status and no open output: either a prompt awaiting input, or a
-    /// finished command whose exit was never reported (no `D` arrived, or the
-    /// transcript was truncated mid-block). The gutter must not present this
-    /// as success or failure.
-    Unknown,
-}
-
-/// Map a [`CommandBlock`] to its [`CommandStatus`] for the gutter.
-///
-/// An explicit exit wins unconditionally (`Some(0)` → success, any other code →
-/// failure). Without an exit, an [`CommandOutput::Open`] region reads as
-/// [`CommandStatus::Running`]; anything else degrades to
-/// [`CommandStatus::Unknown`]. Pure and total.
-pub fn command_status(block: &CommandBlock) -> CommandStatus {
-    match block.exit {
-        Some(0) => CommandStatus::Success,
-        Some(_) => CommandStatus::Fail,
-        None => match block.output {
-            CommandOutput::Open { .. } => CommandStatus::Running,
-            CommandOutput::Empty | CommandOutput::Rows { .. } => CommandStatus::Unknown,
-        },
-    }
 }
 
 /// Where a revealed target row should sit within the viewport when a jump or
@@ -1039,7 +777,7 @@ mod tests {
         assert_eq!(jump_target(&marks, 7, JumpDirection::Next), Some(10));
     }
 
-    // --- command_output_range (SH2 select/copy) ---
+    // --- command_output_range (legacy tolerant helper) ---
 
     #[test]
     fn output_range_rows_returns_the_span() {
@@ -1099,7 +837,7 @@ mod tests {
         assert_eq!(command_output_range(&rows, 3), Some((5, 5)));
     }
 
-    // --- command_output_cell_range (SH2 select/copy, Option (b)) ---
+    // --- command_output_cell_range (legacy tolerant helper) ---
 
     fn point(row: usize, column: usize) -> AbsolutePoint {
         AbsolutePoint { row, column }

@@ -1066,9 +1066,16 @@ fn accelerators_render_and_widen_the_menu() {
     let narrow = m.menu_width();
     // Populate a couple of accelerators in ALL order: Copy and Split Right.
     let mut accels: [Option<String>; CONTEXT_MENU_ITEMS] = std::array::from_fn(|_| None);
-    accels[0] = Some("Ctrl+Shift+C".to_owned());
-    // Split Right is item index 9 in ALL order after F1's New Window (index 6).
-    accels[9] = Some("Ctrl+Shift+E".to_owned());
+    let copy_index = ContextMenuItem::ALL
+        .iter()
+        .position(|item| *item == ContextMenuItem::Copy)
+        .expect("Copy belongs to the complete item set");
+    let split_index = ContextMenuItem::ALL
+        .iter()
+        .position(|item| *item == ContextMenuItem::SplitColumns)
+        .expect("Split Right belongs to the complete item set");
+    accels[copy_index] = Some("Ctrl+Shift+C".to_owned());
+    accels[split_index] = Some("Ctrl+Shift+E".to_owned());
     m.set_accelerators(accels);
 
     let rows = m.rows();
@@ -1081,11 +1088,23 @@ fn accelerators_render_and_widen_the_menu() {
             enabled: true,
         }
     );
-    // Split Right sits at body row 10 in the with-selection menu and carries
-    // its accelerator (accelerators are keyed by ALL order, index 9).
+    // Split Right carries its accelerator regardless of additions elsewhere in
+    // the complete item set.
+    let split_row = rows
+        .iter()
+        .find(|row| {
+            matches!(
+                row,
+                ContextMenuRow::Item {
+                    label: "Split Right",
+                    ..
+                }
+            )
+        })
+        .expect("Split Right is visible in the content menu");
     assert_eq!(
-        rows[10],
-        ContextMenuRow::Item {
+        split_row,
+        &ContextMenuRow::Item {
             label: "Split Right",
             accelerator: Some("Ctrl+Shift+E".to_owned()),
             focused: false,

@@ -111,12 +111,13 @@ impl Theme {
         inactive: (0x66, 0x66, 0x66),
     };
 
-    /// Odyssey default: a deep blue-black field with cool off-white text. The
+    /// Odyssey Classic: the original deep blue-black field with cool off-white
+    /// text. The
     /// clear color is a touch darker than the cell background so the grid reads
     /// as a panel floating on the surface. The ANSI palette is cool-leaning and
     /// tuned for legibility on the dark blue field.
-    pub const ODYSSEY: Theme = Theme {
-        name: "odyssey",
+    pub const ODYSSEY_CLASSIC: Theme = Theme {
+        name: "odyssey-classic",
         foreground: (0xD6, 0xDE, 0xF4),
         background: (0x0C, 0x12, 0x24),
         clear: (0x07, 0x0B, 0x18),
@@ -144,6 +145,12 @@ impl Theme {
         border: (0x1B, 0x24, 0x3E),
         inactive: (0x5A, 0x64, 0x80),
     };
+
+    /// Source-level compatibility alias for the pre-rename Odyssey palette.
+    /// User configuration keeps the equivalent `odyssey` name as an alias in
+    /// [`Theme::from_name`], while pickers and serialization expose the clearer
+    /// canonical `odyssey-classic` name.
+    pub const ODYSSEY: Theme = Theme::ODYSSEY_CLASSIC;
 
     /// Odyssey Noir: a near-black, low-chroma variant for high-contrast text on
     /// a very dark field. The ANSI palette is desaturated to keep the monochrome
@@ -221,7 +228,7 @@ impl Theme {
     /// The const and parsed forms are pinned equal by test.
     pub const ALL: [Theme; 4] = [
         Theme::PLAIN,
-        Theme::ODYSSEY,
+        Theme::ODYSSEY_CLASSIC,
         Theme::ODYSSEY_NOIR,
         Theme::ODYSSEY_DEFAULT,
     ];
@@ -233,6 +240,12 @@ impl Theme {
     /// plain-fallback convenience.
     pub fn from_name(name: &str) -> Option<Theme> {
         let mut key = name.trim().to_ascii_lowercase();
+        // `odyssey` was the original blue-black palette's canonical name.
+        // Keep it resolving byte-identically while presenting the descriptive
+        // `odyssey-classic` name in current pickers and serialized settings.
+        if key == "odyssey" {
+            key = "odyssey-classic".to_string();
+        }
         // Alias (v0.6.0): the flagship default palette was published as
         // `odyssey-jungle` before being promoted to the shipped default and
         // renamed `odyssey-default`. The old name stays a working alias so
@@ -350,13 +363,24 @@ mod tests {
     #[test]
     fn from_name_resolves_known_themes() {
         assert_eq!(Theme::from_name("plain"), Some(Theme::PLAIN));
-        assert_eq!(Theme::from_name("odyssey"), Some(Theme::ODYSSEY));
+        assert_eq!(
+            Theme::from_name("odyssey-classic"),
+            Some(Theme::ODYSSEY_CLASSIC)
+        );
+        assert_eq!(Theme::from_name("odyssey"), Some(Theme::ODYSSEY_CLASSIC));
         assert_eq!(Theme::from_name("odyssey-noir"), Some(Theme::ODYSSEY_NOIR));
     }
 
     #[test]
     fn from_name_is_case_and_whitespace_insensitive() {
-        assert_eq!(Theme::from_name("  ODYSSEY  "), Some(Theme::ODYSSEY));
+        assert_eq!(
+            Theme::from_name("  ODYSSEY  "),
+            Some(Theme::ODYSSEY_CLASSIC)
+        );
+        assert_eq!(
+            Theme::from_name(" Odyssey-Classic "),
+            Some(Theme::ODYSSEY_CLASSIC)
+        );
         assert_eq!(Theme::from_name("Odyssey-Noir"), Some(Theme::ODYSSEY_NOIR));
     }
 
@@ -371,7 +395,10 @@ mod tests {
         assert_eq!(Theme::from_name_or_default("nope"), Theme::PLAIN);
         assert_eq!(Theme::from_name_or_default(""), Theme::PLAIN);
         // A valid name still resolves to the requested theme.
-        assert_eq!(Theme::from_name_or_default("odyssey"), Theme::ODYSSEY);
+        assert_eq!(
+            Theme::from_name_or_default("odyssey"),
+            Theme::ODYSSEY_CLASSIC
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ impl Default for ContextMenuUi {
             cut_enabled: false,
             paste_enabled: false,
             delete_enabled: false,
+            command_actions_enabled: false,
             prompt_editing_hint: false,
             rename_target: None,
             multi_pane: false,
@@ -93,6 +94,7 @@ impl ContextMenuUi {
         self.cut_enabled = cut_enabled;
         self.paste_enabled = paste_enabled;
         self.delete_enabled = delete_enabled;
+        self.command_actions_enabled = false;
         self.prompt_editing_hint = prompt_editing_hint;
         self.rename_target = rename_target;
         self.multi_pane = multi_pane;
@@ -137,6 +139,7 @@ impl ContextMenuUi {
         self.cut_enabled = false;
         self.paste_enabled = false;
         self.delete_enabled = false;
+        self.command_actions_enabled = false;
         self.prompt_editing_hint = false;
         self.rename_target = None;
         self.multi_pane = false;
@@ -172,6 +175,10 @@ impl ContextMenuUi {
     /// leaves it at `0`, where no Move rows are composed anyway.
     pub(in crate::native) fn set_workspace_count(&mut self, count: usize) {
         self.workspace_count = count;
+    }
+
+    pub(in crate::native) fn set_command_actions_enabled(&mut self, enabled: bool) {
+        self.command_actions_enabled = enabled;
     }
 
     /// The saved host snapshotted for a `ConnectionRow` menu (ODP-2C), if any.
@@ -219,6 +226,14 @@ impl ContextMenuUi {
             ContextMenuItem::Paste => self.paste_enabled,
             ContextMenuItem::Delete => self.delete_enabled,
             ContextMenuItem::SelectAll => true,
+            ContextMenuItem::SelectCommandOutput
+            | ContextMenuItem::SelectCommandWithPrompt
+            | ContextMenuItem::CopyCommandOutput
+            | ContextMenuItem::CopyCommandWithPrompt
+            | ContextMenuItem::SearchCommandOutput
+            | ContextMenuItem::JumpFailedCommandPrev
+            | ContextMenuItem::JumpFailedCommandNext
+            | ContextMenuItem::ExportCommandOutput => self.command_actions_enabled,
             ContextMenuItem::NewTab => true,
             ContextMenuItem::NewWindow => true,
             ContextMenuItem::RenameTab => self.rename_target.is_some(),

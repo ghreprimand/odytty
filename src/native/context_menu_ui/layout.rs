@@ -151,6 +151,20 @@ impl ContextMenuUi {
         ContextMenuItem::ALL
             .into_iter()
             .filter(|item| !matches!(item, ContextMenuItem::ClosePane) || self.multi_pane)
+            .filter(|item| {
+                self.command_actions_enabled
+                    || !matches!(
+                        item,
+                        ContextMenuItem::SelectCommandOutput
+                            | ContextMenuItem::SelectCommandWithPrompt
+                            | ContextMenuItem::CopyCommandOutput
+                            | ContextMenuItem::CopyCommandWithPrompt
+                            | ContextMenuItem::SearchCommandOutput
+                            | ContextMenuItem::JumpFailedCommandPrev
+                            | ContextMenuItem::JumpFailedCommandNext
+                            | ContextMenuItem::ExportCommandOutput
+                    )
+            })
             // `Close Other Tabs` and `Move to Workspace` are tab-scoped:
             // never on content. New/Rename/Close Workspace ARE on content (their
             // own section after Split); Rename/Close target the active workspace.

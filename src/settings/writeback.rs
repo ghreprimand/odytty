@@ -490,7 +490,7 @@ mod tests {
             SettingEdit {
                 key: "theme",
                 env: super::super::THEME_ENV,
-                value: "odyssey".to_owned(),
+                value: "odyssey-classic".to_owned(),
             },
         ]);
         let output = rewrite_config(
@@ -502,7 +502,7 @@ mod tests {
         assert!(output.contains("unknown_future = yes"));
         assert!(output.contains("font_size = 16 # keep unit"));
         assert!(output.contains("font_size = 21\n"));
-        assert!(output.contains("theme = odyssey\n"));
+        assert!(output.contains("theme = odyssey-classic\n"));
     }
 
     #[test]

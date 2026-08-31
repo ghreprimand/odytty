@@ -230,9 +230,24 @@ fn all_text_source_entry_points_share_the_hold_policy() {
             4 => app.route_external_text_drop_for_test("a\nb"),
             _ => app.route_automation_paste_for_test("a\nb"),
         }
-        assert!(app.risky_paste_pending_for_test());
+        let route_is_available = route != 3
+            || cfg!(all(
+                unix,
+                not(any(
+                    target_os = "macos",
+                    target_os = "android",
+                    target_os = "emscripten"
+                ))
+            ));
+        assert_eq!(
+            app.risky_paste_pending_for_test(),
+            route_is_available,
+            "route {route} must follow its platform availability contract"
+        );
         assert!(bytes.lock().expect("held bytes").is_empty());
-        app.cancel_risky_paste_for_test();
+        if route_is_available {
+            app.cancel_risky_paste_for_test();
+        }
     }
 }
 

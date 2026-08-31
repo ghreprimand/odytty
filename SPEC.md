@@ -684,7 +684,23 @@ wired — `Ctrl+Shift+Up` / `Ctrl+Shift+Down` (and the matching command-palette
 actions) move the viewport between prompt marks — and a `command_status_gutter`
 setting, on by default, marks command success/failure in every visible pane.
 Each gutter uses that pane's prompt marks, viewport, origin, and clip rectangle.
-Per-command output selection remains downstream work.
+
+Complete ordered A/C/D boundaries now mint an opaque command-range handle bound
+to the terminal's current render generation. Select Command Output, Select
+Command With Prompt, both copy variants, Search Command Output, previous/next
+failed-command navigation, and Export Command Output resolve that handle against
+the live grid before acting. Missing, duplicated, partial, evicted, reset,
+alternate-screen, or otherwise stale boundaries make the action unavailable;
+OdyTTY never infers a command from visible text. The range remains metadata over
+the existing grid and scrollback rather than a second block-document model.
+
+Export opens an explicit native save dialog and then re-resolves the range. Only
+the canonical visible cell-text projection is written: terminal controls, OSC
+metadata, hyperlink targets, inline-image data, and working-directory metadata
+do not cross the boundary. The output is capped at 32 MiB, written through an
+exclusive owner-private sibling temporary file, and atomically replaced after
+the selected destination is revalidated. Cancellation and any validation,
+range, or write failure leave no partial export.
 
 #### Gate Prompt-Aware Editing
 
@@ -914,7 +930,7 @@ scope rather than silently inheriting deferred work from a prior release.
 
 - Configurable terminal-local key bindings; `keybinds` / `ODYTTY_KEYBINDS`
   supports all bindable local, tab, palette, and pane actions. The in-app
-  key-remap editor in the settings panel covers every bindable action (all 40)
+  key-remap editor in the settings panel covers every bindable action (all 48)
   (select a row and press `Enter` to capture a new chord, `Backspace` resets to
   default, `R` resets all, conflict prompt on clash, writes to `odytty.conf` via
   the preservation-first writeback path). See
@@ -988,8 +1004,8 @@ scope rather than silently inheriting deferred work from a prior release.
   optional CRT scanline visual effect (`visual=ambient`/`scanlines` are
   back-compat aliases for the CRT path when no explicit `crt` setting is
   present; explicit `crt` always wins). The community roster includes the
-  published `red-planet` palette and `red-planet-dark`, which preserves its
-  accents while lowering only the background and clear roles.
+  published `red-planet` palette and the lower-glare `red-planet-dark`, which
+  pairs a deeper canvas with dusty iron-red text and clearer ANSI blues.
 
 - In-window overlay framework (`src/native/overlay.rs`): a native multi-row
   panel layer rendered through the existing cell path — text fields, lists,
@@ -1010,11 +1026,14 @@ scope rather than silently inheriting deferred work from a prior release.
   `Ctrl+Shift+H` lists built-ins, previews each theme on arrow
   navigation, persists the selected built-in with `Enter`, and restores the
   originally active theme with `Esc`. The custom theme builder has landed:
-  clone/tweak/author with live preview, saved to a user `.theme` file. A draft
-  can also be captured from a pane's live dynamic-color state (OSC 4 palette
-  overrides and OSC 10/11/12 fg/bg/cursor, theme-seeded where no override
-  exists), with the remaining semantic roles derived by documented
-  luminance-based heuristics.
+  clone/tweak/author with live preview, OKLCH sliders, and direct hex entry by
+  clicking a displayed role value or pressing `Enter`, saved to a user `.theme`
+  file. Successful picker and builder saves re-read the canonical config before
+  leaving the child overlay, so the resolved colors and displayed theme token
+  cannot retain different preview states. A draft can also be captured from a
+  pane's live dynamic-color state (OSC 4 palette overrides and OSC 10/11/12
+  fg/bg/cursor, theme-seeded where no override exists), with the remaining
+  semantic roles derived by documented luminance-based heuristics.
 
 - Multi-session tabs: the native app runs multiple PTY/terminal sessions in a
   `WorkspaceSet`, routes PTY output by session id, and shows a one-row tab bar

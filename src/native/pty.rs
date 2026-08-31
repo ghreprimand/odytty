@@ -32,6 +32,14 @@ pub(super) enum UserEvent {
         session: SessionToken,
         remote_path: String,
     },
+    CommandExportDestination {
+        request_id: u64,
+        selection: super::save_dialog::SaveDialogSelection,
+    },
+    CommandExportFinished {
+        session: SessionToken,
+        result: Result<(), super::command_export::CommandExportError>,
+    },
 }
 
 /// The single PTY master writer, shared behind a lock.

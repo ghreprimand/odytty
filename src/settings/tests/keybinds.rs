@@ -220,8 +220,26 @@ fn all_bindable_actions_is_exhaustive() {
     fn classify(action: BindableAction) -> u8 {
         use BindableAction::*;
         match action {
-            Search | SettingsPanel | ThemePicker | Copy | Paste | ScrollPageUp | ScrollPageDown
-            | JumpPromptPrev | JumpPromptNext | CopyMode | Hints | ClearInput => 0,
+            Search
+            | SettingsPanel
+            | ThemePicker
+            | Copy
+            | Paste
+            | ScrollPageUp
+            | ScrollPageDown
+            | JumpPromptPrev
+            | JumpPromptNext
+            | SelectCommandOutput
+            | SelectCommandWithPrompt
+            | CopyCommandOutput
+            | CopyCommandWithPrompt
+            | SearchCommandOutput
+            | JumpFailedCommandPrev
+            | JumpFailedCommandNext
+            | ExportCommandOutput
+            | CopyMode
+            | Hints
+            | ClearInput => 0,
             CommandPalette | ConnectionManager | SessionReplay | ThemeBuilder | SessionAttach => 1,
             NewTab | NewWindow | NextTab | PrevTab | CloseTab | DuplicateTab => 2,
             NewWorkspace | DuplicateWorkspace | CloseWorkspace | RenameWorkspace

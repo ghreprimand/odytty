@@ -601,7 +601,7 @@ mod tests {
         assert_eq!(theme.palette, Theme::ODYSSEY.palette);
         assert_eq!(theme.cursor, Theme::ODYSSEY.cursor);
         // A spec named after a built-in keeps that static name.
-        assert_eq!(theme.name, "odyssey");
+        assert_eq!(theme.name, "odyssey-classic");
     }
 
     #[test]

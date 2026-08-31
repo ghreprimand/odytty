@@ -407,9 +407,11 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
   through the settings/config seam.
 - 144 built-in themes across OdyTTY original, community, and retro/phosphor
   families.
-- An in-app theme builder with live preview, saved to a user theme file. Its
-  draft can be cloned from a theme, generated from a seed, or captured from the
-  focused pane's live dynamic colors.
+- An in-app theme builder with live preview, OKLCH sliders, and click-to-edit hex
+  values, saved to a user theme file. Its draft can be cloned from a theme,
+  generated from a seed, or captured from the focused pane's live dynamic
+  colors. Successful saves replace preview-only state with the canonical
+  reloaded theme before the overlay closes.
 
 The indexed-color render path is theme-driven; OSC-4 / dynamic-color overrides
 layer on top with correct precedence. See [`docs/themes.md`](themes.md) for the full roster

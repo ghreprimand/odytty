@@ -19,6 +19,20 @@ fn osc133(payload: &str) -> Vec<u8> {
     bytes
 }
 
+fn stamped(kind: PromptKind, logical_offset: u32) -> PromptKind {
+    match kind {
+        PromptKind::CommandEnd { exit } => PromptKind::CommandEndAt {
+            exit,
+            logical_offset,
+        },
+        PromptKind::PromptStartAfterEnd { prev_exit } => PromptKind::PromptStartAfterEndAt {
+            prev_exit,
+            end_logical_offset: logical_offset,
+        },
+        kind => kind,
+    }
+}
+
 #[test]
 fn marks_each_subcommand_on_the_cursor_row() {
     let mut terminal = Terminal::new(8, 4);
@@ -46,7 +60,7 @@ fn marks_each_subcommand_on_the_cursor_row() {
     terminal.advance(&osc133("D;0"));
     assert_eq!(
         terminal.prompt_mark_at(3),
-        Some(PromptKind::CommandEnd { exit: Some(0) })
+        Some(stamped(PromptKind::CommandEnd { exit: Some(0) }, 0))
     );
 }
 
@@ -56,7 +70,7 @@ fn command_end_parses_exit_code() {
     terminal.advance(&osc133("D;130"));
     assert_eq!(
         terminal.prompt_mark_at(0),
-        Some(PromptKind::CommandEnd { exit: Some(130) })
+        Some(stamped(PromptKind::CommandEnd { exit: Some(130) }, 0))
     );
 }
 
@@ -66,7 +80,7 @@ fn command_end_without_code_is_none_exit() {
     terminal.advance(&osc133("D"));
     assert_eq!(
         terminal.prompt_mark_at(0),
-        Some(PromptKind::CommandEnd { exit: None })
+        Some(stamped(PromptKind::CommandEnd { exit: None }, 0))
     );
 }
 
@@ -77,13 +91,13 @@ fn malformed_exit_code_does_not_panic_and_yields_none() {
     terminal.advance(&osc133("D;xx"));
     assert_eq!(
         terminal.prompt_mark_at(0),
-        Some(PromptKind::CommandEnd { exit: None })
+        Some(stamped(PromptKind::CommandEnd { exit: None }, 0))
     );
     // Overflowing payload: still no panic, exit None.
     terminal.advance(&osc133("D;99999999999999999999"));
     assert_eq!(
         terminal.prompt_mark_at(0),
-        Some(PromptKind::CommandEnd { exit: None })
+        Some(stamped(PromptKind::CommandEnd { exit: None }, 0))
     );
 }
 
@@ -271,6 +285,32 @@ fn continuation_anchored_mark_survives_width_reflow() {
     terminal.resize(3, 3);
     assert_eq!(terminal.prompt_mark_at(0), Some(PromptKind::PromptStart));
     assert_eq!(terminal.prompt_mark_at(1), None);
+}
+
+#[test]
+fn command_end_offset_reflows_with_unterminated_output() {
+    let mut terminal = Terminal::new(6, 8);
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"$ printf demo\r\n");
+    terminal.advance(&osc133("C"));
+    terminal.advance(b"alpha\r\nabcdefghij");
+    terminal.advance(&osc133("D;0"));
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"$ ");
+
+    let last_row = terminal.screen().scrollback_len().saturating_add(7);
+    let marks = terminal.prompt_marks();
+    let before = verified_command_ranges(&marks, 6, last_row);
+    assert!(!before.is_empty(), "missing range from {marks:?}");
+    assert_eq!(before[0].output_end_column, Some(3));
+
+    terminal.resize(4, 8);
+    let last_row = terminal.screen().scrollback_len().saturating_add(7);
+    let marks = terminal.prompt_marks();
+    let after = verified_command_ranges(&marks, 4, last_row);
+    assert!(!after.is_empty(), "missing reflowed range from {marks:?}");
+    assert_eq!(after[0].output_end_column, Some(1));
+    assert_eq!(after[0].exit, Some(0));
 }
 
 #[test]
@@ -514,7 +554,7 @@ fn prompt_marks_enumerates_in_ascending_row_order() {
         vec![
             (0, PromptKind::PromptStart),
             (1, PromptKind::OutputStart),
-            (2, PromptKind::CommandEnd { exit: Some(0) }),
+            (2, stamped(PromptKind::CommandEnd { exit: Some(0) }, 0)),
         ]
     );
     // The enumeration agrees with the point query at every marked row.
@@ -574,7 +614,10 @@ fn command_blocks_derive_from_a_real_transcript() {
 
     assert_eq!(
         terminal.prompt_mark_at(2),
-        Some(PromptKind::PromptStartAfterEnd { prev_exit: Some(0) })
+        Some(stamped(
+            PromptKind::PromptStartAfterEnd { prev_exit: Some(0) },
+            0,
+        ))
     );
 
     let blocks = command_blocks(&terminal.prompt_marks());
@@ -682,7 +725,7 @@ fn hostile_and_unterminated_marks_are_inert_or_conservative() {
 
         assert_eq!(
             terminal.prompt_mark_at(0),
-            fixture.expected,
+            fixture.expected.map(|kind| stamped(kind, 0)),
             "hostile OSC 133 fixture: {}",
             fixture.label
         );

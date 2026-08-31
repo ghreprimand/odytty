@@ -41,7 +41,7 @@ recorded milestone before implementation.
       documentation-only foundation and changes no runtime behavior.
 - [x] Add one cross-platform policy for risky non-bracketed text paste while
       preserving ordinary single-line and child-enabled bracketed paste.
-- [ ] Add select, copy, scoped-search, failed-command navigation, and safe
+- [x] Add select, copy, scoped-search, failed-command navigation, and safe
       plain-text export actions over verified OSC 133 command ranges.
 - [ ] Add bounded command completion, progress, activity, silence, failure, and
       notification presentation without changing BEL semantics or stealing
@@ -994,8 +994,9 @@ feature validates against.
         shipped floor is `17.0`; the `1.0` opt-out is exact passthrough.
   - [x] Perceptual-safe theme builder: OKLCH lightness/chroma/hue editing
         with a live contrast readout and snap-to-floor against a dedicated
-        authoring floor, so the builder cannot author an unreadable theme; hex
-        entry stays as the expert fallback.
+        authoring floor, so the builder cannot author an unreadable theme;
+        clicking a role's displayed value or pressing Enter opens direct hex
+        entry as the expert fallback.
   - [x] Contrast-aware palette generation: seed a color and generate a
         readable, floor-validated starting palette to then refine in the
         builder.
@@ -1075,7 +1076,7 @@ feature validates against.
         entry.
   - [x] Surface font-load failures in the overlay instead of failing silently.
   - [x] In-app keybinding editor: the settings panel's Keybindings row opens a
-        dedicated editor where all 40 bindable actions are listed; pressing
+        dedicated editor where all 48 bindable actions are listed; pressing
         a row captures a new chord, `Backspace` resets a row to its default,
         `R` resets all bindings, and conflicts prompt before replacing. Changes
         are written to `odytty.conf` via the preservation-first writeback path;

@@ -584,7 +584,9 @@ fn show_config_reads_temp_config_and_applies_env_override() {
     );
 
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
-    assert_contains_line(&stdout, "theme=odyssey");
+    // The legacy `odyssey` input alias resolves to the renamed canonical
+    // built-in so diagnostics never preserve a stale selector label.
+    assert_contains_line(&stdout, "theme=odyssey-classic");
     assert_contains_line(&stdout, "font_size=21");
     assert_contains_line(&stdout, "render_quality=plain");
     assert_contains_line(&stdout, "window_padding=4");

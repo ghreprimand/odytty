@@ -31,7 +31,7 @@ There are two kinds of theme:
 
 ```conf
 # odytty.conf
-theme = odyssey            # a built-in name
+theme = odyssey-classic    # the original blue-black built-in
 # theme = system           # follow the OS dark/light appearance
 # theme = solarized        # a user theme: <config>/odytty/themes/solarized.theme
 # theme = /path/to/my.theme  # a user theme by absolute/relative path
@@ -41,7 +41,7 @@ Resolution order for the `theme` value:
 
 1. The special value `system` is a config alias — not a built-in name or a file.
    It turns on OS dark/light following: OdyTTY selects `os_theme_dark` (default
-   `odyssey`) when the OS reports a dark appearance and `os_theme_light` (default
+   `odyssey-classic`) when the OS reports a dark appearance and `os_theme_light` (default
    `odyssey-light`) when it reports light. This is resolved before the steps
    below.
 2. Otherwise, if it matches a built-in name (any theme in the [library](#built-in-theme-library)),
@@ -100,6 +100,12 @@ save the result. Saving writes `<theme_dir>/<name>.theme` in exactly the
 ordinary user theme file you can keep editing by hand. On save, role colors are
 snapped to meet the WCAG AA 4.5 contrast target.
 
+Select a role to adjust it with the OKLCH sliders. Click its displayed hex value,
+or select it and press `Enter`, to type `#rgb` or `#rrggbb` directly; the first
+typed digit replaces the prefilled value, `Enter` applies, and `Esc` cancels.
+Successful picker and builder saves reload the canonical config before returning
+to the parent UI, keeping the displayed theme name and applied colors together.
+
 ### Create theme from current colors
 
 A running program can repaint the terminal at any time with the dynamic-color
@@ -152,10 +158,12 @@ path — so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**OdyTTY original** — `plain`, `odyssey`, and the `odyssey-*` variants are
-original themes designed for OdyTTY's public visual identity. The `odyssey` name
-comes from OdysseyOS, a companion Linux From Scratch system, but these themes are
-built into OdyTTY and do not require that system. `odyssey-default` is the
+**OdyTTY original** — `plain` and the `odyssey-*` variants are original themes
+designed for OdyTTY's public visual identity. The original blue-black palette is
+listed as `odyssey-classic`; its former `odyssey` name remains accepted as a
+compatibility alias. The family name comes from OdysseyOS, a companion Linux
+From Scratch system, but these themes are built into OdyTTY and do not require
+that system. `odyssey-default` is the
 fresh-install default; `plain` reproduces the historical xterm default palette
 byte-for-byte and remains available as an explicit compatibility choice. The `odyssey-*`
 variants span a wide range of moods across dark and light appearances —
@@ -182,7 +190,7 @@ or endorsement from any of those vendors.
 | Name | Appearance | Family |
 | --- | --- | --- |
 | `plain` | dark | Pixel-identical to the pre-theme look |
-| `odyssey` | dark | OdyTTY original default |
+| `odyssey-classic` | dark | Original blue-black OdyTTY palette (`odyssey` compatibility alias) |
 | `odyssey-noir` | dark | OdyTTY original (deep, low-key) |
 | `odyssey-light` | light | OdyTTY original (light) |
 | `odyssey-aurora` | dark | OdyTTY original (high-contrast) |
@@ -290,7 +298,7 @@ or endorsement from any of those vendors.
 | `oceanic-next` | dark | Community — deep ocean blue-gray palette |
 | `iceberg-dark` | dark | Community — cool blue high-latitude dark palette |
 | `red-planet` | dark | Community - warm, muted planetary palette |
-| `red-planet-dark` | dark | Community variant - Red Planet over a deeper OdyTTY canvas |
+| `red-planet-dark` | dark | Community variant - deeper canvas, dusty iron-red text, clearer blues |
 | `github-light` | light | Community — GitHub-style light palette, no affiliation |
 | `gruvbox-light` | light | Community — warm retro light palette |
 | `one-light` | light | Community — Atom-style light palette |
@@ -351,7 +359,7 @@ ports are used and adapted under the MIT license.
 
 | Theme(s) | Source | Notes |
 | --- | --- | --- |
-| `plain`, `odyssey`, all `odyssey-*` | OdyTTY original | Original design |
+| `plain`, all `odyssey-*` | OdyTTY original | Original design (`odyssey` remains an alias for `odyssey-classic`) |
 | `amber-crt`, `green-phosphor`, `hercules-amber`, `dos-cga` | OdyTTY original | Original retro-inspired designs |
 | `catppuccin-mocha`, `catppuccin-latte` | Catppuccin | Published palette |
 | `dracula` | Dracula (Zeno Rocha et al.) | Published palette |
@@ -373,7 +381,7 @@ ports are used and adapted under the MIT license.
 | `palenight` | Palenight (Astorino) | MIT-class, ported; no endorsement implied |
 | `papercolor-light` | PaperColor (NLKNguyen) | MIT, ported; no endorsement implied |
 | `rose-pine`, `rose-pine-dawn` | Rose Pine | MIT, ported; no endorsement implied |
-| `red-planet`, `red-planet-dark` | Red Planet (ibrokemypie, based on eliquious; collected by [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)) | Published palette; `red-planet-dark` changes only the OdyTTY background and clear roles |
+| `red-planet`, `red-planet-dark` | Red Planet (ibrokemypie, based on eliquious; collected by [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)) | Published palette plus an OdyTTY lower-glare variant with a deeper canvas and tuned red/blue roles |
 | `tokyo-night-day` | Tokyo Night Day (enkia) | MIT, ported; no endorsement implied |
 | `zenburn` | Zenburn (Jani Nurminen) | Freely ported; no endorsement implied |
 | `apple-ii-green` | Inspired by Apple II display | Apple is a trademark; no affiliation or endorsement |
@@ -438,13 +446,13 @@ round-tripped, but none are projected into the running theme:
 
 ## Example
 
-This is the built-in `odyssey` theme written out in the file format. Copy it to
+This is the built-in `odyssey-classic` theme written out in the file format. Copy it to
 `~/.config/odytty/themes/my-odyssey.theme`, tweak the colors, and select it with
 `theme = my-odyssey`:
 
 ```conf
 # OdyTTY theme
-name = odyssey
+name = odyssey-classic
 appearance = dark
 
 foreground = #d6def4

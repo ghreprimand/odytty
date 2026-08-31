@@ -297,8 +297,22 @@ fn slider_row(b: &ThemeBuilder) -> (usize, usize, usize) {
 fn field_row(b: &ThemeBuilder, index: usize) -> usize {
     b.build_rows(W, H)
         .iter()
-        .position(|(_, zone)| matches!(zone, BuilderZone::Field(i) if *i == index))
+        .position(|(_, zone)| matches!(zone, BuilderZone::Field { index: i, .. } if *i == index))
         .expect("field row present")
+}
+
+fn field_value_hit(b: &ThemeBuilder, index: usize) -> (usize, usize) {
+    b.build_rows(W, H)
+        .iter()
+        .enumerate()
+        .find_map(|(row, (_, zone))| match zone {
+            BuilderZone::Field {
+                index: field_index,
+                value_x0,
+            } if *field_index == index => Some((row, *value_x0)),
+            _ => None,
+        })
+        .expect("field value present")
 }
 
 #[test]
@@ -314,6 +328,57 @@ fn clicking_a_field_row_focuses_that_role() {
         ThemeBuilderOutcome::Consumed
     );
     assert_eq!(b.selected, target, "field click focuses its role");
+    assert!(b.editing.is_none(), "label click leaves sliders available");
+}
+
+#[test]
+fn clicking_a_field_hex_opens_entry_and_typing_replaces_the_value() {
+    let mut b = ThemeBuilder::new(&Settings::default());
+    let target = FIELDS
+        .iter()
+        .position(|f| matches!(f, ThemeField::Cursor))
+        .unwrap();
+    let (row, value_x0) = field_value_hit(&b, target);
+
+    assert_eq!(
+        b.handle_pointer_press(W, H, row, value_x0, PointerButton::Left),
+        ThemeBuilderOutcome::Consumed
+    );
+    assert_eq!(b.selected, target);
+    assert!(matches!(b.editing, Some(EditMode::Color { .. })));
+
+    for ch in "#123456".chars() {
+        assert_eq!(
+            b.handle_input(OverlayInput::Char(ch)),
+            ThemeBuilderOutcome::Consumed
+        );
+    }
+    assert!(matches!(
+        b.render_signature().editing,
+        Some(ThemeBuilderEditSignature::Color { ref buffer, .. }) if buffer == "#123456"
+    ));
+
+    let ThemeBuilderOutcome::Preview(_) = b.handle_input(OverlayInput::Activate) else {
+        panic!("valid direct hex entry should preview");
+    };
+    assert_eq!(b.color(ThemeField::Cursor), (0x12, 0x34, 0x56));
+}
+
+#[test]
+fn right_clicking_a_field_hex_focuses_without_editing() {
+    let mut b = ThemeBuilder::new(&Settings::default());
+    let target = FIELDS
+        .iter()
+        .position(|f| matches!(f, ThemeField::Cursor))
+        .unwrap();
+    let (row, value_x0) = field_value_hit(&b, target);
+
+    assert_eq!(
+        b.handle_pointer_press(W, H, row, value_x0, PointerButton::Right),
+        ThemeBuilderOutcome::Consumed
+    );
+    assert_eq!(b.selected, target);
+    assert!(b.editing.is_none(), "right click must not open hex entry");
 }
 
 #[test]
@@ -553,7 +618,7 @@ fn scroll_indicator_flags_role_overflow_and_clears_when_all_fit() {
     let field_rows = b
         .visible_hit_map(68, 40)
         .into_iter()
-        .filter(|zone| matches!(zone, BuilderZone::Field(_)))
+        .filter(|zone| matches!(zone, BuilderZone::Field { .. }))
         .count();
     assert_eq!(
         field_rows,
@@ -701,7 +766,7 @@ fn help_line_persists_and_status_region_is_fixed_height() {
     );
     let first_field_with_status = rows_with_status
         .iter()
-        .position(|(_, zone)| matches!(zone, BuilderZone::Field(_)))
+        .position(|(_, zone)| matches!(zone, BuilderZone::Field { .. }))
         .expect("role rows present");
 
     // Clear the status entirely — the strongest layout-shift case.
@@ -715,7 +780,7 @@ fn help_line_persists_and_status_region_is_fixed_height() {
     );
     let first_field_without_status = rows_without_status
         .iter()
-        .position(|(_, zone)| matches!(zone, BuilderZone::Field(_)))
+        .position(|(_, zone)| matches!(zone, BuilderZone::Field { .. }))
         .expect("role rows present");
     assert_eq!(
         first_field_with_status, first_field_without_status,

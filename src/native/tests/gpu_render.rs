@@ -1361,6 +1361,7 @@ fn search_sig(query: &str) -> SearchRenderSignature {
         query: query.to_owned(),
         matches: Vec::new(),
         current: None,
+        scoped: false,
     }
 }
 

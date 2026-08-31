@@ -18,6 +18,7 @@ use crate::atlas::SubpixelMode;
 use crate::core::CursorStyle;
 use crate::theme::{Theme, ThemeSpec, VisualEffect};
 
+mod actions;
 mod config;
 mod consts;
 mod descriptions;
@@ -34,6 +35,7 @@ mod serialization;
 mod values;
 mod writeback;
 
+pub use actions::*;
 pub use consts::*;
 pub use descriptions::*;
 pub use editing::{bindable_action_display_name, format_key_chord, key_bindings_config_value};

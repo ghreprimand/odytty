@@ -465,7 +465,7 @@ fn setting_info_formats_current_values_for_display() {
             .unwrap()
     };
 
-    assert_eq!(value("theme"), "odyssey");
+    assert_eq!(value("theme"), "odyssey-classic");
     assert_eq!(value("font_family"), "JetBrains Mono");
     assert_eq!(value("font_size"), "18");
     assert_eq!(value("bloom"), "on");

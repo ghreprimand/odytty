@@ -1,17 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Pure action catalog and source composer for the command palette.
 //!
-//! This module names the terminal-local actions that the future native palette
-//! can dispatch. It does not execute actions, touch PTYs, read files, render an
-//! overlay, or import native code.
-//!
-//! Stable action ids:
-//! `search`, `settings`, `theme-picker`, `copy`, `paste`, `scroll-up`,
-//! `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`,
-//! `clear-input`, `new-tab`, `close-tab`, `next-tab`, `prev-tab`, `rename-tab`,
-//! `split-pane-columns`, `split-pane-rows`, `focus-pane-left`,
-//! `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,
-//! `close-pane`, `zoom-pane`, `equalize-panes`.
+//! This module names the terminal-local actions dispatched by the native
+//! palette. It does not execute actions, touch PTYs, read files, render an
+//! overlay, or import native code. [`STABLE_ACTION_IDS`] is the complete stable
+//! roster and remains the single source for catalog identity.
 
 use std::collections::HashSet;
 
@@ -30,6 +23,14 @@ pub const STABLE_ACTION_IDS: &[&str] = &[
     "scroll-down",
     "jump-prompt-prev",
     "jump-prompt-next",
+    "select-command-output",
+    "select-command-with-prompt",
+    "copy-command-output",
+    "copy-command-with-prompt",
+    "search-command-output",
+    "jump-failed-command-prev",
+    "jump-failed-command-next",
+    "export-command-output",
     "copy-mode",
     "hints",
     "clear-input",
@@ -65,6 +66,14 @@ pub enum PaletteAction {
     ScrollPageDown,
     JumpPromptPrev,
     JumpPromptNext,
+    SelectCommandOutput,
+    SelectCommandWithPrompt,
+    CopyCommandOutput,
+    CopyCommandWithPrompt,
+    SearchCommandOutput,
+    JumpFailedCommandPrev,
+    JumpFailedCommandNext,
+    ExportCommandOutput,
     CopyMode,
     Hints,
     ClearInput,
@@ -99,6 +108,14 @@ impl PaletteAction {
             "scroll-down" => Self::ScrollPageDown,
             "jump-prompt-prev" => Self::JumpPromptPrev,
             "jump-prompt-next" => Self::JumpPromptNext,
+            "select-command-output" => Self::SelectCommandOutput,
+            "select-command-with-prompt" => Self::SelectCommandWithPrompt,
+            "copy-command-output" => Self::CopyCommandOutput,
+            "copy-command-with-prompt" => Self::CopyCommandWithPrompt,
+            "search-command-output" => Self::SearchCommandOutput,
+            "jump-failed-command-prev" => Self::JumpFailedCommandPrev,
+            "jump-failed-command-next" => Self::JumpFailedCommandNext,
+            "export-command-output" => Self::ExportCommandOutput,
             "copy-mode" => Self::CopyMode,
             "hints" => Self::Hints,
             "clear-input" => Self::ClearInput,
@@ -134,6 +151,14 @@ impl PaletteAction {
             Self::ScrollPageDown => "scroll-down",
             Self::JumpPromptPrev => "jump-prompt-prev",
             Self::JumpPromptNext => "jump-prompt-next",
+            Self::SelectCommandOutput => "select-command-output",
+            Self::SelectCommandWithPrompt => "select-command-with-prompt",
+            Self::CopyCommandOutput => "copy-command-output",
+            Self::CopyCommandWithPrompt => "copy-command-with-prompt",
+            Self::SearchCommandOutput => "search-command-output",
+            Self::JumpFailedCommandPrev => "jump-failed-command-prev",
+            Self::JumpFailedCommandNext => "jump-failed-command-next",
+            Self::ExportCommandOutput => "export-command-output",
             Self::CopyMode => "copy-mode",
             Self::Hints => "hints",
             Self::ClearInput => "clear-input",
@@ -168,6 +193,14 @@ impl PaletteAction {
             Self::ScrollPageDown => "Scroll Page Down",
             Self::JumpPromptPrev => "Jump To Previous Prompt",
             Self::JumpPromptNext => "Jump To Next Prompt",
+            Self::SelectCommandOutput => "Select Command Output",
+            Self::SelectCommandWithPrompt => "Select Command With Prompt",
+            Self::CopyCommandOutput => "Copy Command Output",
+            Self::CopyCommandWithPrompt => "Copy Command With Prompt",
+            Self::SearchCommandOutput => "Search Command Output",
+            Self::JumpFailedCommandPrev => "Jump To Previous Failed Command",
+            Self::JumpFailedCommandNext => "Jump To Next Failed Command",
+            Self::ExportCommandOutput => "Export Command Output",
             Self::CopyMode => "Enter Copy Mode",
             Self::Hints => "Open Hints",
             Self::ClearInput => "Clear Input",
@@ -189,7 +222,7 @@ impl PaletteAction {
         }
     }
 
-    /// Search aliases/keywords for future palette ranking.
+    /// Search aliases/keywords used by palette ranking.
     ///
     /// The current `PaletteEntry` stores one match label, so the composer emits
     /// one human-label action row per action and preserves these aliases as the
@@ -211,6 +244,14 @@ impl PaletteAction {
             Self::ScrollPageDown => &["page down", "scrollback down"],
             Self::JumpPromptPrev => &["previous prompt", "prompt up", "shell mark"],
             Self::JumpPromptNext => &["next prompt", "prompt down", "shell mark"],
+            Self::SelectCommandOutput => &["select output", "command range"],
+            Self::SelectCommandWithPrompt => &["select command", "include prompt"],
+            Self::CopyCommandOutput => &["copy output", "command clipboard"],
+            Self::CopyCommandWithPrompt => &["copy command", "include prompt"],
+            Self::SearchCommandOutput => &["find in command", "search output"],
+            Self::JumpFailedCommandPrev => &["previous failure", "failed command up"],
+            Self::JumpFailedCommandNext => &["next failure", "failed command down"],
+            Self::ExportCommandOutput => &["save output", "export command"],
             Self::CopyMode => &["keyboard selection", "select mode"],
             Self::Hints => &["quick select", "links", "paths"],
             Self::ClearInput => &["clear line", "kill line", "readline"],
@@ -260,6 +301,14 @@ pub const DEFAULT_PALETTE_ACTIONS: &[PaletteAction] = &[
     PaletteAction::ScrollPageDown,
     PaletteAction::JumpPromptPrev,
     PaletteAction::JumpPromptNext,
+    PaletteAction::SelectCommandOutput,
+    PaletteAction::SelectCommandWithPrompt,
+    PaletteAction::CopyCommandOutput,
+    PaletteAction::CopyCommandWithPrompt,
+    PaletteAction::SearchCommandOutput,
+    PaletteAction::JumpFailedCommandPrev,
+    PaletteAction::JumpFailedCommandNext,
+    PaletteAction::ExportCommandOutput,
     PaletteAction::CopyMode,
     PaletteAction::Hints,
     PaletteAction::ClearInput,

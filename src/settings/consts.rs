@@ -739,7 +739,7 @@ pub const SYSTEM_THEME_NAME: &str = "system";
 
 /// Default theme name applied to an OS dark signal when `theme = system` is
 /// active and the user has not set an explicit `os_theme_dark` override.
-pub const DEFAULT_OS_THEME_DARK: &str = "odyssey";
+pub const DEFAULT_OS_THEME_DARK: &str = "odyssey-classic";
 
 /// Default theme name applied to an OS light signal when `theme = system` is
 /// active and the user has not set an explicit `os_theme_light` override.

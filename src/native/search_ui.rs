@@ -33,6 +33,9 @@ pub(super) struct SearchUi {
     matches: Vec<SearchMatch>,
     current: Option<SearchMatch>,
     options: SearchOptions,
+    /// Inclusive absolute-cell restriction for a verified OSC 133 command.
+    /// `None` preserves the historical whole-buffer search.
+    scope: Option<(AbsolutePoint, AbsolutePoint, u64)>,
     query_generation: u64,
     refreshed_generation: Option<(u64, u64)>,
     #[cfg(test)]
@@ -47,6 +50,7 @@ impl Default for SearchUi {
             matches: Vec::new(),
             current: None,
             options: SearchOptions::case_insensitive(),
+            scope: None,
             query_generation: 0,
             refreshed_generation: None,
             #[cfg(test)]
@@ -69,6 +73,17 @@ impl SearchUi {
 
     pub(super) fn open(&mut self) {
         self.open = true;
+        self.scope = None;
+    }
+
+    pub(super) fn open_scoped(&mut self, start: AbsolutePoint, end: AbsolutePoint, revision: u64) {
+        self.open = true;
+        self.scope = Some((start, end, revision));
+        self.query.clear();
+        self.matches.clear();
+        self.current = None;
+        self.query_generation = self.query_generation.wrapping_add(1);
+        self.refreshed_generation = None;
     }
 
     pub(super) fn close(&mut self) {
@@ -76,6 +91,7 @@ impl SearchUi {
         self.query.clear();
         self.matches.clear();
         self.current = None;
+        self.scope = None;
         self.query_generation = self.query_generation.wrapping_add(1);
         self.refreshed_generation = None;
     }
@@ -114,7 +130,22 @@ impl SearchUi {
         }
 
         let previous = self.current;
+        if self
+            .scope
+            .is_some_and(|(_, _, revision)| revision != terminal.render_revision())
+        {
+            self.matches.clear();
+            self.current = None;
+            self.refreshed_generation = Some(generation);
+            return;
+        }
         self.matches = terminal.search(&self.query, self.options);
+        if let Some((start, end, _)) = self.scope {
+            self.matches.retain(|found| {
+                (found.start.row, found.start.column) >= (start.row, start.column)
+                    && (found.end.row, found.end.column) <= (end.row, end.column)
+            });
+        }
         self.current = previous
             .filter(|current| self.matches.iter().any(|m| m == current))
             .or_else(|| self.matches.first().copied());
@@ -153,6 +184,7 @@ impl SearchUi {
                 .map(SearchMatchSignature::from)
                 .collect(),
             current: self.current.map(SearchMatchSignature::from),
+            scoped: self.scope.is_some(),
         }
     }
 
@@ -171,6 +203,7 @@ pub(super) struct SearchRenderSignature {
     pub(super) query: String,
     pub(super) matches: Vec<SearchMatchSignature>,
     pub(super) current: Option<SearchMatchSignature>,
+    pub(super) scoped: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -378,11 +411,29 @@ fn apply_search_bar(snapshot: &mut Snapshot, search: &SearchUi) {
         search.matches.len(),
         search.query.is_empty(),
     ) {
-        (_, _, true) => " Search: ".to_owned(),
-        (Some(index), total, false) => {
-            format!(" Search: {}  {index}/{total}", search.query)
+        (_, _, true) => {
+            if search.scope.is_some() {
+                " Search Command: ".to_owned()
+            } else {
+                " Search: ".to_owned()
+            }
         }
-        (None, _, false) => format!(" Search: {}  0/0", search.query),
+        (Some(index), total, false) => {
+            let label = if search.scope.is_some() {
+                "Search Command"
+            } else {
+                "Search"
+            };
+            format!(" {label}: {}  {index}/{total}", search.query)
+        }
+        (None, _, false) => {
+            let label = if search.scope.is_some() {
+                "Search Command"
+            } else {
+                "Search"
+            };
+            format!(" {label}: {}  0/0", search.query)
+        }
     };
     write_overlay_text(snapshot, row, &status, attrs);
 }

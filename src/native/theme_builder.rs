@@ -175,8 +175,9 @@ pub(super) struct ThemeBuilderSignature {
 enum BuilderZone {
     /// A header / message / preview line — no pointer action.
     Inert,
-    /// A role row: a click focuses that `FIELDS` index.
-    Field(usize),
+    /// A role row: a click focuses that `FIELDS` index. Clicking at or after
+    /// `value_x0` also opens direct hexadecimal entry for the displayed value.
+    Field { index: usize, value_x0: usize },
     /// The compact channel picker: a click on one of the L/C/H tokens focuses
     /// that channel. Columns are body-relative (0 = first body cell).
     ChannelPick {
@@ -210,6 +211,9 @@ enum EditMode {
         field: ThemeField,
         previous: Srgb,
         buffer: String,
+        /// The prefilled value behaves like selected text: the first accepted
+        /// hex character replaces it, while Enter alone keeps it unchanged.
+        replace_on_input: bool,
     },
     Name {
         buffer: String,
@@ -511,7 +515,7 @@ impl ThemeBuilder {
         rows.push(inert(String::new(), None));
         rows.push(inert(
             ellipsize(
-                "  Tab/[ ] channel   Left/Right adjust   F snap AA   G generate   C capture   Enter hex   Ctrl+S save",
+                "  Tab/[ ] channel   Left/Right adjust   F snap AA   G generate   C capture   Click/Enter hex   Ctrl+S save",
                 body_width,
             ),
             None,
@@ -576,14 +580,16 @@ impl ThemeBuilder {
             {
                 value = format!("[{buffer}]");
             }
-            let text = format!("{marker} {:<12} {value}", field.label());
+            let prefix = format!("{marker} {:<12} ", field.label());
+            let value_x0 = prefix.chars().count();
+            let text = format!("{prefix}{value}");
             rows.push((
                 ThemeBuilderLine {
                     text: ellipsize(&text, body_width),
                     focused,
                     swatch: Some(color),
                 },
-                BuilderZone::Field(index),
+                BuilderZone::Field { index, value_x0 },
             ));
         }
 
@@ -634,7 +640,12 @@ impl ThemeBuilder {
                 ThemeBuilderOutcome::Consumed
             }
             OverlayInput::Activate | OverlayInput::Save => match self.editing.take() {
-                Some(EditMode::Color { field, buffer, .. }) => match parse_hex(&buffer) {
+                Some(EditMode::Color {
+                    field,
+                    previous,
+                    buffer,
+                    ..
+                }) => match parse_hex(&buffer) {
                     Some(color) => {
                         self.set_color(field, color);
                         self.message = Some(format!("Applied {} = {}.", field.label(), hex(color)));
@@ -643,8 +654,9 @@ impl ThemeBuilder {
                     None => {
                         self.editing = Some(EditMode::Color {
                             field,
-                            previous: self.color(field),
+                            previous,
                             buffer,
+                            replace_on_input: false,
                         });
                         self.message = Some("Use #rgb or #rrggbb.".to_owned());
                         ThemeBuilderOutcome::Consumed
@@ -663,9 +675,19 @@ impl ThemeBuilder {
             },
             OverlayInput::Backspace => {
                 match self.editing.as_mut() {
-                    Some(EditMode::Color { buffer, .. })
-                    | Some(EditMode::Name { buffer })
-                    | Some(EditMode::Seed { buffer }) => {
+                    Some(EditMode::Color {
+                        buffer,
+                        replace_on_input,
+                        ..
+                    }) => {
+                        if *replace_on_input {
+                            buffer.clear();
+                            *replace_on_input = false;
+                        } else {
+                            buffer.pop();
+                        }
+                    }
+                    Some(EditMode::Name { buffer }) | Some(EditMode::Seed { buffer }) => {
                         buffer.pop();
                     }
                     None => {}
@@ -674,7 +696,20 @@ impl ThemeBuilder {
             }
             OverlayInput::Char(ch) if !ch.is_control() => {
                 match self.editing.as_mut() {
-                    Some(EditMode::Color { buffer, .. }) | Some(EditMode::Seed { buffer }) => {
+                    Some(EditMode::Color {
+                        buffer,
+                        replace_on_input,
+                        ..
+                    }) => {
+                        if ch == '#' || ch.is_ascii_hexdigit() {
+                            if *replace_on_input {
+                                buffer.clear();
+                                *replace_on_input = false;
+                            }
+                            buffer.push(ch.to_ascii_lowercase());
+                        }
+                    }
+                    Some(EditMode::Seed { buffer }) => {
                         if ch == '#' || ch.is_ascii_hexdigit() {
                             buffer.push(ch.to_ascii_lowercase());
                         }
@@ -703,6 +738,7 @@ impl ThemeBuilder {
             field,
             previous: color,
             buffer: hex(color),
+            replace_on_input: true,
         });
         self.message = Some(format!(
             "Editing {}: type #rrggbb, Enter applies, Esc cancels.",
@@ -858,10 +894,11 @@ impl ThemeBuilder {
 
     /// Handle a left/right press inside the builder body (U2 Step 2/3).
     /// `row_in_body` / `col_in_body` are 0-based offsets from the first body cell.
-    /// A click on a role row focuses it; a click on an L/C/H picker token focuses
-    /// that channel; a left press/drag on the slider track sets the focused
-    /// channel value through the same [`theme_author::nudge`] seam the keyboard
-    /// uses. Right-click on the slider is inert (no value verb).
+    /// A click on a role row focuses it; a left click on its displayed hex value
+    /// also opens direct entry. A click on an L/C/H picker token focuses that
+    /// channel; a left press/drag on the slider track sets the focused channel
+    /// value through the same [`theme_author::nudge`] seam the keyboard uses.
+    /// Right-click on a hex value or slider never edits it.
     pub(super) fn handle_pointer_press(
         &mut self,
         body_width: usize,
@@ -877,11 +914,14 @@ impl ThemeBuilder {
         };
         match zone {
             BuilderZone::Inert => ThemeBuilderOutcome::Consumed,
-            BuilderZone::Field(index) => {
+            BuilderZone::Field { index, value_x0 } => {
                 // A click away from an in-progress hex/name edit abandons it
                 // (the mouse analogue of Esc), then focuses the clicked role.
                 self.editing = None;
                 self.set_selection(index);
+                if button == PointerButton::Left && col_in_body >= value_x0 {
+                    self.begin_color_edit();
+                }
                 ThemeBuilderOutcome::Consumed
             }
             BuilderZone::ChannelPick {

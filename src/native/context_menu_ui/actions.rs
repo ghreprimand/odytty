@@ -10,6 +10,14 @@ pub(in crate::native) enum ContextMenuItem {
     Paste,
     Delete,
     SelectAll,
+    SelectCommandOutput,
+    SelectCommandWithPrompt,
+    CopyCommandOutput,
+    CopyCommandWithPrompt,
+    SearchCommandOutput,
+    JumpFailedCommandPrev,
+    JumpFailedCommandNext,
+    ExportCommandOutput,
     NewTab,
     /// Launch another top-level OdyTTY window (F1). Same action as the
     /// `Ctrl+Shift+N` chord; a fresh process instance, not a tab.
@@ -201,6 +209,14 @@ impl ContextMenuItem {
         Self::Paste,
         Self::Delete,
         Self::SelectAll,
+        Self::SelectCommandOutput,
+        Self::SelectCommandWithPrompt,
+        Self::CopyCommandOutput,
+        Self::CopyCommandWithPrompt,
+        Self::SearchCommandOutput,
+        Self::JumpFailedCommandPrev,
+        Self::JumpFailedCommandNext,
+        Self::ExportCommandOutput,
         Self::NewTab,
         Self::NewWindow,
         Self::RenameTab,
@@ -270,7 +286,19 @@ impl ContextMenuItem {
     /// workspace actions (3), Settings (4), launchers (5), file/path (6).
     pub(super) fn section(self) -> u8 {
         match self {
-            Self::Copy | Self::Cut | Self::Paste | Self::Delete | Self::SelectAll => 0,
+            Self::Copy
+            | Self::Cut
+            | Self::Paste
+            | Self::Delete
+            | Self::SelectAll
+            | Self::SelectCommandOutput
+            | Self::SelectCommandWithPrompt
+            | Self::CopyCommandOutput
+            | Self::CopyCommandWithPrompt
+            | Self::SearchCommandOutput
+            | Self::JumpFailedCommandPrev
+            | Self::JumpFailedCommandNext
+            | Self::ExportCommandOutput => 0,
             Self::NewTab
             | Self::NewLocalTab
             | Self::DuplicateTab
@@ -330,6 +358,14 @@ impl ContextMenuItem {
             Self::Paste => "Paste Text",
             Self::Delete => "Delete",
             Self::SelectAll => "Select All",
+            Self::SelectCommandOutput => "Select Command Output",
+            Self::SelectCommandWithPrompt => "Select Command With Prompt",
+            Self::CopyCommandOutput => "Copy Command Output",
+            Self::CopyCommandWithPrompt => "Copy Command With Prompt",
+            Self::SearchCommandOutput => "Search Command Output",
+            Self::JumpFailedCommandPrev => "Previous Failed Command",
+            Self::JumpFailedCommandNext => "Next Failed Command",
+            Self::ExportCommandOutput => "Export Command Output\u{2026}",
             Self::NewTab => "New Tab",
             Self::NewWindow => "New Window",
             Self::RenameTab => "Rename Tab",
@@ -384,6 +420,14 @@ impl ContextMenuItem {
         match self {
             Self::Copy => Some(BindableAction::Copy),
             Self::Paste => Some(BindableAction::Paste),
+            Self::SelectCommandOutput => Some(BindableAction::SelectCommandOutput),
+            Self::SelectCommandWithPrompt => Some(BindableAction::SelectCommandWithPrompt),
+            Self::CopyCommandOutput => Some(BindableAction::CopyCommandOutput),
+            Self::CopyCommandWithPrompt => Some(BindableAction::CopyCommandWithPrompt),
+            Self::SearchCommandOutput => Some(BindableAction::SearchCommandOutput),
+            Self::JumpFailedCommandPrev => Some(BindableAction::JumpFailedCommandPrev),
+            Self::JumpFailedCommandNext => Some(BindableAction::JumpFailedCommandNext),
+            Self::ExportCommandOutput => Some(BindableAction::ExportCommandOutput),
             Self::NewTab => Some(BindableAction::NewTab),
             Self::NewWindow => Some(BindableAction::NewWindow),
             Self::CloseTab => Some(BindableAction::CloseTab),

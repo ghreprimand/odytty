@@ -111,6 +111,10 @@ impl OverlayUi {
         self.context_menu.set_workspace_count(count);
     }
 
+    pub(in crate::native) fn set_context_menu_command_actions_enabled(&mut self, enabled: bool) {
+        self.context_menu.set_command_actions_enabled(enabled);
+    }
+
     /// Open the connection-row context menu (ODP-2C) at `spawn` for the row at
     /// filtered index `row_index`, snapshotting `host` so the menu can gate
     /// Edit/Remove (OdyTTY-owned only) and route each of the five actions. This
@@ -833,6 +837,30 @@ impl OverlayUi {
                     ContextMenuItem::Paste => OverlayOutcome::ContextMenuPaste,
                     ContextMenuItem::Delete => OverlayOutcome::ContextMenuDelete,
                     ContextMenuItem::SelectAll => OverlayOutcome::ContextMenuSelectAll,
+                    ContextMenuItem::SelectCommandOutput => {
+                        OverlayOutcome::ContextMenuSelectCommandOutput
+                    }
+                    ContextMenuItem::SelectCommandWithPrompt => {
+                        OverlayOutcome::ContextMenuSelectCommandWithPrompt
+                    }
+                    ContextMenuItem::CopyCommandOutput => {
+                        OverlayOutcome::ContextMenuCopyCommandOutput
+                    }
+                    ContextMenuItem::CopyCommandWithPrompt => {
+                        OverlayOutcome::ContextMenuCopyCommandWithPrompt
+                    }
+                    ContextMenuItem::SearchCommandOutput => {
+                        OverlayOutcome::ContextMenuSearchCommandOutput
+                    }
+                    ContextMenuItem::JumpFailedCommandPrev => {
+                        OverlayOutcome::ContextMenuJumpFailedCommandPrev
+                    }
+                    ContextMenuItem::JumpFailedCommandNext => {
+                        OverlayOutcome::ContextMenuJumpFailedCommandNext
+                    }
+                    ContextMenuItem::ExportCommandOutput => {
+                        OverlayOutcome::ContextMenuExportCommandOutput
+                    }
                     ContextMenuItem::NewTab => OverlayOutcome::ContextMenuNewTab,
                     ContextMenuItem::NewLocalTab => OverlayOutcome::ContextMenuNewLocalTab,
                     ContextMenuItem::DuplicateTab => OverlayOutcome::ContextMenuDuplicateTab,

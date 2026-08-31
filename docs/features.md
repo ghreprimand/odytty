@@ -617,8 +617,8 @@ keybinds = ctrl+alt+p=command-palette
 ### Enable Prompt-Aware Actions
 
 OSC 133 prompt marks enable prompt jumps, deleting selected editable prompt
-input, command-status gutters, and click-to-position support when the shell
-advertises it.
+input, command-status gutters, click-to-position support when the shell
+advertises it, and verified command-output actions.
 
 Shell integration is on by default. Newly spawned local `bash`, `zsh`, and
 `fish` shells load OdyTTY's wrapper after their normal shell config; the
@@ -644,6 +644,36 @@ lists what each one delivers rather than implying a uniform capability:
 | `fish` | Prompt marks, cwd, edit region, click-to-position, button emitters; fish 4+ drives the keyboard protocol itself |
 | `powershell` / `pwsh` | Windows only: prompt marks, cwd, click-to-position, button emitters; key bindings use the PSReadLine/Console API, not a VT protocol |
 | `nushell` | Configure natively: set `$env.config.shell_integration.osc133`/`osc7`/`osc2` and `use_kitty_protocol` in your nushell config; OdyTTY injects nothing |
+
+### Command-Output Actions
+
+The command palette and terminal context menu expose these actions when the
+current selection is wholly inside a complete OSC 133 command range, or for the
+latest complete command when no selection exists:
+
+| Action | Result |
+| --- | --- |
+| Select Command Output | Select visible output only |
+| Select Command With Prompt | Select the prompt, command line, and visible output |
+| Copy Command Output | Copy visible output only |
+| Copy Command With Prompt | Copy the prompt, command line, and visible output |
+| Search Command Output | Open search restricted to that output range |
+| Jump To Previous/Next Failed Command | Navigate only explicit nonzero OSC 133 exit statuses |
+| Export Command Output | Choose a native save destination and write bounded plain text |
+
+Each range-targeting action revalidates an opaque, generation-bound handle
+against the live grid; failed-command navigation derives only from the current
+verified range set. Missing, partial, malformed, evicted, reset, reflowed, or
+otherwise stale marks disable the action instead of deriving a range from
+terminal text. Alternate-screen content has no command-output actions.
+
+Export has a 32 MiB UTF-8 cap and never exports control sequences, OSC
+metadata, hyperlink targets, inline-image payloads, or private cwd metadata.
+The native dialog uses an application-owned neutral filename; terminal output
+cannot choose a path. Cancellation writes nothing. The writer leaves the
+selected parent directory untouched, refuses final symlinks or Windows reparse
+points, and uses private atomic replacement. Linux uses the XDG portal on both
+Wayland and X11; macOS and Windows use their native dialog implementations.
 
 Integration applies only to shells OdyTTY launches. Nested shells, `sudo`, and
 `exec`-swaps are not covered; `fish` survives a plain nested launch through
@@ -938,7 +968,7 @@ The `keybinds` setting and `ODYTTY_KEYBINDS` override local actions:
 
 | Scope | Actions |
 | --- | --- |
-| Global | `search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`, `command-palette`, `session-replay`, `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab` |
+| Global | `search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `select-command-output`, `select-command-with-prompt`, `copy-command-output`, `copy-command-with-prompt`, `search-command-output`, `jump-failed-command-prev`, `jump-failed-command-next`, `export-command-output`, `copy-mode`, `hints`, `clear-input`, `command-palette`, `session-replay`, `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab` |
 | Workspace | `new-workspace`, `duplicate-workspace`, `close-workspace`, `rename-workspace`, `next-workspace`, `prev-workspace`, and `workspace-picker` |
 | Pane | `split-columns`, `split-rows`, `focus-pane-left`, `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`, `close-pane`, `zoom-pane`, and `equalize-panes` |
 
@@ -985,7 +1015,7 @@ while preserving their saved choices.
 ### Follow The Desktop Theme
 
 Set `theme = system` or `ODYTTY_THEME=system` to follow the desktop dark or
-light preference. The default mapping uses `odyssey` for dark mode and
+light preference. The default mapping uses `odyssey-classic` for dark mode and
 `odyssey-light` for light mode.
 
 Use `follow_os_theme`, `os_theme_dark`, and `os_theme_light` to choose custom

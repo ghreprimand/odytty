@@ -324,7 +324,7 @@ audible bell.
   [`accessibility.md`](accessibility.md), which explains the contrast floor, the
   OKLab color-vision-deficiency daltonization modes, and the focus/dim controls.
 - `theme = system` is a convenience alias. It enables OS dark/light following
-  and maps dark to `odyssey`, light to `odyssey-light`, unless explicit
+  and maps dark to `odyssey-classic`, light to `odyssey-light`, unless explicit
   `os_theme_dark` / `os_theme_light` values are set.
 - The vertical rail's geometry knobs carry a canonical `workspace_rail_*` family
   (`workspace_rail_width`, `_max_width`, `_gap`, `_slot_rows`, `_autohide`,
@@ -547,6 +547,14 @@ grammar and Settings surface.
 ```conf
 keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste;super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down
 ```
+
+OSC 133 command-output actions are also bindable, with no default chords:
+`select-command-output`, `select-command-with-prompt`,
+`copy-command-output`, `copy-command-with-prompt`, `search-command-output`,
+`jump-failed-command-prev`, `jump-failed-command-next`, and
+`export-command-output`. They remain inert when a complete current command
+range is unavailable. Export opens an explicit native save dialog and writes at
+most 32 MiB of sanitized plain text.
 
 For a one-off/dev override, pass the same list through `ODYTTY_KEYBINDS`; env
 wins for that session.

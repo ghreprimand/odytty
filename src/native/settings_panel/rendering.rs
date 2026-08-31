@@ -129,7 +129,12 @@ pub(super) fn matches_query(entry: &SettingInfo, needle: &str) -> bool {
 
 pub(super) fn edit_options(entry: &SettingInfo) -> Vec<&'static str> {
     match entry.key {
-        "theme" => vec!["plain", "odyssey-default", "odyssey", "odyssey-noir"],
+        "theme" => vec![
+            "plain",
+            "odyssey-default",
+            "odyssey-classic",
+            "odyssey-noir",
+        ],
         "visual" => vec!["off", "ambient"],
         "subpixel" => vec!["off", "rgb", "bgr"],
         "cursor_style" => vec!["block", "underline", "bar"],

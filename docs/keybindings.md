@@ -121,10 +121,34 @@ shell config first. Each integration emits `133;A` prompt start, `133;B`
 prompt-end/input-start, `133;C` command start, and `133;D` command end marks.
 
 This unlocks prompt jumps, selected prompt-input Delete/Backspace,
-click-to-position support when advertised by the shell, and command-status
-gutters in every visible pane. Existing shells are not modified; restart the
+click-to-position support when advertised by the shell, command-status gutters,
+and command-output actions. Existing shells are not modified; restart the
 shell/tab after changing the setting. Bash integration is interactive non-login
 via `--rcfile`, so login-shell-only startup files remain a manual concern.
+
+The command-output actions have no default chord, but are available in the
+command palette and terminal context menu and can be rebound by these stable
+names:
+
+| Config action | Accessible action name |
+| --- | --- |
+| `select-command-output` | Select Command Output |
+| `select-command-with-prompt` | Select Command With Prompt |
+| `copy-command-output` | Copy Command Output |
+| `copy-command-with-prompt` | Copy Command With Prompt |
+| `search-command-output` | Search Command Output |
+| `jump-failed-command-prev` | Jump To Previous Failed Command |
+| `jump-failed-command-next` | Jump To Next Failed Command |
+| `export-command-output` | Export Command Output |
+
+For example:
+
+```conf
+keybinds = ctrl+alt+c=copy-command-output;ctrl+alt+e=export-command-output
+```
+
+A complete current OSC 133 range is required. Stale or absent shell integration
+does not fall back to guessing from visible prompt text.
 
 With `shell_key_enhancement = on` (**off by default**), Bash and Zsh prompts make
 `Ctrl+Backspace`, `Shift+Enter`, and `Ctrl+Enter` distinct. The mode that buys
@@ -417,6 +441,8 @@ single surface, in both modes.
 
 **Palette and menu actions without a default chord.** The command palette
 carries workspace and layout actions that have no default chord:
+
+- The eight command-output actions listed under Shell Integration.
 
 - **Rename Workspace**.
 - **Bind Workspace to Host** / **Unbind Workspace From Host**, and **New Local

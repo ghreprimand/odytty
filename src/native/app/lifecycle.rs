@@ -547,6 +547,23 @@ impl App {
                 }
                 false
             }
+            UserEvent::CommandExportDestination {
+                request_id,
+                selection,
+            } => {
+                self.finish_command_export_dialog(request_id, selection);
+                false
+            }
+            UserEvent::CommandExportFinished { session, result } => {
+                if self.sessions.get(session).is_some() {
+                    let message = match result {
+                        Ok(()) => "Command output exported.".to_owned(),
+                        Err(error) => error.user_message().to_owned(),
+                    };
+                    self.raise_open_notice(message);
+                }
+                false
+            }
         }
     }
 

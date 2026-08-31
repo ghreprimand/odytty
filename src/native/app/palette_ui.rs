@@ -129,6 +129,26 @@ impl App {
             PaletteAction::JumpPromptNext => {
                 let _ = self.jump_prompt_next();
             }
+            PaletteAction::SelectCommandOutput => {
+                self.select_command_range(crate::core::CommandRangePart::Output);
+            }
+            PaletteAction::SelectCommandWithPrompt => {
+                self.select_command_range(crate::core::CommandRangePart::PromptAndCommand);
+            }
+            PaletteAction::CopyCommandOutput => {
+                self.copy_command_range(crate::core::CommandRangePart::Output);
+            }
+            PaletteAction::CopyCommandWithPrompt => {
+                self.copy_command_range(crate::core::CommandRangePart::PromptAndCommand);
+            }
+            PaletteAction::SearchCommandOutput => self.search_current_command_output(),
+            PaletteAction::JumpFailedCommandPrev => {
+                self.jump_failed_command(crate::core::CommandDirection::Prev);
+            }
+            PaletteAction::JumpFailedCommandNext => {
+                self.jump_failed_command(crate::core::CommandDirection::Next);
+            }
+            PaletteAction::ExportCommandOutput => self.begin_command_output_export(),
             PaletteAction::CopyMode => {
                 let _ = self.enter_copy_mode();
             }

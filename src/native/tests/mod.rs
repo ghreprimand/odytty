@@ -190,6 +190,7 @@ mod button_click;
 mod click_hint;
 mod clipboard_paste;
 mod close_confirm;
+mod command_output_actions;
 mod command_palette;
 mod context_menu;
 mod ctrl_click_open;

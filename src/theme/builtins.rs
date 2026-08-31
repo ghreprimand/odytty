@@ -16,7 +16,8 @@
 //! ## Roster
 //!
 //! Odyssey identity: `plain` (the baseline; palette byte-identical to the
-//! historical xterm table), `odyssey`, `odyssey-noir`, `odyssey-light` (light),
+//! historical xterm table), `odyssey-classic` (also accepted through the legacy
+//! `odyssey` alias), `odyssey-noir`, `odyssey-light` (light),
 //! `odyssey-aurora` (high-contrast), `odyssey-deepspace`, `odyssey-nebula`,
 //! `odyssey-solar`, `odyssey-abyss`, `odyssey-ember`, `odyssey-glacier`,
 //! `odyssey-meridian`, `odyssey-voyager`, `odyssey-pulsar`,
@@ -58,7 +59,7 @@
 //! `nord`, `dracula`, `tokyo-night`, `catppuccin-mocha`, `one-dark`, `monokai`,
 //! `everforest-dark`, `kanagawa`, `rose-pine`, `ayu-mirage`, `night-owl`,
 //! `palenight`, `github-dark`, `zenburn`, `oceanic-next`, and `iceberg-dark`.
-//! The published `red-planet` palette and OdyTTY's background-darkened
+//! The published `red-planet` palette and OdyTTY's lower-glare
 //! `red-planet-dark` companion complete the dark community roster.
 //! Light palettes: `solarized-light`, `catppuccin-latte`, `github-light`,
 //! `gruvbox-light`, `one-light`, `ayu-light`, `rose-pine-dawn`,
@@ -77,7 +78,10 @@ use super::{Theme, ThemeSpec};
 /// human authoring and round-trip fidelity.
 const REGISTRY: &[(&str, &str)] = &[
     ("plain", include_str!("builtins/plain.theme")),
-    ("odyssey", include_str!("builtins/odyssey.theme")),
+    (
+        "odyssey-classic",
+        include_str!("builtins/odyssey-classic.theme"),
+    ),
     ("odyssey-noir", include_str!("builtins/odyssey-noir.theme")),
     (
         "odyssey-light",
@@ -665,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn red_planet_dark_changes_only_the_canvas() {
+    fn red_planet_dark_has_its_deliberate_lower_glare_palette() {
         let original = Theme::from_name("red-planet").expect("red-planet theme");
         let dark = Theme::from_name("red-planet-dark").expect("red-planet-dark theme");
 
@@ -673,9 +677,16 @@ mod tests {
         assert_eq!(original.clear, (0x22, 0x22, 0x22));
         assert_eq!(dark.background, (0x16, 0x16, 0x16));
         assert_eq!(dark.clear, (0x16, 0x16, 0x16));
-        assert_eq!(dark.foreground, original.foreground);
-        assert_eq!(dark.palette, original.palette);
-        assert_eq!(dark.cursor, original.cursor);
+        assert_eq!(dark.foreground, (0xc5, 0x68, 0x68));
+        assert_eq!(dark.cursor, (0xc5, 0x68, 0x68));
+
+        let mut expected_palette = original.palette;
+        expected_palette[1] = (0x8f, 0x3f, 0x45);
+        expected_palette[4] = (0x4f, 0x78, 0xb5);
+        expected_palette[9] = (0xc4, 0x55, 0x5b);
+        expected_palette[12] = (0x4a, 0x8f, 0xd8);
+        assert_eq!(dark.palette, expected_palette);
+
         assert_eq!(dark.selection, original.selection);
         assert_eq!(dark.search, original.search);
         assert_eq!(dark.border, original.border);
@@ -687,7 +698,20 @@ mod tests {
         // The const baselines (used as the parse default and the fallback) must
         // stay byte-identical to their embedded authoring source.
         assert_eq!(Theme::from_name("plain"), Some(Theme::PLAIN));
-        assert_eq!(Theme::from_name("odyssey"), Some(Theme::ODYSSEY));
+        assert_eq!(
+            Theme::from_name("odyssey-classic"),
+            Some(Theme::ODYSSEY_CLASSIC)
+        );
+        assert_eq!(
+            Theme::from_name("odyssey"),
+            Some(Theme::ODYSSEY_CLASSIC),
+            "the pre-rename name remains a compatibility alias"
+        );
+        assert!(
+            all().iter().any(|theme| theme.name == "odyssey-classic")
+                && all().iter().all(|theme| theme.name != "odyssey"),
+            "the picker roster exposes only the canonical descriptive name"
+        );
         assert_eq!(Theme::from_name("odyssey-noir"), Some(Theme::ODYSSEY_NOIR));
         assert_eq!(
             Theme::from_name("odyssey-default"),

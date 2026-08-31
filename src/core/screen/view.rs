@@ -191,7 +191,9 @@ impl Screen {
             self.pending_wrap = result.pending_wrap;
             if let Some(row) = result.collapsed_prompt_start_row {
                 let scrollback_rows = self.scrollback.physical_len(dimensions.columns);
-                self.active_prompt_start = Some(scrollback_rows + row);
+                if let Some(start) = self.active_prompt_start.as_mut() {
+                    start.absolute_row = scrollback_rows + row;
+                }
             }
             // Re-anchor the OSC 133 `B` input-start mark through the resize.
             // `active_prompt_input_start` caches an ABSOLUTE row

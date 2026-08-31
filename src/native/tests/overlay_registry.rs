@@ -172,6 +172,7 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
                 query: String::new(),
                 matches: Vec::new(),
                 current: None,
+                scoped: false,
             },
             overlay: closed_overlay_sig(),
             hovered_hyperlink: None,

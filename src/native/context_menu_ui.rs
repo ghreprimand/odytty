@@ -82,7 +82,7 @@ use crate::settings::BindableAction;
 /// adds Close Pane for 24. The five
 /// ODP-2C connection-row actions (Open in New Tab / Open in New Workspace / Bind
 /// Current Workspace / Edit / Remove) show ONLY on the `ConnectionRow` surface.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 47;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 55;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -346,6 +346,7 @@ pub(super) struct ContextMenuUi {
     cut_enabled: bool,
     paste_enabled: bool,
     delete_enabled: bool,
+    command_actions_enabled: bool,
     prompt_editing_hint: bool,
     rename_target: Option<SessionToken>,
     /// Whether the active tab is multi-pane, snapshotted at open time. Gates the

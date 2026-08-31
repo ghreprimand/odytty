@@ -121,6 +121,57 @@ pub(crate) fn repair_existing_sensitive(path: &Path) -> io::Result<()> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ExportTargetIdentity {
+    volume: u64,
+    file: u64,
+}
+
+fn export_target_identity(path: &Path) -> io::Result<Option<ExportTargetIdentity>> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        match unix::open_existing_export_target(path) {
+            Ok(file) => {
+                let metadata = file.metadata()?;
+                Ok(Some(ExportTargetIdentity {
+                    volume: metadata.dev(),
+                    file: metadata.ino(),
+                }))
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+    #[cfg(windows)]
+    {
+        windows_export::target_identity(path)
+    }
+}
+
+fn create_new_export(path: &Path) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        unix::create_new_sensitive(path)
+    }
+    #[cfg(windows)]
+    {
+        windows_export::create_private(path)
+    }
+}
+
+fn replace_export_target(tmp: &Path, path: &Path, replacing: bool) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let _ = replacing;
+        fs::rename(tmp, path)
+    }
+    #[cfg(windows)]
+    {
+        windows_export::replace(tmp, path, replacing)
+    }
+}
+
 /// Write policy for [`write_atomic`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WriteMode {
@@ -135,6 +186,10 @@ pub(crate) enum WriteMode {
     /// the target; a stricter existing target mode is preserved (else `0644`
     /// for a new file), rather than being forced wider.
     Config,
+    /// Explicit user-selected export. The parent must already exist and is
+    /// never created or chmodded. The final file and exclusive sibling temp are
+    /// owner-private and the final component is never followed.
+    Export,
 }
 
 /// Clamp an existing config-file mode to the 0644 baseline unless it is already
@@ -160,10 +215,11 @@ fn clamp_config_mode(mode: u32) -> u32 {
 /// renamed-but-empty target. The rename is atomic and replaces an existing target
 /// on both Unix and Windows.
 ///
-/// Windows: mode bits do not apply (files inherit the parent ACL), so the
-/// permission-preservation step is a Unix-only no-op there; the parent-directory
-/// fsync is best-effort (opening a directory handle for fsync is not supported,
-/// so it is silently skipped) exactly as the persistence writer already behaves.
+/// Windows: ordinary config and state files retain their existing inherited-ACL
+/// behavior, while export creates an owner-restricted sibling and moves that
+/// security descriptor with the file. The Unix mode-preservation step is a
+/// no-op there; parent-directory fsync remains best-effort because opening a
+/// directory handle for `File::sync_all` is unsupported.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Result<()> {
     use std::io::Write as _;
 
@@ -181,7 +237,27 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Re
                 fs::create_dir_all(parent)?;
             }
         }
+        WriteMode::Export => {
+            let Some(parent) = parent else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "export destination has no parent directory",
+                ));
+            };
+            if !fs::metadata(parent)?.is_dir() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "export destination parent is not a directory",
+                ));
+            }
+        }
     }
+
+    let export_identity = if matches!(mode, WriteMode::Export) {
+        export_target_identity(path)?
+    } else {
+        None
+    };
 
     // Preserve an existing config mode only when it is no more permissive than
     // the 0644 baseline; read it before the write, while the target still
@@ -214,12 +290,27 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Re
             use std::os::unix::fs::PermissionsExt as _;
             fs::set_permissions(&tmp, fs::Permissions::from_mode(target_mode))?;
         }
+        // Close the data handle before replacement. Windows refuses a rename
+        // while the custom export handle is still open without delete sharing;
+        // the completed sync above makes closing here safe on every platform.
+        drop(file);
         if matches!(mode, WriteMode::Sensitive) {
             // An existing target must be a known owner-owned regular file before
             // replacement; absence is valid for a first write.
             repair_existing_sensitive(path)?;
         }
-        fs::rename(&tmp, path)?;
+        if matches!(mode, WriteMode::Export) {
+            let current = export_target_identity(path)?;
+            if current != export_identity {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "export destination changed before replacement",
+                ));
+            }
+            replace_export_target(&tmp, path, export_identity.is_some())?;
+        } else {
+            fs::rename(&tmp, path)?;
+        }
         if matches!(mode, WriteMode::Sensitive) {
             repair_existing_sensitive(path)?;
         }
@@ -263,6 +354,7 @@ fn create_temp_sibling(path: &Path, mode: WriteMode) -> io::Result<(std::path::P
         let tmp = parent.join(&tmp_name);
         let created = match mode {
             WriteMode::Sensitive => create_new_sensitive(&tmp),
+            WriteMode::Export => create_new_export(&tmp),
             WriteMode::Config => OpenOptions::new().create_new(true).write(true).open(&tmp),
         };
         match created {
@@ -392,9 +484,167 @@ mod unix {
         Ok(file)
     }
 
+    /// Open a user-selected export target without following the final component
+    /// or changing its permissions. The private sibling temp replaces it only
+    /// after identity is rechecked, so a failed export leaves the original file
+    /// byte-for-byte and mode-for-mode unchanged.
+    pub(super) fn open_existing_export_target(path: &Path) -> io::Result<File> {
+        let mut options = OpenOptions::new();
+        options.read(true);
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        let file = options.open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.file_type().is_file() {
+            return Err(invalid("export destination is not a regular file"));
+        }
+        if !owned_by_current_user(metadata.uid()) {
+            return Err(invalid("export destination is not owned by this user"));
+        }
+        Ok(file)
+    }
+
     #[cfg(test)]
     pub(super) fn owner_policy_accepts_only_the_effective_uid(uid: u32) -> bool {
         owned_by_current_user(uid)
+    }
+}
+
+#[cfg(windows)]
+mod windows_export {
+    use super::*;
+    use std::os::windows::ffi::OsStrExt as _;
+    use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _};
+    use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, HANDLE, HLOCAL, LocalFree};
+    use windows::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+    use windows::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, CREATE_NEW, CreateFileW, FILE_ATTRIBUTE_NORMAL,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle, MOVEFILE_REPLACE_EXISTING,
+        MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+    use windows::core::PCWSTR;
+
+    fn wide(path: &Path) -> Vec<u16> {
+        path.as_os_str().encode_wide().chain(Some(0)).collect()
+    }
+
+    fn windows_error(error: windows::core::Error) -> io::Error {
+        let code = error.code().0 as u32;
+        if code & 0xffff_0000 == 0x8007_0000 {
+            io::Error::from_raw_os_error((code & 0xffff) as i32)
+        } else {
+            io::Error::other(error.to_string())
+        }
+    }
+
+    fn open_no_follow(path: &Path) -> io::Result<File> {
+        let path = wide(path);
+        let handle = unsafe {
+            CreateFileW(
+                PCWSTR(path.as_ptr()),
+                GENERIC_READ.0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                None,
+                windows::Win32::Storage::FileSystem::OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                None,
+            )
+        }
+        .map_err(windows_error)?;
+        let file = unsafe { File::from_raw_handle(handle.0) };
+        validate_regular(&file)?;
+        Ok(file)
+    }
+
+    fn validate_regular(file: &File) -> io::Result<()> {
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        unsafe {
+            GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &raw mut info)
+                .map_err(windows_error)?;
+        }
+        if info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "export destination is a reparse point",
+            ));
+        }
+        if !file.metadata()?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "export destination is not a regular file",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn target_identity(path: &Path) -> io::Result<Option<ExportTargetIdentity>> {
+        let file = match open_no_follow(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        unsafe {
+            GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &raw mut info)
+                .map_err(windows_error)?;
+        }
+        Ok(Some(ExportTargetIdentity {
+            volume: u64::from(info.dwVolumeSerialNumber),
+            file: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+        }))
+    }
+
+    pub(super) fn create_private(path: &Path) -> io::Result<File> {
+        let descriptor_text: Vec<u16> = "D:P(A;;FA;;;OW)\0".encode_utf16().collect();
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                PCWSTR(descriptor_text.as_ptr()),
+                SDDL_REVISION_1,
+                &raw mut descriptor,
+                None,
+            )
+        }
+        .map_err(windows_error)?;
+        let attributes = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: descriptor.0,
+            bInheritHandle: false.into(),
+        };
+        let path = wide(path);
+        let result = unsafe {
+            CreateFileW(
+                PCWSTR(path.as_ptr()),
+                (GENERIC_READ | GENERIC_WRITE).0,
+                FILE_SHARE_READ,
+                Some(&raw const attributes),
+                CREATE_NEW,
+                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                None,
+            )
+        };
+        unsafe {
+            let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+        }
+        let handle = result.map_err(windows_error)?;
+        let file = unsafe { File::from_raw_handle(handle.0) };
+        validate_regular(&file)?;
+        Ok(file)
+    }
+
+    pub(super) fn replace(tmp: &Path, path: &Path, replacing: bool) -> io::Result<()> {
+        let tmp = wide(tmp);
+        let path = wide(path);
+        let flags = if replacing {
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+        } else {
+            MOVEFILE_WRITE_THROUGH
+        };
+        unsafe { MoveFileExW(PCWSTR(tmp.as_ptr()), PCWSTR(path.as_ptr()), flags) }
+            .map_err(windows_error)
     }
 }
 
