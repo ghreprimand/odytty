@@ -710,6 +710,9 @@ impl Screen {
                 Some(PromptKind::PromptStartAfterEndAt {
                     end_logical_offset: 1..,
                     ..
+                }) | Some(PromptKind::PromptStartAfterOutputEndAt {
+                    end_logical_offset: 1..,
+                    ..
                 })
             );
             self.active_prompt_start = Some(ActivePromptStart {

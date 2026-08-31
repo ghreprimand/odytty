@@ -599,6 +599,14 @@ fn decode_prompt_kind(reader: &mut Reader<'_>) -> Result<PromptKind, SnapshotEnv
             prev_exit: decode_optional_exit(reader)?,
             end_logical_offset: reader.read_u32()?,
         }),
+        6 => Ok(PromptKind::OutputStartAndEndAt {
+            exit: decode_optional_exit(reader)?,
+            logical_offset: reader.read_u32()?,
+        }),
+        7 => Ok(PromptKind::PromptStartAfterOutputEndAt {
+            prev_exit: decode_optional_exit(reader)?,
+            end_logical_offset: reader.read_u32()?,
+        }),
         value => Err(SnapshotEnvelopeError::InvalidEnum("PromptKind", value)),
     }
 }

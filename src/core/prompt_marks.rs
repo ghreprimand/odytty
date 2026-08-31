@@ -84,6 +84,23 @@ pub enum PromptKind {
         prev_exit: Option<i32>,
         end_logical_offset: u32,
     },
+    /// An output start and command end that share one logical line.
+    ///
+    /// A long unterminated output line can soft-wrap before `D` arrives. Both
+    /// `C` and the offset-bearing `D` are anchored to the logical line's first
+    /// physical row, so this composite preserves both explicit boundaries.
+    OutputStartAndEndAt {
+        exit: Option<i32>,
+        logical_offset: u32,
+    },
+    /// A next prompt sharing the logical line represented by
+    /// [`PromptKind::OutputStartAndEndAt`]. The variant proves that `C`, `D`,
+    /// and the following `A` all arrived; verified actions need not infer a
+    /// missing output-start boundary from displayed text.
+    PromptStartAfterOutputEndAt {
+        prev_exit: Option<i32>,
+        end_logical_offset: u32,
+    },
 }
 
 /// Merge a freshly parsed OSC 133 mark into a row's existing mark (SH1 stamps
@@ -103,11 +120,12 @@ pub enum PromptKind {
 /// sequences on the same row, and the second stamp must not drop what the
 /// first preserved.
 ///
-/// Deliberately last-write-wins everywhere else, preserving existing
-/// semantics: `D` over `C` on one row is the no-output collapse (the exit is
-/// the more useful fact), and the remaining combinations only occur in
-/// malformed or partial transcripts where the freshest mark is the best guess.
-/// Pure and total.
+/// An offset-bearing `D` over `C` also preserves both boundaries: a
+/// soft-wrapped unterminated output line anchors both marks to the same logical
+/// row even though it contains real visible output. A zero-offset collision is
+/// still the no-output collapse. The remaining combinations retain
+/// last-write-wins behavior for malformed or partial transcripts. Pure and
+/// total.
 pub(in crate::core) fn merge_mark(existing: Option<PromptKind>, new: PromptKind) -> PromptKind {
     match (existing, new) {
         (Some(PromptKind::CommandEnd { exit }), PromptKind::PromptStart) => {
@@ -133,6 +151,36 @@ pub(in crate::core) fn merge_mark(existing: Option<PromptKind>, new: PromptKind)
             }),
             PromptKind::PromptStart,
         ) => PromptKind::PromptStartAfterEndAt {
+            prev_exit,
+            end_logical_offset,
+        },
+        (
+            Some(PromptKind::OutputStart),
+            PromptKind::CommandEndAt {
+                exit,
+                logical_offset: logical_offset @ 1..,
+            },
+        ) => PromptKind::OutputStartAndEndAt {
+            exit,
+            logical_offset,
+        },
+        (
+            Some(PromptKind::OutputStartAndEndAt {
+                exit,
+                logical_offset,
+            }),
+            PromptKind::PromptStart,
+        ) => PromptKind::PromptStartAfterOutputEndAt {
+            prev_exit: exit,
+            end_logical_offset: logical_offset,
+        },
+        (
+            Some(PromptKind::PromptStartAfterOutputEndAt {
+                prev_exit,
+                end_logical_offset,
+            }),
+            PromptKind::PromptStart,
+        ) => PromptKind::PromptStartAfterOutputEndAt {
             prev_exit,
             end_logical_offset,
         },
@@ -489,11 +537,31 @@ mod tests {
     }
 
     #[test]
+    fn offset_end_over_output_start_preserves_both_explicit_boundaries() {
+        let end = PromptKind::CommandEndAt {
+            exit: Some(0),
+            logical_offset: 100,
+        };
+        let combined = PromptKind::OutputStartAndEndAt {
+            exit: Some(0),
+            logical_offset: 100,
+        };
+        assert_eq!(merge_mark(Some(C), end), combined);
+        assert_eq!(
+            merge_mark(Some(combined), A),
+            PromptKind::PromptStartAfterOutputEndAt {
+                prev_exit: Some(0),
+                end_logical_offset: 100,
+            }
+        );
+    }
+
+    #[test]
     fn all_other_stamp_collisions_stay_last_write_wins() {
         // Empty row: plain stamp.
         assert_eq!(merge_mark(None, A), A);
         assert_eq!(merge_mark(None, d(Some(0))), d(Some(0)));
-        // C then D on one row: the no-output collapse, D wins (as ever).
+        // C then a zero-offset D on one row: the no-output collapse, D wins.
         assert_eq!(merge_mark(Some(C), d(Some(1))), d(Some(1)));
         // D then C, duplicate D, prompt then C/D: freshest mark wins,
         // matching the original row-anchored semantics.

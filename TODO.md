@@ -45,7 +45,8 @@ recorded milestone before implementation.
 - [x] Add one cross-platform policy for risky non-bracketed text paste while
       preserving ordinary single-line and child-enabled bracketed paste.
 - [x] Add select, copy, scoped-search, failed-command navigation, and safe
-      plain-text export actions over verified OSC 133 command ranges.
+      plain-text export actions over verified OSC 133 command ranges, including
+      same-logical-line soft-wrap boundary collisions without text inference.
 - [x] Add bounded command completion, progress, activity, silence, failure, and
       notification presentation without changing BEL semantics or stealing
       focus.

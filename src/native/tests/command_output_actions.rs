@@ -148,6 +148,97 @@ fn unterminated_output_actions_use_the_focused_pane_width_after_reflow() {
 }
 
 #[test]
+fn softwrap_output_copy_reconstructs_the_logical_line_without_a_break() {
+    // A single output line of 100 columns soft-wraps at the 80-column grid onto
+    // two physical rows with no intervening CRLF. Copy/export must reconstruct
+    // the one logical line - the soft-wrap continuation suppresses the newline
+    // - and never inject a break at the wrap column or drop the wrapped tail.
+    let long = "a".repeat(100);
+    let mut bytes = b"\x1b]133;A\x07$ printf long\r\n\x1b]133;C\x07".to_vec();
+    bytes.extend_from_slice(long.as_bytes());
+    bytes.extend_from_slice(b"\x1b]133;D;0\x07\x1b]133;A\x07$ ");
+    let (mut app, _) = app_with(&bytes);
+
+    let exported = app
+        .command_output_text_for_export_for_test()
+        .expect("verified soft-wrapped output");
+    assert_eq!(
+        exported, long,
+        "soft-wrap must rejoin into one logical line"
+    );
+    assert!(
+        !exported.contains('\n'),
+        "a soft-wrap continuation must not become a hard newline"
+    );
+
+    app.copy_command_output_for_test(false);
+    assert_eq!(
+        app.last_clipboard_write_for_test().as_deref(),
+        Some(long.as_str()),
+        "clipboard copy of soft-wrapped output matches the logical line"
+    );
+}
+
+#[test]
+fn silent_command_collapsing_c_and_d_fails_closed() {
+    // A command that prints nothing collides its C (output start) and D (end) on
+    // one row; there is no addressable output region, so the verified-range
+    // contract must fail closed for both variants rather than select the prompt
+    // row by guess.
+    let bytes = b"\x1b]133;A\x07$ silent\r\n\x1b]133;C\x07\x1b]133;D;0\x07\x1b]133;A\x07$ ";
+    let (mut app, _) = app_with(bytes);
+
+    assert!(
+        app.command_output_text_for_export_for_test().is_none(),
+        "a silent command exposes no verified output to export"
+    );
+    app.select_command_output_for_test(false);
+    assert!(app.selection_text_for_test().is_none());
+    app.select_command_output_for_test(true);
+    assert!(
+        app.selection_text_for_test().is_none(),
+        "with-prompt variant also fails closed when no complete range exists"
+    );
+    assert!(
+        app.open_notice_message_for_test()
+            .is_some_and(|message| message.contains("complete current OSC 133 range"))
+    );
+}
+
+#[test]
+fn export_projection_strips_sgr_color_escapes() {
+    // SGR color sequences around the visible text must not reach the export.
+    // The projection reads cell graphemes, so only "red" survives, with no ESC
+    // bytes.
+    let bytes = b"\x1b]133;A\x07$ color\r\n\x1b]133;C\x07\x1b[31mred\x1b[0m\r\n\x1b]133;D;0\x07\x1b]133;A\x07$ ";
+    let (app, _) = app_with(bytes);
+    let text = app
+        .command_output_text_for_export_for_test()
+        .expect("verified output");
+    assert_eq!(text, "red");
+    assert!(!text.contains('\x1b'));
+    assert!(!text.contains("31m"));
+}
+
+#[test]
+fn failed_navigation_is_a_noop_when_no_command_failed() {
+    // Every command succeeded (exit 0); previous/next failed navigation must be
+    // a no-op that reports "none", never a jump to row 0 or a success block.
+    let bytes = b"\x1b]133;A\x07$ ok1\r\n\x1b]133;C\x07fine\r\n\x1b]133;D;0\x07\x1b]133;A\x07$ ok2\r\n\x1b]133;C\x07fine\r\n\x1b]133;D;0\x07\x1b]133;A\x07$ ";
+    let (mut app, _) = app_with(bytes);
+    app.jump_failed_command_for_test(false);
+    assert_eq!(
+        app.open_notice_message_for_test().as_deref(),
+        Some("No previous failed command.")
+    );
+    app.jump_failed_command_for_test(true);
+    assert_eq!(
+        app.open_notice_message_for_test().as_deref(),
+        Some("No next failed command.")
+    );
+}
+
+#[test]
 fn export_cancellation_writes_nothing_and_dialog_authority_is_bounded() {
     let fixture = crate::core::v013_fixtures::SHELL_OSC133_FIXTURES[0];
     let (mut app, _) = app_with(&fixture.stream());

@@ -52,7 +52,7 @@ fn hostile_prompt_mark_count_fails_cleanly_without_over_reserve() {
 #[test]
 fn prompt_kind_wire_bytes_are_exact() {
     // Exact-byte pins for every PromptKind tag, including the appended
-    // merged-prompt tag 3 and offset-bearing tags 4/5. These bytes are the
+    // merged-prompt tag 3 and offset-bearing tags 4 through 7. These bytes are the
     // cross-version contract; a drift here breaks decode on the other side of
     // an attach.
     let mut out = Vec::new();
@@ -106,6 +106,26 @@ fn prompt_kind_wire_bytes_are_exact() {
         },
     );
     assert_eq!(out, [5, 0, 2, 1, 0, 0]);
+
+    out.clear();
+    encode_prompt_kind(
+        &mut out,
+        PromptKind::OutputStartAndEndAt {
+            exit: Some(7),
+            logical_offset: 258,
+        },
+    );
+    assert_eq!(out, [6, 1, 7, 0, 0, 0, 2, 1, 0, 0]);
+
+    out.clear();
+    encode_prompt_kind(
+        &mut out,
+        PromptKind::PromptStartAfterOutputEndAt {
+            prev_exit: None,
+            end_logical_offset: 258,
+        },
+    );
+    assert_eq!(out, [7, 0, 2, 1, 0, 0]);
 }
 
 #[test]
@@ -136,6 +156,20 @@ fn merged_prompt_mark_round_trips_through_the_section() {
             kind: PromptKind::PromptStartAfterEndAt {
                 prev_exit: Some(9),
                 end_logical_offset: 13,
+            },
+        },
+        SnapshotPromptMark {
+            row: 11,
+            kind: PromptKind::OutputStartAndEndAt {
+                exit: Some(0),
+                logical_offset: 101,
+            },
+        },
+        SnapshotPromptMark {
+            row: 13,
+            kind: PromptKind::PromptStartAfterOutputEndAt {
+                prev_exit: Some(0),
+                end_logical_offset: 101,
             },
         },
     ];

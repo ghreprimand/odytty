@@ -86,15 +86,34 @@ pub fn verified_command_ranges(
         let next_prompt_index = prompt_indices.get(slot + 1).copied();
         let end_index = next_prompt_index.unwrap_or(marks.len());
         let body = &marks[prompt_index + 1..end_index];
-        let output_marks: Vec<_> = body
+        let mut output_marks: Vec<_> = body
             .iter()
-            .filter_map(|&(row, kind)| (kind == PromptKind::OutputStart).then_some(row))
+            .filter_map(|&(row, kind)| {
+                matches!(
+                    kind,
+                    PromptKind::OutputStart | PromptKind::OutputStartAndEndAt { .. }
+                )
+                .then_some(row)
+            })
             .collect();
+        if let Some(next) = next_prompt_index
+            && let (row, PromptKind::PromptStartAfterOutputEndAt { .. }) = marks[next]
+        {
+            output_marks.push(row);
+        }
         let end_marks: Vec<_> = body
             .iter()
             .filter_map(|&(row, kind)| match kind {
                 PromptKind::CommandEnd { exit } => Some((row, 0, exit)),
                 PromptKind::CommandEndAt {
+                    exit,
+                    logical_offset,
+                } => Some((
+                    row.saturating_add(logical_offset as usize / columns),
+                    logical_offset as usize % columns,
+                    exit,
+                )),
+                PromptKind::OutputStartAndEndAt {
                     exit,
                     logical_offset,
                 } => Some((
@@ -119,6 +138,17 @@ pub fn verified_command_ranges(
                 (
                     row,
                     PromptKind::PromptStartAfterEndAt {
+                        prev_exit,
+                        end_logical_offset,
+                    },
+                ) => Some((
+                    row.saturating_add(end_logical_offset as usize / columns),
+                    end_logical_offset as usize % columns,
+                    prev_exit,
+                )),
+                (
+                    row,
+                    PromptKind::PromptStartAfterOutputEndAt {
                         prev_exit,
                         end_logical_offset,
                     },
@@ -301,6 +331,7 @@ fn is_prompt(kind: PromptKind) -> bool {
         PromptKind::PromptStart
             | PromptKind::PromptStartAfterEnd { .. }
             | PromptKind::PromptStartAfterEndAt { .. }
+            | PromptKind::PromptStartAfterOutputEndAt { .. }
     )
 }
 
@@ -309,6 +340,15 @@ fn prompt_point(mark: (usize, PromptKind), columns: usize) -> (usize, usize) {
         (
             row,
             PromptKind::PromptStartAfterEndAt {
+                end_logical_offset, ..
+            },
+        ) => (
+            row.saturating_add(end_logical_offset as usize / columns),
+            end_logical_offset as usize % columns,
+        ),
+        (
+            row,
+            PromptKind::PromptStartAfterOutputEndAt {
                 end_logical_offset, ..
             },
         ) => (
@@ -398,6 +438,7 @@ pub fn command_blocks(marks: &[(usize, PromptKind)]) -> Vec<CommandBlock> {
                 PromptKind::PromptStart
                     | PromptKind::PromptStartAfterEnd { .. }
                     | PromptKind::PromptStartAfterEndAt { .. }
+                    | PromptKind::PromptStartAfterOutputEndAt { .. }
             )
         })
         .map(|(index, _)| index)
@@ -428,6 +469,18 @@ pub fn command_blocks(marks: &[(usize, PromptKind)]) -> Vec<CommandBlock> {
                     command_end_row = Some(row);
                     exit = code;
                 }
+                PromptKind::OutputStartAndEndAt {
+                    exit: code,
+                    logical_offset: _,
+                } => {
+                    if output_start.is_none() {
+                        output_start = Some(row);
+                    }
+                    if command_end_row.is_none() {
+                        command_end_row = Some(row);
+                        exit = code;
+                    }
+                }
                 _ => {}
             }
         }
@@ -443,6 +496,23 @@ pub fn command_blocks(marks: &[(usize, PromptKind)]) -> Vec<CommandBlock> {
         {
             command_end_row = Some(row);
             exit = prev_exit;
+        }
+        if let Some(&next_index) = prompt_indices.get(slot + 1)
+            && let (
+                row,
+                PromptKind::PromptStartAfterOutputEndAt {
+                    prev_exit,
+                    end_logical_offset: _,
+                },
+            ) = marks[next_index]
+        {
+            if output_start.is_none() {
+                output_start = Some(row);
+            }
+            if command_end_row.is_none() {
+                command_end_row = Some(row);
+                exit = prev_exit;
+            }
         }
         if command_end_row.is_none()
             && let Some(&next_index) = prompt_indices.get(slot + 1)
@@ -535,6 +605,7 @@ pub fn jump_target(
                 PromptKind::PromptStart
                     | PromptKind::PromptStartAfterEnd { .. }
                     | PromptKind::PromptStartAfterEndAt { .. }
+                    | PromptKind::PromptStartAfterOutputEndAt { .. }
             )
         })
         .map(|&(row, _)| row)
@@ -799,6 +870,46 @@ mod tests {
         assert_eq!(ranges[0].output_end_column, Some(3));
         let (_, end) = verified_command_cell_range(ranges[0], CommandRangePart::Output, 80);
         assert_eq!((end.row, end.column), (2, 3));
+    }
+
+    #[test]
+    fn combined_output_end_and_prompt_is_a_verified_soft_wrapped_range() {
+        let marks = [
+            (0, A),
+            (
+                1,
+                PromptKind::PromptStartAfterOutputEndAt {
+                    prev_exit: Some(0),
+                    end_logical_offset: 100,
+                },
+            ),
+        ];
+        assert_eq!(
+            verified_command_ranges(&marks, 80, 10),
+            vec![VerifiedCommandRange {
+                prompt_row: 0,
+                prompt_column: 0,
+                output_start: 1,
+                output_end: 2,
+                output_end_column: Some(19),
+                exit: Some(0),
+            }]
+        );
+
+        let completed_without_next_prompt = [
+            (0, A),
+            (
+                1,
+                PromptKind::OutputStartAndEndAt {
+                    exit: Some(0),
+                    logical_offset: 100,
+                },
+            ),
+        ];
+        assert_eq!(
+            verified_command_ranges(&completed_without_next_prompt, 80, 10),
+            verified_command_ranges(&marks, 80, 10)
+        );
     }
 
     #[test]

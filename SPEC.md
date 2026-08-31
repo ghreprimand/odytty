@@ -693,6 +693,10 @@ the live grid before acting. Missing, duplicated, partial, evicted, reset,
 alternate-screen, or otherwise stale boundaries make the action unavailable;
 OdyTTY never infers a command from visible text. The range remains metadata over
 the existing grid and scrollback rather than a second block-document model.
+When `C`, an offset-bearing `D`, and optionally the following `A` share one
+soft-wrapped logical line, a composite mark preserves the explicit output start,
+end offset, exit status, and next-prompt boundary. A zero-offset `C`/`D`
+collision still represents no addressable output and fails closed.
 
 Export opens an explicit native save dialog and then re-resolves the range. Only
 the canonical visible cell-text projection is written: terminal controls, OSC

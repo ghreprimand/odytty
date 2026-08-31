@@ -440,6 +440,22 @@ pub(super) fn encode_prompt_kind(out: &mut Vec<u8>, kind: PromptKind) {
             encode_optional_exit(out, prev_exit);
             write_u32(out, end_logical_offset);
         }
+        PromptKind::OutputStartAndEndAt {
+            exit,
+            logical_offset,
+        } => {
+            write_u8(out, 6);
+            encode_optional_exit(out, exit);
+            write_u32(out, logical_offset);
+        }
+        PromptKind::PromptStartAfterOutputEndAt {
+            prev_exit,
+            end_logical_offset,
+        } => {
+            write_u8(out, 7);
+            encode_optional_exit(out, prev_exit);
+            write_u32(out, end_logical_offset);
+        }
     }
 }
 
