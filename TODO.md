@@ -694,6 +694,14 @@ not a stretch goal.
       Profile Manager CRUD are in-tree
       (`docs/v0.14.0-profiles-foundation.md`). Palette/CLI launch routing,
       Windows/macOS/Linux shell discovery, and host-aware switching remain open.
+- [ ] External palette following (v0.14.0): provider-neutral opt-in follow mode,
+      content-hash reload, complete-palette fail-closed parsing, last-known-good
+      retention, settings + profile appearance fields, and independent
+      `colors.toml` / `colors.json` / OdyTTY-Base16 compatibility are in-tree
+      (`docs/v0.14.0-external-palette.md`), together with adversarial coverage
+      for exact projections, startup isolation, replacement, malformed input,
+      and recovery. The retained local landing gate is green; blocking
+      three-platform CI remains open.
 
 ## Visual Capability Parity (Stage 6 parity half)
 

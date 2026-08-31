@@ -79,6 +79,10 @@ pub struct ProfileAppearance {
     pub font_weight: Option<String>,
     pub font_size_px: Option<f32>,
     pub title: Option<String>,
+    /// Optional External palette following override for this profile.
+    pub follow_external_palette: Option<bool>,
+    pub external_palette_provider: Option<String>,
+    pub external_palette_path: Option<String>,
     pub(crate) preserved: BTreeMap<String, Json>,
 }
 
@@ -400,6 +404,21 @@ fn appearance_to_json(appearance: &ProfileAppearance) -> Json {
         entries.push(("font_size_px".to_owned(), Json::Num(f64::from(size))));
     }
     push_opt_str(&mut entries, "title", appearance.title.as_deref());
+    push_bool(
+        &mut entries,
+        "follow_external_palette",
+        appearance.follow_external_palette,
+    );
+    push_opt_str(
+        &mut entries,
+        "external_palette_provider",
+        appearance.external_palette_provider.as_deref(),
+    );
+    push_opt_str(
+        &mut entries,
+        "external_palette_path",
+        appearance.external_palette_path.as_deref(),
+    );
     append_preserved(&mut entries, &appearance.preserved);
     json::obj_pairs(entries)
 }
@@ -707,6 +726,19 @@ fn read_appearance(
             )?,
             font_size_px: read_f32(entries, "font_size_px", nested_known)?,
             title: read_bounded_string(entries, "title", nested_known, MAX_PROFILE_FIELD_CHARS)?,
+            follow_external_palette: read_bool(entries, "follow_external_palette", nested_known)?,
+            external_palette_provider: read_bounded_string(
+                entries,
+                "external_palette_provider",
+                nested_known,
+                MAX_PROFILE_FIELD_CHARS,
+            )?,
+            external_palette_path: read_bounded_string(
+                entries,
+                "external_palette_path",
+                nested_known,
+                MAX_PROFILE_FIELD_CHARS,
+            )?,
             preserved: BTreeMap::new(),
         };
         Ok(ProfileAppearance {

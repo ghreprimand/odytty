@@ -138,7 +138,13 @@ fn clears_setting(key: &str, value: &str) -> bool {
     (value.is_empty() || (key == "symbol_font" && value.eq_ignore_ascii_case("auto")))
         && matches!(
             key,
-            "font" | "font_family" | "symbol_font" | "native_autoclose_ms"
+            "font"
+                | "font_family"
+                | "symbol_font"
+                | "native_autoclose_ms"
+                | "external_palette_path"
+                | "os_theme_dark"
+                | "os_theme_light"
         )
 }
 

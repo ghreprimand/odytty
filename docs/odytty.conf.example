@@ -16,6 +16,10 @@ theme = odyssey-default
 follow_os_theme = off
 # os_theme_dark = odyssey
 # os_theme_light = odyssey-light
+# External palette following is opt-in and reads only the explicit local path.
+follow_external_palette = off
+# external_palette_provider = odytty  # odytty, colors_toml, or colors_json
+# external_palette_path = /path/to/complete-palette-file
 themed_ui_roles = on
 
 # Font and text.

@@ -42,6 +42,9 @@ enum FormField {
     Shell,
     WorkingDirectory,
     Theme,
+    FollowExternalPalette,
+    ExternalPaletteProvider,
+    ExternalPalettePath,
     FontFamily,
     Title,
     Connection,
@@ -55,6 +58,9 @@ const FORM_FIELDS: &[FormField] = &[
     FormField::Shell,
     FormField::WorkingDirectory,
     FormField::Theme,
+    FormField::FollowExternalPalette,
+    FormField::ExternalPaletteProvider,
+    FormField::ExternalPalettePath,
     FormField::FontFamily,
     FormField::Title,
     FormField::Connection,
@@ -96,6 +102,9 @@ pub(super) struct ProfileManagerSignature {
     shell: String,
     working_directory: String,
     theme: String,
+    follow_external_palette: String,
+    external_palette_provider: String,
+    external_palette_path: String,
     font_family: String,
     title: String,
     connection: String,
@@ -122,6 +131,9 @@ pub(super) struct ProfileManager {
     draft_shell: String,
     draft_working_directory: String,
     draft_theme: String,
+    draft_follow_external_palette: String,
+    draft_external_palette_provider: String,
+    draft_external_palette_path: String,
     draft_font_family: String,
     draft_title: String,
     draft_connection: String,
@@ -157,6 +169,9 @@ impl ProfileManager {
             draft_shell: String::new(),
             draft_working_directory: String::new(),
             draft_theme: String::new(),
+            draft_follow_external_palette: String::new(),
+            draft_external_palette_provider: String::new(),
+            draft_external_palette_path: String::new(),
             draft_font_family: String::new(),
             draft_title: String::new(),
             draft_connection: String::new(),
@@ -325,6 +340,9 @@ impl ProfileManager {
             shell: self.draft_shell.clone(),
             working_directory: self.draft_working_directory.clone(),
             theme: self.draft_theme.clone(),
+            follow_external_palette: self.draft_follow_external_palette.clone(),
+            external_palette_provider: self.draft_external_palette_provider.clone(),
+            external_palette_path: self.draft_external_palette_path.clone(),
             font_family: self.draft_font_family.clone(),
             title: self.draft_title.clone(),
             connection: self.draft_connection.clone(),
@@ -558,6 +576,39 @@ impl ProfileManager {
             profile.launch.shell = nonempty_opt(&self.draft_shell);
             profile.launch.working_directory = nonempty_opt(&self.draft_working_directory);
             profile.appearance.theme = nonempty_opt(&self.draft_theme);
+            match optional_bool_field(&self.draft_follow_external_palette) {
+                Ok(value) => profile.appearance.follow_external_palette = value,
+                Err(message) => {
+                    self.error = Some(message);
+                    return ProfileManagerOutcome::Consumed;
+                }
+            }
+            profile.appearance.external_palette_provider =
+                nonempty_opt(&self.draft_external_palette_provider);
+            profile.appearance.external_palette_path =
+                nonempty_opt(&self.draft_external_palette_path);
+            if profile.appearance.follow_external_palette == Some(true)
+                && profile
+                    .appearance
+                    .external_palette_path
+                    .as_deref()
+                    .is_none_or(str::is_empty)
+            {
+                self.error = Some(
+                    "external palette path is required when follow external palette is on"
+                        .to_owned(),
+                );
+                return ProfileManagerOutcome::Consumed;
+            }
+            if let Some(raw) = profile.appearance.external_palette_provider.as_deref()
+                && !raw.is_empty()
+                && crate::external_palette::ExternalPaletteProvider::parse(raw).is_none()
+            {
+                self.error = Some(format!(
+                    "unknown external palette provider {raw:?}; use odytty, colors_toml, or colors_json"
+                ));
+                return ProfileManagerOutcome::Consumed;
+            }
             profile.appearance.font_family = nonempty_opt(&self.draft_font_family);
             profile.appearance.title = nonempty_opt(&self.draft_title);
             profile.connection = nonempty_opt(&self.draft_connection);
@@ -592,6 +643,21 @@ impl ProfileManager {
         self.draft_shell = profile.launch.shell.clone().unwrap_or_default();
         self.draft_working_directory = profile.launch.working_directory.clone().unwrap_or_default();
         self.draft_theme = profile.appearance.theme.clone().unwrap_or_default();
+        self.draft_follow_external_palette = profile
+            .appearance
+            .follow_external_palette
+            .map(|enabled| if enabled { "on" } else { "off" }.to_owned())
+            .unwrap_or_default();
+        self.draft_external_palette_provider = profile
+            .appearance
+            .external_palette_provider
+            .clone()
+            .unwrap_or_default();
+        self.draft_external_palette_path = profile
+            .appearance
+            .external_palette_path
+            .clone()
+            .unwrap_or_default();
         self.draft_font_family = profile.appearance.font_family.clone().unwrap_or_default();
         self.draft_title = profile.appearance.title.clone().unwrap_or_default();
         self.draft_connection = profile.connection.clone().unwrap_or_default();
@@ -605,6 +671,9 @@ impl ProfileManager {
         self.draft_shell.clear();
         self.draft_working_directory.clear();
         self.draft_theme.clear();
+        self.draft_follow_external_palette.clear();
+        self.draft_external_palette_provider.clear();
+        self.draft_external_palette_path.clear();
         self.draft_font_family.clear();
         self.draft_title.clear();
         self.draft_connection.clear();
@@ -649,6 +718,9 @@ impl ProfileManager {
             FormField::Shell => &mut self.draft_shell,
             FormField::WorkingDirectory => &mut self.draft_working_directory,
             FormField::Theme => &mut self.draft_theme,
+            FormField::FollowExternalPalette => &mut self.draft_follow_external_palette,
+            FormField::ExternalPaletteProvider => &mut self.draft_external_palette_provider,
+            FormField::ExternalPalettePath => &mut self.draft_external_palette_path,
             FormField::FontFamily => &mut self.draft_font_family,
             FormField::Title => &mut self.draft_title,
             FormField::Connection => &mut self.draft_connection,
@@ -739,6 +811,24 @@ impl ProfileManager {
                     format!("Working directory: {}", self.draft_working_directory)
                 }
                 FormField::Theme => format!("Theme: {}", self.draft_theme),
+                FormField::FollowExternalPalette => {
+                    format!(
+                        "Follow external palette: {}",
+                        self.draft_follow_external_palette
+                    )
+                }
+                FormField::ExternalPaletteProvider => {
+                    format!(
+                        "External palette provider: {}",
+                        self.draft_external_palette_provider
+                    )
+                }
+                FormField::ExternalPalettePath => {
+                    format!(
+                        "External palette path: {}",
+                        self.draft_external_palette_path
+                    )
+                }
                 FormField::FontFamily => format!("Font family: {}", self.draft_font_family),
                 FormField::Title => format!("Title: {}", self.draft_title),
                 FormField::Connection => format!("Connection: {}", self.draft_connection),
@@ -768,6 +858,20 @@ fn nonempty_opt(value: &str) -> Option<String> {
         None
     } else {
         Some(trimmed.to_owned())
+    }
+}
+
+fn optional_bool_field(value: &str) -> Result<Option<bool>, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    match trimmed.to_ascii_lowercase().as_str() {
+        "on" | "true" | "1" | "yes" => Ok(Some(true)),
+        "off" | "false" | "0" | "no" => Ok(Some(false)),
+        other => Err(format!(
+            "follow external palette must be on or off, not {other:?}"
+        )),
     }
 }
 
@@ -903,6 +1007,35 @@ mod tests {
             manager.handle_input(OverlayInput::Char('e')),
             ProfileManagerOutcome::RequestExport(name) if name == "dev"
         ));
+    }
+
+    #[test]
+    fn external_palette_appearance_fields_round_trip_through_form() {
+        let mut profile = LaunchProfile::new("dev").expect("profile");
+        profile.appearance.follow_external_palette = Some(true);
+        profile.appearance.external_palette_provider = Some("colors_toml".to_owned());
+        profile.appearance.external_palette_path = Some("/tmp/palette.toml".to_owned());
+        let mut catalog = ProfileCatalog::default();
+        catalog.profiles.insert("dev".to_owned(), profile);
+        let mut manager = ProfileManager::new();
+        manager.open(catalog);
+        let _ = manager.open_edit_selected();
+        assert_eq!(manager.draft_follow_external_palette, "on");
+        assert_eq!(manager.draft_external_palette_provider, "colors_toml");
+        assert_eq!(manager.draft_external_palette_path, "/tmp/palette.toml");
+        manager.draft_external_palette_path = "/tmp/edited.toml".to_owned();
+        let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
+            panic!("persist");
+        };
+        assert_eq!(profile.appearance.follow_external_palette, Some(true));
+        assert_eq!(
+            profile.appearance.external_palette_provider.as_deref(),
+            Some("colors_toml")
+        );
+        assert_eq!(
+            profile.appearance.external_palette_path.as_deref(),
+            Some("/tmp/edited.toml")
+        );
     }
 
     #[test]

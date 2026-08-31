@@ -136,6 +136,20 @@ fn default_settings_load_does_not_enumerate_profiles() {
 }
 
 #[test]
+fn default_settings_load_does_not_read_external_palette() {
+    use crate::external_palette::{palette_read_count_for_test, reset_palette_read_count_for_test};
+    reset_palette_read_count_for_test();
+    let before = palette_read_count_for_test();
+    let settings = Settings::from_env();
+    assert!(!settings.follow_external_palette);
+    assert_eq!(
+        palette_read_count_for_test(),
+        before,
+        "default launch must not read external palette files"
+    );
+}
+
+#[test]
 fn restored_named_profile_binding_selects_profile() {
     let mut profile = LaunchProfile::new("edge").expect("profile");
     profile.appearance.theme = Some("plain".to_owned());

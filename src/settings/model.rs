@@ -1290,6 +1290,17 @@ pub struct Settings {
     /// on, the compositor's color-scheme signal selects between
     /// [`Settings::os_theme_dark`] and [`Settings::os_theme_light`].
     pub follow_os_theme: bool,
+    /// Follow an explicit local external palette file (External palette
+    /// following). Off by default; while off no palette file is discovered,
+    /// read, parsed, or polled. When on, only the configured provider+path is
+    /// monitored via content-hash polling and complete valid palettes apply
+    /// through the existing theme seam.
+    pub follow_external_palette: bool,
+    /// Provider for [`Settings::follow_external_palette`].
+    pub external_palette_provider: crate::external_palette::ExternalPaletteProvider,
+    /// Explicit filesystem path of the palette file to follow. Required when
+    /// following is on; never inferred from PTY output.
+    pub external_palette_path: Option<String>,
     /// Theme name applied when the OS reports a dark color scheme (OS-THEME).
     /// `None` (the default) means a dark signal keeps the authored theme rather
     /// than switching. Resolved against the built-in theme library by name.
@@ -1489,6 +1500,9 @@ impl Default for Settings {
             shell_exit_closes: ShellExitCloses::default(),
             theme_is_system: false,
             follow_os_theme: DEFAULT_FOLLOW_OS_THEME,
+            follow_external_palette: DEFAULT_FOLLOW_EXTERNAL_PALETTE,
+            external_palette_provider: crate::external_palette::ExternalPaletteProvider::OdyttyAnsi,
+            external_palette_path: None,
             os_theme_dark: None,
             os_theme_light: None,
             confirm_close: DEFAULT_CONFIRM_CLOSE,

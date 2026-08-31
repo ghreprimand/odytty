@@ -457,6 +457,9 @@ impl App {
         // re-derives the correct active theme rather than clobbering a live OS
         // override back to the authored theme. With `follow_os_theme` off this
         // returns exactly `self.settings.theme`, byte-identical to before.
+        // External palette following, when enabled, wins over OS following via
+        // last-known-good once a complete palette has been applied.
+        self.sync_external_palette_follow(std::time::Instant::now());
         self.theme = self.resolve_active_theme();
         // U4: compute the effective (CVD-adapted) theme once at this change
         // chokepoint and publish IT to every renderer seam below. Off returns

@@ -11,9 +11,10 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::settings::{
-    BLOOM_ENV, CRT_ENV, CURSOR_BLINK_ENV, CURSOR_STYLE_ENV, ConfigValues, FONT_ENV,
-    FONT_FAMILY_ENV, FONT_SIZE_ENV, FONT_WEIGHT_ENV, RENDER_QUALITY_ENV, RETRO_ENV, Settings,
-    THEME_ENV, VISUAL_ENV, resolve_theme_file, theme_dir_path,
+    BLOOM_ENV, CRT_ENV, CURSOR_BLINK_ENV, CURSOR_STYLE_ENV, ConfigValues,
+    EXTERNAL_PALETTE_PATH_ENV, EXTERNAL_PALETTE_PROVIDER_ENV, FOLLOW_EXTERNAL_PALETTE_ENV,
+    FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV, FONT_WEIGHT_ENV, RENDER_QUALITY_ENV, RETRO_ENV,
+    Settings, THEME_ENV, VISUAL_ENV, resolve_theme_file, theme_dir_path,
 };
 use crate::text;
 
@@ -226,6 +227,21 @@ fn profile_settings_overrides(profile: &LaunchProfile) -> BTreeMap<&'static str,
     push_bool_setting(&mut out, BLOOM_ENV, profile.effects.bloom);
     push_bool_setting(&mut out, CRT_ENV, profile.effects.crt);
     push_bool_setting(&mut out, RETRO_ENV, profile.effects.retro);
+    push_bool_setting(
+        &mut out,
+        FOLLOW_EXTERNAL_PALETTE_ENV,
+        profile.appearance.follow_external_palette,
+    );
+    push_setting(
+        &mut out,
+        EXTERNAL_PALETTE_PROVIDER_ENV,
+        profile.appearance.external_palette_provider.as_deref(),
+    );
+    push_setting(
+        &mut out,
+        EXTERNAL_PALETTE_PATH_ENV,
+        profile.appearance.external_palette_path.as_deref(),
+    );
     out
 }
 
@@ -385,6 +401,38 @@ mod tests {
         assert_eq!(
             effective.working_directory,
             Some(PathBuf::from("/from/cli"))
+        );
+    }
+
+    #[test]
+    fn profile_external_palette_fields_override_global_settings() {
+        let mut profile = LaunchProfile::new("dev").expect("profile");
+        profile.appearance.follow_external_palette = Some(true);
+        profile.appearance.external_palette_provider = Some("colors_toml".to_owned());
+        profile.appearance.external_palette_path = Some("/tmp/synthetic-palette.toml".to_owned());
+        let mut catalog = ProfileCatalog::default();
+        catalog.profiles.insert("dev".to_owned(), profile);
+
+        let cli = LaunchCliOverrides {
+            profile_name: Some("dev".to_owned()),
+            ..LaunchCliOverrides::default()
+        };
+        let effective = resolve_effective_launch(
+            None,
+            &HashMap::new(),
+            &catalog,
+            &cli,
+            &RestoredLaunchOverrides::default(),
+            &LiveLaunchOverrides::default(),
+        );
+        assert!(effective.settings.follow_external_palette);
+        assert_eq!(
+            effective.settings.external_palette_provider,
+            crate::external_palette::ExternalPaletteProvider::ColorsToml
+        );
+        assert_eq!(
+            effective.settings.external_palette_path.as_deref(),
+            Some("/tmp/synthetic-palette.toml")
         );
     }
 

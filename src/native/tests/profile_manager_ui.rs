@@ -50,8 +50,8 @@ fn create_onto_an_existing_name_is_rejected_not_persisted() {
     let _ = manager.handle_input(OverlayInput::Tab);
     feed_chars(&mut manager, "dev");
 
-    // Click [Save] (Add form field index 8) via the pointer path.
-    let outcome = manager.handle_pointer_press(80, 24, 8, 0);
+    // Click [Save] (Add form field index 11) via the pointer path.
+    let outcome = manager.handle_pointer_press(80, 24, 11, 0);
 
     assert!(
         matches!(outcome, ProfileManagerOutcome::Consumed),
@@ -174,13 +174,13 @@ fn unknown_future_keys_survive_a_ui_driven_edit_and_save() {
     let _ = manager.handle_input(OverlayInput::Activate);
     assert_eq!(manager.title(), "Edit profile");
 
-    // Navigate to the Title field (index 6) and type through the edit buffer.
-    for _ in 0..6 {
+    // Navigate to the Title field (index 9) and type through the edit buffer.
+    for _ in 0..9 {
         let _ = manager.handle_input(OverlayInput::Down);
     }
     feed_chars(&mut manager, "Dev");
 
-    // Down twice more to [Save] (index 8), then activate.
+    // Down twice more to [Save] (index 11), then activate.
     let _ = manager.handle_input(OverlayInput::Down);
     let _ = manager.handle_input(OverlayInput::Down);
     let outcome = manager.handle_input(OverlayInput::Activate);
@@ -224,6 +224,48 @@ fn the_add_form_exposes_no_environment_field_so_ui_cannot_introduce_secrets() {
         !has_env_field,
         "the manager form must not offer an env editor; env only rides opaquely \
          on an imported/edited base and is rejected at the write boundary"
+    );
+}
+
+// --- Section 4: external palette appearance fields ---
+
+#[test]
+fn external_palette_fields_are_editable_through_the_form() {
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default());
+    let _ = manager.handle_input(OverlayInput::Tab);
+
+    feed_chars(&mut manager, "palette-dev");
+
+    // Follow external palette (index 5).
+    for _ in 0..5 {
+        let _ = manager.handle_input(OverlayInput::Down);
+    }
+    feed_chars(&mut manager, "on");
+
+    // Provider (index 6).
+    let _ = manager.handle_input(OverlayInput::Down);
+    feed_chars(&mut manager, "colors_toml");
+
+    // Path (index 7).
+    let _ = manager.handle_input(OverlayInput::Down);
+    feed_chars(&mut manager, "/tmp/synthetic-palette.toml");
+
+    for _ in 0..4 {
+        let _ = manager.handle_input(OverlayInput::Down);
+    }
+    let outcome = manager.handle_input(OverlayInput::Activate);
+    let ProfileManagerOutcome::Persist { profile, .. } = outcome else {
+        panic!("expected persist");
+    };
+    assert_eq!(profile.appearance.follow_external_palette, Some(true));
+    assert_eq!(
+        profile.appearance.external_palette_provider.as_deref(),
+        Some("colors_toml")
+    );
+    assert_eq!(
+        profile.appearance.external_palette_path.as_deref(),
+        Some("/tmp/synthetic-palette.toml")
     );
 }
 

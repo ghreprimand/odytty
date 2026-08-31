@@ -312,6 +312,9 @@ pub(in crate::native) struct App {
     /// absent). Read only while [`Settings::follow_os_theme`] is on; off the
     /// default path it is never consulted.
     pub(super) os_theme: Option<winit::window::Theme>,
+    /// External palette following watcher. Armed only when
+    /// [`Settings::follow_external_palette`] is on with an explicit path.
+    pub(super) external_palette_follow: crate::external_palette::ExternalPaletteFollow,
     /// CLOSE-CONFIRM: set when the confirmation dialog is accepted (or the
     /// non-confirming close path decides to exit) so `window_event` can exit the
     /// loop after the overlay outcome is applied — `apply_overlay_outcome` only
@@ -592,6 +595,7 @@ impl App {
             autoclose,
             deadline: None,
             os_theme: None,
+            external_palette_follow: crate::external_palette::ExternalPaletteFollow::new(),
             pending_exit: false,
             pending_image_paste: None,
             pending_text_paste: None,

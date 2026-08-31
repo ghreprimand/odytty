@@ -137,6 +137,9 @@ impl SettingsPanel {
         let settings = self.edits.settings().clone();
         let mut unknown = false;
         for entry in &mut self.all_entries {
+            if entry.key == "external_palette_status" {
+                continue;
+            }
             match settings.display_value_for_key(entry.key) {
                 Some(value) => entry.value = value,
                 None => unknown = true,
@@ -148,12 +151,30 @@ impl SettingsPanel {
             if entry.key == THEME_BUILDER_ACTION_KEY || entry.key == PROFILE_MANAGER_ACTION_KEY {
                 continue;
             }
+            if entry.key == "external_palette_status" {
+                continue;
+            }
             match settings.display_value_for_key(entry.key) {
                 Some(value) => entry.value = value,
                 None => unknown = true,
             }
         }
         unknown
+    }
+
+    /// Patch the read-only external-palette follower status row from live App
+    /// state (after apply, poll, or startup sync).
+    pub(in crate::native) fn sync_external_palette_status(&mut self, display: &str) {
+        for entry in &mut self.all_entries {
+            if entry.key == "external_palette_status" {
+                entry.value = display.to_owned();
+            }
+        }
+        for entry in &mut self.entries {
+            if entry.key == "external_palette_status" {
+                entry.value = display.to_owned();
+            }
+        }
     }
 
     /// Reconcile an externally-applied `Settings` from a picker into the edit

@@ -809,6 +809,32 @@ impl Settings {
             &mut warn,
         );
         let follow_os_theme = theme_is_system || explicit_follow_os_theme;
+        let follow_external_palette = parse_bool_setting(
+            get(FOLLOW_EXTERNAL_PALETTE_ENV).as_deref(),
+            FOLLOW_EXTERNAL_PALETTE_ENV,
+            DEFAULT_FOLLOW_EXTERNAL_PALETTE,
+            &mut warn,
+        );
+        let external_palette_provider = match get(EXTERNAL_PALETTE_PROVIDER_ENV)
+            .and_then(|value| value.into_string().ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        {
+            Some(raw) => match crate::external_palette::ExternalPaletteProvider::parse(&raw) {
+                Some(provider) => provider,
+                None => {
+                    warn(&format!(
+                        "{EXTERNAL_PALETTE_PROVIDER_ENV}={raw:?} is not a known provider; using odytty"
+                    ));
+                    crate::external_palette::ExternalPaletteProvider::OdyttyAnsi
+                }
+            },
+            None => crate::external_palette::ExternalPaletteProvider::OdyttyAnsi,
+        };
+        let external_palette_path = get(EXTERNAL_PALETTE_PATH_ENV)
+            .and_then(|value| value.into_string().ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         // OS-THEME dark/light theme names are stored verbatim (trimmed, empty =
         // unset) and resolved to a built-in theme lazily when the OS signal
         // applies, so an unknown name warns at apply time, not parse time.
@@ -1008,6 +1034,9 @@ impl Settings {
             shell_exit_closes,
             theme_is_system,
             follow_os_theme,
+            follow_external_palette,
+            external_palette_provider,
+            external_palette_path,
             os_theme_dark,
             os_theme_light,
             confirm_close,

@@ -285,6 +285,17 @@ impl Settings {
             FOLLOW_OS_THEME_ENV,
             bool_display(self.follow_os_theme).to_owned(),
         );
+        values.insert(
+            FOLLOW_EXTERNAL_PALETTE_ENV,
+            bool_display(self.follow_external_palette).to_owned(),
+        );
+        values.insert(
+            EXTERNAL_PALETTE_PROVIDER_ENV,
+            self.external_palette_provider.as_str().to_owned(),
+        );
+        if let Some(path) = self.external_palette_path.as_ref() {
+            values.insert(EXTERNAL_PALETTE_PATH_ENV, path.clone());
+        }
         if let Some(name) = self.os_theme_dark.as_ref() {
             values.insert(OS_THEME_DARK_ENV, name.clone());
         }

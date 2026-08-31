@@ -242,6 +242,10 @@ impl OverlayUi {
         self.panel.set_about(about);
     }
 
+    pub(in crate::native) fn sync_external_palette_status(&mut self, display: &str) {
+        self.panel.sync_external_palette_status(display);
+    }
+
     pub(in crate::native) fn close(&mut self) {
         // Clear any in-progress overlay drag on exit so a lost release (pointer
         // left the window / focus loss mid-drag) cannot leave it armed for the

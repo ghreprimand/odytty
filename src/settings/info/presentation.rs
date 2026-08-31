@@ -14,6 +14,19 @@ impl Settings {
         let value = match key {
             "theme" => self.theme_config_value(),
             "follow_os_theme" => bool_display(self.follow_os_theme).to_owned(),
+            "follow_external_palette" => bool_display(self.follow_external_palette).to_owned(),
+            "external_palette_provider" => self.external_palette_provider.as_str().to_owned(),
+            "external_palette_path" => self
+                .external_palette_path
+                .clone()
+                .unwrap_or_else(|| "unset".to_owned()),
+            "external_palette_status" => {
+                if self.follow_external_palette {
+                    "pending".to_owned()
+                } else {
+                    "off".to_owned()
+                }
+            }
             "os_theme_dark" => self
                 .os_theme_dark
                 .clone()

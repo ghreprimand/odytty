@@ -367,7 +367,7 @@ fn palette_index(key: &str) -> Option<usize> {
 }
 
 /// Parse `#RRGGBB`, `RRGGBB`, `#RGB`, or `RGB` into an sRGB triple.
-fn parse_hex(value: &str) -> Option<Srgb> {
+pub(crate) fn parse_hex(value: &str) -> Option<Srgb> {
     let hex = value.trim().strip_prefix('#').unwrap_or(value.trim());
     if hex.is_empty() || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;

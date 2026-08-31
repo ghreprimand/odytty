@@ -26,6 +26,7 @@ mod spec;
 pub use builtins::{all, names};
 pub use capture::{LiveColors, capture_spec};
 pub use contrast::{contrast_ratio, relative_luminance};
+pub(crate) use spec::parse_hex;
 pub use spec::{Appearance, ThemeSpec};
 
 /// Minimum default foreground/background contrast ratio (WCAG) every built-in

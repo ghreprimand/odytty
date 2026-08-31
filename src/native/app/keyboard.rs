@@ -578,6 +578,7 @@ impl App {
             .map(|gpu| gpu.adapter_diagnostics().clone());
         self.overlay
             .set_about_info(crate::native::about::AboutInfo::collect(adapter));
+        self.sync_settings_external_palette_status();
         self.overlay.toggle_settings();
         self.request_selection_redraw();
     }
@@ -596,6 +597,7 @@ impl App {
             .map(|gpu| gpu.adapter_diagnostics().clone());
         self.overlay
             .set_about_info(crate::native::about::AboutInfo::collect(adapter));
+        self.sync_settings_external_palette_status();
         self.overlay.open_settings_target(target);
         self.request_selection_redraw();
     }

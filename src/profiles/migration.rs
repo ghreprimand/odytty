@@ -22,6 +22,9 @@ pub fn profile_from_connection_host(host: &ConnectionHost) -> Result<LaunchProfi
         font_size_px: None,
         title: host.title.clone(),
         visual: None,
+        follow_external_palette: None,
+        external_palette_provider: None,
+        external_palette_path: None,
         preserved: Default::default(),
     };
     Ok(profile)

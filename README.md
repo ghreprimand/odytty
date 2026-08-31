@@ -197,7 +197,10 @@ security, architecture, platform, and measurement boundaries used by this
 release. Named launch profiles have a versioned on-disk foundation and a settings Profile
 Manager for local create/edit/import/export/delete
 ([schema, precedence, and migration](docs/v0.14.0-profiles-foundation.md));
-launch routing is not wired yet, so default startup is unchanged. See
+launch routing is not wired yet, so default startup is unchanged.
+[External palette following](docs/v0.14.0-external-palette.md) is an optional
+opt-in that applies a complete local palette file through the existing theme
+seam without delaying ordinary startup. See
 [current work](TODO.md) and the
 [full roadmap](docs/full-build-roadmap.md) for later milestones.
 
@@ -240,6 +243,7 @@ still not replacing wider third-party soak exposure.
 - [Feature reference](docs/features.md)
 - [Paste safety and risky-paste triggers](docs/features.md#paste-safety)
 - [Named-profile foundation and precedence](docs/v0.14.0-profiles-foundation.md)
+- [External palette following](docs/v0.14.0-external-palette.md)
 - [Settings guide](docs/settings-guide.md) and
   [runtime reference](docs/runtime-knobs.md)
 - [Keybindings](docs/keybindings.md)

@@ -142,6 +142,65 @@ impl Settings {
             },
             SettingInfo {
                 group: "Theme",
+                key: "follow_external_palette",
+                env: FOLLOW_EXTERNAL_PALETTE_ENV,
+                name: "Follow external palette",
+                value: bool_display(self.follow_external_palette).to_owned(),
+                description: "External palette following: when on, apply a complete palette from an explicit local file through the theme seam and retain the last known-good palette across missing or malformed replacement. Off by default; no discovery, read, parse, or poll happens on the ordinary first-terminal path.",
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
+                group: "Theme",
+                key: "external_palette_provider",
+                env: EXTERNAL_PALETTE_PROVIDER_ENV,
+                name: "External palette provider",
+                value: self.external_palette_provider.as_str().to_owned(),
+                description: "Provider for External palette following. odytty = explicit OdyTTY/Base16 complete file; colors_toml = Omarchy-compatible colors.toml (independent compatibility); colors_json = pywal-compatible colors.json (independent compatibility). No endorsement or upstream integration is implied.",
+                kind: SettingKind::Enum,
+                range: None,
+                options: &["odytty", "colors_toml", "colors_json"],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
+                group: "Theme",
+                key: "external_palette_path",
+                env: EXTERNAL_PALETTE_PATH_ENV,
+                name: "External palette path",
+                value: self
+                    .external_palette_path
+                    .clone()
+                    .unwrap_or_else(|| "unset".to_owned()),
+                description: "Explicit filesystem path of the palette file to follow. Required when Follow external palette is on. Never set from terminal output.",
+                kind: SettingKind::String,
+                range: None,
+                options: &[],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
+                group: "Theme",
+                key: "external_palette_status",
+                env: "",
+                name: "External palette status",
+                value: if self.follow_external_palette {
+                    "pending".to_owned()
+                } else {
+                    "off".to_owned()
+                },
+                description: "Live follower state: off, watching, applied, retained (last known-good held after a read error), or error with validation detail. Read-only; updates after apply and poll.",
+                kind: SettingKind::String,
+                range: None,
+                options: &[],
+                reloadable: false,
+                numeric: None,
+            },
+            SettingInfo {
+                group: "Theme",
                 key: "os_theme_dark",
                 env: OS_THEME_DARK_ENV,
                 name: "Dark OS theme",

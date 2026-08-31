@@ -233,6 +233,9 @@ impl App {
             self.focused
                 .then(|| self.settings_reloader.deadline())
                 .flatten(),
+            self.focused
+                .then(|| self.external_palette_follow.deadline())
+                .flatten(),
             // NF20-B: the synchronized-output hold of the ACTIVE pane only, for
             // the same fan-out reason as the blink above. The maintenance
             // consumer (`self.synchronized_output_hold.is_due`) advances the
@@ -827,6 +830,7 @@ impl App {
         }
 
         self.poll_config_reload(now);
+        self.poll_external_palette_follow(now);
     }
 }
 
@@ -949,6 +953,15 @@ impl App {
                 .and_then(|window| window.theme())
                 .or_else(os_theme::env_appearance_override);
             self.apply_os_theme_override();
+        }
+
+        // External palette following: opt-in first read after window/theme setup
+        // so launch with follow enabled applies before the first interactive
+        // frame. Default-off still performs zero reads (configure short-circuits).
+        if self.settings.follow_external_palette {
+            self.sync_external_palette_follow(std::time::Instant::now());
+        } else {
+            self.sync_settings_external_palette_status();
         }
 
         if let Some(delay) = self.autoclose {

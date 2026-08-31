@@ -1968,6 +1968,26 @@ fn about_link_row_emits_open_url_outcome() {
 }
 
 #[test]
+fn external_palette_status_row_syncs_from_live_follower() {
+    let mut panel = SettingsPanel::new(&Settings::default());
+    select_key(&mut panel, "external_palette_status");
+    assert_eq!(
+        panel.displayed_value_for_test("external_palette_status"),
+        Some("off".to_owned())
+    );
+    panel.sync_external_palette_status("applied");
+    assert_eq!(
+        panel.displayed_value_for_test("external_palette_status"),
+        Some("applied".to_owned())
+    );
+    panel.sync_external_palette_status("error: palette file missing: /nope");
+    let value = panel
+        .displayed_value_for_test("external_palette_status")
+        .expect("status");
+    assert!(value.starts_with("error:"));
+}
+
+#[test]
 fn about_esc_returns_to_section_list() {
     let mut panel = SettingsPanel::new(&Settings::default());
     panel.set_about(test_about());

@@ -8,6 +8,8 @@ pub(crate) mod precedence;
 mod schema;
 mod store;
 
+pub(crate) use json::{Json, parse as parse_json};
+
 pub use limits::*;
 pub use migration::{normalize_workspace_connection_binding, profile_from_connection_host};
 pub use precedence::{

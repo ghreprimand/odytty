@@ -117,6 +117,9 @@ pub const BELL_ENV: &str = "ODYTTY_BELL";
 pub const NOTIFICATIONS_ENV: &str = "ODYTTY_NOTIFICATIONS";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const FOLLOW_OS_THEME_ENV: &str = "ODYTTY_FOLLOW_OS_THEME";
+pub const FOLLOW_EXTERNAL_PALETTE_ENV: &str = "ODYTTY_FOLLOW_EXTERNAL_PALETTE";
+pub const EXTERNAL_PALETTE_PROVIDER_ENV: &str = "ODYTTY_EXTERNAL_PALETTE_PROVIDER";
+pub const EXTERNAL_PALETTE_PATH_ENV: &str = "ODYTTY_EXTERNAL_PALETTE_PATH";
 pub const OS_THEME_DARK_ENV: &str = "ODYTTY_OS_THEME_DARK";
 pub const OS_THEME_LIGHT_ENV: &str = "ODYTTY_OS_THEME_LIGHT";
 pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
@@ -248,6 +251,9 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     BELL_ENV,
     NOTIFICATIONS_ENV,
     FOLLOW_OS_THEME_ENV,
+    FOLLOW_EXTERNAL_PALETTE_ENV,
+    EXTERNAL_PALETTE_PROVIDER_ENV,
+    EXTERNAL_PALETTE_PATH_ENV,
     OS_THEME_DARK_ENV,
     OS_THEME_LIGHT_ENV,
     CONFIRM_CLOSE_ENV,
@@ -729,6 +735,9 @@ pub const MAX_SCROLL_PIXEL_SPEED: f32 = 4.0;
 /// before. When on but a direction's theme name is unset (or unknown), that
 /// direction keeps the authored theme rather than guessing.
 pub const DEFAULT_FOLLOW_OS_THEME: bool = false;
+/// Follow an explicit local external palette file (`ODYTTY_FOLLOW_EXTERNAL_PALETTE`).
+/// Off by default: no discovery, read, parse, or poll on the ordinary launch path.
+pub const DEFAULT_FOLLOW_EXTERNAL_PALETTE: bool = false;
 
 /// The sentinel theme value that follows the OS dark/light appearance
 /// (OS-THEME alias). When `ODYTTY_THEME` is set to this value, OdyTTY enables

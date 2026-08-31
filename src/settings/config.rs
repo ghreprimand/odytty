@@ -12,9 +12,10 @@ use super::{
     CONFIRM_CLOSE_ENV, COPY_ON_SELECT_ENV, CRT_CURVATURE_ENV, CRT_ENV, CRT_SCANLINE_INTENSITY_ENV,
     CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV, CURSOR_BLINK_ENV, CURSOR_EASING_ENV,
     CURSOR_GLOW_ENV, CURSOR_GLOW_INTENSITY_ENV, CURSOR_MOTION_ENV, CURSOR_STYLE_ENV,
-    CURSOR_TRAIL_ENV, CURSOR_TRAIL_STRENGTH_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV, FOCUS_DIM_ENV,
-    FOLLOW_OS_THEME_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV, FONT_WEIGHT_ENV,
-    GEOMETRIC_BOXDRAW_ENV, INACTIVE_PANE_DIM_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV,
+    CURSOR_TRAIL_ENV, CURSOR_TRAIL_STRENGTH_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV,
+    EXTERNAL_PALETTE_PATH_ENV, EXTERNAL_PALETTE_PROVIDER_ENV, FOCUS_DIM_ENV,
+    FOLLOW_EXTERNAL_PALETTE_ENV, FOLLOW_OS_THEME_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV,
+    FONT_WEIGHT_ENV, GEOMETRIC_BOXDRAW_ENV, INACTIVE_PANE_DIM_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV,
     NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, NEW_OUTPUT_FADE_MS_ENV, NOTIFICATIONS_ENV,
     OS_THEME_DARK_ENV, OS_THEME_LIGHT_ENV, OSC52_READ_ENV, OSC52_WRITE_ENV, PANE_PREFIX_ENV,
     PIXEL_SCROLL_ENV, REDUCED_MOTION_ENV, RENDER_QUALITY_ENV, RESTORE_WORKSPACES_ENV, RETRO_ENV,
@@ -167,6 +168,11 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "followostheme" | "followsystemtheme" | "ostheme" | "autotheme" => {
             Some(FOLLOW_OS_THEME_ENV)
         }
+        "followexternalpalette" | "externalpalette" | "followpalette" => {
+            Some(FOLLOW_EXTERNAL_PALETTE_ENV)
+        }
+        "externalpaletteprovider" | "paletteprovider" => Some(EXTERNAL_PALETTE_PROVIDER_ENV),
+        "externalpalettepath" | "palettepath" => Some(EXTERNAL_PALETTE_PATH_ENV),
         "osthemedark" | "darktheme" | "themedark" => Some(OS_THEME_DARK_ENV),
         "osthemelight" | "lighttheme" | "themelight" => Some(OS_THEME_LIGHT_ENV),
         "visual" => Some(VISUAL_ENV),
@@ -373,6 +379,9 @@ pub(crate) fn env_to_config_key(env: &str) -> Option<&'static str> {
     match env {
         THEME_ENV => Some("theme"),
         FOLLOW_OS_THEME_ENV => Some("follow_os_theme"),
+        FOLLOW_EXTERNAL_PALETTE_ENV => Some("follow_external_palette"),
+        EXTERNAL_PALETTE_PROVIDER_ENV => Some("external_palette_provider"),
+        EXTERNAL_PALETTE_PATH_ENV => Some("external_palette_path"),
         OS_THEME_DARK_ENV => Some("os_theme_dark"),
         OS_THEME_LIGHT_ENV => Some("os_theme_light"),
         VISUAL_ENV => Some("visual"),

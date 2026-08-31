@@ -12,6 +12,7 @@ pub mod core;
 pub mod cvd;
 pub mod desktop;
 pub mod emoji;
+pub mod external_palette;
 pub(crate) mod font_file;
 pub mod fuzzy;
 pub mod graphics;

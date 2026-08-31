@@ -66,6 +66,9 @@ environment variable was not set at startup.
 | --- | --- | --- | --- |
 | `theme` | `ODYTTY_THEME` | Built-in name, user theme name, `.theme` path, or `system` | `odyssey-default` |
 | `follow_os_theme` | `ODYTTY_FOLLOW_OS_THEME` | `on`, `off` | `off` |
+| `follow_external_palette` | `ODYTTY_FOLLOW_EXTERNAL_PALETTE` | `on`, `off` | `off` |
+| `external_palette_provider` | `ODYTTY_EXTERNAL_PALETTE_PROVIDER` | `odytty`, `colors_toml`, `colors_json` | `odytty` |
+| `external_palette_path` | `ODYTTY_EXTERNAL_PALETTE_PATH` | Explicit local file path | unset |
 | `os_theme_dark` | `ODYTTY_OS_THEME_DARK` | Built-in theme name | unset |
 | `os_theme_light` | `ODYTTY_OS_THEME_LIGHT` | Built-in theme name | unset |
 | `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `ambient` |
@@ -337,6 +340,10 @@ one-shot actions, rate limits, expiry, and platform behavior.
 - `theme = system` is a convenience alias. It enables OS dark/light following
   and maps dark to `odyssey-classic`, light to `odyssey-light`, unless explicit
   `os_theme_dark` / `os_theme_light` values are set.
+- External palette following is off by default and reads only the explicitly
+  configured `external_palette_path`. Complete provider mappings, precedence,
+  last-known-good behavior, and platform support are documented in
+  [`v0.14.0-external-palette.md`](v0.14.0-external-palette.md).
 - The vertical rail's geometry knobs carry a canonical `workspace_rail_*` family
   (`workspace_rail_width`, `_max_width`, `_gap`, `_slot_rows`, `_autohide`,
   `_reveal_px`) and matching `ODYTTY_WORKSPACE_RAIL_*` environment variables,

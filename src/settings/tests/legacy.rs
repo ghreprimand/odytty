@@ -151,6 +151,10 @@ fn setting_info_covers_every_field_with_descriptions() {
         vec![
             "theme",
             "follow_os_theme",
+            "follow_external_palette",
+            "external_palette_provider",
+            "external_palette_path",
+            "external_palette_status",
             "os_theme_dark",
             "os_theme_light",
             "themed_ui_roles",

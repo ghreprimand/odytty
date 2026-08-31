@@ -22,6 +22,11 @@ impl App {
     /// path (`follow_os_theme = false`) returns exactly `self.settings.theme` —
     /// byte-identical to before the feature existed.
     pub(super) fn resolve_active_theme(&self) -> Theme {
+        if self.settings.follow_external_palette
+            && let Some(theme) = self.external_palette_follow.last_known_good_theme()
+        {
+            return theme;
+        }
         if self.settings.follow_os_theme {
             // `theme = system` is an alias for following with default dark/light
             // mappings. A user-supplied `os_theme_dark`/`os_theme_light`
@@ -51,6 +56,52 @@ impl App {
             }
         }
         self.settings.theme
+    }
+
+    /// Reconfigure the external-palette follower from current settings and
+    /// refresh immediately when following is on.
+    pub(super) fn sync_external_palette_follow(&mut self, now: std::time::Instant) {
+        let path = self
+            .settings
+            .external_palette_path
+            .as_ref()
+            .map(std::path::PathBuf::from);
+        self.external_palette_follow.configure(
+            self.settings.follow_external_palette,
+            self.settings.external_palette_provider,
+            path,
+            now,
+        );
+        if self.settings.follow_external_palette {
+            use crate::external_palette::FollowPollOutcome;
+            match self.external_palette_follow.refresh_now(now) {
+                FollowPollOutcome::Applied(_) | FollowPollOutcome::Retained => {
+                    self.apply_os_theme_override();
+                }
+                FollowPollOutcome::Unchanged => {}
+            }
+        }
+        self.sync_settings_external_palette_status();
+    }
+
+    /// Poll the external-palette follower when armed.
+    pub(super) fn poll_external_palette_follow(&mut self, now: std::time::Instant) {
+        if !self.settings.follow_external_palette {
+            return;
+        }
+        use crate::external_palette::FollowPollOutcome;
+        match self.external_palette_follow.poll(now) {
+            FollowPollOutcome::Applied(_) => {
+                self.apply_os_theme_override();
+            }
+            FollowPollOutcome::Unchanged | FollowPollOutcome::Retained => {}
+        }
+        self.sync_settings_external_palette_status();
+    }
+
+    pub(super) fn sync_settings_external_palette_status(&mut self) {
+        self.overlay
+            .sync_external_palette_status(&self.external_palette_follow.status().as_display());
     }
 
     /// Re-resolve and republish the active theme after an OS appearance change
