@@ -34,6 +34,7 @@ These are the notable active defaults rather than every setting whose value is
 | Transparency at 80% | Lets the desktop show through the terminal background while text and overlays remain opaque. | `window_transparency = off` or `window_opacity = 100` |
 | Colored background strength at 0.9 | Keeps app-painted cells, prompt segments, and button chips from washing out as window opacity drops. | `colored_bg_opacity = 0` |
 | Shell integration | Adds prompt marks, working-directory reports, prompt-aware editing, and button helpers to new supported shells without editing shell rc files. | `shell_integration = off` |
+| Risky-paste confirmation | Holds original multiline or control-bearing text behind an escaped preview when the child has not enabled bracketed-paste mode. Shells and editors such as Fish normally use their own protected bracketed path. | `warn_on_risky_paste = off` is an advanced global opt-out |
 | Prompt key enhancement (off by default) | In integrated Bash and Zsh prompts, gives `Ctrl+Backspace`, `Shift+Enter`, and `Ctrl+Enter` distinct word-edit, newline, and submit behavior. Existing personal bindings win. Enabling it also re-encodes every other `Ctrl+key`, so `Ctrl+C` stops interrupting and `Ctrl+D`/`Ctrl+Z` stop signalling until you bind them back — and readline, unlike ZLE, cannot bind `Ctrl+C` back at all. | `shell_key_enhancement = on` enables it; leave it off for plain prompt input |
 | Click-to-position and command status gutter | Moves the prompt cursor on a supported click and marks completed commands green or red in each visible pane. Both stay inert without shell marks. | `sh_click = off` and `command_status_gutter = off` |
 | Clickable buttons with iTerm2 compatibility | Lets cooperating programs render safe numeric-response buttons and accepts the native and iTerm2 spellings. | `buttons = off`, or only `buttons_iterm_compat = off` |
@@ -51,6 +52,18 @@ remains independent where it is available.
 
 ```conf
 copy_on_select = on
+```
+
+`warn_on_risky_paste` ships on. It opens a confirmation only when the child has
+bracketed-paste mode disabled and the original text contains CR/LF or a control
+character other than Tab. Applications such as Fish commonly enable bracketed
+paste themselves, in which case OdyTTY preserves that protected transaction
+without showing a second dialog. See [Paste Safety](features.md#paste-safety)
+for the complete trigger matrix, dialog outcomes, cancellation rules, and a
+reliable test procedure.
+
+```conf
+warn_on_risky_paste = on
 ```
 
 OSC 52 lets terminal output request clipboard access. Clipboard writes default

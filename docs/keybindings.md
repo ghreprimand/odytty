@@ -94,10 +94,14 @@ Notes that trip people up:
   session, `Ctrl+Shift+D` to deny for that session, and `Esc` to cancel.
 - Bracketed paste queues its markers and sanitized text as one transaction and
   refuses input larger than 32 MiB. Plain paste remains deliberately chunked.
-- With bracketed paste disabled, multiline or control-bearing source text opens
-  the bounded suspicious-paste preview before any bytes are written. Enter/P
-  pastes the original text, O chooses reversible one-line escaping when it is
-  offered, and Esc/C cancels. `warn_on_risky_paste = off` opts out.
+- With bracketed paste disabled, original text containing CR/LF or a control
+  character other than Tab opens the bounded risky-paste preview before any
+  bytes are written. Enter/P pastes the original text, O chooses reversible
+  one-line escaping when it is offered, and Esc/C cancels. Shells and editors
+  such as Fish commonly enable bracketed paste themselves, so their protected
+  input path does not show a second dialog. `warn_on_risky_paste = off` opts
+  out. See [Paste Safety](features.md#paste-safety) for the complete trigger and
+  cancellation rules.
 - A printed `https://…` URL is clickable by default (Ctrl+click on
   Linux/Windows or Cmd+click on macOS, with the same modifier for the hover
   underline); toggle with `interactive_urls`.

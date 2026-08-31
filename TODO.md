@@ -476,6 +476,9 @@ not a stretch goal.
         Paste, reversible Paste as One Line when available, or Cancel. Shortcut,
         palette, context-menu, and Linux PRIMARY routes share the policy; safe
         single-line and child-enabled bracketed paste keep their previous bytes.
+        The public Paste Safety reference records the exact trigger matrix and
+        explains shell-controlled modes such as Fish; its manual smoke keeps a
+        neutral child active so prompt redraw cannot invalidate the test.
 - [x] Add search in scrollback.
   - [x] Core engine in `src/core/search.rs`: literal case-sensitive/insensitive
         search over scrollback + screen, inclusive absolute-cell match ranges,

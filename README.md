@@ -124,7 +124,9 @@ sessions.
   text is held behind a bounded escaped preview with original line/byte counts
   and explicit Paste, reversible Paste as One Line when available, or Cancel.
   Safe single-line and child-enabled bracketed paste retain their existing byte
-  path; `warn_on_risky_paste = off` is an advanced global opt-out.
+  path; shells and editors such as Fish commonly enable that protected mode
+  themselves. `warn_on_risky_paste = off` is an advanced global opt-out. See
+  [Paste safety](docs/features.md#paste-safety) for the exact trigger matrix.
   Complete, current OSC 133 command ranges also expose output-only or
   prompt-inclusive select/copy, output-scoped search, failed-command
   navigation, and explicit bounded plain-text export. Missing, partial, or
@@ -232,6 +234,7 @@ still not replacing wider third-party soak exposure.
 
 - [Install and update guide](docs/install.md)
 - [Feature reference](docs/features.md)
+- [Paste safety and risky-paste triggers](docs/features.md#paste-safety)
 - [Settings guide](docs/settings-guide.md) and
   [runtime reference](docs/runtime-knobs.md)
 - [Keybindings](docs/keybindings.md)

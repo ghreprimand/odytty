@@ -186,8 +186,15 @@ Enable `shell_integration = on`, `warn_on_risky_paste = on`, and
 `notifications = in-app`, then open a new tab so the shell receives OSC 133
 integration.
 
-1. **Risky paste:** run `printf '\033[?2004l'` to make the child disable
-   bracketed-paste mode. Copy the two-line synthetic text below and paste it:
+1. **Risky paste:** on Unix, run the command below. It disables bracketed-paste
+   mode and keeps a neutral child reading the PTY, so a shell such as Fish
+   cannot re-enable the mode when it redraws its next prompt:
+
+   ```sh
+   sh -c 'printf "\033[?2004l"; cat >/dev/null'
+   ```
+
+   Copy the two-line synthetic text below and paste it:
 
    ```text
    printf 'paste-one\n'
@@ -195,10 +202,13 @@ integration.
    ```
 
    The bounded preview must appear before either line reaches the shell and
-   must report the original line and byte counts. Cancel and confirm the prompt
-   received nothing. Repeat and choose Paste; the original text must arrive as
-   one confirmed transaction. When Paste as One Line is offered, its preview
-   must be explicit and reversible rather than silently rewriting the source.
+   must report the original line and byte counts. Cancel and confirm the child
+   received nothing. Repeat and choose Paste; `cat` must consume the original
+   text without either line executing. When Paste as One Line is offered, its
+   preview must be explicit and reversible rather than silently rewriting the
+   source. Press `Ctrl+D` to leave `cat`. Running only
+   `printf '\033[?2004l'` at a Fish prompt is not a valid test because Fish can
+   immediately enable bracketed-paste mode again while drawing the next prompt.
 
 2. **Command-output actions:** run
    `printf 'range-alpha\nrange-beta\n'; false`, open the command palette with

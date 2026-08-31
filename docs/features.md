@@ -140,6 +140,56 @@ their ordinary behavior; at an enhanced Bash or Zsh prompt,
 `Ctrl+Backspace` remains distinct and word-deletes. Fish continues to manage
 its own keyboard protocol.
 
+### Paste Safety
+
+OdyTTY's risky-paste confirmation is a structural safeguard for text entering
+a child that has **not** enabled terminal bracketed-paste mode. It does not try
+to understand shell syntax or decide whether a command is safe. The child
+application controls bracketed-paste mode; interactive shells and editors such
+as Fish commonly enable it while their input editor is active. In that normal
+case OdyTTY preserves the existing bracketed transaction without adding a
+second confirmation dialog.
+
+With `warn_on_risky_paste = on` (the default), the dialog opens only when all
+of these conditions are true:
+
+1. A native text paste is requested for the active pane.
+2. The destination child currently reports bracketed-paste mode as disabled.
+3. The original text contains a CR or LF line break, or a Unicode control
+   character other than Tab.
+
+| Original text and destination state | Result |
+| --- | --- |
+| Single line with ordinary text, Unicode, or tabs; bracketed paste off | Paste directly |
+| CR, LF, CRLF, empty lines, or another control character; bracketed paste off | Show the risky-paste dialog |
+| Any text while the child has bracketed paste on | Preserve the existing bracketed-paste path; no dialog |
+| Any text with `warn_on_risky_paste = off` | Use the historical encoder; no dialog |
+
+Classification examines the complete original transaction before any line
+ending normalization. The dialog escapes controls for display, caps the
+rendered preview at 512 UTF-8 bytes, and reports exact original line and byte
+counts even when the preview is truncated. Raw clipboard text stays in
+transient application state: it is not logged, persisted in a workspace,
+placed in diagnostics, or copied into notification text.
+
+The choices have explicit behavior:
+
+- **Paste** sends the held original text through the existing encoder. It does
+  not append Enter or split the confirmation into implicit commands.
+- **Paste as One Line** is offered only for multiline text without another
+  disallowed control and when the reversible result is at most 32 MiB. It
+  displays CR/LF as visible `\\r`/`\\n` text and doubles existing backslashes;
+  it does not silently discard or merge source bytes.
+- **Cancel** writes nothing. Focus loss, a destination-pane ownership change,
+  pane exit, window close, preview setup failure, or a stale bracketed-paste
+  state also cancels the held paste.
+
+Shortcut, command-palette/menu, context-menu, Linux PRIMARY, external text
+drop, and authorized automation paste routes use the same policy. PRIMARY has
+no platform surface on macOS or Windows. The setting can be changed through
+Settings, `warn_on_risky_paste` in `odytty.conf`, or
+`ODYTTY_WARN_ON_RISKY_PASTE`; disabling it is an advanced global opt-out.
+
 A bracketed paste is queued as one transaction containing the opening marker,
 sanitized text, and closing marker, so unrelated input cannot split the frame.
 A bracketed paste whose complete framed payload exceeds

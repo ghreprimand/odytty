@@ -4,6 +4,8 @@
 //! Classification always examines the original text, before the existing PTY
 //! encoder normalizes line endings. The policy is deliberately structural: it
 //! recognizes line breaks and control characters, never shell commands.
+//! The user-facing contract and trigger matrix live in
+//! `docs/features.md#paste-safety`.
 
 /// Maximum escaped preview retained by the confirmation UI. The limit applies
 /// to rendered UTF-8 bytes after escaping, so hostile control-heavy input cannot

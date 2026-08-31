@@ -9,6 +9,8 @@ This is the complete map of OdyTTY's tracked project documentation.
 - [Install guide](install.md) — setup, updates, checksums, source builds, and
   troubleshooting.
 - [Feature reference](features.md) — terminal behavior and native workflows.
+- [Paste safety](features.md#paste-safety) — exact warning triggers, dialog
+  choices, shell-controlled bracketed-paste behavior, and cancellation rules.
 - [Settings guide](settings-guide.md) — shipped defaults and useful opt-ins.
 - [Runtime reference](runtime-knobs.md) — every setting and command-line
   surface.

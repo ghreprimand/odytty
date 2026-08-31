@@ -1281,7 +1281,11 @@ scope rather than silently inheriting deferred work from a prior release.
   pane-owner change, or stale bracketed-paste state cancels. Shortcut, palette,
   context-menu, and Linux PRIMARY paste share the policy; PRIMARY is unsupported
   on macOS and Windows. The predicate never classifies shell commands or appends
-  Enter. `off` is an advanced opt-out restoring the historical direct encoder.
+  Enter. Child applications own bracketed-paste mode, so a shell or editor such
+  as Fish can enable the protected path and suppress the additional dialog.
+  `off` is an advanced opt-out restoring the historical direct encoder. The
+  maintained user-facing trigger matrix is
+  [`docs/features.md#paste-safety`](docs/features.md#paste-safety).
 
 - Pixel-precise scrolling (`pixel_scroll`, on by default): high-resolution
   wheels and touchpads that emit pixel deltas scroll the viewport by a
