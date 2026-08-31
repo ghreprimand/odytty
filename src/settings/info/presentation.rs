@@ -147,6 +147,7 @@ impl Settings {
             "shell_integration" => bool_display(self.shell_integration).to_owned(),
             "shell_key_enhancement" => bool_display(self.shell_key_enhancement).to_owned(),
             "confirm_close" => bool_display(self.confirm_close).to_owned(),
+            "warn_on_risky_paste" => bool_display(self.warn_on_risky_paste).to_owned(),
             "ssh_config_hosts" => bool_display(self.ssh_config_hosts).to_owned(),
             "remote_integration" => bool_display(self.remote_integration).to_owned(),
             "remote_reuse" => bool_display(self.remote_reuse).to_owned(),

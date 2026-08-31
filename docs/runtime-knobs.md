@@ -163,6 +163,7 @@ environment variable was not set at startup.
 | `interactive_paths_image_inline` | `ODYTTY_INTERACTIVE_PATHS_IMAGE_INLINE` | `on`, `off` | `on` |
 | `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | editor name or argv template | *(empty — use `$EDITOR`)* |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
+| `warn_on_risky_paste` | `ODYTTY_WARN_ON_RISKY_PASTE` | `on`, `off` | `on` |
 | `shell_exit_closes` | `ODYTTY_SHELL_EXIT_CLOSES` | `workspace`, `app` | `workspace` |
 | `bell` | `ODYTTY_BELL` | `off`, `visual`, `urgent`, `all` | `urgent` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |

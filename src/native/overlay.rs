@@ -35,7 +35,7 @@ mod tests;
 pub(super) use contracts::OverlayMode;
 pub(super) use contracts::{
     LayoutSaveKind, OverlayInput, OverlayOutcome, OverlayPointer, OverlayRenderSignature,
-    PointerButton, SettingsTarget,
+    PointerButton, RiskyPasteDialog, SettingsTarget,
 };
 pub(super) use input::overlay_input_from_winit;
 pub(super) use layout::{OverlayRect, overlay_rect};

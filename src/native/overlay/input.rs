@@ -41,6 +41,7 @@ impl OverlayUi {
             OverlayMode::Onboarding => return self.handle_onboarding_input(input),
             OverlayMode::ContextMenu => return self.handle_context_menu_input(input),
             OverlayMode::ConfirmClose => return self.handle_confirm_close_input(input),
+            OverlayMode::RiskyPaste => return self.handle_risky_paste_input(input),
             OverlayMode::AttachChoice => return self.handle_attach_choice_input(input),
             OverlayMode::ConfirmKillSession => {
                 return self.handle_confirm_kill_session_input(input);
@@ -272,6 +273,13 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    OverlayMode::RiskyPaste => {
+                        if button == PointerButton::Left {
+                            self.risky_paste_click(row_in_body, col_in_body)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     OverlayMode::AttachChoice => {
                         if button == PointerButton::Left {
                             self.attach_choice_click(row_in_body, col_in_body)
@@ -365,6 +373,7 @@ impl OverlayUi {
                     | OverlayMode::OpenWith
                     | OverlayMode::WorkspacePicker
                     | OverlayMode::ImageView
+                    | OverlayMode::RiskyPaste
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
@@ -392,6 +401,7 @@ impl OverlayUi {
                     | OverlayMode::OpenWith
                     | OverlayMode::WorkspacePicker
                     | OverlayMode::ImageView
+                    | OverlayMode::RiskyPaste
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
@@ -448,6 +458,7 @@ impl OverlayUi {
                     // are static, non-scrolling cards: the wheel has nothing to
                     // move.
                     OverlayMode::Onboarding
+                    | OverlayMode::RiskyPaste
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
@@ -483,6 +494,7 @@ impl OverlayUi {
             | OverlayMode::OpenWith
             | OverlayMode::WorkspacePicker
             | OverlayMode::ImageView
+            | OverlayMode::RiskyPaste
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
@@ -514,6 +526,7 @@ impl OverlayUi {
             | OverlayMode::OpenWith
             | OverlayMode::WorkspacePicker
             | OverlayMode::ImageView
+            | OverlayMode::RiskyPaste
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession

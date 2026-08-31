@@ -119,6 +119,7 @@ pub const FOLLOW_OS_THEME_ENV: &str = "ODYTTY_FOLLOW_OS_THEME";
 pub const OS_THEME_DARK_ENV: &str = "ODYTTY_OS_THEME_DARK";
 pub const OS_THEME_LIGHT_ENV: &str = "ODYTTY_OS_THEME_LIGHT";
 pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
+pub const WARN_ON_RISKY_PASTE_ENV: &str = "ODYTTY_WARN_ON_RISKY_PASTE";
 pub const SHELL_EXIT_CLOSES_ENV: &str = "ODYTTY_SHELL_EXIT_CLOSES";
 pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
 pub const REMOTE_INTEGRATION_ENV: &str = "ODYTTY_REMOTE_INTEGRATION";
@@ -248,6 +249,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     OS_THEME_DARK_ENV,
     OS_THEME_LIGHT_ENV,
     CONFIRM_CLOSE_ENV,
+    WARN_ON_RISKY_PASTE_ENV,
     SHELL_EXIT_CLOSES_ENV,
     SSH_CONFIG_HOSTS_ENV,
     REMOTE_INTEGRATION_ENV,
@@ -751,6 +753,10 @@ pub const DEFAULT_OS_THEME_LIGHT: &str = "odyssey-light";
 /// always closes silently, exactly as before, and any query error or dead PTY
 /// also takes the silent-close path. Off restores unconditional close-on-request.
 pub const DEFAULT_CONFIRM_CLOSE: bool = true;
+
+/// Warn before multiline or control-bearing text is pasted while the child has
+/// bracketed-paste mode disabled. On by default; advanced users can opt out.
+pub const DEFAULT_WARN_ON_RISKY_PASTE: bool = true;
 
 /// Drag-to-extend selection (`ODYTTY_SELECTION_DRAG_EXTEND`, MOUSE-EXTEND): when
 /// on, a double-click-then-drag grows the selection by whole words, a

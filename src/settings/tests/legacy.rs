@@ -207,6 +207,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "scrollbar_drag",
             "wheel_zoom",
             "confirm_close",
+            "warn_on_risky_paste",
             "bell",
             "interactive_urls",
             "interactive_paths",
@@ -2167,6 +2168,31 @@ fn confirm_close_round_trips_through_config_key_mapping() {
     assert!(warnings.is_empty());
     assert_eq!(
         settings.to_edit_values().get(CONFIRM_CLOSE_ENV),
+        Some(&"off".to_owned())
+    );
+}
+
+#[test]
+fn risky_paste_warning_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("warn_on_risky_paste"),
+        Some(WARN_ON_RISKY_PASTE_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("pastewarning"),
+        Some(WARN_ON_RISKY_PASTE_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(WARN_ON_RISKY_PASTE_ENV),
+        Some("warn_on_risky_paste")
+    );
+    assert!(Settings::default().warn_on_risky_paste);
+
+    let (settings, warnings) = settings_from([(WARN_ON_RISKY_PASTE_ENV, "off")]);
+    assert!(!settings.warn_on_risky_paste);
+    assert!(warnings.is_empty());
+    assert_eq!(
+        settings.to_edit_values().get(WARN_ON_RISKY_PASTE_ENV),
         Some(&"off".to_owned())
     );
 }

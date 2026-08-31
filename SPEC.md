@@ -1191,6 +1191,18 @@ scope rather than silently inheriting deferred work from a prior release.
   prompt before closing if a foreground program is still running. An idle shell
   closes without prompting. Off disables the guard unconditionally.
 
+- Suspicious-paste confirmation (`warn_on_risky_paste`, default on): before a
+  native text paste reaches a child with bracketed-paste mode disabled, inspect
+  the original source text for CR/LF line breaks or control characters other
+  than tab. Risky text is held behind a bounded escaped preview with exact
+  original line and byte counts. Paste sends the original text through the
+  existing encoder; Paste as One Line, when offered, uses reversible visible
+  escaping of line endings and backslashes; Cancel sends nothing. Focus loss,
+  pane-owner change, or stale bracketed-paste state cancels. Shortcut, palette,
+  context-menu, and Linux PRIMARY paste share the policy; PRIMARY is unsupported
+  on macOS and Windows. The predicate never classifies shell commands or appends
+  Enter. `off` is an advanced opt-out restoring the historical direct encoder.
+
 - Pixel-precise scrolling (`pixel_scroll`, on by default): high-resolution
   wheels and touchpads that emit pixel deltas scroll the viewport by a
   continuous sub-row amount tracking physical finger travel 1:1, instead of

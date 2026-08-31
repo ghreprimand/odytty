@@ -704,28 +704,41 @@ Three prohibitions apply to every boundary below:
 - **Trust assumption:** the paste gesture selects the destination pane, not the
   safety of the clipboard contents. A string is never classified by shell
   meaning.
-- **Planned default:** when the child has not enabled bracketed-paste mode,
-  multiline or disallowed-control-bearing text is held before any byte reaches
-  the PTY. The UI shows a size-bounded escaped preview plus byte and line counts
-  and offers Paste, a lossless explicit one-line transform when available, or
+- **Current default and source anchors:** `src/native/paste_policy.rs` and
+  `src/native/app/paste.rs` hold multiline or disallowed-control-bearing text
+  before any byte reaches the PTY when the child has not enabled
+  bracketed-paste mode. The overlay receives only escaped presentation data and
+  original byte/line counts; raw text remains in App-owned transient state. The
+  UI offers Paste, a lossless explicit one-line transform when available, or
   Cancel. Child-enabled bracketed paste and ordinary single-line text preserve
-  current behavior.
+  the existing writer path. `warn_on_risky_paste` defaults on; `off` is an
+  advanced global opt-out.
 - **Validation and caps:** the predicate operates on the complete transaction,
   inspecting the original source text before the shipped plain-paste encoder
   normalizes LF, CRLF, and CR to CR. It normalizes no bytes merely for
-  classification and uses a bounded preview allocation independent of payload
-  size. Shortcut, palette/menu, PRIMARY, and future automation or drop sources
-  use one authority. PRIMARY is unsupported on macOS and Windows because those
-  platforms have no such selection surface.
-- **Failure behavior:** cancel, focus/owner change, pane exit, preview failure,
-  or stale bracketed-paste state writes nothing. A confirmed transaction never
-  gains an implicit Enter and is not split into implicit commands.
+  classification. The escaped preview is capped at 512 UTF-8 bytes after
+  escaping. The reversible one-line output is offered only for multiline text
+  without other disallowed controls and only when its computed allocation is at
+  most 32 MiB. Shortcut, palette/menu, PRIMARY, and reserved automation or text-
+  drop sources use one authority. PRIMARY is unsupported on macOS and Windows
+  because those platforms have no such selection surface.
+- **Failure behavior:** cancel, focus/owner change, pane exit, preview setup
+  failure, a window-close request, or stale bracketed-paste state writes nothing.
+  A confirmed transaction never gains an implicit Enter and is not split into
+  implicit commands. Paste passes the held original text unchanged into the
+  historical encoder; Paste as One Line visibly escapes CR/LF and doubles
+  existing backslashes.
 - **Privacy:** clipboard bytes are not logged, persisted in workspaces, copied
-  into diagnostics, or included in notification text. The preview exists only
-  in transient UI state and is cleared on dismissal.
-- **Required coverage:** CR, LF, CRLF, empty lines, tabs, C0/C1/escape bytes,
-  large payloads, cancellation, focus changes, alternate screen, bracketed mode
-  transitions, PRIMARY, and platform routes.
+  into diagnostics, or included in notification text. The bounded escaped
+  preview exists only in overlay state and is cleared on dismissal; raw text is
+  dropped from App state at the same boundary.
+- **Executed automated coverage:** `src/native/paste_policy.rs`,
+  `src/native/tests/clipboard_paste.rs`, and the overlay input tests cover CR,
+  LF, CRLF, empty lines, tabs, C0/C1/escape bytes, large payloads, cancellation,
+  focus changes, alternate screen, bracketed mode, shortcut, palette, context-
+  menu, PRIMARY, reserved-source parity, opt-out, and action routing. Independent
+  Linux Wayland/X11, macOS, and Windows acceptance remains a release gate rather
+  than an inferred claim.
 - **Residual risk:** after explicit confirmation, the child interprets the
   bytes according to its own input rules. Confirmation reduces accidental
   execution; it does not make a command safe.
@@ -1103,7 +1116,7 @@ behavior, and a Linux or macOS result is never a substitute for a Windows one.
 | B11 sessions and state | stalling-writer and protocol tests | metadata and snapshot parsing |
 | B12 settings and themes | cap and parse tests | settings parsing with Windows forms |
 | B13 fonts | glyph corpus and raster smoke tests | malformed font corpus |
-| B15 risky paste | current framing, cap, and writer-order tests only | shared policy, preview, cancellation, and four-leg route fixtures |
+| B15 risky paste | shared original-text predicate, bounded escaped preview, cancellation/owner checks, opt-out, and clipboard/PRIMARY/future-source routing tests | independent four-leg native acceptance and hostile platform-event fixtures |
 | B16 notifications/progress | bounded OSC parser framing only | sanitization, ownership, rate-limit, restoration, and native-adapter fixtures |
 | B17 local automation | no product surface | same-user IPC, authorization, schema, stale-ID, and lifecycle fixtures |
 | B18 file drop | no product surface | shell quoting, paste policy, platform event, and hostile-path fixtures |

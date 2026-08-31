@@ -56,8 +56,9 @@ use super::key_event_diagnostics;
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{
     LayoutSaveKind, OverlayInput, OverlayOutcome, OverlayPointer, OverlayUi, PointerButton,
-    apply_overlay, overlay_input_from_winit, overlay_rect,
+    RiskyPasteDialog, apply_overlay, overlay_input_from_winit, overlay_rect,
 };
+use super::paste_policy::{PasteSource, assess, lossless_one_line};
 #[cfg(test)]
 use super::pty::PtyWriter;
 use super::pty::UserEvent;
@@ -149,6 +150,7 @@ mod overlay_actions;
 mod overlay_registry;
 mod palette_ui;
 mod panes;
+mod paste;
 pub(in crate::native) mod platform_opener;
 mod pointer;
 mod pointer_motion;
@@ -292,6 +294,15 @@ thread_local! {
 struct PendingImagePaste {
     session: SessionToken,
     png: Vec<u8>,
+}
+
+/// Original text held while the suspicious-paste modal is open. Raw text stays
+/// out of overlay/render state and is dropped on cancellation, focus loss, or
+/// owner change. Confirmation re-enters the unchanged historical encoder.
+struct PendingTextPaste {
+    session: SessionToken,
+    source: PasteSource,
+    text: String,
 }
 
 /// Human-readable byte size for the image paste-through confirm prompt (F6-i7):

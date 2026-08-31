@@ -208,6 +208,10 @@ copy_on_select = off
 smart_ctrl_c = copy-or-interrupt
 # smart_ctrl_c = off   # plain Ctrl+C always interrupts (pre-v0.6.0 behavior)
 confirm_close = on
+# Warn before multiline or control-bearing text reaches a child that has not
+# enabled bracketed-paste mode. The prompt shows an escaped bounded preview and
+# exact original line/byte counts. Off is an advanced opt-out.
+warn_on_risky_paste = on
 # What happens when the last shell in a workspace exits: close that workspace,
 # or close the entire application.
 shell_exit_closes = workspace

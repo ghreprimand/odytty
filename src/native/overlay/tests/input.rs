@@ -1423,6 +1423,53 @@ fn confirm_close_dialog_opens_renders_and_routes_keys() {
 }
 
 #[test]
+fn risky_paste_dialog_shows_bounded_metadata_and_routes_explicit_actions() {
+    let dialog = RiskyPasteDialog {
+        line_count: 2,
+        byte_count: 12,
+        escaped_preview: "first\\nsecond".to_owned(),
+        preview_truncated: false,
+        one_line_available: true,
+    };
+    let mut overlay = OverlayUi::default();
+    overlay.open_risky_paste(dialog.clone());
+    assert!(overlay.is_risky_paste());
+
+    let mut rendered = snapshot(100, 24);
+    apply_overlay(&mut rendered, &mut overlay);
+    let painted: String = rendered.cells.iter().map(|cell| cell.ch).collect();
+    assert!(painted.contains("Confirm paste"));
+    assert!(painted.contains("2 lines, 12 bytes"));
+    assert!(painted.contains("first\\nsecond"));
+    assert!(painted.contains("Paste as One Line"));
+
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Char('o')),
+        OverlayOutcome::RiskyPasteOneLine
+    );
+    assert!(!overlay.is_open());
+
+    overlay.open_risky_paste(dialog);
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        OverlayOutcome::RiskyPaste
+    );
+
+    overlay.open_risky_paste(RiskyPasteDialog {
+        one_line_available: false,
+        ..RiskyPasteDialog::default()
+    });
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Char('o')),
+        OverlayOutcome::Consumed
+    );
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Close),
+        OverlayOutcome::RiskyPasteCancel
+    );
+}
+
+#[test]
 fn pointer_press_outside_the_panel_dismisses_settings() {
     let mut overlay = OverlayUi::default();
     overlay.open_settings();

@@ -399,6 +399,7 @@ impl App {
         // The confirmation prompt belongs to the old pane. Switching away is
         // an implicit cancel so Enter in the new pane cannot authorize upload.
         self.pending_image_paste = None;
+        self.cancel_pending_text_paste();
         // Drop any in-flight IME preedit directly (the field is repainted via the
         // `needs_rebuild` set below); a composition begun on the previous surface
         // must not paint at, or commit into, the new one.
@@ -877,6 +878,9 @@ impl App {
     }
 
     pub(super) fn on_close_requested(&mut self, event_loop: &ActiveEventLoop) {
+        // A window-close request supersedes a paste decision. Drop held source
+        // text before replacing its modal or exiting.
+        self.cancel_pending_text_paste();
         // CLOSE-CONFIRM: when enabled and a foreground job is actually
         // running, intercept the close and raise the confirmation dialog
         // instead of exiting. Only `ForegroundJob::Running` prompts —

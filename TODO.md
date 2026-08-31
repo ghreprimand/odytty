@@ -39,7 +39,7 @@ recorded milestone before implementation.
       existing performance baseline in
       [`docs/v0.13.0-foundation.md`](docs/v0.13.0-foundation.md). This is a
       documentation-only foundation and changes no runtime behavior.
-- [ ] Add one cross-platform policy for risky non-bracketed text paste while
+- [x] Add one cross-platform policy for risky non-bracketed text paste while
       preserving ordinary single-line and child-enabled bracketed paste.
 - [ ] Add select, copy, scoped-search, failed-command navigation, and safe
       plain-text export actions over verified OSC 133 command ranges.
@@ -464,6 +464,11 @@ not a stretch goal.
   - [x] Linux PRIMARY selection support uses `arboard`: local selection writes
         PRIMARY when available, and middle-click paste reads PRIMARY through the
         hardened native paste path.
+  - [x] Risky non-bracketed text (multiline or controls other than tab) is held
+        behind a bounded escaped preview with original line/byte counts and
+        Paste, reversible Paste as One Line when available, or Cancel. Shortcut,
+        palette, context-menu, and Linux PRIMARY routes share the policy; safe
+        single-line and child-enabled bracketed paste keep their previous bytes.
 - [x] Add search in scrollback.
   - [x] Core engine in `src/core/search.rs`: literal case-sensitive/insensitive
         search over scrollback + screen, inclusive absolute-cell match ranges,

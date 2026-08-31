@@ -1022,8 +1022,12 @@ impl App {
         let Some(text) = self.clipboard.read_primary_text() else {
             return;
         };
-        self.return_to_live();
-        let _ = write_paste_text(&self.terminal, &self.writer, &text);
+        self.route_paste_text(PasteSource::Primary, text);
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn handle_primary_paste_for_test(&mut self) {
+        self.handle_primary_paste();
     }
 
     pub(super) fn current_selection_text(&self) -> Option<String> {

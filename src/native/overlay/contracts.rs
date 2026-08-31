@@ -46,6 +46,12 @@ pub(in crate::native) enum SettingsTarget {
 pub(in crate::native) enum OverlayOutcome {
     Consumed,
     Close,
+    /// Confirm the held original risky text without transformation.
+    RiskyPaste,
+    /// Confirm the held text using the explicit reversible one-line encoding.
+    RiskyPasteOneLine,
+    /// Dismiss the risky-paste modal and discard its held text.
+    RiskyPasteCancel,
     /// Dismiss the first-run onboarding card. Like `Close`, but the App also
     /// persists a first-run marker (ensures `odytty.conf` exists) so the welcome
     /// card does not reshow on the next launch — dismissal alone otherwise
@@ -423,6 +429,9 @@ pub(in crate::native) enum OverlayMode {
     /// dimmed backdrop panel, through the existing GPU image-layer raster path.
     /// Esc dismisses; closed = live frame byte-identical.
     ImageView,
+    /// Suspicious-paste confirmation. Only escaped, bounded presentation data
+    /// enters the overlay; original text remains in App-owned transient state.
+    RiskyPaste,
     /// Close-confirmation dialog (CLOSE-CONFIRM). A centered, static two-line
     /// modal shown when a close is requested while a foreground job is running;
     /// Enter/Y confirms (emits [`OverlayOutcome::ForceClose`]), Esc/N cancels.
@@ -479,6 +488,15 @@ pub(in crate::native) enum OverlayMode {
     /// the current one (emits [`OverlayOutcome::OpenLayoutAdd`]), `[Esc]` cancels.
     /// The layout name is carried on the overlay (`confirm_open_layout`).
     ConfirmOpenLayout,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(in crate::native) struct RiskyPasteDialog {
+    pub(in crate::native) line_count: usize,
+    pub(in crate::native) byte_count: usize,
+    pub(in crate::native) escaped_preview: String,
+    pub(in crate::native) preview_truncated: bool,
+    pub(in crate::native) one_line_available: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

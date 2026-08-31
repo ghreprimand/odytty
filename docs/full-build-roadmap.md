@@ -554,10 +554,12 @@ is opt-in or configurable and never disturbs an application's own mouse handling
 
 ### Other Ergonomics
 
-- **Planned v0.13.0 — Risky-paste confirmation.** Preview multiline or
-  control-bearing text before it reaches a child that has not enabled bracketed
-  paste. Single-line and child-enabled bracketed paste remain unchanged, and
-  OdyTTY never tries to judge whether a shell command itself is safe.
+- **Implemented for v0.13.0 - Risky-paste confirmation.** Preview multiline or
+  control-bearing original text before it reaches a child that has not enabled
+  bracketed paste. The bounded escaped dialog reports line/byte counts and
+  offers Paste, reversible Paste as One Line when available, or Cancel.
+  Single-line and child-enabled bracketed paste remain unchanged, and OdyTTY
+  never tries to judge whether a shell command itself is safe.
 - **Planned v0.15.0 — Quick terminal, local automation, and file drop.** Summon a
   dedicated terminal through platform-supported global shortcuts; provide an
   owner-scoped local structural-control API with no network listener; and insert

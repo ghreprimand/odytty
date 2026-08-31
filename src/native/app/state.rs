@@ -311,6 +311,9 @@ pub(in crate::native) struct App {
     /// image bytes are held here until confirmed so nothing leaves the machine
     /// on the paste keystroke alone.
     pub(super) pending_image_paste: Option<PendingImagePaste>,
+    /// Original clipboard/PRIMARY text held behind the suspicious-paste modal.
+    /// Nothing reaches the PTY until an explicit outcome consumes this value.
+    pub(super) pending_text_paste: Option<PendingTextPaste>,
     /// A background Test Connection probe (ODP-8) in flight from the Add / Edit
     /// connection form. The worker thread sends its tri-state result here and
     /// wakes a redraw; `run_about_to_wait_maintenance` drains it into the form.
@@ -574,6 +577,7 @@ impl App {
             os_theme: None,
             pending_exit: false,
             pending_image_paste: None,
+            pending_text_paste: None,
             connection_probe: None,
             #[cfg(test)]
             last_image_upload: None,

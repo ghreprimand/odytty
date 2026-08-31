@@ -295,6 +295,10 @@ impl Settings {
             bool_display(self.confirm_close).to_owned(),
         );
         values.insert(
+            WARN_ON_RISKY_PASTE_ENV,
+            bool_display(self.warn_on_risky_paste).to_owned(),
+        );
+        values.insert(
             SSH_CONFIG_HOSTS_ENV,
             bool_display(self.ssh_config_hosts).to_owned(),
         );

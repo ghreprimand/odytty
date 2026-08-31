@@ -120,7 +120,11 @@ sessions.
 - **Daily terminal interaction:** Kitty keyboard support, broad mouse modes,
   IME, search, selection and copy mode, bracketed paste, hyperlinks, clickable
   paths, prompt navigation, keyboard hints, and transient resize and zoom
-  feedback.
+  feedback. With bracketed paste disabled, multiline or control-bearing source
+  text is held behind a bounded escaped preview with original line/byte counts
+  and explicit Paste, reversible Paste as One Line when available, or Cancel.
+  Safe single-line and child-enabled bracketed paste retain their existing byte
+  path; `warn_on_risky_paste = off` is an advanced global opt-out.
 - **Workspaces and remote work:** tabs, resizable panes, named workspaces,
   layouts, restore, Unix managed and detached sessions, an SSH connection
   manager, connection reuse, and optional `tmux` persistence.

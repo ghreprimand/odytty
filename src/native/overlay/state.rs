@@ -27,7 +27,9 @@ use crate::session_host::ListedSession;
 use crate::settings::Settings;
 use crate::theme::Theme;
 
-use super::contracts::{LayoutSaveKind, OverlayMode, OverlayOutcome, PickerReturn, SettingsTarget};
+use super::contracts::{
+    LayoutSaveKind, OverlayMode, OverlayOutcome, PickerReturn, RiskyPasteDialog, SettingsTarget,
+};
 
 #[derive(Debug, Clone)]
 pub(in crate::native) struct OverlayUi {
@@ -52,6 +54,7 @@ pub(in crate::native) struct OverlayUi {
     /// body. The image itself draws through the GPU image layer, over the panel;
     /// this presentation-only string is the only state the viewer mode carries.
     pub(super) image_view_caption: String,
+    pub(super) risky_paste: RiskyPasteDialog,
     /// The pending host session-id carried by the attach-choice dialog (Phase
     /// 14). Set when the dialog opens; the "New tab"/"Replace current" arms emit
     /// it back to the App. Empty when the dialog is not open. The dialog body is
@@ -154,6 +157,7 @@ impl OverlayUi {
             open_with: OpenWithOverlay::new(),
             workspace_picker: WorkspacePicker::new(),
             image_view_caption: String::new(),
+            risky_paste: RiskyPasteDialog::default(),
             attach_choice_session_id: String::new(),
             confirm_kill_session_id: String::new(),
             detach_switch_cwd: String::new(),
@@ -246,6 +250,7 @@ impl OverlayUi {
         self.close_after_save = false;
         self.picker_return = None;
         self.builder_from_picker = false;
+        self.risky_paste = RiskyPasteDialog::default();
     }
 
     pub(in crate::native) fn open_theme_picker(&mut self, settings: &Settings) {
@@ -541,6 +546,10 @@ impl OverlayUi {
         self.open && self.mode == OverlayMode::ContextMenu
     }
 
+    pub(in crate::native) fn is_risky_paste(&self) -> bool {
+        self.open && self.mode == OverlayMode::RiskyPaste
+    }
+
     /// Whether the open context menu is anchored to the workspace rail — a
     /// workspace slot or the empty rail region (RAIL-PIN). The auto-hide rail
     /// keeps itself revealed while such a menu is open so it does not vanish
@@ -627,6 +636,7 @@ impl OverlayUi {
             | OverlayMode::OpenWith
             | OverlayMode::WorkspacePicker
             | OverlayMode::ImageView
+            | OverlayMode::RiskyPaste
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
@@ -666,6 +676,7 @@ impl OverlayUi {
             | OverlayMode::OpenWith
             | OverlayMode::WorkspacePicker
             | OverlayMode::ImageView
+            | OverlayMode::RiskyPaste
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession

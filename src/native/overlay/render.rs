@@ -57,6 +57,7 @@ impl OverlayUi {
             // No title bar — early-dispatched to `apply_context_menu`.
             OverlayMode::ContextMenu => String::new(),
             OverlayMode::ConfirmClose => "Close?".to_owned(),
+            OverlayMode::RiskyPaste => "Confirm paste".to_owned(),
             OverlayMode::AttachChoice => "Attach session".to_owned(),
             OverlayMode::ConfirmKillSession => "Kill session".to_owned(),
             OverlayMode::DetachSwitchChoice => "Detach & switch".to_owned(),
@@ -94,6 +95,7 @@ impl OverlayUi {
             | OverlayMode::Onboarding
             | OverlayMode::ContextMenu
             | OverlayMode::ImageView
+            | OverlayMode::RiskyPaste
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
@@ -485,6 +487,86 @@ impl OverlayUi {
                     bold: false,
                 },
             ],
+            OverlayMode::RiskyPaste => {
+                let mut chunks = self
+                    .risky_paste
+                    .escaped_preview
+                    .chars()
+                    .collect::<Vec<_>>()
+                    .chunks(body_width.max(1))
+                    .take(3)
+                    .map(|chunk| chunk.iter().collect::<String>())
+                    .collect::<Vec<_>>();
+                chunks.resize(3, String::new());
+                let was_truncated = self.risky_paste.preview_truncated
+                    || self.risky_paste.escaped_preview.chars().count() > body_width.max(1) * 3;
+                let detail = if self.risky_paste.one_line_available {
+                    if was_truncated {
+                        "Preview truncated. One Line escapes CR/LF and backslashes.".to_owned()
+                    } else {
+                        "One Line escapes CR/LF and doubles existing backslashes.".to_owned()
+                    }
+                } else if was_truncated {
+                    format!(
+                        "Preview truncated (bounded to {} escaped bytes).",
+                        crate::native::paste_policy::MAX_ESCAPED_PREVIEW_BYTES
+                    )
+                } else {
+                    String::new()
+                };
+                let action = if self.risky_paste.one_line_available {
+                    RISKY_PASTE_ACTION_LINE
+                } else {
+                    RISKY_PASTE_ACTION_LINE_NO_ONE_LINE
+                };
+                vec![
+                    OverlayLine {
+                        text: format!(
+                            "Original: {} lines, {} bytes",
+                            self.risky_paste.line_count, self.risky_paste.byte_count
+                        ),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: "Escaped preview (not shell output):".to_owned(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: chunks[0].clone(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: chunks[1].clone(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: chunks[2].clone(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: detail,
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: action.to_owned(),
+                        focused: true,
+                        swatch: None,
+                        bold: false,
+                    },
+                ]
+            }
             // Static choice copy (Phase 14). Row 0 prompt, row 1 blank, row 2 the
             // action line — the action row index (2) matches `ACTION_ROW` in
             // `attach_choice_click` so the click hit-test lands on it.

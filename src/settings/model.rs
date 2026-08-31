@@ -1510,6 +1510,10 @@ pub struct Settings {
     /// On by default; the dialog only appears when a program is actively running
     /// in the terminal, so the common idle-shell close path is unaffected.
     pub confirm_close: bool,
+    /// Confirm multiline or control-bearing text before it reaches a child that
+    /// has bracketed-paste mode disabled. On by default. The predicate is
+    /// cross-platform and examines original text before newline normalization.
+    pub warn_on_risky_paste: bool,
     /// Opt-in OpenSSH config host import for the connection manager.
     /// Off by default: OdyTTY's owned hosts list works without touching
     /// `~/.ssh/config`. When on, the data layer reads a caller-supplied
@@ -1696,6 +1700,7 @@ impl Default for Settings {
             os_theme_dark: None,
             os_theme_light: None,
             confirm_close: DEFAULT_CONFIRM_CLOSE,
+            warn_on_risky_paste: DEFAULT_WARN_ON_RISKY_PASTE,
             ssh_config_hosts: DEFAULT_SSH_CONFIG_HOSTS,
             remote_integration: DEFAULT_REMOTE_INTEGRATION,
             remote_reuse: DEFAULT_REMOTE_REUSE,

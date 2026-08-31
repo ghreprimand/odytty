@@ -216,9 +216,13 @@ impl App {
         match outcome {
             OverlayOutcome::Consumed => {}
             OverlayOutcome::Close => {
+                self.pending_text_paste = None;
                 self.flush_pending_overlay_settings();
                 self.overlay.close();
             }
+            OverlayOutcome::RiskyPaste => self.commit_pending_text_paste(false),
+            OverlayOutcome::RiskyPasteOneLine => self.commit_pending_text_paste(true),
+            OverlayOutcome::RiskyPasteCancel => self.cancel_pending_text_paste(),
             // First-run onboarding dismissal: persist a marker so the welcome
             // card does not reshow next launch (best-effort; a write failure
             // must never block dismissal), then close like any other overlay.

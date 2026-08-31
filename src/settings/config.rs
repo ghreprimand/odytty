@@ -38,7 +38,7 @@ use super::{
     INTERACTIVE_URLS_ENV, KITTY_NAMED_TRANSPORTS_ENV, LIGATURE_SS01_ENV, LIGATURE_SS02_ENV,
     LIGATURES_ENV, LINE_HEIGHT_ENV, REMOTE_IMAGE_PASTE_ENV, REMOTE_INTEGRATION_ENV,
     REMOTE_PERSIST_ENV, REMOTE_REUSE_ENV, REMOTE_TMUX_ENV, SESSION_REPLAY_ENV,
-    SSH_CONFIG_HOSTS_ENV,
+    SSH_CONFIG_HOSTS_ENV, WARN_ON_RISKY_PASTE_ENV,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -330,6 +330,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "confirmclose" | "closeconfirm" | "closeconfirmation" | "confirmonclose" => {
             Some(CONFIRM_CLOSE_ENV)
         }
+        "warnonriskypaste" | "riskypastewarning" | "pastewarning" => Some(WARN_ON_RISKY_PASTE_ENV),
         "shellexitcloses" | "exitcloses" | "typingexitcloses" | "exitbehavior" => {
             Some(SHELL_EXIT_CLOSES_ENV)
         }
@@ -477,6 +478,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CVD_STRENGTH_ENV => Some("cvd_strength"),
         BELL_ENV => Some("bell"),
         CONFIRM_CLOSE_ENV => Some("confirm_close"),
+        WARN_ON_RISKY_PASTE_ENV => Some("warn_on_risky_paste"),
         SHELL_EXIT_CLOSES_ENV => Some("shell_exit_closes"),
         SSH_CONFIG_HOSTS_ENV => Some("ssh_config_hosts"),
         REMOTE_INTEGRATION_ENV => Some("remote_integration"),

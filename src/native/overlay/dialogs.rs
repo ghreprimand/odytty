@@ -9,7 +9,9 @@ use crate::native::context_menu_ui::{CONTEXT_MENU_ITEMS, ContextMenuItem, Contex
 use crate::native::session::SessionToken;
 use crate::selection::CellPoint;
 
-use super::contracts::{LayoutSaveKind, OverlayInput, OverlayMode, OverlayOutcome, SettingsTarget};
+use super::contracts::{
+    LayoutSaveKind, OverlayInput, OverlayMode, OverlayOutcome, RiskyPasteDialog, SettingsTarget,
+};
 use super::layout::*;
 use super::state::OverlayUi;
 
@@ -137,6 +139,64 @@ impl OverlayUi {
         self.close();
         self.mode = OverlayMode::ConfirmClose;
         self.open = true;
+    }
+
+    pub(in crate::native) fn open_risky_paste(&mut self, dialog: RiskyPasteDialog) {
+        self.close();
+        self.risky_paste = dialog;
+        self.mode = OverlayMode::RiskyPaste;
+        self.open = true;
+    }
+
+    pub(super) fn handle_risky_paste_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match input {
+            OverlayInput::Activate | OverlayInput::Char('p') | OverlayInput::Char('P') => {
+                self.close();
+                OverlayOutcome::RiskyPaste
+            }
+            OverlayInput::Char('o') | OverlayInput::Char('O')
+                if self.risky_paste.one_line_available =>
+            {
+                self.close();
+                OverlayOutcome::RiskyPasteOneLine
+            }
+            OverlayInput::Close | OverlayInput::Char('c') | OverlayInput::Char('C') => {
+                self.close();
+                OverlayOutcome::RiskyPasteCancel
+            }
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
+    pub(super) fn risky_paste_click(
+        &mut self,
+        row_in_body: usize,
+        col_in_body: usize,
+    ) -> OverlayOutcome {
+        const ACTION_ROW: usize = 6;
+        if row_in_body != ACTION_ROW {
+            return OverlayOutcome::Consumed;
+        }
+        let text = if self.risky_paste.one_line_available {
+            RISKY_PASTE_ACTION_LINE
+        } else {
+            RISKY_PASTE_ACTION_LINE_NO_ONE_LINE
+        };
+        let paste_start = text.find("[Enter").unwrap_or(0);
+        let one_line_start = text.find("[O]");
+        let cancel_start = text.find("[Esc").unwrap_or(text.len());
+        if col_in_body >= cancel_start {
+            self.close();
+            OverlayOutcome::RiskyPasteCancel
+        } else if one_line_start.is_some_and(|start| col_in_body >= start) {
+            self.close();
+            OverlayOutcome::RiskyPasteOneLine
+        } else if col_in_body >= paste_start {
+            self.close();
+            OverlayOutcome::RiskyPaste
+        } else {
+            OverlayOutcome::Consumed
+        }
     }
 
     /// Keyboard contract for the image viewer (C4): Esc / Enter dismisses; every

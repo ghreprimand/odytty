@@ -825,6 +825,12 @@ impl Settings {
             DEFAULT_CONFIRM_CLOSE,
             &mut warn,
         );
+        let warn_on_risky_paste = parse_bool_setting(
+            get(WARN_ON_RISKY_PASTE_ENV).as_deref(),
+            WARN_ON_RISKY_PASTE_ENV,
+            DEFAULT_WARN_ON_RISKY_PASTE,
+            &mut warn,
+        );
         let ssh_config_hosts = parse_bool_setting(
             get(SSH_CONFIG_HOSTS_ENV).as_deref(),
             SSH_CONFIG_HOSTS_ENV,
@@ -1003,6 +1009,7 @@ impl Settings {
             os_theme_dark,
             os_theme_light,
             confirm_close,
+            warn_on_risky_paste,
             ssh_config_hosts,
             remote_integration,
             remote_reuse,

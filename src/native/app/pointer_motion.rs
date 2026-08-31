@@ -131,6 +131,7 @@ impl App {
             // minimized, so the ordinary focus-gain path is unchanged.
             self.restore_from_minimized();
         } else {
+            self.cancel_pending_text_paste();
             // A compositor may end a pointer grab by transferring focus without
             // delivering the paired button release. Settle a pane divider while
             // its original tab and geometry are still active, before clearing

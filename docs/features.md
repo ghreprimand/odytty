@@ -145,7 +145,11 @@ sanitized text, and closing marker, so unrelated input cannot split the frame.
 A bracketed paste whose complete framed payload exceeds
 `MAX_BRACKETED_PASTE_BYTES` = 32 MiB is refused whole. Plain, non-bracketed
 paste has no comparable whole-payload rejection and remains deliberately
-chunked.
+chunked. With child bracketed-paste mode off, original multiline or
+control-bearing text is held behind a bounded escaped preview before PTY
+writing. The dialog reports original line and byte counts and offers Paste,
+reversible Paste as One Line when available, or Cancel. Safe single-line and
+child-enabled bracketed paste retain their existing byte behavior.
 
 IME pre-edit appears inline at the cursor and committed text is sent to the
 shell. This supports CJK input methods and compose-key or dead-key accents.

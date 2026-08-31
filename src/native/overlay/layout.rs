@@ -49,6 +49,12 @@ impl OverlayRect {
 /// `.max(36)` floor in [`overlay_rect`] keeps small grids sane.
 pub(super) const CONFIRM_CLOSE_WIDTH: usize = 52;
 
+pub(super) const RISKY_PASTE_WIDTH: usize = 78;
+pub(super) const RISKY_PASTE_ACTION_LINE: &str =
+    "Choose: [Enter / P] Paste   [O] Paste as One Line   [Esc / C] Cancel";
+pub(super) const RISKY_PASTE_ACTION_LINE_NO_ONE_LINE: &str =
+    "Choose: [Enter / P] Paste   [Esc / C] Cancel";
+
 /// The close-confirmation dialog's action line, shared by the body builder and
 /// the click hit-test ([`OverlayUi::confirm_close_click`]) so the two can never
 /// drift. The `[Enter` and `[Esc` bracket tokens anchor the Yes / No regions.
@@ -184,6 +190,7 @@ pub(in crate::native) fn overlay_rect(
         // Static two-line dialog; the `.max(36)` floor below gives it room and
         // the body text fits comfortably (CLOSE-CONFIRM).
         OverlayMode::ConfirmClose => CONFIRM_CLOSE_WIDTH,
+        OverlayMode::RiskyPaste => RISKY_PASTE_WIDTH,
         // Static choice dialog (Phase 14); same fixed-width/floor treatment.
         OverlayMode::AttachChoice => ATTACH_CHOICE_WIDTH,
         // Static kill-confirmation dialog (Manage Sessions); same treatment.
