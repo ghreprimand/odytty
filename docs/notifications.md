@@ -73,5 +73,6 @@ after policy and rate-limit checks:
 | Windows | On-demand PowerShell Windows toast request with fixed application-owned XML | Permission or policy failure leaves in-app state |
 
 Automated tests pin each command specification independently without claiming
-that desktop hardware or a notification service accepted delivery. Manual
-platform acceptance remains required for a release claim.
+that desktop hardware or a notification service accepted delivery. Release
+evidence records on-device acceptance as a separate result and never infers it
+from command construction or hosted CI.

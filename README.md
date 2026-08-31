@@ -153,7 +153,7 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.13.0 adds safer paste,
+OdyTTY is a broad pre-1.0 terminal. The published v0.13.0 release adds safer paste,
 command-aware output actions, and bounded completion and progress awareness.
 Risky non-bracketed text waits behind an explicit bounded preview, while
 ordinary single-line and child-enabled bracketed paste keep their existing byte
@@ -174,8 +174,15 @@ Separately classified software-endpoint results, memory composition, and
 scrollback scaling are published alongside W6 without pooling their evidence
 classes; W7's four-hour memory-growth workload remains explicitly deferred.
 
-The v0.13.0 release evidence and its limitations are recorded in the
-[release guide](docs/release.md). The full benchmark results remain in
+The tagged release passed exact-commit blocking Linux, macOS, and Windows CI,
+all seven artifact producers and smoke tests, the locked dependency audit,
+Minisign and GitHub provenance verification, and Scoop, Homebrew, and AUR
+publication. The 16 published assets passed an independent checksum,
+signature, alias-identity, provenance, and source-build check. Native macOS and
+Windows on-device runtime checks remain unperformed because maintainer hardware
+was unavailable; automated platform evidence is not relabeled as a manual
+pass. Full evidence and limitations are recorded in the [release
+guide](docs/release.md). The full benchmark results remain in
 [docs/benchmark-results.md](docs/benchmark-results.md); carried-forward results
 do not cover every GPU, compositor, IME, font, or hardware configuration.
 

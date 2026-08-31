@@ -110,14 +110,12 @@ The upstream release does not currently publish Nix, Flatpak, or Snap packages.
 A package must not silently change the user's default terminal; it should
 register OdyTTY as available and leave selection to the user.
 
-For v0.13.0, blocking Linux, macOS, and Windows CI remains a release gate, but
-maintainer-controlled Windows and macOS hardware is not available for a
-pre-publish install and runtime smoke pass. The first on-device checks of the
-published Windows portable/Scoop paths and macOS archive/Homebrew paths are
-therefore post-publish verification steps. Record their real outcome. A defect
-found there is fixed in a patch release; it is not rewritten as a successful
-v0.13.0 check. Historical device passes remain evidence for earlier artifacts,
-not proof about the new release.
+For v0.13.0, blocking Linux, macOS, and Windows CI passed, but
+maintainer-controlled Windows and macOS hardware was unavailable for native
+install and runtime smoke passes before or after publication. Those checks are
+recorded as **not performed**, not inferred from hosted CI or earlier releases.
+A defect found later is fixed in a patch release; the missing v0.13.0 evidence
+is not rewritten as a success.
 
 ## Release Artifacts
 
@@ -354,6 +352,21 @@ applicable evidence; a fresh performance campaign is **not run** and is not
 claimed for v0.13.0. Native Linux, macOS, and Windows delivery remains subject
 to the independent platform evidence recorded for this release rather than
 being inferred from parser or command-specification tests.
+
+Tag `v0.13.0` points to release commit
+`2b44465912c8bf98e15d74c7be4987722e293959`. Exact-commit CI run
+`33386345374` passed on Ubuntu, macOS, and Windows. Release run `33387227629`
+then passed all seven producers and artifact smoke tests, the locked dependency
+audit, checksum signing, constrained provenance verification, GitHub Release
+publication, and Scoop, Homebrew, and AUR publication. An independent
+post-publish check downloaded all 16 assets, verified every checksum and the
+Minisign signature, compared all seven alias/pinned pairs byte-for-byte,
+verified the Linux, Windows, and macOS attestations against the release
+workflow, built the pinned source archive with the locked graph, and confirmed
+the source and packaged Linux binaries report `odytty 0.13.0`. Public Scoop,
+Homebrew cask/formula, and AUR metadata all carry v0.13.0 and the matching
+published hashes. Native macOS and Windows on-device runtime checks remain
+**not performed** for the hardware reason above.
 
 ### 3. Push The Release Tag
 

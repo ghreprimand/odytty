@@ -20,6 +20,8 @@ This is the complete map of OdyTTY's tracked project documentation.
 - [Keybindings](keybindings.md) — shortcuts and rebinding.
 - [Buttons](buttons.md) — the program-defined clickable-output protocol.
 - [Accessibility](accessibility.md) — readability and motion controls.
+- [Notifications](notifications.md) — bounded OSC progress, completion, and
+  pane-monitor policy.
 - [Diagnostics](diagnostics.md) — logs, recovery, and support information.
 
 ## Visual System

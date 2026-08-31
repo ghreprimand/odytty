@@ -86,7 +86,7 @@ are provisional: confirmed correctness or security reports can still insert a
 narrow patch release, and a feature moves rather than shipping incomplete when
 its cross-platform or evidence gate is not met.
 
-- **v0.13.0 — Safer, command-aware work.** Multiline-paste confirmation,
+- **Shipped v0.13.0 — Safer, command-aware work.** Multiline-paste confirmation,
   select/copy/search/export actions over OSC 133 command ranges, and bounded
   command-completion, progress, activity, and notification presentation. The
   pre-implementation inventory, accepted architecture decisions, threat
@@ -511,12 +511,12 @@ gap to close and unlocks the most downstream value. Semantic prompt marking
 - **Shipped — Command-aware foundation.** Built on prompt marking: jump to the
   previous or next prompt and show a per-command success/failure indicator in
   the gutter. A core range helper already identifies one command's output.
-- **Implemented for v0.13.0 - Command-output actions.** Verified,
+- **Shipped in v0.13.0 - Command-output actions.** Verified,
   generation-bound OSC 133 ranges now drive output-only and prompt-inclusive
   select/copy, range-scoped search, explicit-status failed-command navigation,
   and bounded plain-text export without replacing the terminal grid with a
   block document model. Missing or stale boundaries disable the actions.
-- **Implemented for v0.13.0 - Completion and progress awareness.** Existing BEL
+- **Shipped in v0.13.0 - Completion and progress awareness.** Existing BEL
   attention modes remain separate while bounded OSC notification/progress state,
   explicit command-finish, activity, silence, bell, process-finish, and failure
   monitors feed pane-owned in-app badges. Users choose in-app presentation, an
@@ -559,7 +559,7 @@ is opt-in or configurable and never disturbs an application's own mouse handling
 
 ### Other Ergonomics
 
-- **Implemented for v0.13.0 - Risky-paste confirmation.** Preview multiline or
+- **Shipped in v0.13.0 - Risky-paste confirmation.** Preview multiline or
   control-bearing original text before it reaches a child that has not enabled
   bracketed paste. The bounded escaped dialog reports line/byte counts and
   offers Paste, reversible Paste as One Line when available, or Cancel.
@@ -926,9 +926,9 @@ ship:
    cross-platform CI, bounded dynamic analysis and fuzzing, package channels,
    documentation, and the time-bounded dependency-advisory review.
 3. **Execute the provisional release sequence above one checkpoint at a time.**
-   Begin with v0.13.0 paste safety, command-output actions, and completion/
-   progress awareness. Do not hold a completed checkpoint for later roadmap
-   work, and do not pull a later feature forward without its platform, security,
+   Continue with v0.14.0 profiles and navigation after the shipped v0.13.0
+   checkpoint. Do not hold a completed checkpoint for later roadmap work, and
+   do not pull a later feature forward without its platform, security,
    documentation, and evidence gates.
 
 Everything beyond a plain terminal stays measured, opt-out-able, and — above all

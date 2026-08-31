@@ -916,6 +916,16 @@ Native notification delivery is attempted on demand and degrades to in-app
 state when unavailable, so it adds no startup discovery to the default local
 terminal path.
 
+Tag `v0.13.0` identifies the release commit that passed exact-commit blocking
+Linux, macOS, and Windows CI. The release workflow passed all seven artifact
+producers and smoke tests, the locked dependency audit, Minisign checksum
+signing, constrained GitHub provenance verification, and Scoop, Homebrew, and
+AUR publication. Independent post-publish checks verified all 16 asset hashes,
+seven byte-identical alias pairs, the checksum signature, Linux/macOS/Windows
+artifact attestations, and a clean source-archive build. Native macOS and
+Windows on-device runtime checks remain unperformed because maintainer hardware
+was unavailable; automated evidence is not a substitute.
+
 The project remains pre-1.0; any later milestone requires a separately recorded
 scope rather than silently inheriting deferred work from a prior release.
 

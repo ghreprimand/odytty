@@ -180,6 +180,33 @@ fn softwrap_output_copy_reconstructs_the_logical_line_without_a_break() {
 }
 
 #[test]
+fn softwrap_composite_copy_with_prompt_captures_prompt_command_and_output() {
+    // The last-block soft-wrapped composite (OutputStartAndEndAt merged into
+    // PromptStartAfterOutputEndAt) must expose CommandRangePart::PromptAndCommand
+    // correctly: a with-prompt selection begins at the prompt row and includes
+    // the typed command line AND the full rejoined soft-wrapped output, with no
+    // hard break injected at the wrap column.
+    let long = "a".repeat(100);
+    let mut bytes = b"\x1b]133;A\x07$ printf long\r\n\x1b]133;C\x07".to_vec();
+    bytes.extend_from_slice(long.as_bytes());
+    bytes.extend_from_slice(b"\x1b]133;D;0\x07\x1b]133;A\x07$ ");
+    let (mut app, _) = app_with(&bytes);
+
+    app.select_command_output_for_test(true);
+    let with_prompt = app
+        .selection_text_for_test()
+        .expect("with-prompt selection over the composite");
+    assert!(
+        with_prompt.contains("printf long"),
+        "with-prompt selection includes the typed command line"
+    );
+    assert!(
+        with_prompt.contains(&long),
+        "with-prompt selection includes the full rejoined soft-wrapped output"
+    );
+}
+
+#[test]
 fn silent_command_collapsing_c_and_d_fails_closed() {
     // A command that prints nothing collides its C (output start) and D (end) on
     // one row; there is no addressable output region, so the verified-range

@@ -178,6 +178,57 @@ Perform these steps separately for each platform:
    effects-on path separately with defaults, then reduced motion.
 8. Keep automated test results separate from the manual record.
 
+## v0.13.0 focused feature smoke
+
+This short pass exercises the visible v0.13.0 additions without replacing the
+full platform checklist. Use synthetic clipboard text and a fresh local shell.
+Enable `shell_integration = on`, `warn_on_risky_paste = on`, and
+`notifications = in-app`, then open a new tab so the shell receives OSC 133
+integration.
+
+1. **Risky paste:** run `printf '\033[?2004l'` to make the child disable
+   bracketed-paste mode. Copy the two-line synthetic text below and paste it:
+
+   ```text
+   printf 'paste-one\n'
+   printf 'paste-two\n'
+   ```
+
+   The bounded preview must appear before either line reaches the shell and
+   must report the original line and byte counts. Cancel and confirm the prompt
+   received nothing. Repeat and choose Paste; the original text must arrive as
+   one confirmed transaction. When Paste as One Line is offered, its preview
+   must be explicit and reversible rather than silently rewriting the source.
+
+2. **Command-output actions:** run
+   `printf 'range-alpha\nrange-beta\n'; false`, open the command palette with
+   `Ctrl+Shift+P`, and exercise Copy Command Output, Copy Command With Prompt,
+   Search Command Output, Jump To Previous Failed Command, and Export Command
+   Output. The output-only copy/export contains the two output lines but no
+   prompt, command, OSC data, or escape sequence; the prompt-inclusive copy also
+   contains the typed command. Canceling the save dialog writes nothing.
+
+3. **Soft-wrap boundary:** narrow the window, run
+   `printf '%0100d\n' 0`, and copy that command's output. The 100 visible digits
+   must remain one logical line: no newline is inserted at the visual wrap and
+   no wrapped tail disappears.
+
+4. **Completion and progress:** run `sleep 5`, open the palette while it is
+   still running, and choose Notify When This Command Finishes. Completion must
+   produce a bounded in-app indication without moving keyboard focus. Then run
+   `printf '\033]9;4;1;42\033\\'; sleep 3; printf '\033]9;4;0\033\\'` and
+   confirm the owning pane/tab shows 42 percent progress and then clears it.
+
+5. **Theme consistency and hex entry:** open Themes and switch between
+   `odyssey-default` and `odyssey-classic`; the displayed name and colors must
+   update together without restarting. `system` is an appearance-following
+   alias, not a fixed palette: absent overrides it maps OS dark to
+   `odyssey-classic` and OS light to `odyssey-light`. In Theme Builder, click a
+   role's displayed hex value, type a synthetic `#rrggbb` value, press Enter,
+   and confirm the preview changes. Save under a synthetic name and confirm the
+   parent Settings page immediately shows that name and palette; use Esc before
+   saving when the change should remain temporary.
+
 ## Linux checklist
 
 Record the Linux run fields before populating this table. Unless a row states
