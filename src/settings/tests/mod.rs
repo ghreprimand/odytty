@@ -36,6 +36,7 @@ mod mouse;
 mod numeric;
 mod osc52_write;
 mod overlay;
+mod profiles;
 mod sh2;
 mod system_theme;
 

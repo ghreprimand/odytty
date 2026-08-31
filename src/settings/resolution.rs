@@ -303,7 +303,7 @@ impl Settings {
         )
     }
 
-    pub(super) fn from_source(
+    pub(crate) fn from_source(
         mut get: impl FnMut(&str) -> Option<OsString>,
         mut warn: impl FnMut(&str),
         mut resolve_family: impl FnMut(&str) -> Option<PathBuf>,

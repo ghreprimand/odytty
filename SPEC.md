@@ -1608,8 +1608,11 @@ formats and install channels are defined in the
 
 - Open-ended font-feature selection beyond the bounded supported set
 
-- Named profiles are planned for v0.14.0 under the precedence contract in
-  `docs/v0.13.0-foundation.md`. Cross-session multiplexing remains out of scope
+- Named profiles: the v0.14.0 foundation (versioned on-disk schema, local
+  catalog, precedence resolver, and migration helpers) is documented in
+  `docs/v0.14.0-profiles-foundation.md`. Settings UI and launch routing remain
+  follow-on work under the precedence contract in `docs/v0.13.0-foundation.md`.
+  Cross-session multiplexing remains out of scope
   (panes/splits within a window and Unix detached-session attachment are the
   supported boundaries described above).
 

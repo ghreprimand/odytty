@@ -36,10 +36,15 @@ pub(super) const MAX_WARNINGS: usize = 100;
 /// - A non-regular path (directory, FIFO, device, socket) returns
 ///   [`io::ErrorKind::InvalidData`] rather than blocking or reading a device.
 /// - Content longer than the ceiling returns [`io::ErrorKind::InvalidData`]
-///   without loading the whole file (the read stops at `MAX_CONFIG_BYTES + 1`).
+///   without loading the whole file (the read stops at `max_bytes + 1`).
 /// - Non-UTF-8 content returns [`io::ErrorKind::InvalidData`] (config/theme
 ///   files are UTF-8 text).
-pub(super) fn read_capped(path: &Path) -> io::Result<String> {
+pub(crate) fn read_capped(path: &Path) -> io::Result<String> {
+    read_capped_at(path, MAX_CONFIG_BYTES)
+}
+
+/// Read a bounded UTF-8 text file up to `max_bytes`.
+pub(crate) fn read_capped_at(path: &Path, max_bytes: u64) -> io::Result<String> {
     // Reject non-regular files by stat-ing the path BEFORE opening it, so the
     // rejection is identical on every platform. On Windows `File::open` on a
     // directory fails with PermissionDenied (a directory handle needs
@@ -60,11 +65,11 @@ pub(super) fn read_capped(path: &Path) -> io::Result<String> {
     // Read at most one byte past the ceiling so an over-limit file is detected
     // without materializing its full contents.
     let mut buf = Vec::new();
-    file.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut buf)?;
-    if buf.len() as u64 > MAX_CONFIG_BYTES {
+    file.take(max_bytes + 1).read_to_end(&mut buf)?;
+    if buf.len() as u64 > max_bytes {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("config file exceeds the {MAX_CONFIG_BYTES}-byte limit; not loading"),
+            format!("file exceeds the {max_bytes}-byte limit; not loading"),
         ));
     }
 

@@ -18,7 +18,7 @@ pub fn config_file_path() -> Option<PathBuf> {
 /// then `$XDG_CONFIG_HOME/odytty`, then `$HOME/.config/odytty`. Pure and
 /// testable; the public wrappers pass the live process env and append the
 /// file/dir leaf. `None` when nothing resolves.
-pub(super) fn config_base_dir_from_env(
+pub(crate) fn config_base_dir_from_env(
     appdata: Option<OsString>,
     xdg_config_home: Option<OsString>,
     home: Option<OsString>,
@@ -63,7 +63,7 @@ pub fn theme_dir_path() -> Option<PathBuf> {
 /// Returns the file contents, or `None` when nothing resolves (caller falls
 /// back to plain). All IO errors are swallowed into `None` — a bad theme value
 /// must never abort startup.
-pub(super) fn resolve_theme_file(value: &str, theme_dir: Option<&Path>) -> Option<String> {
+pub(crate) fn resolve_theme_file(value: &str, theme_dir: Option<&Path>) -> Option<String> {
     let looks_like_path = value.contains('/') || value.ends_with(".theme");
     if looks_like_path && let Ok(contents) = fs_read::read_capped(Path::new(value)) {
         return Some(contents);
@@ -76,7 +76,7 @@ pub(super) fn resolve_theme_file(value: &str, theme_dir: Option<&Path>) -> Optio
     fs_read::read_capped(&dir.join(value)).ok()
 }
 
-pub(super) fn normalize_name(raw: &str) -> String {
+pub fn normalize_name(raw: &str) -> String {
     raw.chars()
         .filter(|ch| !matches!(ch, '-' | '_' | ' '))
         .flat_map(char::to_lowercase)

@@ -949,6 +949,12 @@ Three prohibitions apply to every boundary below:
   opening, file upload, notification delivery, automation, or profile mutation.
 - **Privacy:** command text, scrollback, environment, clipboard contents,
   notification bodies, dropped paths, logs, and secrets remain excluded.
+  Named-profile files may contain user-authored commands, directories, host
+  aliases, and non-secret environment values, so they are written atomically as
+  owner-private metadata. The profile schema has no credential field and
+  rejects secret-shaped keys and private-key material recursively before parse
+  or write succeeds. Benign unknown keys round-trip at every schema-owned
+  object without becoming executable authority.
 - **Required coverage:** malformed and oversized metadata, stale IDs, missing
   profiles, Unix reattach, Windows fresh-shell restore, partial version upgrades,
   and proof that transient authority does not survive restart.

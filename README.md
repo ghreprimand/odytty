@@ -194,7 +194,10 @@ hosting, profiles, full bidi and complex-script reordering, and SVG-in-OpenType
 color glyphs.
 The [v0.13.0 foundation contract](docs/v0.13.0-foundation.md) records the
 security, architecture, platform, and measurement boundaries used by this
-release. See [current work](TODO.md) and the
+release. Named launch profiles have a versioned on-disk foundation
+([schema, precedence, and migration](docs/v0.14.0-profiles-foundation.md));
+settings UI and launch routing are not wired yet, so default startup is
+unchanged. See [current work](TODO.md) and the
 [full roadmap](docs/full-build-roadmap.md) for later milestones.
 
 The terminal core and visual experience layer are deliberately separate.
@@ -235,6 +238,7 @@ still not replacing wider third-party soak exposure.
 - [Install and update guide](docs/install.md)
 - [Feature reference](docs/features.md)
 - [Paste safety and risky-paste triggers](docs/features.md#paste-safety)
+- [Named-profile foundation and precedence](docs/v0.14.0-profiles-foundation.md)
 - [Settings guide](docs/settings-guide.md) and
   [runtime reference](docs/runtime-knobs.md)
 - [Keybindings](docs/keybindings.md)

@@ -45,6 +45,7 @@ scaling behavior.
 - [Panes and sessions design](panes-and-sessions-design.md)
 - [Session attach launcher design](session-attach-launcher-design.md)
 - [v0.13.0 foundation contract](v0.13.0-foundation.md)
+- [v0.14.0 profiles foundation](v0.14.0-profiles-foundation.md)
 
 ## Stabilization And Evidence
 

@@ -41,7 +41,7 @@ use super::{
     SSH_CONFIG_HOSTS_ENV, WARN_ON_RISKY_PASTE_ENV,
 };
 #[derive(Debug, Clone, Default)]
-pub(super) struct ConfigValues {
+pub(crate) struct ConfigValues {
     values: HashMap<&'static str, OsString>,
 }
 
@@ -53,7 +53,7 @@ impl ConfigValues {
         }))
     }
 
-    pub(super) fn parse(contents: &str, mut warn: impl FnMut(String)) -> Self {
+    pub(crate) fn parse(contents: &str, mut warn: impl FnMut(String)) -> Self {
         let mut values = HashMap::new();
         for (line_index, line) in contents.lines().enumerate() {
             let line_number = line_index + 1;
@@ -81,7 +81,7 @@ impl ConfigValues {
         Self { values }
     }
 
-    pub(super) fn get(&self, key: &str) -> Option<&OsString> {
+    pub(crate) fn get(&self, key: &str) -> Option<&OsString> {
         self.values.get(key)
     }
 }
@@ -369,7 +369,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
     }
 }
 
-pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
+pub(crate) fn env_to_config_key(env: &str) -> Option<&'static str> {
     match env {
         THEME_ENV => Some("theme"),
         FOLLOW_OS_THEME_ENV => Some("follow_os_theme"),
