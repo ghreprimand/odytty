@@ -162,3 +162,89 @@ fn context_menu_command_authority_is_bound_to_its_session() {
     let (mut app, _) = app_with(&fixture.stream());
     assert!(app.context_command_session_mismatch_for_test());
 }
+
+#[test]
+fn one_shot_completion_arms_only_for_a_running_osc133_command() {
+    let (mut plain, _) = app_with(b"plain output");
+    plain.notify_command_finished_for_test();
+    assert!(!plain.command_notification_armed_for_test());
+
+    let (mut app, terminal) = app_with(b"\x1b]133;A\x1b\\$ run\r\n\x1b]133;C\x1b\\working");
+    app.notify_command_finished_for_test();
+    assert!(app.command_notification_armed_for_test());
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\r\n\x1b]133;D;9\x1b\\");
+    let (completion, badge) = app.drain_notifications_for_test(std::time::Instant::now());
+    assert_eq!(completion, Some(true));
+    assert!(badge);
+    assert!(!app.command_notification_armed_for_test());
+}
+
+#[test]
+fn pane_activity_and_failure_monitors_fire_once_from_explicit_events() {
+    let now = std::time::Instant::now();
+    let (mut activity, terminal) = app_with(b"quiet");
+    activity.arm_pane_monitor_for_test(crate::native::notifications::PaneMonitorKind::Activity);
+    terminal.lock().expect("terminal").advance(b" output");
+    let (_, notice) = activity.drain_notifications_for_test(now);
+    assert!(notice);
+
+    let (mut failure, terminal) = app_with(b"\x1b]133;A\x1b\\$ run\r\n\x1b]133;C\x1b\\working");
+    failure
+        .arm_pane_monitor_for_test(crate::native::notifications::PaneMonitorKind::CommandFailure);
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\r\n\x1b]133;D;7\x1b\\");
+    let (_, notice) = failure.drain_notifications_for_test(now);
+    assert!(notice);
+}
+
+#[test]
+fn newly_armed_completion_monitors_ignore_stale_edges_and_scan_new_statuses() {
+    let now = std::time::Instant::now();
+    let (mut completion, terminal) =
+        app_with(b"\x1b]133;A\x1b\\$ old\r\n\x1b]133;C\x1b\\done\r\n\x1b]133;D;0\x1b\\\x1b]133;A\x1b\\$ new\r\n\x1b]133;C\x1b\\working");
+    completion.notify_command_finished_for_test();
+    assert!(completion.command_notification_armed_for_test());
+    let (event, _) = completion.drain_notifications_for_test(now);
+    assert_eq!(event, None);
+    assert!(completion.command_notification_armed_for_test());
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\r\n\x1b]133;D;0\x1b\\");
+    assert_eq!(completion.drain_notifications_for_test(now).0, Some(false));
+
+    let (mut failure, terminal) = app_with(b"quiet");
+    failure
+        .arm_pane_monitor_for_test(crate::native::notifications::PaneMonitorKind::CommandFailure);
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\x1b]133;D;0\x1b\\\x1b]133;D;7\x1b\\");
+    assert!(failure.drain_notifications_for_test(now).1);
+}
+
+#[test]
+fn silence_bell_and_process_monitors_are_pane_owned_and_one_shot() {
+    let (mut silence, _) = app_with(b"quiet");
+    silence.arm_pane_monitor_for_test(crate::native::notifications::PaneMonitorKind::Silence);
+    let (_, notice) =
+        silence.drain_notifications_for_test(std::time::Instant::now() + Duration::from_secs(31));
+    assert!(notice);
+
+    let (mut bell, terminal) = app_with(b"");
+    let token = bell.active_session_id_for_test();
+    bell.arm_pane_monitor_for_test(crate::native::notifications::PaneMonitorKind::Bell);
+    terminal.lock().expect("terminal").advance(b"\x07");
+    assert!(bell.drain_bells_for_test().0);
+    assert!(bell.pane_attention_for_test(token).0);
+
+    let (mut process, _) = app_with(b"");
+    process.arm_pane_monitor_for_test(crate::native::notifications::PaneMonitorKind::ProcessFinish);
+    assert!(process.fire_process_finish_monitor_for_test());
+    assert!(!process.fire_process_finish_monitor_for_test());
+}

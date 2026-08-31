@@ -1359,6 +1359,7 @@ impl Screen {
     /// visibility, bracketed paste and pending wrap, homes the cursor, and
     /// discards any pending host output.
     pub(super) fn hard_reset(&mut self) {
+        self.clear_notification_state();
         // RIS rebuilds the grid as blank rows and clears scrollback, dropping
         // every row-anchored prompt mark; flag it for the poll API if any
         // existed. (Prompt marks are positional terminal state, not shell state

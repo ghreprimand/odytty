@@ -56,6 +56,32 @@ fn env_map<const N: usize>(values: [(&'static str, &str); N]) -> HashMap<&'stati
 }
 
 #[test]
+fn notification_modes_parse_warn_and_round_trip() {
+    for (raw, expected) in [
+        ("off", NotificationMode::Off),
+        ("in-app", NotificationMode::InApp),
+        ("attention", NotificationMode::Attention),
+        ("desktop", NotificationMode::Desktop),
+    ] {
+        let (settings, warnings) = settings_from([(NOTIFICATIONS_ENV, raw)]);
+        assert_eq!(settings.notifications, expected);
+        assert!(warnings.is_empty());
+        assert_eq!(
+            settings
+                .to_edit_values()
+                .get(NOTIFICATIONS_ENV)
+                .map(String::as_str),
+            Some(expected.as_str())
+        );
+    }
+
+    let (settings, warnings) = settings_from([(NOTIFICATIONS_ENV, "unbounded")]);
+    assert_eq!(settings.notifications, NotificationMode::InApp);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains("using in-app"));
+}
+
+#[test]
 fn defaults_are_stable_without_env() {
     let (settings, warnings) = settings_from([]);
 
@@ -209,6 +235,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "confirm_close",
             "warn_on_risky_paste",
             "bell",
+            "notifications",
             "interactive_urls",
             "interactive_paths",
             "interactive_paths_barewords",

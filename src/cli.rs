@@ -680,6 +680,7 @@ pub fn list_themes_output() -> String {
 pub fn show_config_output(settings: &Settings) -> String {
     let mut rows = vec![
         ("bell", settings.bell.as_str().to_owned()),
+        ("notifications", settings.notifications.as_str().to_owned()),
         ("bloom", bool_value(settings.bloom).to_owned()),
         ("bloom_intensity", float_value(settings.bloom_intensity)),
         ("bloom_radius", float_value(settings.bloom_radius)),
@@ -966,6 +967,7 @@ fn action_value(action: BindableAction) -> &'static str {
         BindableAction::JumpFailedCommandPrev => "jump-failed-command-prev",
         BindableAction::JumpFailedCommandNext => "jump-failed-command-next",
         BindableAction::ExportCommandOutput => "export-command-output",
+        BindableAction::NotifyCommandFinished => "notify-command-finished",
         BindableAction::CopyMode => "copy-mode",
         BindableAction::Hints => "hints",
         BindableAction::ClearInput => "clear-input",

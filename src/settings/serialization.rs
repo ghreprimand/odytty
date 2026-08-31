@@ -276,6 +276,7 @@ impl Settings {
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));
         values.insert(BELL_ENV, self.bell.as_str().to_owned());
+        values.insert(NOTIFICATIONS_ENV, self.notifications.as_str().to_owned());
         values.insert(
             SHELL_EXIT_CLOSES_ENV,
             self.shell_exit_closes.as_str().to_owned(),

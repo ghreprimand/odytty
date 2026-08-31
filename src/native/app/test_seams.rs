@@ -2261,9 +2261,10 @@ impl App {
     /// headlessly). The per-tab activity latch is applied as a side effect.
     #[cfg(test)]
     pub(in crate::native) fn drain_bells_for_test(&mut self) -> (bool, bool, bool) {
-        let sweep = self
-            .sessions
-            .drain_bells(self.settings.command_status_gutter);
+        let sweep = self.sessions.drain_bells(
+            self.settings.command_status_gutter,
+            std::time::Instant::now(),
+        );
         (
             sweep.focused_bell,
             sweep.background_bell,
@@ -3320,3 +3321,6 @@ impl App {
         self.cancel_image_paste();
     }
 }
+
+#[path = "test_seams/notifications.rs"]
+mod notifications;

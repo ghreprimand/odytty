@@ -43,7 +43,7 @@ recorded milestone before implementation.
       preserving ordinary single-line and child-enabled bracketed paste.
 - [x] Add select, copy, scoped-search, failed-command navigation, and safe
       plain-text export actions over verified OSC 133 command ranges.
-- [ ] Add bounded command completion, progress, activity, silence, failure, and
+- [x] Add bounded command completion, progress, activity, silence, failure, and
       notification presentation without changing BEL semantics or stealing
       focus.
 - [ ] Close the release only after retained local gates, independent Linux

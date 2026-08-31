@@ -751,15 +751,16 @@ Three prohibitions apply to every boundary below:
 - **Trust assumption:** none. An OSC notification/progress sequence is an
   untrusted request for bounded presentation, never a privileged application
   instruction.
-- **Planned default:** supported OSC 9, OSC 777, and OSC 9;4 variants are
+- **Default:** supported OSC 9, OSC 777, and OSC 9;4 variants are
   explicitly enumerated. Unknown variants are consumed or ignored according to
   the parser contract. Output-derived state is owned by the emitting pane and
   rolls up only to that pane's tab, workspace, and session entry. Desktop
   notifications default to explicit one-shot requests or background/unfocused
   owners under user policy.
-- **Validation and caps:** text is length-bounded plain text with control
-  characters stripped. It cannot become markup, a URL, a command, an action,
-  or persistent chrome. Progress numbers are parsed into a bounded state
+- **Validation and caps:** text is limited to 1,024 wire bytes with control
+  characters stripped, but terminal-authored text is not copied into trusted
+  app or OS chrome. It cannot become markup, a URL, a command, an action, or
+  persistent chrome. Progress numbers are parsed into a bounded state
   machine, not rendered from attacker-supplied markup. Per-pane and global rate
   limits, deduplication, expiry, and dismissal are mandatory.
 - **Failure behavior:** malformed or over-cap requests are discarded. Native
@@ -1117,7 +1118,7 @@ behavior, and a Linux or macOS result is never a substitute for a Windows one.
 | B12 settings and themes | cap and parse tests | settings parsing with Windows forms |
 | B13 fonts | glyph corpus and raster smoke tests | malformed font corpus |
 | B15 risky paste | shared original-text predicate, bounded escaped preview, cancellation/owner checks, opt-out, and clipboard/PRIMARY/future-source routing tests | independent four-leg native acceptance and hostile platform-event fixtures |
-| B16 notifications/progress | bounded OSC parser framing only | sanitization, ownership, rate-limit, restoration, and native-adapter fixtures |
+| B16 notifications/progress | bounded OSC 9/777/9;4 parsing, generic trusted chrome, pane ownership, rate/expiry, restoration-default, and native-adapter command fixtures | manual native-delivery acceptance on each platform |
 | B17 local automation | no product surface | same-user IPC, authorization, schema, stale-ID, and lifecycle fixtures |
 | B18 file drop | no product surface | shell quoting, paste policy, platform event, and hostile-path fixtures |
 | B19 broadcast input | no product surface | explicit group ownership, mixed-mode fan-out, disarm, and failure fixtures |

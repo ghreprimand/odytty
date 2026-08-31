@@ -23,6 +23,7 @@ mod iterm2;
 mod kitty;
 mod kitty_animation;
 mod kitty_transport;
+mod notifications;
 mod placeholder;
 mod prompt_marks;
 mod reflow;
@@ -80,6 +81,10 @@ pub use button::{
 pub use encoding::{encode_focus_event, encode_mouse_event, encode_mouse_event_pixel};
 pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};
 pub use input_region::{EditRegionSignal, InputCertainty, InputRegion, RowJoin};
+pub use notifications::{
+    MAX_NOTIFICATION_PAYLOAD_BYTES, MAX_PENDING_NOTIFICATIONS, NotificationSource, ProgressKind,
+    TerminalNotification, TerminalProgress,
+};
 pub use placeholder::PLACEHOLDER_CHAR;
 pub use prompt_marks::{
     Align, CommandBlock, CommandDirection, CommandOutput, CommandRangeHandle, CommandRangePart,

@@ -41,7 +41,12 @@ pub(super) struct BellAttentionLatch {
 impl BellAttentionLatch {
     /// Returns whether this bell should issue the platform attention request.
     /// A missing window never consumes an episode because no request can issue.
-    fn request_due(&mut self, wants_urgent: bool, focused: bool, has_window: bool) -> bool {
+    pub(super) fn request_due(
+        &mut self,
+        wants_urgent: bool,
+        focused: bool,
+        has_window: bool,
+    ) -> bool {
         if !wants_urgent || focused || !has_window || self.requested {
             return false;
         }
@@ -51,7 +56,7 @@ impl BellAttentionLatch {
 
     /// Clears the request state on focus gain and reports whether the platform
     /// request needs clearing too.
-    fn rearm_on_focus_gain(&mut self) -> bool {
+    pub(super) fn rearm_on_focus_gain(&mut self) -> bool {
         let requested = self.requested;
         self.requested = false;
         requested
@@ -100,6 +105,7 @@ impl App {
         {
             window.request_user_attention(None);
         }
+        self.notification_attention.rearm_on_focus_gain();
     }
 
     /// Advance the flash clock: clear it once settled, otherwise bump the epoch

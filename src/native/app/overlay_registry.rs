@@ -210,6 +210,48 @@ impl App {
         }
     }
 
+    /// Paint one bounded cell at the pane's top-right for pane-owned progress
+    /// or unseen completion state. This is application chrome over the existing
+    /// snapshot, never a grid mutation, and is inert when no state is present.
+    pub(in crate::native) fn paint_pane_attention_cell(
+        &self,
+        snapshot: &mut Snapshot,
+        progress: Option<crate::core::TerminalProgress>,
+        unread: bool,
+        completed: bool,
+        failed: bool,
+    ) {
+        let ch = if let Some(progress) = progress {
+            super::tab_bar::progress_badge(progress)
+        } else if failed {
+            '!'
+        } else if completed {
+            '✓'
+        } else if unread {
+            '•'
+        } else {
+            return;
+        };
+        let columns = snapshot.dimensions.columns;
+        if columns == 0 || snapshot.dimensions.rows == 0 {
+            return;
+        }
+        if let Some(cell) = snapshot.cells.get_mut(columns - 1) {
+            cell.ch = ch;
+            cell.attrs.foreground = Color::Rgb(
+                self.effective_theme.background.0,
+                self.effective_theme.background.1,
+                self.effective_theme.background.2,
+            );
+            cell.attrs.background = Color::Rgb(
+                self.effective_theme.foreground.0,
+                self.effective_theme.foreground.1,
+                self.effective_theme.foreground.2,
+            );
+            cell.attrs.set_bold(true);
+        }
+    }
+
     /// Test shim mirroring the historical focused-only signature. It paints the
     /// FOCUSED pane's overlays by reading the active-session (`Deref`) selection
     /// and search state, delegating to [`Self::paint_pane_overlays`] with the

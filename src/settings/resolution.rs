@@ -796,6 +796,7 @@ impl Settings {
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
         let bell = parse_bell(get(BELL_ENV).as_deref(), &mut warn);
+        let notifications = parse_notifications(get(NOTIFICATIONS_ENV).as_deref(), &mut warn);
         let shell_exit_closes =
             parse_shell_exit_closes(get(SHELL_EXIT_CLOSES_ENV).as_deref(), &mut warn);
         // `theme = system` forces OS following on regardless of the explicit
@@ -1003,6 +1004,7 @@ impl Settings {
             cvd_mode,
             cvd_strength,
             bell,
+            notifications,
             shell_exit_closes,
             theme_is_system,
             follow_os_theme,

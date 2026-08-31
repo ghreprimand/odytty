@@ -63,6 +63,12 @@ pub(in crate::native) struct Session {
     /// follow-up), so it stays empty.
     pub(in crate::native) recorder: RecorderHandle,
     pub(in crate::native) tab_title: String,
+    /// Transient OSC/completion/progress state owned by this exact pane.
+    pub(in crate::native) attention: crate::native::notifications::PaneAttention,
+    /// One-shot user authorization for the next explicit OSC 133 `D` edge.
+    pub(in crate::native) notify_when_command_finishes: bool,
+    /// Explicit one-shot monitors owned by this exact pane.
+    pub(in crate::native) monitors: crate::native::notifications::PaneMonitors,
     pub(in crate::native) needs_rebuild: bool,
     pub(in crate::native) last_render_signature: Option<RenderSignature>,
     pub(in crate::native) synchronized_output_hold: SynchronizedOutputHold,

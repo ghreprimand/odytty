@@ -37,6 +37,21 @@ impl Terminal {
         self.screen.take_bell()
     }
 
+    /// Drain bounded, sanitized OSC notification requests.
+    pub fn take_notifications(&mut self) -> Vec<TerminalNotification> {
+        self.screen.take_notifications()
+    }
+
+    /// Drain the progress-change edge. `Some(None)` is an explicit clear.
+    pub fn take_progress_changed(&mut self) -> Option<Option<TerminalProgress>> {
+        self.screen.take_progress_changed()
+    }
+
+    /// Drain explicit OSC 133 command-finished (`D`) edges.
+    pub fn take_command_completions(&mut self) -> Vec<Option<i32>> {
+        self.screen.take_command_completions()
+    }
+
     pub fn set_osc52_read_enabled(&mut self, enabled: bool) {
         self.screen.set_osc52_read_enabled(enabled);
     }

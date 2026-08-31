@@ -166,6 +166,7 @@ environment variable was not set at startup.
 | `warn_on_risky_paste` | `ODYTTY_WARN_ON_RISKY_PASTE` | `on`, `off` | `on` |
 | `shell_exit_closes` | `ODYTTY_SHELL_EXIT_CLOSES` | `workspace`, `app` | `workspace` |
 | `bell` | `ODYTTY_BELL` | `off`, `visual`, `urgent`, `all` | `urgent` |
+| `notifications` | `ODYTTY_NOTIFICATIONS` | `off`, `in-app`, `attention`, `desktop` | `in-app` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
 | `remote_integration` | `ODYTTY_REMOTE_INTEGRATION` | `on`, `off` | `on` |
 | `remote_reuse` | `ODYTTY_REMOTE_REUSE` | `on`, `off` | `on` |
@@ -316,6 +317,16 @@ close-workspace, and close-pane bindings retain their surface-specific meaning.
 `urgent` requests window attention when OdyTTY is unfocused, `visual` shows a
 brief screen flash, `all` combines them, and `off` ignores BEL. OdyTTY has no
 audible bell.
+
+### Configure Notifications And Progress
+
+`notifications = in-app` keeps bounded pane-owned notices, unread/completion
+state, and OSC 9;4 progress inside OdyTTY. `attention` also requests
+window-manager attention while unfocused. `desktop` attempts an on-demand
+platform notification with generic application-owned wording. `off` drains and
+discards presentation and disables pane-monitor arming. BEL remains controlled
+only by `bell`. See [`notifications.md`](notifications.md) for protocol caps,
+one-shot actions, rate limits, expiry, and platform behavior.
 
 ### Tune Themes, Fonts, And Rendering
 

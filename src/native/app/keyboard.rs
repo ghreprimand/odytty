@@ -274,6 +274,10 @@ impl App {
                     self.begin_command_output_export();
                     return;
                 }
+                Some(BindableAction::NotifyCommandFinished) => {
+                    self.notify_when_current_command_finishes();
+                    return;
+                }
                 Some(BindableAction::CopyMode) => {
                     if self.enter_copy_mode() {
                         return;

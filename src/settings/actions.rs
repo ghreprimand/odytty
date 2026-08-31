@@ -33,6 +33,8 @@ pub enum BindableAction {
     JumpFailedCommandNext,
     /// Export visible command output through an explicit native save dialog.
     ExportCommandOutput,
+    /// Arm a one-shot notification for the currently running OSC 133 command.
+    NotifyCommandFinished,
     /// Enter keyboard scrollback selection ("copy") mode.
     CopyMode,
     /// Activate keyboard pattern-select hints (URLs, paths, and SHAs).
@@ -98,7 +100,7 @@ impl BindableAction {
     ///
     /// This is the single source of truth used by the editor and coverage
     /// guards, so additions must remain exhaustive.
-    pub const ALL: [Self; 48] = [
+    pub const ALL: [Self; 49] = [
         Self::Search,
         Self::SettingsPanel,
         Self::ThemePicker,
@@ -116,6 +118,7 @@ impl BindableAction {
         Self::JumpFailedCommandPrev,
         Self::JumpFailedCommandNext,
         Self::ExportCommandOutput,
+        Self::NotifyCommandFinished,
         Self::CopyMode,
         Self::Hints,
         Self::ClearInput,
@@ -178,6 +181,9 @@ impl BindableAction {
             "jumpfailedcommandprev" | "prevfailedcommand" => Some(Self::JumpFailedCommandPrev),
             "jumpfailedcommandnext" | "nextfailedcommand" => Some(Self::JumpFailedCommandNext),
             "exportcommandoutput" | "savecommandoutput" => Some(Self::ExportCommandOutput),
+            "notifycommandfinished" | "notifywhencommandfinishes" | "commandfinishnotification" => {
+                Some(Self::NotifyCommandFinished)
+            }
             "copymode" | "selectmode" => Some(Self::CopyMode),
             "hints" | "hint" | "quickselect" | "patternselect" => Some(Self::Hints),
             "clearinput" | "clearline" | "killline" | "clear" => Some(Self::ClearInput),

@@ -73,6 +73,7 @@ mod key_remap_ui;
 mod layout;
 #[cfg(target_os = "macos")]
 mod macos_open_with;
+mod notifications;
 mod onboarding;
 mod open_with_overlay;
 mod options;

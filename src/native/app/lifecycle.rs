@@ -297,6 +297,9 @@ impl App {
             // exists to measure. When the gate is on this is the one added wake,
             // and it reads counters without requesting a redraw.
             self.memory_sampler.deadline(),
+            // Explicit silence monitors are the only pane monitor that needs a
+            // wake without new terminal output. Absent unless armed.
+            self.sessions.next_monitor_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -480,6 +483,7 @@ impl App {
                 false
             }
             UserEvent::ShellExited { session } => {
+                self.note_process_finish_monitor(session, Instant::now());
                 // Closing or reconnecting any session may collapse a pane, tab,
                 // or workspace. Settle an active divider before that layout can
                 // be removed or focus can move to a survivor.
@@ -599,7 +603,7 @@ impl App {
         // multipane viewport-bookkeeping work.
         let bell_sweep = self
             .sessions
-            .drain_bells(self.settings.command_status_gutter);
+            .drain_bells(self.settings.command_status_gutter, now);
         if bell_sweep.focused_bell {
             let window = self.window.clone();
             self.note_bell(now, window.as_deref());
@@ -615,12 +619,72 @@ impl App {
                 window.request_redraw();
             }
         }
+        if bell_sweep.monitored_bell {
+            self.handle_pane_monitor_attention(now);
+        }
         if bell_sweep.focused_prompt_changed {
             self.prompt_marks_epoch = self.prompt_marks_epoch.wrapping_add(1);
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
             }
+        }
+
+        let notification_sweep = self.sessions.drain_notifications(
+            now,
+            self.focused,
+            self.settings.notifications.shows_in_app(),
+        );
+        if notification_sweep.background_request
+            && self.notification_limiter.accept("terminal-request", now)
+        {
+            let window = self.window.clone();
+            if self.settings.notifications.wants_attention()
+                && self
+                    .notification_attention
+                    .request_due(true, self.focused, window.is_some())
+                && let Some(window) = window.as_deref()
+            {
+                window
+                    .request_user_attention(Some(winit::window::UserAttentionType::Informational));
+            }
+            if self.settings.notifications.wants_desktop() {
+                crate::native::notifications::deliver_desktop(
+                    crate::native::notifications::DesktopNotificationKind::TerminalRequest,
+                );
+            }
+        }
+        if let Some(failed) = notification_sweep.command_completion {
+            if self.settings.notifications.wants_desktop() {
+                crate::native::notifications::deliver_desktop(if failed {
+                    crate::native::notifications::DesktopNotificationKind::CommandFailed
+                } else {
+                    crate::native::notifications::DesktopNotificationKind::CommandCompleted
+                });
+            } else if self.settings.notifications.wants_attention() {
+                let window = self.window.clone();
+                if self
+                    .notification_attention
+                    .request_due(true, self.focused, window.is_some())
+                    && let Some(window) = window.as_deref()
+                {
+                    window.request_user_attention(Some(
+                        winit::window::UserAttentionType::Informational,
+                    ));
+                }
+            }
+        }
+        if notification_sweep.pane_monitor {
+            self.handle_pane_monitor_attention(now);
+        }
+        if notification_sweep.changed {
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+        if let Some(notice) = notification_sweep.focused_notice {
+            self.raise_open_notice(notice);
         }
 
         // WP2 sub-ODP 8c: debounced workspace-shape autosave. Cheap and fully

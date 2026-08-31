@@ -219,6 +219,11 @@ shell_exit_closes = workspace
 # Terminal bell (BEL) handling. There is no audible bell; off/visual/urgent/all
 # are the accepted values (urgent raises the window's urgency hint).
 bell = urgent
+# Completion and terminal notification presentation. `in-app` (default) keeps
+# bounded pane-owned badges only; `attention` requests window-manager attention;
+# `desktop` attempts a native notification with generic OdyTTY wording; `off`
+# disables this presentation. BEL remains controlled by `bell` above.
+notifications = in-app
 # Thin green/red completed-command marks at the left edge of each visible pane.
 # On by default and inert until a shell emits OSC 133 command boundaries.
 command_status_gutter = on

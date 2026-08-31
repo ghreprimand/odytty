@@ -16,6 +16,118 @@ pub(super) struct PendingCommandExport {
 }
 
 impl App {
+    pub(super) fn arm_pane_monitor(&mut self, kind: crate::native::notifications::PaneMonitorKind) {
+        if !self.settings.notifications.shows_in_app() {
+            self.raise_open_notice(
+                "Pane monitors are unavailable while notifications are off.".to_owned(),
+            );
+            return;
+        }
+        let revision = {
+            let mut terminal = crate::native::lock_recover(&self.terminal);
+            if kind == crate::native::notifications::PaneMonitorKind::CommandFailure {
+                // The authorization starts now. A `D` edge that was already
+                // pending belongs to an earlier command and must not satisfy a
+                // newly armed failure monitor.
+                terminal.take_command_completions();
+            }
+            terminal.render_revision()
+        };
+        self.sessions
+            .active_mut()
+            .monitors
+            .arm(kind, revision, std::time::Instant::now());
+        self.raise_open_notice(format!("Pane {} monitor armed.", kind.label()));
+    }
+
+    pub(super) fn clear_pane_monitors(&mut self) {
+        if self.sessions.active_mut().monitors.clear() {
+            self.raise_open_notice("Pane monitors cleared.".to_owned());
+        } else {
+            self.raise_open_notice("No pane monitors are armed.".to_owned());
+        }
+    }
+
+    pub(super) fn handle_pane_monitor_attention(&mut self, now: std::time::Instant) {
+        if !self.notification_limiter.accept("pane-monitor", now) {
+            return;
+        }
+        if self.settings.notifications.wants_desktop() {
+            crate::native::notifications::deliver_desktop(
+                crate::native::notifications::DesktopNotificationKind::PaneMonitor,
+            );
+        } else if self.settings.notifications.wants_attention() {
+            let window = self.window.clone();
+            if self
+                .notification_attention
+                .request_due(true, self.focused, window.is_some())
+                && let Some(window) = window.as_deref()
+            {
+                window
+                    .request_user_attention(Some(winit::window::UserAttentionType::Informational));
+            }
+        }
+    }
+
+    pub(super) fn note_process_finish_monitor(
+        &mut self,
+        token: SessionToken,
+        now: std::time::Instant,
+    ) {
+        let focused = self.sessions.active_id() == token;
+        let Some(session) = self.sessions.get_mut(token) else {
+            return;
+        };
+        if !session.monitors.process_finish {
+            return;
+        }
+        session.monitors.process_finish = false;
+        session.attention.note_monitor(
+            crate::native::notifications::PaneMonitorKind::ProcessFinish,
+            now,
+        );
+        if focused {
+            self.raise_open_notice("Pane process finished.".to_owned());
+        }
+        self.handle_pane_monitor_attention(now);
+    }
+
+    pub(super) fn notify_when_current_command_finishes(&mut self) {
+        if !self.settings.notifications.shows_in_app() {
+            self.raise_open_notice(
+                "Command completion notifications are off in settings.".to_owned(),
+            );
+            return;
+        }
+        let running = {
+            let mut terminal = crate::native::lock_recover(&self.terminal);
+            if terminal.screen().on_alternate_screen() {
+                false
+            } else {
+                let running = crate::core::command_blocks(&terminal.prompt_marks())
+                    .last()
+                    .is_some_and(|block| {
+                        crate::core::command_status(block) == crate::core::CommandStatus::Running
+                    });
+                if running {
+                    // The one-shot authority begins at this action, not at the
+                    // previous native drain. Discard older completion edges so
+                    // only a subsequent explicit `D` can consume it.
+                    terminal.take_command_completions();
+                }
+                running
+            }
+        };
+        if !running {
+            self.raise_open_notice(
+                "No running shell-integrated command is available to monitor.".to_owned(),
+            );
+            return;
+        }
+        self.sessions.active_mut().notify_when_command_finishes = true;
+        self.raise_open_notice("Notification armed for this command.".to_owned());
+    }
+
     pub(super) fn command_handle_for_action(&self) -> Option<CommandRangeHandle> {
         let terminal = crate::native::lock_recover(&self.terminal);
         if terminal.screen().on_alternate_screen() {
@@ -424,6 +536,44 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn select_command_handle_for_test(&mut self, handle: CommandRangeHandle) {
         self.select_command_range_from_handle(handle, CommandRangePart::Output);
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn notify_command_finished_for_test(&mut self) {
+        self.notify_when_current_command_finishes();
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn arm_pane_monitor_for_test(
+        &mut self,
+        kind: crate::native::notifications::PaneMonitorKind,
+    ) {
+        self.arm_pane_monitor(kind);
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn fire_process_finish_monitor_for_test(&mut self) -> bool {
+        let token = self.sessions.active_id();
+        let armed = self.sessions.active().monitors.process_finish;
+        self.note_process_finish_monitor(token, std::time::Instant::now());
+        armed && !self.sessions.active().monitors.process_finish
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn command_notification_armed_for_test(&self) -> bool {
+        self.sessions.active().notify_when_command_finishes
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn drain_notifications_for_test(
+        &mut self,
+        now: std::time::Instant,
+    ) -> (Option<bool>, bool) {
+        let sweep = self.sessions.drain_notifications(now, true, true);
+        (
+            sweep.command_completion,
+            self.sessions.active().attention.notice.is_some(),
+        )
     }
 
     #[cfg(test)]

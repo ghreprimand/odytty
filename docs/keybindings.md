@@ -140,6 +140,7 @@ names:
 | `jump-failed-command-prev` | Jump To Previous Failed Command |
 | `jump-failed-command-next` | Jump To Next Failed Command |
 | `export-command-output` | Export Command Output |
+| `notify-command-finished` | Notify When This Command Finishes |
 
 For example:
 

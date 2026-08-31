@@ -149,6 +149,23 @@ impl App {
                 self.jump_failed_command(crate::core::CommandDirection::Next);
             }
             PaletteAction::ExportCommandOutput => self.begin_command_output_export(),
+            PaletteAction::NotifyCommandFinished => self.notify_when_current_command_finishes(),
+            PaletteAction::MonitorPaneActivity => {
+                self.arm_pane_monitor(crate::native::notifications::PaneMonitorKind::Activity)
+            }
+            PaletteAction::MonitorPaneSilence => {
+                self.arm_pane_monitor(crate::native::notifications::PaneMonitorKind::Silence)
+            }
+            PaletteAction::MonitorPaneBell => {
+                self.arm_pane_monitor(crate::native::notifications::PaneMonitorKind::Bell);
+            }
+            PaletteAction::MonitorPaneProcessFinish => {
+                self.arm_pane_monitor(crate::native::notifications::PaneMonitorKind::ProcessFinish)
+            }
+            PaletteAction::MonitorPaneCommandFailure => {
+                self.arm_pane_monitor(crate::native::notifications::PaneMonitorKind::CommandFailure)
+            }
+            PaletteAction::ClearPaneMonitors => self.clear_pane_monitors(),
             PaletteAction::CopyMode => {
                 let _ = self.enter_copy_mode();
             }

@@ -49,6 +49,23 @@ pub(in crate::native) struct BellSweep {
     /// At least one NON-focused session rang — drives window urgency
     /// (`request_user_attention`); the specific tabs are latched in the drain.
     pub(in crate::native) background_bell: bool,
+    /// An explicitly armed pane bell monitor fired.
+    pub(in crate::native) monitored_bell: bool,
+}
+
+/// One arena-wide drain of bounded OSC notification/progress sidecars.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(in crate::native) struct NotificationSweep {
+    /// In-app state changed and chrome should be rebuilt.
+    pub(in crate::native) changed: bool,
+    /// At least one accepted request was owned by a background/unfocused pane.
+    pub(in crate::native) background_request: bool,
+    /// Latest accepted notice from the focused pane, for its transient overlay.
+    pub(in crate::native) focused_notice: Option<String>,
+    /// An explicitly armed command completed; value says whether it failed.
+    pub(in crate::native) command_completion: Option<bool>,
+    /// One or more explicit activity/silence/failure pane monitors fired.
+    pub(in crate::native) pane_monitor: bool,
 }
 
 impl TabBarSource for WorkspaceSet {
@@ -74,10 +91,11 @@ impl TabBarSource for WorkspaceSet {
     }
 
     fn tab_activity(&self, idx: usize) -> bool {
-        self.active_workspace()
-            .tabs
-            .get(idx)
-            .is_some_and(|tab| tab.activity)
+        self.tab_has_attention(self.active_ws, idx)
+    }
+
+    fn tab_progress(&self, idx: usize) -> Option<crate::core::TerminalProgress> {
+        self.tab_progress(self.active_ws, idx)
     }
 }
 
@@ -118,6 +136,10 @@ impl TabBarSource for WorkspaceRailSource<'_> {
 
     fn tab_activity(&self, idx: usize) -> bool {
         self.set.workspace_has_activity(idx)
+    }
+
+    fn tab_progress(&self, idx: usize) -> Option<crate::core::TerminalProgress> {
+        self.set.workspace_progress(idx)
     }
 }
 
@@ -622,12 +644,17 @@ impl WorkspaceSet {
     ///
     /// The active-visible tab's activity flag is also cleared here every pass:
     /// viewing a tab is what clears its rollup signal.
-    pub(in crate::native) fn drain_bells(&mut self, gutter_on: bool) -> BellSweep {
+    pub(in crate::native) fn drain_bells(
+        &mut self,
+        gutter_on: bool,
+        now: std::time::Instant,
+    ) -> BellSweep {
         let focused = self.active_focused_token();
         let active_ws = self.active_ws;
         let active_tab = self.active_workspace().active_tab;
         let mut sweep = BellSweep::default();
         let mut background_rang: Vec<SessionToken> = Vec::new();
+        let mut monitored_rang: Vec<SessionToken> = Vec::new();
         for session in self.sessions.values() {
             let Ok(mut terminal) = session.terminal.lock() else {
                 continue;
@@ -640,6 +667,18 @@ impl WorkspaceSet {
                 sweep.focused_prompt_changed = gutter_on && prompt_changed;
             } else if bell {
                 background_rang.push(session.id);
+            }
+            if bell && session.monitors.bell {
+                monitored_rang.push(session.id);
+            }
+        }
+        for token in monitored_rang {
+            if let Some(session) = self.sessions.get_mut(&token) {
+                session.monitors.bell = false;
+                session
+                    .attention
+                    .note_monitor(crate::native::notifications::PaneMonitorKind::Bell, now);
+                sweep.monitored_bell = true;
             }
         }
         for token in background_rang {
@@ -670,9 +709,164 @@ impl WorkspaceSet {
     /// read this). No reader outside tests yet — the rollup UI is deferred.
     #[allow(dead_code)]
     pub(in crate::native) fn workspace_has_activity(&self, ws_idx: usize) -> bool {
+        self.workspaces.get(ws_idx).is_some_and(|workspace| {
+            workspace
+                .tabs
+                .iter()
+                .enumerate()
+                .any(|(tab_idx, _)| self.tab_has_attention(ws_idx, tab_idx))
+        })
+    }
+
+    pub(in crate::native) fn workspace_progress(
+        &self,
+        ws_idx: usize,
+    ) -> Option<crate::core::TerminalProgress> {
+        let workspace = self.workspaces.get(ws_idx)?;
+        workspace
+            .tabs
+            .iter()
+            .enumerate()
+            .find_map(|(tab_idx, _)| self.tab_progress(ws_idx, tab_idx))
+    }
+
+    pub(in crate::native) fn next_monitor_deadline(&self) -> Option<std::time::Instant> {
+        self.sessions
+            .values()
+            .filter_map(|session| session.monitors.deadline())
+            .min()
+    }
+
+    fn tab_has_attention(&self, ws_idx: usize, tab_idx: usize) -> bool {
         self.workspaces
             .get(ws_idx)
-            .is_some_and(|workspace| workspace.tabs.iter().any(|tab| tab.activity))
+            .and_then(|workspace| workspace.tabs.get(tab_idx))
+            .is_some_and(|tab| {
+                tab.activity
+                    || tab.layout.leaves().into_iter().any(|token| {
+                        self.sessions
+                            .get(&token)
+                            .is_some_and(|session| session.attention.has_badge())
+                    })
+            })
+    }
+
+    fn tab_progress(&self, ws_idx: usize, tab_idx: usize) -> Option<crate::core::TerminalProgress> {
+        let tab = self.workspaces.get(ws_idx)?.tabs.get(tab_idx)?;
+        tab.layout
+            .leaves()
+            .into_iter()
+            .filter_map(|token| self.sessions.get(&token)?.attention.progress)
+            .next()
+    }
+
+    /// Drain every pane's bounded notification/progress events, attribute them
+    /// to the emitting pane, and expire stale presentation state. The active
+    /// visible tab clears unread/completion flags but retains live progress.
+    pub(in crate::native) fn drain_notifications(
+        &mut self,
+        now: std::time::Instant,
+        window_focused: bool,
+        enabled: bool,
+    ) -> NotificationSweep {
+        let active_owner = (self.active_ws, self.active_workspace().active_tab);
+        let focused = self.active_focused_token();
+        let tokens: Vec<SessionToken> = self.sessions.keys().copied().collect();
+        let mut sweep = NotificationSweep::default();
+
+        for token in tokens {
+            let owner = self.locate_token(token);
+            let visible = owner == Some(active_owner);
+            let Some(session) = self.sessions.get_mut(&token) else {
+                continue;
+            };
+            let (notifications, progress, completions, revision) = match session.terminal.lock() {
+                Ok(mut terminal) => (
+                    terminal.take_notifications(),
+                    terminal.take_progress_changed(),
+                    terminal.take_command_completions(),
+                    terminal.render_revision(),
+                ),
+                Err(_) => (Vec::new(), None, Vec::new(), 0),
+            };
+            if !enabled {
+                if !completions.is_empty() {
+                    session.notify_when_command_finishes = false;
+                }
+                sweep.changed |= session.attention.clear_all();
+                continue;
+            }
+            for kind in session.monitors.observe(revision, now) {
+                session.attention.note_monitor(kind, now);
+                sweep.pane_monitor = true;
+                sweep.changed = true;
+                if token == focused {
+                    sweep.focused_notice = session
+                        .attention
+                        .notice
+                        .as_ref()
+                        .map(|notice| notice.text.clone());
+                }
+            }
+            for notification in notifications {
+                if session.attention.note_notification(notification, now) {
+                    sweep.changed = true;
+                    sweep.background_request |= !window_focused || !visible;
+                    if token == focused {
+                        sweep.focused_notice = session
+                            .attention
+                            .notice
+                            .as_ref()
+                            .map(|notice| notice.text.clone());
+                    }
+                }
+            }
+            if let Some(progress) = progress {
+                sweep.changed |= session.attention.set_progress(progress, now);
+            }
+            let completion = completions.first().copied();
+            if session.notify_when_command_finishes
+                && let Some(exit) = completion
+            {
+                session.notify_when_command_finishes = false;
+                session.attention.note_completion(exit, now);
+                let failed = exit.is_some_and(|code| code != 0);
+                sweep.command_completion = Some(failed);
+                sweep.changed = true;
+                if token == focused {
+                    sweep.focused_notice = session
+                        .attention
+                        .notice
+                        .as_ref()
+                        .map(|notice| notice.text.clone());
+                }
+            }
+            if session.monitors.command_failure
+                && completions
+                    .iter()
+                    .any(|exit| exit.is_some_and(|code| code != 0))
+            {
+                session.monitors.command_failure = false;
+                session.attention.note_monitor(
+                    crate::native::notifications::PaneMonitorKind::CommandFailure,
+                    now,
+                );
+                sweep.pane_monitor = true;
+                sweep.changed = true;
+                if token == focused {
+                    sweep.focused_notice = session
+                        .attention
+                        .notice
+                        .as_ref()
+                        .map(|notice| notice.text.clone());
+                }
+            }
+            sweep.changed |= session.attention.expire(now);
+            if visible {
+                sweep.changed |= session.attention.clear_seen();
+            }
+        }
+        sweep
     }
 
     /// The unseen-activity latch of the tab at `(ws_idx, tab_idx)` (test seam).

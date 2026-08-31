@@ -129,6 +129,10 @@ sessions.
   prompt-inclusive select/copy, output-scoped search, failed-command
   navigation, and explicit bounded plain-text export. Missing, partial, or
   stale shell integration disables these actions instead of guessing.
+  Bounded OSC 9/777 notifications, OSC 9;4 progress, one-shot command-finish
+  notification, and pane activity/silence/bell/process/failure monitors use
+  transient pane-owned state and generic OdyTTY wording. See
+  [`docs/notifications.md`](docs/notifications.md).
 - **Workspaces and remote work:** tabs, resizable panes, named workspaces,
   layouts, restore, Unix managed and detached sessions, an SSH connection
   manager, connection reuse, and optional `tmux` persistence.
@@ -139,7 +143,8 @@ sessions.
   backgrounds, transparency, bloom, CRT, and retro effects. Config-file editing
   remains available with hot reload.
 - **Accessibility and privacy:** contrast controls, color-vision modes,
-  dimming, motion controls, and a configurable bell. OdyTTY has no telemetry,
+  dimming, motion controls, a configurable bell, and bounded notification
+  presentation. OdyTTY has no telemetry,
   analytics, crash reporting, account, cloud sync, or update ping; network
   actions are explicit and user-initiated.
 

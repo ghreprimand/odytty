@@ -554,6 +554,14 @@ impl App {
                 // Transient status or OSC 52 consent banner across the
                 // top of the grid; empty on the idle path.
                 self.paint_open_notice_cells(&mut snapshot);
+                let attention = &self.sessions.active().attention;
+                self.paint_pane_attention_cell(
+                    &mut snapshot,
+                    attention.progress,
+                    attention.unread,
+                    attention.completed,
+                    attention.failed,
+                );
                 // UX-A (Phase 11): the Ctrl+hover armed underline on the
                 // hovered path span, then the transient bottom-left
                 // "Ctrl+click to open" hint. Both no-op (byte-identical)

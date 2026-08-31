@@ -770,6 +770,34 @@ overlay-registry animation infrastructure: a `BellFlash { epoch }` render-cache
 fragment and an `animation_deadline` contributor, both `Inert`/`None` on the off
 and urgent-only paths so the default render path is byte-identical.
 
+### Notifications, Progress, And Pane Monitors
+
+The core recognizes only bounded OSC 9 notification requests, OSC 777
+`notify;title;body`, and Windows Terminal-compatible OSC 9;4 progress states.
+Notification payloads are capped at 1,024 wire bytes and the pending queue at
+eight events. OSC 9;4 accepts clear, normal, error, indeterminate, and paused
+states with determinate values restricted to `0..100`; malformed or unsupported
+variants are ignored.
+
+Output-derived state is a transient sidecar owned by the emitting pane. It does
+not alter the grid, scrollback, snapshots, or restoration. Trusted app and OS
+chrome use generic OdyTTY-owned wording rather than terminal-authored payloads.
+Per-pane deduplication, per-pane and application rate limits, notice/progress
+expiry, focus policy, and explicit dismissal bound spoofing and floods.
+
+`notifications = off|in-app|attention|desktop` controls presentation and
+defaults to `in-app`. Native delivery is on demand and never participates in
+startup readiness. Linux uses the available freedesktop `notify-send` helper
+on Wayland and X11, macOS uses an argv-separated `osascript` request, and
+Windows uses a fixed Windows toast request. Adapter failure leaves in-app state
+and is not reported as native delivery success.
+
+The command palette provides one-shot command completion and pane activity,
+30-second silence, BEL, process-finish, and explicit OSC 133 failure monitors,
+plus a clear action. BEL presentation remains governed separately by `bell`.
+No notification or monitor steals keyboard focus. The full protocol and
+platform contract is in [`docs/notifications.md`](docs/notifications.md).
+
 ### Transient Window Feedback
 
 Short-lived status feedback belongs to the native layer, never to the terminal

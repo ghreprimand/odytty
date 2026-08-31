@@ -110,6 +110,12 @@ pub(in crate::native) trait TabBarSource {
         let _ = idx;
         false
     }
+
+    /// Bounded progress state rolled up from panes owned by this tab/workspace.
+    fn tab_progress(&self, idx: usize) -> Option<crate::core::TerminalProgress> {
+        let _ = idx;
+        None
+    }
 }
 
 /// Result of a pointer hit test against the tab bar.
@@ -358,14 +364,20 @@ impl TabBar {
             // Unseen activity is a static dot in the slot's existing left
             // padding. The active tab never shows a stale badge even if a
             // producer has not yet completed its normal clear sweep.
-            if !is_active
-                && source.tab_activity(slot.idx)
-                && let Some(glyph) = row.get_mut(slot.start_col)
-            {
-                glyph.ch = ACTIVITY_BADGE;
-                glyph.attrs.foreground = active_lbl;
-                glyph.attrs.background = slot_bg;
-                glyph.attrs.set_bold(true);
+            if let Some(glyph) = row.get_mut(slot.start_col) {
+                let progress = source.tab_progress(slot.idx);
+                let activity = !is_active && source.tab_activity(slot.idx);
+                if let Some(progress) = progress {
+                    glyph.ch = progress_badge(progress);
+                    glyph.attrs.foreground = active_lbl;
+                    glyph.attrs.background = slot_bg;
+                    glyph.attrs.set_bold(true);
+                } else if activity {
+                    glyph.ch = ACTIVITY_BADGE;
+                    glyph.attrs.foreground = active_lbl;
+                    glyph.attrs.background = slot_bg;
+                    glyph.attrs.set_bold(true);
+                }
             }
         }
 
@@ -398,6 +410,25 @@ impl TabBar {
             quads: Vec::new(),
             glyphs: row,
         }
+    }
+}
+
+pub(super) fn progress_badge(progress: crate::core::TerminalProgress) -> char {
+    use crate::core::ProgressKind;
+    match progress.kind {
+        ProgressKind::Error => '!',
+        ProgressKind::Paused => 'Ⅱ',
+        ProgressKind::Indeterminate => '◌',
+        ProgressKind::Normal => match progress.value.unwrap_or(0) {
+            0..=12 => '▁',
+            13..=25 => '▂',
+            26..=37 => '▃',
+            38..=50 => '▄',
+            51..=62 => '▅',
+            63..=75 => '▆',
+            76..=87 => '▇',
+            _ => '█',
+        },
     }
 }
 

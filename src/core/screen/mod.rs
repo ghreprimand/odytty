@@ -20,6 +20,10 @@ use super::graphics_routing::{self, DcsCapture, GraphicsStats};
 use super::hyperlink::{Hyperlink, HyperlinkTable};
 use super::iterm2;
 use super::kitty::{decode_base64_bytes, encode_base64_bytes};
+use super::notifications::{
+    MAX_PENDING_NOTIFICATIONS, Osc9Request, TerminalNotification, TerminalProgress, parse_osc9,
+    parse_osc777,
+};
 use super::placeholder;
 
 use super::prompt_marks::{self, PromptKind};
@@ -340,6 +344,15 @@ pub struct Screen {
     /// core never makes noise or touches the grid — it only records that a bell
     /// was requested.
     bell_pending: bool,
+    /// Sanitized, bounded OSC notification events waiting for the native layer.
+    notification_events: std::collections::VecDeque<TerminalNotification>,
+    /// Current OSC 9;4 progress state. Transient and never serialized.
+    progress: Option<TerminalProgress>,
+    /// Edge latch for a progress update, including an explicit clear.
+    progress_changed: bool,
+    /// Explicit OSC 133 `D` completions waiting for the native layer. This is
+    /// an edge queue, separate from durable command-range metadata.
+    command_completions: std::collections::VecDeque<Option<i32>>,
     base_colors: DynamicColors,
     /// C29: the theme's base 16 ANSI colors, seeded by the native layer via
     /// [`Self::set_base_palette`]. OSC 4 queries for indices 0..16 fall back
@@ -703,6 +716,16 @@ impl Screen {
                 absolute_row,
                 collapse_on_reflow,
             });
+        }
+        if code == Some(b'D') {
+            let exit = match kind {
+                PromptKind::CommandEndAt { exit, .. } | PromptKind::CommandEnd { exit } => exit,
+                _ => None,
+            };
+            if self.command_completions.len() == MAX_PENDING_NOTIFICATIONS {
+                self.command_completions.pop_front();
+            }
+            self.command_completions.push_back(exit);
         }
     }
 
@@ -1306,6 +1329,10 @@ impl Screen {
                     self.set_working_directory(cwd);
                 }
             }
+            // OSC 9 = notification, or Windows Terminal-compatible OSC 9;4
+            // progress. Both are bounded advisory sidecars; neither touches
+            // the grid or generates a response.
+            b"9" => self.handle_osc9(&params[1..]),
             // OSC 133 = shell-integration semantic prompt marking (SH1). Parse
             // and stamp an advisory per-row mark; never touch the grid, never
             // reply. See [`Self::handle_osc133`].
@@ -1315,6 +1342,12 @@ impl Screen {
             // is recognized and consumed with no state. Never touches the
             // grid, never replies. See [`Self::handle_osc1337`].
             b"1337" => self.handle_osc1337(&params[1..]),
+            // OSC 777;notify;title;body = rxvt-style notification request.
+            b"777" => {
+                if let Some(notification) = parse_osc777(&params[1..]) {
+                    self.push_notification(notification);
+                }
+            }
             b"4" => self.osc_palette(params),
             b"8" => self.set_hyperlink(params),
             b"10" => self.osc_default_color(params, DefaultColorSlot::Foreground),

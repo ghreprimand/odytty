@@ -189,6 +189,13 @@ bell (`BEL`) is handled visually or via the window manager.
   that decays over ~150 ms; light on dark themes, dark on light).
 - `all` does both; `off` ignores the bell entirely.
 
+Notification presentation is separate from BEL. `notifications = in-app`
+(default) provides transient owned badges and progress without an audible cue
+or focus change. `attention` requests window-manager attention only while
+unfocused, and `desktop` attempts a native notification. `off` disables the
+presentation. Terminal-authored notification text is never placed in trusted
+chrome; see [`notifications.md`](notifications.md).
+
 ## Themes and legibility
 
 Theme choice interacts with all of the above. The minimum-contrast floor applies

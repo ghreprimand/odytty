@@ -927,6 +927,13 @@ impl App {
                 &session.search,
                 is_focused,
             );
+            self.paint_pane_attention_cell(
+                &mut pane.snapshot,
+                session.attention.progress,
+                session.attention.unread,
+                session.attention.completed,
+                session.attention.failed,
+            );
         }
 
         // Build every pane's status gutter in that pane's own scrollback and

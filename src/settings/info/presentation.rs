@@ -182,6 +182,7 @@ impl Settings {
             "cvd_mode" => self.cvd_mode.as_str().to_owned(),
             "cvd_strength" => format_float(self.cvd_strength),
             "bell" => self.bell.as_str().to_owned(),
+            "notifications" => self.notifications.as_str().to_owned(),
             "native_autoclose_ms" => self
                 .native_autoclose
                 .map(|duration| format!("{} ms", duration.as_millis()))

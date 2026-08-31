@@ -250,6 +250,11 @@ pub(in crate::native) struct App {
     /// Whether this unfocused episode has already requested platform user
     /// attention for a bell. Cleared when the window regains focus.
     pub(super) bell_attention: bell::BellAttentionLatch,
+    /// Separate attention episode for completion/OSC notification policy; BEL
+    /// remains independently configured and cannot consume this latch.
+    pub(super) notification_attention: bell::BellAttentionLatch,
+    /// Application-boundary limiter shared by all panes.
+    pub(super) notification_limiter: crate::native::notifications::NotificationLimiter,
     /// Instant the context menu was last opened. A press that lands on the menu
     /// within [`CONTEXT_MENU_INPUT_DEBOUNCE`] of opening is swallowed: it can
     /// only be a stale queued click replaying (a human needs longer to see the
@@ -567,6 +572,8 @@ impl App {
             // launch should not fire a button either.
             focus_click_pending: true,
             bell_attention: bell::BellAttentionLatch::default(),
+            notification_attention: bell::BellAttentionLatch::default(),
+            notification_limiter: crate::native::notifications::NotificationLimiter::default(),
             context_menu_opened_at: None,
             #[cfg(test)]
             last_menu_path_scan_for_test: false,

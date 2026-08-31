@@ -34,6 +34,10 @@ impl Screen {
             osc52_read_enabled: false,
             kitty_named_transports_enabled: false,
             bell_pending: false,
+            notification_events: std::collections::VecDeque::new(),
+            progress: None,
+            progress_changed: false,
+            command_completions: std::collections::VecDeque::new(),
             base_colors: DynamicColors::default(),
             base_palette: std::array::from_fn(|i| indexed_srgb(i as u8)),
             dynamic_colors: DynamicColors::default(),
@@ -191,6 +195,52 @@ impl Screen {
 
     pub fn take_clipboard_requests(&mut self) -> Vec<ClipboardRequest> {
         std::mem::take(&mut self.clipboard_requests)
+    }
+
+    pub(super) fn take_notifications(&mut self) -> Vec<TerminalNotification> {
+        self.notification_events.drain(..).collect()
+    }
+
+    pub(super) fn take_progress_changed(&mut self) -> Option<Option<TerminalProgress>> {
+        self.progress_changed.then(|| {
+            self.progress_changed = false;
+            self.progress
+        })
+    }
+
+    pub(super) fn take_command_completions(&mut self) -> Vec<Option<i32>> {
+        self.command_completions.drain(..).collect()
+    }
+
+    pub(super) fn clear_notification_state(&mut self) {
+        self.notification_events.clear();
+        self.command_completions.clear();
+        if self.progress.take().is_some() {
+            self.progress_changed = true;
+        }
+    }
+
+    pub(super) fn handle_osc9(&mut self, parts: &[&[u8]]) {
+        match parse_osc9(parts) {
+            Osc9Request::Ignored => {}
+            Osc9Request::Notification(notification) => self.push_notification(notification),
+            Osc9Request::Progress(progress) => {
+                if self.progress != progress {
+                    self.progress = progress;
+                    self.progress_changed = true;
+                }
+            }
+        }
+    }
+
+    pub(super) fn push_notification(&mut self, notification: TerminalNotification) {
+        if self.notification_events.back() == Some(&notification) {
+            return;
+        }
+        if self.notification_events.len() == MAX_PENDING_NOTIFICATIONS {
+            self.notification_events.pop_front();
+        }
+        self.notification_events.push_back(notification);
     }
 
     pub fn answer_clipboard_read(&mut self, selection: ClipboardSelection, text: &str) {

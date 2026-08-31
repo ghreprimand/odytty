@@ -603,6 +603,29 @@ pub(super) fn parse_bell(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> Be
     }
 }
 
+pub(super) fn parse_notifications(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> NotificationMode {
+    let Some(raw) = raw else {
+        return NotificationMode::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return NotificationMode::default();
+    }
+    match NotificationMode::parse(trimmed) {
+        Some(mode) => mode,
+        None => {
+            warn(&format!(
+                "{NOTIFICATIONS_ENV}={trimmed:?} is not off|in-app|attention|desktop; using in-app"
+            ));
+            NotificationMode::default()
+        }
+    }
+}
+
 pub(super) fn parse_shell_exit_closes(
     raw: Option<&OsStr>,
     warn: &mut impl FnMut(&str),
@@ -1573,6 +1596,7 @@ pub(super) fn bindable_action_name(action: BindableAction) -> &'static str {
         BindableAction::JumpFailedCommandPrev => "jump-failed-command-prev",
         BindableAction::JumpFailedCommandNext => "jump-failed-command-next",
         BindableAction::ExportCommandOutput => "export-command-output",
+        BindableAction::NotifyCommandFinished => "notify-command-finished",
         BindableAction::CopyMode => "copy-mode",
         BindableAction::Hints => "hints",
         BindableAction::ClearInput => "clear-input",

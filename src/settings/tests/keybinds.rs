@@ -237,6 +237,7 @@ fn all_bindable_actions_is_exhaustive() {
             | JumpFailedCommandPrev
             | JumpFailedCommandNext
             | ExportCommandOutput
+            | NotifyCommandFinished
             | CopyMode
             | Hints
             | ClearInput => 0,

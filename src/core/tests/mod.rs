@@ -15,6 +15,7 @@ mod kitty_keyboard;
 mod mark_density_cost;
 mod osc_clipboard_colors;
 mod osc_cwd;
+mod osc_notifications;
 mod osc_prompt;
 mod output_stranding;
 mod rect;
@@ -30,9 +31,10 @@ mod wrapped_flag_scroll;
 ///
 /// These inputs exercise APIs that already ship. They contain no accounts,
 /// hostnames, home-directory fragments, credentials, private endpoints, or
-/// machine-derived clipboard data. Planned notification, progress, launch-
-/// profile, automation, external-file-drop, and Windows-registration fixtures
-/// are deliberately absent until their production owners exist.
+/// machine-derived clipboard data. Notification/progress fixtures now live in
+/// `osc_notifications`; launch-profile, automation, external-file-drop, and
+/// Windows-registration fixtures remain absent until their production owners
+/// exist.
 pub(crate) mod v013_fixtures {
     use crate::core::PromptKind;
 

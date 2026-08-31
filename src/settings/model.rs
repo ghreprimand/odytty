@@ -753,6 +753,50 @@ impl BellMode {
     }
 }
 
+/// Presentation policy for completion and terminal notification hints. BEL is
+/// deliberately separate and continues to use [`BellMode`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NotificationMode {
+    Off,
+    #[default]
+    InApp,
+    Attention,
+    Desktop,
+}
+
+impl NotificationMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::InApp => "in-app",
+            Self::Attention => "attention",
+            Self::Desktop => "desktop",
+        }
+    }
+
+    pub fn shows_in_app(self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    pub fn wants_attention(self) -> bool {
+        matches!(self, Self::Attention)
+    }
+
+    pub fn wants_desktop(self) -> bool {
+        matches!(self, Self::Desktop)
+    }
+
+    pub(super) fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "off" | "none" | "disabled" => Some(Self::Off),
+            "inapp" | "badge" | "badges" => Some(Self::InApp),
+            "attention" | "urgent" => Some(Self::Attention),
+            "desktop" | "native" | "notification" => Some(Self::Desktop),
+            _ => None,
+        }
+    }
+}
+
 /// What typing `exit` (or Ctrl-D EOF on a live shell) does when it would close a
 /// whole workspace. Governs ONLY the shell-exit path -- the rail close button
 /// and the close-tab / close-workspace / close-pane keybinds keep their
@@ -1224,6 +1268,9 @@ pub struct Settings {
     /// How the terminal reacts to BEL (`0x07`). Defaults to `Urgent` (window
     /// attention when unfocused, no flash). See [`BellMode`].
     pub bell: BellMode,
+    /// Completion/OSC notification presentation. Defaults to bounded in-app
+    /// state; native delivery must be explicitly selected.
+    pub notifications: NotificationMode,
     /// What typing `exit` does when it would close a whole workspace: close the
     /// single workspace (default) or quit OdyTTY. See [`ShellExitCloses`].
     pub shell_exit_closes: ShellExitCloses,
@@ -1438,6 +1485,7 @@ impl Default for Settings {
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
             bell: BellMode::default(),
+            notifications: NotificationMode::default(),
             shell_exit_closes: ShellExitCloses::default(),
             theme_is_system: false,
             follow_os_theme: DEFAULT_FOLLOW_OS_THEME,

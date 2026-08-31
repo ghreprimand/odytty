@@ -99,7 +99,7 @@ shells and full-screen terminal applications:
 | Cursor and editing | Cursor movement including CNL/CPL line-relative redraw controls, erase, insert/delete character and line, insert/replace mode (IRM), repeat, and reverse index |
 | Screen state | Scroll regions, origin mode, tab stops, bracketed paste, focus reporting, and alternate-screen modes 47/1047/1048/1049 |
 | Character sets | G0/G1 designation, SO/SI selection, and DEC Special Graphics mapping for ncurses ACS line drawing |
-| OSC sequences | OSC 0/2 titles, OSC 7 working directories, OSC 8 hyperlinks, OSC 52 clipboard write plus opt-in read, OSC 133 prompt marks, and OSC 4/10/11/12 dynamic colors |
+| OSC sequences | OSC 0/2 titles, OSC 7 working directories, OSC 8 hyperlinks, bounded OSC 9/777 notifications, OSC 9;4 progress, OSC 52 clipboard write plus opt-in read, OSC 133 prompt marks, and OSC 4/10/11/12 dynamic colors |
 | Queries and controls | DECRQM/DECRPM, XTWINOPS, XTGETTCAP, DECRQSS, rectangle operations, selective erase, and synchronized output mode 2026 |
 | Pointer input | Broad mouse reporting, including X10, normal, button-event, any-event, focus events, UTF-8, SGR, urxvt, legacy encodings, and SGR-pixel mode 1016 |
 | Keyboard input | Mode-aware legacy encoding, negotiated Kitty keyboard protocol, and IME composition |
@@ -674,6 +674,17 @@ cannot choose a path. Cancellation writes nothing. The writer leaves the
 selected parent directory untouched, refuses final symlinks or Windows reparse
 points, and uses private atomic replacement. Linux uses the XDG portal on both
 Wayland and X11; macOS and Windows use their native dialog implementations.
+
+### Notifications And Pane Monitors
+
+OSC 9 and OSC 777 requests produce bounded, pane-owned attention state. OSC
+9;4 produces typed progress with a bounded lifetime. Terminal-authored text is
+never copied into trusted OdyTTY or desktop-notification chrome; generic
+application wording is used instead. The command palette provides one-shot
+command-finish, activity, silence, bell, process-finish, and command-failure
+monitors plus an explicit clear action. See
+[`notifications.md`](notifications.md) for exact sequences, caps, policy, and
+independent platform behavior.
 
 Integration applies only to shells OdyTTY launches. Nested shells, `sudo`, and
 `exec`-swaps are not covered; `fish` survives a plain nested launch through

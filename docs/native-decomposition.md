@@ -400,8 +400,9 @@ Windows remains a first-class automated and manual target.
 - Job object and pseudoconsole teardown stay in the Windows PTY backend.
 - Restored Windows windows may signal occlusion without resize; common GPU
   recovery preserves this path.
-- Windows presentation notification remains a no-op at the platform boundary,
-  but its call site remains immediately before presentation.
+- Windows presentation notifications use an on-demand fixed Windows toast
+  request after policy and rate-limit checks; adapter failure leaves in-app
+  state authoritative and does not alter ConPTY lifecycle behavior.
 
 A Linux result cannot establish any Windows behavior. Each landing required the
 blocking Windows build and test job in addition to the local gate.

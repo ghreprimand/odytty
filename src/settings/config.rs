@@ -15,9 +15,9 @@ use super::{
     CURSOR_TRAIL_ENV, CURSOR_TRAIL_STRENGTH_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV, FOCUS_DIM_ENV,
     FOLLOW_OS_THEME_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV, FONT_WEIGHT_ENV,
     GEOMETRIC_BOXDRAW_ENV, INACTIVE_PANE_DIM_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV,
-    NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, NEW_OUTPUT_FADE_MS_ENV, OS_THEME_DARK_ENV,
-    OS_THEME_LIGHT_ENV, OSC52_READ_ENV, OSC52_WRITE_ENV, PANE_PREFIX_ENV, PIXEL_SCROLL_ENV,
-    REDUCED_MOTION_ENV, RENDER_QUALITY_ENV, RESTORE_WORKSPACES_ENV, RETRO_ENV,
+    NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, NEW_OUTPUT_FADE_MS_ENV, NOTIFICATIONS_ENV,
+    OS_THEME_DARK_ENV, OS_THEME_LIGHT_ENV, OSC52_READ_ENV, OSC52_WRITE_ENV, PANE_PREFIX_ENV,
+    PIXEL_SCROLL_ENV, REDUCED_MOTION_ENV, RENDER_QUALITY_ENV, RESTORE_WORKSPACES_ENV, RETRO_ENV,
     SCROLL_DRAG_SPEED_ENV, SCROLL_GLIDE_ENV, SCROLL_PIXEL_SPEED_ENV, SCROLL_WHEEL_LINES_ENV,
     SCROLLBACK_LINES_ENV, SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV, SELECTION_OPACITY_ENV,
     SH_CLICK_ENV, SHELL_EXIT_CLOSES_ENV, SHELL_INTEGRATION_ENV, SHELL_KEY_ENHANCEMENT_ENV,
@@ -327,6 +327,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "cvdmode" | "colorblindmode" | "colourblindmode" | "daltonize" => Some(CVD_MODE_ENV),
         "cvdstrength" | "colorblindstrength" | "colourblindstrength" => Some(CVD_STRENGTH_ENV),
         "bell" | "bellmode" | "audiblebell" | "visualbell" => Some(BELL_ENV),
+        "notifications" | "notificationmode" | "commandnotifications" => Some(NOTIFICATIONS_ENV),
         "confirmclose" | "closeconfirm" | "closeconfirmation" | "confirmonclose" => {
             Some(CONFIRM_CLOSE_ENV)
         }
@@ -477,6 +478,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CVD_MODE_ENV => Some("cvd_mode"),
         CVD_STRENGTH_ENV => Some("cvd_strength"),
         BELL_ENV => Some("bell"),
+        NOTIFICATIONS_ENV => Some("notifications"),
         CONFIRM_CLOSE_ENV => Some("confirm_close"),
         WARN_ON_RISKY_PASTE_ENV => Some("warn_on_risky_paste"),
         SHELL_EXIT_CLOSES_ENV => Some("shell_exit_closes"),
