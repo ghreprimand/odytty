@@ -1610,9 +1610,10 @@ formats and install channels are defined in the
 
 - Named profiles: the v0.14.0 foundation (versioned on-disk schema, local
   catalog, precedence resolver, migration helpers) and settings Profile Manager
-  CRUD are documented in `docs/v0.14.0-profiles-foundation.md`. Launch routing
-  and shell discovery remain follow-on work under the precedence contract in
-  `docs/v0.13.0-foundation.md`.
+  CRUD are documented in `docs/v0.14.0-profiles-foundation.md`. Launch routing,
+  workspace `launch_profile` binding, per-pane restoration, saved-layout open,
+  `--profile` CLI selection, and opt-in host/directory auto-switch follow the
+  precedence contract in `docs/v0.13.0-foundation.md`.
   External palette following (opt-in complete local palette file, content-hash
   reload, last-known-good retention) is documented in
   `docs/v0.14.0-external-palette.md`.

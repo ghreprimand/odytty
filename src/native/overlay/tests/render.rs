@@ -170,7 +170,7 @@ fn connection_row_menu_renders_manager_underneath() {
     // Render the composed overlay and assert the manager's title row (above
     // the spawn cell, so never covered by the menu) survives.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     right_click_first_host(&mut overlay);
     assert_eq!(overlay.render_signature().mode, OverlayMode::ContextMenu);
 
@@ -203,7 +203,10 @@ fn connection_overlay_draws_into_snapshot_copy_only() {
     // the snapshot copy it is handed; the source frame is untouched, and the
     // host list shows.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1"), connection_host("db1")]);
+    overlay.open_connections(
+        vec![connection_host("web1"), connection_host("db1")],
+        Vec::new(),
+    );
     let original = snapshot(80, 20);
     let mut rendered = original.clone();
 
@@ -224,7 +227,7 @@ fn closed_connection_overlay_is_pixel_inert() {
     // OVERLAY-CLOSED-BYTE-IDENTICAL: once closed, the connection overlay
     // paints nothing — the frame is byte-identical to the input.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     overlay.close();
     let original = snapshot(80, 20);
     let mut rendered = original.clone();
@@ -239,7 +242,7 @@ fn empty_connection_overlay_opens_with_hint() {
     // Opening the connection manager with no hosts still opens (showing a
     // hint) rather than failing; it draws a panel into the copy only.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(Vec::new());
+    overlay.open_connections(Vec::new(), Vec::new());
     let original = snapshot(80, 20);
     let mut rendered = original.clone();
 

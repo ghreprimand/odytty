@@ -28,7 +28,7 @@ mod tests;
 
 pub(super) use lifecycle::SHUTDOWN_REAP_DEADLINE;
 pub(super) use model::{Session, SessionToken, WorkspaceSet};
-pub(super) use persistence::RestoreReport;
+pub(super) use persistence::{RestoreReport, RestoredLocalLeaf};
 pub(super) use presentation::CursorComparison;
 pub(super) use transport::{apply_local_backend_caps, seed_initial_working_directory};
 

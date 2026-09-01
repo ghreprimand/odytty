@@ -94,6 +94,7 @@ mod search_ui;
 mod session;
 mod session_attach_overlay;
 mod settings_panel;
+mod shell_discovery;
 mod texture_limits;
 mod theme_builder;
 mod theme_picker;
@@ -132,6 +133,12 @@ use session::{
 
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
     panic_log::install_panic_hook();
+
+    let (settings, startup_plan, startup_warnings) =
+        app::profile_launch::resolve_startup_launch(&options, settings);
+    for warning in startup_warnings {
+        tracing::warn!(warning = %warning, "profile launch notice");
+    }
 
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .build()
@@ -200,6 +207,8 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
             command.args.clone(),
             options.working_directory.clone(),
         )
+    } else if let Some(plan) = startup_plan.as_ref() {
+        crate::profiles::spawn_local_plan(options.initial_grid, plan)
     } else {
         PtySession::spawn_default_shell_in_with_settings(
             options.initial_grid,

@@ -37,16 +37,33 @@ const ADD_ROW_LABEL: &str = "+ Add connection\u{2026}";
 const KEY_HINT_LINE: &str =
     "Tab add \u{b7} \u{2192} edit \u{b7} Enter connect \u{b7} Shift+Enter save typed host";
 
+/// One named launch profile row in the connection manager (v0.14). Loaded lazily
+/// when the overlay opens; never scanned on the default launch path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ConnectionProfileRow {
+    pub(super) name: String,
+    pub(super) label: String,
+    pub(super) connection: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilteredRow {
+    Profile(usize),
+    Host(usize),
+}
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConnectionOverlay {
     /// The frozen connection list captured at open time, in load order
     /// (OdyTTY-owned hosts first, then any opt-in OpenSSH-config names).
     entries: Vec<ConnectionHost>,
+    /// Named launch profiles for the connection-manager (`Connect`) purpose.
+    profile_rows: Vec<ConnectionProfileRow>,
     /// Current type-to-filter query.
     query: String,
-    /// Indexes into `entries` for the rows that match `query`, best-first.
-    /// Recomputed whenever the query changes.
-    filtered: Vec<usize>,
+    /// Profile or host rows that match `query`, best-first. Recomputed whenever
+    /// the query changes.
+    filtered: Vec<FilteredRow>,
     /// Selection cursor into `filtered`. Clamped whenever `filtered` changes.
     selected: usize,
     /// Scroll offset into `filtered` for the visible window on a short overlay
@@ -117,6 +134,9 @@ pub(super) enum ConnectionOverlayOutcome {
     /// pending action (ODP-1B). The App routes the chosen host per the purpose
     /// rather than connecting. Never emitted in the default `Connect` purpose.
     Pick(Box<ConnectionHost>, ConnectionPickerPurpose),
+    /// Launch a new tab through the named-profile resolver (v0.14). Emitted only
+    /// from a profile row in the connection-manager (`Connect`) purpose.
+    LaunchProfile(String),
     /// Open the Add-connection form (REMOTE-UX P4). Raised by Tab in the
     /// connection manager; the overlay switches itself to the form mode.
     AddConnection,
@@ -154,7 +174,7 @@ impl ConnectionOverlay {
     /// which threads the picker purpose.
     #[cfg(test)]
     pub(super) fn open(&mut self, entries: Vec<ConnectionHost>) {
-        self.open_for_purpose(entries, ConnectionPickerPurpose::Connect);
+        self.open_for_purpose(entries, ConnectionPickerPurpose::Connect, Vec::new());
     }
 
     /// Load a frozen candidate set for a tagged pending action (ODP-1B). The
@@ -164,8 +184,14 @@ impl ConnectionOverlay {
         &mut self,
         entries: Vec<ConnectionHost>,
         purpose: ConnectionPickerPurpose,
+        profile_rows: Vec<ConnectionProfileRow>,
     ) {
         self.entries = entries;
+        self.profile_rows = if matches!(purpose, ConnectionPickerPurpose::Connect) {
+            profile_rows
+        } else {
+            Vec::new()
+        };
         self.query.clear();
         self.selected = 0;
         self.purpose = purpose;
@@ -222,13 +248,36 @@ impl ConnectionOverlay {
     /// uses the shared fuzzy scorer over each row's searchable text.
     fn recompute(&mut self) {
         if self.query.is_empty() {
-            self.filtered = (0..self.entries.len()).take(MAX_RESULTS).collect();
+            self.filtered.clear();
+            for index in 0..self.profile_rows.len() {
+                self.filtered.push(FilteredRow::Profile(index));
+                if self.filtered.len() >= MAX_RESULTS {
+                    break;
+                }
+            }
+            if self.filtered.len() < MAX_RESULTS {
+                for index in 0..self.entries.len() {
+                    self.filtered.push(FilteredRow::Host(index));
+                    if self.filtered.len() >= MAX_RESULTS {
+                        break;
+                    }
+                }
+            }
         } else {
-            let haystacks: Vec<String> = self.entries.iter().map(match_text).collect();
+            let mut haystacks = Vec::with_capacity(self.profile_rows.len() + self.entries.len());
+            let mut kinds = Vec::with_capacity(self.profile_rows.len() + self.entries.len());
+            for (index, row) in self.profile_rows.iter().enumerate() {
+                haystacks.push(profile_match_text(row));
+                kinds.push(FilteredRow::Profile(index));
+            }
+            for (index, entry) in self.entries.iter().enumerate() {
+                haystacks.push(match_text(entry));
+                kinds.push(FilteredRow::Host(index));
+            }
             self.filtered = fuzzy::rank(&self.query, &haystacks)
                 .into_iter()
                 .take(MAX_RESULTS)
-                .map(|(index, _)| index)
+                .filter_map(|(index, _)| kinds.get(index).copied())
                 .collect();
         }
         // A query change re-anchors the selection to a real row; the add-row
@@ -254,8 +303,14 @@ impl ConnectionOverlay {
         self.selected = next as usize;
     }
 
+    fn selected_row(&self) -> Option<FilteredRow> {
+        self.filtered.get(self.selected).copied()
+    }
+
     fn selected_entry(&self) -> Option<&ConnectionHost> {
-        let entry_index = *self.filtered.get(self.selected)?;
+        let FilteredRow::Host(entry_index) = self.selected_row()? else {
+            return None;
+        };
         self.entries.get(entry_index)
     }
 
@@ -335,8 +390,16 @@ impl ConnectionOverlay {
                 ConnectionPickerPurpose::Connect if self.add_row_focused => {
                     ConnectionOverlayOutcome::AddConnection
                 }
-                ConnectionPickerPurpose::Connect => match self.selected_entry() {
-                    Some(entry) => ConnectionOverlayOutcome::Connect(Box::new(entry.clone())),
+                ConnectionPickerPurpose::Connect => match self.selected_row() {
+                    Some(FilteredRow::Profile(index)) => self
+                        .profile_rows
+                        .get(index)
+                        .map(|row| ConnectionOverlayOutcome::LaunchProfile(row.name.clone()))
+                        .unwrap_or(ConnectionOverlayOutcome::Consumed),
+                    Some(FilteredRow::Host(_)) => match self.selected_entry() {
+                        Some(entry) => ConnectionOverlayOutcome::Connect(Box::new(entry.clone())),
+                        None => ConnectionOverlayOutcome::Consumed,
+                    },
                     None => match self.adhoc_target() {
                         Some(host) => ConnectionOverlayOutcome::Connect(Box::new(host)),
                         None => ConnectionOverlayOutcome::Consumed,
@@ -435,7 +498,9 @@ impl ConnectionOverlay {
         body_height: usize,
     ) -> Option<(usize, ConnectionHost)> {
         let cursor = self.row_at(row_in_body, body_height)?;
-        let entry_index = *self.filtered.get(cursor)?;
+        let FilteredRow::Host(entry_index) = *self.filtered.get(cursor)? else {
+            return None;
+        };
         let host = self.entries.get(entry_index)?.clone();
         Some((cursor, host))
     }
@@ -497,7 +562,7 @@ impl ConnectionOverlay {
             bold: true,
         });
         if lines.len() < content_cap {
-            if self.entries.is_empty() {
+            if self.entries.is_empty() && self.profile_rows.is_empty() {
                 self.scroll_offset.set(0);
                 lines.push(ConnectionOverlayLine {
                     text: truncate_for_width(
@@ -546,7 +611,7 @@ impl ConnectionOverlay {
                 }
             } else {
                 let visible_results = self.visible_results_rows(body_height);
-                for (visible_index, &entry_index) in self
+                for (visible_index, filtered_row) in self
                     .filtered
                     .iter()
                     .skip(scroll_offset)
@@ -554,11 +619,18 @@ impl ConnectionOverlay {
                     .enumerate()
                 {
                     let row = scroll_offset + visible_index;
-                    let Some(entry) = self.entries.get(entry_index) else {
-                        continue;
+                    let label = match filtered_row {
+                        FilteredRow::Profile(index) => self
+                            .profile_rows
+                            .get(*index)
+                            .map(profile_row_label)
+                            .unwrap_or_default(),
+                        FilteredRow::Host(index) => {
+                            self.entries.get(*index).map(row_label).unwrap_or_default()
+                        }
                     };
                     lines.push(ConnectionOverlayLine {
-                        text: truncate_for_width(&row_label(entry), body_width),
+                        text: truncate_for_width(&label, body_width),
                         focused: row == self.selected && !self.add_row_focused,
                         bold: false,
                     });
@@ -672,15 +744,45 @@ impl ConnectionOverlay {
         // footer row moves the highlight without changing query/selection, so
         // fold it in or the highlight would freeze on a `Retained` frame.
         self.add_row_focused.hash(&mut hasher);
-        for &entry_index in self.filtered.iter().take(MAX_RESULTS) {
-            if let Some(entry) = self.entries.get(entry_index) {
-                entry.alias.hash(&mut hasher);
-                entry.host_name.hash(&mut hasher);
-                entry.user.hash(&mut hasher);
-                entry.port.hash(&mut hasher);
+        for filtered_row in self.filtered.iter().take(MAX_RESULTS) {
+            match filtered_row {
+                FilteredRow::Profile(index) => {
+                    if let Some(row) = self.profile_rows.get(*index) {
+                        row.name.hash(&mut hasher);
+                        row.label.hash(&mut hasher);
+                        row.connection.hash(&mut hasher);
+                    }
+                }
+                FilteredRow::Host(index) => {
+                    if let Some(entry) = self.entries.get(*index) {
+                        entry.alias.hash(&mut hasher);
+                        entry.host_name.hash(&mut hasher);
+                        entry.user.hash(&mut hasher);
+                        entry.port.hash(&mut hasher);
+                    }
+                }
             }
         }
         hasher.finish()
+    }
+}
+
+fn profile_match_text(row: &ConnectionProfileRow) -> String {
+    let mut text = row.name.clone();
+    text.push(' ');
+    text.push_str(&row.label);
+    if let Some(connection) = row.connection.as_deref() {
+        text.push(' ');
+        text.push_str(connection);
+    }
+    sanitize(&text)
+}
+
+fn profile_row_label(row: &ConnectionProfileRow) -> String {
+    let label = sanitize(&row.label);
+    match row.connection.as_deref() {
+        Some(connection) => format!("Profile: {label}   -> {}", sanitize(connection)),
+        None => format!("Profile: {label}   (local)"),
     }
 }
 
@@ -1082,9 +1184,88 @@ mod tests {
 
     // ── ODP-1B shared picker: bind purpose ─────────────────────────────────
 
+    #[test]
+    fn connect_purpose_profile_row_launches_named_profile() {
+        let mut overlay = ConnectionOverlay::new();
+        overlay.open_for_purpose(
+            entries(),
+            ConnectionPickerPurpose::Connect,
+            vec![ConnectionProfileRow {
+                name: "edge".to_owned(),
+                label: "Edge SSH".to_owned(),
+                connection: Some("edge".to_owned()),
+            }],
+        );
+        let lines = overlay.visible_lines(80, 10);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.text.contains("Profile: Edge SSH"))
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::LaunchProfile("edge".to_owned())
+        );
+    }
+
+    #[test]
+    fn connect_purpose_profile_rows_filter_by_name() {
+        let mut overlay = ConnectionOverlay::new();
+        overlay.open_for_purpose(
+            entries(),
+            ConnectionPickerPurpose::Connect,
+            vec![ConnectionProfileRow {
+                name: "web-profile".to_owned(),
+                label: "Web".to_owned(),
+                connection: None,
+            }],
+        );
+        type_query(&mut overlay, "web-profile");
+        assert_eq!(overlay.render_signature().results_len, 1);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::LaunchProfile("web-profile".to_owned())
+        );
+    }
+
+    #[test]
+    fn non_connect_purpose_never_offers_profile_rows() {
+        // v0.14 Phase A3 route inertness: the profile launch route belongs only
+        // to the Connect picker. A bind/replace/connect-tab picker must drop any
+        // supplied profile rows so it can never emit LaunchProfile: those
+        // pickers act on a saved host only. Even when profile rows are handed
+        // in, they must not appear and Activate must not produce a LaunchProfile.
+        for purpose in [
+            ConnectionPickerPurpose::BindWorkspace,
+            ConnectionPickerPurpose::ReplaceTab(SessionToken(7)),
+            ConnectionPickerPurpose::ConnectTabAfter(SessionToken(7)),
+        ] {
+            let mut overlay = ConnectionOverlay::new();
+            overlay.open_for_purpose(
+                entries(),
+                purpose,
+                vec![ConnectionProfileRow {
+                    name: "edge".to_owned(),
+                    label: "Edge SSH".to_owned(),
+                    connection: Some("edge".to_owned()),
+                }],
+            );
+            let lines = overlay.visible_lines(80, 10);
+            assert!(
+                !lines.iter().any(|line| line.text.contains("Profile:")),
+                "a non-Connect picker must not render any profile row for {purpose:?}"
+            );
+            let outcome = overlay.handle_input(OverlayInput::Activate);
+            assert!(
+                !matches!(outcome, ConnectionOverlayOutcome::LaunchProfile(_)),
+                "a non-Connect picker must never emit LaunchProfile for {purpose:?}"
+            );
+        }
+    }
+
     fn open_for_bind(entries: Vec<ConnectionHost>) -> ConnectionOverlay {
         let mut overlay = ConnectionOverlay::new();
-        overlay.open_for_purpose(entries, ConnectionPickerPurpose::BindWorkspace);
+        overlay.open_for_purpose(entries, ConnectionPickerPurpose::BindWorkspace, Vec::new());
         overlay
     }
 
@@ -1135,12 +1316,20 @@ mod tests {
         // purpose.
         let token = SessionToken(7);
         let mut overlay = ConnectionOverlay::new();
-        overlay.open_for_purpose(entries(), ConnectionPickerPurpose::ConnectTabAfter(token));
+        overlay.open_for_purpose(
+            entries(),
+            ConnectionPickerPurpose::ConnectTabAfter(token),
+            Vec::new(),
+        );
         type_query(&mut overlay, "host.example.invalid");
         assert_eq!(overlay.render_signature().results_len, 0);
         assert!(!overlay.visible_lines(80, 10)[1].text.contains("Connect to"));
         // A saved row still picks and routes with the token intact.
-        overlay.open_for_purpose(entries(), ConnectionPickerPurpose::ConnectTabAfter(token));
+        overlay.open_for_purpose(
+            entries(),
+            ConnectionPickerPurpose::ConnectTabAfter(token),
+            Vec::new(),
+        );
         let ConnectionOverlayOutcome::Pick(host, purpose) =
             overlay.handle_input(OverlayInput::Activate)
         else {
@@ -1156,7 +1345,11 @@ mod tests {
         // token so the App knows which tab to replace after the pick.
         let token = SessionToken(3);
         let mut overlay = ConnectionOverlay::new();
-        overlay.open_for_purpose(entries(), ConnectionPickerPurpose::ReplaceTab(token));
+        overlay.open_for_purpose(
+            entries(),
+            ConnectionPickerPurpose::ReplaceTab(token),
+            Vec::new(),
+        );
         overlay.handle_input(OverlayInput::Down); // select db-primary
         let ConnectionOverlayOutcome::Pick(host, purpose) =
             overlay.handle_input(OverlayInput::Activate)

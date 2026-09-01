@@ -117,6 +117,7 @@ impl PaletteOverlay {
         let directories = self.recent_dirs.candidates();
         let mut entries = compose_default_palette_entries(history, directories);
         entries.extend(workspace_palette_entries(workspaces));
+        entries.extend(profile_palette_entries(workspaces));
         self.model = PaletteModel::with_options(entries, palette_options());
         self.reset_scroll();
     }
@@ -360,6 +361,11 @@ pub(super) const LAYOUT_OPEN_ID_PREFIX: &str = "layout-open-";
 /// Stable id prefix for the "Delete Layout …" rows (WP3 / 8e).
 pub(super) const LAYOUT_DELETE_ID_PREFIX: &str = "layout-delete-";
 
+/// Stable id prefix for the "New Tab with profile ..." rows.
+pub(super) const PROFILE_LAUNCH_ID_PREFIX: &str = "profile-launch-";
+/// Stable id prefix for the "Bind Workspace to Profile ..." rows.
+pub(super) const PROFILE_BIND_ID_PREFIX: &str = "profile-bind-";
+
 /// The workspace-facing context the command palette needs to build its rows:
 /// the workspace names (switch rows, ODP-5), the known-host aliases (F6-W5 bind
 /// rows), and which host — if any — the active workspace is currently bound to
@@ -371,6 +377,10 @@ pub(super) struct WorkspacePaletteContext<'a> {
     /// The names of saved layouts (WP3), for the open/delete rows. Empty until a
     /// layout has been saved.
     pub(super) layout_names: &'a [String],
+    /// Named launch profiles `(name, display label)` for New Tab / bind rows.
+    pub(super) profile_names: &'a [(String, String)],
+    /// The named launch profile currently bound to the active workspace, if any.
+    pub(super) bound_launch_profile: Option<&'a str>,
 }
 
 impl<'a> WorkspacePaletteContext<'a> {
@@ -383,6 +393,8 @@ impl<'a> WorkspacePaletteContext<'a> {
             host_aliases: &[],
             bound_profile: None,
             layout_names: &[],
+            profile_names: &[],
+            bound_launch_profile: None,
         }
     }
 }
@@ -452,6 +464,28 @@ fn workspace_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEn
     entries
 }
 
+fn profile_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEntry> {
+    let mut entries = Vec::with_capacity(ctx.profile_names.len() * 2 + 1);
+    for (idx, (_name, label)) in ctx.profile_names.iter().enumerate() {
+        entries.push(PaletteEntry::action(
+            format!("{PROFILE_LAUNCH_ID_PREFIX}{idx}"),
+            format!("New Tab: Profile {label}"),
+        ));
+    }
+    for (idx, (_name, label)) in ctx.profile_names.iter().enumerate() {
+        let row_label = if ctx.bound_launch_profile == Some(_name.as_str()) {
+            format!("Workspace Profile: {label} (bound)")
+        } else {
+            format!("Bind Workspace to Profile: {label}")
+        };
+        entries.push(PaletteEntry::action(
+            format!("{PROFILE_BIND_ID_PREFIX}{idx}"),
+            row_label,
+        ));
+    }
+    entries
+}
+
 /// Recover the layout index from an `layout-open-<idx>` action id.
 pub(super) fn parse_layout_open_id(id: &str) -> Option<usize> {
     id.strip_prefix(LAYOUT_OPEN_ID_PREFIX)
@@ -475,6 +509,16 @@ pub(super) fn parse_workspace_switch_id(id: &str) -> Option<usize> {
 /// when the id is not a host-binding row.
 pub(super) fn parse_workspace_bind_id(id: &str) -> Option<usize> {
     id.strip_prefix(WORKSPACE_BIND_ID_PREFIX)
+        .and_then(|suffix| suffix.parse().ok())
+}
+
+pub(super) fn parse_profile_launch_id(id: &str) -> Option<usize> {
+    id.strip_prefix(PROFILE_LAUNCH_ID_PREFIX)
+        .and_then(|suffix| suffix.parse().ok())
+}
+
+pub(super) fn parse_profile_bind_id(id: &str) -> Option<usize> {
+    id.strip_prefix(PROFILE_BIND_ID_PREFIX)
         .and_then(|suffix| suffix.parse().ok())
 }
 
@@ -576,6 +620,8 @@ mod tests {
             host_aliases: &hosts,
             bound_profile: None,
             layout_names: &[],
+            profile_names: &[],
+            bound_launch_profile: None,
         };
         let ids: Vec<String> = workspace_palette_entries(&unbound)
             .into_iter()
@@ -600,6 +646,8 @@ mod tests {
             host_aliases: &hosts,
             bound_profile: Some("web"),
             layout_names: &[],
+            profile_names: &[],
+            bound_launch_profile: None,
         };
         let labels: Vec<String> = workspace_palette_entries(&bound)
             .into_iter()
@@ -622,6 +670,8 @@ mod tests {
             host_aliases: &[],
             bound_profile: None,
             layout_names: &[],
+            profile_names: &[],
+            bound_launch_profile: None,
         };
         let entries = workspace_palette_entries(&ctx);
         let ids: Vec<String> = entries

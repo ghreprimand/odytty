@@ -367,6 +367,7 @@ impl App {
         self.overlay.open_connections_for_purpose(
             entries,
             crate::native::connection_overlay::ConnectionPickerPurpose::BindWorkspace,
+            Vec::new(),
         );
         self.request_selection_redraw();
     }
@@ -382,6 +383,7 @@ impl App {
         self.overlay.open_connections_for_purpose(
             entries,
             crate::native::connection_overlay::ConnectionPickerPurpose::BindWorkspaceIndex(idx),
+            Vec::new(),
         );
         self.request_selection_redraw();
     }
@@ -424,6 +426,7 @@ impl App {
         self.overlay.open_connections_for_purpose(
             entries,
             crate::native::connection_overlay::ConnectionPickerPurpose::ConnectTabAfter(token),
+            Vec::new(),
         );
         self.request_selection_redraw();
     }
@@ -438,6 +441,7 @@ impl App {
         self.overlay.open_connections_for_purpose(
             entries,
             crate::native::connection_overlay::ConnectionPickerPurpose::ReplaceTab(token),
+            Vec::new(),
         );
         self.request_selection_redraw();
     }

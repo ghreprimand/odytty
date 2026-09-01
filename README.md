@@ -197,7 +197,8 @@ security, architecture, platform, and measurement boundaries used by this
 release. Named launch profiles have a versioned on-disk foundation and a settings Profile
 Manager for local create/edit/import/export/delete
 ([schema, precedence, and migration](docs/v0.14.0-profiles-foundation.md));
-launch routing is not wired yet, so default startup is unchanged.
+launch routing, restoration, palette selection, and opt-in auto-switch are
+wired; default startup without an explicit profile is unchanged.
 [External palette following](docs/v0.14.0-external-palette.md) is an optional
 opt-in that applies a complete local palette file through the existing theme
 seam without delaying ordinary startup. See

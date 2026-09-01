@@ -109,6 +109,7 @@ mod tests {
             &LaunchCliOverrides::default(),
             &RestoredLaunchOverrides::default(),
             &LiveLaunchOverrides::default(),
+            None,
         );
         assert_eq!(effective.profile_name, None);
         assert_eq!(effective.settings.theme, DEFAULT_THEME);

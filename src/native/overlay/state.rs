@@ -387,8 +387,12 @@ impl OverlayUi {
     /// [`OverlayOutcome::Connect`] for the App's connect action. `entries` is
     /// empty when no hosts are configured, in which case the overlay shows a
     /// hint rather than failing to open.
-    pub(in crate::native) fn open_connections(&mut self, entries: Vec<ConnectionHost>) {
-        self.open_connections_for_purpose(entries, ConnectionPickerPurpose::Connect);
+    pub(in crate::native) fn open_connections(
+        &mut self,
+        entries: Vec<ConnectionHost>,
+        profile_rows: Vec<crate::native::connection_overlay::ConnectionProfileRow>,
+    ) {
+        self.open_connections_for_purpose(entries, ConnectionPickerPurpose::Connect, profile_rows);
     }
 
     /// Open the connection list as a shared picker for a tagged pending action
@@ -398,10 +402,12 @@ impl OverlayUi {
         &mut self,
         entries: Vec<ConnectionHost>,
         purpose: ConnectionPickerPurpose,
+        profile_rows: Vec<crate::native::connection_overlay::ConnectionProfileRow>,
     ) {
         self.panel.end_slider_drag();
         self.theme_builder.end_channel_drag();
-        self.connections.open_for_purpose(entries, purpose);
+        self.connections
+            .open_for_purpose(entries, purpose, profile_rows);
         self.mode = OverlayMode::Connections;
         self.open = true;
     }

@@ -17,10 +17,17 @@ use crate::core::Terminal;
 use crate::native::layout::{PaneNode, SplitAxis};
 #[cfg(test)]
 use crate::native::pty::PtyWriter;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+/// Local pane restore inputs: captured cwd plus optional named profile.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(in crate::native) struct RestoredLocalLeaf {
+    pub cwd: Option<PathBuf>,
+    pub launch_profile: Option<String>,
+}
 
 /// Per-connection snapshot budget for one pane in a restore batch: whatever of
 /// the shared `batch_deadline` remains at `now`, capped at `cap`. `None` once the
@@ -132,6 +139,7 @@ impl WorkspaceSet {
             .map(|workspace| WorkspaceShape {
                 name: workspace.name.clone(),
                 default_profile: workspace.default_profile.clone(),
+                launch_profile: workspace.launch_profile.clone(),
                 active_tab: workspace.active_tab,
                 tabs: workspace
                     .tabs
@@ -167,6 +175,7 @@ impl WorkspaceSet {
                 cwd: self.pane_cwd(*token),
                 session_host_id: self.pane_session_host_id(*token),
                 remote_host: self.pane_remote_destination(*token),
+                launch_profile: self.pane_launch_profile(*token),
             },
             PaneNode::Split {
                 axis,
@@ -212,6 +221,12 @@ impl WorkspaceSet {
             .and_then(|session| session.remote_destination.clone())
     }
 
+    fn pane_launch_profile(&self, token: SessionToken) -> Option<String> {
+        self.sessions
+            .get(&token)
+            .and_then(|session| session.launch_profile.clone())
+    }
+
     /// Rebuild the ENTIRE workspace list from a saved shape (design §10.6, WP2).
     /// Every local pane spawns a fresh interactive shell at its captured cwd;
     /// every remote pane reconnects through `spawn_remote` (RESTORE-REMOTE),
@@ -221,6 +236,7 @@ impl WorkspaceSet {
     /// place, so the window shows exactly the saved shape. A local pane that
     /// cannot spawn even at home aborts the whole restore
     /// ([`RestoreReport::Skipped`], sub-ODP 8f: never a broken/empty window).
+    #[allow(dead_code)]
     pub(in crate::native) fn restore_from_snapshot_remote(
         &mut self,
         snapshot: &crate::native::persistence::ShapeSnapshot,
@@ -231,7 +247,7 @@ impl WorkspaceSet {
         self.restore_from_snapshot_with(
             snapshot,
             home,
-            |set, cwd| set.insert_restored_session(grid, cwd).ok(),
+            |set, leaf| set.insert_restored_session(grid, leaf.cwd).ok(),
             spawn_remote,
         )
     }
@@ -245,7 +261,7 @@ impl WorkspaceSet {
         &mut self,
         snapshot: &crate::native::persistence::ShapeSnapshot,
         home: Option<&Path>,
-        spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+        spawn_leaf: impl FnMut(&mut Self, RestoredLocalLeaf) -> Option<SessionToken>,
         spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
     ) -> RestoreReport {
         let build = self.build_from_snapshot(snapshot, home, spawn_leaf, spawn_remote);
@@ -290,6 +306,7 @@ impl WorkspaceSet {
     /// [`Self::restore_from_snapshot_remote`]. On a spawn failure mid-build
     /// everything spawned so far is reaped and the current workspaces are
     /// untouched ([`RestoreReport::Skipped`]).
+    #[allow(dead_code)]
     pub(in crate::native) fn append_from_snapshot_remote(
         &mut self,
         snapshot: &crate::native::persistence::ShapeSnapshot,
@@ -300,7 +317,7 @@ impl WorkspaceSet {
         self.append_from_snapshot_with(
             snapshot,
             home,
-            |set, cwd| set.insert_restored_session(grid, cwd).ok(),
+            |set, leaf| set.insert_restored_session(grid, leaf.cwd).ok(),
             spawn_remote,
         )
     }
@@ -310,7 +327,7 @@ impl WorkspaceSet {
         &mut self,
         snapshot: &crate::native::persistence::ShapeSnapshot,
         home: Option<&Path>,
-        spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+        spawn_leaf: impl FnMut(&mut Self, RestoredLocalLeaf) -> Option<SessionToken>,
         spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
     ) -> RestoreReport {
         let build = self.build_from_snapshot(snapshot, home, spawn_leaf, spawn_remote);
@@ -391,7 +408,7 @@ impl WorkspaceSet {
         &mut self,
         snapshot: &crate::native::persistence::ShapeSnapshot,
         home: Option<&Path>,
-        mut spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+        mut spawn_leaf: impl FnMut(&mut Self, RestoredLocalLeaf) -> Option<SessionToken>,
         mut spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
     ) -> SnapshotBuild {
         // Aggregate budget for the entire reattach batch: the first slow host can
@@ -442,6 +459,7 @@ impl WorkspaceSet {
                 tabs,
                 active_tab,
                 default_profile: ws.default_profile.clone(),
+                launch_profile: ws.launch_profile.clone(),
             });
         }
         build
@@ -454,7 +472,7 @@ impl WorkspaceSet {
         &mut self,
         shape: &crate::native::persistence::PaneShape,
         home: Option<&Path>,
-        spawn_leaf: &mut impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+        spawn_leaf: &mut impl FnMut(&mut Self, RestoredLocalLeaf) -> Option<SessionToken>,
         spawn_remote: &mut impl FnMut(&mut Self, &str) -> Option<SessionToken>,
         build: &mut SnapshotBuild,
         leaves: &mut Vec<SessionToken>,
@@ -465,6 +483,7 @@ impl WorkspaceSet {
                 cwd,
                 session_host_id,
                 remote_host,
+                launch_profile,
             } => {
                 // 8h: a pane that was attached to a detached session-host tries to
                 // reattach first. A live host reattaches (full scrollback); a dead
@@ -499,19 +518,29 @@ impl WorkspaceSet {
                 if resolved.stale {
                     build.stale_cwd += 1;
                 }
+                let leaf = RestoredLocalLeaf {
+                    cwd: resolved.path.clone(),
+                    launch_profile: launch_profile.clone(),
+                };
                 // A captured directory that still exists but denies the spawn
                 // (EACCES on a mode-000 dir, or a remote cwd like `/root` that
                 // exists locally but refuses `chdir`) must not abort the whole
                 // restore. Retry once at home before giving up (counted stale);
                 // abort only if home also fails or there is no home to try.
-                let token = match spawn_leaf(self, resolved.path.clone()) {
+                let token = match spawn_leaf(self, leaf.clone()) {
                     Some(token) => token,
                     None => {
                         let home_path = home.map(Path::to_path_buf);
-                        if resolved.path == home_path {
+                        if leaf.cwd == home_path {
                             return None;
                         }
-                        let token = spawn_leaf(self, home_path)?;
+                        let token = spawn_leaf(
+                            self,
+                            RestoredLocalLeaf {
+                                cwd: home_path,
+                                launch_profile: leaf.launch_profile,
+                            },
+                        )?;
                         if !resolved.stale {
                             build.stale_cwd += 1;
                         }

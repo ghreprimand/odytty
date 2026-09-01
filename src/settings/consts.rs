@@ -111,6 +111,7 @@ pub const BUTTONS_STICKY_ENV: &str = "ODYTTY_BUTTONS_STICKY";
 pub const SHELL_INTEGRATION_ENV: &str = "ODYTTY_SHELL_INTEGRATION";
 pub const SHELL_KEY_ENHANCEMENT_ENV: &str = "ODYTTY_SHELL_KEY_ENHANCEMENT";
 pub const RESTORE_WORKSPACES_ENV: &str = "ODYTTY_RESTORE_WORKSPACES";
+pub const PROFILE_AUTO_SWITCH_ENV: &str = "ODYTTY_PROFILE_AUTO_SWITCH";
 pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
 pub const CVD_STRENGTH_ENV: &str = "ODYTTY_CVD_STRENGTH";
 pub const BELL_ENV: &str = "ODYTTY_BELL";
@@ -246,6 +247,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SHELL_INTEGRATION_ENV,
     SHELL_KEY_ENHANCEMENT_ENV,
     RESTORE_WORKSPACES_ENV,
+    PROFILE_AUTO_SWITCH_ENV,
     CVD_MODE_ENV,
     CVD_STRENGTH_ENV,
     BELL_ENV,
@@ -1046,6 +1048,11 @@ pub const REMOTE_IMAGE_PASTE_MAX_BYTES: usize = 10 * 1024 * 1024;
 /// feeds this runs regardless of the setting, so a snapshot is ready the moment
 /// it is turned on.
 pub const DEFAULT_RESTORE_WORKSPACES: bool = false;
+
+/// Opt-in host/directory-aware named-profile switching for the focused local
+/// pane (`ODYTTY_PROFILE_AUTO_SWITCH`). Off by default; match rules live only in
+/// local profile files and terminal output cannot select or rewrite profiles.
+pub const DEFAULT_PROFILE_AUTO_SWITCH: bool = false;
 
 pub const DEFAULT_BLOOM: bool = true;
 pub const DEFAULT_BLOOM_THRESHOLD: f32 = 0.7;

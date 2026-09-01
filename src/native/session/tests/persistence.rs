@@ -109,6 +109,7 @@ fn append_from_snapshot_appends_without_clobbering() {
         workspaces: vec![crate::native::persistence::WorkspaceShape {
             name: "from-layout".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![crate::native::persistence::TabShape {
                 title: None,
@@ -117,6 +118,7 @@ fn append_from_snapshot_appends_without_clobbering() {
                     cwd: None,
                     session_host_id: None,
                     remote_host: None,
+                    launch_profile: None,
                 },
             }],
         }],
@@ -172,6 +174,46 @@ fn capture_shape_records_every_workspace() {
     );
 }
 
+/// v0.14 Phase A3 final-surface: the CAPTURE side of pane-level launch-profile
+/// restoration. A live pane whose session carries a `launch_profile` records
+/// that profile into the captured shape's leaf (the JSON round-trip and
+/// forward-compat of that field are covered separately in
+/// `native::persistence::tests`). A pane with no profile captures `None`, so an
+/// ordinary local pane's capture is unchanged.
+#[test]
+fn capture_shape_records_a_panes_launch_profile() {
+    use crate::native::persistence::PaneShape;
+
+    let mut set = WorkspaceSet::new(build_session(), None);
+    // The sole workspace's sole tab is a leaf backed by SessionToken(0).
+    set.get_mut(SessionToken(0))
+        .expect("initial session")
+        .launch_profile = Some("dev".to_owned());
+
+    let snapshot = set.capture_shape();
+    match &snapshot.workspaces[0].tabs[0].layout {
+        PaneShape::Leaf { launch_profile, .. } => {
+            assert_eq!(
+                launch_profile.as_deref(),
+                Some("dev"),
+                "a pane's live launch_profile must be captured into its leaf"
+            );
+        }
+        other => panic!("expected a leaf, got {other:?}"),
+    }
+
+    // A second, profile-less workspace captures None, so the plain-pane capture
+    // path is unchanged by the launch-profile field.
+    set.push_workspace(build_session_with_id(SessionToken(1)));
+    let snapshot = set.capture_shape();
+    match &snapshot.workspaces[1].tabs[0].layout {
+        PaneShape::Leaf { launch_profile, .. } => {
+            assert_eq!(*launch_profile, None, "a profile-less pane captures None");
+        }
+        other => panic!("expected a leaf, got {other:?}"),
+    }
+}
+
 /// SAVE-ALL-LAYOUT: opening a whole-app layout (a multi-workspace snapshot)
 /// APPENDS every one of its workspaces after the live list, never just the
 /// first — the open side of the whole-app save.
@@ -191,11 +233,13 @@ fn append_from_snapshot_appends_all_workspaces_of_a_multi_workspace_layout() {
             cwd: None,
             session_host_id: None,
             remote_host: None,
+            launch_profile: None,
         },
     };
     let ws = |name: &str| crate::native::persistence::WorkspaceShape {
         name: name.to_owned(),
         default_profile: None,
+        launch_profile: None,
         active_tab: 0,
         tabs: vec![leaf()],
     };
@@ -288,11 +332,13 @@ fn append_consumes_a_pristine_workspace_on_open() {
             cwd: None,
             session_host_id: None,
             remote_host: None,
+            launch_profile: None,
         },
     };
     let ws = |name: &str| crate::native::persistence::WorkspaceShape {
         name: name.to_owned(),
         default_profile: None,
+        launch_profile: None,
         active_tab: 0,
         tabs: vec![leaf()],
     };
@@ -335,6 +381,7 @@ fn append_does_not_consume_a_single_but_renamed_workspace() {
         workspaces: vec![crate::native::persistence::WorkspaceShape {
             name: "saved".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![crate::native::persistence::TabShape {
                 title: None,
@@ -343,6 +390,7 @@ fn append_does_not_consume_a_single_but_renamed_workspace() {
                     cwd: None,
                     session_host_id: None,
                     remote_host: None,
+                    launch_profile: None,
                 },
             }],
         }],
@@ -386,11 +434,13 @@ fn replace_via_restore_leaves_no_survivors() {
             cwd: None,
             session_host_id: None,
             remote_host: None,
+            launch_profile: None,
         },
     };
     let ws = |name: &str| crate::native::persistence::WorkspaceShape {
         name: name.to_owned(),
         default_profile: None,
+        launch_profile: None,
         active_tab: 0,
         tabs: vec![leaf()],
     };
@@ -432,6 +482,7 @@ fn reattach_counts_attempt_and_falls_back_to_fresh_when_host_is_dead() {
         workspaces: vec![crate::native::persistence::WorkspaceShape {
             name: "w".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![crate::native::persistence::TabShape {
                 title: None,
@@ -440,6 +491,7 @@ fn reattach_counts_attempt_and_falls_back_to_fresh_when_host_is_dead() {
                     cwd: None,
                     session_host_id: Some("odytty-nonexistent-host".to_owned()),
                     remote_host: None,
+                    launch_profile: None,
                 },
             }],
         }],
@@ -527,6 +579,7 @@ fn restore_lands_stale_and_unknown_cwds_at_home() {
         workspaces: vec![WorkspaceShape {
             name: "W".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -538,11 +591,13 @@ fn restore_lands_stale_and_unknown_cwds_at_home() {
                         cwd: Some("/definitely/not/a/real/dir/odytty-wp2".to_owned()),
                         session_host_id: None,
                         remote_host: None,
+                        launch_profile: None,
                     }),
                     second: Box::new(PaneShape::Leaf {
                         cwd: None,
                         session_host_id: None,
                         remote_host: None,
+                        launch_profile: None,
                     }),
                 },
             }],
@@ -583,6 +638,7 @@ fn restore_aborts_cleanly_when_a_leaf_fails_to_spawn() {
         cwd: cwd.map(str::to_owned),
         session_host_id: None,
         remote_host: None,
+        launch_profile: None,
     };
     let snapshot = ShapeSnapshot {
         version: crate::native::persistence::SNAPSHOT_VERSION,
@@ -590,6 +646,7 @@ fn restore_aborts_cleanly_when_a_leaf_fails_to_spawn() {
         workspaces: vec![WorkspaceShape {
             name: "W".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![
                 TabShape {
@@ -645,6 +702,7 @@ fn out_of_range_indices_in_a_snapshot_clamp_never_panic() {
         cwd: None,
         session_host_id: None,
         remote_host: None,
+        launch_profile: None,
     };
     let snapshot = ShapeSnapshot {
         version: crate::native::persistence::SNAPSHOT_VERSION,
@@ -653,6 +711,7 @@ fn out_of_range_indices_in_a_snapshot_clamp_never_panic() {
         workspaces: vec![WorkspaceShape {
             name: "w".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 999,
             tabs: vec![TabShape {
                 title: None,
@@ -725,12 +784,14 @@ fn empty_and_tabless_snapshots_are_skipped_never_panic() {
             WorkspaceShape {
                 name: "a".to_owned(),
                 default_profile: None,
+                launch_profile: None,
                 active_tab: 3,
                 tabs: vec![],
             },
             WorkspaceShape {
                 name: "b".to_owned(),
                 default_profile: None,
+                launch_profile: None,
                 active_tab: 0,
                 tabs: vec![],
             },
@@ -763,6 +824,7 @@ fn absurd_ratios_and_deep_nesting_restore_without_panicking() {
         cwd: None,
         session_host_id: None,
         remote_host: None,
+        launch_profile: None,
     };
     // A right-leaning split spine 40 deep, each level carrying a
     // pathological ratio. 40 added leaves + the original = 41 leaves.
@@ -787,6 +849,7 @@ fn absurd_ratios_and_deep_nesting_restore_without_panicking() {
         workspaces: vec![WorkspaceShape {
             name: "deep".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -821,6 +884,7 @@ fn restore_reconnects_remote_leaves_and_keeps_local_leaves_local() {
         workspaces: vec![WorkspaceShape {
             name: "W".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -832,6 +896,7 @@ fn restore_reconnects_remote_leaves_and_keeps_local_leaves_local() {
                         cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
                         session_host_id: None,
                         remote_host: None,
+                        launch_profile: None,
                     }),
                     second: Box::new(PaneShape::Leaf {
                         // A remote pane captured the REMOTE cwd; it must not be
@@ -839,6 +904,7 @@ fn restore_reconnects_remote_leaves_and_keeps_local_leaves_local() {
                         cwd: Some("/root".to_owned()),
                         session_host_id: None,
                         remote_host: Some("prod".to_owned()),
+                        launch_profile: None,
                     }),
                 },
             }],
@@ -883,6 +949,7 @@ fn restore_falls_back_to_local_when_remote_host_unresolvable() {
         workspaces: vec![WorkspaceShape {
             name: "W".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -894,6 +961,7 @@ fn restore_falls_back_to_local_when_remote_host_unresolvable() {
                     cwd: None,
                     session_host_id: None,
                     remote_host: Some("gone.example.invalid".to_owned()),
+                    launch_profile: None,
                 },
             }],
         }],
@@ -942,6 +1010,7 @@ fn restore_retries_at_home_when_spawn_fails_at_an_existing_cwd() {
         workspaces: vec![WorkspaceShape {
             name: "W".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -950,6 +1019,7 @@ fn restore_retries_at_home_when_spawn_fails_at_an_existing_cwd() {
                     cwd: Some(bad_str.clone()),
                     session_host_id: None,
                     remote_host: None,
+                    launch_profile: None,
                 },
             }],
         }],
@@ -960,11 +1030,11 @@ fn restore_retries_at_home_when_spawn_fails_at_an_existing_cwd() {
     let report = set.restore_from_snapshot_with(
         &snapshot,
         Some(&home),
-        |inner: &mut WorkspaceSet, cwd: Option<std::path::PathBuf>| {
-            handed.push(cwd.clone());
+        |inner: &mut WorkspaceSet, leaf: crate::native::session::RestoredLocalLeaf| {
+            handed.push(leaf.cwd.clone());
             // Refuse the captured directory (the simulated EACCES); accept the
             // home retry.
-            if cwd.as_deref() == Some(bad_path.as_path()) {
+            if leaf.cwd.as_deref() == Some(bad_path.as_path()) {
                 return None;
             }
             let token = SessionToken(inner.next_token);

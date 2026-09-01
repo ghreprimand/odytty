@@ -261,6 +261,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "remote_image_paste",
             "session_replay",
             "restore_workspaces",
+            "profile_auto_switch",
             "shell_exit_closes",
             "osc52_write",
             "osc52_read",

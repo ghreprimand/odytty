@@ -107,6 +107,9 @@ pub struct NativeOptions {
     /// restore for that launch. `false` by default so every non-bare
     /// construction path (attach, tests, config reload) is restore-inert.
     pub bare_launch: bool,
+    /// Optional named launch profile selected on the CLI (`--profile NAME`).
+    /// `None` keeps the ordinary default shell path and avoids catalog load.
+    pub profile_name: Option<String>,
 }
 
 impl Default for NativeOptions {
@@ -129,6 +132,7 @@ impl Default for NativeOptions {
             box_thickness: DEFAULT_BOX_THICKNESS,
             attach_session: None,
             bare_launch: false,
+            profile_name: None,
         }
     }
 }

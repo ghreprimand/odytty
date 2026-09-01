@@ -482,6 +482,7 @@ pub fn usage_text() -> String {
     out.push_str("  -e COMMAND...   execute a command instead of the user's shell\n");
     out.push_str("  --working-directory DIR\n");
     out.push_str("                  set the initial working directory\n");
+    out.push_str("  --profile NAME  launch with a named profile\n");
     out.push_str("  --title TITLE   set the initial window title\n");
     out.push_str("  --app-id APP_ID, --app-id=APP_ID\n");
     out.push_str("                  set this Linux window's application id / WM_CLASS\n");
@@ -569,6 +570,15 @@ pub fn native_options_for_args(
                 launch_native = true;
                 index += 1;
             }
+            "--profile" => {
+                index += 1;
+                let name = args
+                    .get(index)
+                    .ok_or_else(|| "--profile requires a value".to_owned())?;
+                options.profile_name = Some(name.clone());
+                launch_native = true;
+                index += 1;
+            }
             "-e" | "--execute" => {
                 let command = command_from_rest(&args[index + 1..])?;
                 options.command = Some(command);
@@ -610,6 +620,13 @@ pub fn native_options_for_args(
                     index += 1;
                 } else if let Some(path) = arg.strip_prefix("--working-dir=") {
                     options.working_directory = Some(PathBuf::from(path));
+                    launch_native = true;
+                    index += 1;
+                } else if let Some(name) = arg.strip_prefix("--profile=") {
+                    if name.is_empty() {
+                        return Err("--profile requires a value".to_owned());
+                    }
+                    options.profile_name = Some(name.to_owned());
                     launch_native = true;
                     index += 1;
                 } else {
@@ -1289,6 +1306,57 @@ mod tests {
             output
                 .lines()
                 .any(|line| line == "interactive_paths_editor=code --goto {file}:{line}:{col}")
+        );
+    }
+
+    // ---- v0.14 Phase A3: CLI --profile launch selection parsing ----
+
+    #[test]
+    fn a3_profile_flag_space_form_sets_profile_name() {
+        let options =
+            native_options_for_args(&strings(&["--profile", "dev"]), &Settings::default())
+                .expect("parse")
+                .expect("native options");
+        assert_eq!(options.profile_name.as_deref(), Some("dev"));
+    }
+
+    #[test]
+    fn a3_profile_flag_equals_form_sets_profile_name() {
+        let options = native_options_for_args(&strings(&["--profile=dev"]), &Settings::default())
+            .expect("parse")
+            .expect("native options");
+        assert_eq!(options.profile_name.as_deref(), Some("dev"));
+    }
+
+    #[test]
+    fn a3_profile_flag_without_value_is_rejected() {
+        let result = native_options_for_args(&strings(&["--profile"]), &Settings::default());
+        assert!(
+            result.is_err(),
+            "--profile with no value must be rejected, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn a3_profile_equals_empty_value_is_rejected() {
+        let result = native_options_for_args(&strings(&["--profile="]), &Settings::default());
+        assert!(
+            result.is_err(),
+            "--profile= with an empty value must be rejected, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn a3_default_launch_has_no_profile_and_stays_bare() {
+        // Startup isolation: a bare launch selects no profile, so nothing on the
+        // default path forces a catalog/discovery read.
+        let options = native_options_for_args(&strings(&[]), &Settings::default())
+            .expect("parse")
+            .expect("native options");
+        assert!(options.profile_name.is_none());
+        assert!(
+            options.bare_launch,
+            "a bare launch must remain restore-eligible"
         );
     }
 }

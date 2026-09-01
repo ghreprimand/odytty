@@ -35,7 +35,7 @@ fn right_click_host_row_opens_connection_row_menu() {
     // A right-click on a saved-host row opens the connection-row context menu
     // over the still-loaded manager; the manager stays open underneath.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     assert_eq!(
         right_click_first_host(&mut overlay),
         OverlayOutcome::Consumed
@@ -48,7 +48,7 @@ fn right_click_host_row_opens_connection_row_menu() {
 fn right_click_prompt_row_is_inert() {
     // A right-click on the query prompt (body row 0) opens no menu.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     let rect = overlay_rect(&overlay, 80, 24).expect("rect");
     let _ = overlay
         .connections
@@ -72,7 +72,7 @@ fn right_click_prompt_row_is_inert() {
 fn connection_row_menu_open_in_tab_connects() {
     // The first item (Open in New Tab) reuses the manager's connect path.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     right_click_first_host(&mut overlay);
     match overlay.handle_input(OverlayInput::Activate) {
         OverlayOutcome::Connect(host) => assert_eq!(host.alias, "web1"),
@@ -86,7 +86,7 @@ fn connection_row_menu_open_in_workspace_and_bind_route() {
     // Open in New Workspace (item 1) and Bind Current Workspace (item 2)
     // emit their dedicated outcomes carrying the clicked host.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     right_click_first_host(&mut overlay);
     overlay.handle_input(OverlayInput::Down); // -> Open in New Workspace
     match overlay.handle_input(OverlayInput::Activate) {
@@ -95,7 +95,7 @@ fn connection_row_menu_open_in_workspace_and_bind_route() {
     }
 
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     right_click_first_host(&mut overlay);
     overlay.handle_input(OverlayInput::Down);
     overlay.handle_input(OverlayInput::Down); // -> Bind Current Workspace
@@ -110,7 +110,7 @@ fn connection_row_menu_edit_opens_form_in_place() {
     // Edit (item 3) opens the P4 Edit form pre-filled; the overlay stays open
     // and switches to the ConnectionForm mode.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     right_click_first_host(&mut overlay);
     for _ in 0..3 {
         overlay.handle_input(OverlayInput::Down); // -> Edit
@@ -129,7 +129,7 @@ fn connection_row_menu_remove_opens_confirm_then_confirms() {
     // Remove (item 4) opens the remove-host confirm; confirming emits
     // RemoveConnectionConfirmed with the clicked host.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     right_click_first_host(&mut overlay);
     for _ in 0..4 {
         overlay.handle_input(OverlayInput::Down); // -> Remove
@@ -150,7 +150,7 @@ fn connection_row_menu_remove_cancel_returns_to_manager() {
     // Cancelling the remove confirm returns to the manager (selection intact),
     // never to the grid.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     right_click_first_host(&mut overlay);
     for _ in 0..4 {
         overlay.handle_input(OverlayInput::Down);
@@ -168,7 +168,7 @@ fn connection_row_menu_remove_cancel_returns_to_manager() {
 fn connection_row_menu_dismiss_returns_to_manager() {
     // Esc on the menu itself returns to the manager, not the grid.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     right_click_first_host(&mut overlay);
     assert_eq!(
         overlay.handle_input(OverlayInput::Close),
@@ -183,10 +183,13 @@ fn ssh_config_row_menu_hides_edit_and_remove() {
     // An ssh-config-imported row's menu offers only the three non-mutating
     // actions; Down cycles through exactly them (Edit/Remove never appear).
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host_sourced(
-        "remote",
-        crate::connection_hosts::ConnectionHostSource::SshConfig,
-    )]);
+    overlay.open_connections(
+        vec![connection_host_sourced(
+            "remote",
+            crate::connection_hosts::ConnectionHostSource::SshConfig,
+        )],
+        Vec::new(),
+    );
     right_click_first_host(&mut overlay);
     // Item 0 = Open in New Tab (connect). Cycling Down three times wraps back
     // to item 0, proving only three items exist.
@@ -204,7 +207,7 @@ fn connection_row_menu_click_open_in_tab_connects() {
     // Click parity: a left-click on the menu's first row (Open in New Tab)
     // connects, mirroring the keyboard Activate.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     right_click_first_host(&mut overlay);
     let rect = overlay_rect(&overlay, 80, 24).expect("menu rect");
     let outcome = overlay.handle_pointer(
@@ -229,7 +232,7 @@ fn connection_overlay_accept_emits_connect_outcome() {
     // The overlay routes an accepted host up as OverlayOutcome::Connect for
     // the App's connect action; presentation stays in the overlay.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     assert!(overlay.is_open());
     match overlay.handle_input(OverlayInput::Activate) {
         OverlayOutcome::Connect(host) => assert_eq!(host.alias, "web1"),
@@ -249,7 +252,7 @@ fn tab_opens_the_add_connection_form() {
     // REMOTE-UX P4: Tab in the connection manager switches this overlay to
     // the Add form (a sibling mode); the overlay stays open.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     assert_eq!(
         overlay.handle_input(OverlayInput::Tab),
         OverlayOutcome::Consumed
@@ -262,7 +265,7 @@ fn tab_opens_the_add_connection_form() {
 #[test]
 fn add_form_save_emits_save_connection_for_append() {
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(Vec::new());
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     overlay.handle_input(OverlayInput::Tab); // -> Add form, focus on Alias
     for ch in "newhost".chars() {
         overlay.handle_input(OverlayInput::Char(ch));
@@ -282,7 +285,7 @@ fn right_arrow_opens_edit_form_for_an_odytty_row() {
     // The selected OdyTTY-owned row opens pre-filled in the Edit form; Save
     // targets the original block for the byte-splice writer.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(vec![connection_host("web1")]);
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     assert_eq!(
         overlay.handle_input(OverlayInput::Right),
         OverlayOutcome::Consumed
@@ -307,7 +310,7 @@ fn form_test_button_emits_test_connection_and_stays_open() {
     // The Test action routes up as OverlayOutcome::TestConnection (the App
     // runs the probe); the form must NOT close so the result can render.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(Vec::new());
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     overlay.handle_input(OverlayInput::Tab); // -> Add form, focus Alias
     for ch in "host".chars() {
         overlay.handle_input(OverlayInput::Char(ch));
@@ -334,7 +337,7 @@ fn form_identity_browse_round_trips_and_stays_open() {
     // BrowseIdentityKeys (the App scans ~/.ssh); the form stays open, and
     // seeding it via open_identity_key_browse fills the field on a pick.
     let mut overlay = OverlayUi::default();
-    overlay.open_connections(Vec::new());
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
     overlay.handle_input(OverlayInput::Tab); // -> Add form, focus Alias
     // Alias -> HostName -> User -> Port -> Advanced, then activate Advanced
     // to reveal IdentityFile, then one Down onto it.
@@ -369,6 +372,7 @@ fn bind_purpose_picker_accept_emits_bind_outcome() {
     overlay.open_connections_for_purpose(
         vec![connection_host("web1")],
         ConnectionPickerPurpose::BindWorkspace,
+        Vec::new(),
     );
     assert!(overlay.is_open());
     match overlay.handle_input(OverlayInput::Activate) {
@@ -390,6 +394,7 @@ fn connect_tab_after_picker_lifts_to_connect_host_in_tab_after() {
     overlay.open_connections_for_purpose(
         vec![connection_host("web1")],
         ConnectionPickerPurpose::ConnectTabAfter(SessionToken(4)),
+        Vec::new(),
     );
     match overlay.handle_input(OverlayInput::Activate) {
         OverlayOutcome::ConnectHostInTabAfter(host, token) => {
@@ -409,6 +414,7 @@ fn replace_tab_picker_lifts_to_replace_tab_with_host_picked() {
     overlay.open_connections_for_purpose(
         vec![connection_host("web1")],
         ConnectionPickerPurpose::ReplaceTab(SessionToken(6)),
+        Vec::new(),
     );
     match overlay.handle_input(OverlayInput::Activate) {
         OverlayOutcome::ReplaceTabWithHostPicked(host, token) => {

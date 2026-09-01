@@ -510,6 +510,7 @@ impl Session {
             awaiting_reconnect: false,
             upload: None,
             remote_destination: None,
+            launch_profile: None,
         }
     }
 
@@ -574,6 +575,10 @@ impl WorkspaceSet {
                 terminal.set_local_hostname(self.local_hostname.clone());
             }
         }
+    }
+
+    pub(in crate::native) fn local_hostname(&self) -> Option<&str> {
+        self.local_hostname.as_deref()
     }
 
     /// Enable or disable output recording across every session, and remember the
@@ -888,6 +893,33 @@ impl WorkspaceSet {
         })
     }
 
+    /// Like [`Self::insert_spawned_session_in`] but honors a resolved named-profile
+    /// launch context for shell/command/cwd/env/settings.
+    pub(super) fn insert_spawned_session_with_effective(
+        &mut self,
+        grid: crate::core::Dimensions,
+        cwd: Option<std::path::PathBuf>,
+        effective: &crate::profiles::EffectiveLaunch,
+    ) -> Result<SessionToken, std::io::Error> {
+        let mut plan = crate::profiles::LocalLaunchPlan::from_effective(effective);
+        plan.settings.shell_integration = self.shell_integration_enabled;
+        let seed_cwd = cwd.clone().or(plan.working_directory.clone());
+        let spawn_cwd = seed_cwd.clone();
+        let token = self.insert_local_session_with(grid, seed_cwd, move |grid| {
+            let mut plan = plan;
+            if spawn_cwd.is_some() {
+                plan.working_directory = spawn_cwd;
+            }
+            crate::profiles::spawn_local_plan(grid, &plan)
+        })?;
+        if let Some(name) = effective.profile_name.clone()
+            && let Some(session) = self.sessions.get_mut(&token)
+        {
+            session.launch_profile = Some(name);
+        }
+        Ok(token)
+    }
+
     /// Spawn a restored local shell at `cwd` and insert it into the arena
     /// without attaching it to a tab (WP2 restore path). Mirrors
     /// [`Self::insert_spawned_session`] but (1) hands the captured cwd to the
@@ -896,7 +928,7 @@ impl WorkspaceSet {
     /// directory (and tab title) from the first frame, before any OSC 7 arrives.
     /// `cwd` is `None` when the pane had no restorable directory, which spawns
     /// the shell wherever the process already is.
-    pub(super) fn insert_restored_session(
+    pub(crate) fn insert_restored_session(
         &mut self,
         grid: crate::core::Dimensions,
         cwd: Option<std::path::PathBuf>,
@@ -910,6 +942,23 @@ impl WorkspaceSet {
             };
             PtySession::spawn_default_shell_in_with_settings(grid, spawn_cwd, &settings)
         })
+    }
+
+    /// Like [`Self::insert_restored_session`] but honors a resolved named-profile
+    /// launch context for shell/command/cwd/env/settings.
+    pub(crate) fn insert_restored_session_with_effective(
+        &mut self,
+        grid: crate::core::Dimensions,
+        cwd: Option<std::path::PathBuf>,
+        effective: &crate::profiles::EffectiveLaunch,
+    ) -> Result<SessionToken, std::io::Error> {
+        let token = self.insert_spawned_session_with_effective(grid, cwd, effective)?;
+        if let Some(name) = effective.profile_name.clone()
+            && let Some(session) = self.sessions.get_mut(&token)
+        {
+            session.launch_profile = Some(name);
+        }
+        Ok(token)
     }
 
     /// Spawn an explicit child command in a local PTY and insert it into the
@@ -1015,6 +1064,25 @@ impl WorkspaceSet {
                 recorder,
             ),
         );
+        Ok(session_id)
+    }
+
+    /// Spawn a new session in a brand-new single-pane tab. When `effective` is
+    /// `Some`, the spawn honors the resolved named-profile launch context.
+    pub(in crate::native) fn spawn_with_effective(
+        &mut self,
+        grid: crate::core::Dimensions,
+        cwd: Option<std::path::PathBuf>,
+        effective: Option<&crate::profiles::EffectiveLaunch>,
+    ) -> Result<SessionToken, std::io::Error> {
+        let session_id = if let Some(launch) = effective {
+            self.insert_spawned_session_with_effective(grid, cwd, launch)?
+        } else {
+            self.insert_spawned_session_in(grid, cwd)?
+        };
+        self.active_workspace_mut()
+            .tabs
+            .push(Tab::single(session_id));
         Ok(session_id)
     }
 

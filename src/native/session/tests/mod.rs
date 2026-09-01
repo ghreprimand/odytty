@@ -128,9 +128,10 @@ fn pane_dims(set: &WorkspaceSet, token: SessionToken) -> (usize, usize) {
 #[cfg(test)]
 fn fake_spawner(
     handed: &mut Vec<Option<std::path::PathBuf>>,
-) -> impl FnMut(&mut WorkspaceSet, Option<std::path::PathBuf>) -> Option<SessionToken> + '_ {
-    move |set: &mut WorkspaceSet, cwd: Option<std::path::PathBuf>| {
-        handed.push(cwd.clone());
+) -> impl FnMut(&mut WorkspaceSet, crate::native::session::RestoredLocalLeaf) -> Option<SessionToken> + '_
+{
+    move |set: &mut WorkspaceSet, leaf: crate::native::session::RestoredLocalLeaf| {
+        handed.push(leaf.cwd.clone());
         let token = SessionToken(set.next_token);
         set.next_token = set.next_token.saturating_add(1);
         set.sessions.insert(token, build_session_with_id(token));

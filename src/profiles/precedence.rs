@@ -1,10 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Deterministic launch-profile precedence resolution.
-//!
-//! The resolver is complete but not yet wired into native spawn startup; callers
-//! arrive with the profile selection UI/CLI packet.
-
-#![allow(dead_code)]
 
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
@@ -82,22 +77,8 @@ pub enum PrecedenceLayer {
 ///
 /// Layer order (lowest to highest priority) matches [`precedence_chain`]:
 /// built-in defaults, global config, named profile, workspace named-profile
-/// binding (future explicit field; not wired and not the shipped workspace
-/// `default_profile` host alias), startup environment, restored hints, CLI
-/// overrides, live UI edits.
-///
-/// Wired today:
-/// - Settings: live > CLI > startup env > named profile > global config >
-///   defaults.
-/// - Launch fields with live/CLI/restored/profile layers (`working_directory`,
-///   `title`): live > CLI > restored > profile.
-/// - Other launch fields (`shell`, `command`, `connection`, `layout`, `env`):
-///   CLI > profile (no live/restored layer yet).
-///
-/// Explicit named-profile selection arrives only through
-/// [`LaunchCliOverrides::profile_name`] or [`RestoredLaunchOverrides::profile_name`]
-/// (CLI wins over restored). The shipped workspace `default_profile`
-/// connection-host alias is intentionally excluded here.
+/// binding (explicit `launch_profile`; not the shipped workspace `default_profile`
+/// host alias), startup environment, restored hints, CLI overrides, live UI edits.
 pub(crate) fn resolve_effective_launch(
     config: Option<&ConfigValues>,
     env: &HashMap<&'static str, OsString>,
@@ -105,12 +86,18 @@ pub(crate) fn resolve_effective_launch(
     cli: &LaunchCliOverrides,
     restored: &RestoredLaunchOverrides,
     live: &LiveLaunchOverrides,
+    workspace_launch_profile: Option<&str>,
 ) -> EffectiveLaunch {
     let mut warnings = catalog.warnings.clone();
     let profile_name = cli
         .profile_name
         .clone()
-        .or_else(|| restored.profile_name.clone());
+        .or_else(|| restored.profile_name.clone())
+        .or_else(|| {
+            workspace_launch_profile
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
+        });
 
     let profile = profile_name
         .as_deref()
@@ -347,6 +334,7 @@ mod tests {
             &cli,
             &RestoredLaunchOverrides::default(),
             &LiveLaunchOverrides::default(),
+            None,
         );
         assert_eq!(
             effective.settings.theme,
@@ -368,6 +356,7 @@ mod tests {
             &cli,
             &RestoredLaunchOverrides::default(),
             &LiveLaunchOverrides::default(),
+            None,
         );
         assert_eq!(effective.settings.theme, DEFAULT_THEME);
         assert!(
@@ -397,6 +386,7 @@ mod tests {
             &cli,
             &RestoredLaunchOverrides::default(),
             &LiveLaunchOverrides::default(),
+            None,
         );
         assert_eq!(
             effective.working_directory,
@@ -424,6 +414,7 @@ mod tests {
             &cli,
             &RestoredLaunchOverrides::default(),
             &LiveLaunchOverrides::default(),
+            None,
         );
         assert!(effective.settings.follow_external_palette);
         assert_eq!(
@@ -456,12 +447,39 @@ mod tests {
             working_directory: Some("/from/live".to_owned()),
             ..LiveLaunchOverrides::default()
         };
-        let effective =
-            resolve_effective_launch(None, &HashMap::new(), &catalog, &cli, &restored, &live);
+        let effective = resolve_effective_launch(
+            None,
+            &HashMap::new(),
+            &catalog,
+            &cli,
+            &restored,
+            &live,
+            None,
+        );
         assert_eq!(
             effective.working_directory,
             Some(PathBuf::from("/from/live"))
         );
+    }
+
+    #[test]
+    fn workspace_launch_profile_selects_named_profile_when_cli_is_absent() {
+        let mut profile = LaunchProfile::new("bound").expect("profile");
+        profile.launch.shell = Some("/bin/zsh".to_owned());
+        let mut catalog = ProfileCatalog::default();
+        catalog.profiles.insert("bound".to_owned(), profile);
+
+        let effective = resolve_effective_launch(
+            None,
+            &HashMap::new(),
+            &catalog,
+            &LaunchCliOverrides::default(),
+            &RestoredLaunchOverrides::default(),
+            &LiveLaunchOverrides::default(),
+            Some("bound"),
+        );
+        assert_eq!(effective.profile_name.as_deref(), Some("bound"));
+        assert_eq!(effective.shell.as_deref(), Some("/bin/zsh"));
     }
 
     #[test]
@@ -484,8 +502,15 @@ mod tests {
             title: Some("live title".to_owned()),
             ..LiveLaunchOverrides::default()
         };
-        let effective =
-            resolve_effective_launch(None, &HashMap::new(), &catalog, &cli, &restored, &live);
+        let effective = resolve_effective_launch(
+            None,
+            &HashMap::new(),
+            &catalog,
+            &cli,
+            &restored,
+            &live,
+            None,
+        );
         assert_eq!(effective.title.as_deref(), Some("live title"));
     }
 }

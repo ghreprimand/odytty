@@ -145,6 +145,9 @@ pub(crate) enum PaneShape {
         /// pane and tolerated-absent on pre-RESTORE-REMOTE snapshots (a missing
         /// key loads as `None`, i.e. a local pane).
         remote_host: Option<String>,
+        /// Named launch profile that opened this local pane, or `None`.
+        /// Tolerated-absent on pre-v0.14 snapshots.
+        launch_profile: Option<String>,
     },
     Split {
         axis: SplitAxisShape,
@@ -179,12 +182,14 @@ impl PaneShape {
                 cwd,
                 session_host_id,
                 remote_host,
+                launch_profile,
             } => Json::obj([(
                 "leaf",
                 Json::obj([
                     ("cwd", opt_str(cwd)),
                     ("session_host_id", opt_str(session_host_id)),
                     ("remote_host", opt_str(remote_host)),
+                    ("launch_profile", opt_str(launch_profile)),
                 ]),
             )]),
             PaneShape::Split {
@@ -210,6 +215,7 @@ impl PaneShape {
                 cwd: leaf.get("cwd").and_then(Json::as_owned_str),
                 session_host_id: leaf.get("session_host_id").and_then(Json::as_owned_str),
                 remote_host: leaf.get("remote_host").and_then(Json::as_owned_str),
+                launch_profile: leaf.get("launch_profile").and_then(Json::as_owned_str),
             })
         } else if let Some(split) = value.get("split") {
             let axis = split
@@ -288,6 +294,9 @@ pub(crate) struct WorkspaceShape {
     /// Tolerated-absent on old snapshots (WP1 forward-compat): a missing field
     /// parses to `None`, i.e. an unbound workspace.
     pub(crate) default_profile: Option<String>,
+    /// Named launch profile bound to this workspace (v0.14). Distinct from
+    /// [`Self::default_profile`], which remains a connection-host alias.
+    pub(crate) launch_profile: Option<String>,
     pub(crate) active_tab: usize,
     pub(crate) tabs: Vec<TabShape>,
 }
@@ -297,6 +306,7 @@ impl WorkspaceShape {
         Json::obj([
             ("name", Json::Str(self.name.clone())),
             ("default_profile", opt_str(&self.default_profile)),
+            ("launch_profile", opt_str(&self.launch_profile)),
             ("active_tab", Json::Num(self.active_tab as f64)),
             (
                 "tabs",
@@ -320,6 +330,7 @@ impl WorkspaceShape {
                 .unwrap_or("")
                 .to_owned(),
             default_profile: value.get("default_profile").and_then(Json::as_owned_str),
+            launch_profile: value.get("launch_profile").and_then(Json::as_owned_str),
             active_tab: value
                 .get("active_tab")
                 .and_then(Json::as_usize)

@@ -115,6 +115,36 @@ impl CommandBuilder {
         self
     }
 
+    /// Standard OdyTTY child environment for an interactive shell spawn.
+    #[cfg(any(unix, windows))]
+    pub(crate) fn apply_standard_interactive_shell_env(
+        &mut self,
+        settings: &crate::settings::Settings,
+    ) -> &mut Self {
+        self.apply_terminal_env();
+        self.apply_shell_integration_scrub();
+        self.apply_buttons_discovery_env(settings.buttons);
+        self.apply_key_enhancement_discovery_env(settings.shell_key_enhancement);
+        if settings.shell_integration {
+            crate::shell_integration::apply_spawn_integration(self);
+        }
+        self
+    }
+
+    /// Terminal advertisement plus profile env overrides for a direct exec spawn.
+    #[cfg(any(unix, windows))]
+    pub(crate) fn apply_standard_exec_env(
+        &mut self,
+        extra_env: &std::collections::BTreeMap<String, String>,
+    ) -> &mut Self {
+        self.apply_terminal_env();
+        self.apply_shell_integration_scrub();
+        for (key, value) in extra_env {
+            self.env(key.clone(), value.clone());
+        }
+        self
+    }
+
     // Inspected by the shell-integration injection tests. `args_for_test` is
     // used on BOTH platforms (Unix asserts the rcfile/env args; Windows asserts
     // the PowerShell `-NoExit -Command <snippet>` injection -- there IS Windows

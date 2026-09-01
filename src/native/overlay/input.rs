@@ -858,6 +858,10 @@ impl OverlayUi {
                 self.close();
                 OverlayOutcome::ConnectAndSave(host)
             }
+            ConnectionOverlayOutcome::LaunchProfile(name) => {
+                self.close();
+                OverlayOutcome::LaunchProfile(name)
+            }
             // ODP-1B shared picker: a tagged pick routes per its purpose. Close
             // first (same reason as Connect), then hand the App the chosen host.
             ConnectionOverlayOutcome::Pick(host, purpose) => {

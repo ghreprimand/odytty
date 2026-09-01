@@ -111,6 +111,14 @@ pub struct ProfileLayout {
     pub(crate) preserved: BTreeMap<String, Json>,
 }
 
+/// Local-only host/directory match rules for optional auto-switching.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ProfileSwitchRules {
+    pub match_hosts: Vec<String>,
+    pub match_directories: Vec<String>,
+    pub(crate) preserved: BTreeMap<String, Json>,
+}
+
 /// A versioned, no-secret named launch profile.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LaunchProfile {
@@ -124,6 +132,7 @@ pub struct LaunchProfile {
     pub effects: ProfileEffects,
     pub layout: ProfileLayout,
     pub connection: Option<String>,
+    pub switch: ProfileSwitchRules,
     /// Unknown keys at this object, preserved verbatim for forward compatibility.
     /// Nested schema objects keep their own `preserved` maps.
     pub(crate) preserved: BTreeMap<String, Json>,
@@ -169,6 +178,7 @@ impl LaunchProfile {
             effects: ProfileEffects::default(),
             layout: ProfileLayout::default(),
             connection: None,
+            switch: ProfileSwitchRules::default(),
             preserved: BTreeMap::new(),
         })
     }
@@ -202,6 +212,9 @@ impl LaunchProfile {
         entries.push(("effects".to_owned(), effects_to_json(&self.effects)));
         entries.push(("layout".to_owned(), layout_to_json(&self.layout)));
         push_opt_str(&mut entries, "connection", self.connection.as_deref());
+        if !self.switch.match_hosts.is_empty() || !self.switch.match_directories.is_empty() {
+            entries.push(("switch".to_owned(), switch_to_json(&self.switch)));
+        }
         for (key, value) in &self.preserved {
             entries.push((key.clone(), value.clone()));
         }
@@ -259,6 +272,7 @@ impl LaunchProfile {
         let layout = read_layout(obj, &mut known)?;
         let connection =
             read_bounded_string(obj, "connection", &mut known, MAX_PROFILE_FIELD_CHARS)?;
+        let switch = read_switch(obj, &mut known)?;
 
         let preserved = obj
             .iter()
@@ -277,6 +291,7 @@ impl LaunchProfile {
             effects,
             layout,
             connection,
+            switch,
             preserved,
         })
     }
@@ -449,6 +464,31 @@ fn layout_to_json(layout: &ProfileLayout) -> Json {
     let mut entries = Vec::new();
     push_opt_str(&mut entries, "saved_layout", layout.saved_layout.as_deref());
     append_preserved(&mut entries, &layout.preserved);
+    json::obj_pairs(entries)
+}
+
+fn switch_to_json(switch: &ProfileSwitchRules) -> Json {
+    let mut entries = Vec::new();
+    if !switch.match_hosts.is_empty() {
+        entries.push((
+            "match_hosts".to_owned(),
+            Json::Arr(switch.match_hosts.iter().cloned().map(Json::Str).collect()),
+        ));
+    }
+    if !switch.match_directories.is_empty() {
+        entries.push((
+            "match_directories".to_owned(),
+            Json::Arr(
+                switch
+                    .match_directories
+                    .iter()
+                    .cloned()
+                    .map(Json::Str)
+                    .collect(),
+            ),
+        ));
+    }
+    append_preserved(&mut entries, &switch.preserved);
     json::obj_pairs(entries)
 }
 
@@ -808,6 +848,77 @@ fn read_layout(
             ..value
         })
     })
+}
+
+fn read_switch(
+    obj: &[(String, Json)],
+    known: &mut BTreeSet<String>,
+) -> Result<ProfileSwitchRules, ProfileError> {
+    read_nested_object(obj, "switch", known, |entries, nested_known| {
+        let match_hosts = read_bounded_string_array(
+            entries,
+            "match_hosts",
+            nested_known,
+            MAX_PROFILE_SWITCH_HOSTS,
+            MAX_PROFILE_FIELD_CHARS,
+        )?;
+        let match_directories = read_bounded_string_array(
+            entries,
+            "match_directories",
+            nested_known,
+            MAX_PROFILE_SWITCH_DIRECTORIES,
+            MAX_PROFILE_FIELD_CHARS,
+        )?;
+        let value = ProfileSwitchRules {
+            match_hosts,
+            match_directories,
+            preserved: BTreeMap::new(),
+        };
+        Ok(ProfileSwitchRules {
+            preserved: collect_unknown(entries, nested_known),
+            ..value
+        })
+    })
+}
+
+fn read_bounded_string_array(
+    obj: &[(String, Json)],
+    key: &str,
+    known: &mut BTreeSet<String>,
+    max_items: usize,
+    max_chars: usize,
+) -> Result<Vec<String>, ProfileError> {
+    known.insert(key.to_owned());
+    let Some(value) = obj
+        .iter()
+        .find(|(name, _)| name == key)
+        .map(|(_, value)| value)
+    else {
+        return Ok(Vec::new());
+    };
+    let Json::Arr(items) = value else {
+        return Err(ProfileError::Malformed(format!("{key} must be an array")));
+    };
+    if items.len() > max_items {
+        return Err(ProfileError::LimitExceeded(format!(
+            "{key} exceeds {max_items} entries"
+        )));
+    }
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let Json::Str(text) = item else {
+            return Err(ProfileError::Malformed(format!(
+                "{key} entries must be strings"
+            )));
+        };
+        if text.chars().count() > max_chars {
+            return Err(ProfileError::LimitExceeded(format!(
+                "{key} entry exceeds {max_chars} characters"
+            )));
+        }
+        out.push(text.clone());
+    }
+    Ok(out)
 }
 
 fn read_nested_object<T>(

@@ -294,6 +294,12 @@ pub(in crate::native) struct App {
     /// replace-in-place surface. `None` internally at rest, so it adds no paint
     /// or wake work on the default path.
     pub(super) transient_hud: transient_hud::TransientHud,
+    /// Last named profile applied by auto-switch, used to bound ping-pong when
+    /// multiple rules match the same host/directory context.
+    pub(super) profile_switch_recent: Option<String>,
+    /// Last host/cwd context used for auto-switch evaluation. Clears recency
+    /// only when this context changes so repeated cwd events cannot flap.
+    pub(super) profile_switch_context: Option<(Option<String>, Option<String>)>,
     /// Active IME pre-edit (composition) string as delivered by `winit`'s
     /// `Ime::Preedit`. Empty when no composition is in progress. Rendered inline
     /// at the terminal cursor; never sent to the PTY until the IME commits.
@@ -586,6 +592,8 @@ impl App {
             osc52_write: osc52::Osc52WriteState::default(),
             click_hint: click_hint::ClickHintState::default(),
             transient_hud: transient_hud::TransientHud::default(),
+            profile_switch_recent: None,
+            profile_switch_context: None,
             ime_preedit: String::new(),
             ime_session: None,
             #[cfg(test)]

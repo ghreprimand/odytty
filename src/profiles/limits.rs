@@ -33,3 +33,9 @@ pub const MAX_PROFILE_COMMAND_ARGS: usize = 32;
 
 /// Maximum parse warnings retained while loading one profile directory.
 pub const MAX_PROFILE_WARNINGS: usize = 100;
+
+/// Maximum host match rules stored on one profile.
+pub const MAX_PROFILE_SWITCH_HOSTS: usize = 16;
+
+/// Maximum directory match rules stored on one profile.
+pub const MAX_PROFILE_SWITCH_DIRECTORIES: usize = 16;

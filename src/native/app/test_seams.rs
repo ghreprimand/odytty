@@ -140,6 +140,31 @@ impl App {
         crate::native::lock_recover(&self.terminal).advance(bytes);
     }
 
+    /// Test seam (v0.14 A3): drive the live profile auto-switch poll headlessly.
+    #[cfg(test)]
+    pub(in crate::native) fn poll_profile_auto_switch_for_test(&mut self) {
+        self.poll_profile_auto_switch();
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn active_launch_profile_for_test(&self) -> Option<String> {
+        let active = self.sessions.active_id();
+        self.sessions
+            .get(active)
+            .and_then(|session| session.launch_profile.clone())
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn set_active_remote_destination_for_test(
+        &mut self,
+        destination: Option<String>,
+    ) {
+        let active = self.sessions.active_id();
+        if let Some(session) = self.sessions.get_mut(active) {
+            session.remote_destination = destination;
+        }
+    }
+
     /// Test seam (MENU-THEME PARITY, board 46195bed): the `DynamicColors` the
     /// multi-pane window overlay snapshot is seeded with, alongside the live
     /// terminal palette the single-pane path resolves the same panel against.
@@ -233,7 +258,7 @@ impl App {
             })
             .collect();
         self.reset_pointer_state_for_overlay();
-        self.overlay.open_connections(entries);
+        self.overlay.open_connections(entries, Vec::new());
         self.request_selection_redraw();
     }
 

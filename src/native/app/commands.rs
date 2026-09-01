@@ -58,9 +58,24 @@ impl App {
             .map(str::to_owned)
         {
             self.new_tab_for_bound_host(&alias);
-        } else {
-            self.handle_new_local_tab();
+            return;
         }
+        if let Some(profile) = self
+            .sessions
+            .active_workspace_launch_profile()
+            .map(str::to_owned)
+        {
+            let cwd = self.validated_spawn_cwd();
+            let effective = super::profile_launch::resolve_for_new_local_tab(
+                &self.settings,
+                Some(&profile),
+                cwd,
+                None,
+            );
+            self.spawn_local_tab_from_effective(effective);
+            return;
+        }
+        self.handle_new_local_tab_plain();
     }
 
     /// Open a New Tab against the active workspace's bound host `alias`,
@@ -79,16 +94,89 @@ impl App {
                 // connect_or_notice (LOW-03); fall back to a local tab so New Tab
                 // never dead-ends on a bad binding.
                 if self.connect_or_notice(&host).is_none() {
-                    self.handle_new_local_tab();
+                    self.handle_new_local_tab_plain();
                 }
             }
             None => {
                 self.raise_open_notice(format!(
                     "Host \"{alias}\" is no longer configured; opened a local tab"
                 ));
-                self.handle_new_local_tab();
+                self.handle_new_local_tab_plain();
             }
         }
+    }
+
+    /// Spawn a local tab from a fully resolved named-profile launch context.
+    pub(super) fn spawn_local_tab_from_effective(
+        &mut self,
+        effective: crate::profiles::EffectiveLaunch,
+    ) {
+        self.finish_divider_drag();
+        if let Some(alias) = effective.connection.clone() {
+            self.new_tab_for_bound_host(&alias);
+            return;
+        }
+        let session_theme = crate::native::cvd_theme::effective_theme(
+            &effective.settings.theme,
+            effective.settings.cvd_mode,
+            effective.settings.cvd_strength,
+        );
+        let themed_ui_roles = effective.settings.themed_ui_roles;
+        let osc52_read = effective.settings.osc52_read;
+        let kitty_named_transports = effective.settings.kitty_named_transports;
+        let cursor_style = effective.settings.cursor_style;
+        let cursor_blink = effective.settings.cursor_blink;
+        let scrollback_limit = effective.settings.scrollback_limit();
+        let button_gates = ButtonGates {
+            enabled: effective.settings.buttons,
+            iterm_compat: effective.settings.buttons_iterm_compat,
+            sticky: effective.settings.buttons_sticky,
+        };
+        let cwd = effective.working_directory.clone();
+        match self
+            .sessions
+            .spawn_with_effective(self.grid, cwd, Some(&effective))
+        {
+            Ok(session_id) => {
+                let cell = self.gpu.as_ref().map(GpuState::cell);
+                if let Some(session) = self.sessions.get_mut(session_id) {
+                    Self::initialize_session_with(
+                        session,
+                        session_theme,
+                        themed_ui_roles,
+                        osc52_read,
+                        kitty_named_transports,
+                        cursor_style,
+                        cursor_blink,
+                        cell,
+                        scrollback_limit,
+                        button_gates,
+                    );
+                }
+                let _ = self.sessions.switch(session_id);
+                self.on_active_session_changed();
+                for warning in effective.warnings {
+                    tracing::warn!(warning = %warning, "profile launch notice");
+                }
+            }
+            Err(err) => {
+                if self.open_notice.is_none() {
+                    self.raise_open_notice(format!("Could not open a new tab: {err}"));
+                }
+            }
+        }
+    }
+
+    /// New Tab with an explicit named profile from the palette or connection UI.
+    pub(super) fn handle_new_tab_with_profile(&mut self, profile_name: &str) {
+        let cwd = self.validated_spawn_cwd();
+        let effective = super::profile_launch::resolve_for_new_local_tab(
+            &self.settings,
+            None,
+            cwd,
+            Some(profile_name),
+        );
+        self.spawn_local_tab_from_effective(effective);
     }
 
     /// Spawn a local shell in a new tab regardless of any workspace host binding
@@ -96,6 +184,11 @@ impl App {
     /// binding-aware [`Self::handle_new_tab`] delegates here when the active
     /// workspace is unbound.
     pub(super) fn handle_new_local_tab(&mut self) {
+        self.handle_new_local_tab_plain();
+    }
+
+    /// Plain local tab spawn without workspace named-profile binding.
+    pub(super) fn handle_new_local_tab_plain(&mut self) {
         self.finish_divider_drag();
         // F1 cwd inheritance: seed the new tab's shell in the active pane's OSC 7
         // cwd when known, so New Tab opens where you already are. A pane with no

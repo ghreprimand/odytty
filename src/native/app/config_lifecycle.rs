@@ -61,6 +61,7 @@ impl App {
             box_thickness: parsed.box_thickness,
             attach_session: self.options.attach_session.clone(),
             bare_launch: self.options.bare_launch,
+            profile_name: self.options.profile_name.clone(),
             app_id: self.options.app_id.clone(),
             hold: self.options.hold,
         }
@@ -652,16 +653,15 @@ impl App {
         match persistence::load_snapshot() {
             LoadOutcome::Loaded(snapshot) => {
                 let home = persistence::restore_home_dir();
-                // RESTORE-REMOTE: reconnect remote panes through the ssh connect
-                // path. The context (settings + saved hosts) is gathered once,
-                // owned, so the spawn closure never borrows `self` while the
-                // workspace set is borrowed mutably.
-                let ctx = self.remote_restore_context();
+                let settings = self.settings.clone();
                 let grid = self.grid;
-                let report = self.sessions.restore_from_snapshot_remote(
+                let ctx = self.remote_restore_context();
+                let report = self.sessions.restore_from_snapshot_with(
                     &snapshot,
-                    grid,
                     home.as_deref(),
+                    |set, leaf| {
+                        super::profile_launch::spawn_restored_local_leaf(&settings, grid, set, leaf)
+                    },
                     |set, identity| ctx.spawn(set, grid, identity),
                 );
                 if let RestoreReport::Restored {

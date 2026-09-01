@@ -592,6 +592,8 @@ impl App {
         // active-only deadline sources in `next_wake_deadline`.
         self.sessions.park_background_timers();
 
+        self.poll_profile_auto_switch();
+
         // NF21-6: drain the bell + prompt-marks-changed latches of EVERY
         // session over the flat arena, so a bell in a background tab / pane /
         // workspace — or in any multipane tab — is serviced here instead of

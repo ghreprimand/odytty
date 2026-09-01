@@ -741,6 +741,10 @@ impl App {
                 self.connect_or_notice(&host);
                 self.save_adhoc_host(&host);
             }
+            OverlayOutcome::LaunchProfile(name) => {
+                self.flush_pending_overlay_settings();
+                self.handle_new_tab_with_profile(&name);
+            }
             // REMOTE-UX P4: the Add / Edit connection form closed itself before
             // emitting this; persist the built host — append a new block for Add,
             // byte-splice over the named block for Edit. A write failure surfaces

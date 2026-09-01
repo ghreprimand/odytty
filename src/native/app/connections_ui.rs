@@ -31,8 +31,10 @@ impl App {
             self.close_search(true);
         }
         let entries = self.load_connection_entries();
+        let catalog = super::profile_launch::load_profile_catalog();
+        let profile_rows = super::profile_launch::connection_profile_rows_for_manager(&catalog);
         self.reset_pointer_state_for_overlay();
-        self.overlay.open_connections(entries);
+        self.overlay.open_connections(entries, profile_rows);
         self.request_selection_redraw();
     }
 

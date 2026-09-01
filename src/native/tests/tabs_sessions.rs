@@ -284,6 +284,7 @@ fn capture_shape_records_workspaces_tabs_panes_and_cwd() {
                     cwd: Some("/tmp/odytty-fixture/project".to_owned()),
                     session_host_id: None,
                     remote_host: None,
+                    launch_profile: None,
                 }
             );
             assert!(matches!(**second, PaneShape::Leaf { .. }));

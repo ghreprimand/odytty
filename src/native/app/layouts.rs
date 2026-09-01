@@ -184,28 +184,28 @@ impl App {
         match persistence::load_layout(name) {
             LoadOutcome::Loaded(snapshot) => {
                 let home = persistence::restore_home_dir();
-                // RESTORE-REMOTE: reconnect remote panes through the ssh connect
-                // path (owned context so the closure never borrows `self`).
+                let settings = self.settings.clone();
                 let ctx = self.remote_restore_context();
                 let grid = self.grid;
                 let report = match placement {
-                    // Add: append beside the current set (pristine-consume when
-                    // the window is a bare launch).
-                    LayoutPlacement::Add => self.sessions.append_from_snapshot_remote(
+                    LayoutPlacement::Add => self.sessions.append_from_snapshot_with(
                         &snapshot,
-                        grid,
                         home.as_deref(),
+                        |set, leaf| {
+                            super::profile_launch::spawn_restored_local_leaf(
+                                &settings, grid, set, leaf,
+                            )
+                        },
                         |set, identity| ctx.spawn(set, grid, identity),
                     ),
-                    // Replace: tear down every current workspace (reaping their
-                    // sessions through the same per-session close path a tab close
-                    // uses) and install the saved set as the whole app, honoring
-                    // the saved active-workspace index. Reuses the restore path —
-                    // no new teardown machinery.
-                    LayoutPlacement::Replace => self.sessions.restore_from_snapshot_remote(
+                    LayoutPlacement::Replace => self.sessions.restore_from_snapshot_with(
                         &snapshot,
-                        grid,
                         home.as_deref(),
+                        |set, leaf| {
+                            super::profile_launch::spawn_restored_local_leaf(
+                                &settings, grid, set, leaf,
+                            )
+                        },
                         |set, identity| ctx.spawn(set, grid, identity),
                     ),
                 };

@@ -689,12 +689,12 @@ not a stretch goal.
         Pure introspection; no settings key or render-path change.
   - [x] `--show-config`: print the current stable effective-config dump. The
         full settings authority remains [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
-- [ ] Named launch profiles (v0.14.0): schema, precedence resolver, local
-      storage, migration helpers, startup-safe catalog loading, and settings
-      Profile Manager CRUD are in-tree
-      (`docs/v0.14.0-profiles-foundation.md`). Palette/CLI launch routing,
-      Windows/macOS/Linux shell discovery, and host-aware switching remain open.
-- [ ] External palette following (v0.14.0): provider-neutral opt-in follow mode,
+- [ ] Named launch profiles (v0.14.0): schema, precedence, storage, migration,
+      Profile Manager CRUD, palette/CLI/`--profile` launch routing, workspace
+      `launch_profile` binding, per-pane restoration, saved-layout open, opt-in
+      host/directory auto-switch, cached shell discovery, and connection-manager
+      profile launch rows are in-tree (`docs/v0.14.0-profiles-foundation.md`).
+- [x] External palette following (v0.14.0): provider-neutral opt-in follow mode,
       content-hash reload, complete-palette fail-closed parsing, last-known-good
       retention, settings + profile appearance fields, and independent
       `colors.toml` / `colors.json` / OdyTTY-Base16 compatibility are in-tree

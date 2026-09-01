@@ -247,6 +247,10 @@ impl Settings {
             bool_display(self.restore_workspaces).to_owned(),
         );
         values.insert(
+            PROFILE_AUTO_SWITCH_ENV,
+            bool_display(self.profile_auto_switch).to_owned(),
+        );
+        values.insert(
             NEW_OUTPUT_FADE_ENV,
             bool_display(self.new_output_fade).to_owned(),
         );

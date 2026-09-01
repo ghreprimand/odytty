@@ -350,6 +350,10 @@ pub(in crate::native) enum OverlayOutcome {
     /// query matched no saved host; the App spawns the connection and persists a
     /// `Host` block. Boxed for the same size reason as `Connect`.
     ConnectAndSave(Box<ConnectionHost>),
+    /// Launch a new tab through the named-profile resolver (v0.14). Emitted from
+    /// a profile row in the connection manager; the App routes through the same
+    /// path as palette profile launch.
+    LaunchProfile(String),
     /// Attach to a live session accepted from the session-attach overlay (Phase
     /// 5 / B2). The overlay has already closed itself by the time this is
     /// emitted; the App attaches the session id into a new tab. A stale id (the

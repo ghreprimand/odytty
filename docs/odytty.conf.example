@@ -376,6 +376,7 @@ session_replay = off
 # so a snapshot is ready the moment this is turned on; with several windows open
 # only the first (primary) one autosaves and restores.
 restore_workspaces = off
+profile_auto_switch = off
 
 # Multiplexer prefix for pane/split management (tmux-style). The prefix is
 # captured only when the active tab has more than one pane; single-pane tabs pass

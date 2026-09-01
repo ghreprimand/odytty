@@ -224,6 +224,10 @@ pub(in crate::native) struct Session {
     /// instead of a local shell at the remote's cwd. Never set on a local
     /// session, so a local pane's capture/restore is unchanged.
     pub(in crate::native) remote_destination: Option<String>,
+    /// Named launch profile that opened this local pane, if any. Captured into
+    /// the workspace shape for faithful restore. Remote and attached panes keep
+    /// this `None`.
+    pub(in crate::native) launch_profile: Option<String>,
 }
 
 /// One tab in the strip. It owns a layout tree of panes (a binary
@@ -301,6 +305,10 @@ pub(in crate::native) struct Workspace {
     /// "New Local Tab" escape hatch always spawns a local shell regardless.
     /// `None` (the default) is byte-identical to the pre-W5 local-only behavior.
     pub(in crate::native) default_profile: Option<String>,
+    /// Optional named launch profile bound to this workspace (v0.14). When set,
+    /// New Tab uses the profile resolver unless a host binding wins. Distinct
+    /// from [`Self::default_profile`], which remains a connection-host alias.
+    pub(in crate::native) launch_profile: Option<String>,
 }
 
 impl Workspace {
@@ -311,6 +319,7 @@ impl Workspace {
             tabs: vec![Tab::single(token)],
             active_tab: 0,
             default_profile: None,
+            launch_profile: None,
         }
     }
 }
@@ -680,6 +689,11 @@ impl WorkspaceSet {
     /// through the remote connect path when this is `Some`.
     pub(in crate::native) fn active_workspace_default_profile(&self) -> Option<&str> {
         self.active_workspace().default_profile.as_deref()
+    }
+
+    /// The named launch profile bound to the active workspace, if any.
+    pub(in crate::native) fn active_workspace_launch_profile(&self) -> Option<&str> {
+        self.active_workspace().launch_profile.as_deref()
     }
 
     /// The host alias the workspace at rail index `idx` is bound to (RAIL-BIND),

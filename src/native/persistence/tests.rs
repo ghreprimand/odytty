@@ -11,6 +11,7 @@ fn leaf(cwd: Option<&str>) -> PaneShape {
         cwd: cwd.map(str::to_owned),
         session_host_id: None,
         remote_host: None,
+        launch_profile: None,
     }
 }
 
@@ -24,6 +25,7 @@ fn sample_snapshot() -> ShapeSnapshot {
             WorkspaceShape {
                 name: "Workspace 1".to_owned(),
                 default_profile: None,
+                launch_profile: None,
                 active_tab: 1,
                 tabs: vec![
                     TabShape {
@@ -46,6 +48,7 @@ fn sample_snapshot() -> ShapeSnapshot {
             WorkspaceShape {
                 name: "logs".to_owned(),
                 default_profile: None,
+                launch_profile: None,
                 active_tab: 0,
                 tabs: vec![TabShape {
                     title: None,
@@ -137,6 +140,7 @@ fn windows_drive_letter_cwd_round_trips_with_escaped_backslashes() {
         workspaces: vec![WorkspaceShape {
             name: "w".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -163,6 +167,7 @@ fn unicode_and_control_characters_in_names_round_trip() {
         workspaces: vec![WorkspaceShape {
             name: "研究 🚀 \"quoted\"\tname\nwith\rcontrols".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: Some("emoji 😺 tab".to_owned()),
@@ -184,6 +189,7 @@ fn null_title_and_cwd_round_trip_to_none() {
         workspaces: vec![WorkspaceShape {
             name: "w".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -503,6 +509,7 @@ fn workspace_default_profile_round_trips() {
         workspaces: vec![WorkspaceShape {
             name: "remote".to_owned(),
             default_profile: Some("prod-web".to_owned()),
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -556,6 +563,7 @@ fn pane_session_host_id_round_trips_and_is_forward_compatible() {
         workspaces: vec![WorkspaceShape {
             name: "w".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -564,6 +572,7 @@ fn pane_session_host_id_round_trips_and_is_forward_compatible() {
                     cwd: Some("/srv".to_owned()),
                     session_host_id: Some("odytty-4f2a".to_owned()),
                     remote_host: None,
+                    launch_profile: None,
                 },
             }],
         }],
@@ -591,6 +600,48 @@ fn pane_session_host_id_round_trips_and_is_forward_compatible() {
     }
 }
 
+/// Per-pane named launch profile round-trips through the snapshot and legacy
+/// snapshots without the key parse to `None`.
+#[test]
+fn pane_launch_profile_round_trips_and_is_forward_compatible() {
+    let snapshot = ShapeSnapshot {
+        version: SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: vec![WorkspaceShape {
+            name: "w".to_owned(),
+            default_profile: None,
+            launch_profile: None,
+            active_tab: 0,
+            tabs: vec![TabShape {
+                title: None,
+                focused_leaf: 0,
+                layout: PaneShape::Leaf {
+                    cwd: Some("/work".to_owned()),
+                    session_host_id: None,
+                    remote_host: None,
+                    launch_profile: Some("dev".to_owned()),
+                },
+            }],
+        }],
+    };
+    let text = snapshot.to_json_pretty();
+    assert!(text.contains("\"launch_profile\": \"dev\""), "{text}");
+    assert_eq!(
+        ShapeSnapshot::from_json_str(&text).expect("round-trips"),
+        snapshot
+    );
+
+    let legacy = r#"{ "version": 1, "active_workspace": 0, "workspaces": [
+        { "name": "w", "active_tab": 0, "tabs": [
+            { "title": null, "focused_leaf": 0, "layout": { "leaf": { "cwd": null } } }
+        ] } ] }"#;
+    let parsed = ShapeSnapshot::from_json_str(legacy).expect("legacy parses");
+    match &parsed.workspaces[0].tabs[0].layout {
+        PaneShape::Leaf { launch_profile, .. } => assert_eq!(*launch_profile, None),
+        other => panic!("expected a leaf, got {other:?}"),
+    }
+}
+
 /// RESTORE-REMOTE: a pane's remote host round-trips through the snapshot under
 /// the stable `remote_host` key, and a pre-RESTORE-REMOTE snapshot (no such
 /// key) parses to a plain local pane.
@@ -602,6 +653,7 @@ fn pane_remote_host_round_trips_and_is_forward_compatible() {
         workspaces: vec![WorkspaceShape {
             name: "w".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -610,6 +662,7 @@ fn pane_remote_host_round_trips_and_is_forward_compatible() {
                     cwd: Some("/home/me".to_owned()),
                     session_host_id: None,
                     remote_host: Some("prod".to_owned()),
+                    launch_profile: None,
                 },
             }],
         }],
@@ -734,6 +787,7 @@ fn layout_save_list_load_delete_round_trip() {
         workspaces: vec![WorkspaceShape {
             name: "dev".to_owned(),
             default_profile: Some("edge".to_owned()),
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: Some("build".to_owned()),
@@ -802,6 +856,7 @@ fn layout_exists_matches_the_writer_stem() {
         workspaces: vec![WorkspaceShape {
             name: "w".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -1056,6 +1111,7 @@ fn one_workspace(tabs: Vec<TabShape>) -> ShapeSnapshot {
         workspaces: vec![WorkspaceShape {
             name: "w".to_owned(),
             default_profile: None,
+            launch_profile: None,
             active_tab: 0,
             tabs,
         }],
@@ -1096,6 +1152,7 @@ fn budget_rejects_excess_workspaces() {
             .map(|i| WorkspaceShape {
                 name: format!("w{i}"),
                 default_profile: None,
+                launch_profile: None,
                 active_tab: 0,
                 tabs: vec![single_leaf_tab()],
             })

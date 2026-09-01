@@ -766,6 +766,12 @@ impl Settings {
             DEFAULT_RESTORE_WORKSPACES,
             &mut warn,
         );
+        let profile_auto_switch = parse_bool_setting(
+            get(PROFILE_AUTO_SWITCH_ENV).as_deref(),
+            PROFILE_AUTO_SWITCH_ENV,
+            DEFAULT_PROFILE_AUTO_SWITCH,
+            &mut warn,
+        );
         let new_output_fade = parse_bool_setting(
             get(NEW_OUTPUT_FADE_ENV).as_deref(),
             NEW_OUTPUT_FADE_ENV,
@@ -1018,6 +1024,7 @@ impl Settings {
             shell_integration,
             shell_key_enhancement,
             restore_workspaces,
+            profile_auto_switch,
             new_output_fade,
             new_output_fade_ms,
             window_border,

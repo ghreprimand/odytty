@@ -75,6 +75,7 @@ fn live_ui_settings_override_env_and_profile() {
         &cli,
         &RestoredLaunchOverrides::default(),
         &live,
+        None,
     );
     assert_eq!(effective.settings.font_family.as_deref(), Some("Fira Code"));
 }
@@ -107,6 +108,7 @@ fn bare_launch_without_profile_selection_keeps_default_theme() {
         &LaunchCliOverrides::default(),
         &RestoredLaunchOverrides::default(),
         &LiveLaunchOverrides::default(),
+        None,
     );
     assert_eq!(effective.settings.theme, DEFAULT_THEME);
     assert_eq!(effective.profile_name, None);
@@ -127,6 +129,7 @@ fn default_settings_load_does_not_enumerate_profiles() {
         &LaunchCliOverrides::default(),
         &RestoredLaunchOverrides::default(),
         &LiveLaunchOverrides::default(),
+        None,
     );
     assert_eq!(
         catalog_load_count_for_test(),
@@ -166,6 +169,7 @@ fn restored_named_profile_binding_selects_profile() {
             ..RestoredLaunchOverrides::default()
         },
         &LiveLaunchOverrides::default(),
+        None,
     );
     assert_eq!(effective.profile_name.as_deref(), Some("edge"));
     assert_eq!(
@@ -335,6 +339,7 @@ fn a_profile_scoped_to_a_foreign_platform_falls_back_with_a_warning() {
         },
         &RestoredLaunchOverrides::default(),
         &LiveLaunchOverrides::default(),
+        None,
     );
     assert_eq!(
         effective.settings.theme, DEFAULT_THEME,
@@ -371,6 +376,7 @@ fn a_current_platform_scoped_profile_applies() {
         },
         &RestoredLaunchOverrides::default(),
         &LiveLaunchOverrides::default(),
+        None,
     );
     assert_eq!(
         effective.settings.theme,
@@ -483,6 +489,212 @@ fn path_separators_and_traversal_in_a_profile_name_are_rejected() {
     assert!(ok.ends_with("dev.profile.json"));
 }
 
+// ---- v0.14 Phase A3: launch-surface parity, precedence, and fail-closed ----
+
+/// Build a fully populated named profile so parity/precedence assertions cover
+/// every EffectiveLaunch field, not just settings.
+fn populated_dev_profile() -> LaunchProfile {
+    let mut profile = LaunchProfile::new("dev").expect("profile");
+    profile.appearance.font_family = Some("Victor Mono".to_owned());
+    profile.appearance.title = Some("Dev".to_owned());
+    profile.launch.shell = Some("/bin/zsh".to_owned());
+    profile.launch.working_directory = Some("/work/project".to_owned());
+    profile
+        .launch
+        .env
+        .insert("PROJECT".to_owned(), "odytty".to_owned());
+    profile
+}
+
+#[test]
+fn a3_same_profile_resolves_identically_across_cli_and_workspace_binding() {
+    // Section 1.a: every launch surface must route through the one resolver and
+    // yield a byte-identical EffectiveLaunch for the same named profile. The CLI
+    // route and the workspace-binding route are the two public entry shapes.
+    let mut catalog = ProfileCatalog::default();
+    catalog
+        .profiles
+        .insert("dev".to_owned(), populated_dev_profile());
+    let config = ConfigValues::parse("", |_| {});
+    let env: HashMap<&'static str, OsString> = HashMap::new();
+
+    let via_cli = resolve_effective_launch(
+        Some(&config),
+        &env,
+        &catalog,
+        &LaunchCliOverrides {
+            profile_name: Some("dev".to_owned()),
+            ..LaunchCliOverrides::default()
+        },
+        &RestoredLaunchOverrides::default(),
+        &LiveLaunchOverrides::default(),
+        None,
+    );
+    let via_workspace = resolve_effective_launch(
+        Some(&config),
+        &env,
+        &catalog,
+        &LaunchCliOverrides::default(),
+        &RestoredLaunchOverrides::default(),
+        &LiveLaunchOverrides::default(),
+        Some("dev"),
+    );
+
+    assert_eq!(
+        via_cli, via_workspace,
+        "CLI and workspace-binding launch surfaces must resolve the same profile identically"
+    );
+    assert_eq!(via_cli.shell.as_deref(), Some("/bin/zsh"));
+    assert_eq!(
+        via_cli.env.get("PROJECT").map(String::as_str),
+        Some("odytty")
+    );
+}
+
+#[test]
+fn a3_explicit_cli_profile_overrides_a_workspace_binding() {
+    // Section 6.a: an explicit CLI profile selection sits above the workspace
+    // binding layer. When both name a profile, the CLI one wins.
+    let mut catalog = ProfileCatalog::default();
+    let mut cli_profile = LaunchProfile::new("cliwin").expect("profile");
+    cli_profile.launch.shell = Some("/bin/fish".to_owned());
+    let mut ws_profile = LaunchProfile::new("wsbind").expect("profile");
+    ws_profile.launch.shell = Some("/bin/dash".to_owned());
+    catalog.profiles.insert("cliwin".to_owned(), cli_profile);
+    catalog.profiles.insert("wsbind".to_owned(), ws_profile);
+    let config = ConfigValues::parse("", |_| {});
+    let env: HashMap<&'static str, OsString> = HashMap::new();
+
+    let effective = resolve_effective_launch(
+        Some(&config),
+        &env,
+        &catalog,
+        &LaunchCliOverrides {
+            profile_name: Some("cliwin".to_owned()),
+            ..LaunchCliOverrides::default()
+        },
+        &RestoredLaunchOverrides::default(),
+        &LiveLaunchOverrides::default(),
+        Some("wsbind"),
+    );
+
+    assert_eq!(effective.profile_name.as_deref(), Some("cliwin"));
+    assert_eq!(effective.shell.as_deref(), Some("/bin/fish"));
+}
+
+#[test]
+fn a3_restored_profile_name_resolves_when_no_cli_profile_present() {
+    // Section 1: the restoration surface carries a profile_name that resolves
+    // when no CLI override is present (CLI still outranks it when both exist).
+    let mut catalog = ProfileCatalog::default();
+    catalog
+        .profiles
+        .insert("dev".to_owned(), populated_dev_profile());
+    let config = ConfigValues::parse("", |_| {});
+    let env: HashMap<&'static str, OsString> = HashMap::new();
+
+    let effective = resolve_effective_launch(
+        Some(&config),
+        &env,
+        &catalog,
+        &LaunchCliOverrides::default(),
+        &RestoredLaunchOverrides {
+            profile_name: Some("dev".to_owned()),
+            ..RestoredLaunchOverrides::default()
+        },
+        &LiveLaunchOverrides::default(),
+        None,
+    );
+
+    assert_eq!(effective.profile_name.as_deref(), Some("dev"));
+    assert_eq!(effective.shell.as_deref(), Some("/bin/zsh"));
+}
+
+#[test]
+fn a3_missing_profile_fails_closed_to_global_settings_with_a_warning() {
+    // Section 1.b / 3.a: a launch surface naming a profile that is absent from
+    // the catalog must NOT silently invent a partial launch. It falls back to
+    // global settings and surfaces a warning; no profile-only field leaks in.
+    let catalog = ProfileCatalog::default(); // empty
+    let config = ConfigValues::parse("", |_| {});
+    let env: HashMap<&'static str, OsString> = HashMap::new();
+
+    let effective = resolve_effective_launch(
+        Some(&config),
+        &env,
+        &catalog,
+        &LaunchCliOverrides {
+            profile_name: Some("ghost".to_owned()),
+            ..LaunchCliOverrides::default()
+        },
+        &RestoredLaunchOverrides::default(),
+        &LiveLaunchOverrides::default(),
+        None,
+    );
+
+    // Requested name is retained for disclosure, but no profile fields applied.
+    assert_eq!(effective.profile_name.as_deref(), Some("ghost"));
+    assert!(
+        effective.shell.is_none(),
+        "missing profile must not supply a shell"
+    );
+    assert!(
+        effective.env.is_empty(),
+        "missing profile must not supply env overrides"
+    );
+    assert!(
+        effective
+            .warnings
+            .iter()
+            .any(|w| w.contains("ghost") && w.contains("missing")),
+        "a missing profile must surface a disclosure warning, got {:?}",
+        effective.warnings
+    );
+}
+
+#[test]
+fn a3_platform_inapplicable_profile_is_skipped_with_a_warning() {
+    // Section 5/8: a profile scoped to a different OS must not apply on this one.
+    // It fails closed to global settings and discloses why.
+    let other_platform = if cfg!(target_os = "windows") {
+        ProfilePlatform::Linux
+    } else {
+        ProfilePlatform::Windows
+    };
+    let mut profile = populated_dev_profile();
+    profile.platforms = Some(std::iter::once(other_platform).collect());
+    let mut catalog = ProfileCatalog::default();
+    catalog.profiles.insert("dev".to_owned(), profile);
+    let config = ConfigValues::parse("", |_| {});
+    let env: HashMap<&'static str, OsString> = HashMap::new();
+
+    let effective = resolve_effective_launch(
+        Some(&config),
+        &env,
+        &catalog,
+        &LaunchCliOverrides {
+            profile_name: Some("dev".to_owned()),
+            ..LaunchCliOverrides::default()
+        },
+        &RestoredLaunchOverrides::default(),
+        &LiveLaunchOverrides::default(),
+        None,
+    );
+
+    assert!(
+        effective.shell.is_none(),
+        "a profile scoped to another platform must not apply its shell here"
+    );
+    assert!(
+        effective
+            .warnings
+            .iter()
+            .any(|w| w.contains("does not apply on this platform")),
+        "a platform-inapplicable profile must disclose why it was skipped, got {:?}",
+        effective.warnings
+    );
+}
+
 #[test]
 fn a_malformed_import_file_is_rejected_and_never_reaches_the_catalog() {
     // Import egress: the App import path is read_profile_file -> (on Ok)
@@ -505,4 +717,18 @@ fn a_malformed_import_file_is_rejected_and_never_reaches_the_catalog() {
         "a rejected import must not create any profile entry"
     );
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a3_profile_auto_switch_defaults_off_and_parses() {
+    let settings = Settings::from_source(|_| None, |_| {}, |_| None, |_| None);
+    assert!(!settings.profile_auto_switch);
+
+    let settings = Settings::from_source(
+        |key| (key == crate::settings::PROFILE_AUTO_SWITCH_ENV).then(|| OsString::from("on")),
+        |_| {},
+        |_| None,
+        |_| None,
+    );
+    assert!(settings.profile_auto_switch);
 }

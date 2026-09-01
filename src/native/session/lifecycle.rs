@@ -717,6 +717,14 @@ impl WorkspaceSet {
         std::mem::replace(&mut self.active_workspace_mut().default_profile, profile)
     }
 
+    /// Bind (or unbind) the active workspace to a named launch profile.
+    pub(in crate::native) fn set_active_workspace_launch_profile(
+        &mut self,
+        profile: Option<String>,
+    ) -> Option<String> {
+        std::mem::replace(&mut self.active_workspace_mut().launch_profile, profile)
+    }
+
     /// Bind (or, with `None`, unbind) the workspace at rail index `idx`
     /// (RAIL-BIND). Same semantics as the active-workspace form, but targets a
     /// specific slot so the rail menu can bind a workspace without first
