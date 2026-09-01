@@ -181,6 +181,22 @@ pub(super) fn tail_setting_rows(settings: &Settings) -> Vec<SettingInfo> {
         },
         SettingInfo {
             group: "Sessions",
+            key: "default_launch_profile",
+            env: DEFAULT_LAUNCH_PROFILE_ENV,
+            name: "Default launch profile",
+            value: settings
+                .default_launch_profile
+                .clone()
+                .unwrap_or_else(|| "(System Default)".to_owned()),
+            description: "Named profile used by plain New Tab and New Workspace when the active workspace has no profile override. Missing or invalid names fall back to the built-in System Default with a one-line notice. Set from Profile Manager; never applied on the ordinary startup path unless a spawn explicitly requests it.",
+            kind: SettingKind::String,
+            range: None,
+            options: &[],
+            reloadable: true,
+            numeric: None,
+        },
+        SettingInfo {
+            group: "Sessions",
             key: "shell_exit_closes",
             env: SHELL_EXIT_CLOSES_ENV,
             name: "Typing exit closes",

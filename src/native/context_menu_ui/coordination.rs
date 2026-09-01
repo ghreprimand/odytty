@@ -235,6 +235,7 @@ impl ContextMenuUi {
             | ContextMenuItem::JumpFailedCommandNext
             | ContextMenuItem::ExportCommandOutput => self.command_actions_enabled,
             ContextMenuItem::NewTab => true,
+            ContextMenuItem::NewTabWithProfile => true,
             ContextMenuItem::NewWindow => true,
             ContextMenuItem::RenameTab => self.rename_target.is_some(),
             ContextMenuItem::CloseTab => true,
@@ -268,6 +269,7 @@ impl ContextMenuUi {
             ContextMenuItem::OpenWith => self.is_file_target(),
             // Workspace actions are always available on their surfaces.
             ContextMenuItem::NewWorkspace
+            | ContextMenuItem::NewWorkspaceWithProfile
             | ContextMenuItem::DuplicateWorkspace
             | ContextMenuItem::RenameWorkspace
             | ContextMenuItem::CloseWorkspace
@@ -330,6 +332,7 @@ impl ContextMenuUi {
         match self.surface {
             ContextMenuSurface::TabSlot(_) => match item {
                 ContextMenuItem::NewTab
+                | ContextMenuItem::NewTabWithProfile
                 | ContextMenuItem::NewLocalTab
                 | ContextMenuItem::DuplicateTab
                 | ContextMenuItem::RenameTab => 0,
@@ -347,7 +350,9 @@ impl ContextMenuUi {
                 // New Tab / New Workspace / Open Layout are the creation/restore
                 // group; Command Palette / Settings sit below a separator.
                 ContextMenuItem::NewTab
+                | ContextMenuItem::NewTabWithProfile
                 | ContextMenuItem::NewWorkspace
+                | ContextMenuItem::NewWorkspaceWithProfile
                 | ContextMenuItem::OpenLayout => 0,
                 ContextMenuItem::CommandPalette | ContextMenuItem::Settings => 1,
                 _ => 1,
@@ -356,6 +361,7 @@ impl ContextMenuUi {
                 // New/Rename group; Close in its own destructive group (one
                 // separator before it) — the TabSlot pattern one level up.
                 ContextMenuItem::NewWorkspace
+                | ContextMenuItem::NewWorkspaceWithProfile
                 | ContextMenuItem::DuplicateWorkspace
                 | ContextMenuItem::RenameWorkspace
                 // RAIL-REORDER: the reorder actions are non-destructive edits to
@@ -384,7 +390,7 @@ impl ContextMenuUi {
             // LAYOUT-SURFACE: the empty rail offers New Workspace, then Open
             // Layout below a separator.
             ContextMenuSurface::WorkspaceRailEmpty => match item {
-                ContextMenuItem::NewWorkspace => 0,
+                ContextMenuItem::NewWorkspace | ContextMenuItem::NewWorkspaceWithProfile => 0,
                 ContextMenuItem::SaveAllLayout | ContextMenuItem::OpenLayout => 1,
                 ContextMenuItem::Settings => 2,
                 _ => 2,

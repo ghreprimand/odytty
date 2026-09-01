@@ -947,6 +947,7 @@ impl App {
             TabHit::Switch(_) => Some("switch"),
             TabHit::Close(_) => Some("close"),
             TabHit::NewTab => Some("new"),
+            TabHit::NewTabProfilePicker => Some("new_profile"),
             TabHit::AutohideToggle => Some("autohide"),
             TabHit::None => None,
         }
@@ -2161,7 +2162,10 @@ impl App {
         let geometry = self.top_strip_geom(self.resolved_cell()?)?;
         let hit_idx = match geometry.hit(PxPoint::new(x, y)) {
             TabHit::Switch(idx) | TabHit::Close(idx) => idx,
-            TabHit::NewTab | TabHit::AutohideToggle | TabHit::None => return None,
+            TabHit::NewTab
+            | TabHit::NewTabProfilePicker
+            | TabHit::AutohideToggle
+            | TabHit::None => return None,
         };
         let drop_idx = geometry.drop_index(x, drag_origin)?;
         let boundary = geometry.insertion_boundary_px(drop_idx, drag_origin);

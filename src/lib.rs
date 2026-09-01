@@ -244,6 +244,63 @@ pub(crate) mod test_lock {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Serialize tests that mutate process-global environment variables.
+    ///
+    /// `std::env::set_var`/`remove_var` mutate a single process-wide table, and
+    /// `cargo test` runs tests in parallel threads inside one process, so two
+    /// tests that each redirect `HOME`, `XDG_CONFIG_HOME`, or `APPDATA` under
+    /// their own private mutex do not exclude each other: one test observes the
+    /// other's base directory mid-flight and resolves the wrong profiles
+    /// directory (the intermittent Ubuntu CI failure where a remote-host switch
+    /// saw an empty catalog and yielded `None`). Concurrent `set_var` is also
+    /// undefined behavior regardless of which variable is touched.
+    ///
+    /// Every test that sets or removes ANY process environment variable takes
+    /// THIS one lock for the whole window in which the variable is perturbed,
+    /// so the serialization holds across modules without depending on
+    /// `--test-threads=1`. Holding a single shared lock (never a per-module or
+    /// per-variable lock) keeps the ordering trivially deadlock-free. Poison is
+    /// recovered with `into_inner` so a panicking test does not wedge the rest
+    /// of the suite; each caller is responsible for restoring the variables it
+    /// changed before releasing the guard.
+    pub(crate) fn test_env_lock() -> MutexGuard<'static, ()> {
+        TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    static CATALOG_COUNT_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Serialize tests that read the process-global profile catalog-load
+    /// counter against tests that load a catalog.
+    ///
+    /// `profiles::store::CATALOG_LOAD_COUNT` is one process-wide atomic bumped
+    /// by every `load_catalog_from_dir`. The startup-isolation tests reset it
+    /// and then assert an exact delta (zero loads for a default launch, exactly
+    /// one for an explicit profile selection). `cargo test` runs tests in
+    /// parallel threads inside one process, so a catalog load from an unrelated
+    /// test landing between another test's reset and its assertion corrupts the
+    /// delta (the intermittent 8-thread failure where a `+0`/`+1` expectation
+    /// saw an extra load). This is a SECOND global independent of the env table,
+    /// so it needs its own guard rather than reusing the env lock.
+    ///
+    /// Every test that resets/asserts the counter AND every test that loads a
+    /// catalog (directly via `load_catalog_from_dir` or indirectly via a
+    /// resolver/auto-switch path) holds THIS guard for that window, so the
+    /// counter is stable without depending on `--test-threads=1`. Ordering
+    /// rule to stay deadlock-free: where a test also needs [`test_env_lock`]
+    /// (it redirects the config base AND loads a catalog), acquire the env lock
+    /// FIRST and this lock second; no site acquires them in the other order.
+    /// Poison is recovered with `into_inner` so a panicking test does not wedge
+    /// the suite.
+    pub(crate) fn catalog_count_lock() -> MutexGuard<'static, ()> {
+        CATALOG_COUNT_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;

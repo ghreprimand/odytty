@@ -143,6 +143,7 @@ fn clears_setting(key: &str, value: &str) -> bool {
                 | "symbol_font"
                 | "native_autoclose_ms"
                 | "external_palette_path"
+                | "default_launch_profile"
                 | "os_theme_dark"
                 | "os_theme_light"
         )

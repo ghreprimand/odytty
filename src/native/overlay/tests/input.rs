@@ -644,8 +644,8 @@ fn context_menu_split_items_emit_split_outcomes() {
         std::array::from_fn(|_| None),
     );
     // Focus starts at item 0 (Copy); with F7 dropping the content-menu
-    // Rename Tab row, Split Right is item index 8.
-    for _ in 0..8 {
+    // Rename Tab row, Split Right is item index 9.
+    for _ in 0..9 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -653,7 +653,7 @@ fn context_menu_split_items_emit_split_outcomes() {
         OverlayOutcome::ContextMenuSplitColumns
     );
 
-    // Reopen and walk to Split Down (item index 9).
+    // Reopen and walk to Split Down (item index 10).
     overlay.open_context_menu(
         CellPoint { row: 0, column: 0 },
         true,
@@ -665,7 +665,7 @@ fn context_menu_split_items_emit_split_outcomes() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..9 {
+    for _ in 0..10 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -676,10 +676,10 @@ fn context_menu_split_items_emit_split_outcomes() {
 
 #[test]
 fn tab_slot_duplicate_tab_emits_duplicate_outcome() {
-    // Duplicate Tab sits right after New Tab on the tab menu and emits the
-    // ContextMenuDuplicateTab outcome (the App spawns a fresh local shell in
-    // the active pane's cwd). Focus order (separators skipped): New Tab(0)
-    // Duplicate Tab(1) ...
+    // Duplicate Tab sits right after New Tab with Profile on the tab menu and
+    // emits the ContextMenuDuplicateTab outcome (the App spawns a fresh local
+    // shell in the active pane's cwd). Focus order (separators skipped): New
+    // Tab(0) New Tab with Profile(1) Duplicate Tab(2) ...
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
         CellPoint { row: 0, column: 0 },
@@ -698,6 +698,7 @@ fn tab_slot_duplicate_tab_emits_duplicate_outcome() {
         std::array::from_fn(|_| None),
     );
     overlay.handle_input(OverlayInput::Down);
+    overlay.handle_input(OverlayInput::Down);
     assert_eq!(
         overlay.handle_input(OverlayInput::Activate),
         OverlayOutcome::ContextMenuDuplicateTab
@@ -706,11 +707,11 @@ fn tab_slot_duplicate_tab_emits_duplicate_outcome() {
 
 #[test]
 fn workspace_slot_duplicate_workspace_emits_duplicate_outcome() {
-    // Duplicate Workspace sits right after New Workspace on the workspace-slot
-    // menu and emits the ContextMenuDuplicateWorkspace outcome (the App opens
-    // a fresh workspace whose shell spawns in the active pane's cwd). Focus
-    // order (a lone workspace, so the Move rows are hidden): New Workspace(0)
-    // Duplicate Workspace(1) Rename Workspace(2) ...
+    // Duplicate Workspace sits right after New Workspace with Profile on the
+    // workspace-slot menu and emits the ContextMenuDuplicateWorkspace outcome
+    // (the App opens a fresh workspace whose shell spawns in the active pane's
+    // cwd). Focus order (a lone workspace, so the Move rows are hidden): New
+    // Workspace(0) New Workspace with Profile(1) Duplicate Workspace(2) ...
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
         CellPoint { row: 0, column: 0 },
@@ -729,6 +730,7 @@ fn workspace_slot_duplicate_workspace_emits_duplicate_outcome() {
         std::array::from_fn(|_| None),
     );
     overlay.handle_input(OverlayInput::Down);
+    overlay.handle_input(OverlayInput::Down);
     assert_eq!(
         overlay.handle_input(OverlayInput::Activate),
         OverlayOutcome::ContextMenuDuplicateWorkspace
@@ -738,9 +740,9 @@ fn workspace_slot_duplicate_workspace_emits_duplicate_outcome() {
 #[test]
 fn tab_slot_close_tab_emits_token_targeted_outcome() {
     // NF-F7-1: closing a tab from a specific tab slot targets THAT tab's
-    // token, not the active tab. Body rows: New Tab(0) Duplicate Tab(1)
-    // Rename Tab(2) sep(3) Close Tab(4) Close Other Tabs(5) sep(6)
-    // New Window(7).
+    // token, not the active tab. Body rows: New Tab(0) New Tab with Profile(1)
+    // Duplicate Tab(2) Rename Tab(3) sep(4) Close Tab(5) Close Other Tabs(6)
+    // sep(7) New Window(8).
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
         CellPoint { row: 0, column: 0 },
@@ -758,9 +760,10 @@ fn tab_slot_close_tab_emits_token_targeted_outcome() {
         None,
         std::array::from_fn(|_| None),
     );
-    // Focus cycles through items (separators skipped): New Tab(0) Duplicate
-    // Tab(1) Rename Tab(2) Close Tab(3) Close Other Tabs(4) New Window(5).
-    for _ in 0..3 {
+    // Focus cycles through items (separators skipped): New Tab(0) New Tab with
+    // Profile(1) Duplicate Tab(2) Rename Tab(3) Close Tab(4) Close Other
+    // Tabs(5) New Window(6).
+    for _ in 0..4 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -788,9 +791,9 @@ fn tab_slot_close_other_tabs_emits_token_outcome() {
         None,
         std::array::from_fn(|_| None),
     );
-    // Close Other Tabs is item index 4 (New Tab / Duplicate Tab / Rename
-    // Tab / Close Tab / Close Other Tabs / New Window).
-    for _ in 0..4 {
+    // Close Other Tabs is item index 5 (New Tab / New Tab with Profile /
+    // Duplicate Tab / Rename Tab / Close Tab / Close Other Tabs / New Window).
+    for _ in 0..5 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -820,10 +823,10 @@ fn tab_slot_move_to_next_workspace_emits_token_outcome() {
         None,
         std::array::from_fn(|_| None),
     );
-    // Items: New Tab(0) Duplicate Tab(1) Rename Tab(2) Close Tab(3)
-    // Close Other Tabs(4) Connect to Host(5) Replace with Host(6)
-    // Move to Workspace(7) New Window(8).
-    for _ in 0..7 {
+    // Items: New Tab(0) New Tab with Profile(1) Duplicate Tab(2) Rename
+    // Tab(3) Close Tab(4) Close Other Tabs(5) Connect to Host(6) Replace
+    // with Host(7) Move to Workspace(8) New Window(9).
+    for _ in 0..8 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -836,9 +839,9 @@ fn tab_slot_move_to_next_workspace_emits_token_outcome() {
 fn tab_slot_connect_and_replace_host_emit_token_outcomes() {
     // ODP-5D: the tab-menu host actions carry the CLICKED tab's token so the
     // App seeds the picker for the right tab. Single-workspace tab menu:
-    // New Tab(0) Duplicate Tab(1) Rename Tab(2) Close Tab(3)
-    // Close Other Tabs(4) Connect to Host(5) Replace with Host(6)
-    // New Window(7).
+    // New Tab(0) New Tab with Profile(1) Duplicate Tab(2) Rename Tab(3)
+    // Close Tab(4) Close Other Tabs(5) Connect to Host(6) Replace with
+    // Host(7) New Window(8).
     let open = || {
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu_with_prompt_editing_hint(
@@ -860,7 +863,7 @@ fn tab_slot_connect_and_replace_host_emit_token_outcomes() {
         overlay
     };
     let mut connect = open();
-    for _ in 0..5 {
+    for _ in 0..6 {
         connect.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -868,7 +871,7 @@ fn tab_slot_connect_and_replace_host_emit_token_outcomes() {
         OverlayOutcome::ContextMenuConnectToHost(SessionToken(8))
     );
     let mut replace = open();
-    for _ in 0..6 {
+    for _ in 0..7 {
         replace.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -893,8 +896,8 @@ fn content_close_tab_emits_active_close_outcome() {
         std::array::from_fn(|_| None),
     );
     // With a selection: Copy(0) Cut(1) Paste(2) Delete(3) Select All(4) sep
-    // New Tab(5) New Window(6) Close Tab(7).
-    for _ in 0..7 {
+    // New Tab(5) New Tab with Profile(6) New Window(7) Close Tab(8).
+    for _ in 0..8 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -905,9 +908,9 @@ fn content_close_tab_emits_active_close_outcome() {
 
 #[test]
 fn context_menu_new_window_emits_new_window_outcome() {
-    // F1: activating the New Window item (single-pane visible index 6, right
-    // after New Tab at 5) routes up as the ContextMenuNewWindow outcome the
-    // App dispatches to `handle_new_window` — the same handler the
+    // F1: activating the New Window item (single-pane visible index 7, right
+    // after New Tab with Profile at 6) routes up as the ContextMenuNewWindow
+    // outcome the App dispatches to `handle_new_window` - the same handler the
     // Ctrl+Shift+N chord fires.
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu(
@@ -921,7 +924,7 @@ fn context_menu_new_window_emits_new_window_outcome() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..6 {
+    for _ in 0..7 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -935,8 +938,8 @@ fn context_menu_new_window_emits_new_window_outcome() {
 
 #[test]
 fn context_menu_close_pane_emits_close_pane_outcome_only_multi_pane() {
-    // Multi-pane, with selection: Close Pane is visible item index 10 (right
-    // after Split Down at 9; F7 dropped the content-menu Rename Tab row);
+    // Multi-pane, with selection: Close Pane is visible item index 11 (right
+    // after Split Down at 10; F7 dropped the content-menu Rename Tab row);
     // activating it routes up as the Close Pane outcome the App dispatches to
     // `apply_pane_action(ClosePane)`.
     let mut overlay = OverlayUi::default();
@@ -951,7 +954,7 @@ fn context_menu_close_pane_emits_close_pane_outcome_only_multi_pane() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..10 {
+    for _ in 0..11 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -959,7 +962,7 @@ fn context_menu_close_pane_emits_close_pane_outcome_only_multi_pane() {
         OverlayOutcome::ContextMenuClosePane
     );
 
-    // Single-pane: Close Pane is hidden, so item index 10 is New Workspace
+    // Single-pane: Close Pane is hidden, so item index 11 is New Workspace
     // (the first workspace-section item) — the Close Pane outcome is
     // unreachable.
     overlay.open_context_menu(
@@ -973,7 +976,7 @@ fn context_menu_close_pane_emits_close_pane_outcome_only_multi_pane() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..10 {
+    for _ in 0..11 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1003,7 +1006,8 @@ fn content_menu_workspace_actions_target_the_active_workspace() {
         overlay
     };
     // Single-pane with selection: New/Rename/Close Workspace are visible
-    // indices 10/11/12 (right after the two splits at 8/9).
+    // indices 11/13/14 (right after the two splits at 9/10 and the profile
+    // row at 12).
     let step_to = |idx: usize| {
         let mut overlay = open();
         for _ in 0..idx {
@@ -1011,21 +1015,21 @@ fn content_menu_workspace_actions_target_the_active_workspace() {
         }
         overlay.handle_input(OverlayInput::Activate)
     };
-    assert_eq!(step_to(10), OverlayOutcome::ContextMenuNewWorkspace);
+    assert_eq!(step_to(11), OverlayOutcome::ContextMenuNewWorkspace);
     assert_eq!(
-        step_to(11),
+        step_to(13),
         OverlayOutcome::ContextMenuRenameActiveWorkspace
     );
-    assert_eq!(step_to(12), OverlayOutcome::ContextMenuCloseActiveWorkspace);
-    // ODP-6B: an unbound workspace shows Bind to Host at index 13, which
+    assert_eq!(step_to(14), OverlayOutcome::ContextMenuCloseActiveWorkspace);
+    // ODP-6B: an unbound workspace shows Bind to Host at index 15, which
     // lifts to the "open the shared host picker" outcome.
-    assert_eq!(step_to(13), OverlayOutcome::ContextMenuBindWorkspace);
+    assert_eq!(step_to(15), OverlayOutcome::ContextMenuBindWorkspace);
 }
 
 #[test]
 fn content_menu_bound_workspace_offers_unbind() {
     // ODP-6B: when the active workspace is bound, the workspace section's
-    // conditional row is Unbind (index 13), lifting to the direct-unbind
+    // conditional row is Unbind (index 15), lifting to the direct-unbind
     // outcome (no host picker needed).
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
@@ -1044,7 +1048,7 @@ fn content_menu_bound_workspace_offers_unbind() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..13 {
+    for _ in 0..15 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1056,7 +1060,7 @@ fn content_menu_bound_workspace_offers_unbind() {
 #[test]
 fn workspace_slot_menu_bind_unbind_target_the_clicked_slot() {
     // RAIL-BIND: the rail slot menu's host action targets the CLICKED slot
-    // index. Unbound slot 2 -> "Bind to Host" (index 3) lifts to the picker
+    // index. Unbound slot 2 -> "Bind to Host" (index 5) lifts to the picker
     // outcome carrying idx 2; a bound slot -> "Unbind" lifts to the direct
     // unbind outcome carrying idx 2.
     let open = |bound: bool| {
@@ -1077,7 +1081,7 @@ fn workspace_slot_menu_bind_unbind_target_the_clicked_slot() {
             None,
             std::array::from_fn(|_| None),
         );
-        for _ in 0..4 {
+        for _ in 0..5 {
             overlay.handle_input(OverlayInput::Down);
         }
         overlay.handle_input(OverlayInput::Activate)
@@ -1115,9 +1119,9 @@ fn workspace_slot_menu_save_as_layout_targets_the_clicked_slot() {
     };
     let surface = crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(2);
 
-    // Index 5 = whole-app save.
+    // Index 6 = whole-app save.
     let mut overlay = open(surface);
-    for _ in 0..5 {
+    for _ in 0..6 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1125,9 +1129,9 @@ fn workspace_slot_menu_save_as_layout_targets_the_clicked_slot() {
         OverlayOutcome::ContextMenuSaveAllLayout
     );
 
-    // Index 6 = single-workspace save of the clicked slot.
+    // Index 7 = single-workspace save of the clicked slot.
     let mut overlay = open(surface);
-    for _ in 0..6 {
+    for _ in 0..7 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1139,9 +1143,9 @@ fn workspace_slot_menu_save_as_layout_targets_the_clicked_slot() {
 #[test]
 fn rail_empty_menu_open_layout_emits_picker_outcome() {
     // LAYOUT-SURFACE + SAVE-ALL-LAYOUT: the empty rail offers New Workspace(0),
-    // the whole-app Save as Layout(1), then Open Layout(2); activating Open
-    // Layout lifts to the picker outcome, and Save as Layout lifts to the
-    // whole-app save outcome.
+    // New Workspace with Profile(1), the whole-app Save as Layout(2), then
+    // Open Layout(3); activating Open Layout lifts to the picker outcome, and
+    // Save as Layout lifts to the whole-app save outcome.
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
         CellPoint { row: 0, column: 0 },
@@ -1161,6 +1165,7 @@ fn rail_empty_menu_open_layout_emits_picker_outcome() {
     );
     overlay.handle_input(OverlayInput::Down);
     overlay.handle_input(OverlayInput::Down);
+    overlay.handle_input(OverlayInput::Down);
     assert_eq!(
         overlay.handle_input(OverlayInput::Activate),
         OverlayOutcome::ContextMenuOpenLayoutPicker
@@ -1169,7 +1174,7 @@ fn rail_empty_menu_open_layout_emits_picker_outcome() {
 
 #[test]
 fn rail_empty_menu_save_all_layout_emits_whole_app_outcome() {
-    // SAVE-ALL-LAYOUT: the empty rail's Save as Layout (index 1) lifts to the
+    // SAVE-ALL-LAYOUT: the empty rail's Save as Layout (index 2) lifts to the
     // surface-independent whole-app save outcome.
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
@@ -1189,6 +1194,7 @@ fn rail_empty_menu_save_all_layout_emits_whole_app_outcome() {
         std::array::from_fn(|_| None),
     );
     overlay.handle_input(OverlayInput::Down);
+    overlay.handle_input(OverlayInput::Down);
     assert_eq!(
         overlay.handle_input(OverlayInput::Activate),
         OverlayOutcome::ContextMenuSaveAllLayout
@@ -1199,8 +1205,8 @@ fn rail_empty_menu_save_all_layout_emits_whole_app_outcome() {
 fn content_menu_save_as_layout_targets_the_active_workspace() {
     // LAYOUT-SURFACE: Save Workspace as Layout on the content surface (no slot
     // target) lifts to the active-workspace save outcome. With a selection the
-    // workspace section is New(10) Rename(11) Close(12) Bind(13)
-    // SaveAll(14) SaveWorkspace(15) Open(16).
+    // workspace section is New(11) New with Profile(12) Rename(13) Close(14)
+    // Bind(15) SaveAll(16) SaveWorkspace(17) Open(18).
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
         CellPoint { row: 0, column: 0 },
@@ -1218,7 +1224,7 @@ fn content_menu_save_as_layout_targets_the_active_workspace() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..15 {
+    for _ in 0..17 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1230,7 +1236,7 @@ fn content_menu_save_as_layout_targets_the_active_workspace() {
 #[test]
 fn content_menu_save_all_layout_emits_whole_app_outcome() {
     // SAVE-ALL-LAYOUT: the whole-app Save as Layout on the content surface
-    // (index 14, right after Bind) lifts to the surface-independent whole-app
+    // (index 16, right after Bind) lifts to the surface-independent whole-app
     // save outcome, ahead of the single-workspace Save Workspace as Layout.
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
@@ -1249,7 +1255,7 @@ fn content_menu_save_all_layout_emits_whole_app_outcome() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..14 {
+    for _ in 0..16 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1330,11 +1336,11 @@ fn context_menu_without_path_has_no_file_outcomes() {
         None,
         std::array::from_fn(|_| None),
     );
-    // 24 visible items single-pane with a selection (F7 dropped the Rename
-    // Tab row; the workspace section adds New/Rename/Close + Bind to Host +
-    // Save as Layout + Save Workspace as Layout + Open Layout); Manage
-    // Sessions is index 22 (Detach & switch is last at 23).
-    for _ in 0..22 {
+    // 26 visible items single-pane with a selection (F7 dropped the Rename
+    // Tab row; the workspace section adds New/New with Profile/Rename/Close +
+    // Bind to Host + Save as Layout + Save Workspace as Layout + Open Layout);
+    // Manage Sessions is index 24 (Detach & switch is last at 25).
+    for _ in 0..24 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1347,11 +1353,11 @@ fn context_menu_without_path_has_no_file_outcomes() {
 #[test]
 fn context_menu_keyboard_shortcuts_opens_key_bindings() {
     // F3: the "Keyboard Shortcuts" launcher item (first after Settings,
-    // visible index 18 single-pane with a selection — the workspace section
-    // plus Bind to Host + Save as Layout + Save Workspace as Layout + Open
-    // Layout shift the launcher block down by seven) activates the key-remap
-    // editor via the same OpenKeyBindings outcome the settings "keybinds"
-    // row emits.
+    // visible index 20 single-pane with a selection - the workspace section
+    // plus both profile rows + Bind to Host + Save as Layout + Save Workspace
+    // as Layout + Open Layout shift the launcher block down by nine) activates
+    // the key-remap editor via the same OpenKeyBindings outcome the settings
+    // "keybinds" row emits.
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu(
         CellPoint { row: 0, column: 0 },
@@ -1364,7 +1370,7 @@ fn context_menu_keyboard_shortcuts_opens_key_bindings() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..18 {
+    for _ in 0..20 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1619,7 +1625,7 @@ fn every_back_titled_mode_has_a_live_title_arrow() {
     // or the affordance is click-dead (Esc masks it). This iterates ALL
     // modes so a future `←`-titled mode without coverage fails here rather
     // than shipping a dead arrow (as Connections, then About, once did).
-    const ALL_MODES: [OverlayMode; 19] = [
+    const ALL_MODES: [OverlayMode; 20] = [
         OverlayMode::Settings,
         OverlayMode::ThemePicker,
         OverlayMode::ThemeBuilder,
@@ -1634,6 +1640,7 @@ fn every_back_titled_mode_has_a_live_title_arrow() {
         OverlayMode::SessionAttach,
         OverlayMode::OpenWith,
         OverlayMode::WorkspacePicker,
+        OverlayMode::ProfilePicker,
         OverlayMode::ImageView,
         OverlayMode::ConfirmClose,
         OverlayMode::AttachChoice,
@@ -2610,5 +2617,77 @@ fn theme_builder_title_back_arrow_click_from_picker_returns_to_picker() {
         overlay.render_signature().mode,
         OverlayMode::ThemePicker,
         "theme builder ← click returns to ThemePicker"
+    );
+}
+
+#[test]
+fn tab_strip_menu_new_tab_with_profile_emits_picker_opener() {
+    let mut overlay = OverlayUi::default();
+    overlay.open_context_menu_with_prompt_editing_hint(
+        CellPoint { row: 0, column: 0 },
+        false,
+        false,
+        false,
+        false,
+        false,
+        None,
+        false,
+        true,
+        false,
+        false,
+        crate::native::context_menu_ui::ContextMenuSurface::TabStripEmpty,
+        None,
+        std::array::from_fn(|_| None),
+    );
+    overlay.handle_input(OverlayInput::Down);
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        OverlayOutcome::ContextMenuNewTabWithProfile
+    );
+}
+
+#[test]
+fn tab_strip_menu_new_workspace_with_profile_emits_picker_opener() {
+    let mut overlay = OverlayUi::default();
+    overlay.open_context_menu_with_prompt_editing_hint(
+        CellPoint { row: 0, column: 0 },
+        false,
+        false,
+        false,
+        false,
+        false,
+        None,
+        false,
+        true,
+        false,
+        false,
+        crate::native::context_menu_ui::ContextMenuSurface::TabStripEmpty,
+        None,
+        std::array::from_fn(|_| None),
+    );
+    for _ in 0..3 {
+        overlay.handle_input(OverlayInput::Down);
+    }
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        OverlayOutcome::ContextMenuNewWorkspaceWithProfile
+    );
+}
+
+#[test]
+fn profile_picker_keyboard_accept_emits_new_tab_launch() {
+    use crate::native::profile_picker::{ProfilePickerEntry, ProfilePickerPurpose};
+
+    let mut overlay = OverlayUi::default();
+    overlay.open_profile_picker(
+        vec![ProfilePickerEntry {
+            name: "dev".to_owned(),
+            label: "Dev Shell".to_owned(),
+        }],
+        ProfilePickerPurpose::NewTab,
+    );
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        OverlayOutcome::ProfilePickerNewTab("dev".to_owned())
     );
 }

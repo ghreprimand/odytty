@@ -182,6 +182,7 @@ pub(in crate::native) fn overlay_rect(
         OverlayMode::SessionAttach => overlay.session_attach.desired_width(columns),
         OverlayMode::OpenWith => overlay.open_with.desired_width(columns),
         OverlayMode::WorkspacePicker => overlay.workspace_picker.desired_width(columns),
+        OverlayMode::ProfilePicker => overlay.profile_picker.desired_width(columns),
         // The image viewer (C4) uses a full-width backdrop panel; the decoded
         // image is drawn centered over it by the GPU image layer, so the panel
         // is just the dimmed frame behind the picture.

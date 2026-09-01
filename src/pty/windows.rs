@@ -1855,9 +1855,14 @@ mod tests {
         // ODYTTY_SHELL_INTEGRATION) must be ABSENT from the child block when
         // named in `removals`. Uses a uniquely named marker so the case-
         // insensitive drop is provable without depending on ambient env.
+        // Hold the crate-wide env lock: concurrent `set_var`/`remove_var` from
+        // another test is undefined behavior regardless of the variable name,
+        // so every env-mutating test serializes on this one guard.
+        let _env_guard = crate::test_lock::test_env_lock();
         let marker = format!("ODYTTY_SCRUB_PROBE_{}", std::process::id());
-        // SAFETY: single-threaded assertion window; the marker name is unique to
-        // this process so no other test observes it.
+        // SAFETY: the shared env guard above serializes this window against
+        // every other env-mutating test; the marker name is unique to this
+        // process so no other test observes it.
         unsafe {
             std::env::set_var(&marker, "leaked");
         }

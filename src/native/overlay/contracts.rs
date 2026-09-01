@@ -16,6 +16,7 @@ use crate::native::onboarding::OnboardingSignature;
 use crate::native::open_with_overlay::OpenWithOverlaySignature;
 use crate::native::palette_overlay::PaletteOverlaySignature;
 use crate::native::profile_manager::ProfileManagerSignature;
+use crate::native::profile_picker::ProfilePickerSignature;
 use crate::native::replay_overlay::ReplayOverlaySignature;
 use crate::native::session::SessionToken;
 use crate::native::session_attach_overlay::SessionAttachOverlaySignature;
@@ -90,6 +91,8 @@ pub(in crate::native) enum OverlayOutcome {
     ImportProfile,
     /// Open a save dialog to export the named profile.
     ExportProfile(String),
+    /// Persist the global default launch profile from Profile Manager.
+    SetDefaultLaunchProfile(String),
     /// Run the right-click menu's Copy / Paste / Select All action (IN2). The
     /// overlay has already closed itself by the time these are emitted; the App
     /// dispatches them to the existing copy/paste shortcuts and `handle_select_all`.
@@ -126,6 +129,11 @@ pub(in crate::native) enum OverlayOutcome {
     /// (§7.4). The overlay has closed itself; the App dispatches to
     /// `handle_new_workspace`.
     ContextMenuNewWorkspace,
+    /// Open the named-profile picker seeded for New Tab (v0.14). The menu closed
+    /// itself; catalog load happens only when the picker opens.
+    ContextMenuNewTabWithProfile,
+    /// Open the named-profile picker seeded for New Workspace (v0.14).
+    ContextMenuNewWorkspaceWithProfile,
     /// Duplicate the right-clicked workspace (WorkspaceSlot): open a fresh
     /// workspace whose first shell spawns in the active pane's cwd (F1 cwd
     /// inheritance), not a process fork. The overlay has already closed itself;
@@ -354,6 +362,13 @@ pub(in crate::native) enum OverlayOutcome {
     /// a profile row in the connection manager; the App routes through the same
     /// path as palette profile launch.
     LaunchProfile(String),
+    /// The named-profile picker accepted a profile for a new tab in the active
+    /// workspace (v0.14 direct menu route).
+    ProfilePickerNewTab(String),
+    /// The named-profile picker accepted a profile for a new workspace (v0.14
+    /// direct menu route; creates the workspace and its first profile-backed tab
+    /// atomically).
+    ProfilePickerNewWorkspace(String),
     /// Attach to a live session accepted from the session-attach overlay (Phase
     /// 5 / B2). The overlay has already closed itself by the time this is
     /// emitted; the App attaches the session id into a new tab. A stale id (the
@@ -455,6 +470,9 @@ pub(in crate::native) enum OverlayMode {
     /// on Enter splice the tab into the chosen workspace. Presentation/filter
     /// only; never mutates live core state.
     WorkspacePicker,
+    /// Named launch-profile picker for direct New Tab / New Workspace menu
+    /// routes (v0.14). Catalog load is on-demand when the picker opens.
+    ProfilePicker,
     /// In-terminal image viewer (Phase 9 / C4): a presentation-only overlay
     /// that renders a decoded image span ("Open in OdyTTY") centered over a
     /// dimmed backdrop panel, through the existing GPU image-layer raster path.
@@ -620,4 +638,5 @@ pub(in crate::native) struct OverlayRenderSignature {
     pub(in crate::native) session_attach: SessionAttachOverlaySignature,
     pub(in crate::native) open_with: OpenWithOverlaySignature,
     pub(in crate::native) workspace_picker: WorkspacePickerSignature,
+    pub(in crate::native) profile_picker: ProfilePickerSignature,
 }

@@ -770,6 +770,46 @@ impl WorkspaceSet {
         Ok(token)
     }
 
+    /// Create a workspace whose first tab honors a resolved launch context without
+    /// binding `launch_profile` on the workspace (global-default plain New
+    /// Workspace path).
+    pub(in crate::native) fn new_workspace_from_effective(
+        &mut self,
+        grid: crate::core::Dimensions,
+        effective: &crate::profiles::EffectiveLaunch,
+    ) -> Result<SessionToken, std::io::Error> {
+        let token = self.insert_spawned_session_with_effective(
+            grid,
+            effective.working_directory.clone(),
+            effective,
+        )?;
+        let name = default_workspace_name(self.workspaces.len());
+        self.workspaces.push(Workspace::single(name, token));
+        self.active_ws = self.workspaces.len() - 1;
+        Ok(token)
+    }
+
+    /// Create a workspace whose first tab honors a resolved named-profile launch
+    /// context and bind `launch_profile` on the workspace in the same step.
+    pub(in crate::native) fn new_workspace_with_effective(
+        &mut self,
+        grid: crate::core::Dimensions,
+        profile_name: &str,
+        effective: &crate::profiles::EffectiveLaunch,
+    ) -> Result<SessionToken, std::io::Error> {
+        let token = self.insert_spawned_session_with_effective(
+            grid,
+            effective.working_directory.clone(),
+            effective,
+        )?;
+        let name = default_workspace_name(self.workspaces.len());
+        let mut workspace = Workspace::single(name, token);
+        workspace.launch_profile = Some(profile_name.to_owned());
+        self.workspaces.push(workspace);
+        self.active_ws = self.workspaces.len() - 1;
+        Ok(token)
+    }
+
     /// Switch the active workspace to rail index `idx` (its active tab's focused
     /// pane becomes the `Deref` target). Returns true when the active workspace
     /// actually changed; out-of-range or same-index requests are no-ops.

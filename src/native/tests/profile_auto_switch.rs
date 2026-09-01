@@ -4,7 +4,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::Dimensions;
@@ -12,11 +11,6 @@ use crate::native::NativeOptions;
 use crate::native::test_support::headless_app_with;
 use crate::profiles::{LaunchProfile, ProfileSwitchRules, write_profile_file};
 use crate::settings::Settings;
-
-fn env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
 
 fn temp_config_home(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -30,7 +24,15 @@ fn temp_config_home(label: &str) -> PathBuf {
 }
 
 fn with_home<R>(home: &Path, f: impl FnOnce() -> R) -> R {
-    let _guard = env_lock().lock().expect("env lock");
+    // One crate-wide env lock (crate::test_lock) serializes every test that
+    // mutates process-global env vars, so a sibling module redirecting the same
+    // HOME/XDG base cannot run concurrently. Poison-tolerant by construction.
+    let _guard = crate::test_lock::test_env_lock();
+    // The live auto-switch poll loads the profile catalog, bumping the
+    // process-global load counter the startup-isolation tests assert on. Hold
+    // the catalog-count guard too, acquired AFTER the env lock (fixed order,
+    // never the reverse) so it cannot deadlock against a sibling.
+    let _count_guard = crate::test_lock::catalog_count_lock();
     let prev_home = std::env::var_os("HOME");
     let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
     unsafe {

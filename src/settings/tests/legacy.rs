@@ -262,6 +262,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "session_replay",
             "restore_workspaces",
             "profile_auto_switch",
+            "default_launch_profile",
             "shell_exit_closes",
             "osc52_write",
             "osc52_read",

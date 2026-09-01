@@ -198,7 +198,7 @@ impl ChromeSlotGeom {
         let new_slot = layout.new_tab_col.map(|col| PxRect {
             x: ox + col as f64 * cw,
             y: oy,
-            width: 3.0 * cw,
+            width: tab_bar::NEW_TAB_COLS as f64 * cw,
             height: band_height,
         });
         Self {
@@ -294,8 +294,24 @@ impl ChromeSlotGeom {
         if self.autohide.is_some_and(|rect| rect.contains(point)) {
             return TabHit::AutohideToggle;
         }
-        if self.new_slot.is_some_and(|rect| rect.contains(point)) {
-            return TabHit::NewTab;
+        if let Some(rect) = self.new_slot.filter(|rect| rect.contains(point)) {
+            // The `+` and the adjacent profile-chooser chevron share one slot.
+            // The split column mirrors where each painter places the chevron:
+            // the top bar reserves NEW_TAB_PLUS_COLS for `+`, the rail paints
+            // the chevron at NEW_WORKSPACE_PICKER_COL (clamped to the rail).
+            let cw = self.cell.width as f64;
+            let rail_cols = (rect.width / cw).round() as usize;
+            let picker_col = match self.axis {
+                Axis::Horizontal => tab_bar::NEW_TAB_PLUS_COLS,
+                Axis::Vertical => {
+                    tab_rail::NEW_WORKSPACE_PICKER_COL.min(rail_cols.saturating_sub(1))
+                }
+            };
+            let rel_col = ((point.x - rect.x) / cw).floor().max(0.0) as usize;
+            if rel_col < picker_col {
+                return TabHit::NewTab;
+            }
+            return TabHit::NewTabProfilePicker;
         }
         for slot in self.slots.iter().rev() {
             if !slot.rect.contains(point) {
@@ -1129,6 +1145,60 @@ mod tests {
         .min(order.len());
         order.insert(destination, moved);
         order
+    }
+
+    /// The rail paints the profile-chooser chevron at
+    /// `tab_rail::NEW_WORKSPACE_PICKER_COL`; the hit region must split at that
+    /// same column rather than at half the rail width, so the visible glyph
+    /// and the click target agree on both narrow and wide rails.
+    #[test]
+    fn rail_new_workspace_hit_splits_at_the_painted_chevron_column() {
+        let source = Source {
+            titles: vec!["ws".to_string()],
+        };
+        let cell = CellSize {
+            width: 10,
+            height: 20,
+            baseline: 15,
+        };
+        for rail_cols in [4usize, 12, 30] {
+            let geom = ChromeSlotGeom::rail(
+                &source,
+                rail_cols,
+                40,
+                [0.0, 0.0],
+                cell,
+                tab_rail::RailGeom {
+                    slot_rows: 1,
+                    slot_gap: 1,
+                },
+            );
+            let slot = geom.new_slot.expect("new-workspace row present");
+            let picker_col = tab_rail::NEW_WORKSPACE_PICKER_COL.min(rail_cols - 1);
+            let y = slot.y + slot.height / 2.0;
+            let at = |col: usize| PxPoint {
+                x: slot.x + (col as f64 + 0.5) * f64::from(cell.width),
+                y,
+            };
+            assert_eq!(geom.hit(at(0)), TabHit::NewTab, "rail_cols={rail_cols}");
+            assert_eq!(
+                geom.hit(at(picker_col)),
+                TabHit::NewTabProfilePicker,
+                "rail_cols={rail_cols}"
+            );
+            if picker_col > 0 {
+                assert_eq!(
+                    geom.hit(at(picker_col - 1)),
+                    TabHit::NewTab,
+                    "rail_cols={rail_cols}"
+                );
+            }
+            assert_eq!(
+                geom.hit(at(rail_cols - 1)),
+                TabHit::NewTabProfilePicker,
+                "rail_cols={rail_cols}"
+            );
+        }
     }
 
     #[test]

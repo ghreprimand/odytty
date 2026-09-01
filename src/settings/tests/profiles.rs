@@ -82,6 +82,10 @@ fn live_ui_settings_override_env_and_profile() {
 
 #[test]
 fn local_catalog_load_is_bounded_and_non_blocking() {
+    // Loads a catalog, bumping the process-global load counter the startup-
+    // isolation tests assert on; hold the catalog-count guard so this load
+    // cannot land between another test's reset and assertion.
+    let _count_guard = crate::test_lock::catalog_count_lock();
     let dir = temp_profiles_dir("catalog");
     std::fs::create_dir_all(&dir).expect("mkdir");
     for index in 0..3 {
@@ -119,6 +123,7 @@ fn default_settings_load_does_not_enumerate_profiles() {
     // Observable startup seam: ordinary Settings::from_env (default first-
     // terminal path) must not call load_catalog_from_dir. The Profile Manager
     // is the only intentional catalog enumeration entry.
+    let _count_guard = crate::test_lock::catalog_count_lock();
     reset_catalog_load_count_for_test();
     let before = catalog_load_count_for_test();
     let _ = Settings::from_env();
@@ -244,6 +249,7 @@ fn secret_env_value_is_rejected_at_the_write_boundary_leaving_no_bytes() {
 fn catalog_load_is_capped_at_the_entry_limit_and_warns() {
     // Bounded catalog load: more than MAX_PROFILE_ENTRIES files on disk load at
     // most the cap, and the overflow is reported as a warning, never silently.
+    let _count_guard = crate::test_lock::catalog_count_lock();
     let dir = temp_profiles_dir("entry-cap");
     std::fs::create_dir_all(&dir).expect("mkdir");
     let over = MAX_PROFILE_ENTRIES + 5;
@@ -270,6 +276,7 @@ fn catalog_load_is_capped_at_the_entry_limit_and_warns() {
 fn oversized_profile_file_is_skipped_without_emptying_the_catalog() {
     // Malformed/atomic: a file exceeding MAX_PROFILE_FILE_BYTES is refused by
     // the capped reader and skipped with a warning; sibling good profiles load.
+    let _count_guard = crate::test_lock::catalog_count_lock();
     let dir = temp_profiles_dir("oversized");
     std::fs::create_dir_all(&dir).expect("mkdir");
     write_profile_file(
@@ -700,6 +707,9 @@ fn a_malformed_import_file_is_rejected_and_never_reaches_the_catalog() {
     // Import egress: the App import path is read_profile_file -> (on Ok)
     // save_overlay_profile. A malformed source file must fail at the read, so
     // no write is ever attempted and the catalog is unaffected.
+    // Loads a catalog at the end to prove no entry was created; hold the
+    // catalog-count guard so that load cannot pollute a sibling's assertion.
+    let _count_guard = crate::test_lock::catalog_count_lock();
     let dir = temp_profiles_dir("malformed-import");
     std::fs::create_dir_all(&dir).expect("mkdir");
     let src = dir.join("import-source.json");
@@ -731,4 +741,25 @@ fn a3_profile_auto_switch_defaults_off_and_parses() {
         |_| None,
     );
     assert!(settings.profile_auto_switch);
+}
+
+#[test]
+fn a3_default_launch_profile_parses_and_round_trips() {
+    let settings = Settings::from_source(|_| None, |_| {}, |_| None, |_| None);
+    assert!(settings.default_launch_profile.is_none());
+
+    let settings = Settings::from_source(
+        |key| (key == crate::settings::DEFAULT_LAUNCH_PROFILE_ENV).then(|| OsString::from("dev")),
+        |_| {},
+        |_| None,
+        |_| None,
+    );
+    assert_eq!(settings.default_launch_profile.as_deref(), Some("dev"));
+    assert_eq!(
+        settings
+            .to_edit_values()
+            .get(crate::settings::DEFAULT_LAUNCH_PROFILE_ENV)
+            .map(String::as_str),
+        Some("dev")
+    );
 }

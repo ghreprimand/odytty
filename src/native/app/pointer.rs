@@ -422,6 +422,14 @@ impl App {
                     self.handle_new_tab();
                     return;
                 }
+                (
+                    WinitMouseButton::Left,
+                    ElementState::Pressed,
+                    Some((ChromeBand::TopBar, TabHit::NewTabProfilePicker)),
+                ) => {
+                    self.open_profile_picker_for_new_tab();
+                    return;
+                }
                 // ----- Workspace rail: act on the WORKSPACES -----
                 (
                     WinitMouseButton::Left,
@@ -452,6 +460,14 @@ impl App {
                     self.handle_new_workspace();
                     return;
                 }
+                (
+                    WinitMouseButton::Left,
+                    ElementState::Pressed,
+                    Some((ChromeBand::WorkspaceRail, TabHit::NewTabProfilePicker)),
+                ) => {
+                    self.open_profile_picker_for_new_workspace();
+                    return;
+                }
                 // RAIL-AUTOHIDE-CTL: the bottom-edge toggle flips auto-hide. Plain
                 // click only, no drag semantics.
                 (
@@ -480,6 +496,7 @@ impl App {
                             .unwrap_or(ContextMenuSurface::TabStripEmpty),
                         TabHit::Close(_)
                         | TabHit::NewTab
+                        | TabHit::NewTabProfilePicker
                         | TabHit::AutohideToggle
                         | TabHit::None => ContextMenuSurface::TabStripEmpty,
                     };
@@ -498,9 +515,10 @@ impl App {
                         TabHit::Switch(idx) | TabHit::Close(idx) => {
                             ContextMenuSurface::WorkspaceSlot(idx)
                         }
-                        TabHit::NewTab | TabHit::AutohideToggle | TabHit::None => {
-                            ContextMenuSurface::WorkspaceRailEmpty
-                        }
+                        TabHit::NewTab
+                        | TabHit::NewTabProfilePicker
+                        | TabHit::AutohideToggle
+                        | TabHit::None => ContextMenuSurface::WorkspaceRailEmpty,
                     };
                     self.open_context_menu(surface);
                     return;

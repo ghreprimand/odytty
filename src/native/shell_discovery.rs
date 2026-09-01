@@ -12,7 +12,6 @@ use crate::profiles::discovered_shells as base_discovered_shells;
 use crate::profiles::{DiscoveredShell, ShellKind, parse_wsl_distro_list};
 
 /// Shell discovery for UI pickers: base platform shells plus Windows WSL distros.
-#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn discovered_shells() -> Vec<DiscoveredShell> {
     #[cfg(windows)]
     {

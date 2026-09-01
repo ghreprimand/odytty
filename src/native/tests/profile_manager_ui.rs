@@ -44,7 +44,7 @@ fn feed_chars(manager: &mut ProfileManager, text: &str) {
 #[test]
 fn create_onto_an_existing_name_is_rejected_not_persisted() {
     let mut manager = ProfileManager::new();
-    manager.open(catalog_with(&["dev"]));
+    manager.open(catalog_with(&["dev"]), None);
 
     // Tab opens the Add form; type a name that already exists.
     let _ = manager.handle_input(OverlayInput::Tab);
@@ -67,7 +67,7 @@ fn create_onto_an_existing_name_is_rejected_not_persisted() {
 #[test]
 fn rename_onto_an_existing_name_does_not_clobber_the_other_profile() {
     let mut manager = ProfileManager::new();
-    manager.open(catalog_with(&["dev", "work"]));
+    manager.open(catalog_with(&["dev", "work"]), None);
     // Filtered order is BTreeMap-sorted: index 0 == "dev".
 
     // 'r' opens the rename form preloaded with "dev".
@@ -99,7 +99,7 @@ fn rename_onto_an_existing_name_does_not_clobber_the_other_profile() {
 #[test]
 fn delete_cancel_is_a_true_no_op_and_returns_to_the_catalog() {
     let mut manager = ProfileManager::new();
-    manager.open(catalog_with(&["dev"]));
+    manager.open(catalog_with(&["dev"]), None);
 
     // 'x' opens the confirm-delete prompt for the selected profile.
     let _ = manager.handle_input(OverlayInput::Char('x'));
@@ -120,7 +120,7 @@ fn delete_cancel_is_a_true_no_op_and_returns_to_the_catalog() {
 #[test]
 fn delete_confirm_emits_delete_for_exactly_the_selected_profile() {
     let mut manager = ProfileManager::new();
-    manager.open(catalog_with(&["dev", "keep"]));
+    manager.open(catalog_with(&["dev", "keep"]), None);
     // Sorted order: index 0 == "dev". Select it and confirm delete.
 
     let _ = manager.handle_input(OverlayInput::Char('x'));
@@ -137,7 +137,7 @@ fn delete_confirm_emits_delete_for_exactly_the_selected_profile() {
 #[test]
 fn delete_key_on_an_empty_catalog_is_a_safe_no_op() {
     let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default());
+    manager.open(ProfileCatalog::default(), None);
     // Empty catalog focuses the add-row; there is no selected profile.
 
     let outcome = manager.handle_input(OverlayInput::Char('x'));
@@ -168,7 +168,7 @@ fn unknown_future_keys_survive_a_ui_driven_edit_and_save() {
     catalog.profiles.insert("dev".to_owned(), profile);
 
     let mut manager = ProfileManager::new();
-    manager.open(catalog);
+    manager.open(catalog, None);
 
     // Enter edits the selected profile.
     let _ = manager.handle_input(OverlayInput::Activate);
@@ -212,7 +212,7 @@ fn unknown_future_keys_survive_a_ui_driven_edit_and_save() {
 #[test]
 fn the_add_form_exposes_no_environment_field_so_ui_cannot_introduce_secrets() {
     let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default());
+    manager.open(ProfileCatalog::default(), None);
     let _ = manager.handle_input(OverlayInput::Tab);
     assert_eq!(manager.title(), "Add profile");
 
@@ -232,7 +232,7 @@ fn the_add_form_exposes_no_environment_field_so_ui_cannot_introduce_secrets() {
 #[test]
 fn external_palette_fields_are_editable_through_the_form() {
     let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default());
+    manager.open(ProfileCatalog::default(), None);
     let _ = manager.handle_input(OverlayInput::Tab);
 
     feed_chars(&mut manager, "palette-dev");
@@ -274,7 +274,7 @@ fn external_palette_fields_are_editable_through_the_form() {
 #[test]
 fn duplicate_produces_a_non_colliding_suggested_name() {
     let mut manager = ProfileManager::new();
-    manager.open(catalog_with(&["dev", "dev-copy"]));
+    manager.open(catalog_with(&["dev", "dev-copy"]), None);
     // Select "dev" (index 0) and duplicate it.
 
     let _ = manager.handle_input(OverlayInput::Char('d'));

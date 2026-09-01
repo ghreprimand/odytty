@@ -377,6 +377,9 @@ session_replay = off
 # only the first (primary) one autosaves and restores.
 restore_workspaces = off
 profile_auto_switch = off
+# Named profile for plain New Tab / New Workspace when the active workspace has no
+# launch_profile override. Set from Profile Manager; unset means System Default.
+# default_launch_profile = dev
 
 # Multiplexer prefix for pane/split management (tmux-style). The prefix is
 # captured only when the active tab has more than one pane; single-pane tabs pass

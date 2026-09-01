@@ -261,6 +261,10 @@ mod tests {
 
     #[test]
     fn malformed_file_is_skipped_without_emptying_catalog() {
+        // Loads a catalog, bumping the process-global load counter that the
+        // startup-isolation tests assert on; hold the catalog-count guard so
+        // this load cannot land between a sibling's reset and assertion.
+        let _count_guard = crate::test_lock::catalog_count_lock();
         let dir = temp_profiles_dir("malformed");
         fs::create_dir_all(&dir).expect("mkdir");
         let good = dir.join("good.profile.json");

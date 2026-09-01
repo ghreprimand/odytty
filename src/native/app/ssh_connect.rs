@@ -270,7 +270,7 @@ impl App {
     }
 
     /// Open `host` in a fresh workspace pre-bound to it (ODP-2C "Open in New
-    /// Workspace"). Creates a new workspace (which spawns a placeholder local
+    /// Workspace"). Creates a plain workspace (which spawns a placeholder local
     /// first tab), sets its `default_profile` so future New Tabs there route
     /// through the SSH connect path, then connects the host as the workspace's
     /// tab and drops the placeholder — connect-then-close, so a connect failure
@@ -279,7 +279,9 @@ impl App {
     /// connect uses the same `ssh.exe` path; workspace mechanics are
     /// platform-neutral.
     pub(in crate::native) fn open_host_in_new_workspace(&mut self, host: &ConnectionHost) {
-        self.handle_new_workspace();
+        // Plain placeholder: an explicit host choice is not layered on top of
+        // the global default launch profile (which could itself route to SSH).
+        self.handle_new_workspace_plain();
         let placeholder = self.sessions.active_id();
         self.sessions
             .set_active_workspace_default_profile(Some(host.alias.clone()));

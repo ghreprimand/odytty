@@ -862,6 +862,9 @@ impl OverlayUi {
                         OverlayOutcome::ContextMenuExportCommandOutput
                     }
                     ContextMenuItem::NewTab => OverlayOutcome::ContextMenuNewTab,
+                    ContextMenuItem::NewTabWithProfile => {
+                        OverlayOutcome::ContextMenuNewTabWithProfile
+                    }
                     ContextMenuItem::NewLocalTab => OverlayOutcome::ContextMenuNewLocalTab,
                     ContextMenuItem::DuplicateTab => OverlayOutcome::ContextMenuDuplicateTab,
                     ContextMenuItem::DuplicateWorkspace => {
@@ -878,6 +881,9 @@ impl OverlayUi {
                     // §7.4 workspace surfaces: New is global; Rename/Close target
                     // the right-clicked slot's rail index.
                     ContextMenuItem::NewWorkspace => OverlayOutcome::ContextMenuNewWorkspace,
+                    ContextMenuItem::NewWorkspaceWithProfile => {
+                        OverlayOutcome::ContextMenuNewWorkspaceWithProfile
+                    }
                     ContextMenuItem::RenameWorkspace => match self.context_menu.surface() {
                         crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
                             OverlayOutcome::ContextMenuRenameWorkspace(idx)

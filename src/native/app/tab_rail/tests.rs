@@ -912,7 +912,7 @@ fn hit_new_tab_slot_returns_new_tab() {
     let src = MockSource::new(&["a"], 0);
     let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
     let (s, _e) = layout.new_tab_rows.expect("new-tab slot present");
-    let hit = hit_at(s, RAIL_COLS / 2, &src);
+    let hit = hit_at(s, tab_rail::SLOT_LABEL_START_COL, &src);
     assert_eq!(hit, TabHit::NewTab, "+ slot → NewTab");
 }
 

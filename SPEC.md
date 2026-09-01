@@ -1613,7 +1613,14 @@ formats and install channels are defined in the
   CRUD are documented in `docs/v0.14.0-profiles-foundation.md`. Launch routing,
   workspace `launch_profile` binding, per-pane restoration, saved-layout open,
   `--profile` CLI selection, and opt-in host/directory auto-switch follow the
-  precedence contract in `docs/v0.13.0-foundation.md`.
+  precedence contract in `docs/v0.13.0-foundation.md`. Plain New Tab / New
+  Workspace resolve the workspace `launch_profile`, then the global
+  `default_launch_profile` (Profile Manager "Set as Default"), then the
+  built-in System Default; the first window applies `--profile`, then the
+  global default. A missing or invalid default falls back with a bounded
+  warning and never rewrites the saved value. The adjacent chevron beside `+`
+  and the context-menu "with Profile" rows open a lazily loaded searchable
+  chooser.
   External palette following (opt-in complete local palette file, content-hash
   reload, last-known-good retention) is documented in
   `docs/v0.14.0-external-palette.md`.

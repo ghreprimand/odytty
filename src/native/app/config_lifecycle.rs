@@ -177,9 +177,28 @@ impl App {
             let _ = crate::profiles::delete_profile_file(&old_path);
         }
         let catalog = crate::profiles::load_catalog_from_dir(&dir);
-        self.overlay.open_profile_manager(catalog);
+        self.overlay
+            .open_profile_manager(catalog, self.settings.default_launch_profile.as_deref());
         self.overlay
             .set_profile_manager_message(format!("Saved profile {}", profile.name));
+        self.request_selection_redraw();
+    }
+
+    pub(super) fn set_global_default_launch_profile(&mut self, name: &str) {
+        use crate::settings::{DEFAULT_LAUNCH_PROFILE_ENV, SettingEdit};
+        let edit = SettingEdit {
+            key: "default_launch_profile",
+            env: DEFAULT_LAUNCH_PROFILE_ENV,
+            value: name.to_owned(),
+        };
+        self.save_overlay_settings(&[edit]);
+        if let Some(dir) = crate::profiles::profiles_dir_path() {
+            let catalog = crate::profiles::load_catalog_from_dir(&dir);
+            self.overlay
+                .open_profile_manager(catalog, self.settings.default_launch_profile.as_deref());
+        }
+        self.overlay
+            .set_profile_manager_message(format!("{name} is now the global default profile"));
         self.request_selection_redraw();
     }
 
@@ -201,7 +220,8 @@ impl App {
             return;
         }
         let catalog = crate::profiles::load_catalog_from_dir(&dir);
-        self.overlay.open_profile_manager(catalog);
+        self.overlay
+            .open_profile_manager(catalog, self.settings.default_launch_profile.as_deref());
         self.overlay
             .set_profile_manager_message(format!("Deleted profile {name}"));
         self.request_selection_redraw();

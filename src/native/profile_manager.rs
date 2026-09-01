@@ -10,15 +10,17 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use crate::fuzzy;
-use crate::profiles::{LaunchProfile, ProfileCatalog, validate_profile_name};
+use crate::profiles::{
+    DiscoveredShell, LaunchProfile, ProfileCatalog, ProfileCommand, validate_profile_name,
+};
 
 use super::overlay::OverlayInput;
+use super::shell_discovery;
 
 const MAX_RESULTS: usize = 40;
 const FOOTER_ROWS: usize = 2;
 const ADD_ROW_LABEL: &str = "+ Add profile\u{2026}";
-const KEY_HINT_LINE: &str =
-    "Enter edit \u{b7} d duplicate \u{b7} r rename \u{b7} x delete \u{b7} i import \u{b7} e export";
+const KEY_HINT_LINE: &str = "Enter edit \u{b7} d duplicate \u{b7} r rename \u{b7} g set default \u{b7} x delete \u{b7} i import \u{b7} e export";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FormMode {
@@ -82,6 +84,8 @@ pub(super) enum ProfileManagerOutcome {
     Delete(String),
     RequestImport,
     RequestExport(String),
+    /// Persist the selected profile as the global default launch profile.
+    SetDefaultLaunchProfile(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,10 +141,16 @@ pub(super) struct ProfileManager {
     draft_font_family: String,
     draft_title: String,
     draft_connection: String,
+    /// Cached shell suggestions loaded when a profile form opens (on demand).
+    discovered_shells: Vec<DiscoveredShell>,
+    shell_suggestion_index: usize,
+    /// Structured WSL (or other argv) launch when a discovered row carries args.
+    pending_shell_command: Option<ProfileCommand>,
     /// Full source profile so unknown nested keys survive an edit/save cycle.
     draft_base: Option<LaunchProfile>,
     /// Prior on-disk name for rename/edit-replace.
     replace_name: Option<String>,
+    global_default: Option<String>,
     error: Option<String>,
     message: Option<String>,
 }
@@ -175,8 +185,12 @@ impl ProfileManager {
             draft_font_family: String::new(),
             draft_title: String::new(),
             draft_connection: String::new(),
+            discovered_shells: Vec::new(),
+            shell_suggestion_index: 0,
+            pending_shell_command: None,
             draft_base: None,
             replace_name: None,
+            global_default: None,
             error: None,
             message: None,
         }
@@ -184,9 +198,10 @@ impl ProfileManager {
 
     /// Open (or reopen) with a freshly loaded local catalog. Never blocks on
     /// WSL/remote discovery; the App supplies only local files.
-    pub(super) fn open(&mut self, catalog: ProfileCatalog) {
+    pub(super) fn open(&mut self, catalog: ProfileCatalog, global_default: Option<&str>) {
         self.profiles = catalog.profiles;
         self.warnings = catalog.warnings;
+        self.global_default = global_default.map(str::to_owned);
         self.query.clear();
         self.view = ManagerView::Catalog;
         self.add_row_focused = false;
@@ -388,6 +403,9 @@ impl ProfileManager {
             OverlayInput::Char(ch) => match ch {
                 'd' | 'D' if self.query.is_empty() => self.open_duplicate_selected(),
                 'r' | 'R' if self.query.is_empty() => self.open_rename_selected(),
+                'g' | 'G' if self.query.is_empty() && !self.add_row_focused => {
+                    self.set_default_selected()
+                }
                 'x' | 'X' if self.query.is_empty() && !self.add_row_focused => {
                     self.open_confirm_delete_selected()
                 }
@@ -419,6 +437,18 @@ impl ProfileManager {
             OverlayInput::Down | OverlayInput::Tab => {
                 if self.form_focus + 1 < fields.len() {
                     self.form_focus += 1;
+                }
+                ProfileManagerOutcome::Consumed
+            }
+            OverlayInput::Right => {
+                if matches!(fields.get(self.form_focus), Some(FormField::Shell)) {
+                    self.cycle_shell_suggestion(1);
+                }
+                ProfileManagerOutcome::Consumed
+            }
+            OverlayInput::Left => {
+                if matches!(fields.get(self.form_focus), Some(FormField::Shell)) {
+                    self.cycle_shell_suggestion(-1);
                 }
                 ProfileManagerOutcome::Consumed
             }
@@ -482,6 +512,7 @@ impl ProfileManager {
 
     fn open_add(&mut self) -> ProfileManagerOutcome {
         self.clear_draft();
+        self.load_shell_suggestions();
         self.view = ManagerView::Form(FormMode::Add);
         self.form_focus = 0;
         self.error = None;
@@ -496,6 +527,7 @@ impl ProfileManager {
             return ProfileManagerOutcome::Consumed;
         };
         self.load_draft_from(&profile);
+        self.load_shell_suggestions();
         self.replace_name = Some(profile.name.clone());
         self.view = ManagerView::Form(FormMode::Edit);
         self.form_focus = 0;
@@ -511,6 +543,7 @@ impl ProfileManager {
             return ProfileManagerOutcome::Consumed;
         };
         self.load_draft_from(&profile);
+        self.load_shell_suggestions();
         self.draft_name = unique_copy_name(&profile.name, &self.profiles);
         self.replace_name = None;
         self.view = ManagerView::Form(FormMode::Duplicate);
@@ -549,6 +582,13 @@ impl ProfileManager {
         }
     }
 
+    fn set_default_selected(&mut self) -> ProfileManagerOutcome {
+        let Some(name) = self.selected_name() else {
+            return ProfileManagerOutcome::Consumed;
+        };
+        ProfileManagerOutcome::SetDefaultLaunchProfile(name)
+    }
+
     fn try_save(&mut self) -> ProfileManagerOutcome {
         let rename_only = matches!(self.view, ManagerView::Form(FormMode::Rename));
         let name = match validate_profile_name(&self.draft_name) {
@@ -573,7 +613,12 @@ impl ProfileManager {
             // Keep every other field; only the identity changes.
         } else {
             profile.display_name = nonempty_opt(&self.draft_display_name);
-            profile.launch.shell = nonempty_opt(&self.draft_shell);
+            if let Some(command) = self.pending_shell_command.take() {
+                profile.launch.command = Some(command);
+                profile.launch.shell = None;
+            } else {
+                profile.launch.shell = nonempty_opt(&self.draft_shell);
+            }
             profile.launch.working_directory = nonempty_opt(&self.draft_working_directory);
             profile.appearance.theme = nonempty_opt(&self.draft_theme);
             match optional_bool_field(&self.draft_follow_external_palette) {
@@ -661,6 +706,21 @@ impl ProfileManager {
         self.draft_font_family = profile.appearance.font_family.clone().unwrap_or_default();
         self.draft_title = profile.appearance.title.clone().unwrap_or_default();
         self.draft_connection = profile.connection.clone().unwrap_or_default();
+        self.pending_shell_command = profile.launch.command.clone();
+        if self.pending_shell_command.is_some() {
+            self.draft_shell = profile
+                .launch
+                .command
+                .as_ref()
+                .map(|command| {
+                    if command.args.is_empty() {
+                        command.program.clone()
+                    } else {
+                        format!("{} {}", command.program, command.args.join(" "))
+                    }
+                })
+                .unwrap_or_default();
+        }
     }
 
     fn clear_draft(&mut self) {
@@ -677,7 +737,57 @@ impl ProfileManager {
         self.draft_font_family.clear();
         self.draft_title.clear();
         self.draft_connection.clear();
+        self.discovered_shells.clear();
+        self.shell_suggestion_index = 0;
+        self.pending_shell_command = None;
         self.form_focus = 0;
+    }
+
+    fn load_shell_suggestions(&mut self) {
+        self.discovered_shells = shell_discovery::discovered_shells();
+        self.shell_suggestion_index = 0;
+    }
+
+    fn cycle_shell_suggestion(&mut self, delta: isize) {
+        if self.discovered_shells.is_empty() {
+            return;
+        }
+        let len = self.discovered_shells.len();
+        let next = (self.shell_suggestion_index as isize + delta).rem_euclid(len as isize);
+        self.shell_suggestion_index = next as usize;
+        let entry = self.discovered_shells[self.shell_suggestion_index].clone();
+        self.apply_shell_suggestion(&entry);
+    }
+
+    fn apply_shell_suggestion(&mut self, entry: &DiscoveredShell) {
+        if entry.args.is_empty() {
+            self.draft_shell = entry.program.clone();
+            self.pending_shell_command = None;
+        } else {
+            self.draft_shell = entry.label.clone();
+            self.pending_shell_command = Some(ProfileCommand {
+                program: entry.program.clone(),
+                args: entry.args.clone(),
+                preserved: Default::default(),
+            });
+        }
+        if let Some(base) = &mut self.draft_base {
+            base.launch.command = None;
+        }
+        self.error = None;
+    }
+
+    fn shell_suggestion_hint(&self) -> Option<String> {
+        if self.discovered_shells.is_empty() {
+            return None;
+        }
+        let entry = &self.discovered_shells[self.shell_suggestion_index];
+        Some(format!(
+            "Shell suggestions (Left/Right): {} ({}/{})",
+            entry.label,
+            self.shell_suggestion_index + 1,
+            self.discovered_shells.len()
+        ))
     }
 
     fn return_to_catalog(&mut self) {
@@ -715,7 +825,13 @@ impl ProfileManager {
         let buffer = match field {
             FormField::Name => &mut self.draft_name,
             FormField::DisplayName => &mut self.draft_display_name,
-            FormField::Shell => &mut self.draft_shell,
+            FormField::Shell => {
+                self.pending_shell_command = None;
+                if let Some(base) = &mut self.draft_base {
+                    base.launch.command = None;
+                }
+                &mut self.draft_shell
+            }
             FormField::WorkingDirectory => &mut self.draft_working_directory,
             FormField::Theme => &mut self.draft_theme,
             FormField::FollowExternalPalette => &mut self.draft_follow_external_palette,
@@ -777,8 +893,13 @@ impl ProfileManager {
                     Some(display) if !display.is_empty() => format!("{name}  ({display})"),
                     _ => name.clone(),
                 };
+                let marked = if self.global_default.as_deref() == Some(name.as_str()) {
+                    format!("{label}  [default]")
+                } else {
+                    label
+                };
                 lines.push(ProfileManagerLine {
-                    text: truncate(&label, body_width),
+                    text: truncate(&marked, body_width),
                     focused: !self.add_row_focused && absolute == self.selected,
                     bold: true,
                 });
@@ -840,6 +961,16 @@ impl ProfileManager {
                 focused,
                 bold: matches!(field, FormField::Save | FormField::Cancel) || focused,
             });
+            if focused
+                && matches!(field, FormField::Shell)
+                && let Some(hint) = self.shell_suggestion_hint()
+            {
+                lines.push(ProfileManagerLine {
+                    text: truncate(&hint, body_width),
+                    focused: false,
+                    bold: false,
+                });
+            }
         }
         if let Some(error) = &self.error {
             lines.push(ProfileManagerLine {
@@ -924,9 +1055,74 @@ mod tests {
     }
 
     #[test]
+    fn form_loads_discovered_shell_suggestions_on_add() {
+        let mut manager = ProfileManager::new();
+        manager.open(catalog_with(&[]), None);
+        assert!(matches!(
+            manager.open_add(),
+            ProfileManagerOutcome::Consumed
+        ));
+        assert!(
+            !manager.discovered_shells.is_empty(),
+            "profile form must load cached shell discovery on demand"
+        );
+    }
+
+    #[test]
+    fn shell_field_right_cycles_discovered_suggestions() {
+        let mut manager = ProfileManager::new();
+        manager.open(catalog_with(&[]), None);
+        manager.open_add();
+        let fields = manager.visible_form_fields();
+        manager.form_focus = fields
+            .iter()
+            .position(|field| *field == FormField::Shell)
+            .expect("shell field");
+        let before = manager.draft_shell.clone();
+        manager.cycle_shell_suggestion(1);
+        let after = manager.draft_shell.clone();
+        assert_ne!(
+            before, after,
+            "cycling must apply the next discovered shell"
+        );
+        assert!(
+            manager.shell_suggestion_hint().is_some(),
+            "focused shell field shows a suggestion hint"
+        );
+    }
+
+    #[test]
+    fn structured_shell_suggestion_persists_as_profile_command() {
+        let mut manager = ProfileManager::new();
+        manager.open(catalog_with(&[]), None);
+        manager.open_add();
+        manager.draft_name = "wsl".to_owned();
+        manager.apply_shell_suggestion(&DiscoveredShell {
+            label: "WSL: Ubuntu".to_owned(),
+            program: "wsl.exe".to_owned(),
+            args: vec!["-d".to_owned(), "Ubuntu".to_owned()],
+            kind: crate::profiles::ShellKind::Wsl,
+        });
+        let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
+            panic!("expected persist");
+        };
+        assert_eq!(
+            profile
+                .launch
+                .command
+                .as_ref()
+                .map(|command| command.program.as_str()),
+            Some("wsl.exe")
+        );
+        let command = profile.launch.command.expect("command");
+        assert_eq!(command.args, vec!["-d".to_owned(), "Ubuntu".to_owned()]);
+        assert!(profile.launch.shell.is_none());
+    }
+
+    #[test]
     fn create_edit_duplicate_rename_and_delete_flows() {
         let mut manager = ProfileManager::new();
-        manager.open(catalog_with(&["dev"]));
+        manager.open(catalog_with(&["dev"]), None);
 
         assert!(matches!(
             manager.open_add(),
@@ -941,7 +1137,7 @@ mod tests {
         assert_eq!(profile.launch.shell.as_deref(), Some("/bin/zsh"));
         assert_eq!(replace, None);
 
-        manager.open(catalog_with(&["dev", "work"]));
+        manager.open(catalog_with(&["dev", "work"]), None);
         manager.selected = 0;
         assert!(matches!(
             manager.open_duplicate_selected(),
@@ -949,7 +1145,7 @@ mod tests {
         ));
         assert_eq!(manager.draft_name, "dev-copy");
 
-        manager.open(catalog_with(&["dev"]));
+        manager.open(catalog_with(&["dev"]), None);
         assert!(matches!(
             manager.open_rename_selected(),
             ProfileManagerOutcome::Consumed
@@ -961,7 +1157,7 @@ mod tests {
         assert_eq!(profile.name, "edge");
         assert_eq!(replace.as_deref(), Some("dev"));
 
-        manager.open(catalog_with(&["edge"]));
+        manager.open(catalog_with(&["edge"]), None);
         assert!(matches!(
             manager.open_confirm_delete_selected(),
             ProfileManagerOutcome::Consumed
@@ -975,7 +1171,7 @@ mod tests {
     #[test]
     fn validate_rejects_secret_env_before_persist() {
         let mut manager = ProfileManager::new();
-        manager.open(ProfileCatalog::default());
+        manager.open(ProfileCatalog::default(), None);
         let _ = manager.open_add();
         manager.draft_name = "dev".to_owned();
         let mut base = LaunchProfile::new("dev").expect("profile");
@@ -998,7 +1194,7 @@ mod tests {
     #[test]
     fn import_and_export_requests_do_not_touch_disk() {
         let mut manager = ProfileManager::new();
-        manager.open(catalog_with(&["dev"]));
+        manager.open(catalog_with(&["dev"]), None);
         assert!(matches!(
             manager.handle_input(OverlayInput::Char('i')),
             ProfileManagerOutcome::RequestImport
@@ -1018,7 +1214,7 @@ mod tests {
         let mut catalog = ProfileCatalog::default();
         catalog.profiles.insert("dev".to_owned(), profile);
         let mut manager = ProfileManager::new();
-        manager.open(catalog);
+        manager.open(catalog, None);
         let _ = manager.open_edit_selected();
         assert_eq!(manager.draft_follow_external_palette, "on");
         assert_eq!(manager.draft_external_palette_provider, "colors_toml");
@@ -1057,7 +1253,7 @@ mod tests {
         let mut catalog = ProfileCatalog::default();
         catalog.profiles.insert("dev".to_owned(), profile);
         let mut manager = ProfileManager::new();
-        manager.open(catalog);
+        manager.open(catalog, None);
         let _ = manager.open_edit_selected();
         manager.draft_title = "Dev".to_owned();
         let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
@@ -1133,7 +1329,7 @@ mod tests {
         let mut catalog = ProfileCatalog::default();
         catalog.profiles.insert("dev".to_owned(), loaded);
         let mut manager = ProfileManager::new();
-        manager.open(catalog);
+        manager.open(catalog, None);
         let _ = manager.open_edit_selected();
         manager.draft_title = "Edited".to_owned();
         let ProfileManagerOutcome::Persist { profile, replace } = manager.try_save() else {
@@ -1169,7 +1365,7 @@ mod tests {
     #[test]
     fn delete_requires_explicit_confirm_and_cancel_restores_catalog() {
         let mut manager = ProfileManager::new();
-        manager.open(catalog_with(&["edge"]));
+        manager.open(catalog_with(&["edge"]), None);
         assert!(matches!(
             manager.open_confirm_delete_selected(),
             ProfileManagerOutcome::Consumed
@@ -1196,7 +1392,7 @@ mod tests {
     #[test]
     fn invalid_name_surfaces_error_without_persist() {
         let mut manager = ProfileManager::new();
-        manager.open(ProfileCatalog::default());
+        manager.open(ProfileCatalog::default(), None);
         let _ = manager.open_add();
         manager.draft_name = "bad name!".to_owned();
         assert!(matches!(

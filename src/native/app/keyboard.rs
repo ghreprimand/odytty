@@ -629,7 +629,8 @@ impl App {
             Some(dir) => crate::profiles::load_catalog_from_dir(&dir),
             None => crate::profiles::ProfileCatalog::default(),
         };
-        self.overlay.open_profile_manager(catalog);
+        self.overlay
+            .open_profile_manager(catalog, self.settings.default_launch_profile.as_deref());
         self.request_selection_redraw();
     }
 

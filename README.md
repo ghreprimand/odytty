@@ -198,7 +198,12 @@ release. Named launch profiles have a versioned on-disk foundation and a setting
 Manager for local create/edit/import/export/delete
 ([schema, precedence, and migration](docs/v0.14.0-profiles-foundation.md));
 launch routing, restoration, palette selection, and opt-in auto-switch are
-wired; default startup without an explicit profile is unchanged.
+wired. Plain `+` / New Tab / New Workspace stay one-click on the effective
+default profile; an adjacent chevron and the context menus open a lazy
+searchable profile chooser. Profile Manager sets an explicit global default
+(`default_launch_profile`) that a workspace binding can override; without one,
+startup and new tabs use the built-in System Default and never scan the
+profile directory.
 [External palette following](docs/v0.14.0-external-palette.md) is an optional
 opt-in that applies a complete local palette file through the existing theme
 seam without delaying ordinary startup. See

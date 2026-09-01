@@ -10,6 +10,7 @@ use crate::native::font_picker::FontPickerOutcome;
 use crate::native::key_remap_ui::KeyRemapOutcome;
 use crate::native::open_with_overlay::OpenWithOverlayOutcome;
 use crate::native::palette_overlay::PaletteOverlayOutcome;
+use crate::native::profile_picker::ProfilePickerOutcome;
 use crate::native::replay_overlay::ReplayOverlayOutcome;
 use crate::native::session_attach_overlay::SessionAttachOverlayOutcome;
 use crate::native::settings_panel::SettingsLevel;
@@ -68,6 +69,9 @@ impl OverlayUi {
             OverlayMode::OpenWith => return self.handle_open_with_input(input),
             OverlayMode::WorkspacePicker => {
                 return self.handle_workspace_picker_input(input);
+            }
+            OverlayMode::ProfilePicker => {
+                return self.handle_profile_picker_input(input);
             }
             OverlayMode::ImageView => return self.handle_image_view_input(input),
             OverlayMode::Settings => {}
@@ -168,6 +172,9 @@ impl OverlayUi {
                                 }
                                 ProfileManagerOutcome::RequestExport(name) => {
                                     OverlayOutcome::ExportProfile(name)
+                                }
+                                ProfileManagerOutcome::SetDefaultLaunchProfile(name) => {
+                                    OverlayOutcome::SetDefaultLaunchProfile(name)
                                 }
                             }
                         } else {
@@ -303,6 +310,15 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    OverlayMode::ProfilePicker => {
+                        if button == PointerButton::Left
+                            && self.profile_picker.click_row(row_in_body, rect.body_height)
+                        {
+                            self.handle_profile_picker_input(OverlayInput::Activate)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     OverlayMode::ConfirmClose => {
                         if button == PointerButton::Left {
                             self.confirm_close_click(row_in_body, col_in_body)
@@ -409,6 +425,7 @@ impl OverlayUi {
                     | OverlayMode::SessionAttach
                     | OverlayMode::OpenWith
                     | OverlayMode::WorkspacePicker
+                    | OverlayMode::ProfilePicker
                     | OverlayMode::ImageView
                     | OverlayMode::RiskyPaste
                     | OverlayMode::ConfirmClose
@@ -439,6 +456,7 @@ impl OverlayUi {
                     | OverlayMode::SessionAttach
                     | OverlayMode::OpenWith
                     | OverlayMode::WorkspacePicker
+                    | OverlayMode::ProfilePicker
                     | OverlayMode::ImageView
                     | OverlayMode::RiskyPaste
                     | OverlayMode::ConfirmClose
@@ -484,6 +502,7 @@ impl OverlayUi {
                     OverlayMode::SessionAttach => self.session_attach.scroll_lines(lines),
                     OverlayMode::OpenWith => self.open_with.scroll_lines(lines),
                     OverlayMode::WorkspacePicker => self.workspace_picker.scroll_lines(lines),
+                    OverlayMode::ProfilePicker => self.profile_picker.scroll_lines(lines),
                     OverlayMode::ContextMenu => {
                         // Wheel moves the focused item (and thus the focus-
                         // derived scroll window), mirroring the picker overlays.
@@ -533,6 +552,7 @@ impl OverlayUi {
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
             | OverlayMode::WorkspacePicker
+            | OverlayMode::ProfilePicker
             | OverlayMode::ImageView
             | OverlayMode::RiskyPaste
             | OverlayMode::ConfirmClose
@@ -565,6 +585,7 @@ impl OverlayUi {
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
             | OverlayMode::WorkspacePicker
+            | OverlayMode::ProfilePicker
             | OverlayMode::ImageView
             | OverlayMode::RiskyPaste
             | OverlayMode::ConfirmClose
@@ -706,6 +727,9 @@ impl OverlayUi {
             ProfileManagerOutcome::Delete(name) => OverlayOutcome::DeleteProfile(name),
             ProfileManagerOutcome::RequestImport => OverlayOutcome::ImportProfile,
             ProfileManagerOutcome::RequestExport(name) => OverlayOutcome::ExportProfile(name),
+            ProfileManagerOutcome::SetDefaultLaunchProfile(name) => {
+                OverlayOutcome::SetDefaultLaunchProfile(name)
+            }
         }
     }
 
@@ -1000,6 +1024,21 @@ impl OverlayUi {
             WorkspacePickerOutcome::OpenLayout(name) => {
                 self.close();
                 OverlayOutcome::ContextMenuOpenLayout(name)
+            }
+        }
+    }
+
+    pub(super) fn handle_profile_picker_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match self.profile_picker.handle_input(input) {
+            ProfilePickerOutcome::Consumed => OverlayOutcome::Consumed,
+            ProfilePickerOutcome::Close => OverlayOutcome::Close,
+            ProfilePickerOutcome::NewTab(name) => {
+                self.close();
+                OverlayOutcome::ProfilePickerNewTab(name)
+            }
+            ProfilePickerOutcome::NewWorkspace(name) => {
+                self.close();
+                OverlayOutcome::ProfilePickerNewWorkspace(name)
             }
         }
     }

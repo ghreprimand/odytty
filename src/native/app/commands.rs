@@ -60,18 +60,23 @@ impl App {
             self.new_tab_for_bound_host(&alias);
             return;
         }
-        if let Some(profile) = self
+        let cwd = self.validated_spawn_cwd();
+        let workspace_profile = self
             .sessions
             .active_workspace_launch_profile()
-            .map(str::to_owned)
-        {
-            let cwd = self.validated_spawn_cwd();
-            let effective = super::profile_launch::resolve_for_new_local_tab(
-                &self.settings,
-                Some(&profile),
-                cwd,
-                None,
-            );
+            .map(str::to_owned);
+        if let Some(effective) = super::profile_launch::resolve_default_launch_for_new_tab(
+            &self.settings,
+            workspace_profile.as_deref(),
+            cwd,
+        ) {
+            if let Some(alias) = effective.connection.clone() {
+                self.new_tab_for_bound_host(&alias);
+                for warning in effective.warnings {
+                    tracing::warn!(warning = %warning, "profile launch notice");
+                }
+                return;
+            }
             self.spawn_local_tab_from_effective(effective);
             return;
         }
@@ -155,8 +160,13 @@ impl App {
                 }
                 let _ = self.sessions.switch(session_id);
                 self.on_active_session_changed();
-                for warning in effective.warnings {
+                for warning in &effective.warnings {
                     tracing::warn!(warning = %warning, "profile launch notice");
+                }
+                if let Some(warning) = effective.warnings.first()
+                    && self.open_notice.is_none()
+                {
+                    self.raise_open_notice(warning.clone());
                 }
             }
             Err(err) => {
@@ -657,6 +667,52 @@ impl App {
     /// `on_active_session_changed` reconciles focus/geometry.
     pub(super) fn handle_new_workspace(&mut self) {
         self.finish_divider_drag();
+        let cwd = self.validated_spawn_cwd();
+        if let Some(effective) =
+            super::profile_launch::resolve_default_launch_for_new_tab(&self.settings, None, cwd)
+        {
+            if let Some(alias) = effective.connection.clone() {
+                let host = self
+                    .load_connection_entries()
+                    .into_iter()
+                    .find(|entry| entry.alias == alias);
+                let Some(host) = host else {
+                    self.raise_open_notice(format!(
+                        "Host \"{alias}\" is no longer configured; opened a plain workspace"
+                    ));
+                    let result = self.sessions.new_workspace(self.grid);
+                    self.finish_new_workspace_spawn(result);
+                    return;
+                };
+                let result = self.sessions.new_workspace(self.grid);
+                self.finish_new_workspace_spawn(result);
+                let placeholder = self.sessions.active_id();
+                if self.connect_or_notice(&host).is_some() {
+                    self.close_tab_by_token(placeholder);
+                    self.on_active_session_changed();
+                }
+                for warning in effective.warnings {
+                    tracing::warn!(warning = %warning, "profile launch notice");
+                }
+                return;
+            }
+            match self
+                .sessions
+                .new_workspace_from_effective(self.grid, &effective)
+            {
+                Ok(token) => self.finish_new_workspace_with_effective(token, &effective),
+                Err(error) => {
+                    if self.open_notice.is_none() {
+                        self.raise_open_notice(format!("Could not create a workspace: {error}"));
+                    }
+                }
+            }
+            return;
+        }
+        self.handle_new_workspace_plain();
+    }
+
+    pub(super) fn handle_new_workspace_plain(&mut self) {
         let result = self.sessions.new_workspace(self.grid);
         self.finish_new_workspace_spawn(result);
     }

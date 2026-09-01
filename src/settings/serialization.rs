@@ -250,6 +250,9 @@ impl Settings {
             PROFILE_AUTO_SWITCH_ENV,
             bool_display(self.profile_auto_switch).to_owned(),
         );
+        if let Some(name) = self.default_launch_profile.as_ref() {
+            values.insert(DEFAULT_LAUNCH_PROFILE_ENV, name.clone());
+        }
         values.insert(
             NEW_OUTPUT_FADE_ENV,
             bool_display(self.new_output_fade).to_owned(),

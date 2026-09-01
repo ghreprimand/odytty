@@ -22,7 +22,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::native::app::profile_launch::{
@@ -31,11 +30,6 @@ use crate::native::app::profile_launch::{
 use crate::native::options::NativeOptions;
 use crate::profiles::{LaunchProfile, profiles_dir_path, write_profile_file};
 use crate::settings::Settings;
-
-fn env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
 
 fn temp_config_base(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -54,10 +48,17 @@ fn temp_config_base(label: &str) -> PathBuf {
 /// body reads the real `profiles_dir_path()` so it writes wherever production
 /// will look.
 fn with_config_base<R>(base: &Path, f: impl FnOnce() -> R) -> R {
-    // Poison-tolerant: one failing assertion must not cascade-fail every later
-    // case in this single-threaded module just because the guard was held on a
-    // panic. The lock only serializes the process-global env mutation.
-    let _guard = env_lock().lock().unwrap_or_else(PoisonError::into_inner);
+    // One crate-wide env lock (crate::test_lock) serializes every test that
+    // mutates process-global env vars, so a sibling module redirecting the same
+    // HOME/XDG/APPDATA base cannot run concurrently. The guard recovers from a
+    // poisoned mutex internally, so a failing assertion elsewhere does not
+    // cascade-fail later cases.
+    let _guard = crate::test_lock::test_env_lock();
+    // These routes load the profile catalog, bumping the process-global load
+    // counter that the startup-isolation tests assert on. Hold the catalog-count
+    // guard too, acquired AFTER the env lock (fixed order, never the reverse) so
+    // it cannot deadlock against a sibling that holds one and wants the other.
+    let _count_guard = crate::test_lock::catalog_count_lock();
     let prev_appdata = std::env::var_os("APPDATA");
     let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
     let prev_home = std::env::var_os("HOME");

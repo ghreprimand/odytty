@@ -1200,6 +1200,10 @@ pub struct Settings {
     /// local pane. Match rules are read only from the local profile catalog;
     /// remote terminal output cannot select or rewrite profiles.
     pub profile_auto_switch: bool,
+    /// Global default named launch profile for plain New Tab / New Workspace when
+    /// the active workspace has no `launch_profile` override. Never consulted on
+    /// the startup path unless a spawn explicitly requests it.
+    pub default_launch_profile: Option<String>,
     /// Whether freshly arrived output rows fade their TEXT in at the live tail
     /// (VE4). On by default; the off path schedules no extra wakes. The fade is
     /// a per-row foreground alpha ramp —
@@ -1489,6 +1493,7 @@ impl Default for Settings {
             shell_key_enhancement: DEFAULT_SHELL_KEY_ENHANCEMENT,
             restore_workspaces: DEFAULT_RESTORE_WORKSPACES,
             profile_auto_switch: DEFAULT_PROFILE_AUTO_SWITCH,
+            default_launch_profile: None,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
             new_output_fade_ms: DEFAULT_NEW_OUTPUT_FADE_MS,
             window_border: DEFAULT_WINDOW_BORDER,

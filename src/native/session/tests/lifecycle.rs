@@ -725,6 +725,42 @@ fn new_workspace_in_threads_cwd_and_appends_like_new_workspace() {
     assert_eq!(set.workspace_name(1), Some("Workspace 2"));
 }
 
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "winit EventLoop cannot be built off the main thread on macOS"
+)]
+#[test]
+fn new_workspace_with_effective_binds_launch_profile_atomically() {
+    let Some((mut set, _event_loop)) = tabset_with_proxy_for_test() else {
+        return;
+    };
+    let grid = Dimensions::new(20, 8);
+    let effective = crate::profiles::EffectiveLaunch {
+        settings: crate::settings::Settings::default(),
+        shell: None,
+        command: None,
+        working_directory: None,
+        env: Default::default(),
+        connection: None,
+        layout: None,
+        title: None,
+        profile_name: Some("dev".to_owned()),
+        warnings: Vec::new(),
+    };
+    let token = set
+        .new_workspace_with_effective(grid, "dev", &effective)
+        .expect("spawn profile-backed workspace");
+    assert_eq!(set.workspace_count(), 2);
+    assert_eq!(set.active_workspace_index(), 1);
+    assert_eq!(set.active_workspace_launch_profile(), Some("dev"));
+    assert_eq!(set.active_id(), token);
+    assert_eq!(
+        set.get(token)
+            .and_then(|session| session.launch_profile.as_deref()),
+        Some("dev")
+    );
+}
+
 #[test]
 fn move_tab_to_workspace_splices_the_tab_without_touching_the_active() {
     // ws0 holds tokens [0, 1]; ws1 holds [2]. Active stays ws0.

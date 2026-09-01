@@ -35,6 +35,7 @@ use super::open_with_overlay::OpenWithOverlaySignature;
 use super::options::NativeOptions;
 use super::overlay::{OverlayMode, OverlayRenderSignature};
 use super::palette_overlay::PaletteOverlaySignature;
+use super::profile_picker::ProfilePickerSignature;
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 use super::render_helpers::{
     CursorAnimKey, CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature,

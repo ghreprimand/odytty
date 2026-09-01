@@ -692,8 +692,10 @@ not a stretch goal.
 - [ ] Named launch profiles (v0.14.0): schema, precedence, storage, migration,
       Profile Manager CRUD, palette/CLI/`--profile` launch routing, workspace
       `launch_profile` binding, per-pane restoration, saved-layout open, opt-in
-      host/directory auto-switch, cached shell discovery, and connection-manager
-      profile launch rows are in-tree (`docs/v0.14.0-profiles-foundation.md`).
+      host/directory auto-switch, cached shell discovery, connection-manager
+      profile launch rows, the adjacent `+` profile chooser, context-menu
+      "with Profile" rows, and the global `default_launch_profile` with a
+      workspace override are in-tree (`docs/v0.14.0-profiles-foundation.md`).
 - [x] External palette following (v0.14.0): provider-neutral opt-in follow mode,
       content-hash reload, complete-palette fail-closed parsing, last-known-good
       retention, settings + profile appearance fields, and independent

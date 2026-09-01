@@ -310,6 +310,10 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.export_overlay_profile(&name);
             }
+            OverlayOutcome::SetDefaultLaunchProfile(name) => {
+                self.flush_pending_overlay_settings();
+                self.set_global_default_launch_profile(&name);
+            }
             // IN2: the menu closed itself before emitting these; run the action.
             OverlayOutcome::ContextMenuCopy => {
                 self.flush_pending_overlay_settings();
@@ -420,6 +424,22 @@ impl App {
             OverlayOutcome::ContextMenuNewWorkspace => {
                 self.flush_pending_overlay_settings();
                 self.handle_new_workspace();
+            }
+            OverlayOutcome::ContextMenuNewTabWithProfile => {
+                self.flush_pending_overlay_settings();
+                self.open_profile_picker_for_new_tab();
+            }
+            OverlayOutcome::ContextMenuNewWorkspaceWithProfile => {
+                self.flush_pending_overlay_settings();
+                self.open_profile_picker_for_new_workspace();
+            }
+            OverlayOutcome::ProfilePickerNewTab(name) => {
+                self.flush_pending_overlay_settings();
+                self.handle_new_tab_with_profile(&name);
+            }
+            OverlayOutcome::ProfilePickerNewWorkspace(name) => {
+                self.flush_pending_overlay_settings();
+                self.handle_new_workspace_with_profile(&name);
             }
             // Duplicate Workspace: a fresh workspace whose first shell opens in
             // the active pane's cwd (F1 cwd inheritance), mirroring Duplicate Tab

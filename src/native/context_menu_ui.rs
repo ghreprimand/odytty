@@ -82,7 +82,7 @@ use crate::settings::BindableAction;
 /// adds Close Pane for 24. The five
 /// ODP-2C connection-row actions (Open in New Tab / Open in New Workspace / Bind
 /// Current Workspace / Edit / Remove) show ONLY on the `ConnectionRow` surface.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 55;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 57;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -99,36 +99,37 @@ pub(super) const CONTEXT_MENU_SEPARATOR_ROW: usize = 5;
 /// Tab row, tightening the tab-actions section to New Tab / New Window / Close
 /// Tab.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 9;
+pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 10;
 
 /// Body row index of the third visual separator (with-selection reference),
 /// between the split actions and the workspace section (New / Rename / Close
 /// Workspace).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 12;
+pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 13;
 
 /// Body row index of the fourth visual separator (with-selection reference),
 /// between the workspace section and Settings. The unbound reference shows the
 /// Bind-to-Host row plus the whole-app Save as Layout, the single-workspace Save
-/// Workspace as Layout, and Open Layout, so the section is seven items long
-/// (LAYOUT-SURFACE + SAVE-ALL-LAYOUT).
+/// Workspace as Layout, and Open Layout, so the section is eight items long
+/// (v0.14 profile rows plus LAYOUT-SURFACE + SAVE-ALL-LAYOUT).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 20;
+pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 22;
 
 /// Body row index of the fifth visual separator (with-selection reference),
 /// between Settings and the launcher section (Connection Manager / Command
 /// Palette / Session Replay).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 22;
+pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 24;
 
 /// Total body rows in the **with-selection** single-pane content reference:
-/// twenty-four visible items plus five separator lines (Close Pane hidden;
+/// twenty-six visible items plus five separator lines (Close Pane hidden;
 /// Rename Tab dropped from the content menu; the workspace section adds New /
-/// Rename / Close Workspace, the conditional Bind-to-Host row, the whole-app
-/// Save as Layout, Save Workspace as Layout, Open Layout, and one separator).
-/// Production uses [`ContextMenuUi::body_row_count`] for the live count.
+/// New with Profile / Rename / Close Workspace, the conditional Bind-to-Host
+/// row, the whole-app Save as Layout, Save Workspace as Layout, Open Layout, and
+/// one separator). Production uses [`ContextMenuUi::body_row_count`] for the
+/// live count.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 29;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 31;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -194,25 +195,24 @@ impl ContextMenuSurface {
 
 /// Map a selectable item index to its body row, accounting for the five
 /// separators. With-selection single-pane reference: items 0–4 (editing) sit at
-/// body rows 0–4; items 5–7 (tab actions: New Tab / New Window / Close Tab) sit
-/// at body rows 6–8; items 8–9 (splits) sit at body rows 10–11; items 10–16
-/// (workspace: New / Rename / Close Workspace / Bind to Host / Save as Layout /
-/// Save Workspace as Layout / Open Layout) sit at body rows 13–19; Settings
-/// (index 17) sits at body row 21; the launcher items 18–23 sit at body rows
-/// 23–28.
+/// body rows 0–4; items 5–8 (tab actions: New Tab / New Tab with Profile / New
+/// Window / Close Tab) sit at body rows 6–9; items 9–10 (splits) sit at body
+/// rows 11–12; items 11–18 (workspace section) sit at body rows 14–21; Settings
+/// (index 19) sits at body row 23; the launcher items 20–25 sit at body rows
+/// 25–30.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    // With-selection reference: five separators at body rows 5, 9, 12, 20, 22,
-    // so the launcher section (items 18+) shifts by five, Settings (item 17) by
-    // four, the workspace section (items 10-16) by three, the splits (items 8-9)
-    // by two, and the tab actions (items 5-7) by one.
-    if item_index >= 18 {
+    // With-selection reference: five separators at body rows 5, 10, 13, 22, 24,
+    // so the launcher section (items 20+) shifts by five, Settings (item 19) by
+    // four, the workspace section (items 11-18) by three, the splits (items 9-10)
+    // by two, and the tab actions (items 5-8) by one.
+    if item_index >= 20 {
         item_index + 5
-    } else if item_index >= 17 {
+    } else if item_index >= 19 {
         item_index + 4
-    } else if item_index >= 10 {
+    } else if item_index >= 11 {
         item_index + 3
-    } else if item_index >= 8 {
+    } else if item_index >= 9 {
         item_index + 2
     } else if item_index >= CONTEXT_MENU_SEPARATOR_ROW {
         item_index + 1

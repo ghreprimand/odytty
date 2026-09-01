@@ -1034,8 +1034,11 @@ fn tab_bar_hit_test_reports_switch_close_and_new_actions() {
     app.set_pointer_px_for_test(188.0, 8.0);
     assert_eq!(app.tab_bar_hit_for_test(), Some("close"));
 
-    app.set_pointer_px_for_test(628.0, 8.0);
+    app.set_pointer_px_for_test(612.0, 8.0);
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"));
+
+    app.set_pointer_px_for_test(628.0, 8.0);
+    assert_eq!(app.tab_bar_hit_for_test(), Some("new_profile"));
 }
 
 #[test]
@@ -1451,7 +1454,7 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
 
     // RAIL-PLUS-GAP: the `+` anchors a dead gap below slot 1's end row (end 6 +
     // gap 1 = row 7); row 6 is the dead separator. Centre y = 7*16 + 8 = 120.
-    app.set_pointer_px_for_test(64.0, 120.0);
+    app.set_pointer_px_for_test(20.0, 120.0);
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"), "+ slot → new");
     // The dead separator row (6, centre y = 104) is not a hit.
     app.set_pointer_px_for_test(64.0, 104.0);
@@ -6906,7 +6909,7 @@ fn the_rail_plus_slot_resolves_to_a_new_workspace_hit() {
     // RAIL-PLUS-GAP: the `+` anchors a dead gap below workspace 1's end row
     // (row 7 centre y = 7*16 + 8 = 120), with the dead separator on row 6,
     // mirroring the tab-rail `+` geometry.
-    app.set_pointer_px_for_test(64.0, 120.0);
+    app.set_pointer_px_for_test(20.0, 120.0);
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"), "+ slot → new");
     assert_eq!(
         app.chrome_hit_band_for_test(),

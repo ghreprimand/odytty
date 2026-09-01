@@ -19,6 +19,9 @@ pub(in crate::native) enum ContextMenuItem {
     JumpFailedCommandNext,
     ExportCommandOutput,
     NewTab,
+    /// Open the named-profile picker to spawn a new tab (v0.14). Catalog load is
+    /// on-demand when the picker opens; plain New Tab stays one-click.
+    NewTabWithProfile,
     /// Launch another top-level OdyTTY window (F1). Same action as the
     /// `Ctrl+Shift+N` chord; a fresh process instance, not a tab.
     NewWindow,
@@ -98,6 +101,9 @@ pub(in crate::native) enum ContextMenuItem {
     /// Workspace-scoped: shown on the `WorkspaceSlot` / `WorkspaceRailEmpty`
     /// surfaces (rail `+` slot / rail right-click). No default chord.
     NewWorkspace,
+    /// Open the named-profile picker to create a workspace and its first
+    /// profile-backed tab atomically (v0.14).
+    NewWorkspaceWithProfile,
     /// Rename the right-clicked workspace in place. Workspace-scoped
     /// (`WorkspaceSlot`); opens the shared rename field targeting the slot.
     RenameWorkspace,
@@ -218,6 +224,7 @@ impl ContextMenuItem {
         Self::JumpFailedCommandNext,
         Self::ExportCommandOutput,
         Self::NewTab,
+        Self::NewTabWithProfile,
         Self::NewWindow,
         Self::RenameTab,
         Self::CloseTab,
@@ -228,6 +235,7 @@ impl ContextMenuItem {
         // section and before Settings (their ALL position drives that order),
         // giving a distinct workspace group between panes and Settings.
         Self::NewWorkspace,
+        Self::NewWorkspaceWithProfile,
         Self::RenameWorkspace,
         Self::CloseWorkspace,
         // ODP-6B: the conditional bind/unbind pair sits in the workspace section
@@ -300,6 +308,7 @@ impl ContextMenuItem {
             | Self::JumpFailedCommandNext
             | Self::ExportCommandOutput => 0,
             Self::NewTab
+            | Self::NewTabWithProfile
             | Self::NewLocalTab
             | Self::DuplicateTab
             | Self::NewWindow
@@ -314,6 +323,7 @@ impl ContextMenuItem {
             | Self::ReplaceTabWithHost => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
             Self::NewWorkspace
+            | Self::NewWorkspaceWithProfile
             | Self::DuplicateWorkspace
             | Self::RenameWorkspace
             | Self::CloseWorkspace
@@ -367,12 +377,14 @@ impl ContextMenuItem {
             Self::JumpFailedCommandNext => "Next Failed Command",
             Self::ExportCommandOutput => "Export Command Output\u{2026}",
             Self::NewTab => "New Tab",
+            Self::NewTabWithProfile => "New Tab with Profile\u{2026}",
             Self::NewWindow => "New Window",
             Self::RenameTab => "Rename Tab",
             Self::CloseTab => "Close Tab",
             Self::CloseOtherTabs => "Close Other Tabs",
             Self::MoveToWorkspace => "Move to Workspace…",
             Self::NewWorkspace => "New Workspace",
+            Self::NewWorkspaceWithProfile => "New Workspace with Profile\u{2026}",
             Self::DuplicateWorkspace => "Duplicate Workspace",
             Self::RenameWorkspace => "Rename Workspace",
             Self::CloseWorkspace => "Close Workspace",
@@ -469,6 +481,8 @@ impl ContextMenuItem {
             // Workspace actions have no default chord (rail / menu / palette
             // cover them; ODP-5).
             | Self::NewWorkspace
+            | Self::NewTabWithProfile
+            | Self::NewWorkspaceWithProfile
             | Self::RenameWorkspace
             | Self::CloseWorkspace
             // RAIL-REORDER: reorder actions are menu-only; no chord.

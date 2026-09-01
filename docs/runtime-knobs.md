@@ -179,6 +179,7 @@ environment variable was not set at startup.
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `restore_workspaces` | `ODYTTY_RESTORE_WORKSPACES` | `on`, `off` | `off` |
 | `profile_auto_switch` | `ODYTTY_PROFILE_AUTO_SWITCH` | `on`, `off` | `off` |
+| `default_launch_profile` | `ODYTTY_DEFAULT_LAUNCH_PROFILE` | Profile name | unset |
 | `osc52_write` | `ODYTTY_OSC52_WRITE` | `off`, `ask`, `on` | `ask` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |
 | `copy_on_select` | `ODYTTY_COPY_ON_SELECT` | `on`, `off` | `off` |

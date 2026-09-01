@@ -14,7 +14,7 @@ impl ContextMenuUi {
         // snapshots entirely (a tab has no grid path under it).
         match self.surface {
             ContextMenuSurface::TabSlot(_) => {
-                let mut items = vec![ContextMenuItem::NewTab];
+                let mut items = vec![ContextMenuItem::NewTab, ContextMenuItem::NewTabWithProfile];
                 // F6-W5: when the workspace is bound to a host, New Tab opens a
                 // remote tab, so offer a local-shell escape right beside it.
                 if self.bound_workspace {
@@ -44,7 +44,9 @@ impl ContextMenuUi {
             ContextMenuSurface::TabStripEmpty => {
                 return vec![
                     ContextMenuItem::NewTab,
+                    ContextMenuItem::NewTabWithProfile,
                     ContextMenuItem::NewWorkspace,
+                    ContextMenuItem::NewWorkspaceWithProfile,
                     // LAYOUT-SURFACE: Open Layout is reachable from the empty strip.
                     ContextMenuItem::OpenLayout,
                     ContextMenuItem::CommandPalette,
@@ -57,6 +59,7 @@ impl ContextMenuUi {
             ContextMenuSurface::WorkspaceSlot(idx) => {
                 let mut items = vec![
                     ContextMenuItem::NewWorkspace,
+                    ContextMenuItem::NewWorkspaceWithProfile,
                     // DUPLICATE-WORKSPACE rides beside New Workspace: a fresh
                     // workspace whose shell opens in the active pane's cwd.
                     ContextMenuItem::DuplicateWorkspace,
@@ -96,6 +99,7 @@ impl ContextMenuUi {
                 // full session is reachable from a bare rail.
                 return vec![
                     ContextMenuItem::NewWorkspace,
+                    ContextMenuItem::NewWorkspaceWithProfile,
                     ContextMenuItem::SaveAllLayout,
                     ContextMenuItem::OpenLayout,
                     ContextMenuItem::Settings,

@@ -84,6 +84,7 @@ mod panic_log;
 mod paste_policy;
 mod persistence;
 mod profile_manager;
+mod profile_picker;
 mod pty;
 mod pty_writer;
 mod render_helpers;

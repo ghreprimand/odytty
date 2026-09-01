@@ -12,6 +12,7 @@ use crate::native::key_remap_ui::KeyRemapLine;
 use crate::native::onboarding::OnboardingLine;
 use crate::native::open_with_overlay::OpenWithOverlayLine;
 use crate::native::palette_overlay::PaletteOverlayLine;
+use crate::native::profile_picker::ProfilePickerLine;
 use crate::native::replay_overlay::ReplayOverlayLine;
 use crate::native::session_attach_overlay::SessionAttachOverlayLine;
 use crate::native::theme_builder::ThemeBuilderLine;
@@ -52,6 +53,9 @@ impl OverlayUi {
             OverlayMode::WorkspacePicker => {
                 "\u{2190} Move to Workspace\u{2026}  (Esc = back)".to_owned()
             }
+            OverlayMode::ProfilePicker => {
+                format!("\u{2190} {}  (Esc = back)", self.profile_picker.title())
+            }
             OverlayMode::ImageView => {
                 format!("\u{2190} {}  (Esc = close)", self.image_view_caption)
             }
@@ -86,6 +90,7 @@ impl OverlayUi {
             OverlayMode::SessionAttach => self.session_attach.scroll_indicator(body_height),
             OverlayMode::OpenWith => self.open_with.scroll_indicator(body_height),
             OverlayMode::WorkspacePicker => self.workspace_picker.scroll_indicator(body_height),
+            OverlayMode::ProfilePicker => self.profile_picker.scroll_indicator(body_height),
             OverlayMode::CommandPalette => self.command_palette.scroll_indicator(body_height),
             OverlayMode::ThemeBuilder => self.theme_builder.scroll_indicator(body_height),
             OverlayMode::ProfileManager => self.profile_manager.scroll_indicator(body_height),
@@ -129,6 +134,7 @@ impl OverlayUi {
             session_attach: self.session_attach.render_signature(),
             open_with: self.open_with.render_signature(),
             workspace_picker: self.workspace_picker.render_signature(),
+            profile_picker: self.profile_picker.render_signature(),
         }
     }
 }
@@ -458,6 +464,12 @@ impl OverlayUi {
                 .collect(),
             OverlayMode::WorkspacePicker => self
                 .workspace_picker
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
+            OverlayMode::ProfilePicker => self
+                .profile_picker
                 .visible_lines(body_width, body_height)
                 .into_iter()
                 .map(OverlayLine::from)
@@ -967,6 +979,17 @@ impl From<OpenWithOverlayLine> for OverlayLine {
 
 impl From<WorkspacePickerLine> for OverlayLine {
     fn from(line: WorkspacePickerLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
+            bold: line.bold,
+        }
+    }
+}
+
+impl From<ProfilePickerLine> for OverlayLine {
+    fn from(line: ProfilePickerLine) -> Self {
         Self {
             text: line.text,
             focused: line.focused,

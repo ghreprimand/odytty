@@ -142,6 +142,12 @@ const RAIL_LABEL_PAD: usize = 1;
 /// padding).
 pub(super) const SLOT_LABEL_START_COL: usize = SLOT_INSET_COLS + RAIL_LABEL_PAD;
 
+/// Column of the profile-chooser chevron in the new-workspace row: two columns
+/// right of the `+` glyph (`SLOT_LABEL_START_COL`). The rail hit-test splits the
+/// new-workspace row at this column so the painted chevron and the picker hit
+/// region coincide (clamped to the last rail column when the rail is narrow).
+pub(super) const NEW_WORKSPACE_PICKER_COL: usize = SLOT_LABEL_START_COL + 2;
+
 /// Non-label columns a slot reserves around its title (F4-P4): the left label
 /// start (`SLOT_LABEL_START_COL`) plus the right inset column and the close-`×`
 /// cell. The label's usable inner budget is therefore
@@ -459,32 +465,50 @@ impl TabRail {
         // brightens to the full active label (and gains a whisper fill) on hover,
         // so hover stays clearly stronger than the resting state.
         if let Some((nt_start, nt_end)) = layout.new_tab_rows {
-            let is_hovered = matches!(self.hover, Some(TabHit::NewTab));
-            let (nt_bg, nt_fg) = if is_hovered {
-                (hover_fill, active_lbl)
-            } else {
-                (panel_surface, rgb(tab_chrome::new_slot_plus_rest(colors)))
+            let plus_hovered = matches!(self.hover, Some(TabHit::NewTab));
+            let picker_hovered = matches!(self.hover, Some(TabHit::NewTabProfilePicker));
+            let slot_bg_fg = |hovered: bool| {
+                if hovered {
+                    (hover_fill, active_lbl)
+                } else {
+                    (panel_surface, rgb(tab_chrome::new_slot_plus_rest(colors)))
+                }
             };
-            if is_hovered {
+            let (plus_bg, plus_fg) = slot_bg_fg(plus_hovered);
+            if plus_hovered {
                 for row in nt_start..nt_end.min(grid_rows) {
                     for col in 0..rail_cols {
-                        cells[row * rail_cols + col].attrs.background = nt_bg;
+                        cells[row * rail_cols + col].attrs.background = plus_bg;
                     }
                 }
             }
-            let mut a = Attrs::default();
-            a.foreground = nt_fg;
-            a.background = nt_bg;
-            // F4-P1 floating-`+` fix: left-align the `+` at the label column (an
-            // Arc-style "+ new tab" row) rather than centering it, and anchor it
-            // one gap below the last slot's LABEL row (compute_rail_layout), so
-            // it reads as the next list item instead of drifting far below.
+            let mut plus_attrs = Attrs::default();
+            plus_attrs.foreground = plus_fg;
+            plus_attrs.background = plus_bg;
             let prow = nt_start + (nt_end - nt_start) / 2;
             let pcol = SLOT_LABEL_START_COL.min(rail_cols.saturating_sub(1));
             if prow < grid_rows && pcol < rail_cols {
                 let g = &mut cells[prow * rail_cols + pcol];
                 g.ch = '+';
-                g.attrs = a;
+                g.attrs = plus_attrs;
+            }
+
+            let (picker_bg, picker_fg) = slot_bg_fg(picker_hovered);
+            if picker_hovered {
+                for row in nt_start..nt_end.min(grid_rows) {
+                    for col in 0..rail_cols {
+                        cells[row * rail_cols + col].attrs.background = picker_bg;
+                    }
+                }
+            }
+            let mut picker_attrs = Attrs::default();
+            picker_attrs.foreground = picker_fg;
+            picker_attrs.background = picker_bg;
+            let chev_col = NEW_WORKSPACE_PICKER_COL.min(rail_cols.saturating_sub(1));
+            if prow < grid_rows && chev_col < rail_cols {
+                let g = &mut cells[prow * rail_cols + chev_col];
+                g.ch = '\u{25be}';
+                g.attrs = picker_attrs;
             }
         }
 

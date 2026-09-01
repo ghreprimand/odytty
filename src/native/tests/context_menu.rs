@@ -138,6 +138,7 @@ fn activate_workspace_rename(app: &mut App, idx: usize) {
     assert!(app.context_menu_open_for_test(), "workspace menu opened");
     app.drive_named_key_for_test(NamedKey::ArrowDown);
     app.drive_named_key_for_test(NamedKey::ArrowDown);
+    app.drive_named_key_for_test(NamedKey::ArrowDown);
     app.drive_named_key_for_test(NamedKey::Enter);
     assert!(
         !app.overlay_open_for_test(),
@@ -340,9 +341,17 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
             ..
         }
     ));
-    // F1: New Window follows New Tab in the tab-actions section.
+    // F1: New Tab with Profile follows New Tab in the tab-actions section.
     assert!(matches!(
         rows[7],
+        ContextMenuRow::Item {
+            label: "New Tab with Profile\u{2026}",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[8],
         ContextMenuRow::Item {
             label: "New Window",
             enabled: true,
@@ -358,7 +367,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     )));
     assert!(matches!(
-        rows[8],
+        rows[9],
         ContextMenuRow::Item {
             label: "Close Tab",
             enabled: true,
@@ -366,7 +375,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[10],
+        rows[11],
         ContextMenuRow::Item {
             label: "Split Right",
             enabled: true,
@@ -374,7 +383,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[11],
+        rows[12],
         ContextMenuRow::Item {
             label: "Split Down",
             enabled: true,
@@ -384,7 +393,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     // Workspace section: after Split, before Settings, bracketed by the third
     // (split|workspace) and fourth (workspace|Settings) separators.
     assert!(matches!(
-        rows[13],
+        rows[14],
         ContextMenuRow::Item {
             label: "New Workspace",
             enabled: true,
@@ -392,7 +401,15 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[14],
+        rows[15],
+        ContextMenuRow::Item {
+            label: "New Workspace with Profile\u{2026}",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[16],
         ContextMenuRow::Item {
             label: "Rename Workspace",
             enabled: true,
@@ -400,7 +417,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[15],
+        rows[17],
         ContextMenuRow::Item {
             label: "Close Workspace",
             enabled: true,
@@ -410,7 +427,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     // ODP-6B: an unbound workspace shows Bind to Host as the workspace section's
     // last row, right before the workspace|Settings separator.
     assert!(matches!(
-        rows[16],
+        rows[18],
         ContextMenuRow::Item {
             label: "Bind to Host\u{2026}",
             enabled: true,
@@ -421,7 +438,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     // workspace Save Workspace as Layout, and Open Layout round out the workspace
     // section, right before the workspace|Settings separator.
     assert!(matches!(
-        rows[17],
+        rows[19],
         ContextMenuRow::Item {
             label: "Save as Layout\u{2026}",
             enabled: true,
@@ -429,7 +446,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[18],
+        rows[20],
         ContextMenuRow::Item {
             label: "Save Workspace as Layout\u{2026}",
             enabled: true,
@@ -437,7 +454,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[19],
+        rows[21],
         ContextMenuRow::Item {
             label: "Open Layout\u{2026}",
             enabled: true,
@@ -449,7 +466,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         ContextMenuRow::Separator
     ));
     assert!(matches!(
-        rows[21],
+        rows[23],
         ContextMenuRow::Item {
             label: "Settings",
             enabled: true,
@@ -464,7 +481,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     ));
     // F3: Keyboard Shortcuts is the first launcher item, right below Settings.
     assert!(matches!(
-        rows[23],
+        rows[25],
         ContextMenuRow::Item {
             label: "Keyboard Shortcuts",
             enabled: true,
@@ -472,7 +489,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[24],
+        rows[26],
         ContextMenuRow::Item {
             label: "Connection Manager",
             enabled: true,
@@ -480,7 +497,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[25],
+        rows[27],
         ContextMenuRow::Item {
             label: "Command Palette",
             enabled: true,
@@ -488,7 +505,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[26],
+        rows[28],
         ContextMenuRow::Item {
             label: "Session Replay",
             enabled: true,
@@ -650,11 +667,11 @@ fn right_clicking_tab_enables_rename_for_that_tab() {
         "right-clicking a tab body enables Rename Tab"
     );
 
-    // F7: a tab right-click opens the tight TabSlot menu (New Tab / Duplicate
-    // Tab / Rename Tab · Close Tab / Close Other Tabs · New Window). Rename Tab
-    // is body row 2 => grid row 3 (menu spawned at top-left, body starts one row
-    // below the top border; Duplicate Tab now sits between New Tab and Rename).
-    app.set_pointer_cell_for_test(3, 2);
+    // F7: a tab right-click opens the tight TabSlot menu (New Tab / New Tab
+    // with Profile / Duplicate Tab / Rename Tab · Close Tab / Close Other
+    // Tabs · New Window). Rename Tab is body row 3 => grid row 4 (menu spawned
+    // at top-left, body starts one row below the top border).
+    app.set_pointer_cell_for_test(4, 2);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
     assert!(app.rename_active_for_test());
@@ -1713,9 +1730,10 @@ fn workspace_menu_settings_opens_tabs_and_panes() {
     };
     app.set_pointer_cell_for_test(5, 10);
     app.open_workspace_rail_menu_for_test(0);
-    // Settings is the eighth selectable row: New, Duplicate, Rename, Close,
-    // Bind, the two layout rows, then Settings in its trailing group.
-    for _ in 0..7 {
+    // Settings is the ninth selectable row: New, New with Profile, Duplicate,
+    // Rename, Close, Bind, the two layout rows, then Settings in its trailing
+    // group.
+    for _ in 0..8 {
         app.drive_overlay_key_for_test(
             winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
             false,

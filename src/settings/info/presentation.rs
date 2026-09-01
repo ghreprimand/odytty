@@ -170,6 +170,10 @@ impl Settings {
             "session_replay" => bool_display(self.session_replay).to_owned(),
             "restore_workspaces" => bool_display(self.restore_workspaces).to_owned(),
             "profile_auto_switch" => bool_display(self.profile_auto_switch).to_owned(),
+            "default_launch_profile" => self
+                .default_launch_profile
+                .clone()
+                .unwrap_or_else(|| "(System Default)".to_owned()),
             "shell_exit_closes" => self.shell_exit_closes.as_str().to_owned(),
             "interactive_urls" => bool_display(self.interactive_urls).to_owned(),
             "interactive_paths" => bool_display(self.interactive_paths).to_owned(),

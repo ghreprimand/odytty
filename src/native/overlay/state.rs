@@ -17,6 +17,7 @@ use crate::native::onboarding::OnboardingPanel;
 use crate::native::open_with_overlay::OpenWithOverlay;
 use crate::native::palette_overlay::PaletteOverlay;
 use crate::native::profile_manager::ProfileManager;
+use crate::native::profile_picker::{ProfilePicker, ProfilePickerEntry, ProfilePickerPurpose};
 use crate::native::replay_overlay::ReplayOverlay;
 use crate::native::session::SessionToken;
 use crate::native::session_attach_overlay::SessionAttachOverlay;
@@ -52,6 +53,7 @@ pub(in crate::native) struct OverlayUi {
     pub(super) session_attach: SessionAttachOverlay,
     pub(super) open_with: OpenWithOverlay,
     pub(super) workspace_picker: WorkspacePicker,
+    pub(super) profile_picker: ProfilePicker,
     /// Caption (the image's filename) shown in the C4 image-viewer overlay's
     /// body. The image itself draws through the GPU image layer, over the panel;
     /// this presentation-only string is the only state the viewer mode carries.
@@ -159,6 +161,7 @@ impl OverlayUi {
             session_attach: SessionAttachOverlay::new(),
             open_with: OpenWithOverlay::new(),
             workspace_picker: WorkspacePicker::new(),
+            profile_picker: ProfilePicker::new(),
             image_view_caption: String::new(),
             risky_paste: RiskyPasteDialog::default(),
             attach_choice_session_id: String::new(),
@@ -323,9 +326,10 @@ impl OverlayUi {
     pub(in crate::native) fn open_profile_manager(
         &mut self,
         catalog: crate::profiles::ProfileCatalog,
+        global_default: Option<&str>,
     ) {
         self.panel.end_slider_drag();
-        self.profile_manager.open(catalog);
+        self.profile_manager.open(catalog, global_default);
         self.mode = OverlayMode::ProfileManager;
         self.open = true;
     }
@@ -469,6 +473,21 @@ impl OverlayUi {
         self.theme_builder.end_channel_drag();
         self.workspace_picker.open_layouts(names);
         self.mode = OverlayMode::WorkspacePicker;
+        self.open = true;
+    }
+
+    /// Open the named-profile picker for a direct New Tab or New Workspace menu
+    /// route (v0.14). The App seeds platform-applicable profiles lazily here;
+    /// default New Tab / New Workspace never load the catalog.
+    pub(in crate::native) fn open_profile_picker(
+        &mut self,
+        entries: Vec<ProfilePickerEntry>,
+        purpose: ProfilePickerPurpose,
+    ) {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.profile_picker.open(entries, purpose);
+        self.mode = OverlayMode::ProfilePicker;
         self.open = true;
     }
 
@@ -666,6 +685,7 @@ impl OverlayUi {
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
             | OverlayMode::WorkspacePicker
+            | OverlayMode::ProfilePicker
             | OverlayMode::ImageView
             | OverlayMode::RiskyPaste
             | OverlayMode::ConfirmClose
@@ -709,6 +729,7 @@ impl OverlayUi {
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
             | OverlayMode::WorkspacePicker
+            | OverlayMode::ProfilePicker
             | OverlayMode::ImageView
             | OverlayMode::RiskyPaste
             | OverlayMode::ConfirmClose

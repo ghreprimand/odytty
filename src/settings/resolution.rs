@@ -772,6 +772,10 @@ impl Settings {
             DEFAULT_PROFILE_AUTO_SWITCH,
             &mut warn,
         );
+        let default_launch_profile = get(DEFAULT_LAUNCH_PROFILE_ENV)
+            .and_then(|value| value.into_string().ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         let new_output_fade = parse_bool_setting(
             get(NEW_OUTPUT_FADE_ENV).as_deref(),
             NEW_OUTPUT_FADE_ENV,
@@ -1025,6 +1029,7 @@ impl Settings {
             shell_key_enhancement,
             restore_workspaces,
             profile_auto_switch,
+            default_launch_profile,
             new_output_fade,
             new_output_fade_ms,
             window_border,

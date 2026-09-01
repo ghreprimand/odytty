@@ -12,20 +12,28 @@ use crate::profiles::{
 };
 use crate::settings::{ConfigValues, SETTING_ENV_KEYS, Settings};
 
-/// Resolve startup launch inputs when a CLI profile name is present.
+/// Resolve startup launch inputs for the first window.
 ///
-/// Returns merged settings, an optional local spawn plan, and any resolver
-/// warnings. When no profile is requested the input settings pass through
-/// unchanged and no catalog load occurs.
+/// The selected profile is the CLI `--profile` name when present, otherwise the
+/// saved global `default_launch_profile`. Returns merged settings, an optional
+/// local spawn plan, and any resolver warnings. When neither names a profile
+/// the input settings pass through unchanged and no catalog load occurs, so the
+/// System Default startup path never scans the profile directory. A configured
+/// default performs one bounded local catalog read; a missing or invalid name
+/// falls back to the built-in System Default with a warning and never rewrites
+/// the saved default.
 pub(crate) fn resolve_startup_launch(
     options: &NativeOptions,
     settings: Settings,
 ) -> (Settings, Option<LocalLaunchPlan>, Vec<String>) {
-    let Some(_profile_name) = options.profile_name.as_deref() else {
+    let Some(profile_name) = pick_default_profile_name(
+        options.profile_name.as_deref(),
+        settings.default_launch_profile.as_deref(),
+    ) else {
         return (settings, None, Vec::new());
     };
     let catalog = load_profile_catalog();
-    let cli = launch_cli_from_options(options, options.profile_name.as_deref());
+    let cli = launch_cli_from_options(options, Some(profile_name));
     let effective = resolve_effective_launch(&catalog, &cli, &RestoredLaunchOverrides::default());
     let plan = LocalLaunchPlan::from_effective(&effective);
     (effective.settings, Some(plan), effective.warnings)
@@ -114,6 +122,44 @@ pub(crate) fn resolve_for_new_local_tab(
     )
 }
 
+/// Pick the profile name for plain New Tab / New Workspace before catalog load.
+pub(crate) fn pick_default_profile_name<'a>(
+    workspace_launch_profile: Option<&'a str>,
+    global_default: Option<&'a str>,
+) -> Option<&'a str> {
+    workspace_launch_profile
+        .filter(|name| !name.is_empty())
+        .or_else(|| global_default.filter(|name| !name.is_empty()))
+}
+
+/// Resolve launch context for plain New Tab / New Workspace when the workspace
+/// has a `launch_profile` override or the global default is configured.
+/// Returns `None` when neither applies (System Default / bare local spawn).
+pub(crate) fn resolve_default_launch_for_new_tab(
+    settings: &Settings,
+    workspace_launch_profile: Option<&str>,
+    inherited_cwd: Option<PathBuf>,
+) -> Option<EffectiveLaunch> {
+    let picked = pick_default_profile_name(
+        workspace_launch_profile,
+        settings.default_launch_profile.as_deref(),
+    )?;
+    if workspace_launch_profile.is_some_and(|name| !name.is_empty()) {
+        return Some(resolve_for_new_local_tab(
+            settings,
+            workspace_launch_profile,
+            inherited_cwd,
+            None,
+        ));
+    }
+    Some(resolve_for_new_local_tab(
+        settings,
+        None,
+        inherited_cwd,
+        Some(picked),
+    ))
+}
+
 /// Resolve launch context when restoring a persisted local leaf with a named
 /// profile. Captured cwd travels through [`RestoredLaunchOverrides`] so it
 /// outranks the profile's configured starting directory without masquerading
@@ -198,6 +244,15 @@ pub(crate) fn profile_display_names(catalog: &ProfileCatalog) -> Vec<(String, St
         .collect();
     names.sort_by(|(a, _), (b, _)| a.cmp(b));
     names
+}
+
+pub(crate) fn profile_picker_entries(
+    catalog: &ProfileCatalog,
+) -> Vec<crate::native::profile_picker::ProfilePickerEntry> {
+    profile_display_names(catalog)
+        .into_iter()
+        .map(|(name, label)| crate::native::profile_picker::ProfilePickerEntry { name, label })
+        .collect()
 }
 
 pub(crate) fn spawn_restored_local_leaf(
@@ -325,6 +380,27 @@ mod tests {
         let bare = LaunchProfile::new("bare").expect("profile");
         catalog.profiles.insert("bare".to_owned(), bare);
         catalog
+    }
+
+    #[test]
+    fn pick_default_profile_prefers_workspace_override() {
+        assert_eq!(
+            super::pick_default_profile_name(Some("work"), Some("global")),
+            Some("work")
+        );
+    }
+
+    #[test]
+    fn pick_default_profile_falls_back_to_global() {
+        assert_eq!(
+            super::pick_default_profile_name(None, Some("global")),
+            Some("global")
+        );
+    }
+
+    #[test]
+    fn pick_default_profile_none_when_unset() {
+        assert_eq!(super::pick_default_profile_name(None, None), None);
     }
 
     #[test]

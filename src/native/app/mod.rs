@@ -159,6 +159,7 @@ mod pointer_motion;
 pub(super) use pointer::ChromeBand;
 pub(super) use pointer::{RailWorkspaceDrag, TopTabDrag};
 pub(crate) mod profile_launch;
+mod profile_picker_ui;
 mod profile_switch;
 mod prompt_jump;
 mod rail_autohide;

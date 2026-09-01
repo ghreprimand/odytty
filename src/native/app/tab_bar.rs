@@ -73,8 +73,11 @@ pub(in crate::native) const TAB_BAR_ROWS: u32 = 1;
 const MAX_TAB_COLS: usize = 24;
 /// Minimum column width per tab slot (must be ≥ TAB_PADDING + CLOSE_COLS + 1).
 const MIN_TAB_COLS: usize = 4;
-/// Columns reserved at the right of the bar for the ` + ` new-tab affordance.
-const NEW_TAB_COLS: usize = 3;
+/// Columns reserved at the right of the bar for the `+` new-tab affordance and
+/// the adjacent profile chooser chevron.
+pub(super) const NEW_TAB_PLUS_COLS: usize = 2;
+const NEW_TAB_PICKER_COLS: usize = 2;
+pub(super) const NEW_TAB_COLS: usize = NEW_TAB_PLUS_COLS + NEW_TAB_PICKER_COLS;
 /// Left-margin space inside each tab slot (columns before the label).
 const TAB_PADDING: usize = 1;
 /// Columns at the right of each slot reserved for the close button (`space + ×`).
@@ -125,8 +128,10 @@ pub(in crate::native) enum TabHit {
     Switch(usize),
     /// The pointer is over the `×` close affordance of tab `idx`.
     Close(usize),
-    /// The pointer is over the `+` new-tab affordance.
+    /// The pointer is over the `+` new-tab affordance (plain default launch).
     NewTab,
+    /// The pointer is over the adjacent profile-chooser chevron beside `+`.
+    NewTabProfilePicker,
     /// The pointer is over the workspace rail's bottom-edge auto-hide toggle
     /// (RAIL-AUTOHIDE-CTL). Only the vertical rail ever produces this; the top
     /// bar has no such control.
@@ -385,22 +390,38 @@ impl TabBar {
         // (brighter than an inactive tab label so it reads as an add control),
         // brightening further (and gaining a whisper fill) on hover.
         if let Some(nt_col) = layout.new_tab_col {
-            let is_hovered = matches!(self.hover, Some(TabHit::NewTab));
-            let (nt_bg, nt_fg) = if is_hovered {
-                (hover_fill, active_lbl)
-            } else {
-                (panel_surface, rest_plus)
+            let plus_hovered = matches!(self.hover, Some(TabHit::NewTab));
+            let picker_hovered = matches!(self.hover, Some(TabHit::NewTabProfilePicker));
+            let plus_bg_fg = |hovered: bool| {
+                if hovered {
+                    (hover_fill, active_lbl)
+                } else {
+                    (panel_surface, rest_plus)
+                }
             };
-            for col in nt_col..(nt_col + NEW_TAB_COLS).min(row.len()) {
-                row[col].attrs.background = nt_bg;
+            let (plus_bg, plus_fg) = plus_bg_fg(plus_hovered);
+            for col in nt_col..(nt_col + NEW_TAB_PLUS_COLS).min(row.len()) {
+                row[col].attrs.background = plus_bg;
             }
-            let mut a = Attrs::default();
-            a.foreground = nt_fg;
-            a.background = nt_bg;
-            // Centre the `+` in the NEW_TAB_COLS block (offset 1 from block start).
-            if let Some(glyph) = row.get_mut(nt_col + 1) {
+            let mut plus_attrs = Attrs::default();
+            plus_attrs.foreground = plus_fg;
+            plus_attrs.background = plus_bg;
+            if let Some(glyph) = row.get_mut(nt_col) {
                 glyph.ch = '+';
-                glyph.attrs = a;
+                glyph.attrs = plus_attrs;
+            }
+
+            let picker_col = nt_col + NEW_TAB_PLUS_COLS;
+            let (picker_bg, picker_fg) = plus_bg_fg(picker_hovered);
+            for col in picker_col..(picker_col + NEW_TAB_PICKER_COLS).min(row.len()) {
+                row[col].attrs.background = picker_bg;
+            }
+            let mut picker_attrs = Attrs::default();
+            picker_attrs.foreground = picker_fg;
+            picker_attrs.background = picker_bg;
+            if let Some(glyph) = row.get_mut(picker_col) {
+                glyph.ch = '\u{25be}';
+                glyph.attrs = picker_attrs;
             }
         }
 
@@ -818,7 +839,7 @@ mod tests {
         let label: String = out
             .glyphs
             .iter()
-            .filter(|g| g.ch != '+' && g.ch != '×' && g.ch != ' ')
+            .filter(|g| g.ch != '+' && g.ch != '×' && g.ch != ' ' && g.ch != '\u{25be}')
             .map(|g| g.ch)
             .collect();
         assert!(label.contains("zsh"), "label 'zsh' present in glyphs");
@@ -974,7 +995,7 @@ mod tests {
         let label: String = out
             .glyphs
             .iter()
-            .filter(|g| g.ch != '+' && g.ch != '×' && g.ch != ' ')
+            .filter(|g| g.ch != '+' && g.ch != '×' && g.ch != ' ' && g.ch != '\u{25be}')
             .map(|g| g.ch)
             .collect();
         assert!(label.contains('…'), "long title ends with '…'");
@@ -997,7 +1018,7 @@ mod tests {
         let label: String = out
             .glyphs
             .iter()
-            .filter(|g| g.ch != '+' && g.ch != '×' && g.ch != ' ')
+            .filter(|g| g.ch != '+' && g.ch != '×' && g.ch != ' ' && g.ch != '\u{25be}')
             .map(|g| g.ch)
             .collect();
         assert!(!label.contains('…'), "short title is not truncated");
@@ -1050,8 +1071,21 @@ mod tests {
         let src = MockSource::new(&["a"], 0);
         let layout = compute_layout(&src, GRID_COLS);
         let nt_col = layout.new_tab_col.expect("new-tab column present");
-        let hit = hit_at_col(nt_col + 1, &src);
-        assert_eq!(hit, TabHit::NewTab, "new-tab centre col → NewTab");
+        let hit = hit_at_col(nt_col, &src);
+        assert_eq!(hit, TabHit::NewTab, "new-tab plus col → NewTab");
+    }
+
+    #[test]
+    fn hit_test_new_tab_profile_picker() {
+        let src = MockSource::new(&["a"], 0);
+        let layout = compute_layout(&src, GRID_COLS);
+        let nt_col = layout.new_tab_col.expect("new-tab column present");
+        let hit = hit_at_col(nt_col + NEW_TAB_PLUS_COLS, &src);
+        assert_eq!(
+            hit,
+            TabHit::NewTabProfilePicker,
+            "profile chooser col → NewTabProfilePicker"
+        );
     }
 
     #[test]
