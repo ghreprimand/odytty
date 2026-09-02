@@ -1351,6 +1351,7 @@ dependencies = [
  "arboard",
  "bytemuck",
  "flate2",
+ "getrandom",
  "image",
  "libc",
  "objc2 0.5.2",

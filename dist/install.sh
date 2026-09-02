@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # OdyTTY one-line installer for Linux x86_64.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
+# Download the version-pinned installer release asset, review it, then run it:
+#   curl -fLO https://github.com/ghreprimand/odytty/releases/download/vX.Y.Z/odytty-X.Y.Z-install.sh
+#   bash odytty-X.Y.Z-install.sh
 #
 # Detects the package manager and installs the matching prebuilt artifact from
 # the latest GitHub release: a native .deb (apt/dpkg), a native .rpm (dnf/rpm),
 # or the portable binary tarball otherwise. The downloaded artifact is always
-# checksum-verified against the release SHA256SUMS before anything is installed.
+# signature-verified SHA256SUMS before anything is installed.
 #
 # This is Linux x86_64 only. On macOS it prints the Homebrew command; on Windows
 # it prints the Scoop command. Other architectures are pointed at the AppImage
@@ -14,20 +16,26 @@
 #
 #   --dry-run   print the planned actions and exit without downloading or
 #               installing (used by CI to smoke-test the script offline)
-#   --help      show this help
+#   --insecure-skip-signature
+#                skip Minisign manifest authentication (not recommended; trusts
+#                the delivery channel for SHA256SUMS)
+#   --help       show this help
 set -euo pipefail
 
 REPO="ghreprimand/odytty"
 BASE_URL="https://github.com/${REPO}/releases/latest/download"
 DRY_RUN=0
+INSECURE_SKIP_SIGNATURE=0
+MINISIGN_PUBLIC_KEY='RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev'
 
 usage() {
-    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --dry-run) DRY_RUN=1 ;;
+        --insecure-skip-signature) INSECURE_SKIP_SIGNATURE=1 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
     esac
@@ -88,6 +96,7 @@ fi
 
 url="${BASE_URL}/${artifact}"
 sums_url="${BASE_URL}/SHA256SUMS"
+signature_url="${BASE_URL}/SHA256SUMS.minisig"
 
 # sudo policy: root installs directly; a non-root user with sudo uses it for the
 # system package managers and for a /usr/local tarball install; without sudo the
@@ -119,7 +128,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
     say "OdyTTY installer plan (dry run):"
     say "  os=$os arch=$arch manager=$kind"
     say "  download $url"
-    say "  verify   against $sums_url"
+    say "  verify   SHA256SUMS.minisig against the pinned OdyTTY release key"
+    say "  verify   $artifact against the authenticated SHA256SUMS"
     describe_install
     exit 0
 fi
@@ -143,6 +153,19 @@ say "Downloading $artifact ..."
 dl "$url" "$artifact"
 say "Downloading SHA256SUMS ..."
 dl "$sums_url" "SHA256SUMS"
+if [ "$INSECURE_SKIP_SIGNATURE" -eq 0 ]; then
+    if ! have minisign; then
+        err "minisign is required to authenticate SHA256SUMS; install it and retry."
+        err "Use --insecure-skip-signature only if you accept trusting the download channel."
+        exit 1
+    fi
+    say "Downloading SHA256SUMS.minisig ..."
+    dl "$signature_url" "SHA256SUMS.minisig"
+    say "Authenticating SHA256SUMS with the pinned OdyTTY release key ..."
+    minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P "$MINISIGN_PUBLIC_KEY"
+else
+    err "signature verification skipped; trusting the download channel for SHA256SUMS."
+fi
 
 # --- verify -----------------------------------------------------------------
 want="$(awk -v f="$artifact" '$2 == f { print $1 }' SHA256SUMS | head -n1)"

@@ -1141,6 +1141,10 @@ closed. No private terminal transcript is ever ingested as corpus material.
 
 ## Residual risks and completed closures
 
+An external public review in 2026-09 reported 14 further findings; their
+per-item dispositions, code citations, and regression evidence are recorded in
+[security-review-2026-09.md](security-review-2026-09.md).
+
 Five issues were identified by source inspection at the revision this document
 describes and are stated at exactly the scope demonstrated — no exploitation
 beyond that scope is claimed. Findings A through E are now closed with focused

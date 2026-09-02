@@ -301,6 +301,21 @@ pub(crate) mod test_lock {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    static PALETTE_READ_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Guard for the process-global external-palette read counter
+    /// (`external_palette::palette_read_count_for_test`). CI runs the Linux
+    /// and Windows suites in parallel, so a test that resets or asserts an
+    /// exact delta on that counter races with any sibling whose follower
+    /// performs a read. Every test that asserts the counter AND every test
+    /// that drives `ExternalPaletteFollow::refresh_now` holds this guard.
+    /// Independent of the env and catalog locks; no site nests it with them.
+    pub(crate) fn palette_read_lock() -> MutexGuard<'static, ()> {
+        PALETTE_READ_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;

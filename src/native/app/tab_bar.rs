@@ -1072,7 +1072,7 @@ mod tests {
         let layout = compute_layout(&src, GRID_COLS);
         let nt_col = layout.new_tab_col.expect("new-tab column present");
         let hit = hit_at_col(nt_col, &src);
-        assert_eq!(hit, TabHit::NewTab, "new-tab plus col → NewTab");
+        assert_eq!(hit, TabHit::NewTab, "new-tab plus col -> NewTab");
     }
 
     #[test]
@@ -1084,7 +1084,7 @@ mod tests {
         assert_eq!(
             hit,
             TabHit::NewTabProfilePicker,
-            "profile chooser col → NewTabProfilePicker"
+            "profile chooser col -> NewTabProfilePicker"
         );
     }
 

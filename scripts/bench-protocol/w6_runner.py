@@ -71,6 +71,7 @@ RUNNER_VERSION = "1.5.4"
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 PUBLIC_API_BASE = "https://api.github.com/repos/ghreprimand/odytty"
 PUBLIC_RAW_BASE = "https://raw.githubusercontent.com/ghreprimand/odytty"
+PUBLIC_ANCHOR_MAX_BYTES = 1 << 20
 
 # Protocol-fixed W6 timings. Overriding either one is a recorded deviation.
 SETTLE_SECONDS = 60
@@ -11810,7 +11811,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
         },
     )
     with urllib.request.urlopen(ref_request, timeout=30) as response:
-        ref_record = json.loads(response.read().decode("utf-8"))
+        ref_record = json.loads(_read_public_response(response).decode("utf-8"))
     ref_object = ref_record.get("object", {}) if isinstance(ref_record, dict) else {}
     commit = ref_object.get("sha")
     if ref_object.get("type") != "commit" or not isinstance(commit, str) or not re.fullmatch(
@@ -11823,7 +11824,20 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
         headers={"User-Agent": "OdyTTY-benchmark-protocol/1.5.4"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
-        return commit, response.read()
+        return commit, _read_public_response(response)
+
+
+def _read_public_response(response, limit: int = PUBLIC_ANCHOR_MAX_BYTES) -> bytes:
+    """Read a public GitHub response with a fixed allocation and byte ceiling."""
+    # A declared length above the ceiling is refused before any read; a
+    # missing or malformed header falls through to the bounded read below.
+    length = response.headers.get("Content-Length")
+    if length is not None and length.strip().isdigit() and int(length) > limit:
+        raise ValueError("public GitHub response exceeds the byte limit")
+    data = response.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("public GitHub response exceeds the byte limit")
+    return data
 
 
 def resolve_public_preregistration_commit(

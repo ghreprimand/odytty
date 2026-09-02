@@ -34,6 +34,7 @@ KNOWN_SUMMARIES = {"CaughtMutant", "MissedMutant", "Timeout", "Unviable", "Succe
 KILLED = {"CaughtMutant"}
 SURVIVED = {"MissedMutant"}
 INCONCLUSIVE = {"Timeout", "Unviable"}
+MAX_BATCH_REGEX_CHARS = 1024
 
 
 class ResultError(Exception):
@@ -158,7 +159,18 @@ def load_batch_defs(path: Path) -> list[dict]:
         cols = line.split("\t")
         if len(cols) < 5:
             raise ResultError(f"batch table row has {len(cols)} columns, expected 5: {line!r}")
-        defs.append({"name": cols[0], "file": cols[1], "select": cols[2], "filter": cols[3]})
+        select = cols[2]
+        if select != "-" and len(select) > MAX_BATCH_REGEX_CHARS:
+            raise ResultError(
+                f"batch {cols[0]!r} selection regex exceeds {MAX_BATCH_REGEX_CHARS} characters"
+            )
+        try:
+            select_re = None if select == "-" else re.compile(select)
+        except re.error as exc:
+            raise ResultError(f"batch {cols[0]!r} has an invalid selection regex: {exc}") from exc
+        defs.append(
+            {"name": cols[0], "file": cols[1], "select": select, "select_re": select_re, "filter": cols[3]}
+        )
     if not defs:
         raise ResultError("batch table defines no batches")
     return defs
@@ -177,7 +189,7 @@ def owners_of(name: str, defs: list[dict]) -> list[str]:
     for d in defs:
         if not name.startswith(d["file"] + ":"):
             continue
-        if d["select"] == "-" or re.search(d["select"], name):
+        if d["select_re"] is None or d["select_re"].search(name):
             owners.append(d["name"])
     return owners
 
@@ -703,9 +715,9 @@ def self_test() -> int:
 
         # --- batch partition rules ---
         defs = [
-            {"name": "alpha", "file": "src/x.rs", "select": r"\b(foo)\b", "filter": "x"},
-            {"name": "beta", "file": "src/x.rs", "select": r"\b(bar)\b", "filter": "x"},
-            {"name": "whole", "file": "src/y.rs", "select": "-", "filter": "y"},
+            {"name": "alpha", "file": "src/x.rs", "select": r"\b(foo)\b", "select_re": re.compile(r"\b(foo)\b"), "filter": "x"},
+            {"name": "beta", "file": "src/x.rs", "select": r"\b(bar)\b", "select_re": re.compile(r"\b(bar)\b"), "filter": "x"},
+            {"name": "whole", "file": "src/y.rs", "select": "-", "select_re": None, "filter": "y"},
         ]
         a = "src/x.rs:1:1: replace foo -> u8 with 0"
         b = "src/x.rs:2:1: replace bar -> u8 with 0"
@@ -730,7 +742,7 @@ def self_test() -> int:
         check("partition orphan",
               lambda: verify_partition(defs, {"alpha": [a], "beta": [b], "whole": [c, orphan]}, [a, b, c, orphan]),
               "owned by no batch")
-        two = defs + [{"name": "gamma", "file": "src/x.rs", "select": r"\b(foo)\b", "filter": "x"}]
+        two = defs + [{"name": "gamma", "file": "src/x.rs", "select": r"\b(foo)\b", "select_re": re.compile(r"\b(foo)\b"), "filter": "x"}]
         check("partition overlap",
               lambda: verify_partition(two, {"alpha": [a], "beta": [b], "whole": [c], "gamma": [a]}, [a, b, c]),
               "more than one batch")

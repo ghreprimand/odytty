@@ -1467,6 +1467,10 @@ STANDING_LIMITATIONS = [
 
 
 def state_path(work_dir: Path, name: str) -> Path:
+    # State names are internal constants, but retain the boundary at the path
+    # join so a future caller cannot escape the harness-owned work directory.
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", name):
+        raise ValueError(f"invalid internal state filename: {name!r}")
     return work_dir / name
 
 

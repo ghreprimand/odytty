@@ -87,6 +87,68 @@ fn save_writes_to_injected_temp_dir() {
 }
 
 #[test]
+fn save_sink_rejects_untrusted_theme_names_without_creating_a_file() {
+    let root = temp_dir("sink-rejection");
+    let theme_dir = root.join("themes");
+    let spec = ThemeSpec::from_theme(&Theme::ODYSSEY);
+    let invalid_names = [
+        "",
+        "../escape",
+        "nested/name",
+        "nested\\name",
+        "line\nbreak",
+        "line\r\nbreak",
+        "tab\tname",
+        "nul\0name",
+        "wrong-extension.theme",
+        "lookalike\u{2215}slash",
+        "lookalike\u{ff3c}slash",
+    ];
+
+    for name in invalid_names {
+        let request = ThemeBuilderSaveRequest {
+            name: name.to_owned(),
+            spec: spec.clone(),
+        };
+        let error = save_theme_to_dir(&theme_dir, &request).expect_err(name);
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{name:?}");
+        assert!(
+            !theme_dir.exists(),
+            "{name:?} created the output directory before rejection"
+        );
+        assert!(
+            !root.join("escape.theme").exists(),
+            "{name:?} escaped the theme directory"
+        );
+    }
+
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn save_rejects_invalid_name_at_filesystem_boundary_without_writing() {
+    let dir = temp_dir("reject-invalid-name");
+    let spec = ThemeSpec::from_theme(&Theme::ODYSSEY);
+    for invalid in [
+        "",
+        "../outside",
+        "nested/name",
+        "nested\\name",
+        "name.theme",
+        "line\nfeed",
+    ] {
+        let request = ThemeBuilderSaveRequest {
+            name: invalid.to_owned(),
+            spec: spec.clone(),
+        };
+        let error = save_theme_to_dir(&dir, &request).expect_err("invalid name rejected");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+    assert!(std::fs::read_dir(&dir).unwrap().next().is_none());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn cancel_restores_original_theme() {
     let settings = Settings {
         theme: Theme::ODYSSEY,

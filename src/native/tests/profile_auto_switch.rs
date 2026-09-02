@@ -33,9 +33,14 @@ fn with_home<R>(home: &Path, f: impl FnOnce() -> R) -> R {
     // the catalog-count guard too, acquired AFTER the env lock (fixed order,
     // never the reverse) so it cannot deadlock against a sibling.
     let _count_guard = crate::test_lock::catalog_count_lock();
+    // APPDATA is redirected too: on Windows the config base resolves from
+    // APPDATA before HOME, so leaving it untouched would point the catalog at
+    // the real user profile directory instead of the fixture.
+    let prev_appdata = std::env::var_os("APPDATA");
     let prev_home = std::env::var_os("HOME");
     let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
     unsafe {
+        std::env::set_var("APPDATA", home);
         std::env::set_var("HOME", home);
         std::env::remove_var("XDG_CONFIG_HOME");
     }
@@ -49,6 +54,10 @@ fn with_home<R>(home: &Path, f: impl FnOnce() -> R) -> R {
             Some(value) => std::env::set_var("HOME", value),
             None => std::env::remove_var("HOME"),
         }
+        match prev_appdata {
+            Some(value) => std::env::set_var("APPDATA", value),
+            None => std::env::remove_var("APPDATA"),
+        }
     }
     result
 }
@@ -60,6 +69,19 @@ fn write_switch_profile(profiles_dir: &Path, name: &str, rules: ProfileSwitchRul
     profile.switch = rules;
     write_profile_file(&path, &profile).expect("write profile");
     path
+}
+
+/// Profile directory the redirected env resolves to (platform base rules:
+/// `%APPDATA%\\odytty` on Windows, `$HOME/.config/odytty` elsewhere).
+fn fixture_profiles_dir(home: &Path) -> PathBuf {
+    let dir = crate::profiles::profiles_dir_from_env(
+        Some(home.as_os_str().to_owned()),
+        None,
+        Some(home.as_os_str().to_owned()),
+    )
+    .expect("fixture profile dir resolves");
+    fs::create_dir_all(&dir).expect("config dir");
+    dir
 }
 
 fn osc7_local(path: &str) -> Vec<u8> {
@@ -88,8 +110,7 @@ fn app_with_auto_switch() -> crate::native::app::App {
 #[test]
 fn live_poll_local_pane_uses_cwd_and_stamps_launch_profile() {
     let home = temp_config_home("local");
-    fs::create_dir_all(home.join(".config").join("odytty")).expect("config dir");
-    let profiles_dir = home.join(".config").join("odytty").join("profiles");
+    let profiles_dir = fixture_profiles_dir(&home);
     write_switch_profile(
         &profiles_dir,
         "work",
@@ -130,8 +151,7 @@ fn live_poll_local_pane_uses_cwd_and_stamps_launch_profile() {
 #[test]
 fn live_poll_remote_pane_uses_ssh_host_not_osc7_cwd() {
     let home = temp_config_home("remote");
-    fs::create_dir_all(home.join(".config").join("odytty")).expect("config dir");
-    let profiles_dir = home.join(".config").join("odytty").join("profiles");
+    let profiles_dir = fixture_profiles_dir(&home);
     write_switch_profile(
         &profiles_dir,
         "edge",

@@ -76,6 +76,7 @@ version-pinned copy:
 | `odytty-macos-arm64.zip` | `odytty-<version>-macos-arm64.zip` |
 | `odytty-windows-x86_64.zip` | `odytty-<version>-windows-x86_64.zip` |
 | `odytty.tar.gz` | `odytty-<version>.tar.gz` |
+| none | `odytty-<version>-install.sh` |
 
 Each alias and its version-pinned twin are byte-identical and therefore have
 matching hashes in `SHA256SUMS`. Durable links should use the aliases under
@@ -199,26 +200,41 @@ a slow last resort. Wayland is the primary display target. X11 works through the
 current `winit` and GPU stack, with some window-manager-dependent behavior for
 borderless windows and OS theme detection.
 
-### One-line installer (recommended)
+### Version-pinned installer (recommended)
 
-The fastest path. It detects your package manager and installs the matching
-prebuilt artifact from the latest release:
+The trusted path downloads a version-pinned release installer, authenticates
+the release manifest with Minisign, checks the installer against that manifest,
+then runs it. Replace `X.Y.Z` with a published version (the installer asset
+ships with v0.14.0 and later):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
+version=X.Y.Z
+base="https://github.com/ghreprimand/odytty/releases/download/v${version}"
+curl -fLO "${base}/odytty-${version}-install.sh"
+curl -fLO "${base}/SHA256SUMS"
+curl -fLO "${base}/SHA256SUMS.minisig"
+printf '%s\n' 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' > odytty-release.pub
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P "$(cat odytty-release.pub)"
+grep "  odytty-${version}-install.sh$" SHA256SUMS | sha256sum -c -
+bash "odytty-${version}-install.sh"
 ```
 
-It chooses a native `.deb` on apt/dpkg systems, a native `.rpm` on dnf/rpm
-systems, or the portable binary tarball otherwise. The download is always
-checksum-verified against the release `SHA256SUMS` before anything is
-installed. System package managers need root, so the script uses `sudo` when
+The script chooses a native `.deb` on apt/dpkg systems, a native `.rpm` on
+dnf/rpm systems, or the portable binary tarball otherwise. It authenticates
+`SHA256SUMS.minisig` against its pinned copy of
+[`odytty-release.pub`](keys/odytty-release.pub) before accepting an artifact
+hash. System package managers need root, so the script uses `sudo` when
 you are not already root; the tarball path falls back to a per-user `~/.local`
 install when no `sudo` is available. Pass `--dry-run` to print the plan and exit
 without downloading or installing:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash -s -- --dry-run
+bash "odytty-${version}-install.sh" --dry-run
 ```
+
+The older mutable `curl | bash` form is convenience-only and is not a trusted
+path: it executes a network response before signature verification. Do not use
+it when release-key authentication is required.
 
 It is Linux x86_64 only: on macOS it prints the Homebrew command and on Windows
 the Scoop command instead of installing, and other architectures are pointed at
@@ -361,11 +377,12 @@ below.
 Use the same method that installed OdyTTY. The stable download aliases always
 point at the newest release.
 
-**One-line installer.** Re-run it; the script downloads, verifies, and installs
-the newest artifact for the detected system:
+**Version-pinned installer.** Download and authenticate the newer release's
+installer as above, then run it. The script downloads, signature-verifies, and
+installs the chosen artifact for the detected system:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
+bash "odytty-${version}-install.sh"
 ```
 
 **Direct `.deb`.** OdyTTY does not publish an apt repository, so `apt upgrade`

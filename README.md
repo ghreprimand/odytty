@@ -26,12 +26,26 @@ and troubleshooting.
 
 ### Linux
 
-The installer detects apt or dnf and installs the matching checksummed package;
-other x86_64 systems receive the portable binary tarball:
+The version-pinned installer detects apt or dnf and installs the matching
+signature-verified package; other x86_64 systems receive the portable binary
+tarball. Set `version` to a published release, verify the installer before
+running it, then inspect it if desired:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
+version=X.Y.Z
+base="https://github.com/ghreprimand/odytty/releases/download/v${version}"
+curl -fLO "${base}/odytty-${version}-install.sh"
+curl -fLO "${base}/SHA256SUMS"
+curl -fLO "${base}/SHA256SUMS.minisig"
+printf '%s\n' 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' > odytty-release.pub
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P "$(cat odytty-release.pub)"
+grep "  odytty-${version}-install.sh$" SHA256SUMS | sha256sum -c -
+bash "odytty-${version}-install.sh"
 ```
+
+This needs `minisign` and `sha256sum`. A mutable `curl | bash` convenience
+command is intentionally not the trusted installation path; it executes an
+unreviewed network response before it can verify anything.
 
 Arch users can install `odytty` from the AUR with `paru -S odytty` or
 `yay -S odytty`. Direct `.deb`, `.rpm`, AppImage, binary-tarball, and source
@@ -249,6 +263,7 @@ still not replacing wider third-party soak exposure.
 - [Feature reference](docs/features.md)
 - [Paste safety and risky-paste triggers](docs/features.md#paste-safety)
 - [Named-profile foundation and precedence](docs/v0.14.0-profiles-foundation.md)
+- [External security review closure ledger](docs/security-review-2026-09.md)
 - [External palette following](docs/v0.14.0-external-palette.md)
 - [Settings guide](docs/settings-guide.md) and
   [runtime reference](docs/runtime-knobs.md)

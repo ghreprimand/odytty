@@ -120,7 +120,7 @@ fn directory_matches(cwd: Option<&Path>, pattern: &str) -> bool {
         return false;
     };
     let pattern = Path::new(pattern);
-    if !pattern.is_absolute() {
+    if !is_rooted_pattern(pattern) {
         return false;
     }
     let cwd_path = cwd.to_path_buf();
@@ -142,10 +142,20 @@ pub fn normalize_directory_pattern(raw: &str) -> Option<String> {
         return None;
     }
     let path = PathBuf::from(trimmed);
-    if !path.is_absolute() {
+    if !is_rooted_pattern(&path) {
         return None;
     }
     Some(path.to_string_lossy().into_owned())
+}
+
+/// A directory pattern must start at a filesystem root: relative and
+/// traversal-only patterns are rejected. `has_root` rather than `is_absolute`
+/// so a Unix-style `/work/project` pattern stays valid on Windows, where WSL
+/// and remote panes report POSIX working directories through OSC 7 while
+/// `Path::is_absolute` would demand a drive prefix. Drive-letter patterns
+/// (`C:\work`) are rooted as well.
+fn is_rooted_pattern(pattern: &Path) -> bool {
+    pattern.has_root()
 }
 
 /// Normalize a host match pattern for storage.

@@ -84,9 +84,14 @@ The upstream repository moved to the HarfBuzz organization and, as of
 2026-08-06, describes itself as maintenance-mode software where correctness,
 panic, and security fixes remain in scope. No post-transfer release exists on
 crates.io yet, so the advisory cannot currently be cleared by a compatible
-upgrade. The exception therefore expires on **2026-10-15** and is owned by the
-core maintainers. `.github/scripts/rustsec-audit.sh` fails on or after that date
-while the exact advisory remains present; there is no automatic extension.
+upgrade. A direct move to the already-used maintained Fontations components
+would change metadata parsing and requires font-corpus, shaping/rendering,
+MSRV, performance-apparatus, and Linux/macOS/Windows parity evidence before it
+can replace this parser. The advisory is informational, not a disclosed
+vulnerability. The exception therefore expires on **2026-10-15** and is owned
+by the core maintainers. `.github/scripts/rustsec-audit.sh` fails on or after
+that date while the exact advisory remains present; there is no automatic
+extension.
 
 Before expiry, take the first applicable removal path:
 

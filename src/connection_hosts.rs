@@ -249,19 +249,29 @@ pub fn parse_odytty_hosts_bytes_with_limits(
 
 /// Push a single `Host` block (no trailing blank-line separator) into `out`,
 /// rendering the `Host` line from the host's single alias.
+#[cfg(test)]
 fn push_host_block(out: &mut String, host: &ConnectionHost) {
-    push_host_block_aliased(out, std::slice::from_ref(&host.alias), host);
+    push_host_block_aliased(out, std::slice::from_ref(&host.alias), host)
+        .expect("validated connection host fields");
 }
 
 /// Push a `Host` block whose `Host` line carries `aliases` verbatim. The parser
 /// flattens a multi-alias `Host a b` block into one entry per alias, so an
 /// in-place edit re-renders the block with all its sibling aliases by passing
 /// them here; field lines come from `host`.
-fn push_host_block_aliased(out: &mut String, aliases: &[String], host: &ConnectionHost) {
+fn push_host_block_aliased(
+    out: &mut String,
+    aliases: &[String],
+    host: &ConnectionHost,
+) -> io::Result<()> {
+    validate_serializable_host(host)?;
+    if aliases.iter().any(|alias| contains_control(alias)) {
+        return Err(control_character_error());
+    }
     out.push_str("Host");
     for alias in aliases {
         out.push(' ');
-        out.push_str(&quote_field(alias));
+        out.push_str(&quote_field(alias)?);
     }
     out.push('\n');
     // Only emit HostName when it differs from the primary alias — a plain
@@ -270,35 +280,36 @@ fn push_host_block_aliased(out: &mut String, aliases: &[String], host: &Connecti
     if let Some(host_name) = host.host_name.as_deref()
         && host_name != host.alias
     {
-        push_optional_field(out, "HostName", Some(host_name));
+        push_optional_field(out, "HostName", Some(host_name))?;
     }
-    push_optional_field(out, "User", host.user.as_deref());
+    push_optional_field(out, "User", host.user.as_deref())?;
     if let Some(port) = host.port {
         out.push_str("    Port ");
         out.push_str(&port.to_string());
         out.push('\n');
     }
-    push_optional_field(out, "Theme", host.theme.as_deref());
-    push_optional_field(out, "Font", host.font.as_deref());
-    push_optional_field(out, "Title", host.title.as_deref());
-    push_optional_field(out, "IdentityFile", host.identity_file.as_deref());
-    push_optional_field(out, "Persist", host.persist.as_deref());
+    push_optional_field(out, "Theme", host.theme.as_deref())?;
+    push_optional_field(out, "Font", host.font.as_deref())?;
+    push_optional_field(out, "Title", host.title.as_deref())?;
+    push_optional_field(out, "IdentityFile", host.identity_file.as_deref())?;
+    push_optional_field(out, "Persist", host.persist.as_deref())?;
     if let Some(integration) = host.integration {
         push_optional_field(
             out,
             "Integration",
             Some(if integration { "on" } else { "off" }),
-        );
+        )?;
     }
     if let Some(reuse) = host.reuse {
-        push_optional_field(out, "Reuse", Some(if reuse { "on" } else { "off" }));
+        push_optional_field(out, "Reuse", Some(if reuse { "on" } else { "off" }))?;
     }
     if let Some(tmux) = host.tmux {
-        push_optional_field(out, "Tmux", Some(if tmux { "on" } else { "off" }));
+        push_optional_field(out, "Tmux", Some(if tmux { "on" } else { "off" }))?;
     }
     // Reserved Protocol field: preserved across a round trip, SSH-only at
     // connect time.
-    push_optional_field(out, "Protocol", host.protocol.as_deref());
+    push_optional_field(out, "Protocol", host.protocol.as_deref())?;
+    Ok(())
 }
 
 /// A parsed ad-hoc connection target from a typed `[user@]host[:port]` query.
@@ -434,6 +445,7 @@ pub fn append_adhoc_host(
     host: &ConnectionHost,
 ) -> io::Result<AppendHostOutcome> {
     let path = path.as_ref();
+    validate_serializable_host(host)?;
     let existing_bytes = match read_hosts_for_mutation(path) {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == io::ErrorKind::NotFound => Vec::new(),
@@ -449,7 +461,7 @@ pub fn append_adhoc_host(
     }
 
     let mut block = String::new();
-    push_host_block(&mut block, host);
+    push_host_block_aliased(&mut block, std::slice::from_ref(&host.alias), host)?;
 
     // Preserve the existing bytes verbatim, then append the new block after a
     // clean blank-line separator.
@@ -599,7 +611,11 @@ fn find_block(blocks: &[BlockSpan], alias: &str) -> Option<usize> {
 /// `updated`, then the preserved unknown lines. `target_alias` is replaced by
 /// `updated.alias` in the block's alias list so a single-alias rename works and
 /// any sibling aliases survive.
-fn render_edited_block(block: &BlockSpan, target_alias: &str, updated: &ConnectionHost) -> String {
+fn render_edited_block(
+    block: &BlockSpan,
+    target_alias: &str,
+    updated: &ConnectionHost,
+) -> io::Result<String> {
     let new_aliases: Vec<String> = if block.aliases.is_empty() {
         vec![updated.alias.clone()]
     } else {
@@ -616,12 +632,12 @@ fn render_edited_block(block: &BlockSpan, target_alias: &str, updated: &Connecti
             .collect()
     };
     let mut rendered = String::new();
-    push_host_block_aliased(&mut rendered, &new_aliases, updated);
+    push_host_block_aliased(&mut rendered, &new_aliases, updated)?;
     for line in &block.unknown_lines {
         rendered.push_str(line);
         rendered.push('\n');
     }
-    rendered
+    Ok(rendered)
 }
 
 /// Splice a byte-identical edit of the block owning `target_alias`, replacing
@@ -639,7 +655,9 @@ fn splice_host_block_edit(
     let blocks = parse_host_blocks(source, max_chars);
     let idx = find_block(&blocks, target_alias)?;
     let block = &blocks[idx];
-    let mut rendered = render_edited_block(block, target_alias, updated);
+    // An existing sibling alias with a control character is never re-emitted.
+    // Treat that malformed block as non-editable rather than rewriting it.
+    let mut rendered = render_edited_block(block, target_alias, updated).ok()?;
     // Stay byte-aligned when the original block ended at EOF without a newline.
     let had_trailing_newline =
         block.content_end > 0 && source.as_bytes().get(block.content_end - 1) == Some(&b'\n');
@@ -684,6 +702,10 @@ pub fn edit_host_block(
     updated: &ConnectionHost,
 ) -> io::Result<HostsEditOutcome> {
     let path = path.as_ref();
+    if contains_control(target_alias) {
+        return Err(control_character_error());
+    }
+    validate_serializable_host(updated)?;
     let source = match read_hosts_for_mutation(path) {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HostsEditOutcome::NotFound),
@@ -712,6 +734,9 @@ pub fn remove_host_block(
     target_alias: &str,
 ) -> io::Result<HostsEditOutcome> {
     let path = path.as_ref();
+    if contains_control(target_alias) {
+        return Err(control_character_error());
+    }
     let source = match read_hosts_for_mutation(path) {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HostsEditOutcome::NotFound),
@@ -1056,26 +1081,59 @@ fn is_known_host_field(keyword: &str) -> bool {
     )
 }
 
-fn push_optional_field(out: &mut String, key: &str, value: Option<&str>) {
+fn push_optional_field(out: &mut String, key: &str, value: Option<&str>) -> io::Result<()> {
     let Some(value) = value else {
-        return;
+        return Ok(());
     };
     out.push_str("    ");
     out.push_str(key);
     out.push(' ');
-    out.push_str(&quote_field(value));
+    out.push_str(&quote_field(value)?);
     out.push('\n');
+    Ok(())
 }
 
-fn quote_field(value: &str) -> String {
+fn quote_field(value: &str) -> io::Result<String> {
+    if contains_control(value) {
+        return Err(control_character_error());
+    }
     if value
         .chars()
         .all(|ch| !ch.is_whitespace() && ch != '"' && ch != '\'' && ch != '#')
     {
-        return value.to_owned();
+        return Ok(value.to_owned());
     }
     let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
+    Ok(format!("\"{escaped}\""))
+}
+
+fn contains_control(value: &str) -> bool {
+    value.chars().any(char::is_control)
+}
+
+fn control_character_error() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "connection-host fields cannot contain control characters",
+    )
+}
+
+fn validate_serializable_host(host: &ConnectionHost) -> io::Result<()> {
+    let values = [
+        Some(host.alias.as_str()),
+        host.host_name.as_deref(),
+        host.user.as_deref(),
+        host.theme.as_deref(),
+        host.font.as_deref(),
+        host.title.as_deref(),
+        host.protocol.as_deref(),
+        host.identity_file.as_deref(),
+        host.persist.as_deref(),
+    ];
+    if values.into_iter().flatten().any(contains_control) {
+        return Err(control_character_error());
+    }
+    Ok(())
 }
 
 fn trim_chars(value: &str, max_chars: usize) -> String {
@@ -1449,6 +1507,35 @@ mod tests {
         let loaded = read_odytty_hosts_with_limits(&path, limits());
 
         assert_eq!(loaded, vec![entry]);
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn mutation_rejects_control_characters_without_changing_existing_bytes() {
+        let dir = temp_dir("odytty-hosts-controls");
+        let path = hosts_file_path(&dir);
+        let original = annotated_fixture();
+        for control in ['\r', '\n', '\t', '\0', '\u{0085}'] {
+            fs::write(&path, &original).expect("seed fixture");
+            let mut appended = host("safe", ConnectionHostSource::Odytty);
+            appended.title = Some(format!("unsafe{control}value"));
+            let append_error =
+                append_adhoc_host(&path, &appended).expect_err("append rejects control");
+            assert_eq!(append_error.kind(), io::ErrorKind::InvalidInput);
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+
+            let mut updated = host("alpha", ConnectionHostSource::Odytty);
+            updated.user = Some(format!("unsafe{control}value"));
+            let edit_error =
+                edit_host_block(&path, "alpha", &updated).expect_err("edit rejects control");
+            assert_eq!(edit_error.kind(), io::ErrorKind::InvalidInput);
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+
+            let remove_error = remove_host_block(&path, &format!("alpha{control}"))
+                .expect_err("remove rejects control selector");
+            assert_eq!(remove_error.kind(), io::ErrorKind::InvalidInput);
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        }
         fs::remove_dir_all(dir).ok();
     }
 

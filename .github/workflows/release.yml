@@ -596,6 +596,9 @@ jobs:
           cp "odytty-${version}-linux-x86_64.tar.gz" "odytty-linux-x86_64.tar.gz"
           cp "odytty-${version}-amd64.deb" "odytty-amd64.deb"
           cp "odytty-${version}-x86_64.rpm" "odytty-x86_64.rpm"
+          # The installer is a version-pinned release asset covered by the same
+          # signed checksum manifest as the packages it selects.
+          cp ../dist/install.sh "odytty-${version}-install.sh"
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
@@ -690,8 +693,8 @@ jobs:
           done
           # A loop over an empty or mismatched directory would otherwise pass
           # silently, reporting success for having verified nothing.
-          if [ "$count" -ne 16 ]; then
-            echo "::error::verified ${count} attested files, expected exactly 16" >&2
+          if [ "$count" -ne 17 ]; then
+            echo "::error::verified ${count} attested files, expected exactly 17" >&2
             exit 1
           fi
           echo "verified build provenance for ${count} published files"
@@ -706,6 +709,7 @@ jobs:
             out/*.zip
             out/*.deb
             out/*.rpm
+            out/*-install.sh
             out/SHA256SUMS
             out/SHA256SUMS.minisig
           # Static preamble above the auto-generated notes, clarifying that the
@@ -716,8 +720,9 @@ jobs:
             **Linux** ships four choices: the portable `odytty-x86_64.AppImage`,
             a prebuilt binary tarball `odytty-linux-x86_64.tar.gz`, a native
             `odytty-amd64.deb` (apt/dpkg), and a best-effort `odytty-x86_64.rpm`
-            (dnf/rpm). A one-line installer picks the right one automatically:
-            `curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash`.
+            (dnf/rpm). The version-pinned `odytty-${{ steps.ver.outputs.version }}-install.sh`
+            installer is checksum-covered by the signed manifest; download,
+            inspect, and run that asset after verifying the manifest signature.
             **Windows** is `odytty-windows-x86_64.zip` (Scoop); **macOS** is
             `odytty-macos-arm64.zip` (Homebrew cask).
 

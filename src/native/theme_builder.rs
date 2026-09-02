@@ -1291,6 +1291,15 @@ pub(super) fn save_theme_to_dir(
     theme_dir: &Path,
     request: &ThemeBuilderSaveRequest,
 ) -> io::Result<PathBuf> {
+    // Re-check at the filesystem boundary. `ThemeBuilder::save_request` already
+    // enforces this policy for UI input, but a future caller must not be able to
+    // turn a crate-private request into a path traversal or an arbitrary file.
+    if !valid_theme_name(&request.name) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "theme name must contain only letters, numbers, dashes, or underscores",
+        ));
+    }
     fs::create_dir_all(theme_dir)?;
     let path = theme_dir.join(format!("{}.theme", request.name));
     fs::write(&path, request.spec.serialize())?;

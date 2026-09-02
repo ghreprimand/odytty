@@ -322,36 +322,57 @@ const REMOTE_UPLOAD_DIR: &str = "/tmp";
 
 /// Compose the remote temp path a pasted image is uploaded to: an unguessable
 /// random name under `/tmp` (F6-i7). The random component is drawn from
-/// OS-seeded entropy so a local attacker cannot pre-create a symlink at the
-/// path; combined with the `0600` create mode (the upload runs `umask 077`),
-/// this closes the shared-`/tmp` race. The name uses only `[/tmp/a-z0-9.-]`, so
-/// it is safe to single-quote into the remote shell command with no escaping.
-pub fn remote_upload_target() -> String {
-    format!(
-        "{REMOTE_UPLOAD_DIR}/odytty-paste-{}.png",
-        random_hex_token()
-    )
+/// OS cryptographic entropy. The remote command uses noclobber as a second
+/// boundary: a pre-existing path or symlink fails rather than being followed.
+/// The name uses only `[/tmp/a-z0-9.-]`, so it is safe to single-quote into the
+/// remote shell command with no escaping.
+pub fn remote_upload_target() -> Result<String, getrandom::Error> {
+    remote_upload_target_with(getrandom::fill)
 }
 
-/// A 128-bit hex token from OS-seeded entropy, dependency-free.
+/// Seam for [`remote_upload_target`]: `fill` supplies the 16 random bytes so a
+/// test can drive the entropy-unavailable path. Production passes
+/// `getrandom::fill`.
+pub fn remote_upload_target_with(
+    fill: impl FnOnce(&mut [u8]) -> Result<(), getrandom::Error>,
+) -> Result<String, getrandom::Error> {
+    Ok(format!(
+        "{REMOTE_UPLOAD_DIR}/odytty-paste-{}.png",
+        random_hex_token_with(fill)?
+    ))
+}
+
+/// Length of the hex token minted by [`random_hex_token_with`] (128 bits).
+const REMOTE_UPLOAD_TOKEN_HEX_LEN: usize = 32;
+
+/// True when `path` has exactly the shape [`remote_upload_target`] mints:
+/// `/tmp/odytty-paste-<32 lowercase hex>.png`. The cleanup command only ever
+/// names paths of this shape, so nothing outside OdyTTY-minted temp files can
+/// reach the remote `rm`, whatever the caller's bookkeeping holds.
+pub fn is_minted_remote_upload_path(path: &str) -> bool {
+    let prefix = format!("{REMOTE_UPLOAD_DIR}/odytty-paste-");
+    let Some(rest) = path.strip_prefix(&prefix) else {
+        return false;
+    };
+    let Some(token) = rest.strip_suffix(".png") else {
+        return false;
+    };
+    token.len() == REMOTE_UPLOAD_TOKEN_HEX_LEN
+        && token
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// A 128-bit hex token drawn directly from the operating system CSPRNG.
 ///
-/// `RandomState` keys are randomized from the OS RNG per construction, so
-/// hashing through fresh states yields values a remote or same-host attacker
-/// cannot predict — the seed is never exposed. Not cryptographic, but the
-/// unguessability requirement here is a `/tmp` filename, backed by `0600`
-/// permissions; a stable per-call source of unpredictable bytes is exactly the
-/// bar. A per-call `nanos ^ pid` spreads the input so two tokens minted in one
-/// process are always distinct.
-fn random_hex_token() -> String {
-    use std::hash::BuildHasher;
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-        ^ u64::from(std::process::id());
-    let high = std::collections::hash_map::RandomState::new().hash_one(seed);
-    let low = std::collections::hash_map::RandomState::new().hash_one(high);
-    format!("{high:016x}{low:016x}")
+/// Failure is returned to the caller: image upload then fails closed before a
+/// path or remote command is constructed.
+fn random_hex_token_with(
+    fill: impl FnOnce(&mut [u8]) -> Result<(), getrandom::Error>,
+) -> Result<String, getrandom::Error> {
+    let mut bytes = [0_u8; 16];
+    fill(&mut bytes)?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// Build the argv that uploads a pasted image to a remote temp path (F6-i7).
@@ -361,12 +382,13 @@ fn random_hex_token() -> String {
 /// that creates the file `0600` (`umask 077`) and streams the bytes from the
 /// upload process's stdin:
 ///
-/// - `ssh [-o ControlPath=…] [-p PORT] -- DEST "umask 077; cat > '<remote>'"`
+/// - `ssh [-o ControlPath=…] [-p PORT] -- DEST "umask 077; set -C; cat > '<remote>'"`
 ///
 /// The caller wires the local PNG file to the child's stdin. `cat` (rather than
-/// `scp`) is deliberate: it guarantees the `0600` create mode atomically and
-/// reuses the exact ssh option shape (and `ControlMaster` socket) of the connect
-/// path, so the upload multiplexes over the live session with no second auth.
+/// `scp`) reuses the exact ssh option shape (and `ControlMaster` socket) of the
+/// connect path, so the upload multiplexes over the live session with no second
+/// auth. POSIX `set -C` makes redirection fail if the remote path already exists,
+/// including a symlink, and `umask 077` gives a new file mode 0600.
 /// The remote path is an OdyTTY-minted `/tmp/odytty-paste-<hash>.png` (only
 /// `[/tmp/a-z0-9.-]`), single-quoted with no escaping needed. On Windows the
 /// program is still `ssh` (`ssh.exe`) and no `ControlPath` option is emitted
@@ -378,7 +400,7 @@ pub fn remote_upload_command(
     control_dir: Option<&std::path::Path>,
     remote_path: &str,
 ) -> SshCommand {
-    let remote_command = format!("umask 077; cat > '{remote_path}'");
+    let remote_command = format!("umask 077; set -C; cat > '{remote_path}'");
     SshCommand::new(
         "ssh",
         build_remote_exec_args(destination, port, control_dir, remote_command),
@@ -396,16 +418,19 @@ pub fn remote_cleanup_command(
     control_dir: Option<&std::path::Path>,
     paths: &[String],
 ) -> Option<SshCommand> {
-    if paths.is_empty() {
-        return None;
-    }
-    // Each path is an OdyTTY-minted `/tmp/odytty-paste-<hash>.png`, safe to
-    // single-quote with no escaping.
+    // Only OdyTTY-minted `/tmp/odytty-paste-<hex>.png` paths are removable:
+    // anything else is dropped here, at the command boundary, so the cleanup
+    // can never name a foreign path. The retained shape is `[/tmp/a-z0-9.-]`
+    // only, safe to single-quote with no escaping.
     let quoted = paths
         .iter()
+        .filter(|p| is_minted_remote_upload_path(p))
         .map(|p| format!("'{p}'"))
         .collect::<Vec<_>>()
         .join(" ");
+    if quoted.is_empty() {
+        return None;
+    }
     let remote_command = format!("rm -f {quoted}");
     Some(SshCommand::new(
         "ssh",
@@ -1013,9 +1038,42 @@ mod tests {
     }
 
     #[test]
+    fn remote_upload_target_fails_closed_when_entropy_is_unavailable() {
+        let result = remote_upload_target_with(|_| Err(getrandom::Error::UNSUPPORTED));
+        assert!(result.is_err(), "no path is minted without OS entropy");
+    }
+
+    #[test]
+    fn remote_cleanup_only_names_minted_paths() {
+        let minted = remote_upload_target().expect("OS entropy");
+        assert!(is_minted_remote_upload_path(&minted));
+        let paths = vec![
+            "/tmp/not-odytty.png".to_owned(),
+            "/tmp/odytty-paste-ABCDEF.png".to_owned(),
+            "/etc/passwd".to_owned(),
+            minted.clone(),
+        ];
+        let command =
+            remote_cleanup_command("host.example.invalid", None, None, &paths).expect("cleanup");
+        let joined = argv(&command).join(" ");
+        assert!(joined.ends_with(&format!("rm -f '{minted}'")), "{joined}");
+        assert!(!joined.contains("not-odytty") && !joined.contains("passwd"));
+        assert!(
+            remote_cleanup_command(
+                "host.example.invalid",
+                None,
+                None,
+                &["/tmp/not-odytty.png".to_owned()]
+            )
+            .is_none(),
+            "no minted path means no remote command at all"
+        );
+    }
+
+    #[test]
     fn remote_upload_target_is_random_and_well_formed() {
-        let a = remote_upload_target();
-        let b = remote_upload_target();
+        let a = remote_upload_target().expect("OS entropy");
+        let b = remote_upload_target().expect("OS entropy");
         assert!(a.starts_with("/tmp/odytty-paste-"));
         assert!(a.ends_with(".png"));
         // Unguessability requires two mints to differ.
@@ -1058,7 +1116,7 @@ mod tests {
         // The remote command creates the file 0600 and streams stdin into it.
         assert_eq!(
             args.last().map(String::as_str),
-            Some("umask 077; cat > '/tmp/odytty-paste-abc.png'")
+            Some("umask 077; set -C; cat > '/tmp/odytty-paste-abc.png'")
         );
         // A one-shot, not an interactive shell: no PTY-forcing `-t`.
         assert!(!args.iter().any(|a| a == "-t"));
@@ -1074,7 +1132,7 @@ mod tests {
         );
         let joined = argv(&command).join(" ");
         assert!(!joined.contains("ControlPath"));
-        assert!(joined.contains("umask 077; cat > '/tmp/odytty-paste-x.png'"));
+        assert!(joined.contains("umask 077; set -C; cat > '/tmp/odytty-paste-x.png'"));
         assert!(joined.starts_with("ssh -- host.example.invalid"));
     }
 
@@ -1085,15 +1143,14 @@ mod tests {
 
     #[test]
     fn remote_cleanup_command_removes_each_uploaded_path() {
-        let paths = vec![
-            "/tmp/odytty-paste-a.png".to_owned(),
-            "/tmp/odytty-paste-b.png".to_owned(),
-        ];
+        let a = format!("/tmp/odytty-paste-{}.png", "a".repeat(32));
+        let b = format!("/tmp/odytty-paste-{}.png", "b".repeat(32));
+        let paths = vec![a.clone(), b.clone()];
         let command =
             remote_cleanup_command("host.example.invalid", None, None, &paths).expect("cmd");
         assert_eq!(
             argv(&command).last().map(String::as_str),
-            Some("rm -f '/tmp/odytty-paste-a.png' '/tmp/odytty-paste-b.png'")
+            Some(format!("rm -f '{a}' '{b}'").as_str())
         );
     }
 

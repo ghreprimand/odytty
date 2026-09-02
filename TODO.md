@@ -1379,6 +1379,10 @@ stay pinned to the revisions they measured.
       evidence published with its granularity limits stated.
 - [x] The informational `ttf-parser 0.25.1` unmaintained advisory carries a hard
       2026-10-15 expiry rather than an indefinite exception.
+- [ ] Before 2026-10-15, close the informational `ttf-parser` maintenance
+      advisory with a compatible upgrade or Fontations migration backed by font
+      corpus, shaping/rendering, MSRV, performance, and all-platform evidence;
+      the expiry must not be extended without that closure.
 - [x] Bounded visual feedback, built from existing state and with no new
       protocol: interactive resize reports the settled `columns × rows` geometry
       for 750 ms, `Ctrl`+wheel zoom reports the effective font size for 1.5

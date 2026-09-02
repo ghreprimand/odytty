@@ -44,6 +44,10 @@ bytemuck = { version = "1.25.0", features = ["derive"] }
 # supported platform. Decompression is always bounded at the call site; see
 # `src/core/kitty.rs::decompress_payload`.
 flate2 = "1.1.9"
+# Explicit OS cryptographic randomness for remote image-paste names. This is
+# already present transitively; declaring it makes the security boundary and
+# its supported-platform backend contract direct and auditable.
+getrandom = "0.3.4"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 png = "0.18.1"
 pollster = "0.4.0"

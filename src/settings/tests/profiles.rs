@@ -146,6 +146,7 @@ fn default_settings_load_does_not_enumerate_profiles() {
 #[test]
 fn default_settings_load_does_not_read_external_palette() {
     use crate::external_palette::{palette_read_count_for_test, reset_palette_read_count_for_test};
+    let _read_guard = crate::test_lock::palette_read_lock();
     reset_palette_read_count_for_test();
     let before = palette_read_count_for_test();
     let settings = Settings::from_env();

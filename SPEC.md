@@ -1499,9 +1499,11 @@ scope rather than silently inheriting deferred work from a prior release.
   clipboard image into an integrated remote tab arms a confirm-first upload
   (`remote_image_paste`, default `ask`): the image is streamed over the existing
   `ssh` connection to a `0600` private temp file on the remote, then a one-line
-  notice reports the path and copies it to the local clipboard — the path is not
-  typed into the shell, so no stray command runs. A size cap and best-effort
-  cleanup apply, and reconnected/restored remote tabs support it. A workspace can be bound
+  notice reports the path and copies it to the local clipboard - the path is not
+  typed into the shell, so no stray command runs. The name uses operating-system
+  cryptographic randomness and the POSIX remote create uses noclobber, so an
+  existing path or symlink fails rather than being reused. A size cap and
+  best-effort cleanup apply, and reconnected/restored remote tabs support it. A workspace can be bound
   to a saved host so **New Tab** connects there, with a **New Local Tab**
   escape.
 

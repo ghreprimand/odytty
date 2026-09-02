@@ -32,7 +32,13 @@ pub(super) fn spawn_upload_worker(job: RemoteUploadJob, png: Vec<u8>) -> std::io
 }
 
 fn run_upload(job: RemoteUploadJob, png: Vec<u8>) {
-    let remote_path = crate::ssh_connect::remote_upload_target();
+    let remote_path = match crate::ssh_connect::remote_upload_target() {
+        Ok(path) => path,
+        Err(error) => {
+            report_upload_failure(&job, format!("secure random name: {error}"));
+            return;
+        }
+    };
     match perform_upload(&job, &png, &remote_path) {
         Ok(()) => {
             // Register the path for best-effort cleanup on tab close, then hand
@@ -48,17 +54,19 @@ fn run_upload(job: RemoteUploadJob, png: Vec<u8>) {
                 });
             }
         }
-        Err(reason) => {
-            // The failure notice only writes the terminal model, so it stays on
-            // the worker; a redraw is woken below.
-            let banner = format!("\r\n\x1b[1;31m image upload failed \x1b[0m {reason}\r\n");
-            lock_recover(&job.terminal).advance(banner.as_bytes());
-            if let Some(proxy) = job.proxy.as_ref() {
-                let _ = proxy.send_event(UserEvent::Redraw {
-                    session: job.session,
-                });
-            }
-        }
+        Err(reason) => report_upload_failure(&job, reason),
+    }
+}
+
+fn report_upload_failure(job: &RemoteUploadJob, reason: String) {
+    // The failure notice only writes the terminal model, so it stays on this
+    // worker; entropy failure is visible and no remote upload is attempted.
+    let banner = format!("\r\n\x1b[1;31m image upload failed \x1b[0m {reason}\r\n");
+    lock_recover(&job.terminal).advance(banner.as_bytes());
+    if let Some(proxy) = job.proxy.as_ref() {
+        let _ = proxy.send_event(UserEvent::Redraw {
+            session: job.session,
+        });
     }
 }
 
