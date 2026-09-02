@@ -419,6 +419,18 @@ impl KeyBindings {
             .rev()
             .find_map(|(chord, candidate)| (*candidate == action).then_some(*chord))
     }
+
+    /// Every effective chord currently bound to `action`, in default-table
+    /// order. Most actions have one chord; tab cycling deliberately has a
+    /// PageUp/PageDown primary and punctuation-key secondary. A user override
+    /// replaces all defaults for its action in [`Self::from_overrides`], so a
+    /// remapped row still reports exactly its one active custom chord.
+    pub(in crate::native) fn chords_for_action(&self, action: BindableAction) -> Vec<KeyChord> {
+        self.bindings
+            .iter()
+            .filter_map(|(chord, candidate)| (*candidate == action).then_some(*chord))
+            .collect()
+    }
 }
 
 fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
@@ -552,6 +564,18 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
         (
             named_chord(KeyBindingNamedKey::PageUp, true, false, false, false),
             BindableAction::PrevTab,
+        ),
+        // Secondary tab-cycling chords for keyboards without PageUp/PageDown.
+        // These store the unshifted base key, matching the event path's
+        // `key_without_modifiers()` lookup (the same convention as settings on
+        // Ctrl+Shift+,). Plain punctuation remains unbound and reaches the PTY.
+        (
+            char_chord(';', true, true, false, false),
+            BindableAction::PrevTab,
+        ),
+        (
+            char_chord('\'', true, true, false, false),
+            BindableAction::NextTab,
         ),
         // Workspace cycling. `Ctrl+Shift+PageDown/PageUp` sit mnemonically above
         // the `Ctrl+PageDown/PageUp` tab-cycling chords and are otherwise free
@@ -1194,6 +1218,53 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn tab_cycling_has_primary_and_secondary_default_chords() {
+        let bindings = KeyBindings::default();
+        assert_eq!(
+            bindings.chords_for_action(BindableAction::PrevTab),
+            vec![
+                named_chord(KeyBindingNamedKey::PageUp, true, false, false, false),
+                char_chord(';', true, true, false, false),
+            ]
+        );
+        assert_eq!(
+            bindings.chords_for_action(BindableAction::NextTab),
+            vec![
+                named_chord(KeyBindingNamedKey::PageDown, true, false, false, false),
+                char_chord('\'', true, true, false, false),
+            ]
+        );
+        assert_eq!(
+            bindings.action_for_chord(char_chord(';', true, true, false, false)),
+            Some(BindableAction::PrevTab),
+            "Ctrl+Shift+; cycles to the previous tab"
+        );
+        assert_eq!(
+            bindings.action_for_chord(char_chord('\'', true, true, false, false)),
+            Some(BindableAction::NextTab),
+            "Ctrl+Shift+' cycles to the next tab"
+        );
+    }
+
+    #[test]
+    fn tab_cycling_override_replaces_both_default_chords() {
+        let rebound = char_chord('j', true, true, false, false);
+        let bindings = KeyBindings::from_overrides(&[KeyBindingOverride {
+            chord: rebound,
+            action: BindableAction::NextTab,
+        }]);
+        assert_eq!(
+            bindings.chords_for_action(BindableAction::NextTab),
+            vec![rebound]
+        );
+        assert_eq!(
+            bindings.action_for_chord(char_chord('\'', true, true, false, false)),
+            None,
+            "a regular override unbinds the secondary default too"
+        );
     }
 
     #[test]

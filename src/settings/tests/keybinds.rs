@@ -91,6 +91,91 @@ fn key_bindings_parse_valid_entries_case_insensitively() {
 }
 
 #[test]
+fn punctuation_tab_chords_parse_and_round_trip() {
+    // `;` is both a visible physical key and the ordinary entry separator, so
+    // this pins its in-chord spelling. The serializer must remain safe to feed
+    // straight back through the parser after the key-remap editor captures it.
+    let (settings, warnings) =
+        settings_from([(KEYBINDS_ENV, "ctrl+shift+;=prev-tab;ctrl+shift+'=next-tab")]);
+
+    assert!(
+        warnings.is_empty(),
+        "punctuation chords warned: {warnings:?}"
+    );
+    assert_eq!(settings.key_bindings.len(), 2);
+    assert_eq!(
+        settings.key_bindings[0],
+        KeyBindingOverride {
+            chord: KeyChord {
+                modifiers: KeyBindingModifiers {
+                    ctrl: true,
+                    shift: true,
+                    alt: false,
+                    super_key: false,
+                },
+                key: KeyBindingKey::Character(';'),
+            },
+            action: BindableAction::PrevTab,
+        }
+    );
+    assert_eq!(
+        settings.key_bindings[1],
+        KeyBindingOverride {
+            chord: KeyChord {
+                modifiers: KeyBindingModifiers {
+                    ctrl: true,
+                    shift: true,
+                    alt: false,
+                    super_key: false,
+                },
+                key: KeyBindingKey::Character('\''),
+            },
+            action: BindableAction::NextTab,
+        }
+    );
+    let serialized = key_bindings_config_value(&settings.key_bindings);
+    assert_eq!(serialized, "ctrl+shift+;=prev-tab;ctrl+shift+'=next-tab");
+    let mut round_trip_warnings = Vec::new();
+    let round_trip = parse_key_bindings(Some(OsStr::new(&serialized)), &mut |warning| {
+        round_trip_warnings.push(warning.to_owned())
+    });
+    assert!(round_trip_warnings.is_empty());
+    assert_eq!(round_trip, settings.key_bindings);
+}
+
+#[test]
+fn punctuation_tab_chords_remain_distinct_from_comma_and_whitespace_entries() {
+    let (settings, warnings) = settings_from([(
+        KEYBINDS_ENV,
+        "  ctrl+shift+; = prev-tab ; ctrl+shift+' = next-tab ; ctrl+shift+comma = settings  ",
+    )]);
+
+    assert!(
+        warnings.is_empty(),
+        "punctuation entries warned: {warnings:?}"
+    );
+    assert_eq!(settings.key_bindings.len(), 3);
+    assert_eq!(
+        settings.key_bindings[0].chord.key,
+        KeyBindingKey::Character(';')
+    );
+    assert_eq!(settings.key_bindings[0].action, BindableAction::PrevTab);
+    assert_eq!(
+        settings.key_bindings[1].chord.key,
+        KeyBindingKey::Character('\'')
+    );
+    assert_eq!(settings.key_bindings[1].action, BindableAction::NextTab);
+    assert_eq!(
+        settings.key_bindings[2].chord.key,
+        KeyBindingKey::Character(',')
+    );
+    assert_eq!(
+        settings.key_bindings[2].action,
+        BindableAction::SettingsPanel
+    );
+}
+
+#[test]
 fn key_bindings_skip_bad_entries_with_warnings() {
     let (settings, warnings) = settings_from([(
         KEYBINDS_ENV,

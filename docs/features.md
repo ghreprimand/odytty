@@ -358,12 +358,17 @@ workspaces group complete sets of tabs.
 | --- | --- |
 | Open a new tab | `Ctrl+Shift+T` |
 | Close the active tab | `Ctrl+Shift+W` |
-| Switch to the next tab | `Ctrl+PageDown` |
-| Switch to the previous tab | `Ctrl+PageUp` |
+| Switch to the next tab | `Ctrl+PageDown` or `Ctrl+Shift+'` |
+| Switch to the previous tab | `Ctrl+PageUp` or `Ctrl+Shift+;` |
 
 Closing a tab closes the whole tab, including every pane it holds. Closing a
 single pane is a separate action, and closing the last tab in the last
 workspace quits OdyTTY.
+
+The punctuation alternatives use the physical `;` and `'` keys for keyboards
+without PageUp/PageDown. They are unavailable on layouts where those positions
+produce letters, such as German O-umlaut/A-umlaut layouts; use the command
+palette in that case.
 
 **Rename a tab** from its right-click menu or with **Rename Tab** in the command
 palette. The custom name overrides shell title updates until an empty name

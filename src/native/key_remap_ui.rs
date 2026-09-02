@@ -557,9 +557,15 @@ impl KeyRemapUi {
                 // C8: pane actions live in the prefix table, not the flat one.
                 self.pane_action_chord_text(*action)
             } else {
-                match bindings.chord_for_action(*action) {
-                    Some(chord) => format_key_chord(chord),
-                    None => "(unbound)".to_owned(),
+                let chords = bindings.chords_for_action(*action);
+                if chords.is_empty() {
+                    "(unbound)".to_owned()
+                } else {
+                    chords
+                        .into_iter()
+                        .map(format_key_chord)
+                        .collect::<Vec<_>>()
+                        .join(" / ")
                 }
             };
             let overridden = self.overrides.iter().any(|o| o.action == *action);
@@ -798,6 +804,29 @@ mod tests {
             !row.contains("(unbound)"),
             "a defaulted pane action must not read (unbound): {row:?}"
         );
+    }
+
+    #[test]
+    fn tab_rows_show_both_default_chords_and_one_rebound_chord() {
+        let mut ui = ui();
+        let next_row = row_text_for(&ui, "next-tab");
+        let prev_row = row_text_for(&ui, "prev-tab");
+        assert!(
+            next_row.contains("ctrl+pagedown / ctrl+shift+'"),
+            "next-tab must display primary and secondary defaults: {next_row:?}"
+        );
+        assert!(
+            prev_row.contains("ctrl+pageup / ctrl+shift+;"),
+            "prev-tab must display primary and secondary defaults: {prev_row:?}"
+        );
+
+        select_action(&mut ui, BindableAction::NextTab);
+        ui.handle_input(OverlayInput::Activate);
+        ui.deliver_chord(Some(char_chord(true, true, 'j')));
+        let rebound_row = row_text_for(&ui, "next-tab");
+        assert!(rebound_row.contains("ctrl+shift+j"));
+        assert!(!rebound_row.contains("pagedown"));
+        assert!(!rebound_row.contains("ctrl+shift+'"));
     }
 
     #[test]

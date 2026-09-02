@@ -224,6 +224,118 @@ fn fedora_wayland_ctrl_backspace_reaches_the_pty_through_the_real_key_path() {
 }
 
 #[test]
+fn plain_tab_cycling_punctuation_reaches_the_pty_in_legacy_and_kitty_modes() {
+    let dimensions = Dimensions::new(80, 24);
+    let recorder = KeyRecordingWriter::default();
+    let recorded = recorder.bytes.clone();
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+    let (mut app, terminal) = headless_app_with_writer(
+        NativeOptions::default(),
+        dimensions,
+        Settings::default(),
+        writer,
+    );
+
+    let punctuation_cases = [
+        (";", ";", KeyCode::Semicolon, Modifiers::NONE),
+        ("'", "'", KeyCode::Quote, Modifiers::NONE),
+        (
+            ":",
+            ";",
+            KeyCode::Semicolon,
+            Modifiers {
+                ctrl: false,
+                shift: true,
+                alt: false,
+            },
+        ),
+        (
+            "\"",
+            "'",
+            KeyCode::Quote,
+            Modifiers {
+                ctrl: false,
+                shift: true,
+                alt: false,
+            },
+        ),
+    ];
+    for (logical_character, binding_character, code, modifiers) in punctuation_cases {
+        let logical = WinitKey::Character(logical_character.into());
+        let binding_key = WinitKey::Character(binding_character.into());
+        app.drive_raw_key_event_for_test(
+            logical.clone(),
+            binding_key.clone(),
+            PhysicalKey::Code(code),
+            modifiers,
+            KeyEventType::Press,
+        );
+        app.drive_raw_key_event_for_test(
+            logical,
+            binding_key,
+            PhysicalKey::Code(code),
+            modifiers,
+            KeyEventType::Release,
+        );
+    }
+    assert_eq!(
+        &*recorded.lock().expect("legacy punctuation bytes"),
+        b";':\"",
+        "plain and shifted punctuation must not be intercepted by tab cycling"
+    );
+
+    recorded
+        .lock()
+        .expect("clear legacy punctuation bytes")
+        .clear();
+    // Kitty's report-all-keys flag makes printable characters use explicit
+    // protocol sequences; default Kitty disambiguation deliberately leaves
+    // them as raw bytes, which the legacy assertion above already covers.
+    terminal.lock().expect("terminal").advance(b"\x1b[=8u");
+    for (logical_character, binding_character, code, modifiers) in punctuation_cases {
+        let logical = WinitKey::Character(logical_character.into());
+        let binding_key = WinitKey::Character(binding_character.into());
+        app.drive_raw_key_event_for_test(
+            logical.clone(),
+            binding_key.clone(),
+            PhysicalKey::Code(code),
+            modifiers,
+            KeyEventType::Press,
+        );
+        app.drive_raw_key_event_for_test(
+            logical,
+            binding_key,
+            PhysicalKey::Code(code),
+            modifiers,
+            KeyEventType::Release,
+        );
+    }
+    assert_eq!(
+        &*recorded.lock().expect("kitty punctuation bytes"),
+        b"\x1b[59u\x1b[39u\x1b[59;2u\x1b[39;2u",
+        "plain and shifted punctuation keep their Kitty protocol encodings"
+    );
+}
+
+#[test]
+fn tab_cycling_punctuation_does_not_bind_when_the_layout_base_key_is_a_letter() {
+    let bindings = KeyBindings::default();
+    let ctrl_shift = Modifiers {
+        ctrl: true,
+        shift: true,
+        alt: false,
+    };
+
+    // On layouts where the physical punctuation position reports a letter from
+    // `key_without_modifiers()` (for example a German-style layout), that
+    // letter is not the documented semicolon base key and must reach the PTY.
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("ö".into()), ctrl_shift, false),
+        None
+    );
+}
+
+#[test]
 fn keypad_physical_keys_map_to_neutral_model() {
     assert_eq!(
         map_keypad_physical_key(PhysicalKey::Code(KeyCode::Numpad1)),
@@ -682,6 +794,17 @@ fn key_bindings_default_prompt_copymode_and_hints_chords() {
             false
         ),
         Some(BindableAction::PrevTab)
+    );
+    // The live event path supplies `key_without_modifiers()` to this lookup, so
+    // the stored physical base keys resolve even though Ctrl+Shift+; and
+    // Ctrl+Shift+' produce `:` and `"` as their logical characters.
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character(";".into()), ctrl_shift, false),
+        Some(BindableAction::PrevTab)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("'".into()), ctrl_shift, false),
+        Some(BindableAction::NextTab)
     );
     // Workspace cycling sits one modifier above tab cycling: Ctrl+Shift+Page*.
     assert_eq!(

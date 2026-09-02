@@ -1469,10 +1469,29 @@ pub(super) fn parse_key_bindings(
         return Vec::new();
     };
     let value = raw.to_string_lossy();
-    value
-        .split([',', ';'])
+    // `;` usually separates entries, but after `+` it is the printable
+    // physical semicolon key in a chord such as `ctrl+shift+;=prev-tab`.
+    // Keep that character in its entry so the in-app remap serializer can use
+    // the same visible chord spelling it renders. Comma remains the `comma`
+    // alias because it is unambiguously an entry separator.
+    split_key_binding_entries(&value)
+        .into_iter()
         .filter_map(|entry| parse_key_binding_entry(entry, warn))
         .collect()
+}
+
+fn split_key_binding_entries(value: &str) -> Vec<&str> {
+    let mut entries = Vec::new();
+    let mut start = 0;
+    for (index, ch) in value.char_indices() {
+        let semicolon_key = ch == ';' && value[..index].ends_with('+');
+        if (ch == ',' || ch == ';') && !semicolon_key {
+            entries.push(&value[start..index]);
+            start = index + ch.len_utf8();
+        }
+    }
+    entries.push(&value[start..]);
+    entries
 }
 
 /// The default multiplexer prefix chord, `Ctrl-b` (§7), matching tmux.

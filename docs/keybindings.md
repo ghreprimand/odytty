@@ -30,7 +30,8 @@ paths, which uses Cmd+click on macOS because Ctrl+click is a secondary click.
 ## How OdyTTY's shortcuts stay out of the shell's way
 
 Every global OdyTTY shortcut is a `Ctrl+Shift+<key>` chord, plus
-`Ctrl+Shift+Alt+D`, `Ctrl+PageUp/Down`, and `Shift+PageUp/Down`. A TUI program
+`Ctrl+Shift+Alt+D`, `Ctrl+PageUp/Down`, `Ctrl+Shift+;` / `Ctrl+Shift+'`, and
+`Shift+PageUp/Down`. A TUI program
 cannot receive `Ctrl+Shift+<letter>`
 through a PTY, so binding local actions there means the bytes a shell or
 full-screen application sees are **unchanged** — OdyTTY never steals a keystroke
@@ -76,8 +77,8 @@ chords (`Ctrl+Shift+E` / `Ctrl+Shift+O`) and the hardcoded
 | `Ctrl+Shift+D` | Duplicate the active tab (fresh shell in the active pane's directory) | `duplicate-tab` |
 | `Ctrl+Shift+N` | New window (launch another OdyTTY instance) | `new-window` |
 | `Ctrl+Shift+W` | Close the active tab (and all of its panes) | `close-tab` |
-| `Ctrl+PageDown` | Next tab | `next-tab` |
-| `Ctrl+PageUp` | Previous tab | `prev-tab` |
+| `Ctrl+PageDown` / `Ctrl+Shift+'` | Next tab | `next-tab` |
+| `Ctrl+PageUp` / `Ctrl+Shift+;` | Previous tab | `prev-tab` |
 
 Notes that trip people up:
 
@@ -109,7 +110,10 @@ Notes that trip people up:
 - Prompt navigation is the `Ctrl+Shift+Up/Down` **arrows** only; there are no
   letter-key prompt-jump shortcuts.
 - There are **no** `Ctrl+number` tab shortcuts; switch tabs with
-  `Ctrl+PageUp/PageDown` or the command palette.
+  `Ctrl+PageUp/PageDown`, or with the physical `Ctrl+Shift+;` / `Ctrl+Shift+'`
+  keys on keyboards without PageUp/PageDown. The punctuation alternatives are
+  unavailable on layouts where those keys carry letters, such as German
+  O-umlaut/A-umlaut layouts; use the command palette instead.
 - `Ctrl+Shift+E` / `Ctrl+Shift+O` are the way to make the *first* split on a
   single-pane tab — the pane prefix below is inert until a tab already has two
   or more panes.
@@ -380,7 +384,7 @@ A chord is `+`-joined modifiers plus one key:
 
 - Modifiers: `ctrl`/`control`, `shift`, `alt`/`option`,
   `super`/`meta`/`cmd`/`command`/`win`/`windows`.
-- Key: a single printable character; `comma`; a named key
+- Key: a single printable character (use `comma` for the comma separator); a named key
   (`enter`, `backspace`, `esc`, `tab`, `space`, `pageup`, `pagedown`, `home`,
   `end`, `delete`, `insert`, `up`/`down`/`left`/`right`); or `f1`–`f24`.
 - `+` and `=` cannot be used as the bound key character.
@@ -422,6 +426,9 @@ strip. Five chords are bound by default:
 | `Ctrl+Shift+Enter` | Create a new workspace | `new-workspace` |
 | `Ctrl+Shift+Alt+D` | Duplicate the active workspace (fresh workspace in the active pane's directory) | `duplicate-workspace` |
 | `Ctrl+Shift+G` | Open the workspace picker | `workspace-picker` |
+
+There is no secondary workspace-cycling chord: `Ctrl+Shift+G` opens the
+keyboard-accessible workspace picker without requiring PageUp/PageDown.
 
 Renaming and closing a workspace are unbound by default. The workspace
 right-click menu covers both, while the command palette covers Rename Workspace

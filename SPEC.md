@@ -1094,7 +1094,9 @@ scope rather than silently inheriting deferred work from a prior release.
 - Multi-session tabs: the native app runs multiple PTY/terminal sessions in a
   `WorkspaceSet`, routes PTY output by session id, and shows a one-row tab bar
   once two or more sessions exist. `Ctrl+Shift+T` opens a tab,
-  `Ctrl+Shift+W` closes one, and `Ctrl+PageDown` / `Ctrl+PageUp` switch. The
+  `Ctrl+Shift+W` closes one, and `Ctrl+PageDown` / `Ctrl+PageUp` switch, with
+  `Ctrl+Shift+'` / `Ctrl+Shift+;` secondary physical-key alternatives for
+  keyboards without PageUp/PageDown. The
   single-session view stays visually identical to the original full-grid view.
   Inline graphics use the same reserved top-row offset as cell geometry, so
   Kitty/Sixel placements remain aligned with text while the tab bar is visible.
@@ -1339,7 +1341,9 @@ scope rather than silently inheriting deferred work from a prior release.
 - Basic native tabs: each tab owns an independent local PTY session, terminal
   model, scrollback, and title. The default bindings are `Ctrl+Shift+T` for a
   new tab, `Ctrl+Shift+W` to close, and `Ctrl+PageUp` / `Ctrl+PageDown` to
-  switch.
+  switch. `Ctrl+Shift+;` selects the previous tab and `Ctrl+Shift+'` the next
+  on layouts where those physical punctuation keys are available; no secondary
+  workspace chord is assigned because `Ctrl+Shift+G` opens the workspace picker.
 
 - Native splits / panes: a tab owns a binary layout tree whose leaves are
   independent local PTY sessions, so one tab can hold several panes side-by-side
