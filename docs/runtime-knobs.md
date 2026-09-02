@@ -1370,9 +1370,10 @@ name-only target to spawn.
 
 ### Session-attach summon overlay (`session-attach`)
 
-The in-window analogue of the `odytty attach` CLI: a **session-attach overlay**
-that lists the live, detached session-host sessions so you can reattach one
-without leaving the window. Open it with `Ctrl+Shift+A` by default (or the
+The in-window analogue of the `odytty attach` CLI: since v0.14.0 the action
+opens the **Session Navigator**, one searchable list of workspaces, tabs,
+panes, and (on Unix) live detached session-host sessions, so you can reattach
+one without leaving the window (see `v0.14.0-session-navigator.md`). Open it with `Ctrl+Shift+A` by default (or the
 right-click menu's "Manage Sessions" item). Rebind the `session-attach` action in
 `odytty.conf`:
 
@@ -1386,14 +1387,17 @@ For a one-session override:
 ODYTTY_KEYBINDS="ctrl+alt+a=session-attach" odytty
 ```
 
-Environment values win for that session. The overlay lists each live session by
-its `--title` (falling back to the session id), with type-to-filter fuzzy
-matching over title and id; `↑`/`↓` select, `Enter` attaches the highlighted
-session **into a new tab**, and `Esc` dismisses. With no live sessions it opens
-to a hint rather than failing. The overlay is **presentation-only**: it reads a
-frozen snapshot of the live sessions on Unix. On Windows it opens with the
-empty-state hint and attach is unavailable. The overlay never attaches anything
-itself; accepting a row hands the App an attach request.
+Environment values win for that session. Detached rows show each live session
+by its `--title` (falling back to the session id), with type-to-filter fuzzy
+matching; `↑`/`↓` select, `Enter` attaches the highlighted session (New tab or
+Replace prompt for a session that is not already open), and `Esc` dismisses.
+With no rows it opens to a hint rather than failing. The overlay is
+**presentation-only**: it reads a frozen snapshot of the workspace arena and,
+on Unix, the live sessions. On Windows it lists live panes only; detached
+sessions and attach are unavailable before Phase 11. The overlay never attaches
+anything itself; accepting a row hands the App an attach request, and a stale
+or errored registry entry is shown as `session unavailable` and cannot be
+activated.
 
 If the chosen session ended between listing and accepting, the attach fails
 gracefully (no panic) and the user can retry.

@@ -62,7 +62,7 @@ chords (`Ctrl+Shift+E` / `Ctrl+Shift+O`) and the hardcoded
 | `Ctrl+Shift+P` | Open the command palette | `command-palette` |
 | `Ctrl+Shift+S` | Open the connection manager | `connection-manager` |
 | `Ctrl+Shift+R` | Open session replay | `session-replay` |
-| `Ctrl+Shift+A` | Open Manage Sessions (Unix attach list; empty on Windows) | `session-attach` |
+| `Ctrl+Shift+A` | Open the Session Navigator (workspaces, tabs, panes; Unix detached sessions) | `session-attach` |
 | `Ctrl+Shift+C` | Copy the selection | `copy` |
 | `Ctrl+Shift+V` | Paste | `paste` |
 | `Ctrl+Shift+Space` | Enter keyboard copy mode | `copy-mode` |

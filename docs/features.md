@@ -638,7 +638,7 @@ create one.
 | `Ctrl+Shift+P` | Open the command palette |
 | `Ctrl+Shift+S` | Open the connection manager |
 | `Ctrl+Shift+R` | Open session replay |
-| `Ctrl+Shift+A` | Manage detached sessions on Unix; open an empty list on Windows |
+| `Ctrl+Shift+A` | Open the Session Navigator (detached sessions Unix-only) |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy or paste |
 | `Shift+PageUp` / `Shift+PageDown` | Scroll the local viewport |
 | `Ctrl+Shift+L` | Open keyboard quick-select hints |
@@ -991,11 +991,15 @@ the path works for reconnected and restored remote tabs.
 On Unix, detached sessions can be managed inside the window as well as from the
 CLI.
 The `session-attach` action, `Ctrl+Shift+A`, and **Manage Sessions** all open the
-live detached-session list. Choosing an already-open session switches to its
-tab; another session prompts for **New tab** or **Replace**.
+Session Navigator, whose rows include the live detached-session registry
+alongside workspaces, tabs, and panes (see
+[v0.14.0-session-navigator.md](v0.14.0-session-navigator.md)). Choosing an
+already-open session switches to its tab; another session prompts for **New
+tab** or **Replace**. Stale or errored registry entries show
+`session unavailable` and cannot be attached.
 
-Right-click a session to kill it after confirmation. **Detach & switch** gives
-the focused pane's working directory to a fresh managed session.
+Press `X` on a detached session to kill it after confirmation. **Detach &
+switch** gives the focused pane's working directory to a fresh managed session.
 
 Attaching reconnects the live PTY and terminal model. The session host keeps
 both alive through detach and attach cycles until the child exits or the idle
@@ -1005,7 +1009,8 @@ Snapshot format v3 preserves G0/G1 character-set designation and SO/SI
 selection, so an ACS box-drawing run survives reattach. Older v1 and v2
 snapshots remain readable and restore the power-on ASCII character-set state.
 
-On Windows, Manage Sessions opens an empty list and attach is unavailable.
+On Windows, the Session Navigator lists live local and integrated SSH panes only;
+detached sessions and attach are unavailable before Phase 11.
 
 ### Open Interactive Paths
 
