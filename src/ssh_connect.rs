@@ -1166,7 +1166,7 @@ mod tests {
         assert_eq!(command.program(), &OsString::from("ssh"));
         let joined = argv(&command).join(" ");
         assert!(!joined.contains("ControlPath"));
-        assert!(joined.contains("umask 077; cat"));
+        assert!(joined.contains("umask 077; set -C; cat"));
     }
 
     fn tmux_bootstrap(entry: &ConnectionHost, tmux: bool) -> String {
