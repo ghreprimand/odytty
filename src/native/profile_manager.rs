@@ -54,6 +54,19 @@ enum FormField {
     Cancel,
 }
 
+/// The pointer meaning of one rendered body line.  Keeping this beside the
+/// presentation line makes row insertion (warnings, empty state, suggestions,
+/// and validation errors) unable to shift a click target away from what is
+/// visible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProfileManagerTarget {
+    Inert,
+    CatalogProfile(usize),
+    Add,
+    FormField(FormField),
+    ConfirmButtons,
+}
+
 const FORM_FIELDS: &[FormField] = &[
     FormField::Name,
     FormField::DisplayName,
@@ -93,6 +106,7 @@ pub(super) struct ProfileManagerLine {
     pub(super) text: String,
     pub(super) focused: bool,
     pub(super) bold: bool,
+    target: ProfileManagerTarget,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -273,41 +287,45 @@ impl ProfileManager {
         row: usize,
         _col: usize,
     ) -> ProfileManagerOutcome {
-        match self.view {
-            ManagerView::Catalog => {
-                let _ = self.scroll_indicator(body_height);
-                let room = body_height.saturating_sub(FOOTER_ROWS + 2);
-                let offset = self.scroll_offset.get();
-                if row < room {
-                    let index = offset + row;
-                    if index < self.filtered.len() {
-                        self.add_row_focused = false;
-                        self.selected = index;
-                        return self.open_edit_selected();
-                    }
-                } else if row == room {
-                    return self.open_add();
-                }
-                ProfileManagerOutcome::Consumed
+        let target = self
+            .visible_lines(_columns, body_height)
+            .get(row)
+            .map(|line| line.target)
+            .unwrap_or(ProfileManagerTarget::Inert);
+        match target {
+            ProfileManagerTarget::Inert => ProfileManagerOutcome::Consumed,
+            ProfileManagerTarget::CatalogProfile(index) => {
+                self.add_row_focused = false;
+                self.selected = index;
+                self.open_edit_selected()
             }
-            ManagerView::Form(_) => {
-                let fields = self.visible_form_fields();
-                if row < fields.len() {
-                    self.form_focus = row;
-                    if fields[row] == FormField::Save {
-                        return self.try_save();
-                    }
-                    if fields[row] == FormField::Cancel {
+            ProfileManagerTarget::Add => self.open_add(),
+            ProfileManagerTarget::FormField(field) => {
+                let Some(index) = self.visible_form_fields().iter().position(|f| *f == field)
+                else {
+                    return ProfileManagerOutcome::Consumed;
+                };
+                self.form_focus = index;
+                match field {
+                    FormField::Save => self.try_save(),
+                    FormField::Cancel => {
                         self.return_to_catalog();
+                        ProfileManagerOutcome::Consumed
                     }
+                    _ => ProfileManagerOutcome::Consumed,
                 }
-                ProfileManagerOutcome::Consumed
             }
-            ManagerView::ConfirmDelete { .. } => {
-                if row == 0 {
+            ProfileManagerTarget::ConfirmButtons => {
+                // The displayed button row has two explicit spans.  Derive the
+                // split from that exact rendered text rather than a parallel
+                // column constant.
+                let text = "[Enter] Delete    [Esc] Cancel";
+                if _col >= text.find("[Esc]").unwrap_or(text.len()) {
+                    self.return_to_catalog();
+                    ProfileManagerOutcome::Consumed
+                } else if _col >= text.find("[Enter]").unwrap_or(0) {
                     self.confirm_delete()
                 } else {
-                    self.return_to_catalog();
                     ProfileManagerOutcome::Consumed
                 }
             }
@@ -327,11 +345,13 @@ impl ProfileManager {
                     text: format!("Delete \u{201c}{name}\u{201d}? This cannot be undone."),
                     focused: false,
                     bold: true,
+                    target: ProfileManagerTarget::Inert,
                 },
                 ProfileManagerLine {
                     text: "[Enter] Delete    [Esc] Cancel".to_owned(),
                     focused: true,
                     bold: false,
+                    target: ProfileManagerTarget::ConfirmButtons,
                 },
             ],
         }
@@ -857,18 +877,21 @@ impl ProfileManager {
             text: truncate(&query_label, body_width),
             focused: false,
             bold: false,
+            target: ProfileManagerTarget::Inert,
         });
         if let Some(warning) = self.warnings.first() {
             lines.push(ProfileManagerLine {
                 text: truncate(warning, body_width),
                 focused: false,
                 bold: false,
+                target: ProfileManagerTarget::Inert,
             });
         } else if let Some(message) = &self.message {
             lines.push(ProfileManagerLine {
                 text: truncate(message, body_width),
                 focused: false,
                 bold: false,
+                target: ProfileManagerTarget::Inert,
             });
         }
 
@@ -881,6 +904,7 @@ impl ProfileManager {
                 text: "No profiles yet.".to_owned(),
                 focused: false,
                 bold: false,
+                target: ProfileManagerTarget::Inert,
             });
         } else {
             for (row, name) in self.filtered.iter().skip(offset).take(room).enumerate() {
@@ -902,6 +926,7 @@ impl ProfileManager {
                     text: truncate(&marked, body_width),
                     focused: !self.add_row_focused && absolute == self.selected,
                     bold: true,
+                    target: ProfileManagerTarget::CatalogProfile(absolute),
                 });
             }
         }
@@ -910,11 +935,13 @@ impl ProfileManager {
             text: ADD_ROW_LABEL.to_owned(),
             focused: self.add_row_focused,
             bold: self.add_row_focused,
+            target: ProfileManagerTarget::Add,
         });
         lines.push(ProfileManagerLine {
             text: truncate(KEY_HINT_LINE, body_width),
             focused: false,
             bold: false,
+            target: ProfileManagerTarget::Inert,
         });
         lines
     }
@@ -960,6 +987,7 @@ impl ProfileManager {
                 text: truncate(&text, body_width),
                 focused,
                 bold: matches!(field, FormField::Save | FormField::Cancel) || focused,
+                target: ProfileManagerTarget::FormField(*field),
             });
             if focused
                 && matches!(field, FormField::Shell)
@@ -969,6 +997,7 @@ impl ProfileManager {
                     text: truncate(&hint, body_width),
                     focused: false,
                     bold: false,
+                    target: ProfileManagerTarget::Inert,
                 });
             }
         }
@@ -977,6 +1006,7 @@ impl ProfileManager {
                 text: truncate(error, body_width),
                 focused: false,
                 bold: false,
+                target: ProfileManagerTarget::Inert,
             });
         }
         lines

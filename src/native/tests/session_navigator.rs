@@ -55,6 +55,55 @@ fn live(token: u64) -> NavigatorEntry {
     }
 }
 
+fn rendered_row(overlay: &SessionAttachOverlay, needle: &str, height: usize) -> usize {
+    overlay
+        .visible_lines(100, height)
+        .iter()
+        // Row 0 is the query prompt and may repeat the filter string. The
+        // click target must be the matching rendered result, not its prompt.
+        .enumerate()
+        .find_map(|(row, line)| (row > 0 && line.text.contains(needle)).then_some(row))
+        .unwrap_or_else(|| panic!("missing rendered navigator row containing {needle:?}"))
+}
+
+#[test]
+fn navigator_clicks_the_rendered_scrolled_and_filtered_row() {
+    let mut overlay = SessionAttachOverlay::new();
+    let entries = (0..8)
+        .map(|token| NavigatorEntry {
+            name: format!("pane-{token}"),
+            ..live(token)
+        })
+        .collect::<Vec<_>>();
+    overlay.open(entries);
+
+    for _ in 0..6 {
+        let _ = overlay.handle_input(OverlayInput::Down);
+    }
+    let row = rendered_row(&overlay, "pane-6", 3);
+    assert!(
+        overlay.click_row(row, 3),
+        "the rendered scrolled row is clickable"
+    );
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        SessionAttachOverlayOutcome::Focus(SessionToken(6))
+    );
+
+    for character in "pane-7".chars() {
+        let _ = overlay.handle_input(OverlayInput::Char(character));
+    }
+    let row = rendered_row(&overlay, "pane-7", 3);
+    assert!(
+        overlay.click_row(row, 3),
+        "the rendered filtered row is clickable"
+    );
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        SessionAttachOverlayOutcome::Focus(SessionToken(7))
+    );
+}
+
 #[test]
 fn navigator_maps_live_and_detached_selection_to_existing_stable_owners() {
     let mut overlay = SessionAttachOverlay::new();

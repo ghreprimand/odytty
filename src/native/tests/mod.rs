@@ -211,6 +211,7 @@ mod notifications;
 mod os_theme;
 mod overlay_pointer;
 mod overlay_registry;
+mod overlay_rendered_rows;
 mod overlay_small_window;
 mod poison_recovery;
 mod profile_auto_switch;

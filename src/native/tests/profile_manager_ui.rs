@@ -33,10 +33,94 @@ fn line_texts(manager: &ProfileManager) -> Vec<String> {
         .collect()
 }
 
+/// Return the body row on which `needle` is actually rendered.  Pointer
+/// regressions use this rather than duplicating layout arithmetic: the press
+/// must operate on the row the operator can see, including dynamically
+/// inserted form help.
+fn rendered_row(manager: &ProfileManager, needle: &str) -> usize {
+    manager
+        .visible_lines(80, 24)
+        .iter()
+        .position(|line| line.text.contains(needle))
+        .unwrap_or_else(|| panic!("missing rendered row containing {needle:?}"))
+}
+
 fn feed_chars(manager: &mut ProfileManager, text: &str) {
     for ch in text.chars() {
         let _ = manager.handle_input(OverlayInput::Char(ch));
     }
+}
+
+#[test]
+fn pointer_uses_the_rendered_add_row_in_an_empty_catalog() {
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+
+    let add_row = rendered_row(&manager, "+ Add profile");
+    assert!(matches!(
+        manager.handle_pointer_press(80, 24, add_row, 0),
+        ProfileManagerOutcome::Consumed
+    ));
+    assert_eq!(manager.title(), "Add profile");
+
+    // The empty-state line is visible but has no action.
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+    let empty_row = rendered_row(&manager, "No profiles yet.");
+    assert!(matches!(
+        manager.handle_pointer_press(80, 24, empty_row, 0),
+        ProfileManagerOutcome::Consumed
+    ));
+    assert!(manager.title().contains("Named Profiles"));
+}
+
+#[test]
+fn pointer_cancel_uses_the_rendered_form_row_after_shell_suggestion() {
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+    let add_row = rendered_row(&manager, "+ Add profile");
+    let _ = manager.handle_pointer_press(80, 24, add_row, 0);
+
+    // Focus Shell and choose a discovered suggestion; this inserts the
+    // suggestion line immediately after Shell and used to shift Cancel's
+    // arithmetic hit-test target.
+    let _ = manager.handle_input(OverlayInput::Down);
+    let _ = manager.handle_input(OverlayInput::Down);
+    let _ = manager.handle_input(OverlayInput::Right);
+    assert!(
+        line_texts(&manager)
+            .iter()
+            .any(|line| line.contains("Shell suggestions"))
+    );
+    let cancel_row = rendered_row(&manager, "[Cancel]");
+    assert!(matches!(
+        manager.handle_pointer_press(80, 24, cancel_row, 0),
+        ProfileManagerOutcome::Consumed
+    ));
+    assert!(manager.title().contains("Named Profiles"));
+}
+
+#[test]
+fn pointer_delete_confirmation_uses_the_rendered_button_spans() {
+    let mut manager = ProfileManager::new();
+    manager.open(catalog_with(&["dev"]), None);
+    let _ = manager.handle_input(OverlayInput::Char('x'));
+    let action_row = rendered_row(&manager, "[Enter] Delete");
+    assert!(matches!(
+        manager.handle_pointer_press(80, 24, action_row, 0),
+        ProfileManagerOutcome::Delete(name) if name == "dev"
+    ));
+
+    let mut manager = ProfileManager::new();
+    manager.open(catalog_with(&["dev"]), None);
+    let _ = manager.handle_input(OverlayInput::Char('x'));
+    let action_row = rendered_row(&manager, "[Enter] Delete");
+    let cancel_col = "[Enter] Delete    ".chars().count();
+    assert!(matches!(
+        manager.handle_pointer_press(80, 24, action_row, cancel_col),
+        ProfileManagerOutcome::Consumed
+    ));
+    assert!(manager.title().contains("Named Profiles"));
 }
 
 // --- Section 4: create / rename collision guards (fail-closed, no clobber) ---
@@ -225,6 +309,72 @@ fn the_add_form_exposes_no_environment_field_so_ui_cannot_introduce_secrets() {
         "the manager form must not offer an env editor; env only rides opaquely \
          on an imported/edited base and is rejected at the write boundary"
     );
+}
+
+// --- Pointer row/render lockstep ------------------------------------------
+
+#[test]
+fn pointer_press_on_the_rendered_add_row_opens_the_empty_catalog_form() {
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+
+    let add_row = rendered_row(&manager, "+ Add profile");
+    let outcome = manager.handle_pointer_press(80, 24, add_row, 0);
+
+    assert!(matches!(outcome, ProfileManagerOutcome::Consumed));
+    assert_eq!(
+        manager.title(),
+        "Add profile",
+        "a press where the empty catalog draws its add row must open the form"
+    );
+}
+
+#[test]
+fn pointer_press_on_rendered_cancel_after_shell_suggestion_returns_to_catalog() {
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+    let _ = manager.handle_input(OverlayInput::Tab);
+
+    // Select a discovered shell. The focused Shell row inserts a visible
+    // suggestion line, which must not displace the rows the pointer handler
+    // accepts below it.
+    let _ = manager.handle_input(OverlayInput::Down);
+    let _ = manager.handle_input(OverlayInput::Down);
+    let _ = manager.handle_input(OverlayInput::Right);
+    assert!(
+        line_texts(&manager)
+            .iter()
+            .any(|line| line.contains("Shell suggestions")),
+        "precondition: selecting a shell renders its suggestion row"
+    );
+
+    let cancel_row = rendered_row(&manager, "[Cancel]");
+    let outcome = manager.handle_pointer_press(80, 24, cancel_row, 0);
+
+    assert!(matches!(outcome, ProfileManagerOutcome::Consumed));
+    assert!(
+        manager.title().contains("Named Profiles"),
+        "a press where Cancel is drawn must return to the catalog even with a shell hint"
+    );
+}
+
+#[test]
+fn pointer_press_on_rendered_cancel_without_shell_suggestion_returns_to_catalog() {
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+    let _ = manager.handle_input(OverlayInput::Tab);
+    assert!(
+        !line_texts(&manager)
+            .iter()
+            .any(|line| line.contains("Shell suggestions")),
+        "control form has no injected shell-suggestion row"
+    );
+
+    let cancel_row = rendered_row(&manager, "[Cancel]");
+    let outcome = manager.handle_pointer_press(80, 24, cancel_row, 0);
+
+    assert!(matches!(outcome, ProfileManagerOutcome::Consumed));
+    assert!(manager.title().contains("Named Profiles"));
 }
 
 // --- Section 4: external palette appearance fields ---

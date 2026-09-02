@@ -178,6 +178,8 @@ impl OverlayUi {
         row_in_body: usize,
         col_in_body: usize,
     ) -> OverlayOutcome {
+        // Guard: this is valid only while this dialog body stays fixed-height.
+        // Added or wrapped body lines must use rendered-line targets instead.
         const ACTION_ROW: usize = 6;
         if row_in_body != ACTION_ROW {
             return OverlayOutcome::Consumed;
@@ -246,6 +248,8 @@ impl OverlayUi {
         row_in_body: usize,
         col_in_body: usize,
     ) -> OverlayOutcome {
+        // Guard: this is valid only while this dialog body stays fixed-height.
+        // Added or wrapped body lines must use rendered-line targets instead.
         const ACTION_ROW: usize = 2;
         if row_in_body != ACTION_ROW {
             return OverlayOutcome::Consumed;
@@ -309,6 +313,8 @@ impl OverlayUi {
         row_in_body: usize,
         col_in_body: usize,
     ) -> OverlayOutcome {
+        // Guard: this is valid only while this dialog body stays fixed-height.
+        // Added or wrapped body lines must use rendered-line targets instead.
         const ACTION_ROW: usize = 2;
         if row_in_body != ACTION_ROW {
             return OverlayOutcome::Consumed;
@@ -376,6 +382,8 @@ impl OverlayUi {
         row_in_body: usize,
         col_in_body: usize,
     ) -> OverlayOutcome {
+        // Guard: this is valid only while this dialog body stays fixed-height.
+        // Added or wrapped body lines must use rendered-line targets instead.
         const ACTION_ROW: usize = 2;
         if row_in_body != ACTION_ROW {
             return OverlayOutcome::Consumed;
@@ -435,6 +443,8 @@ impl OverlayUi {
         row_in_body: usize,
         col_in_body: usize,
     ) -> OverlayOutcome {
+        // Guard: this is valid only while this dialog body stays fixed-height.
+        // Added or wrapped body lines must use rendered-line targets instead.
         const ACTION_ROW: usize = 2;
         if row_in_body != ACTION_ROW {
             return OverlayOutcome::Consumed;
@@ -510,6 +520,8 @@ impl OverlayUi {
         row_in_body: usize,
         col_in_body: usize,
     ) -> OverlayOutcome {
+        // Guard: this is valid only while this dialog body stays fixed-height.
+        // Added or wrapped body lines must use rendered-line targets instead.
         const ACTION_ROW: usize = 2;
         if row_in_body != ACTION_ROW {
             return OverlayOutcome::Consumed;
@@ -581,6 +593,8 @@ impl OverlayUi {
         row_in_body: usize,
         col_in_body: usize,
     ) -> OverlayOutcome {
+        // Guard: this is valid only while this dialog body stays fixed-height.
+        // Added or wrapped body lines must use rendered-line targets instead.
         const ACTION_ROW: usize = 2;
         if row_in_body != ACTION_ROW {
             return OverlayOutcome::Consumed;
@@ -669,6 +683,8 @@ impl OverlayUi {
         row_in_body: usize,
         col_in_body: usize,
     ) -> OverlayOutcome {
+        // Guard: this is valid only while this dialog body stays fixed-height.
+        // Added or wrapped body lines must use rendered-line targets instead.
         const ACTION_ROW: usize = 2;
         if row_in_body != ACTION_ROW {
             return OverlayOutcome::Consumed;
@@ -754,6 +770,8 @@ impl OverlayUi {
         row_in_body: usize,
         col_in_body: usize,
     ) -> OverlayOutcome {
+        // Guard: this is valid only while this dialog body stays fixed-height.
+        // Added or wrapped body lines must use rendered-line targets instead.
         const ACTION_ROW: usize = 2;
         if row_in_body != ACTION_ROW {
             return OverlayOutcome::Consumed;
@@ -836,6 +854,8 @@ impl OverlayUi {
         row_in_body: usize,
         col_in_body: usize,
     ) -> OverlayOutcome {
+        // Guard: this is valid only while this dialog body stays fixed-height.
+        // Added or wrapped body lines must use rendered-line targets instead.
         const ACTION_ROW: usize = 3;
         if row_in_body != ACTION_ROW {
             return OverlayOutcome::Consumed;

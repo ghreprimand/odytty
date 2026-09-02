@@ -825,6 +825,8 @@ impl ConnectionForm {
         // Focused-field help footer (FORM-UX): follows keyboard focus + click,
         // wrapped to the body width in `visible_lines`. Collapses off first on a
         // short window, exactly like the connection-manager footer.
+        // Guard: no clickable field may be inserted below Help without moving
+        // pointer dispatch to rendered-row targets first.
         rows.push(FormRow::Help(self.focus));
         rows.push(FormRow::Text(
             "[Tab/\u{2191}\u{2193}] move   [Enter] act   [Ctrl+S] save   [Esc] cancel".to_owned(),
