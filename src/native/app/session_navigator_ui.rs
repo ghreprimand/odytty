@@ -3,9 +3,11 @@
 
 use super::*;
 use crate::native::session::SessionToken;
+#[cfg(unix)]
+use crate::native::session_navigator::append_detached;
 use crate::native::session_navigator::{
     ClosedNavigatorItem, ClosedNavigatorKind, MAX_RECENTLY_CLOSED, NavigatorAction,
-    NavigatorTarget, append_detached, live_entries,
+    NavigatorTarget, live_entries,
 };
 
 impl App {

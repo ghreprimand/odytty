@@ -241,6 +241,9 @@ pub(super) fn live_entries(set: &WorkspaceSet, include_preview: bool) -> Vec<Nav
     entries
 }
 
+/// Unix only: the detached-session registry has no Windows surface before
+/// Phase 11, so this helper is compiled out there rather than left dead.
+#[cfg(unix)]
 pub(super) fn append_detached(entries: &mut Vec<NavigatorEntry>, sessions: Vec<ListedSession>) {
     entries.extend(
         sessions

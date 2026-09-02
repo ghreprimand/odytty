@@ -4,9 +4,10 @@
 use super::super::overlay::OverlayInput;
 use super::super::session::{HeadlessSession, Session, SessionToken, WorkspaceSet};
 use super::super::session_attach_overlay::{SessionAttachOverlay, SessionAttachOverlayOutcome};
+#[cfg(unix)]
+use super::super::session_navigator::{MAX_NAVIGATOR_ROWS, append_detached};
 use super::super::session_navigator::{
-    MAX_NAVIGATOR_ROWS, NavigatorAction, NavigatorEntry, NavigatorTarget, append_detached,
-    live_entries,
+    NavigatorAction, NavigatorEntry, NavigatorTarget, live_entries,
 };
 use crate::core::{Attrs, Cell, Dimensions, Position, Snapshot};
 use crate::native::test_support::headless_writer;
@@ -73,6 +74,7 @@ fn navigator_maps_live_and_detached_selection_to_existing_stable_owners() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn navigator_detached_append_is_bounded_and_keeps_stable_registry_ids() {
     let mut entries = vec![live(7)];
