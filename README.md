@@ -151,7 +151,9 @@ sessions.
   [`docs/notifications.md`](docs/notifications.md).
 - **Workspaces and remote work:** tabs, resizable panes, named workspaces,
   layouts, restore, Unix managed and detached sessions, an SSH connection
-  manager, connection reuse, and optional `tmux` persistence.
+  manager, connection reuse, optional `tmux` persistence, and an on-demand
+  searchable Session Navigator with bounded metadata, confirmed close actions,
+  a process-lifetime fresh-shell reopen history, and an optional redacted preview.
 - **Configuration without ceremony:** a live settings panel, command palette,
   font and theme pickers, 144 built-in themes, user themes, a theme builder
   with sliders and click-to-edit hex values (including capture of a pane's live

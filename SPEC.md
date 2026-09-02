@@ -1560,17 +1560,25 @@ scope rather than silently inheriting deferred work from a prior release.
   clipboard and closes. Presentation-only — terminal state is never modified, and
   a zero-match activation consumes the chord without leaking it to the PTY.
 
-- Manage Sessions overlay (`session-attach` bindable action, default
-  `Ctrl+Shift+A`, rebindable; also reachable from the right-click menu): an
-  in-window, type-to-filter list of live detached sessions, the GUI counterpart
-  to the `odytty list` / `odytty attach` CLI verbs. Selecting a session attaches
-  it; an already-open session is de-duplicated to its existing tab instead of
+- Session Navigator (`session-attach` bindable action, default
+  `Ctrl+Shift+A`, rebindable; also reachable from the command palette and
+  right-click menu): an on-demand, type-to-filter snapshot of the live
+  `WorkspaceSet` plus Unix detached sessions. Workspace, tab, and pane rows
+  expose bounded title, class, directory or redacted remote host, status,
+  progress, unread state, and profile. The default collects no command output;
+  opt-in `navigator_preview` shows at most eight frozen, redacted live-pane
+  lines without polling or mutation. Selecting a live row focuses its stable token.
+  Navigator `x` closes live tab/workspace rows only after an explicit confirm;
+  `o` relaunches a fresh shell at the last closed row's directory and profile
+  from a bounded process-lifetime history, never resurrecting its process.
+  Selecting a detached session attaches it; an already-open session is de-duplicated to its existing tab instead of
   opening a second copy, and otherwise a New-tab / Replace-current dialog
   chooses placement (Replace attaches the new session, then cleanly detaches the
   old hosted tab so it stays reattachable). Right-clicking a row requests a kill
   with a "Terminate session" confirm; on confirm OdyTTY kills the host (a stale
   socket is treated as already-gone) and reopens the manager so the dead row
-  disappears. On Windows the overlay opens empty and attach is unavailable.
+  disappears. On Windows live local and integrated SSH rows remain available;
+  detached attachment and preview are unavailable before Phase 11.
 
 - Detach & switch (Unix-only right-click menu item): spawns a **fresh**
   managed session — honestly a spawn, not live-process migration, because the

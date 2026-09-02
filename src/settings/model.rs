@@ -1369,6 +1369,9 @@ pub struct Settings {
     /// in-memory ring of recent screen frames the replay overlay can scrub.
     /// Recording is local-only: frames never leave memory (no disk, no network).
     pub session_replay: bool,
+    /// Opt-in bounded, redacted screen preview in Session Navigator. Off keeps
+    /// the navigator's default snapshot metadata-only.
+    pub navigator_preview: bool,
     /// Opt-in interactive filesystem paths (Phase 7+). Off by default; while off
     /// the pointer path never scans terminal text for paths and the plain hover
     /// path is byte-identical. When on, hovering a path-looking span that
@@ -1524,6 +1527,7 @@ impl Default for Settings {
             remote_persist: RemotePersist::default(),
             remote_image_paste: RemoteImagePaste::default(),
             session_replay: DEFAULT_SESSION_REPLAY,
+            navigator_preview: DEFAULT_NAVIGATOR_PREVIEW,
             interactive_urls: DEFAULT_INTERACTIVE_URLS,
             interactive_paths: DEFAULT_INTERACTIVE_PATHS,
             interactive_paths_barewords: DEFAULT_INTERACTIVE_PATHS_BAREWORDS,

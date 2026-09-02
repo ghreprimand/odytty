@@ -177,6 +177,7 @@ environment variable was not set at startup.
 | `remote_tmux` | `ODYTTY_REMOTE_TMUX` | `on`, `off` | `off` |
 | `remote_image_paste` | `ODYTTY_REMOTE_IMAGE_PASTE` | `ask`, `off` | `ask` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
+| `navigator_preview` | `ODYTTY_NAVIGATOR_PREVIEW` | `on`, `off` | `off` |
 | `restore_workspaces` | `ODYTTY_RESTORE_WORKSPACES` | `on`, `off` | `off` |
 | `profile_auto_switch` | `ODYTTY_PROFILE_AUTO_SWITCH` | `on`, `off` | `off` |
 | `default_launch_profile` | `ODYTTY_DEFAULT_LAUNCH_PROFILE` | Profile name | unset |
@@ -671,6 +672,15 @@ immediately.
 Recording is **local-only**: frames live only in process memory — they are never
 written to disk, logged, or sent anywhere, and they are dropped when the session
 closes or recording is turned off.
+
+### Session navigator preview (`navigator_preview`)
+
+`navigator_preview = on` (or `ODYTTY_NAVIGATOR_PREVIEW=on`) shows up to eight
+frozen, bounded lines from the selected live pane in Session Navigator. It is
+off by default. Values matching `password=`, `token=`, `key=`, and remote
+`user@host:port` forms are redacted before presentation. A preview never
+attaches, wakes, writes to, or polls a session. Detached rows always say
+`preview unavailable`; Windows has no detached-session preview before Phase 11.
 
 To scrub, press `Ctrl+Shift+R` (the default, or the right-click menu's "Session
 Replay" item) to open the replay overlay; rebind the `session-replay` action via

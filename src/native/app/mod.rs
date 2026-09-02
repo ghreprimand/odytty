@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
@@ -169,6 +169,7 @@ mod resize_hud;
 mod scroll_anim;
 mod selection_input;
 mod session_attach_ui;
+mod session_navigator_ui;
 mod ssh_connect;
 // `App` state ownership: fields, construction, and the active-session
 // dereference. Extracted from this file without behavior change.

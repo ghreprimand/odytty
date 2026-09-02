@@ -48,6 +48,9 @@ impl OverlayUi {
             OverlayMode::ConfirmKillSession => {
                 return self.handle_confirm_kill_session_input(input);
             }
+            OverlayMode::ConfirmNavigatorClose => {
+                return self.handle_confirm_navigator_close_input(input);
+            }
             OverlayMode::DetachSwitchChoice => return self.handle_detach_switch_input(input),
             OverlayMode::ConfirmReplaceTab => {
                 return self.handle_confirm_replace_tab_input(input);
@@ -347,6 +350,13 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    OverlayMode::ConfirmNavigatorClose => {
+                        if button == PointerButton::Left {
+                            self.confirm_navigator_close_click(row_in_body, col_in_body)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     OverlayMode::DetachSwitchChoice => {
                         if button == PointerButton::Left {
                             self.detach_switch_click(row_in_body, col_in_body)
@@ -431,6 +441,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
+                    | OverlayMode::ConfirmNavigatorClose
                     | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ConfirmReplaceTab
                     | OverlayMode::ConfirmRemoveHost
@@ -462,6 +473,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
+                    | OverlayMode::ConfirmNavigatorClose
                     | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ConfirmReplaceTab
                     | OverlayMode::ConfirmRemoveHost
@@ -520,6 +532,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
+                    | OverlayMode::ConfirmNavigatorClose
                     | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ConfirmReplaceTab
                     | OverlayMode::ConfirmRemoveHost
@@ -558,6 +571,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
+            | OverlayMode::ConfirmNavigatorClose
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab
             | OverlayMode::ConfirmRemoveHost
@@ -591,6 +605,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
+            | OverlayMode::ConfirmNavigatorClose
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab
             | OverlayMode::ConfirmRemoveHost
@@ -991,6 +1006,22 @@ impl OverlayUi {
             SessionAttachOverlayOutcome::Consumed => OverlayOutcome::Consumed,
             SessionAttachOverlayOutcome::Close => OverlayOutcome::Close,
             SessionAttachOverlayOutcome::Attach(id) => OverlayOutcome::AttachSession(id),
+            SessionAttachOverlayOutcome::Focus(token) => {
+                self.close();
+                OverlayOutcome::FocusSession(token)
+            }
+            SessionAttachOverlayOutcome::NavigatorAction(action) => {
+                self.close();
+                match &action {
+                    crate::native::session_navigator::NavigatorAction::Close(
+                        crate::native::session_navigator::NavigatorTarget::Detached(id),
+                    ) => OverlayOutcome::KillSessionRequest(id.clone()),
+                    crate::native::session_navigator::NavigatorAction::Close(target) => {
+                        OverlayOutcome::NavigatorCloseRequest(target.clone())
+                    }
+                    _ => OverlayOutcome::NavigatorAction(action),
+                }
+            }
         }
     }
 

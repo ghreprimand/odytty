@@ -375,6 +375,22 @@ pub(in crate::native) enum OverlayOutcome {
     /// session ended between list and accept) is swallowed gracefully, never
     /// panics.
     AttachSession(String),
+    /// Focus an existing live pane selected by the unified session navigator.
+    FocusSession(SessionToken),
+    /// A non-focus command selected in the unified session navigator. Carries
+    /// existing ownership tokens only; App routes it through its normal command
+    /// handlers rather than mutating a navigator copy.
+    NavigatorAction(crate::native::session_navigator::NavigatorAction),
+    /// A live tab or workspace was selected for closing in the navigator. The
+    /// App replaces the list with a confirmation card before invoking its
+    /// existing close route.
+    NavigatorCloseRequest(crate::native::session_navigator::NavigatorTarget),
+    /// The navigator close card was accepted. The target is an existing arena
+    /// token, never a copy of session state.
+    NavigatorCloseConfirmed(crate::native::session_navigator::NavigatorTarget),
+    /// The navigator close card was dismissed. The App reopens the frozen-list
+    /// surface with the same stable target selected.
+    NavigatorCloseCanceled(crate::native::session_navigator::NavigatorTarget),
     /// The user confirmed the close-confirmation dialog (CLOSE-CONFIRM): close
     /// the window. The overlay has already closed itself by the time this is
     /// emitted; the App sets its `pending_exit` flag and exits the event loop on
@@ -498,6 +514,10 @@ pub(in crate::native) enum OverlayMode {
     /// [`OverlayOutcome::KillSessionConfirmed`]), `[Esc / N]` cancels. Modeled
     /// on `ConfirmClose`; the pending host session-id is carried on the overlay.
     ConfirmKillSession,
+    /// Navigator close-confirmation. Unlike the ordinary close chord, every
+    /// live tab/workspace list action is confirmed to avoid a focus-list
+    /// misfire. Detached rows continue through `ConfirmKillSession`.
+    ConfirmNavigatorClose,
     /// Detach & switch choice dialog. A centered, static 3-way modal
     /// shown when the user picks "Detach & switch" on the focused pane: `[S]`
     /// swaps (spawn a managed session + close this pane), `[K]` keeps both

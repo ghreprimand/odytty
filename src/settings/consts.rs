@@ -134,6 +134,7 @@ pub const REMOTE_TMUX_ENV: &str = "ODYTTY_REMOTE_TMUX";
 pub const REMOTE_PERSIST_ENV: &str = "ODYTTY_REMOTE_PERSIST";
 pub const REMOTE_IMAGE_PASTE_ENV: &str = "ODYTTY_REMOTE_IMAGE_PASTE";
 pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
+pub const NAVIGATOR_PREVIEW_ENV: &str = "ODYTTY_NAVIGATOR_PREVIEW";
 pub const INTERACTIVE_URLS_ENV: &str = "ODYTTY_INTERACTIVE_URLS";
 pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
 pub const INTERACTIVE_PATHS_BAREWORDS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_BAREWORDS";
@@ -270,6 +271,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     REMOTE_PERSIST_ENV,
     REMOTE_IMAGE_PASTE_ENV,
     SESSION_REPLAY_ENV,
+    NAVIGATOR_PREVIEW_ENV,
     INTERACTIVE_URLS_ENV,
     INTERACTIVE_PATHS_ENV,
     INTERACTIVE_PATHS_BAREWORDS_ENV,
@@ -343,6 +345,9 @@ pub const DEFAULT_SSH_CONFIG_HOSTS: bool = false;
 /// in-memory ring of recent screen frames; recording is local-only (never
 /// written to disk or sent anywhere).
 pub const DEFAULT_SESSION_REPLAY: bool = false;
+/// Navigator output previews are explicitly opt-in. The default snapshot stays
+/// metadata-only and never reads a terminal screen.
+pub const DEFAULT_NAVIGATOR_PREVIEW: bool = false;
 
 /// Opt-in interactive filesystem paths (`ODYTTY_INTERACTIVE_PATHS`). Off by
 /// default, so the pointer path never scans terminal text for paths and the

@@ -432,6 +432,10 @@ impl App {
             return;
         }
         if let Some(tab_idx) = self.sessions.position_of_token(replace_target) {
+            // Intentional Session Navigator reopen-history exemption: Replace
+            // turns a hosted tab back into a detached registry session, so a
+            // fresh local shell descriptor would be misleading. The user
+            // can attach the surviving hosted process from the navigator.
             let _ = self.sessions.close_tab_at(tab_idx);
         }
         // A surviving single-pane tab may return input to the plain fast path;
@@ -479,6 +483,7 @@ impl App {
             self.pending_exit = true;
             return true;
         }
+        self.record_navigator_closed_tab(self.sessions.active_id());
         // Another tab in this workspace, or another workspace, survives: reap the
         // whole active tab (every pane), removing the workspace too if it was its
         // last tab.
@@ -515,6 +520,7 @@ impl App {
             self.pending_exit = true;
             return;
         }
+        self.record_navigator_closed_tab(token);
         let ws_before = self.sessions.workspace_count();
         let _ = self.sessions.close_tab_at(tab_idx);
         if self.sessions.workspace_count() < ws_before {
@@ -543,6 +549,10 @@ impl App {
             else {
                 break;
             };
+            let token = self.sessions.workspaces[self.sessions.active_workspace_index()].tabs
+                [victim]
+                .focused;
+            self.record_navigator_closed_tab(token);
             let _ = self.sessions.close_tab_at(victim);
         }
         if self.sessions.active_is_single_pane() {
@@ -581,6 +591,7 @@ impl App {
             self.pending_exit = true;
             return;
         }
+        self.record_navigator_closed_workspace(idx);
         // Close-active-workspace acts on the active one; switch to the target
         // first so a background slot's `×` closes THAT workspace.
         if idx != self.sessions.active_workspace_index() {
@@ -831,6 +842,7 @@ impl App {
             self.pending_exit = true;
             return;
         }
+        self.record_navigator_closed_workspace(self.sessions.active_workspace_index());
         let _ = self.sessions.close_active_workspace();
         self.flash_rail_autohide();
         // The neighbor workspace's active tab may be single-pane, returning input

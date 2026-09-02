@@ -48,7 +48,9 @@ impl OverlayUi {
             OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
             OverlayMode::Connections => "\u{2190} Connections  (Esc = back)".to_owned(),
             OverlayMode::ConnectionForm => self.connection_form.title(),
-            OverlayMode::SessionAttach => "\u{2190} Manage Sessions  (Esc = back)".to_owned(),
+            OverlayMode::SessionAttach => {
+                "\u{2190} Session Navigator  Enter focus/attach | r rename | d duplicate | m move | x close | X kill | o reopen (new shell in closed directory/profile) | Esc back".to_owned()
+            }
             OverlayMode::OpenWith => "\u{2190} Open With\u{2026}  (Esc = back)".to_owned(),
             OverlayMode::WorkspacePicker => {
                 "\u{2190} Move to Workspace\u{2026}  (Esc = back)".to_owned()
@@ -65,6 +67,7 @@ impl OverlayUi {
             OverlayMode::RiskyPaste => "Confirm paste".to_owned(),
             OverlayMode::AttachChoice => "Attach session".to_owned(),
             OverlayMode::ConfirmKillSession => "Kill session".to_owned(),
+            OverlayMode::ConfirmNavigatorClose => "Close navigator item?".to_owned(),
             OverlayMode::DetachSwitchChoice => "Detach & switch".to_owned(),
             OverlayMode::ConfirmReplaceTab => "Replace tab?".to_owned(),
             OverlayMode::ConfirmRemoveHost => "Remove host?".to_owned(),
@@ -106,6 +109,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
+            | OverlayMode::ConfirmNavigatorClose
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab
             | OverlayMode::ConfirmRemoveHost
@@ -640,6 +644,26 @@ impl OverlayUi {
                     },
                 ]
             }
+            OverlayMode::ConfirmNavigatorClose => vec![
+                OverlayLine {
+                    text: "Close this live tab or workspace?".to_owned(),
+                    focused: false,
+                    swatch: None,
+                    bold: false,
+                },
+                OverlayLine {
+                    text: String::new(),
+                    focused: false,
+                    swatch: None,
+                    bold: false,
+                },
+                OverlayLine {
+                    text: CONFIRM_NAVIGATOR_CLOSE_ACTION_LINE.to_owned(),
+                    focused: true,
+                    swatch: None,
+                    bold: false,
+                },
+            ],
             // Static Detach & switch copy. Row 0 names the cwd, row 1
             // is the honest data-loss warning, row 2 blank, row 3 the action
             // line — the action row index (3) matches `ACTION_ROW` in

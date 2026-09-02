@@ -7,6 +7,7 @@
 use crate::connection_hosts::ConnectionHost;
 use crate::native::context_menu_ui::{CONTEXT_MENU_ITEMS, ContextMenuItem, ContextMenuOutcome};
 use crate::native::session::SessionToken;
+use crate::native::session_navigator::NavigatorTarget;
 use crate::selection::CellPoint;
 
 use super::contracts::{
@@ -388,6 +389,66 @@ impl OverlayUi {
             let id = std::mem::take(&mut self.confirm_kill_session_id);
             self.close();
             OverlayOutcome::KillSessionConfirmed(id)
+        } else {
+            OverlayOutcome::Consumed
+        }
+    }
+
+    /// Open the close-confirmation card for a live navigator target. Starting
+    /// with `close()` makes a repeated request replace, rather than stack, cards.
+    pub(in crate::native) fn open_confirm_navigator_close(&mut self, target: NavigatorTarget) {
+        self.close();
+        self.confirm_navigator_close = Some(target);
+        self.mode = OverlayMode::ConfirmNavigatorClose;
+        self.open = true;
+    }
+
+    pub(super) fn handle_confirm_navigator_close_input(
+        &mut self,
+        input: OverlayInput,
+    ) -> OverlayOutcome {
+        match input {
+            OverlayInput::Activate | OverlayInput::Char('y') | OverlayInput::Char('Y') => {
+                match self.confirm_navigator_close.take() {
+                    Some(target) => {
+                        self.close();
+                        OverlayOutcome::NavigatorCloseConfirmed(target)
+                    }
+                    None => OverlayOutcome::Close,
+                }
+            }
+            OverlayInput::Close | OverlayInput::Char('n') | OverlayInput::Char('N') => {
+                match self.confirm_navigator_close.take() {
+                    Some(target) => {
+                        self.close();
+                        OverlayOutcome::NavigatorCloseCanceled(target)
+                    }
+                    None => OverlayOutcome::Close,
+                }
+            }
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
+    pub(super) fn confirm_navigator_close_click(
+        &mut self,
+        row_in_body: usize,
+        col_in_body: usize,
+    ) -> OverlayOutcome {
+        const ACTION_ROW: usize = 2;
+        if row_in_body != ACTION_ROW {
+            return OverlayOutcome::Consumed;
+        }
+        let close_start = CONFIRM_NAVIGATOR_CLOSE_ACTION_LINE
+            .find("[Enter")
+            .unwrap_or(0);
+        let cancel_start = CONFIRM_NAVIGATOR_CLOSE_ACTION_LINE
+            .find("[Esc")
+            .unwrap_or(CONFIRM_NAVIGATOR_CLOSE_ACTION_LINE.len());
+        if col_in_body >= cancel_start {
+            self.handle_confirm_navigator_close_input(OverlayInput::Close)
+        } else if col_in_body >= close_start {
+            self.handle_confirm_navigator_close_input(OverlayInput::Activate)
         } else {
             OverlayOutcome::Consumed
         }

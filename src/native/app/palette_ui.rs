@@ -223,6 +223,7 @@ impl App {
             PaletteAction::ClosePane => self.apply_pane_action(BindableAction::ClosePane),
             PaletteAction::ZoomPane => self.apply_pane_action(BindableAction::ZoomPane),
             PaletteAction::EqualizePanes => self.apply_pane_action(BindableAction::EqualizePanes),
+            PaletteAction::SessionNavigator => self.open_session_navigator_overlay(),
         }
     }
 }

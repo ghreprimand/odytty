@@ -260,6 +260,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "remote_persist",
             "remote_image_paste",
             "session_replay",
+            "navigator_preview",
             "restore_workspaces",
             "profile_auto_switch",
             "default_launch_profile",

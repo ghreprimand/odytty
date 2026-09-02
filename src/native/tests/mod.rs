@@ -222,6 +222,7 @@ mod restore_theme;
 mod scrollbar;
 mod selection_copy_span;
 mod selection_extend;
+mod session_navigator;
 mod sh2_native;
 mod sh_click;
 mod smart_ctrl_c;

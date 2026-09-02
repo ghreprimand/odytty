@@ -337,6 +337,10 @@ impl Settings {
             bool_display(self.session_replay).to_owned(),
         );
         values.insert(
+            NAVIGATOR_PREVIEW_ENV,
+            bool_display(self.navigator_preview).to_owned(),
+        );
+        values.insert(
             INTERACTIVE_URLS_ENV,
             bool_display(self.interactive_urls).to_owned(),
         );

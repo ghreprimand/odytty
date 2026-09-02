@@ -901,6 +901,12 @@ impl Settings {
             DEFAULT_SESSION_REPLAY,
             &mut warn,
         );
+        let navigator_preview = parse_bool_setting(
+            get(NAVIGATOR_PREVIEW_ENV).as_deref(),
+            NAVIGATOR_PREVIEW_ENV,
+            DEFAULT_NAVIGATOR_PREVIEW,
+            &mut warn,
+        );
         let interactive_urls = parse_bool_setting(
             get(INTERACTIVE_URLS_ENV).as_deref(),
             INTERACTIVE_URLS_ENV,
@@ -1060,6 +1066,7 @@ impl Settings {
             remote_persist,
             remote_image_paste,
             session_replay,
+            navigator_preview,
             interactive_urls,
             interactive_paths,
             interactive_paths_barewords,

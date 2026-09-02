@@ -399,19 +399,14 @@ impl App {
                     // pane it holds — mirroring the menu/keyboard "Close Tab".
                     // Exit keys on the last *tab* of the last *workspace*, never
                     // the last *pane*.
-                    if self.sessions.tab_count() <= 1 && self.sessions.workspace_count() <= 1 {
-                        self.pending_exit = true;
-                        return;
+                    if let Some(token) = self.sessions.workspaces
+                        [self.sessions.active_workspace_index()]
+                    .tabs
+                    .get(idx)
+                    .map(|tab| tab.focused)
+                    {
+                        self.close_tab_by_token(token);
                     }
-                    let _ = self.sessions.close_tab_at(idx);
-                    // Closing a tab may drop the active tab back to single-pane
-                    // (or shift it); clear a pending multiplexer prefix so a
-                    // stale state can't swallow the next key, matching
-                    // `App::close_active_tab`.
-                    if self.sessions.active_is_single_pane() {
-                        self.prefix_engine.cancel();
-                    }
-                    self.on_active_session_changed();
                     return;
                 }
                 (

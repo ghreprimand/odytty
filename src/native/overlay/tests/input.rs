@@ -2691,3 +2691,25 @@ fn profile_picker_keyboard_accept_emits_new_tab_launch() {
         OverlayOutcome::ProfilePickerNewTab("dev".to_owned())
     );
 }
+
+#[test]
+fn navigator_close_confirm_emits_or_cancels_the_same_stable_target() {
+    use crate::native::session::SessionToken;
+    use crate::native::session_navigator::NavigatorTarget;
+
+    let target = NavigatorTarget::Tab(SessionToken(42));
+    let mut overlay = OverlayUi::default();
+    overlay.open_confirm_navigator_close(target.clone());
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Char('n')),
+        OverlayOutcome::NavigatorCloseCanceled(target.clone())
+    );
+    assert!(!overlay.is_open());
+
+    overlay.open_confirm_navigator_close(target.clone());
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        OverlayOutcome::NavigatorCloseConfirmed(target)
+    );
+    assert!(!overlay.is_open());
+}

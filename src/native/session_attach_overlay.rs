@@ -20,7 +20,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::fuzzy;
-use crate::session_host::ListedSession;
+use crate::native::session_navigator::{NavigatorAction, NavigatorEntry, NavigatorTarget};
 
 use super::overlay::OverlayInput;
 
@@ -32,7 +32,7 @@ const MAX_RESULTS: usize = 40;
 pub(super) struct SessionAttachOverlay {
     /// The frozen session list captured at open time, in load order (sorted by
     /// id by the registry).
-    entries: Vec<ListedSession>,
+    entries: Vec<NavigatorEntry>,
     /// Current type-to-filter query.
     query: String,
     /// Indexes into `entries` for the rows that match `query`, best-first.
@@ -58,6 +58,9 @@ pub(super) enum SessionAttachOverlayOutcome {
     /// (presentation is done; this overlay never attaches anything itself).
     /// Carries the session id.
     Attach(String),
+    /// Focus an already-live pane by its stable arena token.
+    Focus(crate::native::session::SessionToken),
+    NavigatorAction(NavigatorAction),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,12 +86,36 @@ impl SessionAttachOverlay {
     /// Load a frozen set of live sessions and reset the query/cursor. The list
     /// is owned by the overlay, so it stays stable while open even if a session
     /// ends underneath it (a stale id is handled gracefully on accept).
-    pub(super) fn open(&mut self, entries: Vec<ListedSession>) {
-        self.entries = entries;
+    pub(super) fn open<I, E>(&mut self, entries: I)
+    where
+        I: IntoIterator<Item = E>,
+        E: Into<NavigatorEntry>,
+    {
+        self.entries = entries.into_iter().map(Into::into).collect();
         self.query.clear();
         self.selected = 0;
         self.reset_scroll();
         self.recompute();
+    }
+
+    /// Reopen the navigator after cancelling a destructive card with the same
+    /// stable target selected when it is still present. A stale target falls
+    /// back to the first row without attempting any session mutation.
+    pub(super) fn open_selected<I, E>(&mut self, entries: I, stable_id: Option<&str>)
+    where
+        I: IntoIterator<Item = E>,
+        E: Into<NavigatorEntry>,
+    {
+        self.open(entries);
+        if let Some(stable_id) = stable_id
+            && let Some(selected) = self.filtered.iter().position(|&index| {
+                self.entries
+                    .get(index)
+                    .is_some_and(|entry| entry.stable_id == stable_id)
+            })
+        {
+            self.selected = selected;
+        }
     }
 
     #[cfg(test)]
@@ -130,7 +157,7 @@ impl SessionAttachOverlay {
         self.selected = next as usize;
     }
 
-    fn selected_entry(&self) -> Option<&ListedSession> {
+    fn selected_entry(&self) -> Option<&NavigatorEntry> {
         let entry_index = *self.filtered.get(self.selected)?;
         self.entries.get(entry_index)
     }
@@ -165,6 +192,30 @@ impl SessionAttachOverlay {
                 self.follow_selection_for_known_body_height();
                 SessionAttachOverlayOutcome::Consumed
             }
+            OverlayInput::Char('r') if self.query.is_empty() => {
+                self.selected_action(NavigatorAction::Rename)
+            }
+            OverlayInput::Char('d') if self.query.is_empty() => {
+                self.selected_action(NavigatorAction::Duplicate)
+            }
+            OverlayInput::Char('m') if self.query.is_empty() => {
+                self.selected_action(NavigatorAction::Move)
+            }
+            OverlayInput::Char('x') if self.query.is_empty() => {
+                self.selected_action(NavigatorAction::Close)
+            }
+            OverlayInput::Char('X') if self.query.is_empty() => self
+                .selected_entry()
+                .filter(|entry| matches!(entry.target, NavigatorTarget::Detached(_)))
+                .map(|entry| {
+                    SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::Close(
+                        entry.target.clone(),
+                    ))
+                })
+                .unwrap_or(SessionAttachOverlayOutcome::Consumed),
+            OverlayInput::Char('o') if self.query.is_empty() => {
+                SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::Reopen)
+            }
             OverlayInput::Char(ch) if !ch.is_control() => {
                 self.query.push(ch);
                 self.recompute();
@@ -173,7 +224,15 @@ impl SessionAttachOverlay {
                 SessionAttachOverlayOutcome::Consumed
             }
             OverlayInput::Activate => match self.selected_entry() {
-                Some(entry) => SessionAttachOverlayOutcome::Attach(entry.id.clone()),
+                Some(entry) => match &entry.target {
+                    NavigatorTarget::Detached(id) if detached_is_available(entry) => {
+                        SessionAttachOverlayOutcome::Attach(id.clone())
+                    }
+                    NavigatorTarget::Detached(_) => SessionAttachOverlayOutcome::Consumed,
+                    NavigatorTarget::Workspace(token)
+                    | NavigatorTarget::Tab(token)
+                    | NavigatorTarget::Live(token) => SessionAttachOverlayOutcome::Focus(*token),
+                },
                 None => SessionAttachOverlayOutcome::Consumed,
             },
             OverlayInput::Char(_)
@@ -183,6 +242,15 @@ impl SessionAttachOverlay {
             | OverlayInput::ActivateAlt
             | OverlayInput::Tab => SessionAttachOverlayOutcome::Consumed,
         }
+    }
+
+    fn selected_action(
+        &self,
+        make: impl FnOnce(NavigatorTarget) -> NavigatorAction,
+    ) -> SessionAttachOverlayOutcome {
+        self.selected_entry()
+            .map(|entry| SessionAttachOverlayOutcome::NavigatorAction(make(entry.target.clone())))
+            .unwrap_or(SessionAttachOverlayOutcome::Consumed)
     }
 
     /// Scroll one row in response to a wheel notch (negative = toward the top).
@@ -234,7 +302,14 @@ impl SessionAttachOverlay {
     pub(super) fn id_at_row(&self, row_in_body: usize, body_height: usize) -> Option<String> {
         let cursor = self.row_at(row_in_body, body_height)?;
         let entry_index = *self.filtered.get(cursor)?;
-        self.entries.get(entry_index).map(|entry| entry.id.clone())
+        self.entries
+            .get(entry_index)
+            .and_then(|entry| match &entry.target {
+                NavigatorTarget::Detached(id) => Some(id.clone()),
+                NavigatorTarget::Workspace(_)
+                | NavigatorTarget::Tab(_)
+                | NavigatorTarget::Live(_) => None,
+            })
     }
 
     pub(super) fn visible_lines(
@@ -260,10 +335,7 @@ impl SessionAttachOverlay {
         if self.entries.is_empty() {
             self.scroll_offset.set(0);
             lines.push(SessionAttachOverlayLine {
-                text: truncate_for_width(
-                    "No live sessions — start one with `odytty new` to attach here.",
-                    body_width,
-                ),
+                text: truncate_for_width("No live sessions are available.", body_width),
                 focused: false,
                 bold: false,
             });
@@ -278,7 +350,14 @@ impl SessionAttachOverlay {
             });
             return lines;
         }
-        let remaining = body_height - lines.len();
+        // Preview is part of the frozen navigator snapshot, not a terminal
+        // read during rendering. Reserve up to eight lines only when the
+        // explicit setting caused the opener to populate it.
+        let preview = self
+            .selected_entry()
+            .map(|entry| entry.preview.as_slice())
+            .unwrap_or_default();
+        let remaining = (body_height - lines.len()).saturating_sub(preview.len());
         for (visible_index, &entry_index) in self
             .filtered
             .iter()
@@ -293,6 +372,13 @@ impl SessionAttachOverlay {
             lines.push(SessionAttachOverlayLine {
                 text: truncate_for_width(&row_label(entry), body_width),
                 focused: row == self.selected,
+                bold: false,
+            });
+        }
+        for line in preview.iter().take(body_height.saturating_sub(lines.len())) {
+            lines.push(SessionAttachOverlayLine {
+                text: truncate_for_width(line, body_width),
+                focused: false,
                 bold: false,
             });
         }
@@ -372,47 +458,35 @@ impl SessionAttachOverlay {
         self.scroll_offset.get().hash(&mut hasher);
         for &entry_index in self.filtered.iter().take(MAX_RESULTS) {
             if let Some(entry) = self.entries.get(entry_index) {
-                entry.id.hash(&mut hasher);
+                entry.stable_id.hash(&mut hasher);
                 entry.name.hash(&mut hasher);
-                entry.state.hash(&mut hasher);
-                entry.pane_count.hash(&mut hasher);
+                entry.detail.hash(&mut hasher);
+                entry.status.hash(&mut hasher);
             }
         }
         hasher.finish()
     }
 }
 
+/// Registry records are a frozen opening snapshot. A stale socket may disappear
+/// or report an error before activation; never convert it into an attach request.
+/// The explicit kill key remains available for Unix cleanup.
+fn detached_is_available(entry: &NavigatorEntry) -> bool {
+    !matches!(entry.target, NavigatorTarget::Detached(_))
+        || (entry.status != "error" && !entry.status.starts_with("session unavailable"))
+}
+
 /// Build the searchable text for one session: name plus id so a user can
 /// fuzzy-match on either. `age`/`state` are display metadata, not searched.
-fn match_text(entry: &ListedSession) -> String {
-    let mut text = entry.name.clone();
-    text.push(' ');
-    text.push_str(&entry.id);
-    sanitize(&text)
+fn match_text(entry: &NavigatorEntry) -> String {
+    sanitize(&entry.searchable_text())
 }
 
 /// Render one session row: `name   (id)   state   N panes`. The name carries
 /// the user-supplied `--title` (falling back to the id), so it leads the row and
 /// reads like "build" rather than a numeric id.
-fn row_label(entry: &ListedSession) -> String {
-    let mut label = sanitize(&entry.name);
-    // Only show the id separately when it differs from the displayed name, so a
-    // titled session reads cleanly and an untitled one does not repeat itself.
-    if entry.name != entry.id {
-        label.push_str("   (");
-        label.push_str(&sanitize(&entry.id));
-        label.push(')');
-    }
-    label.push_str("   ");
-    label.push_str(entry.state);
-    label.push_str("   ");
-    label.push_str(&entry.pane_count.to_string());
-    label.push_str(if entry.pane_count == 1 {
-        " pane"
-    } else {
-        " panes"
-    });
-    label
+fn row_label(entry: &NavigatorEntry) -> String {
+    entry.row_label()
 }
 
 /// Strip control characters so a malformed session title can never inject escape
@@ -431,6 +505,7 @@ fn truncate_for_width(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session_host::ListedSession;
 
     fn session(id: &str, name: &str, pane_count: usize) -> ListedSession {
         ListedSession {

@@ -53,6 +53,10 @@ pub(in crate::native) struct App {
     /// per-session pointer cache used by terminal-content interactions.
     pub(super) window_pointer_px: Option<(f64, f64)>,
     pub(super) sessions: WorkspaceSet,
+    /// Process-lifetime, bounded history used by Session Navigator's honest
+    /// reopen action. It holds launch descriptors only, never a terminal or PTY.
+    pub(super) navigator_recently_closed:
+        VecDeque<crate::native::session_navigator::ClosedNavigatorItem>,
     /// Native presentation epoch for pixel-affecting state outside the terminal
     /// core revision: theme/default-color changes, atlas/font changes, and
     /// other settings that make identical snapshots build different vertices.
@@ -534,6 +538,7 @@ impl App {
             cursor_icon: CursorIcon::Default,
             window_pointer_px: None,
             sessions,
+            navigator_recently_closed: VecDeque::new(),
             presentation_epoch: 0,
             prompt_marks_epoch: 0,
             grid,

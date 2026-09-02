@@ -1317,10 +1317,15 @@ feature validates against.
 - [x] Public live reattach: `odytty attach <id>` routes through the native
       window attach seam, while `odytty attach --diagnostic <id>` remains the
       no-window script/CI form.
-- [x] In-window Manage Sessions overlay (`session-attach` bindable action,
+- [x] In-window Session Navigator (`session-attach` bindable action,
       default `Ctrl+Shift+A`; also the "Manage Sessions" right-click item): a
-      keyboard-driven list of live detached sessions that attaches the selected
-      session without leaving the window. The default chord and the full bindable
+      keyboard-driven bounded snapshot of workspaces, tabs, live panes, and
+      detached sessions. Live rows focus their stable token and detached rows
+      attach without leaving the window. The default never includes output;
+      `navigator_preview` provides an explicit bounded redacted preview. The
+      Live close actions require confirmation; reopen launches a fresh shell
+      from a bounded process-lifetime directory/profile history.
+      default chord and the full bindable
       action set are catalogued in [`docs/keybindings.md`](docs/keybindings.md).
   - [x] Attach dedup + New tab / Replace prompt: attaching a session already
         open in a tab focuses the existing tab; otherwise the `AttachChoice`

@@ -346,8 +346,8 @@ pub(super) fn default_workspace_name(index: usize) -> String {
 /// tab of the ACTIVE workspace. With a single workspace this is behaviourally
 /// identical to the previous single-`Vec<Tab>` model.
 pub(in crate::native) struct WorkspaceSet {
-    pub(super) sessions: HashMap<SessionToken, Session>,
-    pub(super) workspaces: Vec<Workspace>,
+    pub(in crate::native) sessions: HashMap<SessionToken, Session>,
+    pub(in crate::native) workspaces: Vec<Workspace>,
     pub(super) active_ws: usize,
     pub(super) next_token: u64,
     pub(super) proxy: Option<EventLoopProxy<UserEvent>>,
@@ -439,7 +439,7 @@ impl WorkspaceSet {
     /// token that may live in a background workspace, and attach dedup (ODP-10)
     /// deep-switches to whichever workspace owns a token - both need the full
     /// scan, not the active workspace alone.
-    pub(super) fn locate_token(&self, token: SessionToken) -> Option<(usize, usize)> {
+    pub(in crate::native) fn locate_token(&self, token: SessionToken) -> Option<(usize, usize)> {
         self.workspaces.iter().enumerate().find_map(|(ws_idx, ws)| {
             ws.tabs
                 .iter()

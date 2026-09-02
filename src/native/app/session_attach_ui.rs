@@ -22,18 +22,6 @@ impl App {
     /// dir from `XDG_RUNTIME_DIR`); a failed enumeration is treated as "no live
     /// sessions" so the overlay still opens with its hint rather than erroring.
     pub(super) fn open_session_attach_overlay(&mut self) {
-        if self.search.is_open() {
-            self.close_search(true);
-        }
-        // The live detached-session list comes from the Unix-only session-host
-        // registry; on Windows there are no detached sessions, so the overlay
-        // opens with an empty list and shows its "no live sessions" hint.
-        #[cfg(unix)]
-        let entries = crate::session_host::list_live_sessions(None).unwrap_or_default();
-        #[cfg(not(unix))]
-        let entries: Vec<crate::session_host::ListedSession> = Vec::new();
-        self.reset_pointer_state_for_overlay();
-        self.overlay.open_session_attach(entries);
-        self.request_selection_redraw();
+        self.open_session_navigator_overlay();
     }
 }

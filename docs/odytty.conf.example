@@ -367,6 +367,10 @@ remote_image_paste = ask
 # keybinds = ctrl+alt+r=session-replay.
 session_replay = off
 
+# Show a bounded, redacted last-eight-line preview for selected live rows in
+# Session Navigator. Off by default; previews never attach, wake, or write.
+navigator_preview = off
+
 # Restore the previous workspace/tab/pane layout when odytty is launched with
 # no arguments. Default off. Shape only — workspace names, tab titles and order,
 # and each pane's split tree at its captured directory, each reopened with a

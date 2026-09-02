@@ -671,6 +671,22 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.open_session_attach_overlay();
             }
+            OverlayOutcome::FocusSession(token) => self.focus_session_from_navigator(token),
+            OverlayOutcome::NavigatorAction(action) => self.run_navigator_action(action),
+            OverlayOutcome::NavigatorCloseRequest(target) => {
+                self.flush_pending_overlay_settings();
+                self.reset_pointer_state_for_overlay();
+                self.overlay.open_confirm_navigator_close(target);
+                self.request_selection_redraw();
+            }
+            OverlayOutcome::NavigatorCloseConfirmed(target) => {
+                self.flush_pending_overlay_settings();
+                self.close_navigator_target(target);
+            }
+            OverlayOutcome::NavigatorCloseCanceled(target) => {
+                self.flush_pending_overlay_settings();
+                self.open_session_navigator_overlay_selected(Some(target));
+            }
             // C3 file section: the menu closed itself before emitting these.
             // Open dispatches through the same argv-only path the Ctrl+click
             // open uses; copy items write text to the clipboard; reveal opens

@@ -94,6 +94,7 @@ mod save_dialog;
 mod search_ui;
 mod session;
 mod session_attach_overlay;
+mod session_navigator;
 mod settings_panel;
 mod shell_discovery;
 mod texture_limits;

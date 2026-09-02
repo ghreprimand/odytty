@@ -25,6 +25,7 @@ use crate::native::settings_panel::{SettingsPanel, SettingsPanelOutcome};
 use crate::native::theme_builder::ThemeBuilder;
 use crate::native::theme_picker::ThemePicker;
 use crate::native::workspace_picker::{WorkspacePicker, WorkspacePickerEntry};
+#[cfg(test)]
 use crate::session_host::ListedSession;
 use crate::settings::Settings;
 use crate::theme::Theme;
@@ -74,6 +75,10 @@ pub(in crate::native) struct OverlayUi {
     /// so the carried id never needs to gate the cache (same trick as
     /// `attach_choice_session_id`).
     pub(super) confirm_kill_session_id: String,
+    /// Stable live target held while the navigator's destructive-action card is
+    /// open. The App resolves it again on confirmation so a stale list row is a
+    /// harmless no-op.
+    pub(super) confirm_navigator_close: Option<crate::native::session_navigator::NavigatorTarget>,
     /// The focused pane's cwd carried by the Detach & switch dialog.
     /// Set when the dialog opens; the Swap / Keep-both arms emit it back to the
     /// App, which spawns a managed session in it. Empty = unknown cwd (spawn in
@@ -166,6 +171,7 @@ impl OverlayUi {
             risky_paste: RiskyPasteDialog::default(),
             attach_choice_session_id: String::new(),
             confirm_kill_session_id: String::new(),
+            confirm_navigator_close: None,
             detach_switch_cwd: String::new(),
             close_after_save: false,
             key_remap_close_after_save: false,
@@ -422,10 +428,23 @@ impl OverlayUi {
     /// [`OverlayOutcome::AttachSession`] for the App to attach into a new tab.
     /// `entries` is empty when no sessions are live, in which case the overlay
     /// shows a hint rather than failing to open.
+    #[cfg(test)]
     pub(in crate::native) fn open_session_attach(&mut self, entries: Vec<ListedSession>) {
         self.panel.end_slider_drag();
         self.theme_builder.end_channel_drag();
         self.session_attach.open(entries);
+        self.mode = OverlayMode::SessionAttach;
+        self.open = true;
+    }
+
+    pub(in crate::native) fn open_session_navigator_selected(
+        &mut self,
+        entries: Vec<crate::native::session_navigator::NavigatorEntry>,
+        stable_id: Option<&str>,
+    ) {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.session_attach.open_selected(entries, stable_id);
         self.mode = OverlayMode::SessionAttach;
         self.open = true;
     }
@@ -691,6 +710,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
+            | OverlayMode::ConfirmNavigatorClose
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab
             | OverlayMode::ConfirmRemoveHost
@@ -735,6 +755,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
+            | OverlayMode::ConfirmNavigatorClose
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab
             | OverlayMode::ConfirmRemoveHost

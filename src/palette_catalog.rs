@@ -56,6 +56,7 @@ pub const STABLE_ACTION_IDS: &[&str] = &[
     "close-pane",
     "zoom-pane",
     "equalize-panes",
+    "session-navigator",
 ];
 
 /// Terminal-local action exposed through the command palette.
@@ -106,6 +107,7 @@ pub enum PaletteAction {
     ClosePane,
     ZoomPane,
     EqualizePanes,
+    SessionNavigator,
 }
 
 impl PaletteAction {
@@ -155,6 +157,7 @@ impl PaletteAction {
             "close-pane" => Self::ClosePane,
             "zoom-pane" => Self::ZoomPane,
             "equalize-panes" => Self::EqualizePanes,
+            "session-navigator" => Self::SessionNavigator,
             _ => return None,
         })
     }
@@ -205,6 +208,7 @@ impl PaletteAction {
             Self::ClosePane => "close-pane",
             Self::ZoomPane => "zoom-pane",
             Self::EqualizePanes => "equalize-panes",
+            Self::SessionNavigator => "session-navigator",
         }
     }
 
@@ -254,6 +258,7 @@ impl PaletteAction {
             Self::ClosePane => "Close Pane",
             Self::ZoomPane => "Zoom Pane",
             Self::EqualizePanes => "Equalize Panes",
+            Self::SessionNavigator => "Open Session Navigator",
         }
     }
 
@@ -324,6 +329,7 @@ impl PaletteAction {
             Self::ClosePane => &["kill pane", "tmux x"],
             Self::ZoomPane => &["toggle pane zoom", "fullscreen pane", "tmux z"],
             Self::EqualizePanes => &["balance panes", "even panes", "tmux ="],
+            Self::SessionNavigator => &["sessions", "manage sessions", "detached", "attach"],
         }
     }
 
@@ -378,6 +384,7 @@ pub const DEFAULT_PALETTE_ACTIONS: &[PaletteAction] = &[
     PaletteAction::ClosePane,
     PaletteAction::ZoomPane,
     PaletteAction::EqualizePanes,
+    PaletteAction::SessionNavigator,
 ];
 
 /// Bounds for composing already-read palette sources.

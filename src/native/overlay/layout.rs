@@ -86,6 +86,9 @@ pub(super) const CONFIRM_KILL_SESSION_WIDTH: usize = 52;
 pub(super) const CONFIRM_KILL_SESSION_ACTION_LINE: &str =
     "Kill it?   [Enter / Y] Kill     [Esc / N] Cancel";
 
+pub(super) const CONFIRM_NAVIGATOR_CLOSE_ACTION_LINE: &str =
+    "Close it?  [Enter / Y] Close   [Esc / N] Cancel";
+
 /// Fixed body width (cells) for the Detach & switch dialog. Sized for
 /// the action line plus the panel border inset; the `.max(36)` floor in
 /// [`overlay_rect`] keeps small grids sane.
@@ -197,6 +200,7 @@ pub(in crate::native) fn overlay_rect(
         OverlayMode::AttachChoice => ATTACH_CHOICE_WIDTH,
         // Static kill-confirmation dialog (Manage Sessions); same treatment.
         OverlayMode::ConfirmKillSession => CONFIRM_KILL_SESSION_WIDTH,
+        OverlayMode::ConfirmNavigatorClose => CONFIRM_KILL_SESSION_WIDTH,
         // Static Detach & switch choice dialog; same treatment.
         OverlayMode::DetachSwitchChoice => DETACH_SWITCH_WIDTH,
         // Static replace-tab confirm dialog (ODP-5D); same treatment.
