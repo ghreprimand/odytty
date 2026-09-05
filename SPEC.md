@@ -986,7 +986,8 @@ scope rather than silently inheriting deferred work from a prior release.
 
 - Configurable terminal-local key bindings; `keybinds` / `ODYTTY_KEYBINDS`
   supports all bindable local, tab, palette, and pane actions. The in-app
-  key-remap editor in the settings panel covers every bindable action (all 48)
+  key-remap editor in the settings panel covers every bindable action (the full
+  `BindableAction::ALL` set, currently 49)
   (select a row and press `Enter` to capture a new chord, `Backspace` resets to
   default, `R` resets all, conflict prompt on clash, writes to `odytty.conf` via
   the preservation-first writeback path). See
@@ -1582,7 +1583,8 @@ scope rather than silently inheriting deferred work from a prior release.
   with a "Terminate session" confirm; on confirm OdyTTY kills the host (a stale
   socket is treated as already-gone) and reopens the manager so the dead row
   disappears. On Windows live local and integrated SSH rows remain available;
-  detached attachment and preview are unavailable before Phase 11.
+  detached attachment and preview stay unavailable until a Windows detached
+  session-host surface exists.
 
 - Detach & switch (Unix-only right-click menu item): spawns a **fresh**
   managed session — honestly a spawn, not live-process migration, because the

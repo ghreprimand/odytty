@@ -39,6 +39,12 @@ theme = odyssey-classic    # the original blue-black built-in
 
 Resolution order for the `theme` value:
 
+0. If an external desktop palette is actively followed (the Follow desktop
+   palette mode described in
+   [`v0.14.0-external-palette.md`](v0.14.0-external-palette.md)), its last
+   known-good palette overrides steps 1 through 4 through the theme seam.
+   `resolve_active_theme` checks `follow_external_palette` before any of the
+   sources below.
 1. The special value `system` is a config alias — not a built-in name or a file.
    It turns on OS dark/light following: OdyTTY selects `os_theme_dark` (default
    `odyssey-classic`) when the OS reports a dark appearance and `os_theme_light` (default

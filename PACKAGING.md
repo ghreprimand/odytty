@@ -178,6 +178,12 @@ metadata-only reads), so there is **no** build/link dependency on `freetype2`.
 `fontconfig` is a **runtime-only** dependency: OdyTTY shells out to `fc-match`
 to backfill symbol glyphs from the host font set. It is not needed to build or
 link the binary, only at run time on systems that rely on that backfill.
+The packaged runtime dependency lists (`.deb`, `.rpm`, AUR) still name
+`freetype2` deliberately: the shipped binary links only libc, libm, and
+libgcc_s (verified with `readelf -d` on a release build), but the `fc-match`
+tooling it executes is built on FreeType, so the entry records that indirect
+requirement and keeps the three lists identical. It is not a link-time
+dependency and its removal would change nothing about the binary.
 
 Distribution build systems that forbid network access should vendor Rust crates
 before the build step:

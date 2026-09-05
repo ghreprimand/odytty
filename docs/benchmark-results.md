@@ -285,12 +285,12 @@ is not a substitute for the deferred W7 four-hour workload.
 
 | Item | Status | Reason |
 | --- | --- | --- |
-| GPU memory | `unsupported` (per replicate) | The `i915` fdinfo interface did not expose the standardized `drm-resident-*` fields for the measured processes on this kernel. Never approximated. |
+| GPU memory | `unsupported` (per replicate) | The `i915` fdinfo interface did not expose the standardized `drm-resident-*` fields for the measured processes on this kernel. Never approximated. The same fields were later confirmed available on a newer `i915` kernel build (see [`benchmark-apparatus.md`](benchmark-apparatus.md)); that later confirmation does not change this run's recorded `unsupported` status, which stands as published. |
 | Idle wake events | `unsupported` (per replicate) | Requires root tracing privileges, which the protocol run does not use. |
 | W1-W5 optical endpoints | `unavailable-hardware` skip | Their endpoints are an external stimulus edge plus a display photosensor on a shared capture clock; this unit has no such apparatus, and the protocol forbids re-defining optical endpoints in software under the same name. SE1 and SE2 are separate workloads, not substitutes. See [`benchmark-apparatus.md`](benchmark-apparatus.md). |
-| W7 long-session (4 h) workload | `budget-exhausted` skip | Three four-hour replicates per implementation exceed the preregistered W7 session budget. |
+| W7 long-session (4 h) workload | `not-attempted` skip | Three four-hour replicates per implementation exceed the preregistered W7 session budget, so no run was started; this matches the `not-attempted` status recorded in [`benchmark-protocol.md`](benchmark-protocol.md). |
 
-`unsupported`, `unavailable-hardware`, and `budget-exhausted` are distinct
+`unsupported`, `unavailable-hardware`, and `not-attempted` are distinct
 recorded states, not gaps: every planned sample is accounted for.
 
 ## Limitations

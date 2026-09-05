@@ -13,6 +13,10 @@ test seams, file-size budgets, and landing order before structural extraction
 began. The extraction is complete; this document preserves the design and
 landing record rather than describing unfinished architecture work.
 
+The line and file counts below are a point-in-time snapshot valid only at the
+pinned revision; they drift as the tree changes, and the live file-size limit is
+enforced by the production-file guard in CI rather than by these figures.
+
 At revision `c8ba642e617b20f49cbf899a08f4954a0f7b875e`, the production facades are
 348 lines (`app/mod.rs`), 43 lines (`overlay.rs`), 46 lines (`session.rs`), and
 104 lines (`gpu.rs`). Their largest production siblings are 1,729 lines

@@ -689,7 +689,7 @@ not a stretch goal.
         Pure introspection; no settings key or render-path change.
   - [x] `--show-config`: print the current stable effective-config dump. The
         full settings authority remains [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
-- [ ] Named launch profiles (v0.14.0): schema, precedence, storage, migration,
+- [x] Named launch profiles (v0.14.0): schema, precedence, storage, migration,
       Profile Manager CRUD, palette/CLI/`--profile` launch routing, workspace
       `launch_profile` binding, per-pane restoration, saved-layout open, opt-in
       host/directory auto-switch, cached shell discovery, connection-manager

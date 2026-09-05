@@ -100,5 +100,7 @@ The runtime dependencies cover the GPU, text, and desktop stack:
 `fontconfig`, `freetype2`, `vulkan-icd-loader`, `libxkbcommon`, and
 `hicolor-icon-theme`. The Vulkan ICD itself comes from the user's Mesa or vendor
 graphics driver and is not installed by this package.
+`freetype2` is listed for the `fc-match` tooling OdyTTY executes at run time;
+the binary itself does not link FreeType.
 
 [aur]: https://aur.archlinux.org/packages/odytty

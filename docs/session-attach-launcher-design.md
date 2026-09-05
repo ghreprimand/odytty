@@ -1,8 +1,12 @@
-# Session Attach Launcher Design
+# Session Navigator and Attach Launcher Design
 
-This record covers the Unix-only detached-session attach flow and its in-window
-launcher. On Windows, Manage Sessions opens an empty overlay and attach requests
-return a clean unsupported-platform error.
+This record covers the in-window session navigator and the detached-session
+attach flow. Live GUI session, tab, and workspace entries populate on every
+platform through `session_navigator::live_entries`, so the navigator lists live
+in-window sessions, tabs, and panes on Windows, macOS, and Linux alike. Only the
+detached-session merge (`append_detached`), the kill action, and Detach & switch
+are Unix-only; on Windows the navigator shows live in-window entries while
+detached-session attach is not yet available.
 
 ## Principle: Summon, Not Greet
 
@@ -63,17 +67,21 @@ switches to its existing tab, while a fresh session prompts New tab vs Replace.
 The Replace path closes the current tab; the New-tab path keeps the existing tab
 and pane layout intact.
 
-### Status: shipped on Unix
+### Status: shipped
 
-The overlay is `OverlayMode::SessionAttach`, a structural clone of the
-connection-manager overlay sourced from
-`session_host::list_live_sessions(None)`. The list is **presentation-only**: a
-frozen snapshot captured at open time, type-to-filter fuzzy matching over title
-and id, `↑`/`↓` selection, `Esc` → dismiss. An empty live set opens to a
-"No live sessions" hint rather than failing. Session names are control-char
-sanitized before display (the `--title` is user-supplied). A session that ended
-between listing and accept yields an `Err` from the attach path, which the App
-swallows like the connection-manager connect arm — no panic.
+The overlay is `OverlayMode::SessionAttach`, presenting the unified session
+navigator model defined in `src/native/session_navigator.rs`. Rows are
+`NavigatorEntry` values carrying a `NavigatorTarget`. `live_entries` builds the
+live GUI session, tab, and workspace rows on every platform, and on Unix
+`append_detached` then merges the detached-session registry from
+`session_host::list_live_sessions(None)`; Windows shows the live in-window
+entries only. The list is **presentation-only**: a frozen snapshot captured at
+open time, type-to-filter fuzzy matching over title and id, up and down arrow
+selection, `Esc` to dismiss. An empty set opens to a "No live sessions" hint
+rather than failing. Session names are control-char sanitized before display
+(the `--title` is user-supplied). A session that ended between listing and
+accept yields an `Err` from the attach path, which the App swallows like the
+connection-manager connect arm, with no panic.
 
 `Enter` emits an attach outcome carrying the selected session id, which the App
 routes through `route_attach_session`:

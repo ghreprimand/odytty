@@ -326,12 +326,16 @@ src/paths/
 - No `std::fs` import in `src/paths/`; the only filesystem touch is the
   caller's `ResolveProbe` impl, which tests replace with a synthetic map.
 - `src/paths/` is now **wired live** into the input/render path through
-  `src/native/app/interaction.rs` (hover detection, platform-modifier click
-  open, and the image viewer). The pure spine stays I/O-free and std-only; only the caller in
-  `interaction.rs` runs the stat probe and spawns. (The original C0 stage
-  landed the module unreferenced and additive — that "adds zero runtime
-  behavior" framing, still echoed in the `src/paths/mod.rs` docstring, describes
-  only that first stage, not the current wired state.)
+  `src/native/app/hover.rs`, which calls `detect_path_candidates_at`, `resolve`,
+  and `is_image_path` for hover detection, platform-modifier click open, and the
+  image viewer, with `src/native/app/interactive_paths.rs` supplying the
+  `FsResolveProbe`. (`src/native/app/interaction.rs` is now a thin compatibility
+  facade, per the destination table in
+  [`native-decomposition.md`](native-decomposition.md).) The pure spine stays
+  I/O-free and std-only; only the caller runs the stat probe and spawns. (The
+  original C0 stage landed the module unreferenced and additive; that "adds zero
+  runtime behavior" framing, still echoed in the `src/paths/mod.rs` docstring,
+  describes only that first stage, not the current wired state.)
 
 ---
 

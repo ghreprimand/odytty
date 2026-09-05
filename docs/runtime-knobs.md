@@ -680,7 +680,8 @@ frozen, bounded lines from the selected live pane in Session Navigator. It is
 off by default. Values matching `password=`, `token=`, `key=`, and remote
 `user@host:port` forms are redacted before presentation. A preview never
 attaches, wakes, writes to, or polls a session. Detached rows always say
-`preview unavailable`; Windows has no detached-session preview before Phase 11.
+`preview unavailable`; Windows has no detached-session preview until a Windows
+detached session-host surface exists.
 
 To scrub, press `Ctrl+Shift+R` (the default, or the right-click menu's "Session
 Replay" item) to open the replay overlay; rebind the `session-replay` action via
@@ -1394,7 +1395,8 @@ Replace prompt for a session that is not already open), and `Esc` dismisses.
 With no rows it opens to a hint rather than failing. The overlay is
 **presentation-only**: it reads a frozen snapshot of the workspace arena and,
 on Unix, the live sessions. On Windows it lists live panes only; detached
-sessions and attach are unavailable before Phase 11. The overlay never attaches
+sessions and attach stay unavailable until a Windows detached session-host
+surface exists. The overlay never attaches
 anything itself; accepting a row hands the App an attach request, and a stale
 or errored registry entry is shown as `session unavailable` and cannot be
 activated.

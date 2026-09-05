@@ -181,6 +181,12 @@ By making a contribution to this project, I certify that:
 - Keep source files under approximately 2000 lines. Prefer new focused modules
   over growing large files; extract large test suites into sibling test files
   named `{module}_tests.rs`.
+- Give every new source file the mandatory license header. Each `.rs` file under
+  `src/`, `tests/`, and `benches/`, and each `.wgsl` under `src/`, must have
+  `// SPDX-License-Identifier: GPL-3.0-only` as its literal first line. The
+  `source_files_carry_gpl_spdx_header` test in `tests/license_headers.rs` fails
+  `cargo test` otherwise, so a new module or `{module}_tests.rs` file without it
+  reports a "missing GPL SPDX header on line 1" failure.
 
 ## Ownership boundary
 
@@ -297,9 +303,12 @@ include:
 - `cli` — command-line surface.
 
 Most of the PTY-backed suite runs in the default `cargo test` (e.g.
-`pty_alt_screen_smoke`); only a few live-PTY tests (`transcript_smoke`, the
-clipboard-paste test) are `#[ignore]`d and require a real PTY
-(`cargo test -- --ignored` to run them).
+`pty_alt_screen_smoke`). Two live-PTY tests need a real PTY and are `#[ignore]`d:
+the `transcript_smoke` live-capture check and the clipboard-paste test. Run them
+by name, for example `cargo test -- --ignored transcript_smoke`. A bare
+`cargo test -- --ignored` runs far more than those two: the 29 ignored tests
+also include the deep-fuzz tiers and the multi-gigabyte measurement harnesses, so
+prefer naming the specific case rather than sweeping the whole ignored set.
 
 **Pixel-smoke discipline.** `tests/pixel_smoke/` (a directory binary: entry
 `main.rs` plus its test modules) rasterizes the real `grid::build_vertices*`
@@ -345,12 +354,18 @@ check between code changes.
 Before every commit, run through this gate and stop if anything is unclear:
 
 1. **Inspect the staged diff.** Review exactly what is staged
-   (`git diff --cached`); stage only the files the change intends.
-2. **Run the test suite.** `cargo test` — the full battery is bounded and
-   deterministic, and every executed assertion must pass. Record unavailable,
-   skipped, and ignored cases separately. If you touched the parser, core
-   protocol handlers, or graphics surface, also run the deep fuzz tier (see
-   above).
+   (`git diff --cached`); stage only the files the change intends. Any new `.rs`
+   or `.wgsl` source file must carry `// SPDX-License-Identifier: GPL-3.0-only`
+   as its literal first line, enforced by `source_files_carry_gpl_spdx_header`
+   in `tests/license_headers.rs`.
+2. **Run the test suite.** `cargo test --locked`, the full bounded and
+   deterministic battery; every executed assertion must pass. `--locked` keeps a
+   dependency bump from silently rewriting `Cargo.lock` and passing locally while
+   CI fails. Record unavailable, skipped, and ignored cases separately. If you
+   touched the parser, core protocol handlers, or graphics surface, also run the
+   deep fuzz tier (see above). CI additionally runs
+   `cargo build --release --locked`; run it locally when a change could affect
+   the release profile.
 3. **Check lints:** `cargo clippy --all-targets --locked -- -D warnings`. This
    is blocking on every CI platform; the default Clippy set is also denied in
    `Cargo.toml`.
@@ -375,6 +390,25 @@ Before every commit, run through this gate and stop if anything is unclear:
    ratchet file, `scripts/production-file-baseline.tsv`, now contains no data
    rows, so the CI command above and the bare
    `python3 scripts/production-file-guard.py` command enforce the same limit.
+9. **Run the script gates that apply to your change.** CI blocks on several
+   checks beyond the Rust gate above, and each fires when the matching files
+   change:
+   - `scripts/piped-test-guard.sh` runs on every CI test job.
+   - `python3 scripts/production-file-guard.py --self-test`,
+     `python3 scripts/coverage-surfaces.py --self-test`,
+     `python3 scripts/bench-protocol/bench-protocol.py --self-test`,
+     `python3 scripts/memory-capture.py --self-test`, and
+     `python3 scripts/memory-regression-guard.py --self-test` validate the
+     tooling; run the self-test for any script you touch.
+   - `shellcheck` covers the shell scripts under `scripts/` and `dist/`; run it
+     when you edit one (CI installs it if it is missing locally).
+   - `dist/install.sh --dry-run` guards the installer.
+   - `.github/scripts/verify-release-ci-test.sh` and
+     `.github/scripts/await-release-ci-test.sh` guard the release workflow.
+   - `.github/scripts/rustsec-audit.sh` runs whenever `Cargo.toml` or
+     `Cargo.lock` changes; run it after any dependency edit. All of these pass at
+     the current revision, so they are surfaced here as documentation of the full
+     gate, not as new work.
 
 **Toolchain lockstep.** OdyTTY pins a verified Minimum Supported Rust Version:
 `rust-toolchain.toml` (`channel = "1.96.0"`) and `Cargo.toml`
@@ -411,7 +445,7 @@ configuration. If anything looks ambiguous, stop and confirm before committing.
 - In prose, make references to other maintained Markdown documents clickable
   with relative links. Reserve plain inline-code paths for non-navigational
   examples, generated evidence, and historical text.
-- Push after each completed change, once the tree is clean, `cargo test`,
+- Push after each completed change, once the tree is clean, `cargo test --locked`,
   `cargo clippy --all-targets --locked -- -D warnings`, and `cargo fmt --check`
   pass, public docs and the current monthly devlog match the state of the project,
   and tracked/staged content has been scanned for secrets or local-only data.
@@ -448,7 +482,7 @@ references.
 
 ## Adding a built-in theme
 
-All 142 built-in themes live in `src/theme/builtins/` as `.theme` files.
+All 144 built-in themes live in `src/theme/builtins/` as `.theme` files.
 The `REGISTRY` slice in `src/theme/builtins.rs` maps names to
 `include_str!`-embedded sources. Adding a new built-in is five steps:
 

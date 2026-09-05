@@ -1010,7 +1010,8 @@ selection, so an ACS box-drawing run survives reattach. Older v1 and v2
 snapshots remain readable and restore the power-on ASCII character-set state.
 
 On Windows, the Session Navigator lists live local and integrated SSH panes only;
-detached sessions and attach are unavailable before Phase 11.
+detached sessions and attach stay unavailable until a Windows detached
+session-host surface exists.
 
 ### Open Interactive Paths
 
@@ -1192,11 +1193,11 @@ desktop.
 
 Further reference:
 
-- [Runtime Knobs](runtime-knobs.md) lists every config key, environment
 - [Named profiles](v0.14.0-profiles-foundation.md) documents the complete
   profile editor: launch, appearance, cursor, effects, layout, switching, and
   platform fields, including bounded add/edit/remove list rows.
 
+- [Runtime Knobs](runtime-knobs.md) lists every config key, environment
   variable, range, default, and reload behavior.
 - [Annotated Config](odytty.conf.example) is a complete commented example.
 - [Themes](themes.md) documents the theme format and built-in roster.

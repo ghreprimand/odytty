@@ -364,10 +364,11 @@ labels, and visible font-load failure reporting all ship today.
   display sections, so no shipped knob is unreachable from the panel; a field
   inventory confirmed every user-facing `Settings` field surfaces through a reachable
   `SettingInfo` row (`native_autoclose` included, via the Development → Advanced
-  section). The `keybinds` parser and the in-app key-remap editor cover all 48
+  section). The `keybinds` parser and the in-app key-remap editor cover all 49
   bindable actions — including the theme-builder, session-attach, and workspace
-  actions - and the panel's keybinds-row option hint now enumerates the same 48
-  in `BindableAction::ALL` order. See [keybindings.md](./keybindings.md) for the
+  actions - and the panel's keybinds-row option hint now enumerates the same
+  `BindableAction::ALL` set (currently 49) in that order. See
+  [keybindings.md](./keybindings.md) for the
   full keyboard reference.
 - **Planned v0.14.0 — Named profiles.** Reusable local/remote launch contexts
   spanning command, working directory, bounded environment, appearance, layout,
@@ -763,15 +764,17 @@ handful of deliberately-deferred niceties.
   row opens it in a new tab or new workspace, binds the current workspace to it,
   or edits/removes it; and an unsaved host can be connected to ad hoc, with an
   offer to save it to the hosts list.
-- **Shipped on Unix — Session attach launcher.** The shipped persistence is now
-  pleasant to reach: `odytty attach` with no id attaches the sole live session (or lists when
-  several exist), and an in-window Manage Sessions overlay (default `Ctrl+Shift+A`)
-  filters and reattaches a detached session into a new tab, with New-tab/Replace
-  prompts and dedup of already-attached tabs. "Summon, not greet" — opening a
-  window stays fast.
-- **Shipped on Unix — Manage Sessions overlay management.** Beyond attach, the overlay
-  renames a session and kills a session (right-click, with confirmation) directly
-  from the manager.
+- **Shipping in v0.14.0: Unified session navigator.** One searchable in-window navigator
+  (default `Ctrl+Shift+A`) lists live GUI sessions, tabs, panes, and workspaces
+  on every platform through `session_navigator::live_entries`, with type-to-filter
+  matching and focus, restore, rename, duplicate, move, close, and reopen actions
+  (destructive actions confirm first). An opt-in bounded preview redacts sensitive
+  content. On Unix the navigator also merges detached sessions from the
+  session-host registry and offers kill (right-click, with confirmation) and
+  Detach and switch; Windows shows live in-window entries only, with detached
+  attach not yet available. `odytty attach` with no id still attaches the sole
+  live session or lists when several exist. "Summon, not greet": opening a window
+  stays fast.
 - **Shipped on Unix — Detach & switch.** A context-menu action that spawns a fresh managed
   session in the focused pane's current directory and switches to it, so a window
   can hand off to a new detached session without leaving the keyboard.

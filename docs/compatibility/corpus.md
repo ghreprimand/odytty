@@ -46,9 +46,12 @@ A case file with no entry is unreviewed material in the tracked tree; an entry
 with no file is a case that cannot run. Both are validator errors. Nothing but
 `.vtseq` files may live under `cases/`.
 
-Incoming material — candidates, staged cases, quarantine, rejected payloads —
-lives untracked under `.archon/compat-intake/` (gitignored) and never anywhere
-else. Only minimized, reviewed, public-safe cases may be tracked.
+Incoming material (candidates, staged cases, quarantine, rejected payloads) is
+held in a maintainer-local, untracked staging area outside the public tree and
+never anywhere else. Intake staging is a maintainer workflow rather than part of
+the public repository, so outside contributors submit candidate cases through
+the normal contribution channels rather than a tracked intake path. Only
+minimized, reviewed, public-safe cases may be tracked.
 
 ## Case file grammar
 
@@ -244,10 +247,10 @@ been minimized, whatever its cover letter says.
 
 The SHA-256 of the assembled payload is the dedup key. The same bytes never
 enter the corpus twice, and a candidate byte-identical to a tracked case is
-refused at intake. Rejection keeps a hash-only ledger
-(`.archon/compat-intake/rejected/ledger.jsonl`): the payload itself is moved
-out, but its digest stays, so a resubmitted bad byte string is recognized —
-a warning at intake, a hard refusal at accept. Renaming a rejected payload
+refused at intake. Rejection keeps a hash-only ledger in that maintainer-local
+staging area: the payload itself is moved out, but its digest stays, so a
+resubmitted bad byte string is recognized, as a warning at intake and a hard
+refusal at accept. Renaming a rejected payload
 does not help, and there is no override flag.
 
 ## Intake lifecycle

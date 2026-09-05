@@ -46,10 +46,13 @@ scaling behavior.
 - [Session attach launcher design](session-attach-launcher-design.md)
 - [v0.13.0 foundation contract](v0.13.0-foundation.md)
 - [v0.14.0 profiles foundation](v0.14.0-profiles-foundation.md)
+- [v0.14.0 session navigator](v0.14.0-session-navigator.md)
+- [v0.14.0 external palette following](v0.14.0-external-palette.md)
 
 ## Stabilization And Evidence
 
 - [Pre-1.0 acceptance contract](pre-1.0-acceptance.md)
+- [External security review closure](security-review-2026-09.md)
 - [Stabilization and release-channel policy](stabilization-policy.md)
 - [Historical stabilization baseline](stabilization-baseline.md)
 - [v0.10.0 baseline](v0.10.0-baseline.md)

@@ -30,6 +30,9 @@ unsupported, or unavailable-platform checks distinctly.
 - [ ] `cargo fmt --check`,
       `cargo clippy --all-targets --locked -- -D warnings`, and
       `cargo test --locked` pass, or every unavailable check is explained above.
+- [ ] Every new `.rs` or `.wgsl` source file begins with
+      `// SPDX-License-Identifier: GPL-3.0-only` as its literal first line
+      (enforced by `source_files_carry_gpl_spdx_header`).
 - [ ] Public documentation, the current monthly devlog, and its index match the
       changed behavior.
 - [ ] Every commit carries a `Signed-off-by:` line matching its author identity

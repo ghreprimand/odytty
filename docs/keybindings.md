@@ -406,6 +406,10 @@ These tokens are accepted on the right-hand side of `chord=action`:
 - **Panes:** `split-columns`, `split-rows`, `focus-pane-left`,
   `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,
   `close-pane`, `zoom-pane`, `equalize-panes`.
+- **Command output:** `select-command-output`, `select-command-with-prompt`,
+  `copy-command-output`, `copy-command-with-prompt`, `search-command-output`,
+  `jump-failed-command-prev`, `jump-failed-command-next`,
+  `export-command-output`, `notify-command-finished`.
 
 Pane-management actions (`focus-pane-*`, `close-pane`, `zoom-pane`,
 `equalize-panes`, and the prefix-table `split-*`) cannot be bound to a bare
@@ -454,7 +458,7 @@ single surface, in both modes.
 **Palette and menu actions without a default chord.** The command palette
 carries workspace and layout actions that have no default chord:
 
-- The eight command-output actions listed under Shell Integration.
+- The nine command-output actions listed under Shell Integration.
 
 - **Rename Workspace**.
 - **Bind Workspace to Host** / **Unbind Workspace From Host**, and **New Local

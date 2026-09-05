@@ -277,7 +277,7 @@ keybinds =
 # arrow chords (there are no letter fallbacks). Add your own override to rebind
 # any of these, e.g.
 # keybinds = ctrl+alt+p=command-palette;ctrl+shift+p=jump-prompt-prev
-# Complete OSC 133 ranges also expose eight palette/menu actions with no
+# Complete OSC 133 ranges also expose nine palette/menu actions with no
 # default chord. For example:
 # keybinds = ctrl+alt+c=copy-command-output;ctrl+alt+e=export-command-output
 # See docs/keybindings.md for the full default chord reference.

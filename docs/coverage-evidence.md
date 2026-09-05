@@ -453,9 +453,12 @@ be the specific dishonesty this report exists to avoid.
 
 - **Windows and macOS.** The measurement ran on Linux only. Code behind
   `cfg(windows)` is not compiled into this build, so it contributes no regions
-  at all -- it cannot appear as covered or uncovered. 46 `cfg(windows)` sites
-  exist across the source tree, including the ConPTY backend, Windows path
-  detection, shell integration, spawn helpers, and persistence paths. Their
+  at all -- it cannot appear as covered or uncovered. At the pinned coverage
+  revision, 46 `cfg(windows)` sites existed across the source tree, including the
+  ConPTY backend, Windows path detection, shell integration, spawn helpers, and
+  persistence paths; the count grows as the Windows surface expands, so treat this
+  figure as a point-in-time snapshot regenerated with the next coverage run rather
+  than a current total. Their
   verification remains the blocking `windows-latest` and `macos` CI legs, which
   this document does not replace.
 - **GPU, compositor, and display behavior.** Adapter selection, surface
