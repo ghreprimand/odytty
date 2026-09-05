@@ -97,8 +97,10 @@ its cross-platform or evidence gate is not met.
   in-app editor, deterministic precedence, fast cached startup, and one
   searchable navigator over workspaces, tabs, panes, and detachable sessions.
 - **v0.15.0 — Fast access and local control.** A cross-platform quick terminal,
-  an owner-scoped local automation API and CLI, and external file drop with
-  shell-aware path quoting and no implicit execution.
+  an owner-scoped local automation API and CLI, external file drop with
+  shell-aware path quoting and no implicit execution, and keyboard-first window
+  merging that folds one window's tabs into another through a numbered,
+  compositor-independent target picker.
 - **v0.16.0 — Pane and window productivity.** Read-only panes, safe scrollback
   export, guarded input broadcast, tab/pane tear-out, floating and stacked
   layouts, and the remaining bounded window-management controls.
@@ -555,6 +557,10 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   grid (copy, paste, selection/input actions, settings), a tab slot (new, rename,
   close, close others, move to workspace), the empty tab strip, and the workspace
   rail — so each menu offers only what fits where it was invoked.
+- **Shipping in v0.14.0 - One hit-test model for every overlay.** Every overlay,
+  dialog, manager, picker, editor, and context menu resolves clicks from the same
+  rendered line list the renderer draws, so a control that is visible is
+  clickable; per-state rendered-row click tests guard each surface.
 - (See also: click-to-position-cursor in Track 5, and the mouse-driven settings
   panel in Track 1.)
 
@@ -570,6 +576,16 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   dedicated terminal through platform-supported global shortcuts; provide an
   owner-scoped local structural-control API with no network listener; and insert
   dropped local paths with shell-aware quoting and no implicit Enter.
+- **Planned v0.15.0 - Window merge.** `Merge this window into...` and
+  `Pull window ... into this one` from the command palette and Session
+  Navigator. The picker lists the other windows by tab count, active title, and
+  directory, and while it is open every other window paints a large temporary
+  numeral inside its own surface, so targets are identifiable on decoration-less
+  tiling compositors (Hyprland and other Wayland compositors) as well as X11,
+  macOS, and Windows without any compositor cooperation. Tabs keep their PTY,
+  profile, and attach handle; the source window closes only after the transfer
+  completes, and a failed merge leaves both windows unchanged. Shares its
+  reparenting primitive with the v0.16.0 tear-out work.
 - **Planned v0.16.0 — Pane and window controls.** Read-only panes, sanitized
   scrollback export, conspicuously guarded broadcast input, cross-window
   tab/pane movement, and floating or stacked layouts.
@@ -790,8 +806,11 @@ handful of deliberately-deferred niceties.
   still-live Unix session hosts reattach, and SSH panes reconnect to fresh
   remote login shells. Named layouts capture the whole session and reopen with
   a replace-or-add prompt.
-- **Planned v0.16.0 — Multi-window movement and layout.** Tear tabs and panes
-  into another window without changing PTY/session ownership, and preserve the
+- **Planned v0.15.0 - Window merge.** Fold every tab of one window into another
+  from the keyboard, with a numbered picker whose numerals are painted inside
+  each candidate window; see Track 6.
+- **Planned v0.16.0 - Multi-window movement and layout.** Tear individual tabs and panes
+  into another window (the reverse of the v0.15.0 merge, on the same primitive) without changing PTY/session ownership, and preserve the
   resulting structure through named layouts and restoration.
 
 ## Track 10 — Packaging, Release, And Platform

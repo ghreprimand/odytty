@@ -29,7 +29,12 @@ action, and bounded completion/progress scope recorded below. Its retained
 local gates, exact-commit three-platform CI, signed 16-asset release,
 provenance, clean source build, and Scoop, Homebrew, and AUR publication are
 complete. Native macOS and Windows on-device runtime checks remain explicitly
-unperformed because maintainer hardware was unavailable. A checked item
+unperformed because maintainer hardware was unavailable. Version 0.14.0
+(named profiles, external palette following, security review closure, and the
+Session Navigator) is implemented and in-tree; its hands-on acceptance and
+version checkpoint are open. Planned v0.15.0 work (quick terminal, local
+automation API, file drop, and keyboard-first window merge) is described in the
+roadmap. A checked item
 is delivered at the current head (or at the
 historical
 milestone its section names). An unchecked item is concrete remaining work or
@@ -37,6 +42,41 @@ an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as
 implementation commitments. Longer-range candidates require a separately
 recorded milestone before implementation.
+
+## v0.14.0: Profiles and Navigation (in progress)
+
+Release state: implementation complete and in-tree; the hands-on acceptance
+run and the version checkpoint remain open.
+
+- [x] Named launch profiles: versioned no-secret schema, deterministic
+      precedence, atomic storage with malformed-file recovery, migration of the
+      older workspace and connection-host profile fields, a Profile Manager
+      whose editor exposes the complete schema, launch routing from every
+      surface, cached shell discovery, a global default with workspace
+      override, and opt-in host/directory switching
+      ([`docs/v0.14.0-profiles-foundation.md`](docs/v0.14.0-profiles-foundation.md)).
+- [x] External palette following: provider-neutral opt-in follow mode with
+      fail-closed parsing and last-known-good retention
+      ([`docs/v0.14.0-external-palette.md`](docs/v0.14.0-external-palette.md)).
+- [x] External security review closure with a per-finding evidence ledger
+      ([`docs/security-review-2026-09.md`](docs/security-review-2026-09.md)).
+- [x] Unified Session Navigator over workspaces, tabs, panes, and detachable
+      sessions with redacted opt-in preview
+      ([`docs/v0.14.0-session-navigator.md`](docs/v0.14.0-session-navigator.md)).
+- [x] Secondary tab-cycling chords `Ctrl+Shift+;` / `Ctrl+Shift+'` for
+      keyboards without PageUp/PageDown
+      ([`docs/keybindings.md`](docs/keybindings.md)).
+- [x] One hit-test model for every overlay: pointer actions resolve from the
+      rendered line list the renderer draws, with per-state click tests.
+- [ ] Internal hardening pass from the September code, security, and
+      documentation reviews: bracketed-paste sanitizer convergence, opener and
+      hover path bounds, Sixel and inline-image work budgets, attach writer
+      truncation propagation, overlay input edge cases, CI permissions, and
+      source-comment accuracy. Documentation corrections are landed; code items
+      are in progress.
+- [ ] Hands-on acceptance of profile and navigator behavior on Linux, then the
+      version checkpoint: retained local gates, blocking three-platform CI,
+      package checks, and artifact verification.
 
 ## v0.13.0: Safer Command-Aware Work
 
