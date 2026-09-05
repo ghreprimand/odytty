@@ -1193,6 +1193,10 @@ desktop.
 Further reference:
 
 - [Runtime Knobs](runtime-knobs.md) lists every config key, environment
+- [Named profiles](v0.14.0-profiles-foundation.md) documents the complete
+  profile editor: launch, appearance, cursor, effects, layout, switching, and
+  platform fields, including bounded add/edit/remove list rows.
+
   variable, range, default, and reload behavior.
 - [Annotated Config](odytty.conf.example) is a complete commented example.
 - [Themes](themes.md) documents the theme format and built-in roster.

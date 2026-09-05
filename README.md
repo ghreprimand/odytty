@@ -211,7 +211,9 @@ color glyphs.
 The [v0.13.0 foundation contract](docs/v0.13.0-foundation.md) records the
 security, architecture, platform, and measurement boundaries used by this
 release. Named launch profiles have a versioned on-disk foundation and a settings Profile
-Manager for local create/edit/import/export/delete
+Manager for local create/edit/import/export/delete. The editor exposes the
+complete profile schema, including bounded launch and switching lists, visual
+settings, cursor/effect overrides, saved layout, and platform applicability
 ([schema, precedence, and migration](docs/v0.14.0-profiles-foundation.md));
 launch routing, restoration, palette selection, and opt-in auto-switch are
 wired. Plain `+` / New Tab / New Workspace stay one-click on the effective

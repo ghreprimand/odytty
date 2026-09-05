@@ -5,17 +5,22 @@
 //! persists Save/Delete/Import/Export outcomes, and never runs discovery on the
 //! default launch path. Unknown future keys ride on the draft [`LaunchProfile`]
 //! and survive edit/save via the schema round-trip.
+//!
+//! The sectioned edit/add form is large enough to be its own concern, so its
+//! draft state machine, field editing, and rendering live in the child module
+//! [`profile_form`]. That module carries additional `impl ProfileManager`
+//! blocks over the same private fields declared here; catalog listing, the
+//! delete confirmation, and the shared line/target model stay in this file.
+
+mod profile_form;
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use crate::fuzzy;
-use crate::profiles::{
-    DiscoveredShell, LaunchProfile, ProfileCatalog, ProfileCommand, validate_profile_name,
-};
+use crate::profiles::{DiscoveredShell, LaunchProfile, ProfileCatalog, ProfileCommand};
 
 use super::overlay::OverlayInput;
-use super::shell_discovery;
 
 const MAX_RESULTS: usize = 40;
 const FOOTER_ROWS: usize = 2;
@@ -37,27 +42,77 @@ enum ManagerView {
     ConfirmDelete { name: String },
 }
 
+/// One editable or actionable field in the profile form.  List entries
+/// (command args, env pairs, host/directory match rules) carry their own index
+/// so a rendered row maps back to exactly one draft slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FormField {
     Name,
     DisplayName,
+    Platforms,
     Shell,
     WorkingDirectory,
+    CommandProgram,
+    CommandArg(usize),
+    AddCommandArg,
+    RemoveCommandArg(usize),
+    EnvKey(usize),
+    EnvValue(usize),
+    AddEnv,
+    RemoveEnv(usize),
     Theme,
+    Visual,
+    Font,
+    FontFamily,
+    FontWeight,
+    FontSizePx,
+    Title,
     FollowExternalPalette,
     ExternalPaletteProvider,
     ExternalPalettePath,
-    FontFamily,
-    Title,
+    CursorStyle,
+    CursorBlink,
+    RenderQuality,
+    Bloom,
+    Crt,
+    Retro,
+    SavedLayout,
     Connection,
+    MatchHost(usize),
+    AddMatchHost,
+    RemoveMatchHost(usize),
+    MatchDirectory(usize),
+    AddMatchDirectory,
+    RemoveMatchDirectory(usize),
     Save,
     Cancel,
 }
 
+impl FormField {
+    /// True only for the closed-vocabulary fields (tri-states and enumerated
+    /// cycles) whose activation cycles a value. Space activates these; on every
+    /// free-text field space must type a literal space instead.
+    pub(super) fn is_toggle_or_cycle(self) -> bool {
+        matches!(
+            self,
+            FormField::Platforms
+                | FormField::Visual
+                | FormField::FontWeight
+                | FormField::CursorStyle
+                | FormField::CursorBlink
+                | FormField::RenderQuality
+                | FormField::FollowExternalPalette
+                | FormField::Bloom
+                | FormField::Crt
+                | FormField::Retro
+        )
+    }
+}
+
 /// The pointer meaning of one rendered body line.  Keeping this beside the
 /// presentation line makes row insertion (warnings, empty state, suggestions,
-/// and validation errors) unable to shift a click target away from what is
-/// visible.
+/// section headers, and validation errors) unable to shift a click target away
+/// from what is visible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProfileManagerTarget {
     Inert,
@@ -66,22 +121,6 @@ enum ProfileManagerTarget {
     FormField(FormField),
     ConfirmButtons,
 }
-
-const FORM_FIELDS: &[FormField] = &[
-    FormField::Name,
-    FormField::DisplayName,
-    FormField::Shell,
-    FormField::WorkingDirectory,
-    FormField::Theme,
-    FormField::FollowExternalPalette,
-    FormField::ExternalPaletteProvider,
-    FormField::ExternalPalettePath,
-    FormField::FontFamily,
-    FormField::Title,
-    FormField::Connection,
-    FormField::Save,
-    FormField::Cancel,
-];
 
 /// Outcomes the App must act on after the manager finishes a presentation step.
 #[derive(Debug, Clone, PartialEq)]
@@ -140,6 +179,7 @@ pub(super) struct ProfileManager {
     filtered: Vec<String>,
     selected: usize,
     scroll_offset: Cell<usize>,
+    form_scroll_offset: Cell<usize>,
     last_body_height: Cell<usize>,
     add_row_focused: bool,
     view: ManagerView,
@@ -155,6 +195,23 @@ pub(super) struct ProfileManager {
     draft_font_family: String,
     draft_title: String,
     draft_connection: String,
+    draft_command_program: String,
+    draft_command_args: Vec<String>,
+    draft_env: Vec<(String, String)>,
+    draft_platforms: String,
+    draft_visual: String,
+    draft_font: String,
+    draft_font_weight: String,
+    draft_font_size_px: String,
+    draft_cursor_style: String,
+    draft_cursor_blink: String,
+    draft_render_quality: String,
+    draft_bloom: String,
+    draft_crt: String,
+    draft_retro: String,
+    draft_saved_layout: String,
+    draft_match_hosts: Vec<String>,
+    draft_match_directories: Vec<String>,
     /// Cached shell suggestions loaded when a profile form opens (on demand).
     discovered_shells: Vec<DiscoveredShell>,
     shell_suggestion_index: usize,
@@ -184,6 +241,7 @@ impl ProfileManager {
             filtered: Vec::new(),
             selected: 0,
             scroll_offset: Cell::new(0),
+            form_scroll_offset: Cell::new(0),
             last_body_height: Cell::new(0),
             add_row_focused: false,
             view: ManagerView::Catalog,
@@ -193,12 +251,29 @@ impl ProfileManager {
             draft_shell: String::new(),
             draft_working_directory: String::new(),
             draft_theme: String::new(),
-            draft_follow_external_palette: String::new(),
+            draft_follow_external_palette: "inherit".to_owned(),
             draft_external_palette_provider: String::new(),
             draft_external_palette_path: String::new(),
             draft_font_family: String::new(),
             draft_title: String::new(),
             draft_connection: String::new(),
+            draft_command_program: String::new(),
+            draft_command_args: Vec::new(),
+            draft_env: Vec::new(),
+            draft_platforms: "inherit".to_owned(),
+            draft_visual: "inherit".to_owned(),
+            draft_font: String::new(),
+            draft_font_weight: "inherit".to_owned(),
+            draft_font_size_px: String::new(),
+            draft_cursor_style: "inherit".to_owned(),
+            draft_cursor_blink: "inherit".to_owned(),
+            draft_render_quality: "inherit".to_owned(),
+            draft_bloom: "inherit".to_owned(),
+            draft_crt: "inherit".to_owned(),
+            draft_retro: "inherit".to_owned(),
+            draft_saved_layout: String::new(),
+            draft_match_hosts: Vec::new(),
+            draft_match_directories: Vec::new(),
             discovered_shells: Vec::new(),
             shell_suggestion_index: 0,
             pending_shell_command: None,
@@ -247,6 +322,11 @@ impl ProfileManager {
     }
 
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
+        if matches!(self.view, ManagerView::Form(_)) {
+            let total = self.form_all_lines(usize::MAX).len();
+            let offset = self.form_scroll_offset.get();
+            return (offset > 0, offset + body_height < total);
+        }
         if !matches!(self.view, ManagerView::Catalog) {
             return (false, false);
         }
@@ -282,16 +362,17 @@ impl ProfileManager {
 
     pub(super) fn handle_pointer_press(
         &mut self,
-        _columns: usize,
+        columns: usize,
         body_height: usize,
         row: usize,
-        _col: usize,
+        col: usize,
     ) -> ProfileManagerOutcome {
-        let target = self
-            .visible_lines(_columns, body_height)
-            .get(row)
+        let lines = self.visible_lines(columns, body_height);
+        let clicked = lines.get(row);
+        let target = clicked
             .map(|line| line.target)
             .unwrap_or(ProfileManagerTarget::Inert);
+        let clicked_text = clicked.map(|line| line.text.clone()).unwrap_or_default();
         match target {
             ProfileManagerTarget::Inert => ProfileManagerOutcome::Consumed,
             ProfileManagerTarget::CatalogProfile(index) => {
@@ -306,27 +387,22 @@ impl ProfileManager {
                     return ProfileManagerOutcome::Consumed;
                 };
                 self.form_focus = index;
-                match field {
-                    FormField::Save => self.try_save(),
-                    FormField::Cancel => {
+                self.activate_form_field(field)
+            }
+            ProfileManagerTarget::ConfirmButtons => {
+                // Derive the two button spans from the exact line the renderer
+                // drew (`clicked_text`) rather than a re-typed literal, so the
+                // hit-split can never drift from the visible label. `col` is a
+                // display column; the label is ASCII so char offsets match.
+                let esc = clicked_text.find("[Esc]");
+                let enter = clicked_text.find("[Enter]");
+                match (enter, esc) {
+                    (_, Some(esc)) if col >= esc => {
                         self.return_to_catalog();
                         ProfileManagerOutcome::Consumed
                     }
+                    (Some(enter), _) if col >= enter => self.confirm_delete(),
                     _ => ProfileManagerOutcome::Consumed,
-                }
-            }
-            ProfileManagerTarget::ConfirmButtons => {
-                // The displayed button row has two explicit spans.  Derive the
-                // split from that exact rendered text rather than a parallel
-                // column constant.
-                let text = "[Enter] Delete    [Esc] Cancel";
-                if _col >= text.find("[Esc]").unwrap_or(text.len()) {
-                    self.return_to_catalog();
-                    ProfileManagerOutcome::Consumed
-                } else if _col >= text.find("[Enter]").unwrap_or(0) {
-                    self.confirm_delete()
-                } else {
-                    ProfileManagerOutcome::Consumed
                 }
             }
         }
@@ -339,7 +415,7 @@ impl ProfileManager {
     ) -> Vec<ProfileManagerLine> {
         match &self.view {
             ManagerView::Catalog => self.catalog_lines(body_width, body_height),
-            ManagerView::Form(mode) => self.form_lines(*mode, body_width),
+            ManagerView::Form(mode) => self.form_visible_lines(*mode, body_width, body_height),
             ManagerView::ConfirmDelete { name } => vec![
                 ProfileManagerLine {
                     text: format!("Delete \u{201c}{name}\u{201d}? This cannot be undone."),
@@ -441,73 +517,6 @@ impl ProfileManager {
         }
     }
 
-    fn handle_form_input(&mut self, input: OverlayInput) -> ProfileManagerOutcome {
-        let fields = self.visible_form_fields();
-        match input {
-            OverlayInput::Close => {
-                self.return_to_catalog();
-                ProfileManagerOutcome::Consumed
-            }
-            OverlayInput::Up => {
-                if self.form_focus > 0 {
-                    self.form_focus -= 1;
-                }
-                ProfileManagerOutcome::Consumed
-            }
-            OverlayInput::Down | OverlayInput::Tab => {
-                if self.form_focus + 1 < fields.len() {
-                    self.form_focus += 1;
-                }
-                ProfileManagerOutcome::Consumed
-            }
-            OverlayInput::Right => {
-                if matches!(fields.get(self.form_focus), Some(FormField::Shell)) {
-                    self.cycle_shell_suggestion(1);
-                }
-                ProfileManagerOutcome::Consumed
-            }
-            OverlayInput::Left => {
-                if matches!(fields.get(self.form_focus), Some(FormField::Shell)) {
-                    self.cycle_shell_suggestion(-1);
-                }
-                ProfileManagerOutcome::Consumed
-            }
-            OverlayInput::Activate => match fields.get(self.form_focus).copied() {
-                Some(FormField::Save) => self.try_save(),
-                Some(FormField::Cancel) => {
-                    self.return_to_catalog();
-                    ProfileManagerOutcome::Consumed
-                }
-                _ => ProfileManagerOutcome::Consumed,
-            },
-            OverlayInput::Backspace => {
-                self.edit_active_buffer(|buf| {
-                    buf.pop();
-                });
-                ProfileManagerOutcome::Consumed
-            }
-            OverlayInput::Char(ch) => {
-                self.edit_active_buffer(|buf| {
-                    buf.push(ch);
-                });
-                ProfileManagerOutcome::Consumed
-            }
-            _ => ProfileManagerOutcome::Consumed,
-        }
-    }
-
-    fn visible_form_fields(&self) -> Vec<FormField> {
-        let rename_only = matches!(self.view, ManagerView::Form(FormMode::Rename));
-        FORM_FIELDS
-            .iter()
-            .copied()
-            .filter(|field| {
-                !rename_only
-                    || matches!(field, FormField::Name | FormField::Save | FormField::Cancel)
-            })
-            .collect()
-    }
-
     fn handle_confirm_input(&mut self, input: OverlayInput) -> ProfileManagerOutcome {
         match input {
             OverlayInput::Activate | OverlayInput::Char('y') | OverlayInput::Char('Y') => {
@@ -528,63 +537,6 @@ impl ProfileManager {
         let name = name.clone();
         self.return_to_catalog();
         ProfileManagerOutcome::Delete(name)
-    }
-
-    fn open_add(&mut self) -> ProfileManagerOutcome {
-        self.clear_draft();
-        self.load_shell_suggestions();
-        self.view = ManagerView::Form(FormMode::Add);
-        self.form_focus = 0;
-        self.error = None;
-        ProfileManagerOutcome::Consumed
-    }
-
-    fn open_edit_selected(&mut self) -> ProfileManagerOutcome {
-        let Some(name) = self.selected_name() else {
-            return ProfileManagerOutcome::Consumed;
-        };
-        let Some(profile) = self.profiles.get(&name).cloned() else {
-            return ProfileManagerOutcome::Consumed;
-        };
-        self.load_draft_from(&profile);
-        self.load_shell_suggestions();
-        self.replace_name = Some(profile.name.clone());
-        self.view = ManagerView::Form(FormMode::Edit);
-        self.form_focus = 0;
-        self.error = None;
-        ProfileManagerOutcome::Consumed
-    }
-
-    fn open_duplicate_selected(&mut self) -> ProfileManagerOutcome {
-        let Some(name) = self.selected_name() else {
-            return ProfileManagerOutcome::Consumed;
-        };
-        let Some(profile) = self.profiles.get(&name).cloned() else {
-            return ProfileManagerOutcome::Consumed;
-        };
-        self.load_draft_from(&profile);
-        self.load_shell_suggestions();
-        self.draft_name = unique_copy_name(&profile.name, &self.profiles);
-        self.replace_name = None;
-        self.view = ManagerView::Form(FormMode::Duplicate);
-        self.form_focus = 0;
-        self.error = None;
-        ProfileManagerOutcome::Consumed
-    }
-
-    fn open_rename_selected(&mut self) -> ProfileManagerOutcome {
-        let Some(name) = self.selected_name() else {
-            return ProfileManagerOutcome::Consumed;
-        };
-        let Some(profile) = self.profiles.get(&name).cloned() else {
-            return ProfileManagerOutcome::Consumed;
-        };
-        self.load_draft_from(&profile);
-        self.replace_name = Some(profile.name.clone());
-        self.view = ManagerView::Form(FormMode::Rename);
-        self.form_focus = 0;
-        self.error = None;
-        ProfileManagerOutcome::Consumed
     }
 
     fn open_confirm_delete_selected(&mut self) -> ProfileManagerOutcome {
@@ -609,205 +561,11 @@ impl ProfileManager {
         ProfileManagerOutcome::SetDefaultLaunchProfile(name)
     }
 
-    fn try_save(&mut self) -> ProfileManagerOutcome {
-        let rename_only = matches!(self.view, ManagerView::Form(FormMode::Rename));
-        let name = match validate_profile_name(&self.draft_name) {
-            Ok(name) => name,
-            Err(error) => {
-                self.error = Some(error.to_string());
-                return ProfileManagerOutcome::Consumed;
-            }
-        };
-        if self.profiles.contains_key(&name) && self.replace_name.as_deref() != Some(name.as_str())
-        {
-            self.error = Some(format!("profile {name:?} already exists"));
-            return ProfileManagerOutcome::Consumed;
-        }
-
-        let mut profile = self
-            .draft_base
-            .clone()
-            .unwrap_or_else(|| LaunchProfile::new(&name).expect("validated name"));
-        profile.name = name.clone();
-        if rename_only {
-            // Keep every other field; only the identity changes.
-        } else {
-            profile.display_name = nonempty_opt(&self.draft_display_name);
-            if let Some(command) = self.pending_shell_command.take() {
-                profile.launch.command = Some(command);
-                profile.launch.shell = None;
-            } else {
-                profile.launch.shell = nonempty_opt(&self.draft_shell);
-            }
-            profile.launch.working_directory = nonempty_opt(&self.draft_working_directory);
-            profile.appearance.theme = nonempty_opt(&self.draft_theme);
-            match optional_bool_field(&self.draft_follow_external_palette) {
-                Ok(value) => profile.appearance.follow_external_palette = value,
-                Err(message) => {
-                    self.error = Some(message);
-                    return ProfileManagerOutcome::Consumed;
-                }
-            }
-            profile.appearance.external_palette_provider =
-                nonempty_opt(&self.draft_external_palette_provider);
-            profile.appearance.external_palette_path =
-                nonempty_opt(&self.draft_external_palette_path);
-            if profile.appearance.follow_external_palette == Some(true)
-                && profile
-                    .appearance
-                    .external_palette_path
-                    .as_deref()
-                    .is_none_or(str::is_empty)
-            {
-                self.error = Some(
-                    "external palette path is required when follow external palette is on"
-                        .to_owned(),
-                );
-                return ProfileManagerOutcome::Consumed;
-            }
-            if let Some(raw) = profile.appearance.external_palette_provider.as_deref()
-                && !raw.is_empty()
-                && crate::external_palette::ExternalPaletteProvider::parse(raw).is_none()
-            {
-                self.error = Some(format!(
-                    "unknown external palette provider {raw:?}; use odytty, colors_toml, or colors_json"
-                ));
-                return ProfileManagerOutcome::Consumed;
-            }
-            profile.appearance.font_family = nonempty_opt(&self.draft_font_family);
-            profile.appearance.title = nonempty_opt(&self.draft_title);
-            profile.connection = nonempty_opt(&self.draft_connection);
-        }
-
-        if let Err(error) = profile.validate() {
-            self.error = Some(error.to_string());
-            return ProfileManagerOutcome::Consumed;
-        }
-
-        let replace = match &self.replace_name {
-            Some(old) if old != &name => Some(old.clone()),
-            _ => None,
-        };
-        ProfileManagerOutcome::Persist {
-            profile: Box::new(profile),
-            replace,
-        }
-    }
-
     fn selected_name(&self) -> Option<String> {
         if self.add_row_focused {
             return None;
         }
         self.filtered.get(self.selected).cloned()
-    }
-
-    fn load_draft_from(&mut self, profile: &LaunchProfile) {
-        self.draft_base = Some(profile.clone());
-        self.draft_name = profile.name.clone();
-        self.draft_display_name = profile.display_name.clone().unwrap_or_default();
-        self.draft_shell = profile.launch.shell.clone().unwrap_or_default();
-        self.draft_working_directory = profile.launch.working_directory.clone().unwrap_or_default();
-        self.draft_theme = profile.appearance.theme.clone().unwrap_or_default();
-        self.draft_follow_external_palette = profile
-            .appearance
-            .follow_external_palette
-            .map(|enabled| if enabled { "on" } else { "off" }.to_owned())
-            .unwrap_or_default();
-        self.draft_external_palette_provider = profile
-            .appearance
-            .external_palette_provider
-            .clone()
-            .unwrap_or_default();
-        self.draft_external_palette_path = profile
-            .appearance
-            .external_palette_path
-            .clone()
-            .unwrap_or_default();
-        self.draft_font_family = profile.appearance.font_family.clone().unwrap_or_default();
-        self.draft_title = profile.appearance.title.clone().unwrap_or_default();
-        self.draft_connection = profile.connection.clone().unwrap_or_default();
-        self.pending_shell_command = profile.launch.command.clone();
-        if self.pending_shell_command.is_some() {
-            self.draft_shell = profile
-                .launch
-                .command
-                .as_ref()
-                .map(|command| {
-                    if command.args.is_empty() {
-                        command.program.clone()
-                    } else {
-                        format!("{} {}", command.program, command.args.join(" "))
-                    }
-                })
-                .unwrap_or_default();
-        }
-    }
-
-    fn clear_draft(&mut self) {
-        self.draft_base = None;
-        self.replace_name = None;
-        self.draft_name.clear();
-        self.draft_display_name.clear();
-        self.draft_shell.clear();
-        self.draft_working_directory.clear();
-        self.draft_theme.clear();
-        self.draft_follow_external_palette.clear();
-        self.draft_external_palette_provider.clear();
-        self.draft_external_palette_path.clear();
-        self.draft_font_family.clear();
-        self.draft_title.clear();
-        self.draft_connection.clear();
-        self.discovered_shells.clear();
-        self.shell_suggestion_index = 0;
-        self.pending_shell_command = None;
-        self.form_focus = 0;
-    }
-
-    fn load_shell_suggestions(&mut self) {
-        self.discovered_shells = shell_discovery::discovered_shells();
-        self.shell_suggestion_index = 0;
-    }
-
-    fn cycle_shell_suggestion(&mut self, delta: isize) {
-        if self.discovered_shells.is_empty() {
-            return;
-        }
-        let len = self.discovered_shells.len();
-        let next = (self.shell_suggestion_index as isize + delta).rem_euclid(len as isize);
-        self.shell_suggestion_index = next as usize;
-        let entry = self.discovered_shells[self.shell_suggestion_index].clone();
-        self.apply_shell_suggestion(&entry);
-    }
-
-    fn apply_shell_suggestion(&mut self, entry: &DiscoveredShell) {
-        if entry.args.is_empty() {
-            self.draft_shell = entry.program.clone();
-            self.pending_shell_command = None;
-        } else {
-            self.draft_shell = entry.label.clone();
-            self.pending_shell_command = Some(ProfileCommand {
-                program: entry.program.clone(),
-                args: entry.args.clone(),
-                preserved: Default::default(),
-            });
-        }
-        if let Some(base) = &mut self.draft_base {
-            base.launch.command = None;
-        }
-        self.error = None;
-    }
-
-    fn shell_suggestion_hint(&self) -> Option<String> {
-        if self.discovered_shells.is_empty() {
-            return None;
-        }
-        let entry = &self.discovered_shells[self.shell_suggestion_index];
-        Some(format!(
-            "Shell suggestions (Left/Right): {} ({}/{})",
-            entry.label,
-            self.shell_suggestion_index + 1,
-            self.discovered_shells.len()
-        ))
     }
 
     fn return_to_catalog(&mut self) {
@@ -835,35 +593,6 @@ impl ProfileManager {
         if self.filtered.is_empty() {
             self.add_row_focused = true;
         }
-    }
-
-    fn edit_active_buffer(&mut self, edit: impl FnOnce(&mut String)) {
-        let fields = self.visible_form_fields();
-        let Some(field) = fields.get(self.form_focus).copied() else {
-            return;
-        };
-        let buffer = match field {
-            FormField::Name => &mut self.draft_name,
-            FormField::DisplayName => &mut self.draft_display_name,
-            FormField::Shell => {
-                self.pending_shell_command = None;
-                if let Some(base) = &mut self.draft_base {
-                    base.launch.command = None;
-                }
-                &mut self.draft_shell
-            }
-            FormField::WorkingDirectory => &mut self.draft_working_directory,
-            FormField::Theme => &mut self.draft_theme,
-            FormField::FollowExternalPalette => &mut self.draft_follow_external_palette,
-            FormField::ExternalPaletteProvider => &mut self.draft_external_palette_provider,
-            FormField::ExternalPalettePath => &mut self.draft_external_palette_path,
-            FormField::FontFamily => &mut self.draft_font_family,
-            FormField::Title => &mut self.draft_title,
-            FormField::Connection => &mut self.draft_connection,
-            FormField::Save | FormField::Cancel => return,
-        };
-        edit(buffer);
-        self.error = None;
     }
 
     fn catalog_lines(&self, body_width: usize, body_height: usize) -> Vec<ProfileManagerLine> {
@@ -945,109 +674,6 @@ impl ProfileManager {
         });
         lines
     }
-
-    fn form_lines(&self, _mode: FormMode, body_width: usize) -> Vec<ProfileManagerLine> {
-        let mut lines = Vec::new();
-        let fields = self.visible_form_fields();
-        for (row, field) in fields.iter().enumerate() {
-            let focused = row == self.form_focus;
-            let text = match field {
-                FormField::Name => format!("Name: {}", self.draft_name),
-                FormField::DisplayName => format!("Display name: {}", self.draft_display_name),
-                FormField::Shell => format!("Shell: {}", self.draft_shell),
-                FormField::WorkingDirectory => {
-                    format!("Working directory: {}", self.draft_working_directory)
-                }
-                FormField::Theme => format!("Theme: {}", self.draft_theme),
-                FormField::FollowExternalPalette => {
-                    format!(
-                        "Follow external palette: {}",
-                        self.draft_follow_external_palette
-                    )
-                }
-                FormField::ExternalPaletteProvider => {
-                    format!(
-                        "External palette provider: {}",
-                        self.draft_external_palette_provider
-                    )
-                }
-                FormField::ExternalPalettePath => {
-                    format!(
-                        "External palette path: {}",
-                        self.draft_external_palette_path
-                    )
-                }
-                FormField::FontFamily => format!("Font family: {}", self.draft_font_family),
-                FormField::Title => format!("Title: {}", self.draft_title),
-                FormField::Connection => format!("Connection: {}", self.draft_connection),
-                FormField::Save => "[Save]".to_owned(),
-                FormField::Cancel => "[Cancel]".to_owned(),
-            };
-            lines.push(ProfileManagerLine {
-                text: truncate(&text, body_width),
-                focused,
-                bold: matches!(field, FormField::Save | FormField::Cancel) || focused,
-                target: ProfileManagerTarget::FormField(*field),
-            });
-            if focused
-                && matches!(field, FormField::Shell)
-                && let Some(hint) = self.shell_suggestion_hint()
-            {
-                lines.push(ProfileManagerLine {
-                    text: truncate(&hint, body_width),
-                    focused: false,
-                    bold: false,
-                    target: ProfileManagerTarget::Inert,
-                });
-            }
-        }
-        if let Some(error) = &self.error {
-            lines.push(ProfileManagerLine {
-                text: truncate(error, body_width),
-                focused: false,
-                bold: false,
-                target: ProfileManagerTarget::Inert,
-            });
-        }
-        lines
-    }
-}
-
-fn nonempty_opt(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_owned())
-    }
-}
-
-fn optional_bool_field(value: &str) -> Result<Option<bool>, String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-    match trimmed.to_ascii_lowercase().as_str() {
-        "on" | "true" | "1" | "yes" => Ok(Some(true)),
-        "off" | "false" | "0" | "no" => Ok(Some(false)),
-        other => Err(format!(
-            "follow external palette must be on or off, not {other:?}"
-        )),
-    }
-}
-
-fn unique_copy_name(base: &str, existing: &BTreeMap<String, LaunchProfile>) -> String {
-    let candidate = format!("{base}-copy");
-    if !existing.contains_key(&candidate) && validate_profile_name(&candidate).is_ok() {
-        return candidate;
-    }
-    for index in 2..1000 {
-        let candidate = format!("{base}-copy-{index}");
-        if !existing.contains_key(&candidate) && validate_profile_name(&candidate).is_ok() {
-            return candidate;
-        }
-    }
-    format!("{base}-copy")
 }
 
 fn truncate(text: &str, width: usize) -> String {
@@ -1085,143 +711,6 @@ mod tests {
     }
 
     #[test]
-    fn form_loads_discovered_shell_suggestions_on_add() {
-        let mut manager = ProfileManager::new();
-        manager.open(catalog_with(&[]), None);
-        assert!(matches!(
-            manager.open_add(),
-            ProfileManagerOutcome::Consumed
-        ));
-        assert!(
-            !manager.discovered_shells.is_empty(),
-            "profile form must load cached shell discovery on demand"
-        );
-    }
-
-    #[test]
-    fn shell_field_right_cycles_discovered_suggestions() {
-        let mut manager = ProfileManager::new();
-        manager.open(catalog_with(&[]), None);
-        manager.open_add();
-        let fields = manager.visible_form_fields();
-        manager.form_focus = fields
-            .iter()
-            .position(|field| *field == FormField::Shell)
-            .expect("shell field");
-        let before = manager.draft_shell.clone();
-        manager.cycle_shell_suggestion(1);
-        let after = manager.draft_shell.clone();
-        assert_ne!(
-            before, after,
-            "cycling must apply the next discovered shell"
-        );
-        assert!(
-            manager.shell_suggestion_hint().is_some(),
-            "focused shell field shows a suggestion hint"
-        );
-    }
-
-    #[test]
-    fn structured_shell_suggestion_persists_as_profile_command() {
-        let mut manager = ProfileManager::new();
-        manager.open(catalog_with(&[]), None);
-        manager.open_add();
-        manager.draft_name = "wsl".to_owned();
-        manager.apply_shell_suggestion(&DiscoveredShell {
-            label: "WSL: Ubuntu".to_owned(),
-            program: "wsl.exe".to_owned(),
-            args: vec!["-d".to_owned(), "Ubuntu".to_owned()],
-            kind: crate::profiles::ShellKind::Wsl,
-        });
-        let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
-            panic!("expected persist");
-        };
-        assert_eq!(
-            profile
-                .launch
-                .command
-                .as_ref()
-                .map(|command| command.program.as_str()),
-            Some("wsl.exe")
-        );
-        let command = profile.launch.command.expect("command");
-        assert_eq!(command.args, vec!["-d".to_owned(), "Ubuntu".to_owned()]);
-        assert!(profile.launch.shell.is_none());
-    }
-
-    #[test]
-    fn create_edit_duplicate_rename_and_delete_flows() {
-        let mut manager = ProfileManager::new();
-        manager.open(catalog_with(&["dev"]), None);
-
-        assert!(matches!(
-            manager.open_add(),
-            ProfileManagerOutcome::Consumed
-        ));
-        manager.draft_name = "work".to_owned();
-        manager.draft_shell = "/bin/zsh".to_owned();
-        let ProfileManagerOutcome::Persist { profile, replace } = manager.try_save() else {
-            panic!("expected persist");
-        };
-        assert_eq!(profile.name, "work");
-        assert_eq!(profile.launch.shell.as_deref(), Some("/bin/zsh"));
-        assert_eq!(replace, None);
-
-        manager.open(catalog_with(&["dev", "work"]), None);
-        manager.selected = 0;
-        assert!(matches!(
-            manager.open_duplicate_selected(),
-            ProfileManagerOutcome::Consumed
-        ));
-        assert_eq!(manager.draft_name, "dev-copy");
-
-        manager.open(catalog_with(&["dev"]), None);
-        assert!(matches!(
-            manager.open_rename_selected(),
-            ProfileManagerOutcome::Consumed
-        ));
-        manager.draft_name = "edge".to_owned();
-        let ProfileManagerOutcome::Persist { profile, replace } = manager.try_save() else {
-            panic!("expected rename persist");
-        };
-        assert_eq!(profile.name, "edge");
-        assert_eq!(replace.as_deref(), Some("dev"));
-
-        manager.open(catalog_with(&["edge"]), None);
-        assert!(matches!(
-            manager.open_confirm_delete_selected(),
-            ProfileManagerOutcome::Consumed
-        ));
-        assert!(matches!(
-            manager.handle_input(OverlayInput::Activate),
-            ProfileManagerOutcome::Delete(name) if name == "edge"
-        ));
-    }
-
-    #[test]
-    fn validate_rejects_secret_env_before_persist() {
-        let mut manager = ProfileManager::new();
-        manager.open(ProfileCatalog::default(), None);
-        let _ = manager.open_add();
-        manager.draft_name = "dev".to_owned();
-        let mut base = LaunchProfile::new("dev").expect("profile");
-        base.launch
-            .env
-            .insert("API_TOKEN".to_owned(), "nope".to_owned());
-        manager.draft_base = Some(base);
-        assert!(matches!(
-            manager.try_save(),
-            ProfileManagerOutcome::Consumed
-        ));
-        assert!(
-            manager
-                .error
-                .as_deref()
-                .is_some_and(|e| e.contains("secret"))
-        );
-    }
-
-    #[test]
     fn import_and_export_requests_do_not_touch_disk() {
         let mut manager = ProfileManager::new();
         manager.open(catalog_with(&["dev"]), None);
@@ -1233,163 +722,6 @@ mod tests {
             manager.handle_input(OverlayInput::Char('e')),
             ProfileManagerOutcome::RequestExport(name) if name == "dev"
         ));
-    }
-
-    #[test]
-    fn external_palette_appearance_fields_round_trip_through_form() {
-        let mut profile = LaunchProfile::new("dev").expect("profile");
-        profile.appearance.follow_external_palette = Some(true);
-        profile.appearance.external_palette_provider = Some("colors_toml".to_owned());
-        profile.appearance.external_palette_path = Some("/tmp/palette.toml".to_owned());
-        let mut catalog = ProfileCatalog::default();
-        catalog.profiles.insert("dev".to_owned(), profile);
-        let mut manager = ProfileManager::new();
-        manager.open(catalog, None);
-        let _ = manager.open_edit_selected();
-        assert_eq!(manager.draft_follow_external_palette, "on");
-        assert_eq!(manager.draft_external_palette_provider, "colors_toml");
-        assert_eq!(manager.draft_external_palette_path, "/tmp/palette.toml");
-        manager.draft_external_palette_path = "/tmp/edited.toml".to_owned();
-        let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
-            panic!("persist");
-        };
-        assert_eq!(profile.appearance.follow_external_palette, Some(true));
-        assert_eq!(
-            profile.appearance.external_palette_provider.as_deref(),
-            Some("colors_toml")
-        );
-        assert_eq!(
-            profile.appearance.external_palette_path.as_deref(),
-            Some("/tmp/edited.toml")
-        );
-    }
-
-    #[test]
-    fn unknown_keys_survive_edit_draft() {
-        let text = r#"{
-  "schema_version": 1,
-  "name": "dev",
-  "future_flag": true,
-  "launch": {
-    "future_launch": 1,
-    "command": {"program": "echo", "args": ["hi"], "future_command": true}
-  },
-  "appearance": {"future_appearance": "kept"},
-  "cursor": {"future_cursor": false},
-  "effects": {"future_effect": 0.5},
-  "layout": {"future_layout": [1, 2]}
-}"#;
-        let profile = LaunchProfile::parse_json(text, Some("dev")).expect("parse");
-        let mut catalog = ProfileCatalog::default();
-        catalog.profiles.insert("dev".to_owned(), profile);
-        let mut manager = ProfileManager::new();
-        manager.open(catalog, None);
-        let _ = manager.open_edit_selected();
-        manager.draft_title = "Dev".to_owned();
-        let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
-            panic!("persist");
-        };
-        let serialized = profile.serialize_pretty();
-        for key in [
-            "future_flag",
-            "future_launch",
-            "future_command",
-            "future_appearance",
-            "future_cursor",
-            "future_effect",
-            "future_layout",
-        ] {
-            assert!(serialized.contains(&format!("\"{key}\"")), "{key} missing");
-        }
-        assert!(profile.preserved.contains_key("future_flag"));
-        assert!(profile.launch.preserved.contains_key("future_launch"));
-        assert!(
-            profile
-                .launch
-                .command
-                .as_ref()
-                .expect("command")
-                .preserved
-                .contains_key("future_command")
-        );
-        assert!(
-            profile
-                .appearance
-                .preserved
-                .contains_key("future_appearance")
-        );
-        assert!(profile.cursor.preserved.contains_key("future_cursor"));
-        assert!(profile.effects.preserved.contains_key("future_effect"));
-        assert!(profile.layout.preserved.contains_key("future_layout"));
-    }
-
-    #[test]
-    fn load_edit_save_reload_keeps_every_nested_preserved_map() {
-        use crate::profiles::{profile_path_in_dir, read_profile_file, write_profile_file};
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "odytty-profile-ui-preserved-{}-{nanos}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("mkdir");
-        let text = r#"{
-  "schema_version": 1,
-  "name": "dev",
-  "future_flag": true,
-  "launch": {
-    "shell": "/bin/zsh",
-    "future_launch": {"kept": true},
-    "command": {"program": "echo", "args": [], "future_command": 7}
-  },
-  "appearance": {"theme": "plain", "future_appearance": "kept"},
-  "cursor": {"style": "block", "future_cursor": false},
-  "effects": {"bloom": true, "future_effect": 0.25},
-  "layout": {"saved_layout": "two", "future_layout": [9]}
-}"#;
-        let parsed = LaunchProfile::parse_json(text, Some("dev")).expect("parse");
-        let path = profile_path_in_dir(&dir, "dev").expect("path");
-        write_profile_file(&path, &parsed).expect("seed");
-
-        let loaded = read_profile_file(&path, Some("dev")).expect("load");
-        let mut catalog = ProfileCatalog::default();
-        catalog.profiles.insert("dev".to_owned(), loaded);
-        let mut manager = ProfileManager::new();
-        manager.open(catalog, None);
-        let _ = manager.open_edit_selected();
-        manager.draft_title = "Edited".to_owned();
-        let ProfileManagerOutcome::Persist { profile, replace } = manager.try_save() else {
-            panic!("persist");
-        };
-        assert_eq!(replace, None);
-        write_profile_file(&path, &profile).expect("save");
-        let reloaded = read_profile_file(&path, Some("dev")).expect("reload");
-        assert_eq!(reloaded.appearance.title.as_deref(), Some("Edited"));
-        assert!(reloaded.preserved.contains_key("future_flag"));
-        assert!(reloaded.launch.preserved.contains_key("future_launch"));
-        assert!(
-            reloaded
-                .launch
-                .command
-                .as_ref()
-                .expect("command")
-                .preserved
-                .contains_key("future_command")
-        );
-        assert!(
-            reloaded
-                .appearance
-                .preserved
-                .contains_key("future_appearance")
-        );
-        assert!(reloaded.cursor.preserved.contains_key("future_cursor"));
-        assert!(reloaded.effects.preserved.contains_key("future_effect"));
-        assert!(reloaded.layout.preserved.contains_key("future_layout"));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -1420,15 +752,18 @@ mod tests {
     }
 
     #[test]
-    fn invalid_name_surfaces_error_without_persist() {
+    fn catalog_pointer_press_on_the_add_row_opens_the_form() {
         let mut manager = ProfileManager::new();
-        manager.open(ProfileCatalog::default(), None);
-        let _ = manager.open_add();
-        manager.draft_name = "bad name!".to_owned();
+        manager.open(catalog_with(&["dev"]), None);
+        let lines = manager.visible_lines(80, 24);
+        let add_row = lines
+            .iter()
+            .position(|line| line.text.contains("Add profile"))
+            .expect("add row");
         assert!(matches!(
-            manager.try_save(),
+            manager.handle_pointer_press(80, 24, add_row, 0),
             ProfileManagerOutcome::Consumed
         ));
-        assert!(manager.error.is_some());
+        assert_eq!(manager.title(), "Add profile");
     }
 }

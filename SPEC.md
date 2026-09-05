@@ -1624,7 +1624,10 @@ formats and install channels are defined in the
 
 - Named profiles: the v0.14.0 foundation (versioned on-disk schema, local
   catalog, precedence resolver, migration helpers) and settings Profile Manager
-  CRUD are documented in `docs/v0.14.0-profiles-foundation.md`. Launch routing,
+  CRUD are documented in `docs/v0.14.0-profiles-foundation.md`. The editor
+  exposes every schema field, including bounded list fields through explicit
+  add/edit/remove rows and platform applicability through supported enum values.
+  Launch routing,
   workspace `launch_profile` binding, per-pane restoration, saved-layout open,
   `--profile` CLI selection, and opt-in host/directory auto-switch follow the
   precedence contract in `docs/v0.13.0-foundation.md`. Plain New Tab / New

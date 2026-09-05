@@ -27,7 +27,7 @@ fn catalog_with(names: &[&str]) -> ProfileCatalog {
 /// into the manager's private fields.
 fn line_texts(manager: &ProfileManager) -> Vec<String> {
     manager
-        .visible_lines(80, 24)
+        .visible_lines(80, 400)
         .into_iter()
         .map(|line| line.text)
         .collect()
@@ -39,7 +39,7 @@ fn line_texts(manager: &ProfileManager) -> Vec<String> {
 /// inserted form help.
 fn rendered_row(manager: &ProfileManager, needle: &str) -> usize {
     manager
-        .visible_lines(80, 24)
+        .visible_lines(80, 400)
         .iter()
         .position(|line| line.text.contains(needle))
         .unwrap_or_else(|| panic!("missing rendered row containing {needle:?}"))
@@ -51,6 +51,148 @@ fn feed_chars(manager: &mut ProfileManager, text: &str) {
     }
 }
 
+/// Move form focus to the field whose rendered label starts with `prefix` by
+/// pressing the row the operator sees, then return that row index. This mirrors
+/// the pointer path and stays robust to section reordering, unlike a hardcoded
+/// Down count.
+fn focus_form_row(manager: &mut ProfileManager, prefix: &str) -> usize {
+    let row = rendered_row(manager, prefix);
+    let _ = manager.handle_pointer_press(80, 400, row, 0);
+    row
+}
+
+#[test]
+fn keyboard_text_entry_appends_each_character_exactly_once() {
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+    let _ = manager.handle_input(OverlayInput::Tab);
+
+    // Name is initially focused. The text buffer must receive each physical
+    // keypress once; this is also the basis of keyboard-only editing for every
+    // other text field in the form.
+    feed_chars(&mut manager, "dev");
+
+    assert!(
+        line_texts(&manager).iter().any(|line| line == "Name: dev"),
+        "three keypresses must render exactly `dev`, not duplicated input"
+    );
+}
+
+#[test]
+fn form_renders_one_save_and_one_cancel_action() {
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+    let _ = manager.handle_input(OverlayInput::Tab);
+
+    let lines = line_texts(&manager);
+    let save_count = lines
+        .iter()
+        .filter(|line| line.as_str() == "[Save]")
+        .count();
+    let cancel_count = lines
+        .iter()
+        .filter(|line| line.as_str() == "[Cancel]")
+        .count();
+
+    assert_eq!(save_count, 1, "the form has exactly one Save action");
+    assert_eq!(
+        cancel_count, 1,
+        "the form has exactly one Cancel action; duplicated rows make the rendered action map ambiguous"
+    );
+}
+
+#[test]
+fn empty_environment_key_is_rejected_inline_instead_of_being_dropped_on_save() {
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+    let _ = manager.handle_input(OverlayInput::Tab);
+    feed_chars(&mut manager, "env-empty");
+
+    let add_row = rendered_row(&manager, "[Add environment override]");
+    let _ = manager.handle_pointer_press(80, 400, add_row, 0);
+    let value_row = focus_form_row(&mut manager, "Environment value 1:");
+    assert!(value_row > add_row, "the new environment row is rendered");
+    feed_chars(&mut manager, "present-value");
+
+    let save_row = rendered_row(&manager, "[Save]");
+    let outcome = manager.handle_pointer_press(80, 400, save_row, 0);
+
+    assert!(
+        matches!(outcome, ProfileManagerOutcome::Consumed),
+        "an incomplete environment override must block persistence"
+    );
+    assert!(
+        line_texts(&manager)
+            .iter()
+            .any(|line| line.contains("environment key")),
+        "the empty key must remain visible with an inline validation error"
+    );
+}
+
+#[test]
+fn free_text_and_list_fields_round_trip_a_literal_inherit_word() {
+    // The `inherit` word is a sentinel only for closed-vocabulary fields; a
+    // free-text scalar or list entry must persist it verbatim rather than
+    // collapsing it to "unset".
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+    let _ = manager.handle_input(OverlayInput::Tab);
+    feed_chars(&mut manager, "literal");
+
+    let title_row = focus_form_row(&mut manager, "Title:");
+    assert!(title_row > 0, "title field is rendered");
+    feed_chars(&mut manager, "Inherit");
+
+    let host_add = rendered_row(&manager, "[Add host match]");
+    let _ = manager.handle_pointer_press(80, 400, host_add, 0);
+    let _ = focus_form_row(&mut manager, "Host match 1:");
+    feed_chars(&mut manager, "inherit");
+
+    let save_row = rendered_row(&manager, "[Save]");
+    let outcome = manager.handle_pointer_press(80, 400, save_row, 0);
+    let ProfileManagerOutcome::Persist { profile, .. } = outcome else {
+        panic!("literal inherit strings must save, not error");
+    };
+    assert_eq!(profile.appearance.title.as_deref(), Some("Inherit"));
+    assert_eq!(profile.switch.match_hosts, vec!["inherit".to_owned()]);
+}
+
+#[test]
+fn space_types_a_literal_space_into_free_text_fields() {
+    // Regression: space used to be routed to field activation for every
+    // field, so free-text fields silently swallowed the space bar. It must
+    // now type into free-text buffers while still cycling tri-states.
+    let mut manager = ProfileManager::new();
+    manager.open(ProfileCatalog::default(), None);
+    let _ = manager.handle_input(OverlayInput::Tab);
+    feed_chars(&mut manager, "spaced");
+
+    let _ = focus_form_row(&mut manager, "Font family:");
+    feed_chars(&mut manager, "Fira Code");
+    assert!(
+        line_texts(&manager)
+            .iter()
+            .any(|line| line == "Font family: Fira Code"),
+        "a space must type into the font family free-text field"
+    );
+
+    // Space on a tri-state still cycles it rather than typing. Focusing Bloom
+    // by pointer already activates it once (inherit -> on), so a following
+    // space must advance the cycle again (on -> off), never append a literal
+    // space to the value.
+    let bloom_row = focus_form_row(&mut manager, "Bloom:");
+    assert!(bloom_row > 0, "bloom tri-state is rendered");
+    assert!(
+        line_texts(&manager).iter().any(|line| line == "Bloom: on"),
+        "clicking the tri-state cycles inherit -> on"
+    );
+    let _ = manager.handle_input(OverlayInput::Char(' '));
+    assert!(
+        line_texts(&manager).iter().any(|line| line == "Bloom: off"),
+        "space on a tri-state advances the cycle (on -> off) rather than typing a space"
+    );
+}
+
 #[test]
 fn pointer_uses_the_rendered_add_row_in_an_empty_catalog() {
     let mut manager = ProfileManager::new();
@@ -58,7 +200,7 @@ fn pointer_uses_the_rendered_add_row_in_an_empty_catalog() {
 
     let add_row = rendered_row(&manager, "+ Add profile");
     assert!(matches!(
-        manager.handle_pointer_press(80, 24, add_row, 0),
+        manager.handle_pointer_press(80, 400, add_row, 0),
         ProfileManagerOutcome::Consumed
     ));
     assert_eq!(manager.title(), "Add profile");
@@ -68,7 +210,7 @@ fn pointer_uses_the_rendered_add_row_in_an_empty_catalog() {
     manager.open(ProfileCatalog::default(), None);
     let empty_row = rendered_row(&manager, "No profiles yet.");
     assert!(matches!(
-        manager.handle_pointer_press(80, 24, empty_row, 0),
+        manager.handle_pointer_press(80, 400, empty_row, 0),
         ProfileManagerOutcome::Consumed
     ));
     assert!(manager.title().contains("Named Profiles"));
@@ -79,13 +221,12 @@ fn pointer_cancel_uses_the_rendered_form_row_after_shell_suggestion() {
     let mut manager = ProfileManager::new();
     manager.open(ProfileCatalog::default(), None);
     let add_row = rendered_row(&manager, "+ Add profile");
-    let _ = manager.handle_pointer_press(80, 24, add_row, 0);
+    let _ = manager.handle_pointer_press(80, 400, add_row, 0);
 
     // Focus Shell and choose a discovered suggestion; this inserts the
     // suggestion line immediately after Shell and used to shift Cancel's
     // arithmetic hit-test target.
-    let _ = manager.handle_input(OverlayInput::Down);
-    let _ = manager.handle_input(OverlayInput::Down);
+    let _ = focus_form_row(&mut manager, "Shell:");
     let _ = manager.handle_input(OverlayInput::Right);
     assert!(
         line_texts(&manager)
@@ -94,7 +235,7 @@ fn pointer_cancel_uses_the_rendered_form_row_after_shell_suggestion() {
     );
     let cancel_row = rendered_row(&manager, "[Cancel]");
     assert!(matches!(
-        manager.handle_pointer_press(80, 24, cancel_row, 0),
+        manager.handle_pointer_press(80, 400, cancel_row, 0),
         ProfileManagerOutcome::Consumed
     ));
     assert!(manager.title().contains("Named Profiles"));
@@ -107,7 +248,7 @@ fn pointer_delete_confirmation_uses_the_rendered_button_spans() {
     let _ = manager.handle_input(OverlayInput::Char('x'));
     let action_row = rendered_row(&manager, "[Enter] Delete");
     assert!(matches!(
-        manager.handle_pointer_press(80, 24, action_row, 0),
+        manager.handle_pointer_press(80, 400, action_row, 0),
         ProfileManagerOutcome::Delete(name) if name == "dev"
     ));
 
@@ -117,7 +258,7 @@ fn pointer_delete_confirmation_uses_the_rendered_button_spans() {
     let action_row = rendered_row(&manager, "[Enter] Delete");
     let cancel_col = "[Enter] Delete    ".chars().count();
     assert!(matches!(
-        manager.handle_pointer_press(80, 24, action_row, cancel_col),
+        manager.handle_pointer_press(80, 400, action_row, cancel_col),
         ProfileManagerOutcome::Consumed
     ));
     assert!(manager.title().contains("Named Profiles"));
@@ -134,8 +275,9 @@ fn create_onto_an_existing_name_is_rejected_not_persisted() {
     let _ = manager.handle_input(OverlayInput::Tab);
     feed_chars(&mut manager, "dev");
 
-    // Click [Save] (Add form field index 11) via the pointer path.
-    let outcome = manager.handle_pointer_press(80, 24, 11, 0);
+    // Click the rendered [Save] row via the pointer path.
+    let save_row = rendered_row(&manager, "[Save]");
+    let outcome = manager.handle_pointer_press(80, 400, save_row, 0);
 
     assert!(
         matches!(outcome, ProfileManagerOutcome::Consumed),
@@ -164,8 +306,10 @@ fn rename_onto_an_existing_name_does_not_clobber_the_other_profile() {
     }
     feed_chars(&mut manager, "work");
 
-    // Rename form shows Name / [Save] / [Cancel]; Save is field index 1.
-    let outcome = manager.handle_pointer_press(80, 24, 1, 0);
+    // Rename form shows Identity / Name / Actions / [Save] / [Cancel]; click
+    // the rendered [Save] row rather than a fixed index.
+    let save_row = rendered_row(&manager, "[Save]");
+    let outcome = manager.handle_pointer_press(80, 400, save_row, 0);
 
     assert!(
         matches!(outcome, ProfileManagerOutcome::Consumed),
@@ -258,16 +402,12 @@ fn unknown_future_keys_survive_a_ui_driven_edit_and_save() {
     let _ = manager.handle_input(OverlayInput::Activate);
     assert_eq!(manager.title(), "Edit profile");
 
-    // Navigate to the Title field (index 9) and type through the edit buffer.
-    for _ in 0..9 {
-        let _ = manager.handle_input(OverlayInput::Down);
-    }
+    // Focus the Title row via the pointer path and type through the edit
+    // buffer, then click the rendered [Save] row.
+    let _ = focus_form_row(&mut manager, "Title:");
     feed_chars(&mut manager, "Dev");
-
-    // Down twice more to [Save] (index 11), then activate.
-    let _ = manager.handle_input(OverlayInput::Down);
-    let _ = manager.handle_input(OverlayInput::Down);
-    let outcome = manager.handle_input(OverlayInput::Activate);
+    let save_row = rendered_row(&manager, "[Save]");
+    let outcome = manager.handle_pointer_press(80, 400, save_row, 0);
 
     let ProfileManagerOutcome::Persist { profile, .. } = outcome else {
         panic!("expected a Persist outcome from the edit");
@@ -291,23 +431,44 @@ fn unknown_future_keys_survive_a_ui_driven_edit_and_save() {
     );
 }
 
-// --- Section 2 / 7: the form exposes no environment field ---
+// --- Section 2 / 7: the env editor exists and rejects secrets inline ---
 
 #[test]
-fn the_add_form_exposes_no_environment_field_so_ui_cannot_introduce_secrets() {
+fn the_add_form_exposes_an_env_editor_that_rejects_secrets_at_the_write_boundary() {
     let mut manager = ProfileManager::new();
     manager.open(ProfileCatalog::default(), None);
     let _ = manager.handle_input(OverlayInput::Tab);
     assert_eq!(manager.title(), "Add profile");
+    feed_chars(&mut manager, "envdev");
 
-    let has_env_field = line_texts(&manager).iter().any(|t| {
-        let lower = t.to_ascii_lowercase();
-        lower.starts_with("env") || lower.contains("environment")
-    });
+    // The Launch section offers an explicit add-environment row.
+    let add_env_row = rendered_row(&manager, "[Add environment override]");
+    let _ = manager.handle_pointer_press(80, 400, add_env_row, 0);
+
+    // One rendered env key/value pair now exists; type a secret-shaped key.
+    let key_row = focus_form_row(&mut manager, "Environment key 1:");
+    feed_chars(&mut manager, "API_TOKEN");
+    let value_row = rendered_row(&manager, "Environment value 1:");
+    assert!(value_row > key_row, "value row follows its key row");
+    let _ = manager.handle_pointer_press(80, 400, value_row, 0);
+    feed_chars(&mut manager, "nope");
+
+    // Saving is rejected inline; the entry is never silently dropped.
+    let save_row = rendered_row(&manager, "[Save]");
+    let outcome = manager.handle_pointer_press(80, 400, save_row, 0);
     assert!(
-        !has_env_field,
-        "the manager form must not offer an env editor; env only rides opaquely \
-         on an imported/edited base and is rejected at the write boundary"
+        matches!(outcome, ProfileManagerOutcome::Consumed),
+        "a secret env entry must not persist"
+    );
+    assert!(
+        line_texts(&manager).iter().any(|t| t.contains("secret")),
+        "an explicit secret-rejection error must be shown inline"
+    );
+    assert!(
+        line_texts(&manager)
+            .iter()
+            .any(|t| t.contains("Environment key 1: API_TOKEN")),
+        "the rejected env entry stays visible in the draft"
     );
 }
 
@@ -319,7 +480,7 @@ fn pointer_press_on_the_rendered_add_row_opens_the_empty_catalog_form() {
     manager.open(ProfileCatalog::default(), None);
 
     let add_row = rendered_row(&manager, "+ Add profile");
-    let outcome = manager.handle_pointer_press(80, 24, add_row, 0);
+    let outcome = manager.handle_pointer_press(80, 400, add_row, 0);
 
     assert!(matches!(outcome, ProfileManagerOutcome::Consumed));
     assert_eq!(
@@ -338,8 +499,7 @@ fn pointer_press_on_rendered_cancel_after_shell_suggestion_returns_to_catalog() 
     // Select a discovered shell. The focused Shell row inserts a visible
     // suggestion line, which must not displace the rows the pointer handler
     // accepts below it.
-    let _ = manager.handle_input(OverlayInput::Down);
-    let _ = manager.handle_input(OverlayInput::Down);
+    let _ = focus_form_row(&mut manager, "Shell:");
     let _ = manager.handle_input(OverlayInput::Right);
     assert!(
         line_texts(&manager)
@@ -349,7 +509,7 @@ fn pointer_press_on_rendered_cancel_after_shell_suggestion_returns_to_catalog() 
     );
 
     let cancel_row = rendered_row(&manager, "[Cancel]");
-    let outcome = manager.handle_pointer_press(80, 24, cancel_row, 0);
+    let outcome = manager.handle_pointer_press(80, 400, cancel_row, 0);
 
     assert!(matches!(outcome, ProfileManagerOutcome::Consumed));
     assert!(
@@ -371,7 +531,7 @@ fn pointer_press_on_rendered_cancel_without_shell_suggestion_returns_to_catalog(
     );
 
     let cancel_row = rendered_row(&manager, "[Cancel]");
-    let outcome = manager.handle_pointer_press(80, 24, cancel_row, 0);
+    let outcome = manager.handle_pointer_press(80, 400, cancel_row, 0);
 
     assert!(matches!(outcome, ProfileManagerOutcome::Consumed));
     assert!(manager.title().contains("Named Profiles"));
@@ -387,24 +547,24 @@ fn external_palette_fields_are_editable_through_the_form() {
 
     feed_chars(&mut manager, "palette-dev");
 
-    // Follow external palette (index 5).
-    for _ in 0..5 {
-        let _ = manager.handle_input(OverlayInput::Down);
-    }
-    feed_chars(&mut manager, "on");
+    // Follow external palette is a tri-state toggle: clicking its rendered row
+    // both focuses and cycles it inherit -> on.
+    let _ = focus_form_row(&mut manager, "Follow external palette:");
+    assert!(
+        line_texts(&manager)
+            .iter()
+            .any(|line| line.contains("Follow external palette: on")),
+        "the toggle row shows on after one activation"
+    );
 
-    // Provider (index 6).
-    let _ = manager.handle_input(OverlayInput::Down);
+    // Provider and path are text fields; focus each rendered row and type.
+    let _ = focus_form_row(&mut manager, "External palette provider:");
     feed_chars(&mut manager, "colors_toml");
-
-    // Path (index 7).
-    let _ = manager.handle_input(OverlayInput::Down);
+    let _ = focus_form_row(&mut manager, "External palette path:");
     feed_chars(&mut manager, "/tmp/synthetic-palette.toml");
 
-    for _ in 0..4 {
-        let _ = manager.handle_input(OverlayInput::Down);
-    }
-    let outcome = manager.handle_input(OverlayInput::Activate);
+    let save_row = rendered_row(&manager, "[Save]");
+    let outcome = manager.handle_pointer_press(80, 400, save_row, 0);
     let ProfileManagerOutcome::Persist { profile, .. } = outcome else {
         panic!("expected persist");
     };
