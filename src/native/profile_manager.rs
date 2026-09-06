@@ -169,6 +169,13 @@ pub(super) struct ProfileManagerSignature {
     catalog: Vec<(String, Option<String>)>,
     /// Form rows as drawn (text, focused, bold) at unbounded width.
     form: Vec<(String, bool, bool)>,
+    /// Form view offset. A wheel scroll changes only this (focus and the row
+    /// texts are unchanged), so it must be part of the signature or the
+    /// scrolled window is never repainted.
+    form_scroll_offset: usize,
+    /// Catalog view offset, for the same reason: the catalog wheel moves the
+    /// window without moving the selection.
+    catalog_scroll_offset: usize,
     confirm: Option<String>,
 }
 
@@ -525,6 +532,8 @@ impl ProfileManager {
                 })
                 .collect(),
             form,
+            form_scroll_offset: self.form_scroll_offset.get(),
+            catalog_scroll_offset: self.scroll_offset.get(),
             confirm: match &self.view {
                 ManagerView::ConfirmDelete { name } => Some(name.clone()),
                 _ => None,
@@ -839,6 +848,31 @@ mod tests {
         );
         assert_eq!(manager.form_focus, focus_before, "focus did not move");
         assert!(manager.form_scroll_wheel_pinned);
+    }
+
+    /// A wheel scroll changes nothing the form-line signature saw (focus and
+    /// row texts are unchanged), so the offset itself must invalidate the
+    /// repaint or the window scrolls invisibly.
+    #[test]
+    fn wheel_scroll_changes_the_render_signature() {
+        let mut manager = ProfileManager::new();
+        manager.open(ProfileCatalog::default(), None);
+        manager.open_add();
+        let _ = manager.visible_lines(60, 6);
+        let before = manager.render_signature();
+        manager.scroll_lines(3);
+        assert_ne!(
+            before,
+            manager.render_signature(),
+            "wheel scroll must repaint"
+        );
+        let first = manager.visible_lines(60, 6)[0].text.clone();
+        manager.scroll_lines(-3);
+        assert_ne!(
+            first,
+            manager.visible_lines(60, 6)[0].text,
+            "wheel-up restores the earlier window"
+        );
     }
 
     #[test]
