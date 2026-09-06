@@ -1280,6 +1280,89 @@ mod tests {
         assert_eq!(replace.as_deref(), Some("dev"));
     }
 
+    /// Every form field must change the repaint signature when edited, so
+    /// typing (or toggling) is visible on the next frame rather than only when
+    /// the focus moves. Iterates the live field list so a field added later
+    /// cannot be missed.
+    #[test]
+    fn every_form_field_edit_changes_the_render_signature() {
+        let mut manager = ProfileManager::new();
+        manager.open(ProfileCatalog::default(), None);
+        manager.open_add();
+        // Materialize one row of every dynamic list so their text fields exist.
+        for add in [
+            FormField::AddCommandArg,
+            FormField::AddEnv,
+            FormField::AddMatchHost,
+            FormField::AddMatchDirectory,
+        ] {
+            focus_field(&mut manager, add);
+            let _ = manager.activate_form_field(add);
+        }
+        let fields = manager.visible_form_fields();
+        for field in fields {
+            if matches!(field, FormField::Save | FormField::Cancel) {
+                continue;
+            }
+            focus_field(&mut manager, field);
+            let before = manager.render_signature();
+            if field.is_toggle_or_cycle() {
+                let _ = manager.handle_form_input(OverlayInput::Char(' '));
+            } else if matches!(
+                field,
+                FormField::AddCommandArg
+                    | FormField::AddEnv
+                    | FormField::AddMatchHost
+                    | FormField::AddMatchDirectory
+                    | FormField::RemoveCommandArg(_)
+                    | FormField::RemoveEnv(_)
+                    | FormField::RemoveMatchHost(_)
+                    | FormField::RemoveMatchDirectory(_)
+            ) {
+                // Row add/remove actions change the field list itself; the
+                // list length and focus are visible in the rendered lines.
+                let _ = manager.handle_form_input(OverlayInput::Activate);
+            } else {
+                let _ = manager.handle_form_input(OverlayInput::Char('x'));
+            }
+            assert_ne!(
+                before,
+                manager.render_signature(),
+                "editing {field:?} must invalidate the repaint signature"
+            );
+        }
+    }
+
+    /// The reported case: Enter on the Add row, then typing into the new key
+    /// row, must show each character as it is typed.
+    #[test]
+    fn typing_into_a_new_env_key_row_repaints_per_character() {
+        let mut manager = ProfileManager::new();
+        manager.open(ProfileCatalog::default(), None);
+        manager.open_add();
+        focus_field(&mut manager, FormField::AddEnv);
+        let _ = manager.handle_form_input(OverlayInput::Activate);
+        assert_eq!(
+            manager.visible_form_fields()[manager.form_focus],
+            FormField::EnvKey(0),
+            "Enter on the Add row lands on the new key row"
+        );
+        let mut previous = manager.render_signature();
+        for ch in "ODY".chars() {
+            let _ = manager.handle_form_input(OverlayInput::Char(ch));
+            let current = manager.render_signature();
+            assert_ne!(previous, current, "typing {ch:?} must repaint");
+            previous = current;
+        }
+        let lines = manager.form_all_lines(80);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.text == "Environment key 1: ODY" && line.focused),
+            "typed key text is drawn on the focused row"
+        );
+    }
+
     #[test]
     fn env_editor_adds_rows_and_secret_entries_are_rejected_inline_not_dropped() {
         let mut manager = ProfileManager::new();

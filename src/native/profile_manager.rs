@@ -148,26 +148,27 @@ pub(super) struct ProfileManagerLine {
     target: ProfileManagerTarget,
 }
 
+/// Repaint change-detection signature for the manager.
+///
+/// Guard: the form signature is derived from the same `form_all_lines` text the
+/// renderer draws, never from an enumerated list of draft fields. An earlier
+/// enumerated signature omitted the fields added later (command, env, effects,
+/// switch rules, ...), so typing into any of them produced no repaint until the
+/// focus moved. Any new form field is covered automatically because it must
+/// render through `form_field_text` to be visible at all.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct ProfileManagerSignature {
     view: u8,
     selected: usize,
+    add_row_focused: bool,
     query: String,
-    focus: usize,
-    name: String,
-    display_name: String,
-    shell: String,
-    working_directory: String,
-    theme: String,
-    follow_external_palette: String,
-    external_palette_provider: String,
-    external_palette_path: String,
-    font_family: String,
-    title: String,
-    connection: String,
-    error: Option<String>,
+    global_default: Option<String>,
+    warning: Option<String>,
     message: Option<String>,
-    names: Vec<String>,
+    /// Catalog rows as drawn: name plus display name.
+    catalog: Vec<(String, Option<String>)>,
+    /// Form rows as drawn (text, focused, bold) at unbounded width.
+    form: Vec<(String, bool, bool)>,
     confirm: Option<String>,
 }
 
@@ -434,6 +435,14 @@ impl ProfileManager {
     }
 
     pub(super) fn render_signature(&self) -> ProfileManagerSignature {
+        let form = match &self.view {
+            ManagerView::Form(_) => self
+                .form_all_lines(usize::MAX)
+                .into_iter()
+                .map(|line| (line.text, line.focused, line.bold))
+                .collect(),
+            _ => Vec::new(),
+        };
         ProfileManagerSignature {
             view: match &self.view {
                 ManagerView::Catalog => 0,
@@ -444,22 +453,24 @@ impl ProfileManager {
                 ManagerView::ConfirmDelete { .. } => 5,
             },
             selected: self.selected,
+            add_row_focused: self.add_row_focused,
             query: self.query.clone(),
-            focus: self.form_focus,
-            name: self.draft_name.clone(),
-            display_name: self.draft_display_name.clone(),
-            shell: self.draft_shell.clone(),
-            working_directory: self.draft_working_directory.clone(),
-            theme: self.draft_theme.clone(),
-            follow_external_palette: self.draft_follow_external_palette.clone(),
-            external_palette_provider: self.draft_external_palette_provider.clone(),
-            external_palette_path: self.draft_external_palette_path.clone(),
-            font_family: self.draft_font_family.clone(),
-            title: self.draft_title.clone(),
-            connection: self.draft_connection.clone(),
-            error: self.error.clone(),
+            global_default: self.global_default.clone(),
+            warning: self.warnings.first().cloned(),
             message: self.message.clone(),
-            names: self.filtered.clone(),
+            catalog: self
+                .filtered
+                .iter()
+                .map(|name| {
+                    (
+                        name.clone(),
+                        self.profiles
+                            .get(name)
+                            .and_then(|profile| profile.display_name.clone()),
+                    )
+                })
+                .collect(),
+            form,
             confirm: match &self.view {
                 ManagerView::ConfirmDelete { name } => Some(name.clone()),
                 _ => None,
