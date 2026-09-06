@@ -91,10 +91,14 @@ pub fn spawn_local_plan(
     plan: &LocalLaunchPlan,
 ) -> Result<PtySession, anyhow::Error> {
     if matches!(plan.spawn, LocalSpawnKind::DefaultShell) {
-        return PtySession::spawn_default_shell_in_with_settings(
+        // Apply the profile's bounded env overrides even when it customizes no
+        // shell/command (the common "env-only profile" case): without this the
+        // default-shell arm dropped `plan.env` and the child launched with none.
+        return PtySession::spawn_default_shell_in_with_settings_env(
             grid,
             plan.working_directory.clone(),
             &plan.settings,
+            &plan.env,
         );
     }
     let command = build_local_command(plan);
@@ -223,6 +227,44 @@ mod tests {
         );
         let plan = LocalLaunchPlan::from_effective(&effective);
         assert_eq!(plan.spawn, LocalSpawnKind::DefaultShell);
+    }
+
+    /// Round-3 acceptance regression: an env-only profile (no shell/command)
+    /// must still deliver its bounded env overrides to the spawned child. The
+    /// DefaultShell arm previously dropped `plan.env` entirely, so the common
+    /// case (a profile that only customizes environment/appearance) launched
+    /// with no overrides. Spawn a default-shell plan carrying `ODY_TEST=alpha`,
+    /// run `printf` in the shell, and assert the value reaches the child. Unix
+    /// backend; the Windows twin routes the same overrides through the ConPTY
+    /// environment block (`build_env_block`, covered by its own unit tests).
+    #[cfg(unix)]
+    #[test]
+    fn env_only_default_shell_plan_delivers_env_to_child() {
+        use std::io::Write;
+        let grid = crate::core::Dimensions {
+            columns: 80,
+            rows: 24,
+        };
+        let mut env = BTreeMap::new();
+        env.insert("ODY_TEST".to_owned(), "alpha".to_owned());
+        let plan = LocalLaunchPlan {
+            settings: Settings::default(),
+            working_directory: None,
+            env,
+            spawn: LocalSpawnKind::DefaultShell,
+        };
+        let session = spawn_local_plan(grid, &plan).expect("spawn env-only default shell");
+        let mut writer = session.take_writer().expect("writer");
+        writer
+            .write_all(b"printf 'ENVCHECK=%s\\n' \"$ODY_TEST\"; exit\n")
+            .expect("write probe");
+        writer.flush().expect("flush");
+        let output = session.read_to_end().expect("read child output");
+        let text = String::from_utf8_lossy(&output);
+        assert!(
+            text.contains("ENVCHECK=alpha"),
+            "env-only profile must deliver ODY_TEST to the child; got: {text:?}"
+        );
     }
 
     #[test]

@@ -58,6 +58,45 @@ impl App {
         self.settings.theme
     }
 
+    /// The CVD-adapted theme the active pane should drive the window chrome and
+    /// GPU with: the active profile tab's authored profile theme when it set
+    /// one, otherwise the global [`Self::effective_theme`]. CVD mode/strength
+    /// apply on top of a profile theme exactly as they do for the global theme.
+    pub(super) fn active_session_presentation_theme(&self) -> Theme {
+        match self.sessions.active().profile_theme.as_ref() {
+            Some(profile) => crate::native::cvd_theme::effective_theme(
+                profile,
+                self.settings.cvd_mode,
+                self.settings.cvd_strength,
+            ),
+            None => self.effective_theme,
+        }
+    }
+
+    /// Align the window chrome and GPU theme with the active pane. A profile tab
+    /// presents its own theme; a plain tab presents the global effective theme.
+    /// Idempotent: when the presented theme is unchanged (repeated switches
+    /// between plain tabs, or re-entry of the same profile tab) this bumps no
+    /// epoch and forces no rebuild, so the common case stays free.
+    pub(super) fn present_active_session_chrome(&mut self) {
+        let next = self.active_session_presentation_theme();
+        if next == self.chrome_theme {
+            return;
+        }
+        self.chrome_theme = next;
+        text::set_default_colors(next.foreground, next.background);
+        text::set_ansi_palette(&next.palette);
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.set_theme(next);
+        }
+        self.last_render_signature = None;
+        self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
     /// Reconfigure the external-palette follower from current settings and
     /// refresh immediately when following is on.
     pub(super) fn sync_external_palette_follow(&mut self, now: std::time::Instant) {
@@ -124,40 +163,42 @@ impl App {
             self.settings.cvd_mode,
             self.settings.cvd_strength,
         );
-        text::set_default_colors(
-            self.effective_theme.foreground,
-            self.effective_theme.background,
-        );
-        text::set_ansi_palette(&self.effective_theme.palette);
-        let cursor_default = if self.themed_ui_roles {
-            rgb(self.effective_theme.cursor)
-        } else {
-            rgb(self.effective_theme.foreground)
-        };
-        let base_fg = rgb(self.effective_theme.foreground);
-        let base_bg = rgb(self.effective_theme.background);
-        // C29: keep OSC 4 replies in sync with the newly effective theme.
-        let base_palette = self.effective_theme.palette.map(rgb);
+        let global = self.effective_theme;
+        let themed_ui_roles = self.themed_ui_roles;
+        let cvd_mode = self.settings.cvd_mode;
+        let cvd_strength = self.settings.cvd_strength;
         // NF21-4: an OS light/dark flip must reach EVERY session's terminal
         // model, not just the active one through `Deref` — otherwise a
         // background tab (or background workspace's tabs) keeps answering OSC
         // 4/10/11 with the old theme and paints a stale cursor default on
-        // switch-back. Mirrors the reload-seam fan-out.
+        // switch-back. Mirrors the reload-seam fan-out. Per session: a profile
+        // tab keeps its profile theme (CVD on top) so an OS flip never flattens
+        // it; a plain tab follows the new global theme.
         for session in self.sessions.iter() {
+            let theme = match session.profile_theme.as_ref() {
+                Some(profile) => {
+                    crate::native::cvd_theme::effective_theme(profile, cvd_mode, cvd_strength)
+                }
+                None => global,
+            };
+            let cursor_default = if themed_ui_roles {
+                rgb(theme.cursor)
+            } else {
+                rgb(theme.foreground)
+            };
+            let base_fg = rgb(theme.foreground);
+            let base_bg = rgb(theme.background);
+            // C29: keep OSC 4 replies in sync with the newly effective theme.
+            let base_palette = theme.palette.map(rgb);
             if let Ok(mut terminal) = session.terminal.lock() {
                 terminal.set_base_colors(base_fg, base_bg, cursor_default);
                 terminal.set_base_palette(base_palette);
             }
         }
-        if let Some(gpu) = self.gpu.as_mut() {
-            gpu.set_theme(self.effective_theme);
-        }
-        self.last_render_signature = None;
-        self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
-        self.needs_rebuild = true;
-        if let Some(window) = self.window.as_ref() {
-            window.request_redraw();
-        }
+        // Present the active pane's theme on the window chrome/GPU (a profile tab
+        // keeps its own; a plain tab follows the new global). This performs the
+        // text-default / gpu.set_theme / epoch-bump / rebuild work.
+        self.present_active_session_chrome();
     }
 }
 

@@ -255,6 +255,40 @@ pub(crate) fn profile_picker_entries(
         .collect()
 }
 
+/// Guard a resolved launch context against a non-existent working directory.
+///
+/// A named profile can persist a starting directory that has since been removed
+/// (or was mistyped past the editor's checks on an older config). Spawning a PTY
+/// child there fails outright ("spawn pty command"), which would dead-end the
+/// tab. Instead: if the resolved cwd names a path that is not an existing
+/// directory, fall back to the user's home (or the process default when no home
+/// is known) exactly as a plain tab does, and record a bounded warning so the
+/// existing notice path can surface it. An unset or already-valid cwd is
+/// untouched. A single `metadata` probe; never aborts. Cross-platform: the same
+/// home fallback (`$HOME` / `%USERPROFILE%`) a restored pane uses.
+pub(crate) fn apply_missing_cwd_fallback(effective: &mut EffectiveLaunch) {
+    let Some(dir) = effective.working_directory.clone() else {
+        return;
+    };
+    if crate::native::persistence::dir_exists_for_spawn(&dir) {
+        return;
+    }
+    let home = crate::native::persistence::restore_home_dir();
+    let profile = effective
+        .profile_name
+        .clone()
+        .unwrap_or_else(|| "profile".to_owned());
+    let started = match home.as_ref() {
+        Some(path) => path.display().to_string(),
+        None => "the default directory".to_owned(),
+    };
+    effective.warnings.push(format!(
+        "profile {profile}: working directory {} does not exist; started in {started}",
+        dir.display()
+    ));
+    effective.working_directory = home;
+}
+
 pub(crate) fn spawn_restored_local_leaf(
     settings: &Settings,
     grid: crate::core::Dimensions,
@@ -262,9 +296,21 @@ pub(crate) fn spawn_restored_local_leaf(
     leaf: crate::native::session::RestoredLocalLeaf,
 ) -> Option<crate::native::session::SessionToken> {
     if let Some(name) = leaf.launch_profile.as_deref() {
-        let effective = resolve_for_restored_local_leaf(settings, name, leaf.cwd.clone());
-        set.insert_restored_session_with_effective(grid, leaf.cwd.clone(), &effective)
-            .ok()
+        let mut effective = resolve_for_restored_local_leaf(settings, name, leaf.cwd.clone());
+        // Restore twin of the new-tab guard: a persisted profile cwd that no
+        // longer exists must not fail the restored pane. The captured leaf cwd
+        // already outranks the profile cwd via RestoredLaunchOverrides, so this
+        // only bites when both are gone; fall back to home rather than aborting.
+        apply_missing_cwd_fallback(&mut effective);
+        for warning in &effective.warnings {
+            tracing::warn!(warning = %warning, "restored profile launch notice");
+        }
+        set.insert_restored_session_with_effective(
+            grid,
+            effective.working_directory.clone(),
+            &effective,
+        )
+        .ok()
     } else {
         set.insert_restored_session(grid, leaf.cwd).ok()
     }
@@ -458,6 +504,58 @@ mod tests {
         assert_eq!(
             effective.working_directory,
             Some(PathBuf::from("/from/restored"))
+        );
+    }
+
+    #[test]
+    fn missing_cwd_falls_back_to_home_with_warning() {
+        // A resolved profile cwd that does not exist must not reach the spawn:
+        // it falls back to home and records a warning naming the path.
+        let home = std::env::temp_dir();
+        // SAFETY: single-threaded test seam for the home fallback.
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        let mut effective = super::resolve_local_tab_launch(
+            &Settings::default(),
+            &ProfileCatalog::default(),
+            None,
+            None,
+            None,
+            &RestoredLaunchOverrides::default(),
+        );
+        effective.profile_name = Some("dev".to_owned());
+        effective.working_directory = Some(PathBuf::from("/nonexistent/odytty/profile/dir"));
+        super::apply_missing_cwd_fallback(&mut effective);
+        assert_eq!(effective.working_directory, Some(home));
+        assert!(
+            effective
+                .warnings
+                .iter()
+                .any(|w| w.contains("does not exist") && w.contains("dev")),
+            "a missing cwd must record a bounded warning naming the profile"
+        );
+    }
+
+    #[test]
+    fn existing_cwd_is_left_untouched_and_warns_nothing() {
+        let existing = std::env::temp_dir();
+        let mut effective = super::resolve_local_tab_launch(
+            &Settings::default(),
+            &ProfileCatalog::default(),
+            None,
+            None,
+            None,
+            &RestoredLaunchOverrides::default(),
+        );
+        effective.working_directory = Some(existing.clone());
+        let before = effective.warnings.len();
+        super::apply_missing_cwd_fallback(&mut effective);
+        assert_eq!(effective.working_directory, Some(existing));
+        assert_eq!(
+            effective.warnings.len(),
+            before,
+            "an existing cwd warns nothing"
         );
     }
 }

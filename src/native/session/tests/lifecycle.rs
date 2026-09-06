@@ -745,6 +745,7 @@ fn new_workspace_with_effective_binds_launch_profile_atomically() {
         layout: None,
         title: None,
         profile_name: Some("dev".to_owned()),
+        profile_theme: None,
         warnings: Vec::new(),
     };
     let token = set
@@ -759,6 +760,16 @@ fn new_workspace_with_effective_binds_launch_profile_atomically() {
             .and_then(|session| session.launch_profile.as_deref()),
         Some("dev")
     );
+
+    // Deleting the profile must clear the workspace's launch-profile override so
+    // a stale binding cannot outlive it; renaming rewrites it.
+    assert!(set.rename_launch_profile("dev", "dev2"));
+    assert_eq!(set.active_workspace_launch_profile(), Some("dev2"));
+    assert!(set.clear_launch_profile_named("dev2"));
+    assert_eq!(set.active_workspace_launch_profile(), None);
+    // A no-op when nothing matches.
+    assert!(!set.clear_launch_profile_named("missing"));
+    assert!(!set.rename_launch_profile("missing", "other"));
 }
 
 #[test]

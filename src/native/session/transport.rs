@@ -512,6 +512,7 @@ impl Session {
             upload: None,
             remote_destination: None,
             launch_profile: None,
+            profile_theme: None,
         }
     }
 

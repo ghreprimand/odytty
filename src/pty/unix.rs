@@ -178,6 +178,7 @@ impl PtySession {
             false,
             false,
             false,
+            &std::collections::BTreeMap::new(),
         )
     }
 
@@ -186,12 +187,32 @@ impl PtySession {
         working_directory: Option<PathBuf>,
         settings: &Settings,
     ) -> Result<Self> {
+        Self::spawn_default_shell_in_with_settings_env(
+            dimensions,
+            working_directory,
+            settings,
+            &std::collections::BTreeMap::new(),
+        )
+    }
+
+    /// Default-shell spawn that also applies a named profile's bounded `env`
+    /// overrides. A profile that customizes only environment (no shell/command)
+    /// takes this path, so its overrides must land in the child exactly as the
+    /// explicit-shell arm applies them: after the standard interactive-shell
+    /// env, so a profile value wins over any discovery advertisement.
+    pub fn spawn_default_shell_in_with_settings_env(
+        dimensions: Dimensions,
+        working_directory: Option<PathBuf>,
+        settings: &Settings,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Self> {
         Self::spawn_default_shell_in_with_shell_integration(
             dimensions,
             working_directory,
             settings.shell_integration,
             settings.buttons,
             settings.shell_key_enhancement,
+            env,
         )
     }
 
@@ -201,6 +222,7 @@ impl PtySession {
         shell_integration: bool,
         buttons: bool,
         key_enhancement: bool,
+        env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Self> {
         let shell = default_shell_program();
         let mut command = CommandBuilder::new(shell);
@@ -213,6 +235,12 @@ impl PtySession {
         command.apply_key_enhancement_discovery_env(key_enhancement);
         if shell_integration {
             crate::shell_integration::apply_spawn_integration(&mut command);
+        }
+        // Profile env overrides land last so a profile value wins over the
+        // discovery advertisements above, matching the explicit-shell arm in
+        // `build_local_command`.
+        for (key, value) in env {
+            command.env(key.clone(), value.clone());
         }
         if let Some(path) = working_directory {
             command.current_dir(path);

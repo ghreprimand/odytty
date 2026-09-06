@@ -25,7 +25,7 @@ use super::overlay::OverlayInput;
 const MAX_RESULTS: usize = 40;
 const FOOTER_ROWS: usize = 2;
 const ADD_ROW_LABEL: &str = "+ Add profile\u{2026}";
-const KEY_HINT_LINE: &str = "Enter edit \u{b7} d duplicate \u{b7} r rename \u{b7} g set default \u{b7} x delete \u{b7} i import \u{b7} e export";
+const KEY_HINT_LINE: &str = "Enter edit \u{b7} / filter \u{b7} d duplicate \u{b7} r rename \u{b7} g set default \u{b7} x delete \u{b7} i import \u{b7} e export";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FormMode {
@@ -177,10 +177,20 @@ pub(super) struct ProfileManager {
     profiles: BTreeMap<String, LaunchProfile>,
     warnings: Vec<String>,
     query: String,
+    /// Whether the catalog filter is being entered. Started by `/` so the
+    /// single-key catalog hotkeys (d/r/g/x/i/e) never steal characters from a
+    /// profile name being typed as a filter (e.g. filtering for `dev`). While
+    /// active every printable character appends to the filter; hotkeys act only
+    /// when the filter is inactive and empty.
+    filter_active: bool,
     filtered: Vec<String>,
     selected: usize,
     scroll_offset: Cell<usize>,
     form_scroll_offset: Cell<usize>,
+    /// When set, the form view offset is pinned by an explicit wheel scroll and
+    /// the render must not auto-scroll the focused row back into view. Cleared by
+    /// any keyboard focus move so keyboard navigation re-centers as before.
+    form_scroll_wheel_pinned: bool,
     last_body_height: Cell<usize>,
     add_row_focused: bool,
     view: ManagerView,
@@ -216,6 +226,11 @@ pub(super) struct ProfileManager {
     /// Cached shell suggestions loaded when a profile form opens (on demand).
     discovered_shells: Vec<DiscoveredShell>,
     shell_suggestion_index: usize,
+    /// Cached theme roster (sorted built-ins plus any user `.theme` files),
+    /// loaded when a profile form opens (on demand). Cycled Left/Right on the
+    /// Theme row, mirroring the Shell row's discovered-shell cycle.
+    theme_suggestions: Vec<String>,
+    theme_suggestion_index: usize,
     /// Structured WSL (or other argv) launch when a discovered row carries args.
     pending_shell_command: Option<ProfileCommand>,
     /// Full source profile so unknown nested keys survive an edit/save cycle.
@@ -239,10 +254,12 @@ impl ProfileManager {
             profiles: BTreeMap::new(),
             warnings: Vec::new(),
             query: String::new(),
+            filter_active: false,
             filtered: Vec::new(),
             selected: 0,
             scroll_offset: Cell::new(0),
             form_scroll_offset: Cell::new(0),
+            form_scroll_wheel_pinned: false,
             last_body_height: Cell::new(0),
             add_row_focused: false,
             view: ManagerView::Catalog,
@@ -277,6 +294,8 @@ impl ProfileManager {
             draft_match_directories: Vec::new(),
             discovered_shells: Vec::new(),
             shell_suggestion_index: 0,
+            theme_suggestions: Vec::new(),
+            theme_suggestion_index: 0,
             pending_shell_command: None,
             draft_base: None,
             replace_name: None,
@@ -293,6 +312,7 @@ impl ProfileManager {
         self.warnings = catalog.warnings;
         self.global_default = global_default.map(str::to_owned);
         self.query.clear();
+        self.filter_active = false;
         self.view = ManagerView::Catalog;
         self.add_row_focused = false;
         self.error = None;
@@ -351,6 +371,40 @@ impl ProfileManager {
         }
         self.scroll_offset.set(offset);
         (offset > 0, offset + room < total)
+    }
+
+    /// Mouse-wheel scroll for the manager body. In a form it moves the visible
+    /// window (`form_scroll_offset`) without moving field focus, mirroring the
+    /// settings panel's view/selection split; in the catalog it nudges the
+    /// scroll window. `delta` follows the shared overlay convention: positive
+    /// scrolls toward later rows, negative toward earlier. A no-op in the confirm
+    /// dialog, which is a fixed card.
+    pub(super) fn scroll_lines(&mut self, delta: isize) {
+        match &self.view {
+            ManagerView::Form(_) => {
+                let body_height = self.last_body_height.get();
+                if body_height == 0 {
+                    return;
+                }
+                let total = self.form_all_lines(usize::MAX).len();
+                let max_offset = total.saturating_sub(body_height) as isize;
+                if max_offset <= 0 {
+                    return;
+                }
+                let next = (self.form_scroll_offset.get() as isize + delta).clamp(0, max_offset);
+                self.form_scroll_offset.set(next as usize);
+                self.form_scroll_wheel_pinned = true;
+            }
+            ManagerView::Catalog => {
+                let total = self.filtered.len() as isize;
+                if total == 0 {
+                    return;
+                }
+                let next = (self.scroll_offset.get() as isize + delta).clamp(0, total - 1);
+                self.scroll_offset.set(next as usize);
+            }
+            ManagerView::ConfirmDelete { .. } => {}
+        }
     }
 
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> ProfileManagerOutcome {
@@ -503,26 +557,37 @@ impl ProfileManager {
             OverlayInput::Activate => self.open_edit_selected(),
             OverlayInput::Tab => self.open_add(),
             OverlayInput::Backspace => {
-                self.query.pop();
+                if self.query.is_empty() {
+                    // Backspacing an empty filter exits filter entry so the
+                    // single-key hotkeys are available again.
+                    self.filter_active = false;
+                } else {
+                    self.query.pop();
+                    self.recompute_filter();
+                }
+                ProfileManagerOutcome::Consumed
+            }
+            // `/` starts filter entry (empty query) so the hotkey letters below
+            // no longer steal the first character of a profile name.
+            OverlayInput::Char('/') if !self.filter_active && self.query.is_empty() => {
+                self.filter_active = true;
+                ProfileManagerOutcome::Consumed
+            }
+            // While filtering, every printable character appends to the filter.
+            OverlayInput::Char(ch) if self.filter_active || !self.query.is_empty() => {
+                self.query.push(ch);
                 self.recompute_filter();
                 ProfileManagerOutcome::Consumed
             }
+            // Filter inactive and empty: single-key catalog hotkeys act.
             OverlayInput::Char(ch) => match ch {
-                'd' | 'D' if self.query.is_empty() => self.open_duplicate_selected(),
-                'r' | 'R' if self.query.is_empty() => self.open_rename_selected(),
-                'g' | 'G' if self.query.is_empty() && !self.add_row_focused => {
-                    self.set_default_selected()
-                }
-                'x' | 'X' if self.query.is_empty() && !self.add_row_focused => {
-                    self.open_confirm_delete_selected()
-                }
-                'i' | 'I' if self.query.is_empty() => ProfileManagerOutcome::RequestImport,
-                'e' | 'E' if self.query.is_empty() => self.request_export_selected(),
-                _ => {
-                    self.query.push(ch);
-                    self.recompute_filter();
-                    ProfileManagerOutcome::Consumed
-                }
+                'd' | 'D' => self.open_duplicate_selected(),
+                'r' | 'R' => self.open_rename_selected(),
+                'g' | 'G' if !self.add_row_focused => self.set_default_selected(),
+                'x' | 'X' if !self.add_row_focused => self.open_confirm_delete_selected(),
+                'i' | 'I' => ProfileManagerOutcome::RequestImport,
+                'e' | 'E' => self.request_export_selected(),
+                _ => ProfileManagerOutcome::Consumed,
             },
             _ => ProfileManagerOutcome::Consumed,
         }
@@ -581,6 +646,7 @@ impl ProfileManager {
 
     fn return_to_catalog(&mut self) {
         self.view = ManagerView::Catalog;
+        self.filter_active = false;
         self.clear_draft();
         self.error = None;
         self.recompute_filter();
@@ -608,10 +674,12 @@ impl ProfileManager {
 
     fn catalog_lines(&self, body_width: usize, body_height: usize) -> Vec<ProfileManagerLine> {
         let mut lines = Vec::new();
-        let query_label = if self.query.is_empty() {
-            "Filter profiles\u{2026}".to_owned()
-        } else {
+        let query_label = if !self.query.is_empty() {
             format!("Filter: {}", self.query)
+        } else if self.filter_active {
+            "Filter: (type to filter, Backspace to exit)".to_owned()
+        } else {
+            "Press / to filter profiles\u{2026}".to_owned()
         };
         lines.push(ProfileManagerLine {
             text: truncate(&query_label, body_width),
@@ -719,6 +787,58 @@ mod tests {
             );
         }
         catalog
+    }
+
+    #[test]
+    fn slash_starts_filter_so_hotkey_letters_reach_the_query() {
+        // A profile named "dev" is filterable: `/` begins filter entry, after
+        // which the hotkey letters d/r/g/x/i/e append to the query instead of
+        // firing their catalog actions.
+        let mut manager = ProfileManager::new();
+        manager.open(catalog_with(&["dev", "prod"]), None);
+        assert!(matches!(
+            manager.handle_input(OverlayInput::Char('/')),
+            ProfileManagerOutcome::Consumed
+        ));
+        for ch in "dev".chars() {
+            let _ = manager.handle_input(OverlayInput::Char(ch));
+        }
+        assert_eq!(manager.query, "dev");
+        assert_eq!(manager.filtered, vec!["dev".to_owned()]);
+        assert!(matches!(manager.view, ManagerView::Catalog));
+        // Backspacing the query then the empty filter exits filter entry.
+        for _ in 0..3 {
+            let _ = manager.handle_input(OverlayInput::Backspace);
+        }
+        assert!(manager.query.is_empty());
+        let _ = manager.handle_input(OverlayInput::Backspace);
+        assert!(!manager.filter_active);
+        // With the filter inactive and empty, `d` fires the duplicate hotkey.
+        assert!(matches!(
+            manager.handle_input(OverlayInput::Char('d')),
+            ProfileManagerOutcome::Consumed
+        ));
+        assert!(matches!(
+            manager.view,
+            ManagerView::Form(FormMode::Duplicate)
+        ));
+    }
+
+    #[test]
+    fn wheel_scroll_moves_the_form_window_without_moving_focus() {
+        let mut manager = ProfileManager::new();
+        manager.open(ProfileCatalog::default(), None);
+        manager.open_add();
+        // Render a short body so the form overflows and can scroll.
+        let _ = manager.visible_lines(60, 6);
+        let focus_before = manager.form_focus;
+        manager.scroll_lines(3);
+        assert!(
+            manager.form_scroll_offset.get() > 0,
+            "wheel scrolled the window"
+        );
+        assert_eq!(manager.form_focus, focus_before, "focus did not move");
+        assert!(manager.form_scroll_wheel_pinned);
     }
 
     #[test]

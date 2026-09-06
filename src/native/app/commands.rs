@@ -114,13 +114,17 @@ impl App {
     /// Spawn a local tab from a fully resolved named-profile launch context.
     pub(super) fn spawn_local_tab_from_effective(
         &mut self,
-        effective: crate::profiles::EffectiveLaunch,
+        mut effective: crate::profiles::EffectiveLaunch,
     ) {
         self.finish_divider_drag();
         if let Some(alias) = effective.connection.clone() {
             self.new_tab_for_bound_host(&alias);
             return;
         }
+        // A profile whose persisted starting directory no longer exists must not
+        // dead-end the tab: fall back to home and surface a bounded notice
+        // instead of failing the PTY spawn.
+        super::profile_launch::apply_missing_cwd_fallback(&mut effective);
         let session_theme = crate::native::cvd_theme::effective_theme(
             &effective.settings.theme,
             effective.settings.cvd_mode,
@@ -144,7 +148,15 @@ impl App {
         {
             Ok(session_id) => {
                 let cell = self.gpu.as_ref().map(GpuState::cell);
+                // Record the profile's authored theme as session state when the
+                // profile set one, so a later global sweep re-derives per session
+                // and the window chrome can present it while this pane is active.
+                let profile_authored_theme = effective
+                    .profile_theme
+                    .as_ref()
+                    .map(|_| effective.settings.theme);
                 if let Some(session) = self.sessions.get_mut(session_id) {
+                    session.profile_theme = profile_authored_theme;
                     Self::initialize_session_with(
                         session,
                         session_theme,

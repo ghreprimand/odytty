@@ -538,6 +538,72 @@ impl App {
         self.effective_theme
     }
 
+    /// Test seam (v0.14 profile theme): the theme currently presented on the
+    /// window chrome/GPU for the active pane. Equals the global effective theme
+    /// for a plain tab, or the active profile tab's CVD-adapted profile theme.
+    #[cfg(test)]
+    pub(in crate::native) fn chrome_theme_for_test(&self) -> Theme {
+        self.chrome_theme
+    }
+
+    /// Test seam (v0.14 profile theme): the authored profile theme carried by
+    /// the active session, if the launching profile set one.
+    #[cfg(test)]
+    pub(in crate::native) fn active_profile_theme_for_test(&self) -> Option<Theme> {
+        self.sessions.active().profile_theme
+    }
+
+    /// Test seam (v0.14 profile theme): stamp the active session with a profile
+    /// theme and present it, mirroring what a profile-launched tab does at spawn.
+    #[cfg(test)]
+    pub(in crate::native) fn set_active_profile_theme_for_test(&mut self, theme: Option<Theme>) {
+        self.sessions.active_mut().profile_theme = theme;
+        self.present_active_session_chrome();
+    }
+
+    /// Test seam (v0.14 profiles): open a New Tab with an explicit named profile
+    /// through the real launch path (resolver + real PTY spawn).
+    #[cfg(test)]
+    pub(in crate::native) fn new_tab_with_profile_for_test(&mut self, profile_name: &str) {
+        self.handle_new_tab_with_profile(profile_name);
+    }
+
+    /// Test seam (v0.14 profiles): write raw bytes to the active session's PTY
+    /// (the child's stdin) so a spawned shell can be driven from a test.
+    #[cfg(test)]
+    pub(in crate::native) fn write_active_session_for_test(&mut self, bytes: &[u8]) {
+        use std::io::Write as _;
+        if let Ok(mut writer) = self.sessions.active().writer.lock() {
+            let _ = writer.write_all(bytes);
+            let _ = writer.flush();
+        }
+    }
+
+    /// Test seam (v0.14 profiles): persist the global default launch profile
+    /// through the real Profile Manager "Set as Default" path.
+    #[cfg(test)]
+    pub(in crate::native) fn set_global_default_launch_profile_for_test(&mut self, name: &str) {
+        self.set_global_default_launch_profile(name);
+    }
+
+    /// Test seam (v0.14 profiles): delete a profile through the real overlay
+    /// delete path (which also clears a matching global/workspace default).
+    #[cfg(test)]
+    pub(in crate::native) fn delete_overlay_profile_for_test(&mut self, name: &str) {
+        self.delete_overlay_profile(name);
+    }
+
+    /// Test seam (v0.14 profiles): save/rename a profile through the real overlay
+    /// save path (which retargets a matching global/workspace default on rename).
+    #[cfg(test)]
+    pub(in crate::native) fn save_overlay_profile_for_test(
+        &mut self,
+        profile: crate::profiles::LaunchProfile,
+        replace: Option<String>,
+    ) {
+        self.save_overlay_profile(profile, replace);
+    }
+
     /// Test seam (U4): drive a live CVD settings change through the real
     /// `apply_settings` chokepoint (the overlay-edit path), exactly as toggling
     /// the Accessibility group would.
@@ -2281,6 +2347,40 @@ impl App {
         let report = self
             .sessions
             .append_from_snapshot_headless_for_test(snapshot, home.as_deref());
+        if matches!(
+            report,
+            crate::native::session::RestoreReport::Restored { .. }
+        ) {
+            self.apply_model_state_to_all_sessions();
+        }
+        report
+    }
+
+    /// Test seam (v0.14 profiles): append a snapshot through the PRODUCTION
+    /// profile-aware restore path (`spawn_restored_local_leaf`), which re-resolves
+    /// each leaf's launch profile and stamps `launch_profile` onto the restored
+    /// session, exactly as `restore_workspaces_on_launch` does. Distinct from the
+    /// headless theme-seed seam, which inserts bare sessions and ignores the
+    /// launch profile. Requires the event-loop proxy the proxy-backed harness
+    /// supplies, so it spawns real local shells per leaf.
+    #[cfg(test)]
+    pub(in crate::native) fn append_snapshot_with_profile_restore_for_test(
+        &mut self,
+        snapshot: &crate::native::persistence::ShapeSnapshot,
+    ) -> crate::native::session::RestoreReport {
+        use crate::native::persistence::restore_home_dir;
+        let home = restore_home_dir();
+        let settings = self.settings.clone();
+        let grid = self.grid;
+        let ctx = self.remote_restore_context();
+        let report = self.sessions.append_from_snapshot_with(
+            snapshot,
+            home.as_deref(),
+            |set, leaf| {
+                super::profile_launch::spawn_restored_local_leaf(&settings, grid, set, leaf)
+            },
+            |set, identity| ctx.spawn(set, grid, identity),
+        );
         if matches!(
             report,
             crate::native::session::RestoreReport::Restored { .. }

@@ -163,6 +163,26 @@ impl PtySession {
         working_directory: Option<PathBuf>,
         settings: &crate::settings::Settings,
     ) -> Result<Self> {
+        Self::spawn_default_shell_in_with_settings_env(
+            dimensions,
+            working_directory,
+            settings,
+            &std::collections::BTreeMap::new(),
+        )
+    }
+
+    /// Default-shell spawn that also applies a named profile's bounded `env`
+    /// overrides. The overrides land last so a profile value wins over the
+    /// discovery advertisements, matching the explicit-shell arm in
+    /// `build_local_command`; the shared `env` vec folds into the ConPTY
+    /// environment block via `build_env_block`, so each override crosses ConPTY
+    /// like TERM_PROGRAM does.
+    pub fn spawn_default_shell_in_with_settings_env(
+        dimensions: Dimensions,
+        working_directory: Option<PathBuf>,
+        settings: &crate::settings::Settings,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Self> {
         let mut command = CommandBuilder::new(default_shell().program);
         command.apply_terminal_env();
         // Scrub any inherited ODYTTY_SHELL_INTEGRATION so a nested odytty does
@@ -181,14 +201,20 @@ impl PtySession {
         // key bindings use the PSReadLine/Console API, not a VT protocol). The
         // advertisement crosses ConPTY harmlessly for parity.
         command.apply_key_enhancement_discovery_env(settings.shell_key_enhancement);
-        if let Some(path) = working_directory {
-            command.current_dir(path);
-        }
         // Gate on the same `shell_integration` setting the Unix path honors.
         // The injector classifies the resolved program (pwsh/powershell) and
         // attaches `-NoExit -Command <snippet>`; cmd.exe is left untouched.
         if settings.shell_integration {
             crate::shell_integration::apply_spawn_integration(&mut command);
+        }
+        // Profile env overrides land last so a profile value wins over the
+        // discovery advertisements above, matching the explicit-shell arm in
+        // `build_local_command`.
+        for (key, value) in env {
+            command.env(key.clone(), value.clone());
+        }
+        if let Some(path) = working_directory {
+            command.current_dir(path);
         }
         Self::spawn_command(dimensions, command)
     }

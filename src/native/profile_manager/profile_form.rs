@@ -43,6 +43,7 @@ impl ProfileManager {
     pub(super) fn open_add(&mut self) -> ProfileManagerOutcome {
         self.clear_draft();
         self.load_shell_suggestions();
+        self.load_theme_suggestions();
         self.view = ManagerView::Form(FormMode::Add);
         self.form_focus = 0;
         self.form_scroll_offset.set(0);
@@ -59,6 +60,7 @@ impl ProfileManager {
         };
         self.load_draft_from(&profile);
         self.load_shell_suggestions();
+        self.load_theme_suggestions();
         self.replace_name = Some(profile.name.clone());
         self.view = ManagerView::Form(FormMode::Edit);
         self.form_focus = 0;
@@ -76,6 +78,7 @@ impl ProfileManager {
         };
         self.load_draft_from(&profile);
         self.load_shell_suggestions();
+        self.load_theme_suggestions();
         self.draft_name = unique_copy_name(&profile.name, &self.profiles);
         self.replace_name = None;
         self.view = ManagerView::Form(FormMode::Duplicate);
@@ -112,23 +115,30 @@ impl ProfileManager {
                 if self.form_focus > 0 {
                     self.form_focus -= 1;
                 }
+                // Keyboard navigation resumes focus-following after a wheel pin.
+                self.form_scroll_wheel_pinned = false;
                 ProfileManagerOutcome::Consumed
             }
             OverlayInput::Down | OverlayInput::Tab => {
                 if self.form_focus + 1 < fields.len() {
                     self.form_focus += 1;
                 }
+                self.form_scroll_wheel_pinned = false;
                 ProfileManagerOutcome::Consumed
             }
             OverlayInput::Right => {
-                if matches!(fields.get(self.form_focus), Some(FormField::Shell)) {
-                    self.cycle_shell_suggestion(1);
+                match fields.get(self.form_focus) {
+                    Some(FormField::Shell) => self.cycle_shell_suggestion(1),
+                    Some(FormField::Theme) => self.cycle_theme_suggestion(1),
+                    _ => {}
                 }
                 ProfileManagerOutcome::Consumed
             }
             OverlayInput::Left => {
-                if matches!(fields.get(self.form_focus), Some(FormField::Shell)) {
-                    self.cycle_shell_suggestion(-1);
+                match fields.get(self.form_focus) {
+                    Some(FormField::Shell) => self.cycle_shell_suggestion(-1),
+                    Some(FormField::Theme) => self.cycle_theme_suggestion(-1),
+                    _ => {}
                 }
                 ProfileManagerOutcome::Consumed
             }
@@ -409,7 +419,44 @@ impl ProfileManager {
                 profile.launch.shell = nonempty_opt(&self.draft_shell);
             }
             profile.launch.working_directory = nonempty_opt(&self.draft_working_directory);
+            // A non-empty starting directory the user set or changed this session
+            // must name an existing directory, so a mistyped or removed path is
+            // caught at save instead of dead-ending the tab at launch. A value
+            // loaded unchanged from disk is preserved even if it is currently
+            // missing (removable media, an unmounted share), so editing an
+            // existing profile never destroys a field it did not touch; the
+            // launch path falls back for a missing cwd regardless. Control
+            // characters are still rejected by the schema round-trip below.
+            let loaded_wd = self
+                .draft_base
+                .as_ref()
+                .and_then(|base| base.launch.working_directory.as_deref());
+            if let Some(dir) = profile.launch.working_directory.as_deref()
+                && Some(dir) != loaded_wd
+                && !std::path::Path::new(dir).is_dir()
+            {
+                self.error = Some(format!("working directory {dir:?} does not exist"));
+                return ProfileManagerOutcome::Consumed;
+            }
             profile.appearance.theme = nonempty_opt(&self.draft_theme);
+            // A named theme the user set or changed this session must resolve to
+            // a built-in or a user theme file, so an unknown name is caught here
+            // instead of silently falling back to the global theme at launch. A
+            // value loaded unchanged from disk round-trips even if its theme file
+            // is momentarily absent, so an edit never destroys an untouched field.
+            let loaded_theme = self
+                .draft_base
+                .as_ref()
+                .and_then(|base| base.appearance.theme.as_deref());
+            if let Some(theme) = profile.appearance.theme.as_deref()
+                && Some(theme) != loaded_theme
+                && !theme_name_is_known(theme)
+            {
+                self.error = Some(format!(
+                    "unknown theme {theme:?}; use a built-in name or a theme file"
+                ));
+                return ProfileManagerOutcome::Consumed;
+            }
             match optional_bool_field(&self.draft_follow_external_palette) {
                 Ok(value) => profile.appearance.follow_external_palette = value,
                 Err(message) => {
@@ -671,9 +718,12 @@ impl ProfileManager {
         self.draft_match_directories.clear();
         self.discovered_shells.clear();
         self.shell_suggestion_index = 0;
+        self.theme_suggestions.clear();
+        self.theme_suggestion_index = 0;
         self.pending_shell_command = None;
         self.form_focus = 0;
         self.form_scroll_offset.set(0);
+        self.form_scroll_wheel_pinned = false;
     }
 
     fn load_shell_suggestions(&mut self) {
@@ -720,6 +770,45 @@ impl ProfileManager {
             entry.label,
             self.shell_suggestion_index + 1,
             self.discovered_shells.len()
+        ))
+    }
+
+    /// Build the Theme row's cycle roster on demand: sorted built-in theme names
+    /// plus any user `.theme` file stems in the theme directory. Runs only when a
+    /// profile form opens (never on the startup launch path), and its result is
+    /// cached, so it never blocks the first usable terminal.
+    fn load_theme_suggestions(&mut self) {
+        self.theme_suggestions = discovered_theme_names();
+        // Anchor the index on the current draft value when it names a known theme
+        // so the first Left/Right step is relative to what is shown.
+        self.theme_suggestion_index = self
+            .theme_suggestions
+            .iter()
+            .position(|name| name == self.draft_theme.trim())
+            .unwrap_or(0);
+    }
+
+    fn cycle_theme_suggestion(&mut self, delta: isize) {
+        if self.theme_suggestions.is_empty() {
+            return;
+        }
+        let len = self.theme_suggestions.len();
+        let next = (self.theme_suggestion_index as isize + delta).rem_euclid(len as isize);
+        self.theme_suggestion_index = next as usize;
+        self.draft_theme = self.theme_suggestions[self.theme_suggestion_index].clone();
+        self.error = None;
+    }
+
+    fn theme_suggestion_hint(&self) -> Option<String> {
+        if self.theme_suggestions.is_empty() {
+            return None;
+        }
+        let name = &self.theme_suggestions[self.theme_suggestion_index];
+        Some(format!(
+            "Theme suggestions (Left/Right): {} ({}/{})",
+            name,
+            self.theme_suggestion_index + 1,
+            self.theme_suggestions.len()
         ))
     }
 
@@ -801,18 +890,25 @@ impl ProfileManager {
         body_width: usize,
         body_height: usize,
     ) -> Vec<ProfileManagerLine> {
+        // Record the body height so a wheel scroll (which does not receive it)
+        // can clamp against the current window.
+        self.last_body_height.set(body_height);
         let lines = self.form_all_lines(body_width);
         if body_height == 0 || lines.len() <= body_height {
             self.form_scroll_offset.set(0);
             return lines;
         }
-        let focused = lines.iter().position(|line| line.focused).unwrap_or(0);
         let max_offset = lines.len() - body_height;
         let mut offset = self.form_scroll_offset.get().min(max_offset);
-        if focused < offset {
-            offset = focused;
-        } else if focused >= offset + body_height {
-            offset = focused + 1 - body_height;
+        // A wheel-pinned offset scrolls the window without dragging focus back
+        // into view; keyboard focus moves clear the pin so navigation re-centers.
+        if !self.form_scroll_wheel_pinned {
+            let focused = lines.iter().position(|line| line.focused).unwrap_or(0);
+            if focused < offset {
+                offset = focused;
+            } else if focused >= offset + body_height {
+                offset = focused + 1 - body_height;
+            }
         }
         self.form_scroll_offset.set(offset);
         let _ = mode;
@@ -845,6 +941,17 @@ impl ProfileManager {
             if focused
                 && matches!(field, FormField::Shell)
                 && let Some(hint) = self.shell_suggestion_hint()
+            {
+                lines.push(ProfileManagerLine {
+                    text: truncate(&hint, body_width),
+                    focused: false,
+                    bold: false,
+                    target: ProfileManagerTarget::Inert,
+                });
+            }
+            if focused
+                && matches!(field, FormField::Theme)
+                && let Some(hint) = self.theme_suggestion_hint()
             {
                 lines.push(ProfileManagerLine {
                     text: truncate(&hint, body_width),
@@ -1010,6 +1117,44 @@ fn cycle(value: &mut String, choices: &[&str]) {
     *value = choices[(index + 1) % choices.len()].to_owned();
 }
 
+/// The Theme row's cycle roster: sorted built-in theme names first, then any
+/// user `.theme` file stems found in the theme directory (also sorted, and only
+/// those not already shadowing a built-in name). Bounded to a single directory
+/// read performed on demand when the form opens.
+fn discovered_theme_names() -> Vec<String> {
+    let mut builtins: Vec<String> = crate::theme::names().map(str::to_owned).collect();
+    builtins.sort();
+    let mut user: Vec<String> = crate::settings::theme_dir_path()
+        .and_then(|dir| std::fs::read_dir(dir).ok())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            (path.extension().and_then(|ext| ext.to_str()) == Some("theme"))
+                .then(|| {
+                    path.file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .map(str::to_owned)
+                })
+                .flatten()
+        })
+        .filter(|name| !builtins.iter().any(|b| b == name))
+        .collect();
+    user.sort();
+    builtins.extend(user);
+    builtins
+}
+
+/// Whether `name` resolves to a known theme: a built-in name or a user
+/// `.theme`/theme file the launch resolver would accept. Save uses this so an
+/// unknown theme is an inline error rather than a silent fallback at launch.
+fn theme_name_is_known(name: &str) -> bool {
+    crate::theme::Theme::from_name(name).is_some()
+        || crate::settings::resolve_theme_file(name, crate::settings::theme_dir_path().as_deref())
+            .is_some()
+}
+
 fn enum_opt(value: &str) -> Option<String> {
     (!value.is_empty() && value != "inherit").then(|| value.to_owned())
 }
@@ -1138,6 +1283,37 @@ mod tests {
             .position(|candidate| *candidate == field)
             .expect("field present");
         manager.form_focus = index;
+    }
+
+    #[test]
+    fn theme_row_cycles_the_builtin_roster_and_save_rejects_unknown() {
+        let mut manager = ProfileManager::new();
+        manager.open(ProfileCatalog::default(), None);
+        manager.open_add();
+        manager.draft_name = "themed".to_owned();
+        // The roster is loaded on open and holds the built-ins.
+        assert!(!manager.theme_suggestions.is_empty());
+        focus_field(&mut manager, FormField::Theme);
+        let _ = manager.handle_input(OverlayInput::Right);
+        let cycled = manager.draft_theme.clone();
+        assert!(
+            manager.theme_suggestions.contains(&cycled),
+            "Right must land on a roster theme"
+        );
+        assert!(manager.theme_suggestion_hint().is_some());
+        // An unknown theme name is an inline save error, not a silent fallback.
+        manager.draft_theme = "no-such-theme-xyz".to_owned();
+        assert!(matches!(
+            manager.try_save(),
+            ProfileManagerOutcome::Consumed
+        ));
+        assert!(
+            manager
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("unknown theme")),
+            "unknown theme must block save with an inline error"
+        );
     }
 
     #[test]

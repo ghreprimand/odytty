@@ -517,6 +517,7 @@ impl OverlayUi {
                     OverlayMode::OpenWith => self.open_with.scroll_lines(lines),
                     OverlayMode::WorkspacePicker => self.workspace_picker.scroll_lines(lines),
                     OverlayMode::ProfilePicker => self.profile_picker.scroll_lines(lines),
+                    OverlayMode::ProfileManager => self.profile_manager.scroll_lines(lines),
                     OverlayMode::ContextMenu => {
                         // Wheel moves the focused item (and thus the focus-
                         // derived scroll window), mirroring the picker overlays.
@@ -541,7 +542,6 @@ impl OverlayUi {
                     | OverlayMode::ConfirmOverwriteLayout
                     | OverlayMode::ConfirmOpenLayout
                     | OverlayMode::ConnectionForm
-                    | OverlayMode::ProfileManager
                     | OverlayMode::ImageView => {}
                 }
                 OverlayOutcome::Consumed

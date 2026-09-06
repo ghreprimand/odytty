@@ -238,6 +238,16 @@ pub(in crate::native) struct Session {
     /// the workspace shape for faithful restore. Remote and attached panes keep
     /// this `None`.
     pub(in crate::native) launch_profile: Option<String>,
+    /// Authored theme this session's profile selected (its `appearance.theme`),
+    /// if the launch profile set one. Held as session state so a global theme
+    /// sweep (settings write, OS-appearance flip, restore seed) re-derives per
+    /// session instead of flattening a profile tab to the global theme, and so
+    /// the window chrome can present the profile theme while this pane is active.
+    /// `None` for a plain tab or a profile that inherits the global theme; the
+    /// authored (non-CVD) theme is stored so the current CVD mode/strength apply
+    /// on top at each sweep. Re-resolved on restore from `launch_profile`, so it
+    /// need not be persisted separately.
+    pub(in crate::native) profile_theme: Option<crate::theme::Theme>,
 }
 
 /// One tab in the strip. It owns a layout tree of panes (a binary
@@ -704,6 +714,35 @@ impl WorkspaceSet {
     /// The named launch profile bound to the active workspace, if any.
     pub(in crate::native) fn active_workspace_launch_profile(&self) -> Option<&str> {
         self.active_workspace().launch_profile.as_deref()
+    }
+
+    /// Clear any workspace-scoped launch-profile override that names `profile`,
+    /// across every workspace in the set. Used when the named profile is deleted
+    /// so a stale binding cannot outlive it. Returns whether any override was
+    /// cleared so the caller can persist the change.
+    pub(in crate::native) fn clear_launch_profile_named(&mut self, profile: &str) -> bool {
+        let mut changed = false;
+        for workspace in &mut self.workspaces {
+            if workspace.launch_profile.as_deref() == Some(profile) {
+                workspace.launch_profile = None;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Rewrite any workspace-scoped launch-profile override naming `old` to
+    /// `new`, across every workspace. Used when a named profile is renamed so a
+    /// workspace binding follows the rename. Returns whether anything changed.
+    pub(in crate::native) fn rename_launch_profile(&mut self, old: &str, new: &str) -> bool {
+        let mut changed = false;
+        for workspace in &mut self.workspaces {
+            if workspace.launch_profile.as_deref() == Some(old) {
+                workspace.launch_profile = Some(new.to_owned());
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// The host alias the workspace at rail index `idx` is bound to (RAIL-BIND),

@@ -439,6 +439,10 @@ impl App {
         self.tab_bar.set_hover(None);
         self.last_render_signature = None;
         self.needs_rebuild = true;
+        // Present the incoming pane's theme on the window chrome/GPU: a profile
+        // tab shows its profile theme, a plain tab the global theme. Idempotent
+        // when the presented theme is unchanged.
+        self.present_active_session_chrome();
         self.sync_active_window_title();
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();

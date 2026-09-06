@@ -112,3 +112,56 @@ fn defaults_are_off_path_identity() {
     assert!(defaults.os_theme_dark.is_none());
     assert!(defaults.os_theme_light.is_none());
 }
+
+/// Round-3 acceptance regression (item 4/7): a profile tab's theme is session
+/// state that survives the global sweeps (settings write, OS-appearance flip)
+/// and drives the window chrome while the pane is active. Toggling
+/// `follow_os_theme` on then off must not flatten the profile tab.
+#[test]
+fn profile_theme_survives_sweeps_and_drives_chrome() {
+    let authored = Theme::ODYSSEY;
+    let Some(mut app) = build_app(authored) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let dracula = Theme::from_name("dracula").expect("dracula builtin");
+
+    // The active (only) session is a plain tab: chrome is the global theme.
+    assert_eq!(app.chrome_theme_for_test(), authored);
+
+    // Stamp it as a profile tab with theme dracula (what a profile launch does).
+    app.set_active_profile_theme_for_test(Some(dracula));
+    assert_eq!(app.active_profile_theme_for_test(), Some(dracula));
+    assert_eq!(
+        app.chrome_theme_for_test(),
+        dracula,
+        "an active profile tab presents its profile theme on the chrome"
+    );
+
+    // A settings-write sweep must not flatten the profile tab.
+    app.apply_model_state_to_all_sessions_for_test();
+    assert_eq!(app.active_profile_theme_for_test(), Some(dracula));
+    assert_eq!(app.chrome_theme_for_test(), dracula);
+
+    // Toggling follow_os on then off (the reported item-7 sequence) sweeps the
+    // sessions twice; the profile tab keeps dracula throughout.
+    let _ = app.apply_os_theme_for_test(
+        true,
+        Some("odyssey-noir"),
+        Some("plain"),
+        Some(WinitTheme::Dark),
+    );
+    assert_eq!(app.active_profile_theme_for_test(), Some(dracula));
+    assert_eq!(app.chrome_theme_for_test(), dracula);
+    let _ = app.apply_os_theme_for_test(
+        false,
+        Some("odyssey-noir"),
+        Some("plain"),
+        Some(WinitTheme::Dark),
+    );
+    assert_eq!(
+        app.chrome_theme_for_test(),
+        dracula,
+        "toggling follow_os off must not flatten the profile tab to the global theme"
+    );
+}

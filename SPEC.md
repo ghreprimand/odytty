@@ -1637,9 +1637,15 @@ formats and install channels are defined in the
   `default_launch_profile` (Profile Manager "Set as Default"), then the
   built-in System Default; the first window applies `--profile`, then the
   global default. A missing or invalid default falls back with a bounded
-  warning and never rewrites the saved value. The adjacent chevron beside `+`
-  and the context-menu "with Profile" rows open a lazily loaded searchable
-  chooser.
+  warning and never rewrites the saved value; deleting or renaming the profile
+  named as the global default clears or rewrites the saved key, and a
+  workspace-scoped override naming it is cleared or rewritten to match. The
+  adjacent chevron beside `+` and the context-menu "with Profile" rows open a
+  lazily loaded searchable chooser. A launched profile applies its bounded
+  environment overrides even with no shell or command, falls back to home with a
+  notice when its starting directory is missing rather than failing the tab, and
+  carries its selected theme as per-session state that survives global theme
+  sweeps and drives the window chrome while the pane is active.
   External palette following (opt-in complete local palette file, content-hash
   reload, last-known-good retention) is documented in
   `docs/v0.14.0-external-palette.md`.

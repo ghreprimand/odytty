@@ -382,7 +382,7 @@ impl WorkspaceSet {
         self.append_from_snapshot_with(
             snapshot,
             home,
-            |set, _cwd| {
+            |set, _leaf| {
                 let dims = crate::core::Dimensions::new(20, 8);
                 let writer: PtyWriter = crate::native::test_support::headless_writer();
                 let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));

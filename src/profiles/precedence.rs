@@ -58,6 +58,12 @@ pub struct EffectiveLaunch {
     pub layout: Option<String>,
     pub title: Option<String>,
     pub profile_name: Option<String>,
+    /// The authored theme name the selected profile set (`appearance.theme`),
+    /// when a profile is active and set one. `None` when no profile is selected
+    /// or the profile inherits the global theme. Lets the launch path record the
+    /// resolved theme as per-session state so a global theme sweep does not
+    /// flatten the profile tab.
+    pub profile_theme: Option<String>,
     pub warnings: Vec<String>,
 }
 
@@ -153,6 +159,9 @@ pub(crate) fn resolve_effective_launch(
             restored.title.as_deref(),
             profile.and_then(|p| p.appearance.title.as_deref()),
         ),
+        profile_theme: profile
+            .and_then(|p| p.appearance.theme.clone())
+            .filter(|value| !value.is_empty()),
         profile_name,
         warnings,
     }

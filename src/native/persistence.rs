@@ -871,6 +871,14 @@ fn is_existing_dir(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether `path` is an existing directory suitable to seed a PTY spawn's
+/// working directory. Shared with the profile launch path so a profile's
+/// persisted starting directory can be probed with the same single-`metadata`
+/// discipline `validate_interactive_cwd` uses before it reaches a spawn.
+pub(crate) fn dir_exists_for_spawn(path: &Path) -> bool {
+    is_existing_dir(path)
+}
+
 /// The user's home directory for restore fallbacks: `$HOME` on Unix,
 /// `%USERPROFILE%` on Windows (sub-ODP 8f). `None` when unset/empty, in which
 /// case a stale pane simply spawns wherever the process already is rather than

@@ -33,6 +33,12 @@ pub(in crate::native) struct App {
     /// off (byte-identical plain path). Recomputed only in `apply_settings` via
     /// [`Self::cvd_cache`], never per frame.
     pub(super) effective_theme: Theme,
+    /// The theme currently pushed to the window chrome and GPU (`gpu.set_theme`,
+    /// `text::set_default_colors`). Equals [`Self::effective_theme`] for a plain
+    /// active tab, or the active profile tab's CVD-adapted profile theme. Held
+    /// so [`App::present_active_session_chrome`] only bumps the presentation
+    /// epoch when the presented theme actually changes on a tab/workspace switch.
+    pub(super) chrome_theme: Theme,
     /// One-entry cache for [`Self::effective_theme`] keyed on
     /// `(authored theme, cvd_mode, cvd_strength)` so repeated applies skip the
     /// palette re-floor.
@@ -531,6 +537,7 @@ impl App {
             held_exit: None,
             theme,
             effective_theme,
+            chrome_theme: effective_theme,
             cvd_cache,
             visual,
             window: None,

@@ -175,6 +175,20 @@ impl App {
             && let Ok(old_path) = crate::profiles::profile_path_in_dir(&dir, old_name)
         {
             let _ = crate::profiles::delete_profile_file(&old_path);
+            // A rename must carry the global default and any workspace-scoped
+            // override forward, so the binding follows the new name instead of
+            // silently pointing at a now-missing profile.
+            if self.settings.default_launch_profile.as_deref() == Some(old_name) {
+                use crate::settings::{DEFAULT_LAUNCH_PROFILE_ENV, SettingEdit};
+                self.save_overlay_settings(&[SettingEdit {
+                    key: "default_launch_profile",
+                    env: DEFAULT_LAUNCH_PROFILE_ENV,
+                    value: profile.name.clone(),
+                }]);
+            }
+            if self.sessions.rename_launch_profile(old_name, &profile.name) {
+                self.write_shape_snapshot();
+            }
         }
         let catalog = crate::profiles::load_catalog_from_dir(&dir);
         self.overlay
@@ -219,11 +233,35 @@ impl App {
             self.overlay.save_failed(error.to_string());
             return;
         }
+        // If the deleted profile was the global default, clear the key in
+        // odytty.conf so a subsequent New Tab does not resolve a now-missing
+        // default and dead-end (the "spawn pty command" symptom). An empty value
+        // unsets the key, so the next reload yields None and New Tab spawns a
+        // plain System Default tab.
+        let cleared_global_default = self.settings.default_launch_profile.as_deref() == Some(name);
+        if cleared_global_default {
+            use crate::settings::{DEFAULT_LAUNCH_PROFILE_ENV, SettingEdit};
+            self.save_overlay_settings(&[SettingEdit {
+                key: "default_launch_profile",
+                env: DEFAULT_LAUNCH_PROFILE_ENV,
+                value: String::new(),
+            }]);
+        }
+        // A workspace-scoped launch-profile override naming the deleted profile
+        // must not outlive it either; clear it across every workspace and persist
+        // the shape so the binding is gone on restart.
+        if self.sessions.clear_launch_profile_named(name) {
+            self.write_shape_snapshot();
+        }
         let catalog = crate::profiles::load_catalog_from_dir(&dir);
         self.overlay
             .open_profile_manager(catalog, self.settings.default_launch_profile.as_deref());
-        self.overlay
-            .set_profile_manager_message(format!("Deleted profile {name}"));
+        let message = if cleared_global_default {
+            format!("Deleted profile {name}; the global default is now System Default")
+        } else {
+            format!("Deleted profile {name}")
+        };
+        self.overlay.set_profile_manager_message(message);
         self.request_selection_redraw();
     }
 
@@ -632,24 +670,38 @@ impl App {
         // ID1: with themed UI roles on, the cursor default comes from the theme
         // `cursor` role; otherwise it stays the foreground (today's behavior). A
         // live OSC 12 override is a separate core mechanism and still wins.
-        let cursor_default = if self.themed_ui_roles {
-            rgb(self.effective_theme.cursor)
-        } else {
-            rgb(self.effective_theme.foreground)
-        };
-        let base_fg = rgb(self.effective_theme.foreground);
-        let base_bg = rgb(self.effective_theme.background);
-        // C29: OSC 4 replies report the theme palette, not the xterm table.
-        let base_palette = self.effective_theme.palette.map(rgb);
+        // Resolved per session below so a profile tab keeps its own theme.
         let osc52_read = self.settings.osc52_read;
         let kitty_named_transports = self.settings.kitty_named_transports;
         let cursor_style = self.settings.cursor_style;
         let cursor_blink = self.settings.cursor_blink.enabled();
         let scrollback_limit = self.settings.scrollback_limit();
         let button_gates = self.button_gates();
+        let cvd_mode = self.settings.cvd_mode;
+        let cvd_strength = self.settings.cvd_strength;
+        let global = self.effective_theme;
+        let themed_ui_roles = self.themed_ui_roles;
         for session in self.sessions.iter() {
+            // Per-session theme: a profile tab keeps its profile theme (CVD
+            // applied on top), so a global settings write does not flatten it to
+            // the global theme; a plain tab uses the global effective theme.
+            let theme = match session.profile_theme.as_ref() {
+                Some(profile) => {
+                    crate::native::cvd_theme::effective_theme(profile, cvd_mode, cvd_strength)
+                }
+                None => global,
+            };
+            let session_cursor_default = if themed_ui_roles {
+                rgb(theme.cursor)
+            } else {
+                rgb(theme.foreground)
+            };
+            let base_fg = rgb(theme.foreground);
+            let base_bg = rgb(theme.background);
+            // C29: OSC 4 replies report the theme palette, not the xterm table.
+            let base_palette = theme.palette.map(rgb);
             if let Ok(mut terminal) = session.terminal.lock() {
-                terminal.set_base_colors(base_fg, base_bg, cursor_default);
+                terminal.set_base_colors(base_fg, base_bg, session_cursor_default);
                 terminal.set_base_palette(base_palette);
                 terminal.set_osc52_read_enabled(osc52_read);
                 terminal.set_kitty_named_transports_enabled(kitty_named_transports);
@@ -658,6 +710,9 @@ impl App {
                 button_gates.apply(&mut terminal);
             }
         }
+        // Keep the window chrome/GPU theme aligned with the active pane after a
+        // sweep: a profile tab presents its theme, a plain tab the global one.
+        self.present_active_session_chrome();
     }
 
     /// WP2 restore-on-launch (sub-ODPs 8a/8b/8f). Called once at startup, and
