@@ -279,9 +279,13 @@ impl KeyRemapUi {
     /// [`Self::visible_lines`] (UX4-P1 click→Activate). The optional message line
     /// occupies row 0 when present; action rows follow from `self.scroll`.
     /// Returns `None` for the message row or a click past the last action.
-    pub(super) fn row_at(&self, row_in_body: usize) -> Option<usize> {
+    pub(super) fn row_at(&self, row_in_body: usize, body_height: usize) -> Option<usize> {
         let prefix = usize::from(self.message.is_some());
-        if row_in_body < prefix {
+        // Reject the message row and any row at or past the rendered window: the
+        // bottom border row maps to `row_in_body == body_height`, and clicks
+        // there (or below a short scrolled list) must not resolve to an
+        // off-window action. Every sibling list overlay applies this bound.
+        if row_in_body < prefix || row_in_body >= body_height {
             return None;
         }
         let index = self.scroll + (row_in_body - prefix);
@@ -292,11 +296,11 @@ impl KeyRemapUi {
     /// real action so the caller can route the existing Activate (which ARMS
     /// chord capture for the row — a click selects + arms, it does not capture).
     /// Inert while capturing or while the dirty-close prompt is up.
-    pub(super) fn click_row(&mut self, row_in_body: usize) -> bool {
+    pub(super) fn click_row(&mut self, row_in_body: usize, body_height: usize) -> bool {
         if self.is_capturing_chord() || self.pending_close_prompt {
             return false;
         }
-        match self.row_at(row_in_body) {
+        match self.row_at(row_in_body, body_height) {
             Some(index) => {
                 self.set_selection(index);
                 true
@@ -1090,7 +1094,7 @@ mod tests {
         // (as the overlay does) arms capture — a click selects + arms, exactly
         // like Enter.
         let mut ui = ui();
-        assert!(ui.click_row(1));
+        assert!(ui.click_row(1, 60));
         assert_eq!(ui.render_signature().selected, 0);
         let out = ui.handle_input(OverlayInput::Activate);
         assert_eq!(out, KeyRemapOutcome::Consumed);
@@ -1101,16 +1105,36 @@ mod tests {
     fn click_row_maps_offset_past_the_message_line() {
         let mut ui = ui();
         // Row 3 = message(0) + ACTIONS[2] (rows 1,2,3 → actions 0,1,2).
-        assert!(ui.click_row(3));
+        assert!(ui.click_row(3, 60));
         assert_eq!(ui.render_signature().selected, 2);
     }
 
     #[test]
     fn click_message_row_is_inert() {
         let ui_ref = ui();
-        assert!(ui_ref.row_at(0).is_none());
+        assert!(ui_ref.row_at(0, 60).is_none());
         let mut ui = ui();
-        assert!(!ui.click_row(0));
+        assert!(!ui.click_row(0, 60));
+    }
+
+    #[test]
+    fn click_row_at_or_past_the_body_height_is_rejected() {
+        // A short window: only rows below body_height are rendered. The bottom
+        // border row maps to `row_in_body == body_height` and must not resolve
+        // to an off-window action, even though its index is in ACTIONS bounds.
+        let ui_ref = ui();
+        // body_height 5: message row 0 + action rows 1..=4 rendered.
+        assert!(ui_ref.row_at(4, 5).is_some(), "last visible row maps");
+        assert!(
+            ui_ref.row_at(5, 5).is_none(),
+            "a click on the bottom border row (== body_height) is rejected"
+        );
+        assert!(
+            ui_ref.row_at(9, 5).is_none(),
+            "a click past the rendered window is rejected"
+        );
+        let mut ui = ui();
+        assert!(!ui.click_row(5, 5), "click_row applies the same bound");
     }
 
     // ── P1-6 dirty-close prompt ─────────────────────────────────────────────

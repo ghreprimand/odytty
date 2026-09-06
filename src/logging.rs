@@ -114,8 +114,8 @@ fn macos_state_dir(home: Option<PathBuf>) -> Option<PathBuf> {
 /// this arm, `XDG_STATE_HOME`/`HOME` are typically unset on Windows, so the
 /// state dir fell through to `std::env::temp_dir()` (`%TEMP%`), which Windows
 /// periodically cleans — breaking the FREEZE-HARDEN "send me your odytty.log"
-/// support flow. Precedent for `LOCALAPPDATA`: `src/emoji/mod.rs`,
-/// `src/text.rs`. Kept split from the resolution so the mapping is unit-tested
+/// support flow. Precedent for `LOCALAPPDATA`: `src/text/discovery.rs`
+/// (`std::env::var_os("LOCALAPPDATA")`). Kept split from the resolution so the mapping is unit-tested
 /// on the `windows-latest` CI leg without mutating process env.
 #[cfg(windows)]
 fn platform_state_dir() -> Option<PathBuf> {

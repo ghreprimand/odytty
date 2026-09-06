@@ -1302,7 +1302,16 @@ pub(super) fn save_theme_to_dir(
     }
     fs::create_dir_all(theme_dir)?;
     let path = theme_dir.join(format!("{}.theme", request.name));
-    fs::write(&path, request.spec.serialize())?;
+    // Atomic write like every other persistence writer (config/settings,
+    // profiles, session snapshots): a temp sibling is created, synced, and
+    // renamed over the target, so a crash or full disk mid-write can never leave
+    // a truncated `.theme` that the immediate re-read would pick up. `Config`
+    // mode matches this user-editable, shareable file class.
+    crate::state_dir::write_atomic(
+        &path,
+        request.spec.serialize().as_bytes(),
+        crate::state_dir::WriteMode::Config,
+    )?;
     Ok(path)
 }
 

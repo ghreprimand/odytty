@@ -30,6 +30,20 @@ fn at(row: usize, column: usize) -> AbsolutePoint {
 }
 
 #[test]
+fn match_count_is_capped_for_a_broadly_matching_query() {
+    // A single-character query that matches once per row across far more rows
+    // than the cap must not return an unbounded match vector.
+    let cell_rows: Vec<Vec<Cell>> = (0..(MAX_SEARCH_MATCHES + 500)).map(|_| row("x")).collect();
+    let rows: Vec<SearchRow<'_>> = cell_rows.iter().map(|c| srow(c, false)).collect();
+    let m = search_rows(&rows, "x", SearchOptions::case_sensitive());
+    assert_eq!(
+        m.len(),
+        MAX_SEARCH_MATCHES,
+        "matches must be capped at MAX_SEARCH_MATCHES"
+    );
+}
+
+#[test]
 fn literal_substring_match_reports_inclusive_span() {
     let cells = row("hello world");
     let rows = [srow(&cells, false)];

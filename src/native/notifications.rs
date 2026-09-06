@@ -292,13 +292,21 @@ impl DesktopNotificationKind {
 /// silent: the in-app state remains authoritative and no success is inferred.
 pub(in crate::native) fn deliver_desktop(kind: DesktopNotificationKind) {
     let body = kind.body();
-    std::thread::spawn(move || {
+    let _ = crate::spawn_util::spawn_named("notify-desktop", move || {
         let Some(spec) = platform_notification_spec(current_platform(), body) else {
             return;
         };
-        let _ = std::process::Command::new(spec.program)
-            .args(spec.args)
-            .status();
+        // Windows: this is a console-subsystem child (`powershell.exe`) of the
+        // GUI-subsystem binary. Without CREATE_NO_WINDOW the OS flashes a black
+        // console over the terminal for the whole PowerShell startup, and the
+        // rate limiter still permits four per 30s, so noisy PTY output could
+        // drive repeated flashes. `apply_no_console_window` is the documented
+        // fix (C13) and every other console spawn already routes through it;
+        // this was the missing sixth site. No-op on non-Windows.
+        let mut command = std::process::Command::new(spec.program);
+        command.args(spec.args);
+        crate::native::app::win_spawn::apply_no_console_window(&mut command);
+        let _ = command.status();
     });
 }
 

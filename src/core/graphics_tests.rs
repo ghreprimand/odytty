@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use crate::graphics::{GraphicsCommand, GraphicsProtocol, PlacementRequest};
+use crate::graphics::{GraphicsProtocol, PlacementRequest};
 
 use super::*;
 
@@ -30,12 +30,9 @@ fn kitty_apc_payloads_route_to_graphics_scene_without_printing() {
 
     terminal.advance(b"\x1b_Gf=32,a=T;AAAA\x1b\\text");
 
-    let commands = terminal.graphics().raw_commands();
-    assert_eq!(commands.len(), 1);
-    assert!(matches!(
-        &commands[0],
-        GraphicsCommand::KittyApc { payload } if payload == b"Gf=32,a=T;AAAA"
-    ));
+    // The APC is routed to the graphics scene and never echoed to the grid;
+    // only the trailing plain text prints. (This payload carries no valid
+    // dimensions, so it stores no image, but it must still be consumed.)
     assert_eq!(terminal.screen().plain_text(), "text\n\n");
 }
 
@@ -45,16 +42,9 @@ fn sixel_dcs_routes_and_decodes_with_cursor_advance() {
 
     terminal.advance(b"\x1bP1;2q????\x1b\\done");
 
-    // Raw command is recorded (G2.1 routing).
-    let commands = terminal.graphics().raw_commands();
-    assert_eq!(commands.len(), 1);
-    assert!(matches!(
-        &commands[0],
-        GraphicsCommand::SixelDcs { raw_body, payload_start, p2 }
-            if raw_body == b"1;2q????" && *payload_start == 4 && *p2 == Some(2)
-    ));
-    // SX2 decode + cursor-below-image: cursor moved down 1 row, then "done"
-    // prints starting at (1, 0).
+    // SX2 decode + cursor-below-image: the DCS is consumed (an image is stored),
+    // the cursor moved down 1 row, then "done" prints starting at (1, 0).
+    assert_eq!(terminal.graphics().store().len(), 1);
     assert_eq!(terminal.screen().plain_text(), "\ndone\n");
 }
 
@@ -100,14 +90,13 @@ fn alternate_screen_graphics_are_isolated_and_discarded_on_leave() {
 }
 
 #[test]
-fn ris_clears_graphics_scene_and_pending_payloads() {
+fn ris_clears_graphics_scene() {
     let mut terminal = Terminal::new(10, 3);
     place_test_image(&mut terminal, GraphicsProtocol::Kitty, 0, 0);
-    terminal.advance(b"\x1b_Ga=q\x1b\\");
-    assert_eq!(terminal.graphics().raw_commands().len(), 1);
+    assert!(!terminal.visible_graphics(0).is_empty());
 
     terminal.advance(b"\x1bc");
 
     assert!(terminal.visible_graphics(0).is_empty());
-    assert!(terminal.graphics().raw_commands().is_empty());
+    assert_eq!(terminal.graphics().placements().len(), 0);
 }

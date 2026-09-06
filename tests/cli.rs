@@ -262,6 +262,12 @@ fn usage_text_documents_live_attach_and_drops_pending_wording() {
     // The other documented verbs are unchanged.
     assert!(usage.contains("list            list live detached sessions"));
     assert!(usage.contains("new [--detached] [-e COMMAND...]"));
+    // Session commands are Unix-only this release; --help must say so, since a
+    // Windows user reaches this text and the verbs bail there.
+    assert!(
+        usage.contains("Unix-only in this release"),
+        "usage must state the Windows session-command limitation: {usage}"
+    );
 }
 
 #[test]

@@ -40,7 +40,16 @@ impl App {
     /// cannot) and hands it to the dialog. An unknown cwd is carried as an empty
     /// string → the spawn falls back to the default directory.
     pub(in crate::native) fn open_detach_switch_choice(&mut self) {
-        let cwd = self.focused_pane_cwd().unwrap_or_default();
+        // Route the OSC 7 cwd through the shared spawn-cwd validator like every
+        // other spawn entry point (audit D-1): the tracked cwd is
+        // attacker-influenceable, so a bogus `file:///nonexistent/...` would
+        // otherwise reach `spawn_host_on_demand` and break the action. An
+        // existing dir is used as-is, a bogus one falls back to home, an unknown
+        // cwd carries as empty (default dir).
+        let cwd = self
+            .validated_spawn_cwd()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default();
         self.reset_pointer_state_for_overlay();
         self.overlay.open_detach_switch_choice(cwd);
         self.request_selection_redraw();

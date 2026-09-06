@@ -205,14 +205,23 @@ fn empty_key_bindings_are_ignored_without_warning() {
 }
 
 #[test]
-fn duplicate_key_binding_entries_preserve_input_order() {
+fn duplicate_chord_bound_to_two_actions_parses_both_and_warns() {
+    // Both entries parse (individually well-formed) and preserve input order,
+    // but binding one chord to two different actions is a conflict: only the
+    // later fires at runtime (keep-last by chord in `KeyBindings::from_overrides`),
+    // so the parser surfaces a warning rather than silently shadowing.
     let (settings, warnings) =
         settings_from([(KEYBINDS_ENV, "ctrl+shift+y=copy,ctrl+shift+y=paste")]);
 
     assert_eq!(settings.key_bindings.len(), 2);
     assert_eq!(settings.key_bindings[0].action, BindableAction::Copy);
     assert_eq!(settings.key_bindings[1].action, BindableAction::Paste);
-    assert!(warnings.is_empty());
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("bound to more than one action")),
+        "a chord bound to two actions must warn: {warnings:?}"
+    );
 }
 
 #[test]

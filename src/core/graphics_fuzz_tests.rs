@@ -601,7 +601,7 @@ fn graphics_fuzz_sixel_relaxed_tokens_deep() {
 
 fn run_sixel_relaxed(iters: u64) {
     announce_budget("sixel_relaxed", iters, 0x2545_F491_4F6C_DD1D, 0x5A4E);
-    const MAX_PIXELS: u64 = 40_000_000;
+    const MAX_PIXELS: u64 = 16_777_216;
     for i in 0..iters {
         let seed = fuzz_seed(i, 0x2545_F491_4F6C_DD1D, 0x5A4E);
         let mut rng = FuzzRng::new(seed);
@@ -628,8 +628,8 @@ fn run_sixel_relaxed(iters: u64) {
 
 fn run_sixel_decode(iters: u64) {
     announce_budget("sixel_decode", iters, 0x9E37_79B9_7F4A_7C15, 0x5180);
-    // Hard caps from sixel.rs: 10_000×10_000 dims, 40_000_000 pixel budget.
-    const MAX_PIXELS: u64 = 40_000_000;
+    // Hard caps from sixel.rs: 10_000x10_000 dims, 16_777_216 pixel budget.
+    const MAX_PIXELS: u64 = 16_777_216;
     for i in 0..iters {
         let seed = fuzz_seed(i, 0x9E37_79B9_7F4A_7C15, 0x5180);
         let mut rng = FuzzRng::new(seed);
@@ -661,36 +661,51 @@ fn run_sixel_decode(iters: u64) {
     }
 }
 
-/// Explicit cap probe (kept tiny — these allocate or reject near-cap canvases):
-/// raster headers at / just over / far over the decoder's pixel budget must be
-/// either rejected cleanly or honored within the cap, never panicking and never
-/// producing an over-cap buffer. This complements `run_sixel_decode`, whose
+/// Explicit cap probe. Each body ends in one `?` data character so the decoder
+/// actually reaches `finish()` (and, for the accepted cases, the output
+/// allocation) rather than short-circuiting on the empty-payload guard the way
+/// a header-only body would. Every case asserts a definite outcome: near-cap
+/// canvases are honored, and canvases over the pixel budget are rejected before
+/// any over-cap buffer is produced. This complements `run_sixel_decode`, whose
 /// generator deliberately stays small for speed.
 #[test]
 fn graphics_fuzz_sixel_canvas_cap_rejected() {
-    const MAX_PIXELS: u64 = 40_000_000;
-    // (Ph, Pv) pairs: under cap, just over the per-axis cap, and over the pixel
-    // budget. Each is a complete raster header with no pixel data.
-    let cases: [(u32, u32); 5] = [
-        (100, 100),     // small, accepted
-        (10_001, 10),   // width over MAX_WIDTH
-        (10, 10_001),   // height over MAX_HEIGHT
-        (9_000, 9_000), // 81M px, over the 40M budget
-        (6_000, 6_000), // 36M px, under budget but large (single alloc)
+    // Aligned with `sixel::MAX_PIXELS` (64 MiB RGBA at 4 bytes per pixel).
+    const MAX_PIXELS: u64 = 16_777_216;
+    const MAX_DIM: u32 = 10_000;
+    // (Ph, Pv, expect_ok). Raster attributes clamp each axis to MAX_DIM before
+    // the pixel-budget check, so an over-axis dimension is clamped and accepted;
+    // only an over-budget pixel product is rejected.
+    let cases: [(u32, u32, bool); 5] = [
+        (100, 100, true),      // small, accepted
+        (4_000, 4_000, true),  // 16M px, just under budget: near-cap alloc honored
+        (10_001, 10, true),    // width clamped to MAX_DIM, then accepted
+        (9_000, 9_000, false), // 81M px, over the pixel budget: rejected
+        (5_000, 5_000, false), // 25M px, over the pixel budget: rejected
     ];
-    for (w, h) in cases {
-        let body = format!("\"1;1;{w};{h}");
+    for (w, h, expect_ok) in cases {
+        let body = format!("\"1;1;{w};{h}?");
         match decode_sixel(body.as_bytes(), SixelBackground::Opaque) {
             Ok(image) => {
+                assert!(
+                    expect_ok,
+                    "canvas {w}x{h} should have been rejected but decoded {}x{}",
+                    image.width, image.height
+                );
                 let pixels = image.width as u64 * image.height as u64;
                 assert!(
-                    pixels <= MAX_PIXELS && image.width <= 10_000 && image.height <= 10_000,
+                    pixels <= MAX_PIXELS && image.width <= MAX_DIM && image.height <= MAX_DIM,
                     "accepted canvas {}x{} exceeds caps",
                     image.width,
                     image.height
                 );
             }
-            Err(_) => { /* clean rejection — the bounded-memory guarantee */ }
+            Err(_) => {
+                assert!(
+                    !expect_ok,
+                    "canvas {w}x{h} should have decoded within the cap but was rejected"
+                );
+            }
         }
     }
 }

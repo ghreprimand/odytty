@@ -42,12 +42,38 @@ if (( audit_status != 0 )); then
   exit "$audit_status"
 fi
 
+# Removal trigger: replace or update ttf-parser with a maintained parser that
+# clears this advisory (the font-corpus/shaping/MSRV/all-platform migration
+# evaluated for v0.14.0), or RustSec withdraws RUSTSEC-2026-0192 upstream. When
+# either happens the advisory drops out of the scan and this block is deleted;
+# do not renew the date without re-checking upstream first.
+#
+# Early-warning window (mirrors the retired quick-xml fuse): for the 14 days
+# before the hard expiry, a scheduled or pull-request audit fails so the
+# deadline surfaces well ahead of time, while a release-tag audit still passes
+# until the hard expiry so a release already in flight is not blocked by the
+# warning window alone. At or past the hard expiry every audit fails closed.
 ttf_parser_advisory="RUSTSEC-2026-0192"
 ttf_parser_expiry="2026-10-15"
+ttf_parser_early_warning="2026-10-01" # expiry minus 14 days
 audit_date="${ODYTTY_AUDIT_DATE:-$(date -u +%F)}"
 if [[ ! "$audit_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
   echo "invalid audit date: $audit_date" >&2
   exit 2
+fi
+# A release-tag run is exempt from the early-warning window (but never from the
+# hard expiry). GITHUB_REF is set by GitHub Actions; empty locally, so a local
+# gate run is treated as non-release and sees the warning window.
+is_release_run=0
+if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+  is_release_run=1
+fi
+if grep -q "$ttf_parser_advisory" <<<"$audit_output" \
+  && [[ "$audit_date" > "$ttf_parser_early_warning" || "$audit_date" == "$ttf_parser_early_warning" ]] \
+  && [[ "$audit_date" < "$ttf_parser_expiry" ]] \
+  && (( is_release_run == 0 )); then
+  echo "$ttf_parser_advisory exception enters its early-warning window on $ttf_parser_early_warning (hard expiry $ttf_parser_expiry); resolve it before the deadline" >&2
+  exit 1
 fi
 if grep -q "$ttf_parser_advisory" <<<"$audit_output" \
   && [[ "$audit_date" > "$ttf_parser_expiry" || "$audit_date" == "$ttf_parser_expiry" ]]; then

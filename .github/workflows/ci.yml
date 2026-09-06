@@ -18,6 +18,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: this is a build/test correctness gate that reads the repo and
+# produces no artifacts, so the workflow token needs only read access to
+# contents. Declared at the workflow level so every job inherits it.
+permissions:
+  contents: read
+
 jobs:
   build-test:
     name: Build & test (${{ matrix.os }})

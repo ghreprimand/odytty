@@ -102,6 +102,14 @@ impl AttachEventSink for EventLoopProxy<UserEvent> {
 pub(super) struct AttachClient {
     stream: UnixStream,
     detached: bool,
+    /// Set once a non-transient write error (a `ProtocolError::TruncatedWrite`
+    /// after a partial kernel write, or a dead-link fd error) leaves a truncated
+    /// frame on the wire. All three write paths (input, resize, detach) share
+    /// this one client and therefore one socket, so a desync on any of them must
+    /// poison the others: continuing to write would feed the host parser garbage.
+    /// `AttachInputWriter::write` still treats a transient send timeout as
+    /// non-fatal (drop the frame, keep the writer), which never sets this flag.
+    poisoned: bool,
 }
 
 impl AttachClient {
@@ -182,6 +190,7 @@ impl AttachClient {
             Self {
                 stream,
                 detached: false,
+                poisoned: false,
             },
             AttachReader {
                 stream: read_stream,
@@ -196,8 +205,11 @@ impl AttachClient {
         if bytes.is_empty() {
             return Ok(());
         }
-        write_client_frame(&mut self.stream, &ClientFrame::Input(bytes.to_vec()))
-            .context("write session-host input frame")
+        self.guard_not_poisoned()?;
+        let result = write_client_frame(&mut self.stream, &ClientFrame::Input(bytes.to_vec()))
+            .context("write session-host input frame");
+        self.note_write_result(&result);
+        result
     }
 
     /// Forward a window resize to the host (which applies `TIOCSWINSZ` + reflow on
@@ -206,8 +218,30 @@ impl AttachClient {
         if columns == 0 || rows == 0 {
             bail!("session-host resize dimensions must be nonzero");
         }
-        write_client_frame(&mut self.stream, &ClientFrame::Resize { columns, rows })
-            .context("write session-host resize frame")
+        self.guard_not_poisoned()?;
+        let result = write_client_frame(&mut self.stream, &ClientFrame::Resize { columns, rows })
+            .context("write session-host resize frame");
+        self.note_write_result(&result);
+        result
+    }
+
+    /// Reject a write onto a stream already desynced by a prior partial write.
+    fn guard_not_poisoned(&self) -> Result<()> {
+        if self.poisoned {
+            bail!("session-host stream is desynced by a prior truncated write");
+        }
+        Ok(())
+    }
+
+    /// Poison the shared client on any non-transient write failure so the input,
+    /// resize, and detach paths that share this socket all fail closed. A
+    /// transient send timeout (nothing on the wire) is deliberately not fatal.
+    fn note_write_result(&mut self, result: &Result<()>) {
+        if let Err(error) = result
+            && !is_transient_send_timeout(error)
+        {
+            self.poisoned = true;
+        }
     }
 
     /// Send a clean `Detach`: this client leaves but the hosted PTY + terminal
@@ -218,8 +252,15 @@ impl AttachClient {
             return Ok(());
         }
         self.detached = true;
-        write_client_frame(&mut self.stream, &ClientFrame::Detach)
-            .context("write session-host detach frame")
+        // A stream already desynced by a truncated write cannot carry a clean
+        // Detach frame; skipping it is fatal-visible (the host tears the session
+        // down when this socket closes). Propagate the error like the input
+        // writer rather than swallowing it.
+        self.guard_not_poisoned()?;
+        let result = write_client_frame(&mut self.stream, &ClientFrame::Detach)
+            .context("write session-host detach frame");
+        self.note_write_result(&result);
+        result
     }
 }
 

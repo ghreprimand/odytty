@@ -1268,6 +1268,13 @@ impl App {
     }
 
     pub(super) fn write_primary_selection(&mut self) {
+        // H4: the PTY pump can trim scrollback on its own thread between redraws,
+        // shifting every absolute row address. Reconcile any pending trim (the
+        // scrollback-epoch check) before reading the selection, so a stale
+        // selection is cleared rather than resolving to different, more recent
+        // rows -- the same generation discipline the command-output copy path
+        // already applies.
+        self.sessions.reconcile_scrollback_trims();
         let Some(text) = self.current_selection_text() else {
             return;
         };

@@ -70,7 +70,9 @@
 //! ## APC surfacing (Screen-invisible)
 //!
 //! OdyParser surfaces APC strings via [`VtDispatch::apc_dispatch`]. `Screen`
-//! ignores `apc_dispatch` today; graphics-protocol work consumes it later.
+//! consumes it: its impl forwards to `dispatch_apc`, which routes through
+//! `core::graphics_routing::apc_dispatch` into the Kitty graphics-protocol
+//! handler (`core::kitty::handle_apc`).
 
 mod action;
 mod driver;
@@ -146,7 +148,10 @@ pub trait VtDispatch {
 
     /// An Application Program Command (`ESC _ … ST`) payload was received.
     ///
-    /// The terminal core ignores it today; the graphics-protocol work (Kitty)
-    /// consumes it on owned plumbing in later work.
+    /// The terminal core consumes it: `Screen`'s impl forwards to `dispatch_apc`
+    /// / `graphics_routing::apc_dispatch`, driving the Kitty graphics protocol
+    /// (`kitty::handle_apc`). The default here is a no-op for dispatchers that do
+    /// not implement graphics. Removing or reordering this callback breaks live
+    /// Kitty image support.
     fn apc_dispatch(&mut self, _data: &[u8]) {}
 }

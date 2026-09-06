@@ -181,10 +181,12 @@ impl RenderQuality {
     }
 }
 
-/// ID3/U5 background-treatment selector. `Off` (the default) leaves the cell
-/// background exactly as resolved, so the plain/fast path is pixel-identical.
-/// The others apply a readability-safe per-cell luminance modulation in the
-/// grid cell-vertex path, before the RV1 minimum-contrast floor.
+/// ID3/U5 background-treatment selector. The shipped default is `Image` (see the
+/// `#[default]` variant below), which draws the bundled wallpaper behind the
+/// grid with a scrim. `Off` is the opt-out that leaves the cell background
+/// exactly as resolved (the plain/fast path, pixel-identical to no treatment).
+/// `Gradient`/`Vignette` apply a readability-safe per-cell luminance modulation
+/// in the grid cell-vertex path, before the RV1 minimum-contrast floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackgroundTreatment {
     /// No treatment — background drawn unchanged.
@@ -884,10 +886,12 @@ pub struct Settings {
     /// never affected.
     pub inactive_pane_dim: f32,
     pub render_quality: RenderQuality,
-    /// ID3/U5 background treatment (`off` default ⇒ pixel-identical plain path).
+    /// ID3/U5 background treatment. Shipped default is `Image` (the bundled
+    /// wallpaper); `off` is the opt-out pixel-identical plain path.
     pub background_treatment: BackgroundTreatment,
-    /// Optional PNG image file path for the `image` background treatment. `None`
-    /// (the default) means no image — the `image` treatment then behaves exactly
+    /// Optional PNG image file path for the `image` background treatment. The
+    /// shipped default is `Some(bundled_background_path())` (the bundled
+    /// wallpaper); `None` means no image, so the `image` treatment then behaves
     /// like `off`. A missing / unreadable / non-PNG file warns and falls back
     /// gracefully (no image, no crash).
     pub background_image: Option<PathBuf>,
@@ -896,9 +900,11 @@ pub struct Settings {
     /// a warning if the image exceeds 4096×4096px.
     pub background_blur_radius: u32,
     /// Explicit readability-scrim override in `0.0..=1.0` for the background
-    /// image. `None` (the default) auto-computes the scrim from the image's
-    /// worst-case luminance + the theme so the RV1 floor is guaranteed; an
-    /// explicit value lets an expert dial it back.
+    /// image. The shipped default is `Some(DEFAULT_BACKGROUND_IMAGE_SCRIM)`
+    /// (`Some(0.5)`), a fixed scrim. Setting `background_image_scrim = auto`
+    /// (`None`) auto-computes the scrim from the image's worst-case luminance +
+    /// the theme so the RV1 floor is guaranteed; an explicit numeric value lets
+    /// an expert dial it in.
     pub background_image_scrim: Option<f32>,
     /// Cell background opacity in `0.0..=1.0`. `1.0` (the default) keeps cells
     /// fully opaque — the background image shows only in the window padding, and

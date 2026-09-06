@@ -267,9 +267,11 @@ pub fn font_inventory() -> Vec<FontInventoryEntry> {
 
 /// Inventory font files under `dirs`, sorted for stable CLI output.
 ///
-/// This is intentionally filename-stem based. OdyTTY does not parse font naming
-/// tables yet, so the v1 CLI reports the same stem names the family resolver can
-/// already match.
+/// This v1 CLI listing is intentionally filename-stem based, even though font
+/// naming-table parsing exists in this file (`read_face_meta` / `real_family_name`)
+/// and is what the family resolver matches against. Stem and real family name
+/// can differ (for example `CascadiaCodeItalic.ttf` versus "Cascadia Code"); the
+/// stem-based listing is a deliberate choice for the CLI, not a missing feature.
 pub fn font_inventory_in_dirs(dirs: &[PathBuf]) -> Vec<FontInventoryEntry> {
     let mut entries = collect_font_files(dirs)
         .into_iter()

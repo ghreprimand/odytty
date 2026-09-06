@@ -9,7 +9,10 @@
 //!
 //! The `diagnostics_block()` clipboard text deliberately OMITS filesystem paths
 //! (config/log dirs contain `$HOME`/username) so a user can paste it into a bug
-//! report without leaking their account name. Paths are shown on screen only.
+//! report without leaking their account name. No filesystem path is displayed
+//! anywhere in the About view either -- neither `info_lines()` nor
+//! `diagnostics_block()` formats one -- so there is no on-screen path surface to
+//! guard.
 
 use super::gpu::AdapterDiagnostics;
 

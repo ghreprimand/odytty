@@ -112,6 +112,19 @@ impl OverlayUi {
         self.context_menu.set_workspace_count(count);
     }
 
+    /// Snapshot the clicked workspace's name on the open `WorkspaceSlot` menu so
+    /// the App can re-validate the frozen rail index before acting on it
+    /// (RAIL-REVALIDATE).
+    pub(in crate::native) fn set_context_menu_workspace_slot_name(&mut self, name: Option<String>) {
+        self.context_menu.set_workspace_slot_name(name);
+    }
+
+    /// The workspace name snapshotted for the open `WorkspaceSlot` menu, or
+    /// `None` when no rail-slot menu is/was open.
+    pub(in crate::native) fn context_menu_workspace_slot_name(&self) -> Option<&str> {
+        self.context_menu.workspace_slot_name()
+    }
+
     pub(in crate::native) fn set_context_menu_command_actions_enabled(&mut self, enabled: bool) {
         self.context_menu.set_command_actions_enabled(enabled);
     }

@@ -4,15 +4,13 @@
 //! Placements are terminal state, not renderer state: they scroll with text,
 //! clear with terminal erase/reset operations, and stay isolated between the
 //! primary and alternate buffers. Coordinates are physical cell anchors. G2.1
-//! deliberately avoids protocol decoding; it only stores decoded-image records,
-//! placement records, and raw Kitty/Sixel payloads for later protocol decoding.
-
-use std::collections::VecDeque;
+//! deliberately avoids protocol decoding; it stores decoded-image records and
+//! placement records, and exposes validity gates for Kitty APC / Sixel DCS
+//! framing without retaining the raw payload bytes.
 
 use super::frames::{AnimationControl, FrameComposition, FrameError, FrameUpdate};
 use super::store::{ImageInsert, ImageStore, ImageStoreError, ImageStoreLimits, StoredImageId};
 
-pub const MAX_RAW_GRAPHICS_COMMANDS: usize = 64;
 pub const MAX_RAW_GRAPHICS_BYTES: usize = 1024 * 1024;
 pub const MAX_IMAGE_PLACEMENTS_PER_BUFFER: usize = 64;
 /// Live cap on virtual (Unicode-placeholder) placements. Virtual placements
@@ -193,24 +191,11 @@ pub struct VirtualPlacement {
     pub generation: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GraphicsCommand {
-    KittyApc {
-        payload: Vec<u8>,
-    },
-    SixelDcs {
-        raw_body: Vec<u8>,
-        payload_start: usize,
-        p2: Option<u16>,
-    },
-}
-
 #[derive(Debug, Clone)]
 pub struct ImageScene {
     store: ImageStore,
     placements: Vec<ImagePlacement>,
     virtual_placements: Vec<VirtualPlacement>,
-    raw_commands: VecDeque<GraphicsCommand>,
     next_placement_id: u64,
     next_generation: u64,
     active: ScreenBuffer,
@@ -228,7 +213,6 @@ impl ImageScene {
             store: ImageStore::new(store_limits),
             placements: Vec::new(),
             virtual_placements: Vec::new(),
-            raw_commands: VecDeque::new(),
             next_placement_id: 1,
             next_generation: 1,
             active: ScreenBuffer::Primary,
@@ -652,35 +636,20 @@ impl ImageScene {
         changed
     }
 
-    pub fn raw_commands(&self) -> &VecDeque<GraphicsCommand> {
-        &self.raw_commands
+    /// Validity gate for a Kitty APC payload: true when it is a graphics
+    /// command (`G` introducer). The boolean is load-bearing (it gates whether
+    /// the caller marks the scene dirty and dispatches the command); the payload
+    /// bytes themselves are not retained, since no production consumer ever read
+    /// them back.
+    pub fn accepts_kitty_apc(&self, payload: &[u8]) -> bool {
+        payload.starts_with(b"G")
     }
 
-    pub fn record_kitty_apc(&mut self, payload: &[u8]) -> bool {
-        if !payload.starts_with(b"G") {
-            return false;
-        }
-        self.push_raw(GraphicsCommand::KittyApc {
-            payload: capped_bytes(payload),
-        });
-        true
-    }
-
-    pub fn record_sixel_dcs(
-        &mut self,
-        raw_body: &[u8],
-        payload_start: usize,
-        p2: Option<u16>,
-    ) -> bool {
-        if payload_start > raw_body.len() || !raw_body[..payload_start].contains(&b'q') {
-            return false;
-        }
-        self.push_raw(GraphicsCommand::SixelDcs {
-            raw_body: capped_bytes(raw_body),
-            payload_start,
-            p2,
-        });
-        true
+    /// Validity gate for a Sixel DCS: true when the framing is well-formed (a
+    /// `q` introducer precedes the payload). As with [`Self::accepts_kitty_apc`]
+    /// the boolean is load-bearing while the raw bytes are not retained.
+    pub fn accepts_sixel_dcs(&self, raw_body: &[u8], payload_start: usize) -> bool {
+        payload_start <= raw_body.len() && raw_body[..payload_start].contains(&b'q')
     }
 
     pub fn enter_alternate(&mut self, clear: bool) {
@@ -706,7 +675,6 @@ impl ImageScene {
     pub fn hard_reset(&mut self) {
         self.clear_active();
         self.virtual_placements.clear();
-        self.raw_commands.clear();
         self.active = ScreenBuffer::Primary;
     }
 
@@ -958,13 +926,6 @@ impl ImageScene {
         visible
     }
 
-    fn push_raw(&mut self, command: GraphicsCommand) {
-        self.raw_commands.push_back(command);
-        while self.raw_commands.len() > MAX_RAW_GRAPHICS_COMMANDS {
-            self.raw_commands.pop_front();
-        }
-    }
-
     fn shift_rows(
         &mut self,
         top: isize,
@@ -1028,14 +989,6 @@ impl ImageScene {
         self.virtual_placements
             .retain(|placement| !evicted.contains(&placement.image_id));
     }
-}
-
-fn capped_bytes(payload: &[u8]) -> Vec<u8> {
-    payload
-        .iter()
-        .take(MAX_RAW_GRAPHICS_BYTES)
-        .copied()
-        .collect()
 }
 
 fn intersects_range(

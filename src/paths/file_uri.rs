@@ -35,6 +35,20 @@ pub enum UriOs {
 pub fn file_uri(abs: &str, os: UriOs) -> String {
     match os {
         UriOs::Windows => {
+            // UNC path `\\host\share\...`: the host is the URI authority, not
+            // part of the path, matching PureWindowsPath.as_uri() and Windows'
+            // own path-to-URL helpers. The drive-letter transform below would
+            // otherwise render it as `file:////host/share/...` (four slashes,
+            // empty authority, host folded into the path).
+            if let Some(rest) = abs.strip_prefix(r"\\") {
+                let slashed = rest.replace('\\', "/");
+                let (host, path) = slashed.split_once('/').unwrap_or((slashed.as_str(), ""));
+                return format!(
+                    "file://{}/{}",
+                    percent_encode_uri_path(host),
+                    percent_encode_uri_path(path)
+                );
+            }
             let slashed = abs.replace('\\', "/");
             let rooted = if slashed.starts_with('/') {
                 slashed
@@ -105,6 +119,22 @@ mod tests {
             file_uri("C:\\50%off\\x.txt", UriOs::Windows),
             "file:///C:/50%25off/x.txt"
         );
+    }
+
+    #[test]
+    fn windows_unc_host_becomes_authority() {
+        // `\\host\share\file` -> host as authority, two slashes (not four).
+        assert_eq!(
+            file_uri(r"\\server\share\file.txt", UriOs::Windows),
+            "file://server/share/file.txt"
+        );
+        // Percent-encoding still applies to the share/path segments.
+        assert_eq!(
+            file_uri(r"\\fileserver\builds\out log.txt", UriOs::Windows),
+            "file://fileserver/builds/out%20log.txt"
+        );
+        // A bare host with no share still yields a two-slash authority form.
+        assert_eq!(file_uri(r"\\server", UriOs::Windows), "file://server/");
     }
 
     #[test]

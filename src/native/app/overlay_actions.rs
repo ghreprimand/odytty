@@ -159,9 +159,15 @@ impl App {
         // RAIL-REORDER: a WorkspaceSlot menu needs the total workspace count to
         // gate its Move Up/Down rows (Move Down hides on the last slot). Set it
         // only for that surface; every other menu leaves the count at 0.
-        if let ContextMenuSurface::WorkspaceSlot(_) = surface {
+        if let ContextMenuSurface::WorkspaceSlot(idx) = surface {
             self.overlay
                 .set_context_menu_workspace_count(self.sessions.workspace_count());
+            // RAIL-REVALIDATE: snapshot the clicked workspace's name so a later
+            // rail mutation (a background workspace auto-closing) that shifts
+            // indices is caught before an action lands on the wrong workspace.
+            self.overlay.set_context_menu_workspace_slot_name(
+                self.sessions.workspace_name(idx).map(str::to_owned),
+            );
         }
         // MENU-Z-ORDER: a rail-anchored menu keeps the auto-hide rail revealed
         // (RAIL-PIN), and the rail composites topmost — so without clearance the
@@ -208,6 +214,23 @@ impl App {
             crate::settings::format_key_chord(second),
         );
         Some(format!("{prefix_label} {second_label}"))
+    }
+
+    /// RAIL-REVALIDATE: confirm a `WorkspaceSlot` context-menu index still names
+    /// the workspace that was right-clicked. Unlike a `TabSlot` (which carries an
+    /// opaque token re-resolved at activation), a rail slot carries a bare index
+    /// frozen at menu-open time; a background workspace auto-closing while the
+    /// menu is open shifts every later index down, so acting on the raw index
+    /// would hit the wrong workspace. Returns the index only when the live
+    /// workspace name at it matches the snapshot taken at open; otherwise `None`
+    /// (the action is dropped, mirroring how a `TabSlot` action degrades to a
+    /// safe no-op after a reorder). When no name was captured (not a rail-slot
+    /// menu), the index is accepted unchanged.
+    pub(super) fn revalidated_workspace_slot(&self, idx: usize) -> Option<usize> {
+        match self.overlay.context_menu_workspace_slot_name() {
+            Some(captured) => (self.sessions.workspace_name(idx) == Some(captured)).then_some(idx),
+            None => Some(idx),
+        }
     }
 
     /// Route an overlay [`OverlayOutcome`] (from either the keyboard or the
@@ -450,20 +473,28 @@ impl App {
             }
             OverlayOutcome::ContextMenuRenameWorkspace(idx) => {
                 self.flush_pending_overlay_settings();
-                self.enter_rename_workspace(idx);
+                if let Some(idx) = self.revalidated_workspace_slot(idx) {
+                    self.enter_rename_workspace(idx);
+                }
             }
             OverlayOutcome::ContextMenuCloseWorkspace(idx) => {
                 self.flush_pending_overlay_settings();
-                self.close_workspace_at(idx);
+                if let Some(idx) = self.revalidated_workspace_slot(idx) {
+                    self.close_workspace_at(idx);
+                }
             }
             // RAIL-REORDER: move the clicked workspace one slot in the rail.
             OverlayOutcome::ContextMenuMoveWorkspaceUp(idx) => {
                 self.flush_pending_overlay_settings();
-                self.move_workspace_at(idx, true);
+                if let Some(idx) = self.revalidated_workspace_slot(idx) {
+                    self.move_workspace_at(idx, true);
+                }
             }
             OverlayOutcome::ContextMenuMoveWorkspaceDown(idx) => {
                 self.flush_pending_overlay_settings();
-                self.move_workspace_at(idx, false);
+                if let Some(idx) = self.revalidated_workspace_slot(idx) {
+                    self.move_workspace_at(idx, false);
+                }
             }
             // Content-grid workspace section: Rename/Close target the active
             // workspace (no per-workspace click target on the grid).
@@ -496,12 +527,16 @@ impl App {
             // closed itself; open the shared host picker seeded for the slot.
             OverlayOutcome::ContextMenuBindWorkspaceAt(idx) => {
                 self.flush_pending_overlay_settings();
-                self.open_bind_workspace_at_picker(idx);
+                if let Some(idx) = self.revalidated_workspace_slot(idx) {
+                    self.open_bind_workspace_at_picker(idx);
+                }
             }
             // RAIL-BIND: unbind the CLICKED rail workspace directly.
             OverlayOutcome::ContextMenuUnbindWorkspaceAt(idx) => {
                 self.flush_pending_overlay_settings();
-                self.unbind_workspace_at(idx);
+                if let Some(idx) = self.revalidated_workspace_slot(idx) {
+                    self.unbind_workspace_at(idx);
+                }
             }
             // RAIL-BIND: the shared host picker closed itself; bind the clicked
             // rail slot to the chosen saved-host alias.
@@ -578,7 +613,9 @@ impl App {
             // name prompt seeded from the CLICKED workspace.
             OverlayOutcome::ContextMenuSaveLayoutAt(idx) => {
                 self.flush_pending_overlay_settings();
-                self.enter_save_layout_prompt(idx);
+                if let Some(idx) = self.revalidated_workspace_slot(idx) {
+                    self.enter_save_layout_prompt(idx);
+                }
             }
             // LAYOUT-SURFACE: the content-grid workspace section chose Save as
             // Layout; open the name prompt seeded from the ACTIVE workspace.

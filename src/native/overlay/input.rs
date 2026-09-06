@@ -223,7 +223,9 @@ impl OverlayUi {
                         }
                     }
                     OverlayMode::KeyBindings => {
-                        if button == PointerButton::Left && self.key_remap.click_row(row_in_body) {
+                        if button == PointerButton::Left
+                            && self.key_remap.click_row(row_in_body, rect.body_height)
+                        {
                             self.handle_key_remap_input(OverlayInput::Activate)
                         } else {
                             OverlayOutcome::Consumed

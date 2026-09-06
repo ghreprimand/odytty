@@ -116,8 +116,8 @@ pub(super) fn dcs_unhook(
         return None;
     }
 
-    // Record the raw command (existing G2.1 behavior).
-    if !graphics.record_sixel_dcs(&capture.body, capture.payload_start, capture.p2) {
+    // Gate on well-formed DCS framing before decoding.
+    if !graphics.accepts_sixel_dcs(&capture.body, capture.payload_start) {
         return None;
     }
 
@@ -148,11 +148,15 @@ pub(super) fn dcs_unhook(
     let display_columns = image.width.div_ceil(cell_metrics.width_px) as usize;
     let display_rows = image.height.div_ceil(cell_metrics.height_px) as usize;
 
-    // Clamp extent to screen bounds from anchor.
+    // Clamp extent to screen bounds from the anchor on BOTH axes, like the
+    // Kitty and iTerm2 placement paths: a tall Sixel must not store a row
+    // extent that runs past the bottom of the screen from the cursor row.
     let display_columns = display_columns
         .min(screen_cols.saturating_sub(cursor_col))
         .max(1);
-    let display_rows = display_rows.max(1);
+    let display_rows = display_rows
+        .min(screen_rows.saturating_sub(cursor_row))
+        .max(1);
 
     // Place at cursor position.
     graphics.place(PlacementRequest::new(
@@ -209,7 +213,7 @@ pub(super) fn apc_dispatch(
             }
         }
         Err(_) => ApcOutcome {
-            dirty: graphics.record_kitty_apc(data),
+            dirty: graphics.accepts_kitty_apc(data),
             cursor: None,
         },
     }

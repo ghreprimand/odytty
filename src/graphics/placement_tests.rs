@@ -206,23 +206,19 @@ fn alternate_screen_placements_are_isolated_and_discarded_on_leave() {
 }
 
 #[test]
-fn records_raw_graphics_protocol_payloads_without_decoding() {
-    let mut scene = ImageScene::default();
+fn graphics_protocol_payload_validity_gate() {
+    let scene = ImageScene::default();
 
-    assert!(scene.record_kitty_apc(b"Gf=32,a=T;AAAA"));
-    assert!(scene.record_sixel_dcs(b"1;1q????", 4, Some(1)));
-    assert!(!scene.record_kitty_apc(b"not-kitty"));
-
-    assert_eq!(scene.raw_commands().len(), 2);
-    assert!(matches!(
-        &scene.raw_commands()[0],
-        GraphicsCommand::KittyApc { payload } if payload == b"Gf=32,a=T;AAAA"
-    ));
-    assert!(matches!(
-        &scene.raw_commands()[1],
-        GraphicsCommand::SixelDcs { raw_body, payload_start, p2 }
-            if raw_body == b"1;1q????" && *payload_start == 4 && *p2 == Some(1)
-    ));
+    // The gates accept well-formed framing and reject malformed payloads. The
+    // boolean is load-bearing (it gates dispatch); the raw bytes are not
+    // retained by the scene.
+    assert!(scene.accepts_kitty_apc(b"Gf=32,a=T;AAAA"));
+    assert!(!scene.accepts_kitty_apc(b"not-kitty"));
+    assert!(scene.accepts_sixel_dcs(b"1;1q????", 4));
+    // No `q` introducer before the payload boundary: rejected.
+    assert!(!scene.accepts_sixel_dcs(b"1;1x????", 4));
+    // Payload start beyond the body length: rejected without panicking.
+    assert!(!scene.accepts_sixel_dcs(b"1;1q", 99));
 }
 
 // ---------------------------------------------------------------------------

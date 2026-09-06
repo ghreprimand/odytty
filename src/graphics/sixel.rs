@@ -28,9 +28,14 @@
 //! ## Limits
 //!
 //! Hard caps prevent hostile streams from exhausting memory:
-//! - Max image dimensions: 10 000 × 10 000 pixels.
-//! - Max total pixel budget: 40 000 000 (≈ 152 MiB RGBA).
-//! - Repeat counts are clamped to the remaining width.
+//! - Max image dimensions: 10 000 x 10 000 pixels.
+//! - Max total pixel budget: 16 777 216 (64 MiB RGBA), aligned to the image
+//!   store's decoded-byte cap so `finish` never allocates a canvas the store
+//!   would reject.
+//! - Total painted-column budget per DCS: 16 777 216 `paint_sixel` calls, so a
+//!   repeat-run flood cannot amplify decode work without bound.
+//! - An over-wide repeat run rejects the whole image with `TooLarge` (it is
+//!   not clamped to the remaining width).
 //! - Color registers: 0..=1024.
 
 use std::fmt;
@@ -43,8 +48,17 @@ use std::fmt;
 const MAX_WIDTH: u32 = 10_000;
 /// Maximum image height in pixels.
 const MAX_HEIGHT: u32 = 10_000;
-/// Maximum total pixel count (width × height). ~152 MiB of RGBA.
-const MAX_PIXELS: u64 = 40_000_000;
+/// Maximum total pixel count (width x height). 64 MiB of RGBA at 4 bytes per
+/// pixel, matching `ImageStoreLimits::max_decoded_bytes` (see
+/// `src/graphics/store.rs`). Kept in lockstep with that store cap so `finish`
+/// never allocates and zeroes a canvas the store is guaranteed to reject.
+const MAX_PIXELS: u64 = 16_777_216;
+/// Maximum number of `paint_sixel` calls a single DCS may perform. Without
+/// this, a repeat introducer (`!count`) combined with graphics carriage return
+/// (`$`, which re-arms the width cap for free) lets a bounded input drive
+/// unbounded decode work. Bounded to the pixel budget so total painted columns
+/// cannot exceed one full canvas worth of work per DCS.
+const MAX_PAINT_CALLS: u64 = MAX_PIXELS;
 /// Maximum color register index.
 const MAX_COLOR_REG: u16 = 1024;
 /// Maximum numeric parameter value parsed from decimal digits.
@@ -173,6 +187,10 @@ struct Decoder {
     max_x: u32,
     /// Max y+1 (band bottom) actually reached by painting (drawn height).
     max_y: u32,
+    /// Remaining `paint_sixel` budget for this DCS. Decrements on every painted
+    /// column; when it reaches zero the decode fails `TooLarge`, bounding decode
+    /// work regardless of how repeat runs and `$` interact.
+    paint_budget: u64,
 }
 
 impl Decoder {
@@ -193,6 +211,7 @@ impl Decoder {
             has_data: false,
             max_x: 0,
             max_y: 0,
+            paint_budget: MAX_PAINT_CALLS,
         }
     }
 
@@ -298,6 +317,15 @@ impl Decoder {
     /// Paint one sixel column at (self.x, self.y). `bits` is the 6-bit value
     /// (sixel byte − 0x3F).
     fn paint_sixel(&mut self, bits: u8) -> Result<(), SixelError> {
+        // Per-DCS work budget: a repeat-run flood cannot amplify decode work
+        // beyond one canvas worth of painted columns.
+        self.paint_budget = self
+            .paint_budget
+            .checked_sub(1)
+            .ok_or(SixelError::TooLarge {
+                width: self.max_x.max(self.x + 1),
+                height: self.max_y.max(self.y + 6),
+            })?;
         let band_bottom = self.y + 6;
         let need_w = self.x + 1;
         self.ensure_capacity(need_w, band_bottom)?;

@@ -190,10 +190,45 @@ pub fn uri_has_openable_scheme(uri: &str) -> bool {
     let Some((scheme, _)) = uri.split_once(':') else {
         return false;
     };
-    matches!(
-        scheme.to_ascii_lowercase().as_str(),
-        "http" | "https" | "file" | "mailto"
-    )
+    match scheme.to_ascii_lowercase().as_str() {
+        "http" | "https" | "mailto" => true,
+        // `file:` is handed to the OS default-open verb (explorer/xdg-open/open)
+        // on a single Ctrl+click of attacker-chosen label text. A remote or UNC
+        // authority (`file://host/...`, `file:////server/share`) would resolve
+        // to an SMB/network location on Windows and leak an authentication
+        // attempt or execute a remote binary. Restrict `file:` to a local
+        // authority (empty or `localhost`) and reject any backslash / UNC shape.
+        "file" => file_uri_is_local(uri),
+        _ => false,
+    }
+}
+
+/// True when a `file:` URI names a purely local target: empty or `localhost`
+/// authority, and no backslash or UNC (`//host`) shape. Mirrors the local-host
+/// policy `osc7_host_is_local` applies to OSC 7 cwd reporting.
+fn file_uri_is_local(uri: &str) -> bool {
+    // Everything after the `file:` scheme and its colon (the scheme is always
+    // the 4-byte "file" + ':' = 5 bytes, regardless of case).
+    let Some(rest) = uri.get(5..) else {
+        return false;
+    };
+    // A backslash anywhere is a Windows/UNC path smuggled through a `file:`
+    // URI; never local-openable.
+    if rest.contains('\\') {
+        return false;
+    }
+    // With an authority marker (`//`), the authority must be empty or
+    // localhost. Without it (`file:relative`), there is no authority to leak.
+    let Some(after) = rest.strip_prefix("//") else {
+        return true;
+    };
+    if let Some(path) = after.strip_prefix('/') {
+        // `file:///path` -> empty authority, local. `file:////server/...` (UNC)
+        // leaves a second leading slash here and is rejected.
+        return !path.starts_with('/');
+    }
+    let authority = after.split('/').next().unwrap_or("");
+    authority.is_empty() || authority.eq_ignore_ascii_case("localhost")
 }
 
 #[cfg(test)]
@@ -425,5 +460,25 @@ mod tests {
         assert!(uri_has_openable_scheme("mailto:hello@example.com"));
         assert!(!uri_has_openable_scheme("javascript:alert(1)"));
         assert!(!uri_has_openable_scheme("example.com"));
+    }
+
+    #[test]
+    fn file_scheme_is_restricted_to_local_targets() {
+        // Local forms are openable.
+        assert!(uri_has_openable_scheme("file:///tmp/readme"));
+        assert!(uri_has_openable_scheme("FILE:///tmp/readme"));
+        assert!(uri_has_openable_scheme("file://localhost/tmp/readme"));
+        assert!(uri_has_openable_scheme("file://LOCALHOST/tmp/readme"));
+        assert!(uri_has_openable_scheme("file:relative/path"));
+
+        // Remote authority, UNC, and backslash shapes are rejected: these reach
+        // an SMB/network location on Windows and leak credentials or execute a
+        // remote binary on a single Ctrl+click.
+        assert!(!uri_has_openable_scheme(
+            "file://attacker.example.com/share/setup.exe"
+        ));
+        assert!(!uri_has_openable_scheme("file:////server/share/setup.exe"));
+        assert!(!uri_has_openable_scheme("file://host/path"));
+        assert!(!uri_has_openable_scheme("file:\\\\server\\share"));
     }
 }

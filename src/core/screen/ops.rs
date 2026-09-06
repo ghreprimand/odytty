@@ -332,9 +332,12 @@ impl Screen {
 
     /// ICH (CSI Ps @): insert `count` blank cells at the cursor, shifting the
     /// rest of the line right. Cells pushed past the right edge are discarded.
-    /// Row-local: no wrap, no scroll, cursor stays in place. Fill blanks use
-    /// the active background color and otherwise default attributes, matching
-    /// xterm-style background-color-erase behavior for insert fills.
+    /// The cursor does not wrap and nothing scrolls, but because the line tail
+    /// is always destroyed off the right edge, ICH unconditionally severs this
+    /// row's soft-wrap flag (see the body), so reflow cannot fuse its remnant
+    /// with the continuation row. Fill blanks use the active background color
+    /// and otherwise default attributes, matching xterm-style
+    /// background-color-erase behavior for insert fills.
     pub(super) fn insert_chars(&mut self, count: usize) {
         let columns = self.dimensions.columns;
         let column = self.cursor.column;
@@ -347,21 +350,31 @@ impl Screen {
             RowButtonMutation::InsertShift { at: column, count },
         );
 
-        let row = &mut self.rows[self.cursor.row];
+        let row_index = self.cursor.row;
+        let row = &mut self.rows[row_index];
         for _ in 0..count {
             row.insert(column, blank);
         }
         row.truncate(columns);
 
         sanitize_wide_row(row, blank);
+        // ICH pushes the line tail off the right edge on EVERY invocation
+        // (`truncate(columns)`), destroying the content that flowed into a
+        // continuation row. Unlike ECH (which reaches the edge only
+        // conditionally), this always severs: reflow must not fuse this row's
+        // blank-padded remnant with the row below (mirrors ECH / EL0).
+        self.sever_soft_wrap(row_index);
         self.pending_wrap = false;
         self.mark_dirty();
     }
 
     /// DCH (CSI Ps P): delete `count` cells at the cursor, shifting the rest of
-    /// the line left and filling blanks at the right edge. Row-local: no wrap,
-    /// no scroll, cursor stays in place. Fill blanks use the active background
-    /// color and otherwise default attributes, matching xterm-style
+    /// the line left and filling blanks at the right edge. The cursor does not
+    /// wrap and nothing scrolls, but because blanks always occupy the row's
+    /// right edge where real content used to be, DCH unconditionally severs this
+    /// row's soft-wrap flag (see the body), so reflow cannot fuse its remnant
+    /// with the continuation row. Fill blanks use the active background color and
+    /// otherwise default attributes, matching xterm-style
     /// background-color-erase behavior for delete fills.
     pub(super) fn delete_chars(&mut self, count: usize) {
         let columns = self.dimensions.columns;
@@ -375,7 +388,8 @@ impl Screen {
             RowButtonMutation::DeleteShift { at: column, count },
         );
 
-        let row = &mut self.rows[self.cursor.row];
+        let row_index = self.cursor.row;
+        let row = &mut self.rows[row_index];
         for _ in 0..count {
             row.remove(column);
         }
@@ -384,6 +398,11 @@ impl Screen {
         }
 
         sanitize_wide_row(row, blank);
+        // DCH pads blanks at the right edge on EVERY invocation, destroying the
+        // content that flowed into a continuation row. Like ICH this always
+        // severs the soft-wrap flag so reflow cannot fuse the blank-padded
+        // remnant with the row below (mirrors ECH / EL0).
+        self.sever_soft_wrap(row_index);
         self.pending_wrap = false;
         self.mark_dirty();
     }

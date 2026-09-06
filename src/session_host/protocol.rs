@@ -548,8 +548,9 @@ const FRAME_HEADER_LEN: usize = 5;
 pub struct HostFrameReader {
     header: [u8; FRAME_HEADER_LEN],
     header_filled: usize,
+    header_complete: bool,
+    declared_len: usize,
     payload: Vec<u8>,
-    payload_filled: usize,
 }
 
 impl HostFrameReader {
@@ -577,15 +578,28 @@ impl HostFrameReader {
                         max: MAX_FRAME_LEN,
                     });
                 }
-                // Allocated in the same call that completes the header, so the
-                // cross-call invariant holds: header complete ⇒ payload sized.
-                self.payload = vec![0u8; len];
-                self.payload_filled = 0;
+                self.declared_len = len;
+                self.header_complete = true;
+                self.payload = Vec::new();
             }
         }
-        while self.payload_filled < self.payload.len() {
-            let count = read_nonzero(reader, &mut self.payload[self.payload_filled..])?;
-            self.payload_filled += count;
+        // Grow the payload only as bytes actually arrive (capped per read), like
+        // `ClientFrameReader`, so a host that declares a near-`MAX_FRAME_LEN`
+        // payload and then withholds the body never forces this attach client to
+        // hold a ~64 MiB zeroed allocation while it waits.
+        while self.payload.len() < self.declared_len {
+            let start = self.payload.len();
+            let want = (self.declared_len - start).min(CLIENT_PAYLOAD_GROWTH_CHUNK);
+            self.payload.resize(start + want, 0);
+            match read_nonzero(reader, &mut self.payload[start..start + want]) {
+                Ok(count) => self.payload.truncate(start + count),
+                Err(error) => {
+                    // Keep only the bytes genuinely read; drop this chunk's
+                    // speculative tail so resume state stays exact.
+                    self.payload.truncate(start);
+                    return Err(error);
+                }
+            }
         }
         let kind = self.header[0];
         let payload = std::mem::take(&mut self.payload);
@@ -595,8 +609,9 @@ impl HostFrameReader {
 
     fn reset(&mut self) {
         self.header_filled = 0;
+        self.header_complete = false;
+        self.declared_len = 0;
         self.payload = Vec::new();
-        self.payload_filled = 0;
     }
 }
 
@@ -902,6 +917,34 @@ mod tests {
     }
 
     #[test]
+    fn resize_frame_partial_write_is_truncated_write() {
+        let mut writer = StallingWriter {
+            accept: 3,
+            written: Vec::new(),
+        };
+        let err = write_client_frame(
+            &mut writer,
+            &ClientFrame::Resize {
+                columns: 80,
+                rows: 24,
+            },
+        )
+        .expect_err("partial resize write must time out");
+        assert!(matches!(err, ProtocolError::TruncatedWrite { .. }));
+    }
+
+    #[test]
+    fn detach_frame_partial_write_is_truncated_write() {
+        let mut writer = StallingWriter {
+            accept: 2,
+            written: Vec::new(),
+        };
+        let err = write_client_frame(&mut writer, &ClientFrame::Detach)
+            .expect_err("partial detach write must time out");
+        assert!(matches!(err, ProtocolError::TruncatedWrite { .. }));
+    }
+
+    #[test]
     fn unknown_client_frame_kind_errors_without_panicking() {
         // Version-skew safety: an unknown kind decodes to InvalidFrameKind, never
         // a panic, so a reader thread can drop the client cleanly.
@@ -952,6 +995,53 @@ mod tests {
 
     fn is_would_block(err: &ProtocolError) -> bool {
         matches!(err, ProtocolError::Io(error) if error.kind() == io::ErrorKind::WouldBlock)
+    }
+
+    #[test]
+    fn host_frame_reader_does_not_allocate_full_declared_length_up_front() {
+        let declared = MAX_FRAME_LEN - 16;
+        let mut header = vec![2u8]; // Output kind
+        header.extend_from_slice(&(declared as u32).to_be_bytes());
+        let mut reader = ScriptedReader {
+            steps: [Step::Bytes(header), Step::Timeout].into(),
+        };
+        let mut frame_reader = HostFrameReader::default();
+        let err = frame_reader
+            .read(&mut reader)
+            .expect_err("withheld body must time out");
+        assert!(is_would_block(&err), "expected WouldBlock, got {err:?}");
+        assert!(
+            frame_reader.payload.capacity() <= CLIENT_PAYLOAD_GROWTH_CHUNK,
+            "HostFrameReader reserved {} bytes for a withheld near-max frame; cap is {}",
+            frame_reader.payload.capacity(),
+            CLIENT_PAYLOAD_GROWTH_CHUNK
+        );
+    }
+
+    #[test]
+    fn client_frame_reader_does_not_allocate_full_declared_length_up_front() {
+        // A valid large Input length under the client cap, then withhold the
+        // body: the reader must grow incrementally, not reserve it all.
+        let declared = CLIENT_PAYLOAD_GROWTH_CHUNK * 4;
+        let mut header = vec![101u8];
+        header.extend_from_slice(&(declared as u32).to_be_bytes());
+        let mut reader = ScriptedReader {
+            steps: [Step::Bytes(header), Step::Timeout].into(),
+        };
+        let mut frame_reader = ClientFrameReader::default();
+        let poll = frame_reader
+            .read(&mut reader)
+            .expect("timeout mid-frame is a poll outcome");
+        assert!(
+            matches!(poll, ClientFramePoll::PartialTimeout),
+            "expected PartialTimeout, got {poll:?}"
+        );
+        assert!(
+            frame_reader.payload.capacity() <= CLIENT_PAYLOAD_GROWTH_CHUNK,
+            "ClientFrameReader reserved {} bytes; cap is {}",
+            frame_reader.payload.capacity(),
+            CLIENT_PAYLOAD_GROWTH_CHUNK
+        );
     }
 
     /// Regression: audit C-3 -- the `Resized` host frame round-trips its

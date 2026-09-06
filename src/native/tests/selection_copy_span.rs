@@ -118,3 +118,52 @@ fn all_blank_single_row_selection_yields_no_text() {
         "a selection over blank padding copies nothing"
     );
 }
+
+/// H4 regression: a scrollback front-eviction applied by the PTY pump between
+/// redraws shifts every absolute row address. A copy issued in that window,
+/// before the next redraw reconciles the trim, must NOT read the shifted rows.
+/// The copy path reconciles the scrollback epoch first, so a now-stale
+/// selection yields nothing rather than resolving to different, more recent
+/// content. (The prior test only covered `advance -> reconcile`, never
+/// `advance -> copy before reconcile`.)
+#[test]
+fn copy_after_untriaged_scrollback_trim_does_not_return_stale_rows() {
+    // Small scrollback so a trim is cheap to trigger.
+    let settings = Settings {
+        scrollback_lines: 40.0,
+        ..Default::default()
+    };
+    let dims = Dimensions::new(80, 24);
+    let (mut app, terminal) = headless_app_with(NativeOptions::default(), dims, settings);
+    {
+        let mut t = terminal.lock().expect("terminal");
+        // 30 rows: under the 40-line cap, so rows 0..29 all survive.
+        for i in 0..30 {
+            t.advance(format!("row{i:03}\r\n").as_bytes());
+        }
+    }
+
+    // Select early rows that currently live in scrollback (absolute rows 2..4).
+    app.set_selection_range_for_test(2, 0, 4, 5);
+    assert!(
+        app.selection_text_for_test().is_some(),
+        "precondition: the selection resolves to real scrollback rows"
+    );
+
+    // The PTY pump prints a burst that overflows the cap and evicts the front,
+    // WITHOUT a redraw/reconcile in between. Rows 2..4 no longer exist.
+    {
+        let mut t = terminal.lock().expect("terminal");
+        for i in 30..120 {
+            t.advance(format!("row{i:03}\r\n").as_bytes());
+        }
+    }
+
+    // A copy issued now reconciles the pending trim first and finds the stale
+    // selection cleared: nothing is copied, rather than the shifted content.
+    assert_eq!(
+        app.copy_shortcut_text_for_test(),
+        None,
+        "a copy after an unreconciled scrollback trim must not read shifted rows"
+    );
+}

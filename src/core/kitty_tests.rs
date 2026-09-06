@@ -1251,6 +1251,53 @@ fn kitty_number_only_transmission_reports_a_usable_image_id() {
     );
 }
 
+/// F4 regression: an `a=T` transmission addressed only by number gets a
+/// terminal-assigned id, and the placement it creates must carry that assigned
+/// id so the client can delete it with `a=d,d=i,i=<assigned>`. Before the fix
+/// the placement carried `None`, so `None != Some(assigned)` kept it forever
+/// and the client could not delete what it had just drawn.
+#[test]
+fn kitty_number_only_placement_is_deletable_by_assigned_id() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,s=2,v=1,I=13,i=0", &rgba_2x1()));
+    let assigned = reply_image_id(&host_text(&mut t));
+    assert_ne!(
+        assigned, 0,
+        "a number-addressed transmission is assigned an id"
+    );
+    assert_eq!(
+        t.graphics().placements().len(),
+        1,
+        "a=T creates a real placement"
+    );
+
+    // Delete by the assigned id, as the protocol directs the client to do.
+    t.advance(format!("\x1b_Ga=d,d=i,i={assigned}\x1b\\").as_bytes());
+    assert!(
+        t.graphics().placements().is_empty(),
+        "the placement must be deletable by the terminal-assigned id"
+    );
+}
+
+/// F4 regression: two different numbered images displayed under the same
+/// placement id must produce two distinct placements. Before the fix both
+/// carried `protocol_image_id = None`, so the second silently evicted the first
+/// on the `(protocol_image_id, protocol_placement_id)` match.
+#[test]
+fn kitty_number_only_placements_do_not_collide_on_shared_placement_id() {
+    let mut t = Terminal::new(20, 6);
+    t.advance(&kitty_apc("f=32,a=T,s=2,v=1,I=13,i=0,p=7", &rgba_2x1()));
+    let _ = host_text(&mut t);
+    t.advance(b"\x1b[3;1H");
+    t.advance(&kitty_apc("f=32,a=T,s=2,v=1,I=14,i=0,p=7", &rgba_2x1()));
+    let _ = host_text(&mut t);
+    assert_eq!(
+        t.graphics().placements().len(),
+        2,
+        "distinct numbered images must not collide on a shared placement id"
+    );
+}
+
 /// An assigned id must not silently alias an image the client already owns,
 /// because the client would then find its own image replaced by one it never
 /// asked the terminal to store there.

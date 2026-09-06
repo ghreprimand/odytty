@@ -776,6 +776,7 @@ fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
     let client = Arc::new(Mutex::new(AttachClient {
         stream: ours,
         detached: true, // suppress the Drop detach frame; irrelevant here
+        poisoned: false,
     }));
     let mut writer = AttachInputWriter {
         client: client.clone(),
@@ -820,6 +821,7 @@ fn partial_write_timeout_tears_session_down() {
     let client = Arc::new(Mutex::new(AttachClient {
         stream: ours,
         detached: true,
+        poisoned: false,
     }));
     let mut writer = AttachInputWriter { client };
 
@@ -843,6 +845,7 @@ fn broken_pipe_on_input_write_stays_fatal() {
     let client = Arc::new(Mutex::new(AttachClient {
         stream: ours,
         detached: true,
+        poisoned: false,
     }));
     let mut writer = AttachInputWriter { client };
     // Bounded retry rather than a single write: under a parallel test run,
@@ -1267,4 +1270,92 @@ fn initial_snapshot_survives_mid_frame_stall() {
     writer.join().expect("writer thread");
     let bytes = result.expect("snapshot must survive mid-frame stalls without desync");
     assert_eq!(bytes, expected, "snapshot payload must arrive intact");
+}
+
+/// H2: `resize` shares the one socket with input and detach. A partial write
+/// (`TruncatedWrite`) desyncs the stream, so a later resize must fail closed
+/// even after the peer drains, rather than writing another frame onto a stream
+/// that already carries a truncated one.
+#[test]
+fn resize_truncated_write_poisons_client_against_further_writes() {
+    let (ours, theirs) = UnixStream::pair().expect("socketpair");
+    ours.set_write_timeout(Some(Duration::from_millis(50)))
+        .expect("set write timeout");
+    let mut client = AttachClient {
+        stream: ours,
+        detached: true,
+        poisoned: false,
+    };
+    // Reliable partial-progress path (same shape as the input-writer regression):
+    // an oversized Input frame fills what the kernel accepts then times out.
+    let oversized = vec![b'x'; 8 * 1024 * 1024];
+    let err = client
+        .send_input(&oversized)
+        .expect_err("partial input write must surface");
+    assert!(
+        err.chain().any(|cause| cause
+            .downcast_ref::<ProtocolError>()
+            .is_some_and(|error| { matches!(error, ProtocolError::TruncatedWrite { .. }) })),
+        "precondition: TruncatedWrite on shared stream, got {err:#}"
+    );
+    // Drain the peer so a non-poisoned client could write again; poison must
+    // still refuse resize onto the desynced stream.
+    {
+        theirs
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .expect("set read timeout");
+        let mut drain = [0u8; 64 * 1024];
+        let mut reader = &theirs;
+        while let Ok(n) = std::io::Read::read(&mut reader, &mut drain) {
+            if n == 0 {
+                break;
+            }
+        }
+    }
+    assert!(
+        client.resize(80, 24).is_err(),
+        "AttachClient must refuse resize after TruncatedWrite on the shared stream"
+    );
+    drop(theirs);
+}
+
+/// H2: the same poison must make `detach` fail closed after a `TruncatedWrite`,
+/// so the detach frame is never written onto a desynced stream.
+#[test]
+fn detach_truncated_write_poisons_client_against_further_writes() {
+    let (ours, theirs) = UnixStream::pair().expect("socketpair");
+    ours.set_write_timeout(Some(Duration::from_millis(50)))
+        .expect("set write timeout");
+    let mut client = AttachClient {
+        stream: ours,
+        detached: false,
+        poisoned: false,
+    };
+    let oversized = vec![b'x'; 8 * 1024 * 1024];
+    let err = client
+        .send_input(&oversized)
+        .expect_err("partial input write must surface");
+    assert!(
+        err.chain().any(|cause| cause
+            .downcast_ref::<ProtocolError>()
+            .is_some_and(|error| { matches!(error, ProtocolError::TruncatedWrite { .. }) })),
+        "precondition: TruncatedWrite on shared stream, got {err:#}"
+    );
+    {
+        theirs
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .expect("set read timeout");
+        let mut drain = [0u8; 64 * 1024];
+        let mut reader = &theirs;
+        while let Ok(n) = std::io::Read::read(&mut reader, &mut drain) {
+            if n == 0 {
+                break;
+            }
+        }
+    }
+    assert!(
+        client.detach().is_err(),
+        "AttachClient must refuse detach after TruncatedWrite on the shared stream"
+    );
+    drop(theirs);
 }

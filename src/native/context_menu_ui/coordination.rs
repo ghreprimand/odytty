@@ -21,6 +21,7 @@ impl Default for ContextMenuUi {
             surface: ContextMenuSurface::Content,
             path_target: None,
             connection_target: None,
+            workspace_slot_name: None,
             // `[T; N]: Default` only exists up to N == 32; the item set is now
             // larger, so build the all-`None` array element-wise.
             accelerators: std::array::from_fn(|_| None),
@@ -109,6 +110,9 @@ impl ContextMenuUi {
         // Cleared on every non-ConnectionRow open; the connection-row opener
         // sets it explicitly. Keeps the target from leaking across surfaces.
         self.connection_target = None;
+        // Reset on every open; the App sets it only for a WorkspaceSlot menu
+        // (RAIL-REVALIDATE), so a stale name never leaks across surfaces.
+        self.workspace_slot_name = None;
         self.focused = 0;
         // Rail clearance is opt-in per open: the App re-applies it via
         // `set_rail_clearance` only for a rail-anchored menu under auto-hide.
@@ -150,6 +154,7 @@ impl ContextMenuUi {
         self.surface = ContextMenuSurface::ConnectionRow(row_index);
         self.path_target = None;
         self.connection_target = Some(Box::new(host));
+        self.workspace_slot_name = None;
         self.focused = 0;
         // The connection-row menu spawns over the full-screen manager (the rail
         // is hidden while that overlay is open), so it needs no rail clearance.
@@ -175,6 +180,19 @@ impl ContextMenuUi {
     /// leaves it at `0`, where no Move rows are composed anyway.
     pub(in crate::native) fn set_workspace_count(&mut self, count: usize) {
         self.workspace_count = count;
+    }
+
+    /// Snapshot the name of the workspace under a right-clicked rail slot
+    /// (RAIL-REVALIDATE). The App applies this right after opening a
+    /// `WorkspaceSlot` menu so each workspace action can re-validate the frozen
+    /// rail index still names the same workspace before acting.
+    pub(in crate::native) fn set_workspace_slot_name(&mut self, name: Option<String>) {
+        self.workspace_slot_name = name;
+    }
+
+    /// The workspace name snapshotted for a `WorkspaceSlot` menu, or `None`.
+    pub(in crate::native) fn workspace_slot_name(&self) -> Option<&str> {
+        self.workspace_slot_name.as_deref()
     }
 
     pub(in crate::native) fn set_command_actions_enabled(&mut self, enabled: bool) {

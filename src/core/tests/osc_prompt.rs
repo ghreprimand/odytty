@@ -472,6 +472,44 @@ fn resize_leaves_no_input_anchor_when_none_was_set() {
 }
 
 #[test]
+fn input_anchor_fails_closed_across_scrollback_eviction() {
+    // A scrollback front-eviction between the `B` stamp and a read shifts every
+    // absolute-row address. Without an eviction-immune anchor the cached row
+    // resolves to different, more recent content, and synthesized cursor keys
+    // would aim at the wrong row. The anchor witnesses the scrollback trim epoch
+    // and fails closed (returns None) once eviction bumps it.
+    let mut terminal = Terminal::new(20, 4);
+    // Tiny scrollback so a trim is cheap to trigger.
+    terminal.set_scrollback_limit(8);
+    for _ in 0..4 {
+        terminal.advance(b"history line here\r\n");
+    }
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"> ");
+    terminal.advance(&osc133("B"));
+    assert!(
+        terminal.active_prompt_input_start().is_some(),
+        "precondition: the input anchor is set after B"
+    );
+
+    // A burst of output overflows the scrollback cap and evicts the front,
+    // WITHOUT a resize (which would otherwise re-anchor the mark).
+    for _ in 0..40 {
+        terminal.advance(b"more output line\r\n");
+    }
+
+    assert_eq!(
+        terminal.active_prompt_input_start(),
+        None,
+        "the input anchor must fail closed once scrollback is evicted"
+    );
+    assert!(
+        terminal.screen().input_region().is_none(),
+        "the derived input region must also fail closed after eviction"
+    );
+}
+
+#[test]
 fn input_anchor_cleared_after_output_start_then_resize() {
     // Guard: after C (OutputStart) the input anchor is None and a later width
     // change must keep it None (the recompute only re-anchors a live input mark).

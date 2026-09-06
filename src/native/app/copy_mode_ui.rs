@@ -145,6 +145,12 @@ impl App {
                 // scrollback-spanning text extraction is local. `range()` is
                 // `None` for a degenerate (single-cell) selection, so nothing is
                 // copied in that case.
+                // H4: reconcile any pending scrollback trim (the scrollback-epoch
+                // check) before reading; a trim since the last redraw clears the
+                // stale copy-mode state so the yank cannot resolve to different,
+                // more recent rows. Mirrors the command-output copy generation
+                // guard.
+                self.sessions.reconcile_scrollback_trims();
                 if let Some(range) = self.copy_mode.as_ref().and_then(CopyModeState::range)
                     && let Some(text) = self.absolute_selection_text(range, false)
                 {

@@ -167,6 +167,15 @@ pub fn search_rows(
                 &mut matches,
             );
             units.clear();
+            // Bounded work: a broadly-matching query (a single space, a common
+            // letter) against a large scrollback would otherwise allocate one
+            // match per occurrence with no ceiling, synchronously on the UI
+            // thread. Stop once the cap is reached; navigation never needs more
+            // than a bounded window of matches.
+            if matches.len() >= MAX_SEARCH_MATCHES {
+                matches.truncate(MAX_SEARCH_MATCHES);
+                return matches;
+            }
         }
     }
     // A trailing logical line whose last row was still marked wrapped.
@@ -178,10 +187,17 @@ pub fn search_rows(
             &mut scratch,
             &mut matches,
         );
+        matches.truncate(MAX_SEARCH_MATCHES);
     }
 
     matches
 }
+
+/// Upper bound on matches a single search returns. A broadly-matching query
+/// against a very large (up to 1,000,000-line) scrollback would otherwise build
+/// an unbounded `Vec` on the UI thread; navigation only needs a bounded window,
+/// so matches past this ceiling are dropped.
+pub const MAX_SEARCH_MATCHES: usize = 10_000;
 
 /// Match `query_chars` within one assembled logical line and push results.
 fn flush_line(

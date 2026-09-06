@@ -12,6 +12,7 @@ mod colr1;
 mod render;
 
 use std::path::{Path, PathBuf};
+#[cfg(all(unix, not(target_os = "macos")))]
 use std::process::Command;
 
 use swash::scale::ScaleContext;
@@ -464,6 +465,18 @@ fn has_colr_v1_glyph(font: &EmojiFont, glyph_id: GlyphId) -> bool {
 /// the same reason: a color-emoji font can ship as a collection (Apple Color
 /// Emoji does), and face 0 of a collection is arbitrary with respect to the
 /// request.
+/// Non-fontconfig platforms fall straight through to the inventory scan. Gated
+/// like the symbol-font resolver's `fc_list_covering`
+/// (`src/text/symbols.rs`): fontconfig is a Unix-non-macOS mechanism, and
+/// spawning `fc-match` on Windows (where fontconfig may sit on `%PATH%` via
+/// MSYS2/Cygwin) would flash a console window from the GUI binary, while on
+/// macOS the font path is inventory-based and the query cannot help.
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
+    None
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
 fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
     let output = Command::new("fc-match")
         .args(["-f", "%{file}\n%{family}\n%{index}", NOTO_COLOR_EMOJI])

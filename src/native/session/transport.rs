@@ -457,6 +457,7 @@ impl Session {
             last_presented_cursor_blinking: true,
             selection: AbsoluteSelectionState::default(),
             pointer_cell: None,
+            hover_path_probe_key: None,
             pointer_px: None,
             #[cfg(test)]
             test_cell: None,

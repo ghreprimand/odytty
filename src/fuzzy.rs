@@ -68,35 +68,55 @@ pub fn score_with_options(query: &str, candidate: &str, options: MatchOptions) -
         let mut current = vec![None; candidate_chars.len()];
         let query_folded = fold_char(query_ch);
 
+        // Incremental running maximum of the gap-transition term. The original
+        // `best_previous` fold scanned every prior candidate index once per
+        // matching position, making the transition cost O(candidate_index) and
+        // the whole call O(query_len * candidate_len^2) for a query character
+        // that recurs often in the candidate. The gap term
+        //   previous[pi] - (candidate_index - pi - 1) * GAP_PENALTY
+        // rearranges to
+        //   (previous[pi] + (pi + 1) * GAP_PENALTY) - candidate_index * GAP_PENALTY,
+        // so the max over all pi <= candidate_index - 2 of the parenthesized
+        // part is a running maximum that only depends on the current index
+        // through the shared `- candidate_index * GAP_PENALTY` factor. The
+        // immediate predecessor (gap == 0) keeps its CONSECUTIVE_BONUS special
+        // case. This yields the identical `best_previous` value in O(1)
+        // amortized per position instead of O(candidate_index).
+        let mut gap_max: Option<i32> = None; // max over pi in [0, c-2] of previous[pi] + (pi+1)*GAP_PENALTY
+
         for (candidate_index, candidate_ch) in candidate_chars.iter().enumerate() {
-            if !chars_match(query_ch, query_folded, *candidate_ch, options) {
-                continue;
-            }
-
-            let char_score = character_score(query_ch, *candidate_ch, candidate_index);
-            if query_index == 0 {
-                current[candidate_index] = Some(char_score);
-                continue;
-            }
-
-            let best_previous = previous
-                .iter()
-                .take(candidate_index)
-                .enumerate()
-                .filter_map(|(previous_index, previous_score)| {
-                    let previous_score = (*previous_score)?;
-                    let gap = candidate_index - previous_index - 1;
-                    let transition = if gap == 0 {
-                        CONSECUTIVE_BONUS
-                    } else {
-                        -(gap as i32 * GAP_PENALTY)
+            if chars_match(query_ch, query_folded, *candidate_ch, options) {
+                let char_score = character_score(query_ch, *candidate_ch, candidate_index);
+                if query_index == 0 {
+                    current[candidate_index] = Some(char_score);
+                } else {
+                    // Gap transition over pi in [0, candidate_index - 2].
+                    let gap_term = gap_max.map(|g| g - candidate_index as i32 * GAP_PENALTY);
+                    // Consecutive transition (gap == 0), pi == candidate_index - 1.
+                    let consecutive_term = candidate_index
+                        .checked_sub(1)
+                        .and_then(|pi| previous[pi])
+                        .map(|score| score + CONSECUTIVE_BONUS);
+                    let best_previous = match (gap_term, consecutive_term) {
+                        (Some(a), Some(b)) => Some(a.max(b)),
+                        (Some(a), None) | (None, Some(a)) => Some(a),
+                        (None, None) => None,
                     };
-                    Some(previous_score + transition)
-                })
-                .max();
+                    if let Some(best_previous) = best_previous {
+                        current[candidate_index] = Some(best_previous + char_score);
+                    }
+                }
+            }
 
-            if let Some(best_previous) = best_previous {
-                current[candidate_index] = Some(best_previous + char_score);
+            // Fold pi = candidate_index - 1 into the running max so the NEXT
+            // position's gap term covers pi in [0, candidate_index - 1]. On the
+            // first query row `previous` is empty, so `get` yields None and the
+            // running max simply stays unset.
+            if let Some(pi) = candidate_index.checked_sub(1)
+                && let Some(score) = previous.get(pi).copied().flatten()
+            {
+                let value = score + (pi as i32 + 1) * GAP_PENALTY;
+                gap_max = Some(gap_max.map_or(value, |g| g.max(value)));
             }
         }
 
@@ -254,6 +274,22 @@ mod tests {
     fn consecutive_run_beats_scattered_match() {
         let candidates = ["a-b-c", "abc"];
         assert_eq!(indexes(&rank("abc", &candidates)), vec![1, 0]);
+    }
+
+    #[test]
+    fn repeating_character_candidate_scores_correctly() {
+        // Exercises the quadratic-trigger shape (a query character recurring
+        // many times in the candidate) through the incremental running-max
+        // path. A consecutive run must still outrank a scattered one.
+        let consecutive = score("aa", "aaaaaaaaaa");
+        let scattered = score("aa", "a-a-a-a-a-a");
+        assert!(consecutive.is_some() && scattered.is_some());
+        assert!(
+            consecutive > scattered,
+            "a consecutive run of the repeated query char must score higher: {consecutive:?} vs {scattered:?}"
+        );
+        // A prefix-consecutive match must beat a purely trailing scattered one.
+        assert!(score("ab", "abxxxxxxxx") > score("ab", "xxxxxxxxab"));
     }
 
     #[test]

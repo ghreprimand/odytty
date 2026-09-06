@@ -82,7 +82,9 @@ const YELLOW_INDEX: usize = 3;
 /// "Effective" is the whole point. Each field must already have live dynamic
 /// overrides resolved against theme-seeded values by the caller — a captured
 /// draft that reproduced the *theme* rather than the *screen* would defeat the
-/// feature. [`crate::core::Terminal::effective_colors`] produces exactly this.
+/// feature. There is no single accessor for this: the native layer assembles it
+/// in `native::app::keyboard::capture_live_theme_spec`, combining
+/// `Terminal::dynamic_colors` and `Terminal::effective_ansi_palette`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LiveColors {
     /// Effective default foreground (`OSC 10` override, else theme-seeded).

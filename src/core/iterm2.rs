@@ -384,7 +384,14 @@ fn fit_inside(
 /// so a decompression bomb is refused before it can allocate. Supported
 /// containers are exactly the ones the crate's `image` features enable: PNG,
 /// JPEG, and WebP.
-fn decode_container(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+///
+/// The crate's `max_alloc` limit bounds the *native* decode buffer, but
+/// `DynamicImage::into_rgba8` runs outside the limit system and allocates
+/// `width * height * 4` unconditionally: a single-channel image that just fits
+/// the native budget expands to 4x that on conversion. `max_decoded` bounds the
+/// RGBA expansion (mirroring the Kitty PNG path's `validate_png_header` guard),
+/// so an over-budget image is refused before `into_rgba8` allocates.
+fn decode_container(bytes: &[u8], max_decoded: usize) -> Option<(Vec<u8>, u32, u32)> {
     let cursor = std::io::Cursor::new(bytes);
     let mut reader = image::ImageReader::new(cursor).with_guessed_format().ok()?;
     let mut limits = image::Limits::default();
@@ -392,12 +399,20 @@ fn decode_container(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     limits.max_image_height = Some(MAX_IMAGE_DIM);
     limits.max_alloc = Some(MAX_IMAGE_ALLOC_BYTES);
     reader.limits(limits);
-    let decoded = reader.decode().ok()?.into_rgba8();
-    let (width, height) = decoded.dimensions();
+    let decoded = reader.decode().ok()?;
+    let (width, height) = (decoded.width(), decoded.height());
     if width == 0 || height == 0 {
         return None;
     }
-    Some((decoded.into_raw(), width, height))
+    // Pre-expansion guard: refuse before `into_rgba8` allocates w*h*4 bytes.
+    let rgba_bytes = (width as u64)
+        .checked_mul(height as u64)
+        .and_then(|px| px.checked_mul(4))?;
+    if rgba_bytes > max_decoded as u64 {
+        return None;
+    }
+    let rgba = decoded.into_rgba8();
+    Some((rgba.into_raw(), width, height))
 }
 
 /// Handle one `File=` command. Returns the new cursor position when an image
@@ -450,7 +465,7 @@ pub(super) fn handle_file_osc(
         return None;
     }
 
-    let (rgba, width, height) = decode_container(&file_bytes)?;
+    let (rgba, width, height) = decode_container(&file_bytes, max_decoded)?;
     let insert = graphics.insert_rgba(None, width, height, rgba).ok()?;
 
     let (cols, rows) = extent_in_cells(

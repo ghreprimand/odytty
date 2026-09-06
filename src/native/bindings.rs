@@ -384,7 +384,17 @@ impl KeyBindings {
             if override_.action.is_pane_action() {
                 continue;
             }
-            bindings.retain(|(_, action)| *action != override_.action);
+            // Keep-last by action (an override replaces this action's prior
+            // chord) AND keep-last by chord: remove any binding that already
+            // owns this chord for a DIFFERENT action so a chord resolves to
+            // exactly one action. Without the chord dedup, a config binding one
+            // chord to two actions leaves both in the table; `action_for_chord`
+            // fires only the later one while `chord_for_action` still reports the
+            // earlier (dead) one as live, so the Keybindings UI shows a shadowed
+            // binding that never triggers. Removing the collision makes the row
+            // for the losing action show as unbound, surfacing the conflict.
+            bindings
+                .retain(|(chord, action)| *action != override_.action && *chord != override_.chord);
             bindings.push((override_.chord, override_.action));
         }
         Self { bindings }
@@ -1351,6 +1361,40 @@ mod tests {
         assert_eq!(
             bindings.action_for_chord(chord),
             Some(BindableAction::SplitRows)
+        );
+    }
+
+    #[test]
+    fn one_chord_bound_to_two_actions_resolves_to_the_later_and_unbinds_the_earlier() {
+        // F2: two overrides bind the SAME chord to different actions. Only the
+        // later fires, and the earlier action must report as unbound (no dead
+        // binding shown as live).
+        let chord = char_chord('z', true, true, false, false);
+        let overrides = vec![
+            KeyBindingOverride {
+                chord,
+                action: BindableAction::CommandPalette,
+            },
+            KeyBindingOverride {
+                chord,
+                action: BindableAction::SessionAttach,
+            },
+        ];
+        let bindings = KeyBindings::from_overrides(&overrides);
+        assert_eq!(
+            bindings.action_for_chord(chord),
+            Some(BindableAction::SessionAttach),
+            "the later binding wins the chord"
+        );
+        assert_eq!(
+            bindings.chord_for_action(BindableAction::SessionAttach),
+            Some(chord),
+            "the winning action reports the chord"
+        );
+        assert_eq!(
+            bindings.chord_for_action(BindableAction::CommandPalette),
+            None,
+            "the shadowed action reports unbound, not a dead binding"
         );
     }
 

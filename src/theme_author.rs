@@ -41,8 +41,8 @@
 //! deferred task, not part of this packet.
 
 use crate::color::{
-    self, LinearRgb, Oklch, enforce_min_contrast, linear_to_oklab, linear_to_srgb_u8,
-    oklab_to_linear, oklab_to_oklch, oklch_to_oklab, srgb_to_linear,
+    self, LinearRgb, Oklch, linear_to_oklab, linear_to_srgb_u8, oklab_to_linear, oklab_to_oklch,
+    oklch_to_oklab, srgb_to_linear,
 };
 use crate::theme::{Appearance, Srgb, ThemeSpec};
 
@@ -98,28 +98,16 @@ pub fn nudge(color: Srgb, dl: f32, dc: f32, dh: f32) -> Srgb {
 ///
 /// Pure and deterministic; never panics or yields a non-finite channel.
 pub fn snap_to_floor(candidate: Srgb, partner: Srgb, floor: f32) -> Srgb {
-    if floor <= 1.0 {
-        return candidate;
-    }
-    let candidate_lin = to_linear(candidate);
-    let partner_lin = to_linear(partner);
-    // enforce_min_contrast guarantees the floor in *linear* space, but quantizing
-    // to bytes and gamut-mapping a lifted chroma can each nibble contrast back
-    // under it. So enforce, gamut-map (hue-preserving), quantize, then re-check
-    // the byte result; if it fell short, lift the internal target a hair and
-    // retry. This makes the guarantee hold on the bytes actually emitted.
-    let mut target = floor;
-    let mut best = candidate;
-    for _ in 0..8 {
-        let adjusted = enforce_min_contrast(candidate_lin, partner_lin, target);
-        let mapped = oklch_to_linear_gamut(oklab_to_oklch(linear_to_oklab(adjusted)));
-        best = from_linear(mapped);
-        if color::wcag_contrast(to_linear(best), partner_lin) >= floor {
-            return best;
-        }
-        target += 0.1;
-    }
-    best
+    // Delegates to the single shared floor/re-check implementation
+    // (`palette_gen::floor_role`), which enforces the floor in linear space,
+    // then gamut-maps (hue-preserving), quantizes, and re-checks the byte
+    // result, bumping the internal target if rounding/gamut shaved it under.
+    // `floor <= 1.0` is the passthrough no-op. `snap_to_floor` differs only in
+    // taking its partner as `Srgb`; converting to the linear surface here is
+    // exactly what the old inline body did (`partner_lin = to_linear(partner)`),
+    // so this is behavior-preserving and keeps the three floor passes on one
+    // implementation (see the cross-check test below).
+    crate::palette_gen::floor_role(candidate, to_linear(partner), floor)
 }
 
 /// The live WCAG contrast ratio between two sRGB colors, for the builder's
@@ -174,17 +162,13 @@ pub enum FloorAgainst {
 /// neutrals near a light bg). The opposite pair sits near the foreground and
 /// stays floored.
 ///
-/// Mirrors `palette_gen::bg_side_neutral_slots` verbatim so the interactive
-/// author-time snap and the one-shot generator exempt exactly the same slots —
-/// pre-flooring these would collapse the very ramp the generator protects, and
-/// the render-time floor (U1) still lifts any text that actually lands on the
-/// background at draw time.
-fn bg_side_neutral_slots(appearance: Appearance) -> [usize; 2] {
-    match appearance {
-        Appearance::Dark => [0, 8],
-        Appearance::Light => [7, 15],
-    }
-}
+/// The exemption table is the shared `palette_gen::bg_side_neutral_slots`
+/// (imported below), so the interactive author-time snap and the one-shot
+/// generator exempt exactly the same slots by construction -- pre-flooring these
+/// would collapse the very ramp the generator protects, and the render-time
+/// floor (U1) still lifts any text that actually lands on the background at draw
+/// time.
+use crate::palette_gen::bg_side_neutral_slots;
 
 /// Map a role to the surface its contrast must clear the floor against, or `None`
 /// for roles that are not floored (the background itself, the window chrome, and
@@ -412,6 +396,38 @@ mod tests {
         let partner = (0x10, 0x12, 0x16);
         assert_eq!(snap_to_floor(cand, partner, 1.0), cand);
         assert_eq!(snap_to_floor(cand, partner, 0.5), cand);
+    }
+
+    #[test]
+    fn floor_math_is_shared_across_author_generator_and_cvd() {
+        // The three floor passes (author snap, generator validate, CVD adapt)
+        // now share one implementation. This pins the two remaining wrappers to
+        // it so a future edit that reintroduces a private copy is caught:
+        //   - `snap_to_floor(c, p, f)` must equal `palette_gen::floor_role(c,
+        //     to_linear(p), f)` byte-for-byte across a hue/lightness sweep, both
+        //     surface polarities, and several floors.
+        //   - the vs-background exemption table must be one shared function.
+        let dark_partner = (0x0a, 0x0c, 0x10);
+        let light_partner = (0xf2, 0xf3, 0xf5);
+        for partner in [dark_partner, light_partner] {
+            for &cand in &candidate_sweep() {
+                for &floor in &[1.0_f32, 3.0, AUTHORING_CONTRAST_FLOOR, 7.0] {
+                    assert_eq!(
+                        snap_to_floor(cand, partner, floor),
+                        crate::palette_gen::floor_role(cand, to_linear(partner), floor),
+                        "snap_to_floor must delegate to the shared floor_role \
+                         (cand={cand:?}, partner={partner:?}, floor={floor})"
+                    );
+                }
+            }
+        }
+        for appearance in [Appearance::Dark, Appearance::Light] {
+            assert_eq!(
+                bg_side_neutral_slots(appearance),
+                crate::palette_gen::bg_side_neutral_slots(appearance),
+                "the exemption table must be the single shared implementation"
+            );
+        }
     }
 
     #[test]

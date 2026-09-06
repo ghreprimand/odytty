@@ -501,7 +501,8 @@ pub fn usage_text() -> String {
     out.push_str("  shell-integration SHELL\n");
     out.push_str("                  print OSC 133 setup for bash, zsh, fish, or powershell\n");
     out.push('\n');
-    out.push_str("Session commands:\n");
+    out.push_str("Session commands (Unix-only in this release; on Windows these\n");
+    out.push_str("print a not-supported notice and exit):\n");
     out.push_str("  new [--detached] [-e COMMAND...]\n");
     out.push_str("      [--app-id APP_ID | --class APP_ID]\n");
     out.push_str("                  start a detached resumable session and print its id\n");

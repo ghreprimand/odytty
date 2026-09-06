@@ -115,8 +115,28 @@ impl App {
                     window.request_redraw();
                 }
             }
+            self.hover_path_probe_key = None;
             return;
         }
+        // Per-cell probe memo: `CursorMoved` fires on every reported pointer
+        // motion, so re-running the up-to-8 `symlink_metadata` probes for a
+        // pointer that has not left the same cell (and over unchanged content)
+        // is wasted work and, on an autofs/stale-NFS path, a repeatable UI-thread
+        // wedge. Skip the whole probe when the pointer cell, the scrollback
+        // viewport offset, and the front-trim epoch are all unchanged since the
+        // last probe. Scroll or a front-trim moves the row under the pointer and
+        // invalidates the memo, so a genuinely different span is never missed.
+        let probe_key = self.pointer_cell.map(|cell| {
+            (
+                cell,
+                self.viewport.offset(),
+                self.last_scrollback_trim_epoch,
+            )
+        });
+        if probe_key.is_some() && probe_key == self.hover_path_probe_key {
+            return;
+        }
+        self.hover_path_probe_key = probe_key;
         let (resolved, cells) = match self.resolved_hovered_path_with_cells() {
             Some((resolved, cells)) => (Some(resolved), Some(cells)),
             None => (None, None),

@@ -31,6 +31,23 @@ fn png_rgba(width: u32, height: u32) -> Vec<u8> {
     out
 }
 
+/// A single-channel (grayscale) PNG. Its native decode buffer is one byte per
+/// pixel, so a size that fits the crate's `max_alloc` budget expands to 4x that
+/// on `into_rgba8` -- the exact shape the pre-decode pixel guard must refuse.
+fn png_gray(width: u32, height: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(png::ColorType::Grayscale);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer
+            .write_image_data(&vec![200u8; (width * height) as usize])
+            .unwrap();
+    }
+    out
+}
+
 fn b64(data: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
@@ -308,6 +325,35 @@ fn iterm2_size_argument_must_match_the_decoded_payload() {
     assert!(
         t.visible_graphics(0).is_empty(),
         "a size mismatch beyond the slack is rejected whole"
+    );
+}
+
+#[test]
+fn iterm2_grayscale_expansion_over_decoded_cap_is_refused_before_rgba() {
+    // 5000x4000 = 20M px. Grayscale native buffer is 20 MB (well under the
+    // crate's 64 MiB max_alloc, so decode() proceeds), but into_rgba8 would
+    // allocate 80 MB, over the store's 64 MiB decoded cap. The pre-decode guard
+    // must refuse it, so no image is placed.
+    let png = png_gray(5000, 4000);
+    let mut t = Terminal::new(40, 12);
+    t.advance(&file_osc("inline=1", &png));
+    assert!(
+        t.visible_graphics(0).is_empty(),
+        "an image whose RGBA expansion exceeds the decoded cap must be refused"
+    );
+    assert_cursor(&t, 0, 0);
+}
+
+#[test]
+fn iterm2_grayscale_within_decoded_cap_is_accepted() {
+    // 1000x1000 grayscale -> 4 MB RGBA, comfortably within the cap.
+    let png = png_gray(1000, 1000);
+    let mut t = Terminal::new(40, 12);
+    t.advance(&file_osc("inline=1", &png));
+    assert_eq!(
+        t.visible_graphics(0).len(),
+        1,
+        "a grayscale image within the decoded cap still decodes"
     );
 }
 

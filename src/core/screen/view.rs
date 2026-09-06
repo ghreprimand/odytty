@@ -168,6 +168,7 @@ impl Screen {
                 self.cursor.row,
                 self.rows.len(),
                 width_unchanged,
+                self.scrollback.trim_epoch(),
             );
             // Lazy resize: re-wrap only the bottom of the buffer needed for the
             // new window; deep history stays logical and is projected on access.
@@ -191,8 +192,11 @@ impl Screen {
             self.pending_wrap = result.pending_wrap;
             if let Some(row) = result.collapsed_prompt_start_row {
                 let scrollback_rows = self.scrollback.physical_len(dimensions.columns);
+                let epoch = self.scrollback.trim_epoch();
                 if let Some(start) = self.active_prompt_start.as_mut() {
                     start.absolute_row = scrollback_rows + row;
+                    // Freshly re-derived for the new width: re-witness the epoch.
+                    start.trim_epoch = epoch;
                 }
             }
             // Re-anchor the OSC 133 `B` input-start mark through the resize.
@@ -219,7 +223,8 @@ impl Screen {
             // editable region. Width-unchanged resizes keep `physical_len`
             // constant, so the cached row stays valid and we skip the recompute
             // (byte-identical fast path).
-            if !width_unchanged && let Some((_, input_column)) = self.active_prompt_input_start {
+            if !width_unchanged && let Some(anchor) = self.active_prompt_input_start {
+                let input_column = anchor.col;
                 let mut row = self.cursor.row.min(self.rows.len().saturating_sub(1));
                 while row > 0 && self.rows[row - 1].wrapped {
                     row -= 1;
@@ -231,7 +236,12 @@ impl Screen {
                     .is_some()
                 {
                     let scrollback_rows = self.scrollback.physical_len(dimensions.columns);
-                    self.active_prompt_input_start = Some((scrollback_rows + row, input_column));
+                    // Freshly re-derived for the new width: re-witness the epoch.
+                    self.active_prompt_input_start = Some(ActivePromptInputStart {
+                        row: scrollback_rows + row,
+                        col: input_column,
+                        trim_epoch: self.scrollback.trim_epoch(),
+                    });
                 }
             }
         }
@@ -891,8 +901,14 @@ impl Screen {
     /// Active OSC 133 `B` input-start boundary as `(absolute_row, column)`.
     /// Returns `None` before a cooperating shell reports `B`, after command
     /// output starts, or after reset. Advisory state only.
+    ///
+    /// Fails closed (returns `None`) when scrollback was front-evicted since the
+    /// anchor was stamped: eviction shifts every absolute-row address, so the
+    /// cached row would resolve to different, more recent content.
     pub fn active_prompt_input_start(&self) -> Option<(usize, usize)> {
         self.active_prompt_input_start
+            .filter(|anchor| anchor.trim_epoch == self.scrollback.trim_epoch())
+            .map(|anchor| (anchor.row, anchor.col))
     }
 
     /// The live editable prompt-input region, derived in core from the OSC 133
@@ -906,7 +922,10 @@ impl Screen {
             &self.rows,
             self.scrollback.physical_len(self.dimensions.columns),
             self.dimensions.columns,
-            self.active_prompt_input_start,
+            // Epoch-checked: a stale anchor (scrollback evicted since stamp)
+            // resolves to `None` so synthesized keystrokes never target a
+            // shifted row.
+            self.active_prompt_input_start(),
             self.cursor,
             self.active_edit_region.as_ref(),
         )

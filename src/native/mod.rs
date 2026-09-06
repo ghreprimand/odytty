@@ -19,27 +19,29 @@
 //! `Color::Default` cells. Themes are presentation-only: they never touch the
 //! terminal core or cell attributes (see [`crate::theme`]).
 //!
-//! The window now opens a real shell: PTY output is rendered live and keyboard
-//! input is encoded and written back to the PTY (via the shared
-//! [`crate::input`] encoder), so the read+write loop is complete. Still
-//! deliberately absent: richer Odyssey visual treatments (motion/effects) and
-//! workflow polish beyond the first daily-loop basics.
+//! This is a full terminal, not a prototype: PTY output is rendered live and
+//! keyboard input is encoded and written back to the PTY (via the shared
+//! [`crate::input`] encoder), and the layer now carries the shipped feature set
+//! -- panes/splits, workspaces, session attach/detach and the unified Session
+//! Navigator, the connection manager, profile manager, theme builder, replay,
+//! and the Odyssey visual treatments (bloom/CRT post-processing in `gpu/post.rs`,
+//! cursor trail/streak, new-row fade, scroll and graphics animation). The
+//! per-submodule doc comments below are the authoritative description of each
+//! piece.
 //!
-//! ## Ownership split (filled in incrementally)
+//! ## Ownership split
 //!
 //! The native app keeps the owned terminal core (`crate::core`) separate from
-//! windowing, GPU rendering, and any later Odyssey visual layer:
+//! windowing, GPU rendering, and the Odyssey visual layer:
 //!
 //! - **Event loop** — `winit` owns the OS window, input events, and resize.
-//!   *(done)*
 //! - **GPU surface/device** — `wgpu` owns the surface, device, queue, and swap
-//!   chain, presenting frames to the window. *(initial: solid clear only)*
+//!   chain, presenting frames (including the post-processing passes) to the
+//!   window.
 //! - **Glyph atlas / text renderer** — a CPU-rasterized monospace glyph atlas
-//!   (`crate::text`) uploaded to a `wgpu` texture; cells drawn as textured
-//!   quads. *(initial)*
+//!   (`crate::text`) uploaded to a `wgpu` texture; cells drawn as textured quads.
 //! - **Grid presentation** — maps an owned-core `Snapshot` to positioned cell
 //!   quads via `crate::grid`, with no terminal semantics in the renderer.
-//!   *(initial)*
 //!
 //! ## Linux / Wayland
 //!

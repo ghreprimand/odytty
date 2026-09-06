@@ -244,14 +244,14 @@ fn ed_mode_2_clears_sixel_placements() {
 }
 
 #[test]
-fn ris_clears_sixel_placements_and_raw_commands() {
+fn ris_clears_sixel_placements() {
     let mut t = Terminal::new(80, 24);
     t.advance(&solid_16x6_red());
-    assert!(!t.graphics().raw_commands().is_empty());
+    assert!(!t.visible_graphics(0).is_empty());
 
     t.advance(b"\x1bc");
     assert!(t.visible_graphics(0).is_empty());
-    assert!(t.graphics().raw_commands().is_empty());
+    assert_eq!(t.graphics().placements().len(), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -357,20 +357,18 @@ fn sixel_then_text_then_sixel() {
 }
 
 // ---------------------------------------------------------------------------
-// Raw command recording (G2.1 regression guard)
+// Sixel DCS routing (decode + placement)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn raw_sixel_command_recorded_alongside_placement() {
+fn sixel_dcs_decodes_and_places_an_image() {
     let mut t = Terminal::new(80, 24);
     t.advance(&solid_16x6_red());
 
-    let commands = t.graphics().raw_commands();
-    assert_eq!(commands.len(), 1);
-    assert!(matches!(
-        &commands[0],
-        crate::graphics::GraphicsCommand::SixelDcs { .. }
-    ));
+    // A well-framed DCS is decoded into a stored image and a placement, with no
+    // separately retained raw-command buffer.
+    assert_eq!(t.graphics().store().len(), 1);
+    assert_eq!(t.graphics().placements().len(), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -383,6 +381,30 @@ fn default_cell_metrics_are_8x16() {
     let m = t.cell_metrics();
     assert_eq!(m.width_px, 8);
     assert_eq!(m.height_px, 16);
+}
+
+#[test]
+fn sixel_display_rows_clamp_to_screen_like_columns() {
+    // Sibling of kitty_display_rows_clamp_to_screen_like_columns / iTerm2's
+    // extent clamp: a tall Sixel must store display_rows within screen bounds
+    // from the cursor, not only clamp columns.
+    let mut t = Terminal::new(20, 4);
+    t.set_cell_metrics(8, 8);
+    // 48x36 px -> 6x5 cells at 8x8; screen has only 4 rows from row 0.
+    t.advance(&solid_48x36_red());
+
+    let stored = t.graphics().placements();
+    assert_eq!(stored.len(), 1, "expected one stored placement");
+    assert!(
+        stored[0].display_columns <= 20,
+        "columns clamp to screen; got {}",
+        stored[0].display_columns
+    );
+    assert!(
+        stored[0].display_rows <= 4,
+        "rows must clamp to screen bounds like Kitty/iTerm2; got {}",
+        stored[0].display_rows
+    );
 }
 
 #[test]

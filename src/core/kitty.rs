@@ -249,7 +249,7 @@ pub(super) fn handle_apc(
     named_transports_enabled: bool,
 ) -> Result<KittyOutcome, KittyError> {
     let command = parse_apc(data)?;
-    if !graphics.record_kitty_apc(data) {
+    if !graphics.accepts_kitty_apc(data) {
         return Err(KittyError::NotKitty);
     }
 
@@ -927,6 +927,17 @@ fn place_image(
         display_columns(control, effective_w, cursor_col, screen_cols, cell_metrics);
     let display_rows = display_rows(control, effective_h, cursor_row, screen_rows, cell_metrics);
 
+    // Tag the placement with the id the stored image actually carries, not the
+    // raw `i=` control field. When the client addressed the image only by
+    // number (`I=`), the terminal allocated the id and echoed it; a later
+    // `a=d,d=i,i=<that id>` must match this placement. Falls back to
+    // `control.image_id` when the store has no protocol id (e.g. an id-only
+    // client command against an image without one).
+    let effective_image_id = graphics
+        .store()
+        .get(stored_id)
+        .and_then(|image| image.protocol_id)
+        .or(control.image_id);
     let request = PlacementRequest::new(
         stored_id,
         GraphicsProtocol::Kitty,
@@ -938,7 +949,7 @@ fn place_image(
     .with_source(source)
     .with_pixel_offset(control.offset_x.unwrap_or(0), control.offset_y.unwrap_or(0))
     .with_z_index(control.z_index.unwrap_or(0))
-    .with_protocol_ids(control.image_id, control.placement_id);
+    .with_protocol_ids(effective_image_id, control.placement_id);
 
     let placed = graphics.place(request).is_some();
     let cursor = if control.cursor_movement == Some(1) {
@@ -971,7 +982,19 @@ fn place_virtual_image(
     height: u32,
     cell_metrics: CellMetrics,
 ) -> bool {
-    let Some(protocol_image_id) = control.image_id.filter(|id| *id != 0) else {
+    // Prefer the id the stored image actually carries: when the client
+    // addressed it only by number (`I=`), the terminal allocated the id, and a
+    // virtual placement addressed by that allocated id must be created. Falls
+    // back to the raw control field. A command with no id at all (neither `i=`
+    // nor `I=`) still yields None and is dropped, since a placeholder cell can
+    // only ever address a real protocol image id.
+    let Some(protocol_image_id) = graphics
+        .store()
+        .get(stored_id)
+        .and_then(|image| image.protocol_id)
+        .or(control.image_id)
+        .filter(|id| *id != 0)
+    else {
         return false;
     };
     let columns = control

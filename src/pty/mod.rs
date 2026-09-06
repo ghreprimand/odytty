@@ -100,7 +100,14 @@ impl CommandBuilder {
     }
 
     pub fn env(&mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> &mut Self {
-        self.env.push((key.into(), value.into()));
+        let key = key.into();
+        // Later call wins: an explicit set defeats an earlier removal of the
+        // same key, so the two lists stay disjoint by construction. Without
+        // this, the Unix backend (removals applied last) and the Windows
+        // backend (overrides appended last) resolved a set+remove collision
+        // oppositely, silently dropping an explicit profile `env` value on Linux.
+        self.env_remove.retain(|removed| removed != &key);
+        self.env.push((key, value.into()));
         self
     }
 
@@ -111,7 +118,12 @@ impl CommandBuilder {
     /// odytty's child shell.
     #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
     fn env_remove(&mut self, key: impl Into<OsString>) -> &mut Self {
-        self.env_remove.push(key.into());
+        let key = key.into();
+        // Later call wins (see `env`): a removal defeats an earlier set of the
+        // same key, keeping the two lists disjoint so both backends resolve a
+        // set+remove collision identically.
+        self.env.retain(|(existing, _)| existing != &key);
+        self.env_remove.push(key);
         self
     }
 
@@ -284,6 +296,46 @@ impl CommandBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// F3: a key present in both `env` and `env_remove` must resolve the same
+    /// way on both PTY backends. The lists are kept disjoint at push time (later
+    /// call wins), so a set after a removal leaves the key only in `env`, and a
+    /// removal after a set leaves it only in `env_remove`. Both backends consume
+    /// these two lists, so making them disjoint here makes the backends agree.
+    #[test]
+    fn env_and_env_remove_stay_disjoint_with_later_call_winning() {
+        // set then remove: removal wins, key gone from env.
+        let mut a = CommandBuilder::new("sh");
+        a.env("ODYTTY_BUTTONS", "1");
+        a.env_remove("ODYTTY_BUTTONS");
+        assert!(
+            !a.env_for_test().iter().any(|(k, _)| k == "ODYTTY_BUTTONS"),
+            "a later removal must drop the earlier set"
+        );
+        assert!(
+            a.env_remove_for_test()
+                .iter()
+                .any(|k| k == "ODYTTY_BUTTONS"),
+            "the key is removed in the child"
+        );
+
+        // remove then set: set wins, key gone from env_remove.
+        let mut b = CommandBuilder::new("sh");
+        b.env_remove("ODYTTY_BUTTONS");
+        b.env("ODYTTY_BUTTONS", "1");
+        assert!(
+            b.env_for_test()
+                .iter()
+                .any(|(k, v)| k == "ODYTTY_BUTTONS" && v == "1"),
+            "a later explicit set must defeat the earlier removal"
+        );
+        assert!(
+            !b.env_remove_for_test()
+                .iter()
+                .any(|k| k == "ODYTTY_BUTTONS"),
+            "the removal is dropped so the set survives on both backends"
+        );
+    }
 
     /// Buttons feature discovery (docs/buttons.md): gate on injects exactly
     /// `ODYTTY_BUTTONS=1`; gate off injects nothing, so a child's

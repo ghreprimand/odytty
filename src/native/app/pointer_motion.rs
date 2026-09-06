@@ -162,6 +162,17 @@ impl App {
             // window, stranding the grid selection's held flag. Drop it so a
             // `CursorMoved` on focus regain cannot resume a buttonless drag.
             self.grid_left_held = false;
+            // Same NF21-8 class for the rename/save-layout text field: a
+            // press-drag interrupted by an alt-tab never sees its release, so
+            // `rename_dragging` would otherwise stay armed and a later bare
+            // `CursorMoved` on focus regain would relocate the rename caret.
+            self.rename_dragging = false;
+            // A modifier held across an alt-tab may be released over the other
+            // window, so no paired `ModifiersChanged` returns here and the cache
+            // stays stuck (a phantom Ctrl/Alt/Shift/Super on the next keypress).
+            // Clear it; the next `ModifiersChanged` re-syncs the true state.
+            self.modifiers = Modifiers::default();
+            self.super_key = false;
             // WHEEL-SENS (T-reset): drop any partially-accumulated wheel
             // notch so a gesture interrupted by an alt-tab does not
             // resume against the next surface on focus regain.

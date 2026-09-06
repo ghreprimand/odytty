@@ -307,7 +307,12 @@ impl FontPicker {
             let focused = vis_index == self.selected
                 && matches!(self.entries[entry_index], PickerEntry::Family(_));
             lines.push(FontPickerLine {
-                text: ellipsize(&text, body_width),
+                // Family names come from font `name`-table metadata; a malformed
+                // font can embed control characters. Strip them before ellipsize
+                // so the width budget matches what `write_text` actually paints
+                // (it skips control chars at draw time), matching every sibling
+                // picker's sanitize-before-truncate order.
+                text: ellipsize(&sanitize(&text), body_width),
                 focused,
             });
         }
@@ -601,6 +606,13 @@ fn wrap_words(text: &str, width: usize) -> Vec<String> {
         lines.push(current);
     }
     lines
+}
+
+/// Strip control characters so a malformed font `name`-table record can neither
+/// inject escape sequences nor miscount the display width budget. Mirrors the
+/// sibling pickers' `sanitize`.
+fn sanitize(text: &str) -> String {
+    text.chars().filter(|ch| !ch.is_control()).collect()
 }
 
 fn ellipsize(text: &str, width: usize) -> String {

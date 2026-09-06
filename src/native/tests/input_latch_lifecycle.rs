@@ -195,6 +195,54 @@ fn focus_loss_cancels_scrollbar_drag_before_buttonless_motion() {
     ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
 )]
 #[test]
+fn focus_loss_clears_rename_drag_latch() {
+    // A press-drag inside the rename field whose release is stolen by an alt-tab
+    // must not leave the drag armed: otherwise the next bare `CursorMoved` on
+    // focus regain would relocate the rename caret.
+    let mut app = app_or_skip!();
+    app.arm_rename_dragging_for_test();
+    assert!(
+        app.rename_dragging_for_test(),
+        "precondition: rename drag is armed"
+    );
+
+    app.on_window_focus_changed_for_test(false);
+    assert!(
+        !app.rename_dragging_for_test(),
+        "focus loss must drop the rename drag latch (sibling of grid_left_held)"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn focus_loss_clears_cached_modifier_state() {
+    // A modifier held across an alt-tab may be released over the other window,
+    // so no paired `ModifiersChanged` returns; the cache must not stay stuck or
+    // the next plain keypress encodes a phantom modifier.
+    let mut app = app_or_skip!();
+    app.set_ctrl_modifier_for_test(true);
+    app.set_super_key_for_test(true);
+    assert!(app.ctrl_modifier_for_test() && app.super_key_for_test());
+
+    app.on_window_focus_changed_for_test(false);
+    assert!(
+        !app.ctrl_modifier_for_test(),
+        "focus loss must clear the cached Ctrl modifier"
+    );
+    assert!(
+        !app.super_key_for_test(),
+        "focus loss must clear the cached Super key"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
 fn focus_loss_clears_pressed_mouse_report_button() {
     let mut app = app_or_skip!();
     app.enable_mouse_reporting_for_test();

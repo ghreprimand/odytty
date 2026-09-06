@@ -21,8 +21,8 @@ pub use frames::{
     MAX_FRAMES_PER_IMAGE,
 };
 pub use placement::{
-    CellAnchor, GraphicsCommand, GraphicsProtocol, ImagePlacement, ImageScene, PlacementId,
-    PlacementRequest, SourceRect, VirtualPlacement, VisiblePlacement,
+    CellAnchor, GraphicsProtocol, ImagePlacement, ImageScene, PlacementId, PlacementRequest,
+    SourceRect, VirtualPlacement, VisiblePlacement,
 };
 pub use store::{
     FramesGuard, ImageInsert, ImageStore, ImageStoreError, ImageStoreLimits, StoredImage,

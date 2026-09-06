@@ -868,16 +868,21 @@ pub fn encode_paste(text: &str, bracketed_paste: bool) -> Vec<u8> {
 /// Strip any embedded bracketed-paste end marker from pasted bytes. Without
 /// this, a crafted clipboard payload containing `ESC [ 2 0 1 ~` would close the
 /// paste guard early and inject its tail as live keystrokes/commands.
+///
+/// Deleting a match can bring the surrounding bytes together to form a NEW
+/// match, so a naive forward scan does not converge: `ESC[2` + `ESC[201~` +
+/// `01~` collapses to exactly `ESC[201~`, re-emitting the marker it exists to
+/// remove. This scan checks the growing OUTPUT tail after every byte, so a
+/// marker reassembled by a prior deletion is caught in the same pass. The
+/// result is a fixed point in one linear pass: `sanitize_paste(sanitize_paste(x))
+/// == sanitize_paste(x)` and no `ESC[201~` survives in the output.
 pub fn sanitize_paste(text: &[u8]) -> Vec<u8> {
     const END: &[u8] = b"\x1b[201~";
     let mut output = Vec::with_capacity(text.len());
-    let mut index = 0;
-    while index < text.len() {
-        if text[index..].starts_with(END) {
-            index += END.len();
-        } else {
-            output.push(text[index]);
-            index += 1;
+    for &byte in text {
+        output.push(byte);
+        if output.ends_with(END) {
+            output.truncate(output.len() - END.len());
         }
     }
     output
@@ -885,6 +890,9 @@ pub fn sanitize_paste(text: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod win32_key_tests;
+
+#[cfg(test)]
+mod paste_tests;
 
 #[cfg(test)]
 mod tests {

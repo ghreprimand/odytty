@@ -1474,10 +1474,27 @@ pub(super) fn parse_key_bindings(
     // Keep that character in its entry so the in-app remap serializer can use
     // the same visible chord spelling it renders. Comma remains the `comma`
     // alias because it is unambiguously an entry separator.
-    split_key_binding_entries(&value)
+    let overrides: Vec<KeyBindingOverride> = split_key_binding_entries(&value)
         .into_iter()
         .filter_map(|entry| parse_key_binding_entry(entry, warn))
-        .collect()
+        .collect();
+    // Warn on a chord bound to two different actions: individually the entries
+    // are well-formed, but only the later one fires at runtime (keep-last by
+    // chord in `KeyBindings::from_overrides`). Surface it the same way a
+    // malformed chord or unknown action is surfaced, so a silently-shadowed
+    // binding is not a mystery.
+    for (index, later) in overrides.iter().enumerate() {
+        if overrides[..index]
+            .iter()
+            .any(|earlier| earlier.chord == later.chord && earlier.action != later.action)
+        {
+            warn(&format!(
+                "chord {:?} is bound to more than one action; the last binding ({:?}) wins",
+                later.chord, later.action
+            ));
+        }
+    }
+    overrides
 }
 
 fn split_key_binding_entries(value: &str) -> Vec<&str> {

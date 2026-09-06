@@ -54,6 +54,7 @@ use super::tab_chrome;
 use super::*;
 use crate::core::Attrs;
 use crate::theme::Srgb;
+use unicode_width::UnicodeWidthChar;
 
 // ---------------------------------------------------------------------------
 // Public constants
@@ -350,12 +351,28 @@ impl TabBar {
             if bold {
                 la.set_bold(true);
             }
-            for (i, ch_char) in slot.label.chars().enumerate() {
-                let col = slot.label_col + i;
+            // Advance by display width, not char index: a wide glyph occupies
+            // the two cells it paints. The trailing cell of a wide glyph is set
+            // to a blank so no stale ch shows through, and writes stop at the
+            // slot's end column. `truncate_label` already budgeted by the same
+            // width metric, so the reserved and painted columns agree.
+            let mut col = slot.label_col;
+            for ch_char in slot.label.chars() {
+                if col >= slot.end_col {
+                    break;
+                }
+                let w = UnicodeWidthChar::width(ch_char).unwrap_or(0).max(1);
                 if let Some(glyph) = row.get_mut(col) {
                     glyph.ch = ch_char;
                     glyph.attrs = la;
                 }
+                for pad in 1..w {
+                    if let Some(glyph) = row.get_mut(col + pad) {
+                        glyph.ch = ' ';
+                        glyph.attrs = la;
+                    }
+                }
+                col += w;
             }
 
             // Close `×` glyph — rendered only for the active or hovered tab.
@@ -556,16 +573,36 @@ fn is_slot_hovered(hover: Option<TabHit>, idx: usize) -> bool {
     }
 }
 
-/// Truncate `s` to at most `max_cols` display columns.  Each Unicode scalar
-/// value counts as one column, which is correct for the ASCII-heavy titles
-/// typical of terminal tab bars.  Leading/trailing whitespace is stripped.
-/// When truncation is needed, the last column holds `…`.
+/// Truncate `s` to at most `max_cols` display columns.
+///
+/// Control characters are stripped first: a hostile or buggy program can set a
+/// title carrying raw ESC/CSI/OSC fragments, and the tab bar writes label
+/// glyphs directly into the cell grid (it does not route through
+/// `overlay::render::write_text`, the universal control backstop), so an
+/// unstripped ESC would be painted into the chrome. Budgeting and the render
+/// advance both use `UnicodeWidthChar` display width so a wide (CJK/emoji)
+/// glyph reserves the two columns it actually paints. Leading/trailing
+/// whitespace is stripped; when truncation is needed the last column holds `…`.
 fn truncate_label(s: &str, max_cols: usize) -> String {
-    let chars: Vec<char> = s.trim().chars().collect();
-    if chars.len() <= max_cols {
-        return chars.iter().collect();
+    let cleaned: Vec<char> = s.trim().chars().filter(|ch| !ch.is_control()).collect();
+    let total: usize = cleaned
+        .iter()
+        .map(|ch| UnicodeWidthChar::width(*ch).unwrap_or(0).max(1))
+        .sum();
+    if total <= max_cols {
+        return cleaned.into_iter().collect();
     }
-    let mut out: String = chars[..max_cols.saturating_sub(1)].iter().collect();
+    let mut out = String::new();
+    let mut used = 0usize;
+    let budget = max_cols.saturating_sub(1);
+    for ch in &cleaned {
+        let w = UnicodeWidthChar::width(*ch).unwrap_or(0).max(1);
+        if used + w > budget {
+            break;
+        }
+        out.push(*ch);
+        used += w;
+    }
     out.push('…');
     out
 }
@@ -807,6 +844,30 @@ mod tests {
     // -----------------------------------------------------------------------
     // Zero tabs
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn tab_bar_label_strips_control_characters_from_title() {
+        // Titles can carry OSC/CSI fragments from hostile or buggy programs;
+        // the rendered label must not paint control characters into the chrome.
+        let src = MockSource::new(&["ok\x1b[31mRED\r\n"], 0);
+        let out = render_default(&src);
+        let label: String = out
+            .glyphs
+            .iter()
+            .filter(|g| g.ch != '+' && g.ch != '×' && g.ch != ' ' && g.ch != '\u{25be}')
+            .map(|g| g.ch)
+            .collect();
+        assert!(
+            label.chars().all(|ch| !ch.is_control()),
+            "tab label must strip controls; got {label:?}"
+        );
+        assert!(
+            !label.contains('\u{1b}'),
+            "escape must not appear in the rendered label"
+        );
+        assert!(label.contains("ok"), "printable prefix must remain");
+        assert!(label.contains("RED"), "printable body must remain");
+    }
 
     #[test]
     fn zero_tabs_produces_explicit_row_cells_and_new_tab_affordance() {

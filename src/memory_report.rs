@@ -26,9 +26,12 @@
 //! This is a passive diagnostic, OFF by default and zero cost when off: a single
 //! atomic load, no thread, no allocation, no file handle, and no added event-loop
 //! wake unless [`sample_interval`] returns `Some`. When enabled it appends one
-//! line per sample to `std::env::temp_dir()/odytty-memory-report.log`. A file
-//! (not stderr) because the Windows build is a GUI-subsystem application with no
-//! visible stderr; the log is retrieved from the temp dir afterward.
+//! line per sample to `odytty-memory-report.log` inside the same hardened,
+//! UID-namespaced state directory the runtime log uses (never a fixed name in
+//! the shared system temp root), opened through the no-follow, ownership-checked
+//! append helper so a pre-planted symlink at a predictable path cannot redirect
+//! the write. A file (not stderr) because the Windows build is a GUI-subsystem
+//! application with no visible stderr; the log is retrieved afterward.
 //!
 //! # Privacy / public-repo safety
 //! Every field is a byte total, a count, or a fixed identifier drawn from a
@@ -377,12 +380,16 @@ pub fn append_report(report: &MemoryReport) {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let path = std::env::temp_dir().join("odytty-memory-report.log");
-    let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    else {
+    // Write inside the hardened, UID-namespaced state directory through the
+    // no-follow, ownership-checked append helper, exactly like the runtime and
+    // panic logs. A fixed name under the shared system temp root would follow a
+    // pre-planted symlink and let a hostile local user redirect every appended
+    // line into a victim-writable file.
+    let Ok(dir) = crate::logging::prepare_state_log_dir() else {
+        return;
+    };
+    let path = dir.join("odytty-memory-report.log");
+    let Ok(mut file) = crate::state_dir::open_append_sensitive(&path) else {
         return;
     };
 

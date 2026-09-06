@@ -260,6 +260,25 @@ fn robustness_huge_repeat_clamped() {
     assert!(img.width <= 10_000);
 }
 
+/// A repeat-run flood that resets `x` with `$` (graphics carriage return)
+/// between runs cannot amplify decode work beyond the per-DCS paint budget.
+/// `$` re-arms the width cap for free, so without a paint budget this payload
+/// would drive ~16.8M `paint_sixel` calls from a few KB of input. The budget
+/// rejects it as `TooLarge`.
+#[test]
+fn repeat_flood_with_carriage_return_is_bounded() {
+    let mut payload = Vec::from(&b"\"1;1;10;6"[..]);
+    // 1678 x 10000 = 16_780_000 paint calls, just over the paint budget.
+    for _ in 0..1678 {
+        payload.extend_from_slice(b"!10000?$");
+    }
+    let result = decode_sixel(&payload, SixelBackground::default());
+    assert!(
+        matches!(result, Err(SixelError::TooLarge { .. })),
+        "a repeat-run flood must be rejected once the paint budget is exhausted, got {result:?}"
+    );
+}
+
 /// Out-of-range color register is ignored.
 #[test]
 fn robustness_out_of_range_color_register() {
@@ -335,8 +354,8 @@ fn wide_then_tall_stream_respects_joint_pixel_budget() {
 /// is produced.
 #[test]
 fn sx4_header_only_stream_allocates_nothing() {
-    // 6000x6000 = 36M px (under the 40M budget) but zero data.
-    let payload = b"\"1;1;6000;6000";
+    // 4000x4000 = 16M px (under the 16.7M budget) but zero data.
+    let payload = b"\"1;1;4000;4000";
     assert!(matches!(
         decode_sixel(payload, SixelBackground::default()),
         Err(SixelError::Empty)
@@ -371,7 +390,7 @@ fn sx4_large_repeat_paint_bounded_and_correct() {
     let img = img(payload).unwrap();
     assert_eq!(img.width, 5000);
     assert_eq!(img.height, 6);
-    assert!(img.width <= 10_000 && (img.width as u64) * (img.height as u64) <= 40_000_000);
+    assert!(img.width <= 10_000 && (img.width as u64) * (img.height as u64) <= 16_777_216);
     // Endpoints painted with the selected color.
     let red = [255, 0, 0, 255];
     assert_eq!(pixel_at(&img, 0, 0), red);

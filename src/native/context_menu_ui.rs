@@ -24,11 +24,15 @@
 //! Tab, Close Tab, and Settings are always enabled. A disabled item renders dim
 //! and its activation is a no-op.
 //!
-//! Four visual separator lines partition the menu into editing/selection
-//! commands (Copy…Select All), tab actions (New Tab / Rename Tab / Close Tab),
-//! split/pane actions (Split Right / Split Down / Close Pane), the Settings
-//! launcher, and the overlay launcher section (Connection Manager / Command
-//! Palette / Session Replay). Separators occupy body rows but are neither
+//! Visual separator lines partition the menu into sections. The section
+//! assignment is owned by [`ContextMenuItem::section`] (see
+//! `context_menu_ui/actions.rs`) -- refer to it as the source of truth rather
+//! than duplicating the list here. As of this writing it is seven sections
+//! (so up to six separators, five on the common non-path menu): editing (0),
+//! tab actions (1), split/pane actions (2), workspace actions (3), Settings (4),
+//! overlay launchers (5), and the file/path composition (6, shown only on a
+//! path right-click). A separator is drawn wherever consecutive *visible* items
+//! cross a section boundary; separators occupy body rows but are neither
 //! selectable nor focusable (D-IN2-SETTINGS).
 //!
 //! Pane-count gating: the **Close Pane** item is shown only when the active tab
@@ -385,6 +389,15 @@ pub(super) struct ContextMenuUi {
     /// each connection-row outcome; `None` on every other surface, so the menu
     /// is byte-identical to before ODP-2C off that surface.
     connection_target: Option<Box<ConnectionHost>>,
+    /// The name of the workspace under a right-clicked rail slot, snapshotted at
+    /// open time on the `WorkspaceSlot` surface (RAIL-REVALIDATE). Unlike the
+    /// tab surface (which carries an opaque `SessionToken` re-resolved at
+    /// activation), a `WorkspaceSlot` carries a bare rail index frozen at open
+    /// time. A background workspace auto-closing while the menu is open shifts
+    /// every later slot's index down, so the frozen index would name a
+    /// different workspace. The App re-validates this name against the live
+    /// workspace at the index before acting. `None` on every other surface.
+    workspace_slot_name: Option<String>,
     /// Per-item effective-keybind labels (Part C), indexed by
     /// [`ContextMenuItem::ALL`] order. `None` means the item shows no
     /// accelerator. Reset to all-`None` on `open`; the App overwrites via

@@ -36,6 +36,11 @@ impl App {
     /// native-side: the selected text is derived from a snapshot copy and no
     /// terminal state is mutated.
     pub(super) fn handle_copy_shortcut(&mut self) {
+        // H4: reconcile any scrollback trim applied by the PTY pump since the
+        // last redraw (the scrollback-epoch check) before reading the selection,
+        // so a stale selection is cleared rather than copying different, more
+        // recent rows. Mirrors the command-output copy path's generation guard.
+        self.sessions.reconcile_scrollback_trims();
         let Some(text) = self.current_selection_text() else {
             return;
         };

@@ -1046,11 +1046,20 @@ impl App {
         let Some(window) = self.window.as_ref() else {
             return;
         };
+        let size = window.inner_size();
+        // Same zero-size guard the primary `apply_grid_resize` path carries: a
+        // minimized window (or a pre-first-configure startup race) can report a
+        // 0x0 drawable surface here. Passing zero through grid fitting floors to
+        // zero cells and then clamps to 1x1, destructively reflowing every live
+        // pane while there is no drawable area. Skip instead.
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
         let _ = self.resize_grid_with_padding(
             gpu.cell(),
             gpu.window_padding(),
-            window.inner_size().width,
-            window.inner_size().height,
+            size.width,
+            size.height,
         );
         // F4-P4: record the rail width now baked into the content reservation so
         // `reconcile_rail_auto_width` reflows exactly once when auto-sizing (or a

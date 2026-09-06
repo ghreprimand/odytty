@@ -154,6 +154,30 @@ fn erase_line_from_cursor_severs_the_rows_own_soft_wrap() {
     assert_eq!(visible_text(&terminal), "aaaa\nbbbbb");
 }
 
+/// DCH always destroys the right edge (shift left, blank-pad). A soft-wrapped
+/// row must clear `wrapped` so a later resize does not fuse with the row below.
+#[test]
+fn delete_chars_severs_soft_wrap_on_wrapped_row() {
+    let mut terminal = wrapped_pair();
+    terminal.advance(b"\x1b[1;1H\x1b[2P"); // DCH 2 at col 0 of the wrapped row
+
+    terminal.resize(20, 4);
+    // Pre-fix: remnant + continuation fused into one logical line.
+    assert_eq!(visible_text(&terminal), "aaaaaaaa\nbbbbb");
+}
+
+/// ICH always destroys the right edge (insert blanks, truncate). Same sever
+/// requirement as DCH.
+#[test]
+fn insert_chars_severs_soft_wrap_on_wrapped_row() {
+    let mut terminal = wrapped_pair();
+    terminal.advance(b"\x1b[1;1H\x1b[2@"); // ICH 2 at col 0 of the wrapped row
+
+    terminal.resize(20, 4);
+    // Pre-fix: truncated wrapped remnant fused with "bbbbb".
+    assert_eq!(visible_text(&terminal), "  aaaaaaaa\nbbbbb");
+}
+
 /// NF7: ECH (CSI Ps X) whose clamped count reaches the right edge destroys
 /// the content flow into the continuation row, exactly like EL0 — the row's
 /// own wrapped flag must clear.

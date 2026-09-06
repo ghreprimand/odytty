@@ -104,9 +104,10 @@ pub(super) const DETACH_SWITCH_ACTION_LINE: &str =
     "Swap closes this.  [S] Swap   [K] Keep both   [Esc] Cancel";
 
 /// Fixed body width (cells) for the replace-tab confirm dialog (ODP-5D). Sized
-/// for the longest static line plus the panel border inset; the `.max(36)` floor
-/// in [`overlay_rect`] keeps small grids sane.
-pub(super) const CONFIRM_REPLACE_TAB_WIDTH: usize = 56;
+/// so the body (`width - 4` in [`overlay_rect`]) is at least as wide as the
+/// 54-column action line, which the non-wrapping `write_text` would otherwise
+/// truncate; the `.max(36)` floor in [`overlay_rect`] keeps small grids sane.
+pub(super) const CONFIRM_REPLACE_TAB_WIDTH: usize = 58;
 
 /// The replace-tab confirm dialog's action line, shared by the body builder and
 /// the click hit-test ([`OverlayUi::confirm_replace_tab_click`]) so the two can
@@ -144,9 +145,11 @@ pub(super) const CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE: &str =
     "Overwrite?   [Enter] Replace   [R] Rename   [Esc] Cancel";
 
 /// Fixed body width (cells) for the open-layout mode dialog (LAYOUT-OPEN-MODE).
-/// Sized for the three-way action line plus the panel border inset; the
-/// `.max(36)` floor in [`overlay_rect`] keeps small grids sane.
-pub(super) const CONFIRM_OPEN_LAYOUT_WIDTH: usize = 60;
+/// Sized so the body (`width - 4` in [`overlay_rect`]) is at least as wide as
+/// the 61-column three-way action line, which the non-wrapping `write_text`
+/// would otherwise truncate; the `.max(36)` floor in [`overlay_rect`] keeps
+/// small grids sane.
+pub(super) const CONFIRM_OPEN_LAYOUT_WIDTH: usize = 66;
 
 /// The open-layout mode dialog's three-way action line, shared by the body
 /// builder and the click hit-test ([`OverlayUi::confirm_open_layout_click`]) so

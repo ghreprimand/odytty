@@ -46,10 +46,10 @@
 //! passthrough.
 
 use crate::color::{
-    self, LinearRgb, Oklab, Oklch, enforce_min_contrast, linear_to_oklab, linear_to_srgb_u8,
-    oklab_to_linear, oklab_to_oklch, oklch_to_oklab, srgb_to_linear,
+    LinearRgb, Oklab, Oklch, linear_to_oklab, linear_to_srgb_u8, oklab_to_linear, oklab_to_oklch,
+    oklch_to_oklab, srgb_to_linear,
 };
-use crate::theme::{Appearance, Srgb, ThemeSpec};
+use crate::theme::{Srgb, ThemeSpec};
 
 /// A colour-vision-deficiency type. Each names the impaired cone class and, with
 /// it, the OKLab opponent axis the viewer cannot resolve:
@@ -217,6 +217,7 @@ pub fn adapt_palette(spec: &ThemeSpec, ty: CvdType, strength: f32) -> ThemeSpec 
 /// [`enforce_min_contrast`] moves **only** OKLab lightness, so this preserves
 /// the `a`/`b` separation the remap created while making the output readable.
 fn validate(spec: &mut ThemeSpec, floor: f32) {
+    use crate::palette_gen::{bg_side_neutral_slots, floor_role};
     let bg = to_linear(spec.background);
     spec.foreground = floor_role(spec.foreground, bg, floor);
     let exempt = bg_side_neutral_slots(spec.appearance);
@@ -233,40 +234,12 @@ fn validate(spec: &mut ThemeSpec, floor: f32) {
     spec.search = floor_role(spec.search, fg, floor);
 }
 
-/// The two achromatic ANSI neutrals on the same side as the background, exempt
-/// from the vs-background floor so they stay near-bg structural ramp neutrals.
-/// Dark themes keep `color0`/`color8`; light themes keep `color7`/`color15`.
-/// Mirrors the theme generator's exemption verbatim.
-fn bg_side_neutral_slots(appearance: Appearance) -> [usize; 2] {
-    match appearance {
-        Appearance::Dark => [0, 8],
-        Appearance::Light => [7, 15],
-    }
-}
-
-/// Floor one role against a linear surface, returning the `Srgb` whose
-/// **quantized bytes** clear `floor`. Enforces in linear space, then gamut-maps
-/// (hue-preserving) and quantizes, then re-checks the byte result and bumps the
-/// internal target if rounding/gamut shaved it under. `floor <= 1.0` is the
-/// passthrough no-op. Mirrors the theme generator's `floor_role` verbatim.
-fn floor_role(role: Srgb, surface: LinearRgb, floor: f32) -> Srgb {
-    if floor <= 1.0 {
-        return role;
-    }
-    let role_lin = to_linear(role);
-    let mut target = floor;
-    let mut best = role;
-    for _ in 0..8 {
-        let adjusted = enforce_min_contrast(role_lin, surface, target);
-        let mapped = oklch_to_linear_gamut(oklab_to_oklch(linear_to_oklab(adjusted)));
-        best = from_linear(mapped);
-        if color::wcag_contrast(to_linear(best), surface) >= floor {
-            return best;
-        }
-        target += 0.1;
-    }
-    best
-}
+// The vs-background floor exemption table (`bg_side_neutral_slots`) and the
+// floor/re-check algorithm (`floor_role`) are shared with the theme generator
+// and the interactive author: this module calls `palette_gen::bg_side_neutral_slots`
+// and `palette_gen::floor_role` directly rather than keeping its own copies, so
+// the three floor passes cannot drift. See `palette_gen` for the canonical
+// implementations and `theme_author`'s cross-check test.
 
 // ---------------------------------------------------------------------------
 // Srgb ↔ linear ↔ OKLCH bridges (thin wrappers over `color`; mirror the theme
@@ -320,7 +293,8 @@ fn oklch_to_linear_gamut(lch: Oklch) -> LinearRgb {
 mod tests {
     use super::*;
     use crate::color::wcag_contrast;
-    use crate::theme::VisualEffect;
+    use crate::palette_gen::bg_side_neutral_slots;
+    use crate::theme::{Appearance, VisualEffect};
 
     /// The OKLab ΔE bar above which two colours count as "distinguishable" under
     /// simulation. ≈5× the ~0.02 OKLab JND, so it is clearly suprathreshold.

@@ -2174,3 +2174,33 @@ fn a_stale_press_burst_into_a_fresh_workspace_menu_activates_nothing() {
         "after the debounce elapses, a routed click-away dismisses the menu"
     );
 }
+
+#[test]
+fn workspace_slot_action_revalidates_snapshotted_name() {
+    // RAIL-REVALIDATE (F3): a WorkspaceSlot menu freezes a bare rail index at
+    // open time. If a background workspace auto-closes while the menu is open,
+    // every later index shifts down, so the frozen index would name a different
+    // workspace. The action re-validates the snapshotted workspace name against
+    // the live workspace at the index and drops the action on a mismatch.
+    let Some((mut app, _)) = app_with_recording_writer(b"") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(10, 20));
+    app.set_test_surface_for_test(800, 480, WindowPadding::ZERO);
+    app.set_pointer_cell_for_test(5, 10);
+    app.open_workspace_rail_menu_for_test(0);
+    assert!(app.context_menu_open_for_test(), "workspace menu opened");
+
+    // The frozen index still names the snapshotted workspace: accepted.
+    assert_eq!(app.revalidated_workspace_slot_for_test(0), Some(0));
+
+    // A shift has the same observable as the workspace at the frozen index
+    // becoming a different one: the live name no longer matches the snapshot.
+    app.rename_workspace_for_test(0, "Shifted Workspace");
+    assert_eq!(
+        app.revalidated_workspace_slot_for_test(0),
+        None,
+        "a rail slot whose workspace identity changed must drop the action"
+    );
+}

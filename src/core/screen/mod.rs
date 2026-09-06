@@ -415,7 +415,7 @@ pub struct Screen {
     /// Column where the active OSC 133 `B` input boundary was reported, in the
     /// absolute row coordinate space used by prompt marks. This is advisory
     /// live-prompt state for native input editing; it never reaches snapshots.
-    active_prompt_input_start: Option<(usize, usize)>,
+    active_prompt_input_start: Option<ActivePromptInputStart>,
     /// Latest OdyTTY-private edit-region report
     /// (`OSC 133;P;odytty-edit;len;cur[;nl]`) from a cooperating shell's line
     /// editor: authoritative buffer length + cursor in runes. Same advisory
@@ -502,7 +502,7 @@ struct StoredScreen {
     /// no prompt input boundary of their own — storing and clearing the primary
     /// value on enter prevents the native input-editing layer from reading stale
     /// primary state while an alternate-screen TUI is running.
-    active_prompt_input_start: Option<(usize, usize)>,
+    active_prompt_input_start: Option<ActivePromptInputStart>,
     /// Private edit-region report saved with the primary buffer (same
     /// isolation rationale as `active_prompt_input_start`).
     active_edit_region: Option<super::input_region::EditRegionSignal>,
@@ -516,6 +516,25 @@ struct ActivePromptStart {
     /// False when the prompt begins after unterminated command output on the
     /// same logical line. Collapsing that line would discard the output prefix.
     collapse_on_reflow: bool,
+    /// Scrollback trim epoch witnessed when `absolute_row` was stamped. Front
+    /// eviction shifts every absolute-row address, so the anchor is only valid
+    /// while this matches the live epoch; a mismatch fails the anchor closed
+    /// (see `active_prompt_start_visible_row`), the same eviction-immunity the
+    /// `ActiveButtonRun` sibling gets from `pushed_row_count`.
+    trim_epoch: u64,
+}
+
+/// Active OSC 133 `B` input-start anchor: an absolute row/column plus the
+/// scrollback trim epoch witnessed when it was stamped. Scrollback front
+/// eviction (per logical line, which can drop more physical rows than a single
+/// push added) shifts every absolute-row address, so the anchor is only valid
+/// while `trim_epoch` matches the live epoch. A mismatch fails the anchor
+/// closed rather than aiming synthesized cursor keystrokes at the wrong row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ActivePromptInputStart {
+    row: usize,
+    col: usize,
+    trim_epoch: u64,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SavedCursor {
@@ -633,7 +652,11 @@ impl Screen {
                     .scrollback
                     .physical_len(self.dimensions.columns)
                     .saturating_add(self.cursor.row);
-                self.active_prompt_input_start = Some((absolute_row, self.cursor.column));
+                self.active_prompt_input_start = Some(ActivePromptInputStart {
+                    row: absolute_row,
+                    col: self.cursor.column,
+                    trim_epoch: self.scrollback.trim_epoch(),
+                });
             }
             Some(b'C' | b'D') => {
                 self.active_prompt_input_start = None;
@@ -718,6 +741,7 @@ impl Screen {
             self.active_prompt_start = Some(ActivePromptStart {
                 absolute_row,
                 collapse_on_reflow,
+                trim_epoch: self.scrollback.trim_epoch(),
             });
         }
         if code == Some(b'D') {
@@ -1750,11 +1774,18 @@ fn active_prompt_start_visible_row(
     cursor_row: usize,
     visible_rows: usize,
     width_unchanged: bool,
+    live_trim_epoch: u64,
 ) -> Option<usize> {
     if width_unchanged {
         return None;
     }
     let start = active_prompt_start?;
+    // Fail closed if scrollback was front-evicted since the anchor was stamped:
+    // the absolute row address has shifted, so collapsing on it would target the
+    // wrong logical line.
+    if start.trim_epoch != live_trim_epoch {
+        return None;
+    }
     if !start.collapse_on_reflow {
         return None;
     }

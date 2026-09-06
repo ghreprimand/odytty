@@ -330,7 +330,12 @@ fn validate(spec: &mut ThemeSpec, floor: f32) {
 /// neutrals. Dark themes keep `color0`/`color8` (the dark neutrals near a dark
 /// bg); light themes keep `color7`/`color15` (the light neutrals near a light
 /// bg). The opposite pair sits near the foreground and stays floored.
-fn bg_side_neutral_slots(appearance: Appearance) -> [usize; 2] {
+///
+/// This is the single source of the exemption table: `cvd` (CVD adaptation) and
+/// `theme_author` (interactive authoring) both call it rather than keeping their
+/// own copies, so the "which slots are exempt" rule cannot drift between the
+/// three floor passes.
+pub(crate) fn bg_side_neutral_slots(appearance: Appearance) -> [usize; 2] {
     match appearance {
         Appearance::Dark => [0, 8],
         Appearance::Light => [7, 15],
@@ -349,7 +354,12 @@ fn bg_side_neutral_slots(appearance: Appearance) -> [usize; 2] {
 ///
 /// `floor <= 1.0` is the passthrough no-op (the validation pass leaves the role
 /// untouched, bit-for-bit), matching [`enforce_min_contrast`]'s contract.
-fn floor_role(role: Srgb, surface: LinearRgb, floor: f32) -> Srgb {
+///
+/// This is the single source of the floor/re-check algorithm: `cvd::floor_role`
+/// delegates here and `theme_author::snap_to_floor` wraps it (converting its
+/// `Srgb` partner to the linear surface), so the enforce/gamut/quantize/re-check
+/// loop cannot drift between the three floor passes.
+pub(crate) fn floor_role(role: Srgb, surface: LinearRgb, floor: f32) -> Srgb {
     if floor <= 1.0 {
         return role;
     }

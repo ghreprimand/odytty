@@ -427,6 +427,17 @@ impl App {
         self.current_selection_text()
     }
 
+    /// Test seam (H4): the text the Ctrl+Shift+C copy shortcut would place on
+    /// the clipboard, exercising the SAME reconcile-then-read discipline
+    /// `handle_copy_shortcut` uses. A scrollback trim that landed since the last
+    /// redraw is reconciled first, so a now-stale selection yields `None` rather
+    /// than resolving to different, more recent rows.
+    #[cfg(test)]
+    pub(in crate::native) fn copy_shortcut_text_for_test(&mut self) -> Option<String> {
+        self.sessions.reconcile_scrollback_trims();
+        self.current_selection_text()
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn editable_input_selection_text_for_test(&self) -> Option<String> {
         self.editable_input_selection_for_context_menu()
@@ -460,6 +471,35 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn set_super_key_for_test(&mut self, super_key: bool) {
         self.super_key = super_key;
+    }
+
+    /// Test seam (focus-loss modifier reset): read the cached Ctrl/Super state
+    /// so a test can prove a modifier held across an alt-tab is dropped.
+    #[cfg(test)]
+    pub(in crate::native) fn ctrl_modifier_for_test(&self) -> bool {
+        self.modifiers.ctrl
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn super_key_for_test(&self) -> bool {
+        self.super_key
+    }
+
+    /// Test seam (focus-loss rename-latch reset): read whether a rename-field
+    /// drag is armed, so a test can prove an interrupted drag is dropped.
+    #[cfg(test)]
+    pub(in crate::native) fn rename_dragging_for_test(&self) -> bool {
+        self.rename_dragging
+    }
+
+    /// Test seam (focus-loss rename-latch reset): arm the rename-field drag
+    /// latch, standing in for a press-drag inside the rename field whose release
+    /// is stolen by an alt-tab. The reset under test lives in the focus-loss
+    /// handler, so arming the flag directly keeps the test free of rename-field
+    /// pixel geometry.
+    #[cfg(test)]
+    pub(in crate::native) fn arm_rename_dragging_for_test(&mut self) {
+        self.rename_dragging = true;
     }
 
     /// Test seam (MOUSE-RECT): set the Alt modifier so an Alt+drag block
@@ -2479,6 +2519,18 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn open_workspace_rail_menu_for_test(&mut self, idx: usize) {
         self.open_context_menu(super::ContextMenuSurface::WorkspaceSlot(idx));
+    }
+
+    /// Test seam (RAIL-REVALIDATE): the index a `WorkspaceSlot` action would act
+    /// on after re-validating the open menu's snapshotted workspace name against
+    /// the live workspace at that index. `None` means the rail shifted since the
+    /// menu opened and the action is dropped.
+    #[cfg(test)]
+    pub(in crate::native) fn revalidated_workspace_slot_for_test(
+        &self,
+        idx: usize,
+    ) -> Option<usize> {
+        self.revalidated_workspace_slot(idx)
     }
 
     #[cfg(test)]

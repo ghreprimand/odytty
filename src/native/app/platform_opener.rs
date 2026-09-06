@@ -179,8 +179,29 @@ pub(in crate::native) fn sniff_mime_bytes(bytes: &[u8]) -> Option<&'static str> 
 #[cfg(all(unix, not(target_os = "macos")))]
 pub(in crate::native) fn sniff_mime_path(abs: &str) -> Option<String> {
     use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
 
-    let file = std::fs::File::open(abs).ok()?;
+    // Refuse anything that is not a regular file, and never let the open itself
+    // block. Opening a FIFO for reading blocks until a writer appears, so a
+    // hostile program can print a plausible path (`/tmp/report.pdf`) that is
+    // actually a named pipe it created and wedge the UI thread the instant the
+    // user picks "Open With...". `metadata` (following symlinks) rejects FIFOs,
+    // sockets, devices, and directories up front; `O_NONBLOCK` is a second,
+    // TOCTOU-proof guard so even a swap to a FIFO after the check cannot hang
+    // the open. A post-open re-check rejects a target swapped to a non-regular
+    // file between the two syscalls.
+    let meta = std::fs::metadata(abs).ok()?;
+    if !meta.file_type().is_file() {
+        return None;
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(abs)
+        .ok()?;
+    if !file.metadata().ok()?.file_type().is_file() {
+        return None;
+    }
     let mut bytes = Vec::new();
     file.take(MIME_SNIFF_BYTES).read_to_end(&mut bytes).ok()?;
     sniff_mime_bytes(&bytes).map(str::to_owned)
@@ -403,5 +424,48 @@ mod tests {
         assert_eq!(sniff_mime_bytes(b""), None);
         assert_eq!(sniff_mime_bytes(b"RIFFshort"), None);
         assert_eq!(sniff_mime_bytes(b"plain text"), None);
+    }
+
+    /// A hostile program can name a FIFO with a plausible extension. The sniff
+    /// must refuse it (non-regular file) and, critically, must return promptly
+    /// rather than blocking the UI thread on the open with no writer present.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn sniff_mime_path_refuses_a_fifo_without_blocking() {
+        use std::ffi::CString;
+        use std::io::Write;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("odytty-sniff-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+
+        // A regular file with PNG magic is still recognized.
+        let png = dir.join("real.png");
+        std::fs::File::create(&png)
+            .and_then(|mut f| f.write_all(b"\x89PNG\r\n\x1a\n"))
+            .expect("write png");
+        assert_eq!(
+            sniff_mime_path(png.to_str().unwrap()).as_deref(),
+            Some("image/png"),
+            "a regular file is still sniffed"
+        );
+
+        // A FIFO with the same extension has no writer; the sniff must not hang
+        // and must classify it as unopenable/non-regular (None).
+        let fifo = dir.join("trap.png");
+        let cpath = CString::new(fifo.to_str().unwrap()).unwrap();
+        let rc = unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) };
+        assert_eq!(rc, 0, "mkfifo failed");
+        assert_eq!(
+            sniff_mime_path(fifo.to_str().unwrap()),
+            None,
+            "a FIFO is a non-regular file and must be refused"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
