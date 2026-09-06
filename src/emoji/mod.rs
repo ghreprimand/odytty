@@ -27,6 +27,9 @@ pub use color_atlas::{
 pub(crate) use render::color_route_needs_mono_fallback;
 pub use render::{EmojiPresentation, EmojiRasterizer, build_color_glyph_runs, emoji_presentation};
 
+// Only the fontconfig query names the family; the inventory paths match on
+// file stems, so the constant is gated with its sole caller.
+#[cfg(all(unix, not(target_os = "macos")))]
 const NOTO_COLOR_EMOJI: &str = "Noto Color Emoji";
 const EMOJI_PROBE_SIZE: f32 = 128.0;
 
@@ -538,6 +541,9 @@ fn has_colr_cpal(path: &Path) -> bool {
     color_formats(font).contains(&ColorGlyphFormat::ColrCpal)
 }
 
+/// Family-name normalization for the fontconfig result; gated with its sole
+/// caller like `NOTO_COLOR_EMOJI`.
+#[cfg(all(unix, not(target_os = "macos")))]
 fn normalize_name(name: &str) -> String {
     name.chars()
         .filter(|ch| ch.is_alphanumeric())
