@@ -1822,3 +1822,139 @@ fn opening_another_surface_clears_the_connection_target() {
     );
     assert!(m.connection_target().is_none());
 }
+
+// -- navigator-row surface composition --
+
+use crate::native::session_navigator::NavigatorTarget;
+
+#[test]
+fn navigator_row_live_shows_the_five_live_actions() {
+    // A live target (workspace / tab / pane) offers Focus / Rename /
+    // Duplicate / Move / Close, in that order, with a separator after Focus
+    // and another before the destructive Close.
+    for target in [
+        NavigatorTarget::Workspace(SessionToken(10)),
+        NavigatorTarget::Tab(SessionToken(11)),
+        NavigatorTarget::Live(SessionToken(12)),
+    ] {
+        let mut m = ContextMenuUi::new();
+        m.open_navigator_row(CellPoint { row: 3, column: 5 }, target.clone(), true);
+        assert_eq!(
+            m.visible_items(),
+            vec![
+                ContextMenuItem::NavFocus,
+                ContextMenuItem::NavRename,
+                ContextMenuItem::NavDuplicate,
+                ContextMenuItem::NavMove,
+                ContextMenuItem::NavClose,
+            ],
+            "live target {target:?} action set"
+        );
+        // Focus in its own group; Rename/Duplicate/Move; Close alone below its
+        // own separator -> two separators.
+        let seps = m
+            .rows()
+            .iter()
+            .filter(|r| matches!(r, ContextMenuRow::Separator))
+            .count();
+        assert_eq!(seps, 2, "live navigator menu has two separators");
+    }
+}
+
+#[test]
+fn navigator_row_detached_shows_attach_and_close() {
+    // A detached registry row offers only Attach + Close (the arena-scoped
+    // Rename/Duplicate/Move do not apply). Attach is enabled when available.
+    let mut m = ContextMenuUi::new();
+    m.open_navigator_row(
+        CellPoint { row: 3, column: 5 },
+        NavigatorTarget::Detached("s-1".to_owned()),
+        true,
+    );
+    assert_eq!(
+        m.visible_items(),
+        vec![ContextMenuItem::NavAttach, ContextMenuItem::NavClose]
+    );
+    assert!(m.item_enabled(ContextMenuItem::NavAttach));
+    assert_eq!(m.render_signature().navigator_target_kind, 4);
+    assert!(m.render_signature().navigator_detached_available);
+}
+
+#[test]
+fn navigator_row_unavailable_detached_disables_attach() {
+    let mut m = ContextMenuUi::new();
+    m.open_navigator_row(
+        CellPoint { row: 3, column: 5 },
+        NavigatorTarget::Detached("s-stale".to_owned()),
+        false,
+    );
+    assert!(
+        !m.item_enabled(ContextMenuItem::NavAttach),
+        "an unavailable detached target disables Attach"
+    );
+    assert!(!m.render_signature().navigator_detached_available);
+}
+
+#[test]
+fn navigator_target_class_changes_the_signature() {
+    // Different target classes swap the composition, so the render-cache
+    // signature must differ (a class change repaints).
+    let mut ws = ContextMenuUi::new();
+    ws.open_navigator_row(
+        CellPoint { row: 3, column: 5 },
+        NavigatorTarget::Workspace(SessionToken(1)),
+        true,
+    );
+    let mut detached = ContextMenuUi::new();
+    detached.open_navigator_row(
+        CellPoint { row: 3, column: 5 },
+        NavigatorTarget::Detached("s-1".to_owned()),
+        true,
+    );
+    assert_ne!(ws.render_signature(), detached.render_signature());
+}
+
+#[test]
+fn content_surface_never_shows_navigator_row_actions() {
+    // The six navigator-row items are NavigatorRow-only; the content menu must
+    // never surface them.
+    let m = menu(true, true);
+    for item in m.visible_items() {
+        assert!(
+            !matches!(
+                item,
+                ContextMenuItem::NavFocus
+                    | ContextMenuItem::NavAttach
+                    | ContextMenuItem::NavRename
+                    | ContextMenuItem::NavDuplicate
+                    | ContextMenuItem::NavMove
+                    | ContextMenuItem::NavClose
+            ),
+            "content menu leaked a navigator-row item: {item:?}"
+        );
+    }
+}
+
+#[test]
+fn opening_another_surface_clears_the_navigator_target() {
+    // The snapshotted target must not leak across a later non-NavigatorRow
+    // open, or a content menu could carry a stale target.
+    let mut m = ContextMenuUi::new();
+    m.open_navigator_row(
+        CellPoint { row: 3, column: 5 },
+        NavigatorTarget::Live(SessionToken(7)),
+        true,
+    );
+    assert!(m.navigator_target().is_some());
+    m.open(
+        CellPoint { row: 0, column: 0 },
+        false,
+        false,
+        false,
+        false,
+        None,
+        false,
+        None,
+    );
+    assert!(m.navigator_target().is_none());
+}

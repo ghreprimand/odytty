@@ -1570,6 +1570,86 @@ mod tests {
         assert_eq!(manager.draft_env[0].0, "API_TOKEN");
     }
 
+    /// OS-invalid env overrides (empty / `=` / NUL) must block save with an
+    /// inline error and leave the draft row intact.
+    #[test]
+    fn env_editor_rejects_os_invalid_keys_and_nul_values_inline() {
+        let cases = [
+            ("", "value", "empty key"),
+            ("FOO=BAR", "1", "equals in key"),
+            ("FOO\0BAR", "1", "NUL in key"),
+            ("FOO", "a\0b", "NUL in value"),
+        ];
+        for (key, value, label) in cases {
+            let mut manager = ProfileManager::new();
+            manager.open(ProfileCatalog::default(), None);
+            manager.open_add();
+            manager.draft_name = "dev".to_owned();
+            focus_field(&mut manager, FormField::AddEnv);
+            let _ = manager.activate_form_field(FormField::AddEnv);
+            manager.draft_env[0] = (key.to_owned(), value.to_owned());
+
+            assert!(
+                matches!(manager.try_save(), ProfileManagerOutcome::Consumed),
+                "{label}: save must not Persist"
+            );
+            assert!(
+                manager.error.as_ref().is_some_and(|error| {
+                    let lower = error.to_ascii_lowercase();
+                    lower.contains("environment")
+                        || lower.contains("env")
+                        || lower.contains("invalid")
+                        || lower.contains("malformed")
+                        || lower.contains("nul")
+                        || lower.contains('=')
+                        || lower.contains("required")
+                        || lower.contains("empty")
+                }),
+                "{label}: must surface an inline validation error; got {:?}",
+                manager.error
+            );
+            assert_eq!(
+                manager.draft_env.len(),
+                1,
+                "{label}: rejected row stays in the draft"
+            );
+            assert_eq!(manager.draft_env[0].0, key);
+            assert_eq!(manager.draft_env[0].1, value);
+        }
+    }
+
+    #[test]
+    fn env_editor_preserves_valid_os_env_names_on_save() {
+        let mut manager = ProfileManager::new();
+        manager.open(ProfileCatalog::default(), None);
+        manager.open_add();
+        manager.draft_name = "dev".to_owned();
+        focus_field(&mut manager, FormField::AddEnv);
+        let _ = manager.activate_form_field(FormField::AddEnv);
+        manager.draft_env[0] = ("ODY_TEST".to_owned(), "alpha".to_owned());
+        let _ = manager.activate_form_field(FormField::AddEnv);
+        manager.draft_env[1] = ("_Private".to_owned(), "ok".to_owned());
+        let _ = manager.activate_form_field(FormField::AddEnv);
+        // Space in the name is valid and must not be over-restricted.
+        manager.draft_env[2] = ("A B".to_owned(), "spaced".to_owned());
+
+        let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
+            panic!("valid OS env names must save; error={:?}", manager.error);
+        };
+        assert_eq!(
+            profile.launch.env.get("ODY_TEST").map(String::as_str),
+            Some("alpha")
+        );
+        assert_eq!(
+            profile.launch.env.get("_Private").map(String::as_str),
+            Some("ok")
+        );
+        assert_eq!(
+            profile.launch.env.get("A B").map(String::as_str),
+            Some("spaced")
+        );
+    }
+
     #[test]
     fn env_editor_stops_at_the_bounded_limit_with_a_visible_message() {
         let mut manager = ProfileManager::new();

@@ -90,6 +90,17 @@ pub fn spawn_local_plan(
     grid: crate::core::Dimensions,
     plan: &LocalLaunchPlan,
 ) -> Result<PtySession, anyhow::Error> {
+    // Defense-in-depth: the schema parser rejects OS-invalid env at the
+    // on-disk/import boundary, but a plan can also be built programmatically
+    // (restored state, connection bindings, CLI overrides) without passing
+    // through the parser. Fail closed before either spawn branch reaches
+    // `Command::env`, where an empty/`=`/NUL key would be silently mis-split or
+    // abort the spawn, rather than launching a child with a corrupt environment.
+    for (key, value) in &plan.env {
+        crate::profiles::schema::reject_os_invalid_env(key, value).map_err(|error| {
+            anyhow::anyhow!("profile environment rejected before launch: {error}")
+        })?;
+    }
     if matches!(plan.spawn, LocalSpawnKind::DefaultShell) {
         // Apply the profile's bounded env overrides even when it customizes no
         // shell/command (the common "env-only profile" case): without this the
@@ -287,5 +298,65 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["-d".to_owned(), "Ubuntu".to_owned()]
         );
+    }
+
+    /// A valid space-containing env key still reaches CommandBuilder.env (do not
+    /// over-restrict to shell identifiers).
+    #[test]
+    fn build_local_command_preserves_space_containing_env_key() {
+        use crate::profiles::schema::ProfileCommand;
+
+        let mut env = BTreeMap::new();
+        env.insert("A B".to_owned(), "spaced".to_owned());
+        let plan = LocalLaunchPlan {
+            settings: Settings::default(),
+            working_directory: None,
+            env,
+            spawn: LocalSpawnKind::Exec(ProfileCommand {
+                program: "true".to_owned(),
+                args: Vec::new(),
+                preserved: BTreeMap::new(),
+            }),
+        };
+        let command = build_local_command(&plan);
+        assert!(
+            command.env_for_test().iter().any(|(key, value)| {
+                key.to_string_lossy() == "A B" && value.to_string_lossy() == "spaced"
+            }),
+            "space-containing env key must survive into CommandBuilder; got {:?}",
+            command.env_for_test()
+        );
+    }
+
+    /// Defense-in-depth: OS-invalid env that somehow bypasses schema must still
+    /// fail closed at spawn (Err, not panic inside Command::env).
+    #[test]
+    fn spawn_local_plan_rejects_os_invalid_env_without_panic() {
+        use crate::profiles::schema::ProfileCommand;
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        let grid = crate::core::Dimensions {
+            columns: 80,
+            rows: 24,
+        };
+        let mut env = BTreeMap::new();
+        env.insert("FOO=BAR".to_owned(), "1".to_owned());
+        let plan = LocalLaunchPlan {
+            settings: Settings::default(),
+            working_directory: None,
+            env,
+            spawn: LocalSpawnKind::Exec(ProfileCommand {
+                program: "true".to_owned(),
+                args: Vec::new(),
+                preserved: BTreeMap::new(),
+            }),
+        };
+
+        let outcome = catch_unwind(AssertUnwindSafe(|| spawn_local_plan(grid, &plan)));
+        match outcome {
+            Ok(Err(_)) => {}
+            Ok(Ok(_)) => panic!("spawn must refuse OS-invalid env keys"),
+            Err(_) => panic!("spawn must fail closed with Err, not panic inside Command::env"),
+        }
     }
 }

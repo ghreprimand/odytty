@@ -28,6 +28,22 @@ use super::overlay::OverlayInput;
 /// fuzzy ranking bounded regardless of how many sessions are live).
 const MAX_RESULTS: usize = 40;
 
+/// Shortcut legend rendered as wrapped inert rows beneath the navigator list so
+/// every action stays discoverable at narrow widths (the single title line
+/// clipped the full legend). Joined with " \u{b7} " and wrapped by
+/// [`crate::native::overlay::render::wrap_segments`].
+const NAV_LEGEND_SEGMENTS: [&str; 8] = [
+    "Enter focus",
+    "r rename",
+    "d duplicate",
+    "m move",
+    "x close",
+    "X kill",
+    "o reopen",
+    "Esc back",
+];
+const NAV_LEGEND_SEP: &str = " \u{b7} ";
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct SessionAttachOverlay {
     /// The frozen session list captured at open time, in load order (sorted by
@@ -162,6 +178,23 @@ impl SessionAttachOverlay {
         self.entries.get(entry_index)
     }
 
+    /// Number of result rows [`Self::visible_lines`] actually renders for this
+    /// body height. Row 0 is always the `> query` prompt, and the selected
+    /// entry's opt-in preview block is reserved from the bottom (empty by
+    /// default). Hit-testing ([`Self::row_at`]), scroll following
+    /// ([`Self::scroll_offset_for_body_height`]), and the scroll affordance
+    /// ([`Self::scroll_indicator`]) must ALL window on this count, not on
+    /// `body_height - 1`, or a click lands on a preview row and the focused
+    /// result scrolls behind the preview. With preview off (`preview_len`
+    /// 0) this is exactly `body_height - 1`, so the default path is unchanged.
+    fn result_viewport(&self, body_height: usize) -> usize {
+        let preview_len = self
+            .selected_entry()
+            .map(|entry| entry.preview.len())
+            .unwrap_or(0);
+        body_height.saturating_sub(1).saturating_sub(preview_len)
+    }
+
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> SessionAttachOverlayOutcome {
         match input {
             OverlayInput::Close => SessionAttachOverlayOutcome::Close,
@@ -268,7 +301,10 @@ impl SessionAttachOverlay {
         if body_height == 0 || row_in_body == 0 || self.filtered.is_empty() {
             return None;
         }
-        let visible_results = body_height - 1;
+        // Reserve the preview block so a click on a rendered preview row is inert
+        // rather than resolving to a result cursor; this matches the row
+        // budget `visible_lines` gives the result list.
+        let visible_results = self.result_viewport(body_height);
         let within = row_in_body - 1;
         if within >= visible_results {
             return None;
@@ -293,23 +329,24 @@ impl SessionAttachOverlay {
         }
     }
 
-    /// The session id at a clicked body row WITHOUT moving the selection — the
-    /// handle for a right-click "kill this session" (Manage Sessions). Reuses
-    /// [`Self::row_at`] so it lands on exactly the same rows a left-click would
-    /// select; the prompt row, the empty/"No matches" hint, and clicks past the
-    /// last result all return `None`. Read-only: the attach (left-click) path is
-    /// untouched.
-    pub(super) fn id_at_row(&self, row_in_body: usize, body_height: usize) -> Option<String> {
+    /// The stable navigator target at a clicked body row WITHOUT moving the
+    /// selection - the handle for a right-click that opens the row context menu.
+    /// Reuses [`Self::row_at`] so it lands on exactly the same rows a left-click
+    /// would select; the prompt row, the empty/"No matches" hint, the wrapped
+    /// legend rows, and clicks past the last result all return `None`. Read-only:
+    /// the attach/focus (left-click) path is untouched, so a right-click never
+    /// focuses or attaches the row it targets. The returned bool is whether a
+    /// detached target is currently available to attach (always `true` for live
+    /// targets), so the menu can gate its Attach item without re-reading state.
+    pub(super) fn target_at_row(
+        &self,
+        row_in_body: usize,
+        body_height: usize,
+    ) -> Option<(NavigatorTarget, bool)> {
         let cursor = self.row_at(row_in_body, body_height)?;
         let entry_index = *self.filtered.get(cursor)?;
-        self.entries
-            .get(entry_index)
-            .and_then(|entry| match &entry.target {
-                NavigatorTarget::Detached(id) => Some(id.clone()),
-                NavigatorTarget::Workspace(_)
-                | NavigatorTarget::Tab(_)
-                | NavigatorTarget::Live(_) => None,
-            })
+        let entry = self.entries.get(entry_index)?;
+        Some((entry.target.clone(), detached_is_available(entry)))
     }
 
     pub(super) fn visible_lines(
@@ -382,15 +419,51 @@ impl SessionAttachOverlay {
                 bold: false,
             });
         }
+        // Append the wrapped shortcut legend as inert rows in whatever vertical
+        // space is left below the list/preview. These rows are never selectable:
+        // they sit past the last result, so `row_at` resolves them to a cursor
+        // beyond `filtered.len()` and returns `None` (a click there is inert),
+        // keeping render and hit geometry in lockstep without a row-offset. When
+        // the list fills the body they are simply not drawn.
+        if lines.len() < body_height {
+            let legend = crate::native::overlay::wrap_segments(
+                &NAV_LEGEND_SEGMENTS,
+                NAV_LEGEND_SEP,
+                body_width,
+            );
+            // A blank separator row first, only if it and at least one legend
+            // row both fit, so the legend reads as a distinct footer block.
+            if !legend.is_empty() && lines.len() + 1 < body_height {
+                lines.push(SessionAttachOverlayLine {
+                    text: String::new(),
+                    focused: false,
+                    bold: false,
+                });
+                for hint in legend {
+                    if lines.len() >= body_height {
+                        break;
+                    }
+                    lines.push(SessionAttachOverlayLine {
+                        text: truncate_for_width(&hint, body_width),
+                        focused: false,
+                        bold: false,
+                    });
+                }
+            }
+        }
         lines
     }
 
     /// Hidden result rows above / below the visible window, for the shared
-    /// scroll affordance (OVERLAY-SMALL-WINDOW). One body row is the query line,
-    /// so the result viewport is `body_height - 1`. `(false, false)` whenever
-    /// everything fits, so a tall overlay draws no arrows.
+    /// scroll affordance (OVERLAY-SMALL-WINDOW). One body row is the query line
+    /// and the selected entry's opt-in preview block is reserved, so the result
+    /// viewport is [`Self::result_viewport`] (`body_height - 1` with preview
+    /// off). `(false, false)` whenever everything fits, so a tall overlay draws
+    /// no arrows.
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
-        let visible_results = body_height.saturating_sub(1);
+        // Preview-reserved result count so the scroll arrows reflect the rows
+        // `visible_lines` gives the result list, not `body_height - 1`.
+        let visible_results = self.result_viewport(body_height);
         if visible_results == 0 || self.filtered.len() <= visible_results {
             self.scroll_offset.set(0);
             return (false, false);
@@ -415,7 +488,11 @@ impl SessionAttachOverlay {
 
     fn scroll_offset_for_body_height(&self, body_height: usize) -> usize {
         self.last_body_height.set(body_height);
-        let visible_results = body_height.saturating_sub(1);
+        // Window on the preview-reserved result count, not `body_height - 1`, so
+        // the selection-follow keeps the focused result inside the rows
+        // `visible_lines` actually draws for results and never scrolls it behind
+        // the preview block. Preview off leaves this at `body_height - 1`.
+        let visible_results = self.result_viewport(body_height);
         let results_len = self.filtered.len();
         if visible_results == 0 || results_len <= visible_results {
             self.scroll_offset.set(0);
@@ -554,8 +631,8 @@ mod tests {
 
     #[test]
     fn row_label_surfaces_title_not_just_id() {
-        // B0/B1 goal: a titled session reads "build" with its id in parens, not a
-        // bare numeric id.
+        // A titled session reads "build" with its id in parens, not a bare
+        // numeric id.
         let overlay = open(entries());
         let lines = overlay.visible_lines(120, 10);
         assert!(lines[1].text.starts_with("build"));
@@ -571,6 +648,57 @@ mod tests {
         let lines = overlay.visible_lines(120, 10);
         // s-0003 has name == id, so the id is not shown twice.
         assert_eq!(lines[3].text.matches("s-0003-cccc").count(), 1);
+    }
+
+    /// The shortcut legend renders as wrapped inert rows below the list when the
+    /// body has spare vertical room, so every action stays discoverable at
+    /// narrow widths. A click on a legend row is inert (it maps past the last
+    /// result), keeping render and hit geometry in lockstep.
+    #[test]
+    fn shortcut_legend_wraps_below_the_list_and_is_inert() {
+        let overlay = open(entries());
+        // A narrow, tall body: the three sessions leave ample room for the
+        // wrapped legend, and the width forces the legend across rows.
+        let body_width = 40;
+        let body_height = 24;
+        let lines = overlay.visible_lines(body_width, body_height);
+        let joined: String = lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for expected in [
+            "Enter focus",
+            "r rename",
+            "d duplicate",
+            "m move",
+            "x close",
+            "X kill",
+            "o reopen",
+            "Esc back",
+        ] {
+            assert!(
+                joined.contains(expected),
+                "legend must show '{expected}' at width {body_width}; got:\n{joined}"
+            );
+        }
+        // The legend must wrap (the full single line does not fit 40 columns).
+        let legend_rows = lines
+            .iter()
+            .filter(|line| line.text.contains('\u{b7}'))
+            .count();
+        assert!(legend_rows >= 2, "legend should wrap to multiple rows");
+        // A click on the first legend row resolves to no result (inert): the
+        // legend sits past the last session row.
+        let first_legend_row = lines
+            .iter()
+            .position(|line| line.text.contains('\u{b7}'))
+            .expect("a legend row");
+        assert_eq!(
+            overlay.row_at(first_legend_row, body_height),
+            None,
+            "a click on a legend row must not target a session"
+        );
     }
 
     #[test]
@@ -716,5 +844,87 @@ mod tests {
         let _ = overlay.visible_lines(80, 10);
         // The hint line (row 1) is not a selectable row.
         assert!(!overlay.click_row(1, 10));
+    }
+
+    /// With opt-in preview and a scrolling result list, `row_at` /
+    /// `scroll_offset_for_body_height` still window on `body_height - 1`, but
+    /// `visible_lines` reserves preview rows from that budget. A click on a
+    /// rendered preview line must be inert, and the focused result must stay
+    /// visible above the preview (never scrolled into the preview's slots).
+    #[test]
+    fn preview_rows_are_inert_and_selection_stays_above_preview_when_scrolling() {
+        use crate::native::session::SessionToken;
+        use crate::native::session_navigator::{NavigatorEntry, NavigatorTarget};
+
+        fn live(token: u64) -> NavigatorEntry {
+            NavigatorEntry {
+                target: NavigatorTarget::Live(SessionToken(token)),
+                stable_id: format!("live:{token}"),
+                name: format!("sess-{token:02}"),
+                detail: "local".to_owned(),
+                status: "running".to_owned(),
+                unread: false,
+                profile: None,
+                preview: vec![
+                    "preview-line-a".to_owned(),
+                    "preview-line-b".to_owned(),
+                    "preview-line-c".to_owned(),
+                ],
+            }
+        }
+
+        let entries: Vec<_> = (0..20).map(live).collect();
+        let mut overlay = SessionAttachOverlay::new();
+        overlay.open(entries);
+
+        let body_width = 80;
+        let body_height = 10;
+        // Drive selection deep enough that scroll_offset > 0 while preview is on.
+        for _ in 0..15 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(overlay.render_signature().selected, Some(15));
+
+        let lines = overlay.visible_lines(body_width, body_height);
+        assert_eq!(lines.len(), body_height, "body fills exactly");
+        let preview_start = lines
+            .iter()
+            .position(|line| line.text.contains("preview-line-a"))
+            .expect("selected entry preview must render");
+        assert!(
+            lines[preview_start..]
+                .iter()
+                .any(|line| line.text.contains("preview-line-c")),
+            "full preview block must be present"
+        );
+
+        // Preview rows are not hit targets: row_at reserves the preview rows
+        // from the result window.
+        for preview_row in preview_start..body_height {
+            assert!(
+                overlay.row_at(preview_row, body_height).is_none(),
+                "preview body row {preview_row} must not map to a result cursor; got {:?}",
+                overlay.row_at(preview_row, body_height)
+            );
+            assert!(
+                !overlay.click_row(preview_row, body_height),
+                "preview body row {preview_row} click must be inert"
+            );
+        }
+
+        // Re-render after the inert clicks (click_row must not have moved selection).
+        let lines = overlay.visible_lines(body_width, body_height);
+        let preview_start = lines
+            .iter()
+            .position(|line| line.text.contains("preview-line-a"))
+            .expect("preview still present");
+        assert!(
+            lines[..preview_start].iter().any(|line| line.focused),
+            "selected result must remain visible above the preview block, not scrolled behind it"
+        );
+        assert!(
+            lines[preview_start..].iter().all(|line| !line.focused),
+            "no focused result may paint inside the preview block"
+        );
     }
 }

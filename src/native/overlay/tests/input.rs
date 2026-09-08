@@ -1968,8 +1968,11 @@ fn right_click_session_row_requests_kill_left_click_still_attaches() {
             pane_count: 1,
         },
     ];
-    // Right-click body row 2 (the second session) requests a kill for its id
-    // and leaves the manager open (the App opens the confirm dialog).
+    // Right-click body row 2 (the second session) now opens the
+    // navigator row context menu over the still-loaded navigator instead of an
+    // immediate kill; the kill routes through the menu's Close item (Attach is
+    // item 0, Close item 1 for an available detached row). The right-click
+    // itself is Consumed and leaves the navigator loaded under the menu.
     let mut overlay = OverlayUi::default();
     overlay.open_session_attach(sessions.clone());
     let rect = overlay_rect(&overlay, 80, 24).expect("rect");
@@ -1984,6 +1987,13 @@ fn right_click_session_row_requests_kill_left_click_still_attaches() {
     };
     assert_eq!(
         overlay.handle_pointer(right_press, rect),
+        OverlayOutcome::Consumed
+    );
+    assert_eq!(overlay.render_signature().mode, OverlayMode::ContextMenu);
+    // Attach(0) -> Close(1); activating Close emits the kill request for s-2.
+    overlay.handle_input(OverlayInput::Down);
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
         OverlayOutcome::KillSessionRequest("s-2".to_owned())
     );
 
@@ -2712,4 +2722,51 @@ fn navigator_close_confirm_emits_or_cancels_the_same_stable_target() {
         OverlayOutcome::NavigatorCloseConfirmed(target)
     );
     assert!(!overlay.is_open());
+}
+
+/// Sibling of `pointer_click_cancel_in_confirm_kill_session_cancels`:
+/// mouse Cancel on ConfirmNavigatorClose must emit NavigatorCloseCanceled
+/// with the same stable target the keyboard path uses.
+#[test]
+fn pointer_click_cancel_in_confirm_navigator_close_cancels() {
+    use crate::native::session::SessionToken;
+    use crate::native::session_navigator::NavigatorTarget;
+
+    let target = NavigatorTarget::Live(SessionToken(13));
+    let mut overlay = OverlayUi::default();
+    overlay.open_confirm_navigator_close(target.clone());
+    let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+    let cancel_col = CONFIRM_NAVIGATOR_CLOSE_ACTION_LINE.find("[Esc").unwrap() + 2;
+    let outcome = overlay.handle_pointer(body_press(rect, 2, cancel_col), rect);
+    assert_eq!(outcome, OverlayOutcome::NavigatorCloseCanceled(target));
+    assert!(!overlay.is_open(), "Cancel closes the confirm card");
+}
+
+#[test]
+fn pointer_click_close_in_confirm_navigator_close_confirms() {
+    use crate::native::session::SessionToken;
+    use crate::native::session_navigator::NavigatorTarget;
+
+    let target = NavigatorTarget::Live(SessionToken(13));
+    let mut overlay = OverlayUi::default();
+    overlay.open_confirm_navigator_close(target.clone());
+    let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+    let close_col = CONFIRM_NAVIGATOR_CLOSE_ACTION_LINE.find("[Enter").unwrap() + 2;
+    let outcome = overlay.handle_pointer(body_press(rect, 2, close_col), rect);
+    assert_eq!(outcome, OverlayOutcome::NavigatorCloseConfirmed(target));
+    assert!(!overlay.is_open(), "Close confirms and closes the dialog");
+}
+
+#[test]
+fn pointer_click_confirm_navigator_close_prompt_text_is_inert() {
+    use crate::native::session::SessionToken;
+    use crate::native::session_navigator::NavigatorTarget;
+
+    let target = NavigatorTarget::Live(SessionToken(13));
+    let mut overlay = OverlayUi::default();
+    overlay.open_confirm_navigator_close(target);
+    let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+    let outcome = overlay.handle_pointer(body_press(rect, 2, 0), rect);
+    assert_eq!(outcome, OverlayOutcome::Consumed);
+    assert!(overlay.is_open(), "a prompt-text click never closes");
 }

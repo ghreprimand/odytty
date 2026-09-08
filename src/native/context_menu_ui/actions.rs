@@ -203,6 +203,31 @@ pub(in crate::native) enum ContextMenuItem {
     /// (ODP-2C, P1 byte-splice). Shown ONLY for OdyTTY-owned rows; gated behind
     /// a confirm dialog because it deletes a saved host.
     ConnRowRemove,
+    /// Focus the right-clicked navigator row's live target (workspace / tab /
+    /// pane) through the arena's stable-token switch. Navigator-row-scoped: shown
+    /// only on the `NavigatorRow` surface for a live target. A right-click opens
+    /// the menu WITHOUT focusing; this item is the explicit focus action.
+    NavFocus,
+    /// Attach the right-clicked navigator row's detached session into a new tab.
+    /// Navigator-row-scoped: shown only for a `Detached` target, and enabled only
+    /// when the registry row is still available.
+    NavAttach,
+    /// Rename the right-clicked navigator row's target (routes through the
+    /// navigator's existing `Rename` action). Navigator-row-scoped.
+    NavRename,
+    /// Duplicate the right-clicked navigator row's target: a fresh shell in the
+    /// same directory (routes through the navigator's existing `Duplicate`
+    /// action). Navigator-row-scoped.
+    NavDuplicate,
+    /// Move the right-clicked navigator row's target (reorder a workspace, or open
+    /// the move-to-workspace picker for a tab/pane; routes through the navigator's
+    /// existing `Move` action). Navigator-row-scoped.
+    NavMove,
+    /// Close the right-clicked navigator row's target (kill a detached session, or
+    /// route a live target through the scoped close confirmation). Navigator-row-
+    /// scoped; appended last in [`Self::ALL`] so every pre-existing index stays
+    /// stable.
+    NavClose,
 }
 
 impl ContextMenuItem {
@@ -285,6 +310,16 @@ impl ContextMenuItem {
         // DUPLICATE-WORKSPACE: appended last so every existing accelerator-array
         // index stays stable (its accelerator is filled from the flat table).
         Self::DuplicateWorkspace,
+        // NAVIGATOR-ROW actions; appended after every existing item so every
+        // pre-existing accelerator-array index stays stable (all carry no chord).
+        // They are `NavigatorRow`-only, so they never appear on any other
+        // surface and never disturb the content menu's separator geometry.
+        Self::NavFocus,
+        Self::NavAttach,
+        Self::NavRename,
+        Self::NavDuplicate,
+        Self::NavMove,
+        Self::NavClose,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -343,7 +378,16 @@ impl ContextMenuItem {
             | Self::ConnRowOpenInWorkspace
             | Self::ConnRowBindWorkspace
             | Self::ConnRowEdit
-            | Self::ConnRowRemove => 3,
+            | Self::ConnRowRemove
+            // NAVIGATOR-ROW actions are NavigatorRow-only; grouped here for
+            // section() completeness only. `section_of` gives them their own
+            // tight groups on the NavigatorRow surface.
+            | Self::NavFocus
+            | Self::NavAttach
+            | Self::NavRename
+            | Self::NavDuplicate
+            | Self::NavMove
+            | Self::NavClose => 3,
             Self::Settings => 4,
             Self::KeyboardShortcuts
             | Self::ConnectionManager
@@ -404,6 +448,12 @@ impl ContextMenuItem {
             Self::ConnRowBindWorkspace => "Bind Current Workspace",
             Self::ConnRowEdit => "Edit\u{2026}",
             Self::ConnRowRemove => "Remove\u{2026}",
+            Self::NavFocus => "Focus",
+            Self::NavAttach => "Attach",
+            Self::NavRename => "Rename",
+            Self::NavDuplicate => "Duplicate",
+            Self::NavMove => "Move",
+            Self::NavClose => "Close",
             Self::SplitColumns => "Split Right",
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
@@ -505,7 +555,15 @@ impl ContextMenuItem {
             | Self::ConnRowOpenInWorkspace
             | Self::ConnRowBindWorkspace
             | Self::ConnRowEdit
-            | Self::ConnRowRemove => None,
+            | Self::ConnRowRemove
+            // NAVIGATOR-ROW actions are pointer/menu-only; no default chord (the
+            // navigator's own r/d/m/x/Enter keys cover the keyboard path).
+            | Self::NavFocus
+            | Self::NavAttach
+            | Self::NavRename
+            | Self::NavDuplicate
+            | Self::NavMove
+            | Self::NavClose => None,
         }
     }
 }

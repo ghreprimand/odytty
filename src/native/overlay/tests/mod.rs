@@ -25,6 +25,7 @@ use crate::core::{Dimensions, Position};
 // --- C22/C23: a failed save must disarm the close-after-save latches ---
 
 mod input;
+mod navigator_context_menu;
 mod render;
 mod state;
 

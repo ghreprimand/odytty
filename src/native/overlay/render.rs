@@ -48,9 +48,10 @@ impl OverlayUi {
             OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
             OverlayMode::Connections => "\u{2190} Connections  (Esc = back)".to_owned(),
             OverlayMode::ConnectionForm => self.connection_form.title(),
-            OverlayMode::SessionAttach => {
-                "\u{2190} Session Navigator  Enter focus/attach | r rename | d duplicate | m move | x close | X kill | o reopen (new shell in closed directory/profile) | Esc back".to_owned()
-            }
+            // The shortcut legend moved into the body as wrapped rows
+            // (`session_attach` `visible_lines`) so every shortcut stays visible
+            // at narrow widths instead of clipping off the single title line.
+            OverlayMode::SessionAttach => "\u{2190} Session Navigator  (Esc = back)".to_owned(),
             OverlayMode::OpenWith => "\u{2190} Open With\u{2026}  (Esc = back)".to_owned(),
             OverlayMode::WorkspacePicker => {
                 "\u{2190} Move to Workspace\u{2026}  (Esc = back)".to_owned()
@@ -119,6 +120,31 @@ impl OverlayUi {
         }
     }
 
+    /// The still-loaded overlay mode painted UNDERNEATH an open menu-over-overlay
+    /// context menu, or `None` for a plain context menu or a non-menu overlay. A
+    /// connection-row menu keeps the connection manager loaded beneath it; a
+    /// navigator-row menu keeps the session navigator loaded beneath it.
+    /// Both the cell painter ([`apply_overlay`]) and the multi-pane composite-rect
+    /// crop ([`overlay_composite_rect`]) read this single source of truth so the
+    /// underlay survives in BOTH render paths - the single-pane path paints onto
+    /// the full terminal snapshot, but the multi-pane path crops to the overlay
+    /// rect and would otherwise discard every underlay cell outside the small menu
+    /// box (the disappearing-navigator defect).
+    pub(in crate::native) fn menu_underlay_mode(&self) -> Option<OverlayMode> {
+        if self.mode != OverlayMode::ContextMenu {
+            return None;
+        }
+        match self.context_menu.surface() {
+            crate::native::context_menu_ui::ContextMenuSurface::ConnectionRow(_) => {
+                Some(OverlayMode::Connections)
+            }
+            crate::native::context_menu_ui::ContextMenuSurface::NavigatorRow => {
+                Some(OverlayMode::SessionAttach)
+            }
+            _ => None,
+        }
+    }
+
     pub(in crate::native) fn render_signature(&self) -> OverlayRenderSignature {
         OverlayRenderSignature {
             open: self.open,
@@ -161,18 +187,19 @@ pub(in crate::native) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut Ov
         // manager panel first (temporarily viewing the overlay AS Connections so
         // `overlay_rect` / `visible_lines` / `title` resolve the manager), then
         // let the opaque menu box composite over it.
-        if matches!(
-            overlay.context_menu.surface(),
-            crate::native::context_menu_ui::ContextMenuSurface::ConnectionRow(_)
-        ) {
+        // A connection-row menu paints the connection manager underneath; a
+        // navigator-row menu paints the session navigator underneath -
+        // both are menu-over-overlay surfaces whose underlying panel would
+        // otherwise vanish (the overlay system draws only the active mode).
+        if let Some(underlay) = overlay.menu_underlay_mode() {
             let restore = overlay.mode;
-            overlay.mode = OverlayMode::Connections;
-            if let Some(mgr_rect) = overlay_rect(
+            overlay.mode = underlay;
+            if let Some(under_rect) = overlay_rect(
                 overlay,
                 snapshot.dimensions.columns,
                 snapshot.dimensions.rows,
             ) {
-                apply_panel(snapshot, overlay, mgr_rect);
+                apply_panel(snapshot, overlay, under_rect);
             }
             overlay.mode = restore;
         }
@@ -644,26 +671,40 @@ impl OverlayUi {
                     },
                 ]
             }
-            OverlayMode::ConfirmNavigatorClose => vec![
-                OverlayLine {
-                    text: "Close this live tab or workspace?".to_owned(),
-                    focused: false,
-                    swatch: None,
-                    bold: false,
-                },
-                OverlayLine {
-                    text: String::new(),
-                    focused: false,
-                    swatch: None,
-                    bold: false,
-                },
-                OverlayLine {
-                    text: CONFIRM_NAVIGATOR_CLOSE_ACTION_LINE.to_owned(),
-                    focused: true,
-                    swatch: None,
-                    bold: false,
-                },
-            ],
+            // The prompt names the actual close scope so the confirmation is
+            // honest about what a pane close reaps versus a tab or workspace
+            // close: a pane close keeps sibling panes, a tab close reaps every
+            // pane in the tab, a workspace close reaps every tab.
+            OverlayMode::ConfirmNavigatorClose => {
+                use crate::native::session_navigator::NavigatorTarget;
+                let prompt = match self.confirm_navigator_close {
+                    Some(NavigatorTarget::Live(_)) => "Close this pane? Sibling panes stay open.",
+                    Some(NavigatorTarget::Tab(_)) => "Close this tab and all its panes?",
+                    Some(NavigatorTarget::Workspace(_)) => "Close this workspace and all its tabs?",
+                    Some(NavigatorTarget::Detached(_)) => "Close this detached session?",
+                    None => "Close this live tab or workspace?",
+                };
+                vec![
+                    OverlayLine {
+                        text: prompt.to_owned(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: String::new(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: CONFIRM_NAVIGATOR_CLOSE_ACTION_LINE.to_owned(),
+                        focused: true,
+                        swatch: None,
+                        bold: false,
+                    },
+                ]
+            }
             // Static Detach & switch copy. Row 0 names the cwd, row 1
             // is the honest data-loss warning, row 2 blank, row 3 the action
             // line — the action row index (3) matches `ACTION_ROW` in
@@ -1133,6 +1174,41 @@ pub(in crate::native) fn fit_hint_to_width(text: &str, max_width: usize) -> Stri
     // Drop any trailing whitespace left by stopping at a word boundary.
     fitted.truncate(fitted.trim_end().len());
     fitted
+}
+
+/// Word-wrap a shortcut legend given as discrete `segments` joined by `sep`
+/// across as many rows as `width` display cells needs, packing greedily on
+/// segment boundaries so a shortcut is never split mid-token. A single segment
+/// wider than the whole body is emitted on its own row (the caller truncates it)
+/// rather than dropped. Returns an empty vector when `width` is zero. Shared by
+/// overlays that must keep every shortcut discoverable at narrow widths.
+pub(in crate::native) fn wrap_segments(segments: &[&str], sep: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let sep_w = text_display_width(sep);
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut used = 0usize;
+    for seg in segments {
+        let seg_w = text_display_width(seg);
+        if current.is_empty() {
+            current.push_str(seg);
+            used = seg_w;
+        } else if used + sep_w + seg_w <= width {
+            current.push_str(sep);
+            current.push_str(seg);
+            used += sep_w + seg_w;
+        } else {
+            lines.push(std::mem::take(&mut current));
+            current.push_str(seg);
+            used = seg_w;
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
 }
 
 pub(super) fn write_text(

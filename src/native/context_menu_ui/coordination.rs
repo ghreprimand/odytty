@@ -21,6 +21,8 @@ impl Default for ContextMenuUi {
             surface: ContextMenuSurface::Content,
             path_target: None,
             connection_target: None,
+            navigator_target: None,
+            navigator_detached_available: false,
             workspace_slot_name: None,
             // `[T; N]: Default` only exists up to N == 32; the item set is now
             // larger, so build the all-`None` array element-wise.
@@ -110,6 +112,10 @@ impl ContextMenuUi {
         // Cleared on every non-ConnectionRow open; the connection-row opener
         // sets it explicitly. Keeps the target from leaking across surfaces.
         self.connection_target = None;
+        // Cleared on every non-NavigatorRow open; the navigator-row opener sets
+        // it explicitly. Keeps the target from leaking across surfaces.
+        self.navigator_target = None;
+        self.navigator_detached_available = false;
         // Reset on every open; the App sets it only for a WorkspaceSlot menu
         // (RAIL-REVALIDATE), so a stale name never leaks across surfaces.
         self.workspace_slot_name = None;
@@ -154,10 +160,53 @@ impl ContextMenuUi {
         self.surface = ContextMenuSurface::ConnectionRow(row_index);
         self.path_target = None;
         self.connection_target = Some(Box::new(host));
+        self.navigator_target = None;
+        self.navigator_detached_available = false;
         self.workspace_slot_name = None;
         self.focused = 0;
         // The connection-row menu spawns over the full-screen manager (the rail
         // is hidden while that overlay is open), so it needs no rail clearance.
+        self.reserved_cols_left = 0;
+        self.reserved_cols_right = 0;
+        self.accelerators = std::array::from_fn(|_| None);
+    }
+
+    /// Arm the menu for a right-clicked session-navigator row. Like
+    /// [`Self::open_connection_row`] this is spawned from WITHIN the navigator
+    /// overlay, so it takes only the spawn cell, the row's stable target, and
+    /// whether a detached target is available to attach - the selection /
+    /// clipboard / pane snapshots are irrelevant to the navigator-row actions and
+    /// are left at their inert defaults. The navigator-row items carry no chord,
+    /// so the accelerator array stays all-`None` (label-only rendering).
+    pub(in crate::native) fn open_navigator_row(
+        &mut self,
+        spawn: CellPoint,
+        target: NavigatorTarget,
+        detached_available: bool,
+    ) {
+        self.spawn = spawn;
+        self.copy_enabled = false;
+        self.cut_enabled = false;
+        self.paste_enabled = false;
+        self.delete_enabled = false;
+        self.command_actions_enabled = false;
+        self.prompt_editing_hint = false;
+        self.rename_target = None;
+        self.multi_pane = false;
+        self.multi_tab = false;
+        self.multi_workspace = false;
+        self.bound_workspace = false;
+        self.workspace_count = 0;
+        self.surface = ContextMenuSurface::NavigatorRow;
+        self.path_target = None;
+        self.connection_target = None;
+        self.navigator_target = Some(target);
+        self.navigator_detached_available = detached_available;
+        self.workspace_slot_name = None;
+        self.focused = 0;
+        // The navigator menu spawns over the full-screen navigator overlay (the
+        // rail is hidden while that overlay is open), so it needs no rail
+        // clearance.
         self.reserved_cols_left = 0;
         self.reserved_cols_right = 0;
         self.accelerators = std::array::from_fn(|_| None);
@@ -213,6 +262,27 @@ impl ContextMenuUi {
         self.connection_target
             .as_deref()
             .is_some_and(|host| host.source == ConnectionHostSource::Odytty)
+    }
+
+    /// The navigator-row target snapshotted for a `NavigatorRow` menu,
+    /// if any. Read when a navigator-row item activates so each outcome carries
+    /// the clicked row's stable target without re-reading the overlay.
+    pub(in crate::native) fn navigator_target(&self) -> Option<&NavigatorTarget> {
+        self.navigator_target.as_ref()
+    }
+
+    /// The navigator-row target class discriminant (0 none / 1 workspace / 2 tab
+    /// / 3 live / 4 detached), for the render signature so a class change
+    /// repaints even though every navigator row shares the `NavigatorRow`
+    /// surface discriminant.
+    pub(super) fn navigator_target_kind(&self) -> u8 {
+        match &self.navigator_target {
+            None => 0,
+            Some(NavigatorTarget::Workspace(_)) => 1,
+            Some(NavigatorTarget::Tab(_)) => 2,
+            Some(NavigatorTarget::Live(_)) => 3,
+            Some(NavigatorTarget::Detached(_)) => 4,
+        }
     }
 
     /// Set the per-item effective-keybind labels (Part C), in
@@ -318,6 +388,16 @@ impl ContextMenuUi {
             | ContextMenuItem::ConnRowBindWorkspace
             | ContextMenuItem::ConnRowEdit
             | ContextMenuItem::ConnRowRemove => true,
+            // NAVIGATOR-ROW: Attach is enabled only when the detached target is
+            // still available (a stale registry row cannot be attached); every
+            // other navigator action is enabled whenever it is shown (the
+            // per-class visibility gate lives in `visible_items`).
+            ContextMenuItem::NavAttach => self.navigator_detached_available,
+            ContextMenuItem::NavFocus
+            | ContextMenuItem::NavRename
+            | ContextMenuItem::NavDuplicate
+            | ContextMenuItem::NavMove
+            | ContextMenuItem::NavClose => true,
         }
     }
 
@@ -404,6 +484,18 @@ impl ContextMenuUi {
                 | ContextMenuItem::ConnRowBindWorkspace => 0,
                 ContextMenuItem::ConnRowEdit | ContextMenuItem::ConnRowRemove => 1,
                 _ => 1,
+            },
+            // NAVIGATOR-ROW: the activation group (Focus / Attach) leads; the
+            // non-destructive edits (Rename / Duplicate / Move) sit in their own
+            // group; the destructive Close sits alone below its own separator -
+            // the WorkspaceSlot shape.
+            ContextMenuSurface::NavigatorRow => match item {
+                ContextMenuItem::NavFocus | ContextMenuItem::NavAttach => 0,
+                ContextMenuItem::NavRename
+                | ContextMenuItem::NavDuplicate
+                | ContextMenuItem::NavMove => 1,
+                ContextMenuItem::NavClose => 2,
+                _ => 2,
             },
             // LAYOUT-SURFACE: the empty rail offers New Workspace, then Open
             // Layout below a separator.

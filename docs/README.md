@@ -17,6 +17,8 @@ This is the complete map of OdyTTY's tracked project documentation.
 
 ## Use And Customize
 
+- [Named profiles](profiles.md) - reusable launch contexts, the Profile Manager,
+  defaults, precedence, launch surfaces, and switching.
 - [Annotated config](odytty.conf.example) — a commented configuration starting
   point.
 - [Keybindings](keybindings.md) — shortcuts and rebinding.

@@ -48,6 +48,8 @@ impl ContextMenuUi {
             is_image_target: self.is_image_target(),
             is_file_target: self.is_file_target(),
             connection_is_odytty: self.connection_is_odytty(),
+            navigator_target_kind: self.navigator_target_kind(),
+            navigator_detached_available: self.navigator_detached_available,
         }
     }
 }

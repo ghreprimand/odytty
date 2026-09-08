@@ -121,6 +121,33 @@ impl ContextMenuUi {
                 }
                 return items;
             }
+            // NAVIGATOR-ROW: the applicable action set depends on the
+            // right-clicked row's target class. A live target (workspace / tab /
+            // pane) offers Focus plus the shared Rename / Duplicate / Move edits
+            // and Close; a detached registry row offers only Attach and Close
+            // (the arena-scoped Rename/Duplicate/Move do not apply to a detached
+            // session). A missing target (defensive - the opener always sets one)
+            // yields an empty list, which the render/hit paths tolerate.
+            ContextMenuSurface::NavigatorRow => {
+                use crate::native::session_navigator::NavigatorTarget;
+                return match &self.navigator_target {
+                    Some(
+                        NavigatorTarget::Workspace(_)
+                        | NavigatorTarget::Tab(_)
+                        | NavigatorTarget::Live(_),
+                    ) => vec![
+                        ContextMenuItem::NavFocus,
+                        ContextMenuItem::NavRename,
+                        ContextMenuItem::NavDuplicate,
+                        ContextMenuItem::NavMove,
+                        ContextMenuItem::NavClose,
+                    ],
+                    Some(NavigatorTarget::Detached(_)) => {
+                        vec![ContextMenuItem::NavAttach, ContextMenuItem::NavClose]
+                    }
+                    None => Vec::new(),
+                };
+            }
             // The provisional pane-divider surface is not constructed yet; fall
             // through to the Content composition defensively so an unexpected
             // open can never index an empty item list.
@@ -200,6 +227,13 @@ impl ContextMenuUi {
                         | ContextMenuItem::ConnRowBindWorkspace
                         | ContextMenuItem::ConnRowEdit
                         | ContextMenuItem::ConnRowRemove
+                        // The navigator-row actions are NavigatorRow-only.
+                        | ContextMenuItem::NavFocus
+                        | ContextMenuItem::NavAttach
+                        | ContextMenuItem::NavRename
+                        | ContextMenuItem::NavDuplicate
+                        | ContextMenuItem::NavMove
+                        | ContextMenuItem::NavClose
                 )
             })
             // Drop the always-disabled `Rename Tab` row on the content surface —

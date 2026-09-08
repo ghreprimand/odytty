@@ -553,6 +553,16 @@ impl App {
         self.sessions.active().profile_theme
     }
 
+    /// Test seam (v0.14 profile theme): the tab-bar background role the chrome
+    /// paints with this frame. Pins that the tab strip follows the active pane's
+    /// presented theme rather than the global effective theme, so a default
+    /// profile tab's authored theme reaches the window chrome, not only the
+    /// terminal cells.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_bar_background_for_test(&self) -> (u8, u8, u8) {
+        self.tab_bar_colors().background
+    }
+
     /// Test seam (v0.14 profile theme): stamp the active session with a profile
     /// theme and present it, mirroring what a profile-launched tab does at spawn.
     #[cfg(test)]
@@ -2996,6 +3006,64 @@ impl App {
         let terminal = self.sessions.active().terminal.lock().expect("terminal");
         let dims = terminal.screen().dimensions();
         (dims.columns, dims.rows)
+    }
+
+    /// Test seam (navigator pane-close): whether a session token still resolves
+    /// to a live pane in any workspace, so a regression test can assert which
+    /// panes survive a scoped close.
+    #[cfg(test)]
+    pub(in crate::native) fn session_exists_for_test(
+        &self,
+        token: crate::native::session::SessionToken,
+    ) -> bool {
+        self.sessions.locate_token(token).is_some()
+    }
+
+    /// Test seam (navigator pane-close): focus a specific pane by stable token
+    /// through the production arena switch, so a test can establish which pane
+    /// is active before exercising a scoped close.
+    #[cfg(test)]
+    pub(in crate::native) fn focus_session_token_for_test(
+        &mut self,
+        token: crate::native::session::SessionToken,
+    ) {
+        let _ = self.sessions.switch(token);
+    }
+
+    /// Test seam (navigator pane-close): the stable tokens of every leaf in the
+    /// active tab, in layout order, so a test can assert siblings survive a
+    /// pane-scoped close.
+    #[cfg(test)]
+    pub(in crate::native) fn active_tab_pane_tokens_for_test(
+        &self,
+    ) -> Vec<crate::native::session::SessionToken> {
+        self.sessions
+            .active_layout()
+            .map(|layout| layout.leaves())
+            .unwrap_or_default()
+    }
+
+    /// Test seam (navigator pane-close): drive the production
+    /// `close_navigator_target` confirmed-close path so a regression test can
+    /// prove a `Live` close reaps one pane while a `Tab` close reaps the whole
+    /// tab and a stale token is a no-op.
+    #[cfg(test)]
+    pub(in crate::native) fn close_navigator_target_for_test(
+        &mut self,
+        target: crate::native::session_navigator::NavigatorTarget,
+    ) {
+        self.close_navigator_target(target);
+    }
+
+    /// Test seam (navigator pane-close): route an `OverlayOutcome` through the
+    /// production dispatch so a test can assert the cancel path mutates no
+    /// sessions.
+    #[cfg(test)]
+    pub(in crate::native) fn apply_overlay_outcome_for_test(
+        &mut self,
+        outcome: crate::native::overlay::OverlayOutcome,
+    ) {
+        self.apply_overlay_outcome(outcome);
     }
 
     #[cfg(test)]

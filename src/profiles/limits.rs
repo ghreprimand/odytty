@@ -16,7 +16,7 @@ pub const MAX_PROFILE_FILE_BYTES: u64 = 1 << 20;
 /// Maximum profiles returned from a local directory scan.
 pub const MAX_PROFILE_ENTRIES: usize = 256;
 
-/// Maximum UTF-8 characters retained for one profile name or display label.
+/// Maximum characters retained for one profile name; display labels use the field cap.
 pub const MAX_PROFILE_NAME_CHARS: usize = 64;
 
 /// Maximum UTF-8 characters retained for one string field inside a profile.

@@ -728,6 +728,7 @@ fn read_env(
         if key.chars().count() > MAX_PROFILE_FIELD_CHARS {
             return Err(ProfileError::LimitExceeded("env key too long".to_owned()));
         }
+        reject_invalid_env_key(key)?;
         reject_secret_env_key(key)?;
         let Json::Str(raw) = value else {
             return Err(ProfileError::Malformed(
@@ -737,6 +738,7 @@ fn read_env(
         if raw.chars().count() > MAX_PROFILE_ENV_VALUE_CHARS {
             return Err(ProfileError::LimitExceeded("env value too long".to_owned()));
         }
+        reject_invalid_env_value(raw)?;
         reject_secret_env_value(raw)?;
         out.insert(key.clone(), raw.clone());
     }
@@ -966,6 +968,58 @@ fn read_bool(
     }
 }
 
+/// Shared OS-invalid environment gate. The schema parser enforces this at the
+/// on-disk/import boundary, but a [`LocalLaunchPlan`](crate::profiles::launch)
+/// can also be built programmatically (restored state, connection bindings, CLI
+/// overrides) without passing through the parser, so the local spawn path runs
+/// the same gate as defense-in-depth. Both keys and values are checked.
+pub(crate) fn reject_os_invalid_env(key: &str, value: &str) -> Result<(), ProfileError> {
+    reject_invalid_env_key(key)?;
+    reject_invalid_env_value(value)?;
+    Ok(())
+}
+
+/// Reject environment keys that cannot be represented in a portable process
+/// environment, so a malformed profile fails at the parse boundary instead of
+/// corrupting the child's environment block or aborting the spawn. An empty
+/// name has nothing to bind, and a `=` inside the name collides with the
+/// `name=value` separator used to build the environment block, leaving the split
+/// point ambiguous; a NUL byte cannot appear in a C environment string and would
+/// truncate or fail the spawn. The character set is otherwise left wide open:
+/// environment names may legally contain spaces and other punctuation, so only
+/// these three shapes are rejected here.
+fn reject_invalid_env_key(key: &str) -> Result<(), ProfileError> {
+    if key.is_empty() {
+        return Err(ProfileError::Malformed(
+            "environment key must not be empty".to_owned(),
+        ));
+    }
+    if key.contains('=') {
+        return Err(ProfileError::Malformed(format!(
+            "environment key {key:?} must not contain '='"
+        )));
+    }
+    if key.contains('\0') {
+        return Err(ProfileError::Malformed(format!(
+            "environment key {key:?} must not contain a NUL byte"
+        )));
+    }
+    Ok(())
+}
+
+/// Reject environment values that cannot cross the spawn boundary. A NUL byte
+/// terminates a C environment string, so a value carrying one would be truncated
+/// or fail the spawn; reject it at parse time. Every other byte is a legal
+/// value.
+fn reject_invalid_env_value(value: &str) -> Result<(), ProfileError> {
+    if value.contains('\0') {
+        return Err(ProfileError::Malformed(
+            "environment value must not contain a NUL byte".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 fn reject_secret_env_key(key: &str) -> Result<(), ProfileError> {
     let normalized = normalize_name(key);
     const BLOCKED: &[&str] = &[
@@ -1133,5 +1187,98 @@ mod tests {
             LaunchProfile::parse_json(fractional, Some("dev")),
             Err(ProfileError::Malformed(_))
         ));
+    }
+
+    /// OS-invalid env keys/values must fail closed at the schema boundary
+    /// (empty, `=`, embedded NUL). Valid OS names stay accepted.
+    #[test]
+    fn rejects_os_invalid_env_keys_and_nul_values() {
+        let cases = [
+            (r#"{"": "x"}"#, "empty key"),
+            (r#"{"FOO=BAR": "x"}"#, "equals in key"),
+            ("{\"FOO\\u0000BAR\": \"x\"}", "NUL in key"),
+            ("{\"FOO\": \"a\\u0000b\"}", "NUL in value"),
+        ];
+        for (env_object, label) in cases {
+            let text = format!(
+                r#"{{
+  "schema_version": 1,
+  "name": "dev",
+  "launch": {{ "env": {env_object} }}
+}}"#
+            );
+            let err = LaunchProfile::parse_json(&text, Some("dev"))
+                .expect_err(&format!("must reject {label}"));
+            match &err {
+                ProfileError::Malformed(message)
+                | ProfileError::InvalidName(message)
+                | ProfileError::RejectedSecret(message)
+                | ProfileError::LimitExceeded(message) => {
+                    assert!(
+                        !message.is_empty(),
+                        "{label}: rejection must carry a reason; got {err:?}"
+                    );
+                }
+                ProfileError::UnsupportedSchemaVersion(_) => {
+                    panic!("{label}: wrong error class: {err:?}")
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn accepts_valid_os_env_names_and_values() {
+        // Spaces and non-shell-identifier characters stay valid; only empty /
+        // '=' / NUL are OS-invalid.
+        let text = r#"{
+  "schema_version": 1,
+  "name": "dev",
+  "launch": {
+    "env": {
+      "ODY_TEST": "alpha",
+      "PATH": "/tmp",
+      "_Private": "ok",
+      "Var123": "x",
+      "ProgramFiles": "C:\\Apps",
+      "A B": "spaced"
+    }
+  }
+}"#;
+        let profile = LaunchProfile::parse_json(text, Some("dev")).expect("valid OS env names");
+        for key in [
+            "ODY_TEST",
+            "PATH",
+            "_Private",
+            "Var123",
+            "ProgramFiles",
+            "A B",
+        ] {
+            assert!(
+                profile.launch.env.contains_key(key),
+                "valid key {key} must be preserved"
+            );
+        }
+        assert_eq!(
+            profile.launch.env.get("ODY_TEST").map(String::as_str),
+            Some("alpha")
+        );
+        assert_eq!(
+            profile.launch.env.get("A B").map(String::as_str),
+            Some("spaced")
+        );
+        profile.validate().expect("valid env must validate");
+    }
+
+    #[test]
+    fn constructed_profile_with_equals_key_fails_validate() {
+        let mut profile = LaunchProfile::new("dev").expect("profile");
+        profile
+            .launch
+            .env
+            .insert("FOO=BAR".to_owned(), "1".to_owned());
+        assert!(
+            profile.validate().is_err(),
+            "validate must catch OS-invalid keys inserted in-memory"
+        );
     }
 }

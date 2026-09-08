@@ -234,3 +234,56 @@ pub(in crate::native) fn overlay_rect(
         body_height: height.saturating_sub(3),
     })
 }
+
+/// The rect the MULTI-PANE render path ([`build_overlay_top`]) must crop and
+/// composite to. For a menu-over-overlay context menu (connection-row or
+/// navigator-row) this is the UNION of the still-loaded underlay panel and the
+/// small menu box, so the underlay panel survives the crop; for every other
+/// overlay it is the plain [`overlay_rect`].
+///
+/// Why this exists: the single-pane path paints the overlay onto the full
+/// terminal snapshot and never crops, so an underlay painted by [`apply_overlay`]
+/// survives there. The multi-pane path instead crops the overlay snapshot to
+/// `overlay_rect`, which for a `ContextMenu` returns ONLY the small menu box -
+/// discarding every underlay cell outside it and making the navigator (or
+/// connection manager) vanish the instant its row menu opened. Cropping to the
+/// union keeps both render paths visually identical. Hit-testing is unaffected:
+/// pointer routing still uses `overlay_rect` (the menu box), so menu clicks hit
+/// items and clicks on the underlay dismiss the menu.
+///
+/// Takes `&mut` only to briefly view the overlay AS the underlay mode while its
+/// panel rect is computed (the exact pattern `apply_overlay` uses); the mode is
+/// always restored before returning.
+pub(in crate::native) fn overlay_composite_rect(
+    overlay: &mut OverlayUi,
+    columns: usize,
+    rows: usize,
+) -> Option<OverlayRect> {
+    let menu_rect = overlay_rect(overlay, columns, rows)?;
+    let Some(underlay) = overlay.menu_underlay_mode() else {
+        return Some(menu_rect);
+    };
+    let restore = overlay.mode;
+    overlay.mode = underlay;
+    let under = overlay_rect(overlay, columns, rows);
+    overlay.mode = restore;
+    let Some(under) = under else {
+        return Some(menu_rect);
+    };
+    // Union the two outer boxes. The body fields carry the underlay panel's, as
+    // the composite crop reads only the outer left/top/width/height.
+    let left = under.left.min(menu_rect.left);
+    let top = under.top.min(menu_rect.top);
+    let right = (under.left + under.width).max(menu_rect.left + menu_rect.width);
+    let bottom = (under.top + under.height).max(menu_rect.top + menu_rect.height);
+    Some(OverlayRect {
+        left,
+        top,
+        width: right - left,
+        height: bottom - top,
+        body_left: under.body_left,
+        body_top: under.body_top,
+        body_width: under.body_width,
+        body_height: under.body_height,
+    })
+}

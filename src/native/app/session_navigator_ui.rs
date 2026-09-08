@@ -101,9 +101,37 @@ impl App {
                     self.close_workspace_at(workspace);
                 }
             }
-            NavigatorTarget::Tab(token) | NavigatorTarget::Live(token) => {
+            NavigatorTarget::Tab(token) => {
+                // Whole-tab close: reap every leaf of the target's tab. Resolve
+                // the stable token first so a stale row cannot focus-then-close
+                // an unrelated current tab (`focus_session_from_navigator`
+                // returns `()` and no-ops on a missing token, but the following
+                // `close_active_tab` would still reap whatever tab was active).
+                if self.sessions.locate_token(token).is_none() {
+                    return;
+                }
                 self.focus_session_from_navigator(token);
                 let _ = self.close_active_tab();
+            }
+            NavigatorTarget::Live(token) => {
+                // Pane-scoped close: reap only this leaf, collapsing its split
+                // parent into the sibling and keeping a multi-pane tab alive
+                // (distinct from the Tab arm above). Resolve the stable token
+                // first; `WorkspaceSet::close` also locates nothing for a stale
+                // token, but the guard keeps the stale case a pure no-op with no
+                // focus churn. Closing the last pane of the last workspace signals
+                // app exit, mirroring `close_focused_pane`.
+                if self.sessions.locate_token(token).is_none() {
+                    return;
+                }
+                if self.sessions.close(token) {
+                    self.pending_exit = true;
+                } else {
+                    if self.sessions.active_is_single_pane() {
+                        self.prefix_engine.cancel();
+                    }
+                    self.reflow_active_panes_and_redraw();
+                }
             }
             NavigatorTarget::Detached(_) => {}
         }

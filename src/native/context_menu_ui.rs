@@ -50,6 +50,7 @@
 //! `KeyBindings`) and threads them in via [`ContextMenuUi::set_accelerators`].
 
 use super::session::SessionToken;
+use super::session_navigator::NavigatorTarget;
 use crate::connection_hosts::{ConnectionHost, ConnectionHostSource};
 use crate::paths::Resolved;
 use crate::selection::CellPoint;
@@ -86,7 +87,13 @@ use crate::settings::BindableAction;
 /// adds Close Pane for 24. The five
 /// ODP-2C connection-row actions (Open in New Tab / Open in New Workspace / Bind
 /// Current Workspace / Edit / Remove) show ONLY on the `ConnectionRow` surface.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 57;
+/// The six navigator-row actions (Focus / Attach / Rename / Duplicate / Move /
+/// Close) show ONLY on the `NavigatorRow` surface (the session-navigator
+/// right-click menu); like the connection-row set they are appended last in
+/// `ALL` so every pre-existing accelerator-array index stays stable, and they
+/// never touch the content menu's separator geometry (that surface filters them
+/// out and they compose their own tight sections).
+pub(super) const CONTEXT_MENU_ITEMS: usize = 63;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -175,6 +182,15 @@ pub(super) enum ContextMenuSurface {
     /// menu-over-overlay surface — the menu spawns while the connection manager
     /// stays loaded underneath, and dismissing it returns to the manager.
     ConnectionRow(usize),
+    /// A row inside the unified session navigator (SessionAttach overlay). Like
+    /// `ConnectionRow` this is a menu-over-overlay surface: the menu spawns while
+    /// the navigator stays loaded underneath, and dismissing it returns to the
+    /// navigator with its selection intact. The right-clicked row's stable
+    /// [`NavigatorTarget`] is snapshotted separately (see
+    /// [`ContextMenuUi::navigator_target`]) so the composition can gate the
+    /// per-class action set; the variant itself carries no payload because
+    /// `ContextMenuSurface` is `Copy` and `NavigatorTarget` is not.
+    NavigatorRow,
 }
 
 impl ContextMenuSurface {
@@ -193,6 +209,7 @@ impl ContextMenuSurface {
             Self::WorkspaceSlot(_) => 4,
             Self::WorkspaceRailEmpty => 5,
             Self::ConnectionRow(_) => 6,
+            Self::NavigatorRow => 7,
         }
     }
 }
@@ -335,6 +352,15 @@ pub(super) struct ContextMenuSignature {
     /// Edit/Remove rows' visibility, so an OdyTTY-vs-ssh-config row repaints the
     /// menu even though both share the `ConnectionRow` surface discriminant.
     pub(super) connection_is_odytty: bool,
+    /// The navigator-row target class (0 none / 1 workspace / 2 tab / 3 live /
+    /// 4 detached): drives which per-class actions compose, so a different class
+    /// repaints the menu even though every navigator row shares the
+    /// `NavigatorRow` surface discriminant.
+    pub(super) navigator_target_kind: u8,
+    /// Whether a detached navigator target is available to attach: drives the
+    /// Attach item's enabled state, so an available-vs-unavailable detached row
+    /// repaints.
+    pub(super) navigator_detached_available: bool,
 }
 
 /// The right-click context menu state. Holds the spawn cell, the focused item,
@@ -389,6 +415,16 @@ pub(super) struct ContextMenuUi {
     /// each connection-row outcome; `None` on every other surface, so the menu
     /// is byte-identical to before ODP-2C off that surface.
     connection_target: Option<Box<ConnectionHost>>,
+    /// The right-clicked navigator row's stable target, snapshotted at open time
+    /// on the `NavigatorRow` surface. `Some` selects the per-class action set and
+    /// supplies the target to each navigator-row outcome; `None` on every other
+    /// surface, so the menu is byte-identical off that surface. The target is
+    /// resolved through the arena at execution time, so a stale snapshot is a
+    /// harmless no-op.
+    navigator_target: Option<NavigatorTarget>,
+    /// Whether the snapshotted detached navigator target is available to attach
+    /// (always `true` for live targets). Gates the Attach item's enabled state.
+    navigator_detached_available: bool,
     /// The name of the workspace under a right-clicked rail slot, snapshotted at
     /// open time on the `WorkspaceSlot` surface (RAIL-REVALIDATE). Unlike the
     /// tab surface (which carries an opaque `SessionToken` re-resolved at

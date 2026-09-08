@@ -290,6 +290,62 @@ fn profile_theme_stays_on_session_across_model_state_and_tab_switch() {
     let _ = fs::remove_dir_all(&base);
 }
 
+// ---- (c2) the GLOBAL DEFAULT profile theme applies on plain New Tab ---------
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn global_default_profile_theme_applies_on_plain_new_tab() {
+    let base = temp_config_base("default-theme");
+    with_config_base(&base, || {
+        write_theme_profile("spot", "dracula");
+        let expected = Theme::from_name("dracula").expect("dracula builtin");
+        let expected_bg = rgb_tuple(expected.background);
+
+        let mut app = app_or_skip!();
+        app.set_global_default_launch_profile_for_test("spot");
+
+        // Plain "+" / New Tab with no explicit profile must resolve the saved
+        // global default and present its authored theme.
+        app.new_tab_for_test();
+        let spot_idx = app.active_workspace_tab_count_for_test() - 1;
+
+        assert_eq!(
+            app.active_launch_profile_for_test().as_deref(),
+            Some("spot"),
+            "plain New Tab must bind to the global default profile"
+        );
+        let (_, bg) = app
+            .session_dynamic_colors_for_test(spot_idx)
+            .expect("default profile session colors");
+        assert_eq!(
+            bg, expected_bg,
+            "plain New Tab must seed the global default profile theme"
+        );
+        assert_eq!(
+            app.chrome_theme_for_test().background,
+            expected.background,
+            "chrome must present the global default profile theme on plain New Tab"
+        );
+        // The window chrome (tab bar) must follow the active profile theme, not
+        // only the terminal cells: the reported defect was a dracula terminal
+        // inside an odyssey-default tab strip.
+        assert_eq!(
+            app.tab_bar_background_for_test(),
+            expected.background,
+            "tab bar must paint the default profile theme, not the global theme"
+        );
+        assert_ne!(
+            expected.background,
+            app.effective_theme_for_test().background,
+            "fixture sanity: profile theme differs from the global effective theme"
+        );
+    });
+    let _ = fs::remove_dir_all(&base);
+}
+
 // ---- (d) missing working_directory falls back with a notice -----------------
 
 #[cfg_attr(

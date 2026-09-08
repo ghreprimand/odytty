@@ -926,6 +926,23 @@ artifact attestations, and a clean source-archive build. Native macOS and
 Windows on-device runtime checks remain unperformed because maintainer hardware
 was unavailable; automated evidence is not a substitute.
 
+Version 0.14.0 adds named launch profiles, external palette following, and a
+unified Session Navigator, and closes an external security review. Named
+profiles use a versioned no-secret on-disk schema with deterministic precedence,
+atomic storage, malformed-file recovery, and a Profile Manager exposing the
+complete schema, while plain New Tab and New Workspace stay one-click on the
+effective default profile and profile discovery never delays the first local
+terminal. External palette following applies a complete local palette file
+through the existing theme seam with fail-closed parsing and last-known-good
+retention. The Session Navigator searches workspaces, tabs, panes, and
+detachable sessions with a redacted opt-in preview. Rendering, terminal storage,
+GPU allocation, and presentation timing are unchanged, so the v0.12.0
+performance evidence carries forward. The v0.14.0 implementation is in-tree; the
+operator acceptance run, version checkpoint, blocking three-platform CI, package
+checks, and artifact verification are release requirements whose results are
+recorded against the tagged commit at release time and are not asserted in
+advance.
+
 The project remains pre-1.0; any later milestone requires a separately recorded
 scope rather than silently inheriting deferred work from a prior release.
 

@@ -133,14 +133,17 @@ impl App {
     }
 
     /// The theme-role colors the tab bar paints with (F4). Reads
-    /// `effective_theme` so every color is CVD-adapted like the rest of the
-    /// chrome; nothing is hardcoded.
+    /// `chrome_theme` (the active pane's presented theme) so the tab strip
+    /// tracks the active tab: a profile tab paints its authored theme, a plain
+    /// tab the global effective theme (`chrome_theme` equals `effective_theme`
+    /// then, so this is byte-identical to the pre-profile path). Every color is
+    /// CVD-adapted like the rest of the chrome; nothing is hardcoded.
     pub(super) fn tab_bar_colors(&self) -> tab_bar::TabBarColors {
         tab_bar::TabBarColors {
-            foreground: self.effective_theme.foreground,
-            background: self.effective_theme.background,
-            inactive: self.effective_theme.inactive,
-            active_bg: self.effective_theme.selection,
+            foreground: self.chrome_theme.foreground,
+            background: self.chrome_theme.background,
+            inactive: self.chrome_theme.inactive,
+            active_bg: self.chrome_theme.selection,
         }
     }
 
@@ -231,7 +234,7 @@ impl App {
             self.tab_bar_colors(),
             self.rail_geom(),
             self.tab_panel_strength(),
-            self.effective_theme.cursor,
+            self.chrome_theme.cursor,
             self.settings.tab_rail_autohide,
         );
         let colors = self.tab_bar_colors();

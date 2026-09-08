@@ -44,6 +44,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.14.0" date="2026-09-07">
+      <description>
+        <p>This release adds named launch profiles with a versioned no-secret on-disk schema, deterministic precedence, atomic storage with malformed-file recovery, and a Profile Manager whose editor exposes the complete schema. Plain New Tab and New Workspace stay one-click on the effective default profile, while an adjacent chooser and the context menus open a lazy searchable profile picker; profile discovery, remote checks, and validation never delay the first local terminal.</p>
+        <p>External palette following adds an optional opt-in mode that applies a complete local palette file through the existing theme seam with fail-closed parsing and last-known-good retention. A unified Session Navigator searches workspaces, tabs, panes, and detachable sessions with a redacted opt-in preview. This release also closes an external security review with per-finding evidence and hardens the shipped configuration and spawn boundaries. Rendering, terminal storage, GPU allocation, and presentation timing are unchanged, so the v0.12.0 performance evidence carries forward.</p>
+      </description>
+    </release>
     <release version="0.13.0" date="2026-08-31">
       <description>
         <p>This release adds one cross-platform policy for risky non-bracketed paste, with a bounded escaped preview and explicit paste, one-line, or cancel choices, while preserving ordinary single-line and child-enabled bracketed paste.</p>

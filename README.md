@@ -171,16 +171,23 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. The published v0.13.0 release adds safer paste,
-command-aware output actions, and bounded completion and progress awareness.
-Risky non-bracketed text waits behind an explicit bounded preview, while
-ordinary single-line and child-enabled bracketed paste keep their existing byte
-paths. Verified OSC 133 ranges support select, copy, scoped search, explicit
-failure navigation, and bounded plain-text export without replacing the
-terminal grid with a document model. Pane-owned notification, progress, and
-monitor state remains bounded, dismissible, and separate from BEL behavior.
+OdyTTY is a broad pre-1.0 terminal. Version 0.14.0 is prepared and in-tree,
+adding named launch profiles, external palette following, and a unified Session
+Navigator, and closing an external security review. Named profiles have a
+versioned no-secret on-disk schema, deterministic precedence, atomic storage
+with malformed-file recovery, and a Profile Manager that exposes the complete
+schema; plain New Tab and New Workspace stay one-click on the effective default
+profile while an adjacent chooser and the context menus open a lazy searchable
+picker, and profile discovery never delays the first local terminal. The
+[named profiles guide](docs/profiles.md) covers the schema, Profile Manager,
+defaults, precedence, launch surfaces, and switching. External
+palette following is an optional opt-in that applies a complete local palette
+file through the existing theme seam with fail-closed parsing and last-known-good
+retention. The Session Navigator searches workspaces, tabs, panes, and
+detachable sessions with a redacted opt-in preview. The most recent published
+release is v0.13.0.
 
-The v0.13.0 work does not optimize rendering, terminal storage, GPU allocation,
+The v0.14.0 work does not optimize rendering, terminal storage, GPU allocation,
 or presentation timing, so it carries forward rather than relabels the v0.12.0
 performance evidence.
 
@@ -192,11 +199,15 @@ Separately classified software-endpoint results, memory composition, and
 scrollback scaling are published alongside W6 without pooling their evidence
 classes; W7's four-hour memory-growth workload remains explicitly deferred.
 
-The tagged release passed exact-commit blocking Linux, macOS, and Windows CI,
-all seven artifact producers and smoke tests, the locked dependency audit,
-Minisign and GitHub provenance verification, and Scoop, Homebrew, and AUR
+The tagged v0.13.0 release passed exact-commit blocking Linux, macOS, and
+Windows CI, all seven artifact producers and smoke tests, the locked dependency
+audit, Minisign and GitHub provenance verification, and Scoop, Homebrew, and AUR
 publication. The 16 published assets passed an independent checksum,
-signature, alias-identity, provenance, and source-build check. Native macOS and
+signature, alias-identity, provenance, and source-build check. For v0.14.0 the
+same release-closure gate, operator acceptance run, version checkpoint, blocking
+three-platform CI, package checks, and artifact verification are release
+requirements whose results are recorded against the tagged commit at release
+time; they are not asserted in advance here. Native macOS and
 Windows on-device runtime checks remain unperformed because maintainer hardware
 was unavailable; automated platform evidence is not relabeled as a manual
 pass. Full evidence and limitations are recorded in the [release

@@ -32,10 +32,22 @@ const MAX_RESULTS: usize = 40;
 /// bottom body rows of the connection manager — an actionable "+ Add
 /// connection…" row and a key-hint line — so the Add/Edit/save actions are
 /// reachable by sight and by mouse, not only through invisible chords.
-const FOOTER_ROWS: usize = 2;
+/// The footer's fixed Add row; the wrapped key-hint rows are added on top of
+/// this. `FOOTER_ROWS` remains the single-hint-row baseline (Add + one hint) so
+/// the tiny-window fallback guard and existing tests read unchanged.
+const FOOTER_ADD_ROWS: usize = 1;
+const FOOTER_ROWS: usize = FOOTER_ADD_ROWS + 1;
 const ADD_ROW_LABEL: &str = "+ Add connection\u{2026}";
-const KEY_HINT_LINE: &str =
-    "Tab add \u{b7} \u{2192} edit \u{b7} Enter connect \u{b7} Shift+Enter save typed host";
+/// Shortcut hints joined with " \u{b7} " and wrapped to the body width by
+/// [`crate::native::overlay::wrap_segments`] so every action stays visible at
+/// narrow window widths instead of clipping after an ellipsis.
+const KEY_HINT_SEGMENTS: [&str; 4] = [
+    "Tab add",
+    "\u{2192} edit",
+    "Enter connect",
+    "Shift+Enter save typed host",
+];
+const KEY_HINT_SEP: &str = " \u{b7} ";
 
 /// One named launch profile row in the connection manager (v0.14). Loaded lazily
 /// when the overlay opens; never scanned on the default launch path.
@@ -75,6 +87,10 @@ pub(super) struct ConnectionOverlay {
     /// The last body height the render pass saw, so keyboard nav (which has no
     /// body height) can re-follow the selection through the same math.
     last_body_height: Cell<usize>,
+    /// The last body width the render pass saw, so the footer reserves the same
+    /// wrapped key-hint height the list drew (keyboard nav / clicks have no live
+    /// body width). `0` until the first render keeps the single-hint baseline.
+    last_body_width: Cell<usize>,
     /// What accepting a row does (ODP-1B). Default `Connect` is the connection
     /// manager; a tagged purpose makes this the same list a shared picker for a
     /// pending menu action. Reset on every `open`.
@@ -206,13 +222,26 @@ impl ConnectionOverlay {
     /// one result row, and the two footer rows — a tiny window falls back to the
     /// pre-footer layout so the list is never squeezed to nothing.
     fn footer_rows(&self, body_height: usize) -> usize {
-        if matches!(self.purpose, ConnectionPickerPurpose::Connect)
-            && body_height >= 1 + 1 + FOOTER_ROWS
+        let needed = FOOTER_ADD_ROWS + self.hint_rows();
+        if matches!(self.purpose, ConnectionPickerPurpose::Connect) && body_height >= 1 + 1 + needed
         {
-            FOOTER_ROWS
+            needed
         } else {
             0
         }
+    }
+
+    /// Rows the wrapped key-hint legend occupies at the last recorded body
+    /// width. At least one so the footer always reserves a hint row; `0` width
+    /// (before the first render) yields the single-row baseline.
+    fn hint_rows(&self) -> usize {
+        crate::native::overlay::wrap_segments(
+            &KEY_HINT_SEGMENTS,
+            KEY_HINT_SEP,
+            self.last_body_width.get(),
+        )
+        .len()
+        .max(1)
     }
 
     /// Result rows visible in the scrolling window: the body minus the query row
@@ -550,6 +579,9 @@ impl ConnectionOverlay {
             self.scroll_offset.set(0);
             return Vec::new();
         }
+        // Record the render width before the footer/scroll math so the footer
+        // reserves the same wrapped-hint height this pass draws.
+        self.last_body_width.set(body_width);
         let scroll_offset = self.scroll_offset_for_body_height(body_height);
         // FORM-DISCOVERABILITY: reserve the bottom rows for the pinned affordance
         // footer so it is always visible; content fills the space above it.
@@ -654,11 +686,27 @@ impl ConnectionOverlay {
                 focused: self.add_row_focused,
                 bold: false,
             });
-            lines.push(ConnectionOverlayLine {
-                text: truncate_for_width(KEY_HINT_LINE, body_width),
-                focused: false,
-                bold: false,
-            });
+            // Wrapped shortcut legend: every hint stays visible at narrow widths
+            // instead of clipping. The footer reserved exactly these rows via
+            // `footer_rows`/`hint_rows` at the same width, so the Add row and the
+            // hint block land where `click_row` expects them.
+            let hints =
+                crate::native::overlay::wrap_segments(&KEY_HINT_SEGMENTS, KEY_HINT_SEP, body_width);
+            if hints.is_empty() {
+                lines.push(ConnectionOverlayLine {
+                    text: String::new(),
+                    focused: false,
+                    bold: false,
+                });
+            } else {
+                for hint in hints {
+                    lines.push(ConnectionOverlayLine {
+                        text: truncate_for_width(&hint, body_width),
+                        focused: false,
+                        bold: false,
+                    });
+                }
+            }
         }
         lines
     }
@@ -953,6 +1001,59 @@ mod tests {
         assert!(add.text.contains("Add connection"), "add-row pinned bottom");
         assert!(hint.text.contains("Tab add"), "key hint pinned bottom");
         assert!(hint.text.contains("Shift+Enter save"), "save chord shown");
+    }
+
+    /// At a narrow window the single-line key hint would clip after an ellipsis,
+    /// hiding the later shortcuts. The footer wraps the legend across rows so
+    /// every hint stays visible, the Add row stays pinned above the hint block,
+    /// and a click still lands on the Add row (footer geometry tracks the
+    /// wrapped height).
+    #[test]
+    fn manager_wraps_key_hint_footer_at_narrow_width() {
+        let mut overlay = open(entries());
+        let body_width = 40;
+        let body_height = 14;
+        let lines = overlay.visible_lines(body_width, body_height);
+        let joined: String = lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for expected in [
+            "Tab add",
+            "\u{2192} edit",
+            "Enter connect",
+            "Shift+Enter save typed host",
+        ] {
+            assert!(
+                joined.contains(expected),
+                "narrow legend must show '{expected}'; got:\n{joined}"
+            );
+        }
+        // No wrapped hint row is truncated with an ellipsis (the Add row label
+        // legitimately ends in one, so only the separator-bearing hint rows are
+        // checked).
+        for line in &lines {
+            if line.text.contains('\u{b7}') {
+                assert!(
+                    !line.text.contains('\u{2026}'),
+                    "no hint row clips: {:?}",
+                    line.text
+                );
+            }
+        }
+        // The legend wrapped to more than one hint row (the full line does not
+        // fit 40 columns), and the Add row still opens the form on click.
+        let footer = overlay.footer_rows(body_height);
+        assert!(footer > FOOTER_ROWS, "footer grew to hold the wrapped hint");
+        assert!(
+            overlay.click_row(body_height - footer, body_height),
+            "click lands on the pinned add-row above the wrapped hint"
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::AddConnection
+        );
     }
 
     #[test]

@@ -198,6 +198,206 @@ fn connection_row_menu_renders_manager_underneath() {
 }
 
 #[test]
+fn connection_row_menu_production_crop_must_retain_manager_underneath() {
+    // Sibling of the navigator crop regression: the multi-pane `build_overlay_top`
+    // crop must span the connection-manager underlay, not the menu box alone, or
+    // the manager vanishes behind its own row menu in a multi-pane tab.
+    let mut overlay = OverlayUi::default();
+    overlay.open_connections(vec![connection_host("web1")], Vec::new());
+    right_click_first_host(&mut overlay);
+    assert_eq!(overlay.render_signature().mode, OverlayMode::ContextMenu);
+
+    let (cols, rows) = (80usize, 24usize);
+    let mut snap = Snapshot {
+        dimensions: Dimensions::new(cols, rows),
+        cursor: Position { row: 0, column: 0 },
+        cursor_visible: false,
+        colors: crate::core::DynamicColors::default(),
+        cells: vec![crate::core::Cell::default(); cols * rows],
+    };
+    apply_overlay(&mut snap, &mut overlay);
+
+    let composite = overlay_composite_rect(&mut overlay, cols, rows).expect("composite rect");
+    let cropped = crop_snapshot_for_test(
+        &snap,
+        composite.left,
+        composite.top,
+        composite.width,
+        composite.height,
+    );
+    assert!(
+        snapshot_text(&cropped).contains("Connections"),
+        "production composite crop must retain the connection-manager underlay; \
+         composite rect {composite:?}"
+    );
+}
+
+fn snapshot_text(snap: &Snapshot) -> String {
+    let cols = snap.dimensions.columns;
+    let rows = snap.dimensions.rows;
+    (0..rows)
+        .map(|r| {
+            (0..cols)
+                .map(|c| snap.cells[r * cols + c].grapheme())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Mirror of `panes::crop_snapshot` used by production `build_overlay_top`.
+fn crop_snapshot_for_test(
+    src: &Snapshot,
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+) -> Snapshot {
+    let src_cols = src.dimensions.columns;
+    let mut cells = Vec::with_capacity(width * height);
+    for r in 0..height {
+        for c in 0..width {
+            let cell = src
+                .cells
+                .get((top + r) * src_cols + (left + c))
+                .copied()
+                .unwrap_or_default();
+            cells.push(cell);
+        }
+    }
+    Snapshot {
+        dimensions: Dimensions::new(width, height),
+        cursor: Position { row: 0, column: 0 },
+        cursor_visible: false,
+        colors: src.colors.clone(),
+        cells,
+    }
+}
+
+fn open_navigator_menu_for_render() -> OverlayUi {
+    use crate::native::session::SessionToken;
+    use crate::native::session_navigator::{NavigatorEntry, NavigatorTarget};
+    let entries = vec![NavigatorEntry {
+        target: NavigatorTarget::Live(SessionToken(12)),
+        stable_id: "live:12".to_owned(),
+        name: "pane-a".to_owned(),
+        detail: "local /tmp".to_owned(),
+        status: "running".to_owned(),
+        unread: false,
+        profile: None,
+        preview: Vec::new(),
+    }];
+    let mut overlay = OverlayUi::default();
+    overlay.open_session_navigator_selected(entries, Some("live:12"));
+    let rect = overlay_rect(&overlay, 80, 24).expect("navigator rect");
+    let _ = overlay
+        .session_attach
+        .visible_lines(rect.body_width, rect.body_height);
+    let row = overlay
+        .session_attach
+        .visible_lines(rect.body_width, rect.body_height)
+        .iter()
+        .enumerate()
+        .find_map(|(row, line)| (row > 0 && line.text.contains("pane-a")).then_some(row))
+        .expect("pane-a row");
+    let outcome = overlay.handle_pointer(
+        OverlayPointer::Press {
+            cell: CellPoint {
+                row: rect.body_top + row,
+                column: rect.body_left + 1,
+            },
+            button: PointerButton::Right,
+            x_in_body: None,
+        },
+        rect,
+    );
+    assert_eq!(outcome, OverlayOutcome::Consumed);
+    assert_eq!(overlay.render_signature().mode, OverlayMode::ContextMenu);
+    overlay
+}
+
+#[test]
+fn navigator_row_menu_apply_overlay_keeps_navigator_title() {
+    // MENU-OVER-NAVIGATOR (paint): apply_overlay must keep the SessionAttach
+    // underlay so the navigator title survives beside the menu box.
+    let mut overlay = open_navigator_menu_for_render();
+    let (cols, rows) = (80usize, 24usize);
+    let mut snap = Snapshot {
+        dimensions: Dimensions::new(cols, rows),
+        cursor: Position { row: 0, column: 0 },
+        cursor_visible: false,
+        colors: crate::core::DynamicColors::default(),
+        cells: vec![crate::core::Cell::default(); cols * rows],
+    };
+    apply_overlay(&mut snap, &mut overlay);
+    let rendered = snapshot_text(&snap);
+    assert!(
+        rendered.contains("Session Navigator"),
+        "apply_overlay must retain the navigator underlay title:\n{rendered}"
+    );
+}
+
+#[test]
+fn navigator_row_menu_production_crop_must_retain_navigator_underlay() {
+    // MENU-OVER-NAVIGATOR (compositing): multi-pane `build_overlay_top` paints
+    // via apply_overlay then crops. Cropping to the ContextMenu box alone drops
+    // the SessionAttach underlay (operator: navigator vanishes, terminal shows
+    // through). The composited top must retain the navigator title: crop to the
+    // composite rect (the union of underlay panel + menu box).
+    let mut overlay = open_navigator_menu_for_render();
+    let (cols, rows) = (80usize, 24usize);
+    let mut snap = Snapshot {
+        dimensions: Dimensions::new(cols, rows),
+        cursor: Position { row: 0, column: 0 },
+        cursor_visible: false,
+        colors: crate::core::DynamicColors::default(),
+        cells: vec![crate::core::Cell::default(); cols * rows],
+    };
+    apply_overlay(&mut snap, &mut overlay);
+    assert!(
+        snapshot_text(&snap).contains("Session Navigator"),
+        "precondition: full apply_overlay still has the underlay"
+    );
+
+    // Cropping to the ContextMenu box alone (the plain `overlay_rect`) drops the
+    // navigator underlay - the bug the operator saw. The production crop instead
+    // uses `overlay_composite_rect`, the union of underlay panel + menu box.
+    let menu_rect = overlay_rect(&overlay, cols, rows).expect("menu rect");
+    let menu_only = crop_snapshot_for_test(
+        &snap,
+        menu_rect.left,
+        menu_rect.top,
+        menu_rect.width,
+        menu_rect.height,
+    );
+    assert!(
+        !snapshot_text(&menu_only).contains("Session Navigator"),
+        "menu-box-only crop is expected to DROP the underlay (regression witness)"
+    );
+
+    // Production `build_overlay_top` crop: composite rect. It must span the
+    // underlay panel so the navigator title survives beside the menu box.
+    let composite = overlay_composite_rect(&mut overlay, cols, rows).expect("composite rect");
+    assert!(
+        composite.width >= menu_rect.width && composite.height >= menu_rect.height,
+        "composite rect must cover at least the menu box: composite={composite:?} menu={menu_rect:?}"
+    );
+    let cropped = crop_snapshot_for_test(
+        &snap,
+        composite.left,
+        composite.top,
+        composite.width,
+        composite.height,
+    );
+    let cropped_text = snapshot_text(&cropped);
+    assert!(
+        cropped_text.contains("Session Navigator"),
+        "production composite crop must retain the navigator underlay (not menu-box-only); \
+         got composite rect {composite:?}:\n{cropped_text}"
+    );
+}
+
+#[test]
 fn connection_overlay_draws_into_snapshot_copy_only() {
     // CONNECTION-OVERLAY-ISOLATION (render side): apply_overlay only mutates
     // the snapshot copy it is handed; the source frame is untouched, and the

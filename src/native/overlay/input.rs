@@ -284,13 +284,23 @@ impl OverlayUi {
                                 OverlayOutcome::Consumed
                             }
                         }
-                        // Right-click on a row asks to kill that session (Manage
-                        // Sessions): emit its id so the App opens the confirm
-                        // dialog. A right-click off a row is inert. The attach
+                        // Right-click on a row opens the navigator row context
+                        // menu over the still-loaded navigator, keyed to
+                        // the row's stable target class. It SELECTS the target
+                        // without moving the selection cursor and without focusing
+                        // or attaching it; the applicable actions (Focus/Attach,
+                        // Rename/Duplicate/Move, Close) are chosen from the target
+                        // class. A right-click off a real row is inert. The attach
                         // (left-click) path stays byte-identical.
                         PointerButton::Right => {
-                            match self.session_attach.id_at_row(row_in_body, rect.body_height) {
-                                Some(id) => OverlayOutcome::KillSessionRequest(id),
+                            match self
+                                .session_attach
+                                .target_at_row(row_in_body, rect.body_height)
+                            {
+                                Some((target, detached_available)) => {
+                                    self.open_navigator_row_menu(cell, target, detached_available);
+                                    OverlayOutcome::Consumed
+                                }
                                 None => OverlayOutcome::Consumed,
                             }
                         }

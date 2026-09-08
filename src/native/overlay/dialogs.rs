@@ -7,7 +7,7 @@
 use crate::connection_hosts::ConnectionHost;
 use crate::native::context_menu_ui::{CONTEXT_MENU_ITEMS, ContextMenuItem, ContextMenuOutcome};
 use crate::native::session::SessionToken;
-use crate::native::session_navigator::NavigatorTarget;
+use crate::native::session_navigator::{NavigatorAction, NavigatorTarget};
 use crate::selection::CellPoint;
 
 use super::contracts::{
@@ -145,6 +145,26 @@ impl OverlayUi {
         self.panel.end_slider_drag();
         self.context_menu
             .open_connection_row(spawn, row_index, host);
+        self.mode = OverlayMode::ContextMenu;
+        self.open = true;
+    }
+
+    /// Open the session-navigator row context menu at `spawn` for the
+    /// right-clicked row's stable `target`. Like the connection-row menu it is
+    /// spawned from WITHIN the navigator (SessionAttach) overlay, which stays
+    /// loaded underneath - so this does NOT `close()`; it only arms the
+    /// context-menu state and flips the mode, leaving the `session_attach`
+    /// overlay intact so dismissing the menu returns to the navigator with its
+    /// selection unchanged. `detached_available` gates the Attach item.
+    pub(super) fn open_navigator_row_menu(
+        &mut self,
+        spawn: CellPoint,
+        target: NavigatorTarget,
+        detached_available: bool,
+    ) {
+        self.panel.end_slider_drag();
+        self.context_menu
+            .open_navigator_row(spawn, target, detached_available);
         self.mode = OverlayMode::ContextMenu;
         self.open = true;
     }
@@ -638,6 +658,18 @@ impl OverlayUi {
         OverlayOutcome::Consumed
     }
 
+    /// Return to the session navigator from a dismissed navigator-row menu
+    /// without reloading - the `session_attach` overlay state (entries,
+    /// query, selection, scroll) survived the mode switch (the row menu never
+    /// called `close()`), so flipping the mode back restores the navigator
+    /// exactly as it was left. This is the "cancel/outside click harmless" path:
+    /// a dismissed row menu focuses/attaches/closes nothing.
+    pub(super) fn return_to_session_navigator(&mut self) -> OverlayOutcome {
+        self.mode = OverlayMode::SessionAttach;
+        self.open = true;
+        OverlayOutcome::Consumed
+    }
+
     /// Open the overwrite-layout confirm dialog (OVERWRITE-WARN) for the resolved
     /// layout `name` that already exists on disk. `kind` records which save it
     /// was so the confirm arm re-drives the right path. Idempotent: starts with
@@ -909,6 +941,13 @@ impl OverlayUi {
                     crate::native::context_menu_ui::ContextMenuSurface::ConnectionRow(_)
                 ) {
                     self.return_to_connection_manager()
+                } else if matches!(
+                    self.context_menu.surface(),
+                    crate::native::context_menu_ui::ContextMenuSurface::NavigatorRow
+                ) {
+                    // Dismissing a navigator-row menu returns to the
+                    // still-loaded navigator (selection intact), not the grid.
+                    self.return_to_session_navigator()
                 } else {
                     OverlayOutcome::Close
                 }
@@ -922,6 +961,15 @@ impl OverlayUi {
                     crate::native::context_menu_ui::ContextMenuSurface::ConnectionRow(_)
                 ) {
                     return self.apply_connection_row_menu_item(item);
+                }
+                // Navigator-row items need the snapshotted target to route
+                // (focus / attach / rename / duplicate / move / close), so handle
+                // them before the generic grid close.
+                if matches!(
+                    self.context_menu.surface(),
+                    crate::native::context_menu_ui::ContextMenuSurface::NavigatorRow
+                ) {
+                    return self.apply_navigator_row_menu_item(item);
                 }
                 let surface = self.context_menu.surface();
                 self.close();
@@ -1174,6 +1222,16 @@ impl OverlayUi {
                     | ContextMenuItem::ConnRowBindWorkspace
                     | ContextMenuItem::ConnRowEdit
                     | ContextMenuItem::ConnRowRemove => OverlayOutcome::Consumed,
+                    // Navigator-row items are handled by the early-return
+                    // above whenever the surface is `NavigatorRow`; they are never
+                    // visible on any other surface, so reaching here is
+                    // defensive-only. The menu already closed itself.
+                    ContextMenuItem::NavFocus
+                    | ContextMenuItem::NavAttach
+                    | ContextMenuItem::NavRename
+                    | ContextMenuItem::NavDuplicate
+                    | ContextMenuItem::NavMove
+                    | ContextMenuItem::NavClose => OverlayOutcome::Consumed,
                 }
             }
         }
@@ -1245,6 +1303,75 @@ impl OverlayUi {
             },
             // Not a connection-row item; defensively return to the manager.
             _ => self.return_to_connection_manager(),
+        }
+    }
+
+    /// Route an activated navigator-row menu item. Each action closes
+    /// the whole overlay first and emits the same App-side outcome the navigator
+    /// keyboard path emits, so the menu and the r/d/m/x/Enter keys can never
+    /// diverge. The target is resolved through the arena App-side, so a stale
+    /// snapshot is a harmless no-op (`close_navigator_target` already guards it).
+    /// An item that does not apply to the snapshotted target class (defensive -
+    /// `visible_items` never composes it) returns to the navigator without
+    /// acting.
+    pub(super) fn apply_navigator_row_menu_item(
+        &mut self,
+        item: ContextMenuItem,
+    ) -> OverlayOutcome {
+        let Some(target) = self.context_menu.navigator_target().cloned() else {
+            return self.return_to_session_navigator();
+        };
+        match item {
+            // Focus a live target through the arena's stable-token switch. Not
+            // applicable to a detached row (it has no arena token yet).
+            ContextMenuItem::NavFocus => match &target {
+                NavigatorTarget::Workspace(token)
+                | NavigatorTarget::Tab(token)
+                | NavigatorTarget::Live(token) => {
+                    let token = *token;
+                    self.close();
+                    OverlayOutcome::FocusSession(token)
+                }
+                NavigatorTarget::Detached(_) => self.return_to_session_navigator(),
+            },
+            // Attach a detached registry row into a new tab. Not applicable to a
+            // live target (already open - Focus covers it).
+            ContextMenuItem::NavAttach => match &target {
+                NavigatorTarget::Detached(id) => {
+                    let id = id.clone();
+                    self.close();
+                    OverlayOutcome::AttachSession(id)
+                }
+                _ => self.return_to_session_navigator(),
+            },
+            ContextMenuItem::NavRename => {
+                self.close();
+                OverlayOutcome::NavigatorAction(NavigatorAction::Rename(target))
+            }
+            ContextMenuItem::NavDuplicate => {
+                self.close();
+                OverlayOutcome::NavigatorAction(NavigatorAction::Duplicate(target))
+            }
+            ContextMenuItem::NavMove => {
+                self.close();
+                OverlayOutcome::NavigatorAction(NavigatorAction::Move(target))
+            }
+            // Close: a detached row is a kill request; a live target routes
+            // through the scoped close confirmation (the App opens the confirm
+            // and reopens the navigator on cancel), mirroring the keyboard path.
+            ContextMenuItem::NavClose => match &target {
+                NavigatorTarget::Detached(id) => {
+                    let id = id.clone();
+                    self.close();
+                    OverlayOutcome::KillSessionRequest(id)
+                }
+                _ => {
+                    self.close();
+                    OverlayOutcome::NavigatorCloseRequest(target)
+                }
+            },
+            // Not a navigator-row item; defensively return to the navigator.
+            _ => self.return_to_session_navigator(),
         }
     }
 

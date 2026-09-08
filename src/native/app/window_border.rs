@@ -77,7 +77,11 @@ impl App {
         let oy0 = cy0 - thickness;
         let ox1 = cx1 + thickness;
         let oy1 = cy1 + thickness;
-        let (r, g, b) = self.effective_theme.border;
+        // Present the active pane's theme (a profile tab paints its authored
+        // border; a plain tab uses the global effective theme, which
+        // `chrome_theme` equals, so this is byte-identical to the pre-profile
+        // path).
+        let (r, g, b) = self.chrome_theme.border;
         let mut color = text::foreground_linear(Color::Rgb(r, g, b));
         color[3] = 1.0;
         // Top and bottom span the full outer width; left and right fill only the
@@ -170,7 +174,7 @@ mod tests {
         let mut quads = Vec::new();
         app.paint_window_border_quads(&c, &mut quads);
         assert_eq!(quads.len(), 4, "top/bottom/left/right");
-        let (r, g, b) = app.effective_theme.border;
+        let (r, g, b) = app.chrome_theme.border;
         let expect = crate::text::foreground_linear(crate::core::Color::Rgb(r, g, b));
         for q in &quads {
             assert_eq!(

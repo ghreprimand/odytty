@@ -263,6 +263,9 @@ fn progress_status(progress: Option<crate::core::TerminalProgress>) -> String {
     }
 }
 
+/// Maximum number of chronological screen rows the bounded preview shows.
+const PREVIEW_MAX_ROWS: usize = 8;
+
 fn preview_lines(snapshot: Option<&crate::core::Snapshot>) -> Vec<String> {
     let Some(snapshot) = snapshot else {
         return vec!["preview unavailable".to_owned()];
@@ -271,15 +274,27 @@ fn preview_lines(snapshot: Option<&crate::core::Snapshot>) -> Vec<String> {
     if columns == 0 {
         return vec!["preview unavailable".to_owned()];
     }
-    snapshot
+    // Snapshot-only: read the presented cell grid, never the live PTY, and never
+    // mutate the snapshot. Build each physical row as a plain string.
+    let rows: Vec<String> = snapshot
         .cells
         .chunks(columns)
-        .rev()
-        .take(8)
-        .map(|row| redact_preview(&row.iter().map(|cell| cell.ch).collect::<String>()))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
+        .map(|row| row.iter().map(|cell| cell.ch).collect::<String>())
+        .collect();
+    // Anchor on the most recent meaningful (non-blank) row and keep up to
+    // PREVIEW_MAX_ROWS chronological rows ending there. A fresh tall terminal
+    // leaves the physical bottom of the screen blank while the prompt and its
+    // output sit near the top, so taking the last physical rows would show only
+    // trailing blanks. Skipping trailing blank rows surfaces the recent visible
+    // tail instead; blank rows interior to that window are kept so the layout
+    // stays faithful.
+    let Some(last) = rows.iter().rposition(|row| !row.trim().is_empty()) else {
+        return vec!["screen is empty".to_owned()];
+    };
+    let start = last.saturating_sub(PREVIEW_MAX_ROWS - 1);
+    rows[start..=last]
+        .iter()
+        .map(|row| redact_preview(row))
         .collect()
 }
 

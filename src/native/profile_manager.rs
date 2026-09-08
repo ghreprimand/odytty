@@ -23,9 +23,60 @@ use crate::profiles::{DiscoveredShell, LaunchProfile, ProfileCatalog, ProfileCom
 use super::overlay::OverlayInput;
 
 const MAX_RESULTS: usize = 40;
-const FOOTER_ROWS: usize = 2;
+/// Rows the footer reserves beneath the catalog list for the Add row. The key
+/// hint block is added on top of this and can grow past a single row at narrow
+/// widths; [`ProfileManager::catalog_footer_rows`] returns the true reserved
+/// count so the list window and scroll math stay honest.
+const FOOTER_ADD_ROWS: usize = 1;
 const ADD_ROW_LABEL: &str = "+ Add profile\u{2026}";
-const KEY_HINT_LINE: &str = "Enter edit \u{b7} / filter \u{b7} d duplicate \u{b7} r rename \u{b7} g set default \u{b7} x delete \u{b7} i import \u{b7} e export";
+/// Individual shortcut hints, joined with " \u{b7} " and wrapped to the body
+/// width by [`wrap_key_hint`] so every shortcut stays visible at narrow window
+/// widths instead of clipping after an ellipsis.
+const KEY_HINT_SEGMENTS: [&str; 8] = [
+    "Enter edit",
+    "/ filter",
+    "d duplicate",
+    "r rename",
+    "g set default",
+    "x delete",
+    "i import",
+    "e export",
+];
+const KEY_HINT_SEP: &str = " \u{b7} ";
+
+/// Word-wrap the shortcut legend across as many rows as the body width needs so
+/// no shortcut is hidden behind a truncation ellipsis. Segments are packed
+/// greedily on `" \u{b7} "` boundaries; a segment wider than the whole body is
+/// emitted on its own row (and clipped by the caller's `truncate`) rather than
+/// dropped. Returns an empty vector when `width` is zero.
+fn wrap_key_hint(width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let sep_len = KEY_HINT_SEP.chars().count();
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0usize;
+    for seg in KEY_HINT_SEGMENTS {
+        let seg_len = seg.chars().count();
+        if current.is_empty() {
+            current.push_str(seg);
+            current_len = seg_len;
+        } else if current_len + sep_len + seg_len <= width {
+            current.push_str(KEY_HINT_SEP);
+            current.push_str(seg);
+            current_len += sep_len + seg_len;
+        } else {
+            lines.push(std::mem::take(&mut current));
+            current.push_str(seg);
+            current_len = seg_len;
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FormMode {
@@ -199,6 +250,9 @@ pub(super) struct ProfileManager {
     /// any keyboard focus move so keyboard navigation re-centers as before.
     form_scroll_wheel_pinned: bool,
     last_body_height: Cell<usize>,
+    /// Body width recorded during the last catalog render so `scroll_indicator`
+    /// can reserve the same wrapped-hint footer height the list actually drew.
+    last_body_width: Cell<usize>,
     add_row_focused: bool,
     view: ManagerView,
     form_focus: usize,
@@ -268,6 +322,7 @@ impl ProfileManager {
             form_scroll_offset: Cell::new(0),
             form_scroll_wheel_pinned: false,
             last_body_height: Cell::new(0),
+            last_body_width: Cell::new(0),
             add_row_focused: false,
             view: ManagerView::Catalog,
             form_focus: 0,
@@ -349,6 +404,15 @@ impl ProfileManager {
         columns.saturating_sub(4).clamp(40, 72)
     }
 
+    /// Total rows the catalog footer occupies at the given body width: the Add
+    /// row plus every wrapped shortcut-hint row. Shared by the render window
+    /// ([`Self::catalog_lines`]) and the scroll math ([`Self::scroll_indicator`])
+    /// so the visible list window and the scroll offset never disagree about how
+    /// much space the legend consumes.
+    fn catalog_footer_rows(&self, body_width: usize) -> usize {
+        FOOTER_ADD_ROWS + wrap_key_hint(body_width).len().max(1)
+    }
+
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
         if matches!(self.view, ManagerView::Form(_)) {
             let total = self.form_all_lines(usize::MAX).len();
@@ -358,7 +422,11 @@ impl ProfileManager {
         if !matches!(self.view, ManagerView::Catalog) {
             return (false, false);
         }
-        let room = body_height.saturating_sub(FOOTER_ROWS + 2);
+        // `+ 2` reserves the query-label row and an optional warning/message row
+        // above the list; the footer count wraps the shortcut legend to the last
+        // recorded body width so the scroll window matches what the list drew.
+        let footer = self.catalog_footer_rows(self.last_body_width.get());
+        let room = body_height.saturating_sub(footer + 2);
         self.last_body_height.set(body_height);
         let total = self.filtered.len();
         if total <= room || room == 0 {
@@ -682,6 +750,9 @@ impl ProfileManager {
     }
 
     fn catalog_lines(&self, body_width: usize, body_height: usize) -> Vec<ProfileManagerLine> {
+        // Record the render width before `scroll_indicator` runs so its footer
+        // reservation matches the wrapped-hint rows this pass emits.
+        self.last_body_width.set(body_width);
         let mut lines = Vec::new();
         let query_label = if !self.query.is_empty() {
             format!("Filter: {}", self.query)
@@ -713,7 +784,9 @@ impl ProfileManager {
         }
 
         let header = lines.len();
-        let room = body_height.saturating_sub(FOOTER_ROWS + header);
+        let hint_lines = wrap_key_hint(body_width);
+        let footer_rows = FOOTER_ADD_ROWS + hint_lines.len().max(1);
+        let room = body_height.saturating_sub(footer_rows + header);
         let _ = self.scroll_indicator(body_height);
         let offset = self.scroll_offset.get();
         if self.filtered.is_empty() {
@@ -754,12 +827,18 @@ impl ProfileManager {
             bold: self.add_row_focused,
             target: ProfileManagerTarget::Add,
         });
-        lines.push(ProfileManagerLine {
-            text: truncate(KEY_HINT_LINE, body_width),
-            focused: false,
-            bold: false,
-            target: ProfileManagerTarget::Inert,
-        });
+        // Emit the shortcut legend across as many wrapped rows as the width
+        // needs so `x delete`, `i import`, and `e export` stay visible instead of
+        // clipping after an ellipsis. Each row is still truncated as a final
+        // guard for a segment wider than the whole body.
+        for hint in &hint_lines {
+            lines.push(ProfileManagerLine {
+                text: truncate(hint, body_width),
+                focused: false,
+                bold: false,
+                target: ProfileManagerTarget::Inert,
+            });
+        }
         lines
     }
 }
@@ -887,6 +966,94 @@ mod tests {
             manager.handle_input(OverlayInput::Char('e')),
             ProfileManagerOutcome::RequestExport(name) if name == "dev"
         ));
+    }
+
+    /// Every shortcut in the legend stays visible at a narrow catalog width:
+    /// the hint wraps across rows instead of clipping after an ellipsis, so
+    /// `x delete`, `i import`, and `e export` are all present and no rendered
+    /// hint row carries the truncation marker.
+    #[test]
+    fn shortcut_legend_wraps_so_every_hint_stays_visible() {
+        let mut manager = ProfileManager::new();
+        manager.open(catalog_with(&["dev"]), None);
+        // A narrow body that clips the single-line legend at ~70 columns.
+        let body_width = 60;
+        let lines: Vec<String> = manager
+            .visible_lines(body_width, 24)
+            .into_iter()
+            .map(|line| line.text)
+            .collect();
+        let joined = lines.join("\n");
+        for expected in [
+            "Enter edit",
+            "/ filter",
+            "d duplicate",
+            "r rename",
+            "g set default",
+            "x delete",
+            "i import",
+            "e export",
+        ] {
+            assert!(
+                joined.contains(expected),
+                "legend must show '{expected}' at width {body_width}; got:\n{joined}"
+            );
+        }
+        // The clipped single-line legend would end in a truncation ellipsis;
+        // each wrapped hint row instead fits the body untruncated and appears
+        // verbatim among the rendered rows.
+        for hint in wrap_key_hint(body_width) {
+            assert!(
+                !hint.contains('\u{2026}'),
+                "wrapped hint row should not be truncated: {hint:?}"
+            );
+            assert!(
+                lines.contains(&hint),
+                "wrapped hint row must be rendered verbatim: {hint:?}\ngot:\n{joined}"
+            );
+        }
+    }
+
+    /// The wrapped legend is width-aware: a wider body packs more segments per
+    /// row (fewer rows) than a narrow body, and every produced row fits.
+    #[test]
+    fn shortcut_legend_wrap_is_width_aware() {
+        let narrow = wrap_key_hint(40);
+        let wide = wrap_key_hint(120);
+        assert!(
+            wide.len() < narrow.len(),
+            "a wider body needs fewer hint rows: wide={wide:?} narrow={narrow:?}"
+        );
+        for line in narrow.iter().chain(wide.iter()) {
+            assert!(line.chars().count() <= 120);
+        }
+        // Zero width yields no rows (the body is unrenderable).
+        assert!(wrap_key_hint(0).is_empty());
+        // A single wide segment is emitted rather than dropped.
+        let tiny = wrap_key_hint(4);
+        assert_eq!(tiny.len(), KEY_HINT_SEGMENTS.len());
+    }
+
+    /// The catalog footer reservation matches the wrapped-hint rows the list
+    /// draws, so the scroll window and the rendered legend agree at both a
+    /// wide (single-row legend) and a narrow (multi-row legend) width.
+    #[test]
+    fn footer_reservation_tracks_wrapped_hint_rows() {
+        let manager = ProfileManager::new();
+        let wide = 120;
+        assert_eq!(
+            manager.catalog_footer_rows(wide),
+            FOOTER_ADD_ROWS + wrap_key_hint(wide).len()
+        );
+        let narrow = 40;
+        assert_eq!(
+            manager.catalog_footer_rows(narrow),
+            FOOTER_ADD_ROWS + wrap_key_hint(narrow).len()
+        );
+        assert!(
+            manager.catalog_footer_rows(narrow) > manager.catalog_footer_rows(wide),
+            "a narrower legend reserves more footer rows"
+        );
     }
 
     #[test]

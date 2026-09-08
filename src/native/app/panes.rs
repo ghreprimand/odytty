@@ -56,7 +56,7 @@ use crate::graphics::VisiblePlacement;
 use crate::native::gpu::{OverlayTop, PaneRender, PanelFrameQuads, RailOverlay};
 use crate::native::image_layer::{PaneImageInput, PaneImageUpload};
 use crate::native::layout::{PaneRect, divider_rects, grid_dims_for_rect};
-use crate::native::overlay::{apply_overlay, overlay_rect};
+use crate::native::overlay::{apply_overlay, overlay_composite_rect};
 use crate::native::render_helpers::image_uploads_for_visible;
 use std::collections::BTreeMap;
 
@@ -608,7 +608,15 @@ impl App {
                 rect
             } else {
                 apply_overlay(&mut overlay_snap, &mut self.overlay);
-                let rect = overlay_rect(&self.overlay, cols, rows)?;
+                // Crop to the COMPOSITE rect, not the plain overlay rect: a
+                // menu-over-overlay context menu (navigator-row / connection-row)
+                // paints its still-loaded underlay panel across a larger area than
+                // the small menu box `overlay_rect` returns for `ContextMenu`.
+                // Cropping to just the menu box would discard every underlay cell
+                // and make the navigator vanish behind its own row menu (the
+                // single-pane path never crops, so it was unaffected). The union
+                // rect keeps both render paths visually identical.
+                let rect = overlay_composite_rect(&mut self.overlay, cols, rows)?;
                 (rect.left, rect.top, rect.width, rect.height)
             };
         // Crop to the modal rect so only opaque surface cells are composited
@@ -1045,7 +1053,11 @@ impl App {
             self.sessions
                 .active_layout()
                 .map(|layout| {
-                    let (r, g, b) = self.effective_theme.border;
+                    // Pane dividers are window chrome like the outer border:
+                    // present the active pane's theme (`chrome_theme` equals the
+                    // global effective theme for a plain tab, so this is
+                    // byte-identical to the pre-profile path).
+                    let (r, g, b) = self.chrome_theme.border;
                     let mut color = text::foreground_linear(Color::Rgb(r, g, b));
                     color[3] = 1.0;
                     divider_rects(layout, content, PANE_DIVIDER_PX)

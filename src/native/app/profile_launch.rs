@@ -511,10 +511,19 @@ mod tests {
     fn missing_cwd_falls_back_to_home_with_warning() {
         // A resolved profile cwd that does not exist must not reach the spawn:
         // it falls back to home and records a warning naming the path.
+        // Platform twin of `restore_home_dir`: `$HOME` on Unix, `%USERPROFILE%`
+        // on Windows. Setting only HOME leaves Windows CI reading the real
+        // USERPROFILE and failing the expected-temp assertion.
+        let _guard = crate::test_lock::test_env_lock();
         let home = std::env::temp_dir();
-        // SAFETY: single-threaded test seam for the home fallback.
+        #[cfg(windows)]
+        let key = "USERPROFILE";
+        #[cfg(not(windows))]
+        let key = "HOME";
+        let previous = std::env::var_os(key);
+        // SAFETY: held under `test_env_lock`; restored before the guard drops.
         unsafe {
-            std::env::set_var("HOME", &home);
+            std::env::set_var(key, &home);
         }
         let mut effective = super::resolve_local_tab_launch(
             &Settings::default(),
@@ -535,6 +544,12 @@ mod tests {
                 .any(|w| w.contains("does not exist") && w.contains("dev")),
             "a missing cwd must record a bounded warning naming the profile"
         );
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
     }
 
     #[test]

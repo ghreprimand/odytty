@@ -1001,6 +1001,14 @@ tab** or **Replace**. Stale or errored registry entries show
 Press `X` on a detached session to kill it after confirmation. **Detach &
 switch** gives the focused pane's working directory to a fresh managed session.
 
+Right-clicking a navigator row opens a context menu with only the actions that
+apply to that row. A right-click selects the row without focusing or attaching
+it, and the navigator stays open underneath; dismissing the menu returns to the
+navigator with the selection unchanged. A workspace, tab, or pane row offers
+Focus, Rename, Duplicate, Move, and Close; a detached session row offers Attach
+(when the session is still available) and Close. Every menu action matches its
+keyboard shortcut, and a right-click that misses a row does nothing.
+
 Attaching reconnects the live PTY and terminal model. The session host keeps
 both alive through detach and attach cycles until the child exits or the idle
 timeout reaps it.
@@ -1193,9 +1201,12 @@ desktop.
 
 Further reference:
 
-- [Named profiles](v0.14.0-profiles-foundation.md) documents the complete
-  profile editor: launch, appearance, cursor, effects, layout, switching, and
-  platform fields, including bounded add/edit/remove list rows.
+- [Named profiles](profiles.md) is the complete guide: the schema, the Profile
+  Manager editor (launch, appearance, cursor, effects, layout, switching, and
+  platform fields with bounded add/edit/remove rows), defaults, precedence,
+  every launch surface, import/export, and security. The
+  [profiles foundation](v0.14.0-profiles-foundation.md) records the internal
+  design contract.
 
 - [Runtime Knobs](runtime-knobs.md) lists every config key, environment
   variable, range, default, and reload behavior.

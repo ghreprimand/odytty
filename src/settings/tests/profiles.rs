@@ -764,3 +764,77 @@ fn a3_default_launch_profile_parses_and_round_trips() {
         Some("dev")
     );
 }
+
+/// Import rejects NUL-in-value env; sibling good
+/// profiles still load; rejected file bytes unchanged.
+#[test]
+fn import_rejects_os_invalid_env_and_preserves_sibling_profiles() {
+    let dir = temp_profiles_dir("env-os-invalid-import");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    write_profile_file(
+        &dir.join("good.profile.json"),
+        &LaunchProfile::new("good").expect("good"),
+    )
+    .expect("write good");
+
+    let bad_path = dir.join("bad.profile.json");
+    // Embedded NUL in the env value (JSON \u0000).
+    let bad = "{\n  \"schema_version\": 1,\n  \"name\": \"bad\",\n  \"launch\": { \"env\": { \"SAFE\": \"x\\u0000y\" } }\n}\n";
+    std::fs::write(&bad_path, bad).expect("write bad");
+    let before = std::fs::read(&bad_path).expect("before");
+
+    assert!(
+        matches!(
+            read_profile_file(&bad_path, Some("bad")),
+            Err(ProfileStoreError::Validation(_))
+        ),
+        "import must reject NUL-in-value env"
+    );
+
+    let catalog = load_catalog_from_dir(&dir);
+    assert!(catalog.profiles.contains_key("good"));
+    assert!(
+        !catalog.profiles.contains_key("bad"),
+        "invalid env profile must not enter the catalog"
+    );
+    assert!(
+        catalog.warnings.iter().any(|w| w.contains("bad")
+            || w.to_ascii_lowercase().contains("env")
+            || w.to_ascii_lowercase().contains("nul")
+            || w.to_ascii_lowercase().contains("malformed")),
+        "catalog should warn about the rejected file; warnings={:?}",
+        catalog.warnings
+    );
+    assert_eq!(
+        std::fs::read(&bad_path).expect("after"),
+        before,
+        "rejected import must leave the file bytes unchanged"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn write_boundary_rejects_empty_equals_and_nul_env_without_writing() {
+    let dir = temp_profiles_dir("env-os-invalid-write");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let cases: &[(&str, &str)] = &[
+        ("", "x"),
+        ("FOO=BAR", "1"),
+        ("FOO\0BAR", "1"),
+        ("FOO", "a\0b"),
+    ];
+    for (index, (key, value)) in cases.iter().enumerate() {
+        let mut profile = LaunchProfile::new(format!("bad{index}")).expect("profile");
+        profile
+            .launch
+            .env
+            .insert((*key).to_owned(), (*value).to_owned());
+        let path = dir.join(format!("bad{index}.profile.json"));
+        assert!(
+            write_profile_file(&path, &profile).is_err(),
+            "write must refuse key={key:?} value={value:?}"
+        );
+        assert!(!path.exists(), "no bytes written for refused env");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}

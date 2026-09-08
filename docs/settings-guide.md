@@ -195,6 +195,23 @@ The default is `odyssey-default`; `theme = system` follows the OS light/dark
 direction, while an explicit theme name keeps that palette selected. See the
 [theme guide](themes.md) for the library and custom-theme format.
 
+### Named Profiles
+
+Reusable launch contexts are opt-in and off by default: with no profile set,
+OdyTTY launches its built-in System Default and never scans the profile
+directory on that path. Open **Settings -> Profiles -> Open Profile Manager** to
+create and edit profiles, and use **Set as Default** to pick the global default
+stored as `default_launch_profile`. Optional host- and directory-aware switching
+is enabled with `profile_auto_switch = on`.
+
+```conf
+default_launch_profile = dev
+profile_auto_switch = off
+```
+
+See the [named profiles guide](profiles.md) for the schema, launch surfaces,
+precedence, defaults, import/export, and security.
+
 ## Tuning A Transparent Window
 
 These controls solve different kinds of washout:

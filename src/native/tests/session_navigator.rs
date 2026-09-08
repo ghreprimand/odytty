@@ -312,6 +312,137 @@ fn navigator_remote_disconnect_is_exited_and_preview_is_opt_in_and_redacted() {
 }
 
 #[test]
+fn navigator_preview_skips_trailing_empty_rows_on_tall_fresh_screen() {
+    // Fresh tall terminal: meaningful output sits near the top while the
+    // physical bottom of the screen is still blank. The bounded preview must
+    // show that recent meaningful visible tail, not eight empty physical rows.
+    let mut rows = vec!["TOKEN=acceptance-example"];
+    rows.extend(std::iter::repeat_n("", 23));
+    let snap = snapshot(&rows);
+    let before = snap.cells.clone();
+
+    let dimensions = Dimensions::new(snap.dimensions.columns, snap.dimensions.rows);
+    let mut sessions = workspace_set(dimensions);
+    let token = sessions.active_id();
+    sessions
+        .get_mut(token)
+        .expect("active session")
+        .last_presented_snapshot = Some(snap);
+
+    let entries = live_entries(&sessions, true);
+    let entry = live_entry(&entries, token);
+    let preview = &entry.preview;
+    assert!(
+        !preview.is_empty(),
+        "opt-in preview must emit at least one line for a non-empty screen"
+    );
+    assert!(
+        preview.iter().any(|line| !line.trim().is_empty()),
+        "preview must not be only trailing blank physical rows: {preview:?}"
+    );
+    assert!(
+        preview.len() <= 8,
+        "preview remains capped at eight lines: {preview:?}"
+    );
+    let joined = preview.join("\n");
+    assert!(
+        !joined.contains("acceptance-example"),
+        "preview must redact planted secret: {joined:?}"
+    );
+    assert!(
+        joined.contains("[redacted]"),
+        "TOKEN assignment must be redacted: {joined:?}"
+    );
+    assert_eq!(
+        sessions
+            .get(token)
+            .expect("active")
+            .last_presented_snapshot
+            .as_ref()
+            .expect("snapshot")
+            .cells,
+        before,
+        "preview must not mutate the presented snapshot"
+    );
+}
+
+#[test]
+fn navigator_preview_preserves_internal_blank_rows_and_ordering() {
+    let mut rows = vec!["alpha-line", "", "beta-line", "TOKEN=acceptance-example"];
+    rows.extend(std::iter::repeat_n("", 20));
+    let dimensions = Dimensions::new(48, rows.len());
+    let mut sessions = workspace_set(dimensions);
+    let token = sessions.active_id();
+    sessions
+        .get_mut(token)
+        .expect("active session")
+        .last_presented_snapshot = Some(snapshot(&rows));
+
+    let entries = live_entries(&sessions, true);
+    let preview = live_entry(&entries, token).preview.clone();
+    let meaningful: Vec<&str> = preview.iter().map(|line| line.trim_end()).collect();
+    assert!(
+        meaningful.iter().any(|line| line.contains("alpha-line")),
+        "must retain earlier meaningful content when trailing empties dominate: {preview:?}"
+    );
+    assert!(
+        meaningful.iter().any(|line| line.contains("beta-line")),
+        "must retain later meaningful content: {preview:?}"
+    );
+    let alpha = meaningful
+        .iter()
+        .position(|line| line.contains("alpha-line"))
+        .expect("alpha");
+    let blank = meaningful
+        .iter()
+        .enumerate()
+        .find(|(idx, line)| *idx > alpha && line.is_empty())
+        .map(|(idx, _)| idx);
+    let beta = meaningful
+        .iter()
+        .position(|line| line.contains("beta-line"))
+        .expect("beta");
+    assert!(
+        blank.is_some_and(|idx| idx < beta),
+        "internal blank between alpha and beta must be preserved: {preview:?}"
+    );
+    assert!(
+        alpha < beta,
+        "ordering must match screen top-to-bottom: {preview:?}"
+    );
+    assert!(
+        !preview.join("\n").contains("acceptance-example"),
+        "secret must stay redacted while preserving layout: {preview:?}"
+    );
+}
+
+#[test]
+fn navigator_preview_all_empty_screen_uses_explicit_status() {
+    let rows: Vec<&str> = std::iter::repeat_n("", 16).collect();
+    let dimensions = Dimensions::new(40, rows.len());
+    let mut sessions = workspace_set(dimensions);
+    let token = sessions.active_id();
+    sessions
+        .get_mut(token)
+        .expect("active session")
+        .last_presented_snapshot = Some(snapshot(&rows));
+
+    let entries = live_entries(&sessions, true);
+    let preview = live_entry(&entries, token).preview.clone();
+    assert!(
+        !preview.is_empty(),
+        "all-empty screen still needs an explicit preview status line"
+    );
+    assert!(
+        preview.iter().any(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.contains("empty") || lower.contains("unavailable")
+        }),
+        "expected an explicit empty/unavailable status, not trailing blank rows: {preview:?}"
+    );
+}
+
+#[test]
 fn stale_registry_entry_is_error_and_never_emits_attach() {
     let mut overlay = SessionAttachOverlay::new();
     overlay.open(vec![NavigatorEntry::from(ListedSession {
@@ -468,11 +599,14 @@ fn live_entry(entries: &[NavigatorEntry], token: SessionToken) -> &NavigatorEntr
 }
 
 fn snapshot(rows: &[&str]) -> Snapshot {
+    // Match Dimensions::new's column floor so empty rows still allocate a
+    // physical blank cell grid instead of a zero-width, empty-cell Snapshot.
     let columns = rows
         .iter()
         .map(|row| row.chars().count())
         .max()
-        .unwrap_or(1);
+        .unwrap_or(1)
+        .max(1);
     let mut cells = Vec::with_capacity(columns * rows.len());
     for row in rows {
         cells.extend(
