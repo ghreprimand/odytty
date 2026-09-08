@@ -28,19 +28,27 @@ and troubleshooting.
 
 The version-pinned installer detects apt or dnf and installs the matching
 signature-verified package; other x86_64 systems receive the portable binary
-tarball. Set `version` to a published release, verify the installer before
-running it, then inspect it if desired:
+tarball. Paste this block to install or update to the latest release. It
+automatically resolves the version and verifies the installer before running it:
 
 ```sh
-version=X.Y.Z
+bash <<'ODYTTY_UPDATE'
+set -euo pipefail
+command -v minisign >/dev/null || { echo 'Install minisign first, then rerun this block.' >&2; exit 1; }
+workdir=$(mktemp -d)
+trap 'rm -rf "$workdir"' EXIT
+cd "$workdir"
+release=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/ghreprimand/odytty/releases/latest)
+version=${release##*/v}
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Could not resolve the latest release.' >&2; exit 1; }
 base="https://github.com/ghreprimand/odytty/releases/download/v${version}"
 curl -fLO "${base}/odytty-${version}-install.sh"
 curl -fLO "${base}/SHA256SUMS"
 curl -fLO "${base}/SHA256SUMS.minisig"
-printf '%s\n' 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' > odytty-release.pub
-minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P "$(cat odytty-release.pub)"
-grep "  odytty-${version}-install.sh$" SHA256SUMS | sha256sum -c -
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev'
+awk -v file="odytty-${version}-install.sh" '$2 == file' SHA256SUMS | sha256sum -c -
 bash "odytty-${version}-install.sh"
+ODYTTY_UPDATE
 ```
 
 This needs `minisign` and `sha256sum`. A mutable `curl | bash` convenience

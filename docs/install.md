@@ -204,19 +204,27 @@ borderless windows and OS theme detection.
 
 The trusted path downloads a version-pinned release installer, authenticates
 the release manifest with Minisign, checks the installer against that manifest,
-then runs it. Replace `X.Y.Z` with a published version (the installer asset
-ships with v0.14.0 and later):
+then runs it. Paste this block to install or update to the latest release;
+no version substitution is needed (installer assets ship with v0.14.0 and later):
 
 ```sh
-version=X.Y.Z
+bash <<'ODYTTY_UPDATE'
+set -euo pipefail
+command -v minisign >/dev/null || { echo 'Install minisign first, then rerun this block.' >&2; exit 1; }
+workdir=$(mktemp -d)
+trap 'rm -rf "$workdir"' EXIT
+cd "$workdir"
+release=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/ghreprimand/odytty/releases/latest)
+version=${release##*/v}
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Could not resolve the latest release.' >&2; exit 1; }
 base="https://github.com/ghreprimand/odytty/releases/download/v${version}"
 curl -fLO "${base}/odytty-${version}-install.sh"
 curl -fLO "${base}/SHA256SUMS"
 curl -fLO "${base}/SHA256SUMS.minisig"
-printf '%s\n' 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' > odytty-release.pub
-minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P "$(cat odytty-release.pub)"
-grep "  odytty-${version}-install.sh$" SHA256SUMS | sha256sum -c -
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev'
+awk -v file="odytty-${version}-install.sh" '$2 == file' SHA256SUMS | sha256sum -c -
 bash "odytty-${version}-install.sh"
+ODYTTY_UPDATE
 ```
 
 The script chooses a native `.deb` on apt/dpkg systems, a native `.rpm` on
@@ -225,12 +233,10 @@ dnf/rpm systems, or the portable binary tarball otherwise. It authenticates
 [`odytty-release.pub`](keys/odytty-release.pub) before accepting an artifact
 hash. System package managers need root, so the script uses `sudo` when
 you are not already root; the tarball path falls back to a per-user `~/.local`
-install when no `sudo` is available. Pass `--dry-run` to print the plan and exit
-without downloading or installing:
-
-```sh
-bash "odytty-${version}-install.sh" --dry-run
-```
+install when no `sudo` is available. To preview the installation, add
+`--dry-run` to the final `bash "odytty-${version}-install.sh"` line inside the
+block before pasting it. This downloads and verifies the installer, then prints
+the plan without downloading or installing packages.
 
 The older mutable `curl | bash` form is convenience-only and is not a trusted
 path: it executes a network response before signature verification. Do not use
