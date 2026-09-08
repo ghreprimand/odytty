@@ -2,6 +2,7 @@
 
 [Website](https://odytty.unfinished-works.com) |
 [Latest release](https://github.com/ghreprimand/odytty/releases/latest) |
+[Release notes](docs/releases/README.md) |
 [Install guide](docs/install.md) |
 [Feature reference](docs/features.md) |
 [Documentation](docs/README.md) |

@@ -6,6 +6,9 @@ This is the complete map of OdyTTY's tracked project documentation.
 
 ## Start Here
 
+- [Release notes](releases/README.md) - concise highlights for each release,
+  including patch releases from v0.10.0 onward.
+
 - [Install guide](install.md) — setup, updates, checksums, source builds, and
   troubleshooting.
 - [Feature reference](features.md) — terminal behavior and native workflows.
