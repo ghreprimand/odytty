@@ -26,7 +26,7 @@ the install is versioned, owned, removable, and visible to Odyssey-Mon.
   - [Verify build provenance](#verify-build-provenance)
   - [What signing does and does not cover](#what-signing-does-and-does-not-cover)
 - [Linux](#linux)
-  - [One-line installer (recommended)](#one-line-installer-recommended)
+  - [Version-pinned installer (recommended)](#version-pinned-installer-recommended)
   - [.deb (Debian, Ubuntu, Mint, Pop)](#deb-debian-ubuntu-mint-pop)
   - [.rpm (Fedora, RHEL, openSUSE, best-effort)](#rpm-fedora-rhel-opensuse-best-effort)
   - [Binary tarball (portable prebuilt)](#binary-tarball-portable-prebuilt)

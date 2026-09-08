@@ -821,7 +821,9 @@ Making OdyTTY installable and maintainable outside the source tree.
   types: Debian, RPM, Linux binary tarball, Linux AppImage, macOS app zip,
   Windows portable zip, and source archive. Every artifact has an always-latest
   alias and a version-pinned twin, with `SHA256SUMS` and its Minisign
-  signature `SHA256SUMS.minisig` completing the 16-asset set.
+  signature `SHA256SUMS.minisig` completing the 16-asset set through v0.13.0.
+  From v0.14.0, the version-pinned installer is also covered by the signed
+  checksum manifest, bringing the release to 17 assets.
 - **Shipped — Native Linux installation paths.** Debian and RPM packages,
   a checksum-verifying one-line installer, and the standalone binary tarball
   cover package-managed and portable installs. The AppImage remains the

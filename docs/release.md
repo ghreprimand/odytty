@@ -1,6 +1,6 @@
 # Releasing OdyTTY
 
-Use this guide to cut a tagged OdyTTY release, verify its 16 published assets,
+Use this guide to cut a tagged OdyTTY release, verify its 17 published assets,
 and confirm the Scoop, Homebrew, and AUR channels updated. Replace `X.Y.Z` with
 the version being released.
 
@@ -137,10 +137,14 @@ and a byte-identical version-pinned name:
 | Windows portable zip | `odytty-windows-x86_64.zip` | `odytty-X.Y.Z-windows-x86_64.zip` |
 | Source archive | `odytty.tar.gz` | `odytty-X.Y.Z.tar.gz` |
 
-`SHA256SUMS` is the fifteenth asset. Each alias and its pinned twin have the
-same hash because they contain the same bytes. `SHA256SUMS.minisig` is the
-sixteenth asset and authenticates that checksum manifest with the OdyTTY
-Minisign release key.
+The version-pinned installer `odytty-X.Y.Z-install.sh` is an additional asset
+from v0.14.0 onward. It has no always-latest alias. `SHA256SUMS` covers the
+fourteen package files and this installer. Each package alias and its pinned
+twin have the same hash because they contain the same bytes.
+`SHA256SUMS.minisig` authenticates that checksum manifest with the OdyTTY
+Minisign release key, bringing the total to seventeen assets. Verify the
+manifest signature and the installer's checksum before executing the installer;
+see the [install guide](install.md).
 
 Every binary-producing release job supplies the exact release commit as
 `ODYTTY_BUILD_SHA`, which the About panel displays as its **Commit** value. The
@@ -311,9 +315,10 @@ runners cannot supply; the reasoning is recorded in
 self-test runs in CI.
 
 ```sh
-# Capture with the window at the geometry the ceilings were recorded at, then:
+# Linux: capture at the geometry the ceilings were recorded at, then:
+memory_report_log="${XDG_STATE_HOME:-$HOME/.local/state}/odytty/odytty-memory-report.log"
 python3 scripts/memory-regression-guard.py \
-    --log "$TMPDIR/odytty-memory-report.log" \
+    --log "$memory_report_log" \
     --environment-class workstation-nvidia-wayland \
     --geometry 1600x1000 \
     --skip-first 8
@@ -392,9 +397,11 @@ the three package-channel jobs.
 
 ### 4. Verify The Published Release
 
-Confirm the release has 16 assets: seven aliases, seven pinned copies,
-`SHA256SUMS`, and `SHA256SUMS.minisig`. Verify the Minisign signature first,
-then verify that every alias/pinned pair has matching hashes.
+Confirm the release has 17 assets: seven package aliases, seven pinned package
+copies, `odytty-X.Y.Z-install.sh`, `SHA256SUMS`, and `SHA256SUMS.minisig`.
+Verify the Minisign signature first, then verify every package and the installer
+against the authenticated manifest. Confirm that every alias/pinned pair has
+matching hashes and compare each pair byte-for-byte.
 
 Then verify the build provenance attestation from a clean machine, as a user
 would. The workflow already verified its own attestation before publishing, but
@@ -408,7 +415,7 @@ gh attestation verify odytty-x86_64.AppImage \
 
 Repeat for the Windows and macOS zips. Confirm the reported commit matches the
 tag. The attestation is a repository-level record rather than a release asset,
-so it does not change the 16-asset count.
+so it does not change the 17-asset count.
 
 Download the pinned source archive and confirm it builds:
 
