@@ -58,7 +58,7 @@ recorded milestone before implementation.
 ## v0.15.0: Quick Access, Local Control, File Drop, and Window Merge (in progress)
 
 Development contracts: [`docs/v0.15.0-foundation.md`](docs/v0.15.0-foundation.md).
-Hands-on packets: [`docs/acceptance/v0.15.0.md`](docs/acceptance/v0.15.0.md).
+Hands-on checklists: [`docs/acceptance/v0.15.0.md`](docs/acceptance/v0.15.0.md).
 Status notes: [`docs/releases/0.15.0.md`](docs/releases/0.15.0.md).
 
 Unit-evidenced on current `master`: Electric Blue; quick-terminal

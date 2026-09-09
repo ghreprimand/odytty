@@ -263,7 +263,7 @@ numerals. Device acceptance, blocking release CI, packaging, and publication
 remain open. No v0.15.0 release claim. See the
 [v0.15.0 contracts](docs/v0.15.0-foundation.md),
 [status notes](docs/releases/0.15.0.md), and
-[acceptance packets](docs/acceptance/v0.15.0.md).
+[acceptance checklists](docs/acceptance/v0.15.0.md).
 
 The terminal core and visual experience layer are deliberately separate.
 See the [ownership boundary](SPEC.md#ownership-boundary),
