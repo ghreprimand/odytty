@@ -1131,7 +1131,7 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::automation::dispatch;
     use crate::automation::protocol::{Request, VERSION};
@@ -1143,7 +1143,7 @@ mod tests {
     /// without a real event loop. The event-loop-scoped methods (`resumed`,
     /// `window_event`, `about_to_wait`) are display-coupled and validated
     /// on-device; every helper exercised here holds `&mut self` only.
-    fn host_of(windows: Vec<App>) -> MultiWindowHost {
+    pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
         MultiWindowHost {
             windows,
             shared: WatchdogShared::new(),
@@ -1163,7 +1163,7 @@ mod tests {
         }
     }
 
-    fn headless() -> App {
+    pub(in crate::native::app) fn headless() -> App {
         headless_app_for_test().0
     }
 

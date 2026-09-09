@@ -257,14 +257,6 @@ impl PtySession {
         self.launch_shell
     }
 
-    /// Refuse local-path insertion on Windows.
-    ///
-    /// ConPTY has no foreground-process-group equivalent, so launch metadata
-    /// alone cannot establish that the launch shell currently owns input.
-    pub fn file_drop_shell(&self) -> Option<crate::shell_integration::ShellKind> {
-        None
-    }
-
     pub fn spawn_command(dimensions: Dimensions, command: CommandBuilder) -> Result<Self> {
         let launch_shell = crate::shell_integration::ShellKind::from_program(command.program());
         // SAFETY: the whole spawn sequence is a chain of Win32 calls whose

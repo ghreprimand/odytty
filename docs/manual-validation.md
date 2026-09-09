@@ -239,6 +239,13 @@ integration.
    parent Settings page immediately shows that name and palette; use Esc before
    saving when the change should remain temporary.
 
+## v0.15.0 focused feature smoke
+
+Numbered pass/fail checklists for quick terminal, file drop, window merge, and
+local automation live in [acceptance/v0.15.0.md](acceptance/v0.15.0.md). Run
+those checklists on each shipping OS before claiming the v0.15.0 platform
+contracts; unit tests alone do not close hands-on or device acceptance rows.
+
 ## Linux checklist
 
 Record the Linux run fields before populating this table. Unless a row states

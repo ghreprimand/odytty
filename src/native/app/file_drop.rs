@@ -48,6 +48,12 @@ impl App {
             return Err(DropError::NonLocalPane);
         }
         match &session.source {
+            // ConPTY has no foreground-process-group equivalent, so launch
+            // metadata alone cannot establish that the launch shell currently
+            // owns input; the Windows PTY exposes no file-drop shell at all.
+            #[cfg(windows)]
+            SessionSource::Local { .. } => Err(DropError::PlatformUnsupported),
+            #[cfg(not(windows))]
             SessionSource::Local { pty } => {
                 let pty = pty.lock().map_err(|_| DropError::UnknownShell)?;
                 // Close confirmation treats an unknown foreground job as safe
@@ -103,12 +109,12 @@ impl App {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(in crate::native) fn queue_file_drop_for_test(&mut self, path: PathBuf) {
         self.queue_file_drop(path);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(in crate::native) fn pending_file_drop_len_for_test(
         &self,
     ) -> Option<(SessionToken, usize)> {
@@ -119,7 +125,7 @@ impl App {
 
     /// Only the headless source reads this test override; local and attached
     /// production sources still pass through their real ownership checks.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(in crate::native) fn set_file_drop_shell_for_test(&mut self, shell: Option<ShellKind>) {
         self.file_drop_shell_for_test = shell;
     }

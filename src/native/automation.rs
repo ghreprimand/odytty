@@ -26,6 +26,7 @@ const MAX_STALE_ENTRIES: usize = 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::native) enum ReconcileOutcome {
     Unchanged,
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
     Started(String),
     Stopped,
     Unavailable(String),
@@ -244,9 +245,16 @@ fn process_is_dead(pid: i32) -> bool {
     result == -1 && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
 }
 
+/// Inode numbers are recycled: on ext4 and tmpfs a socket bound immediately
+/// after an unlink commonly receives the freed inode back, so dev/ino alone
+/// cannot tell a replacement from the entry observed earlier. The inode change
+/// time is part of the identity for that reason.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn same_file(left: &Metadata, right: &Metadata) -> bool {
-    left.dev() == right.dev() && left.ino() == right.ino()
+    left.dev() == right.dev()
+        && left.ino() == right.ino()
+        && left.ctime() == right.ctime()
+        && left.ctime_nsec() == right.ctime_nsec()
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -297,6 +305,8 @@ mod tests {
         assert!(!runtime.is_running());
     }
 
+    // Fixture directory names stay short: macOS places `temp_dir()` under
+    // `/var/folders/...`, and `sun_path` allows 104 bytes there.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn stale_cleanup_removes_dead_socket_but_preserves_live_and_non_socket_entries() {
@@ -305,10 +315,7 @@ mod tests {
 
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let tag = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "odytty-automation-cleanup-{:x}-{tag:x}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("oa-c{:x}-{tag:x}", std::process::id()));
         fs::create_dir(&dir).expect("create fixture dir");
 
         let stale = dir.join("control-2147483647.sock");
@@ -346,10 +353,7 @@ mod tests {
 
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let tag = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "odytty-automation-replacement-{:x}-{tag:x}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("oa-r{:x}-{tag:x}", std::process::id()));
         fs::create_dir(&dir).expect("create fixture dir");
         let path = dir.join("control-2147483647.sock");
         let first = UnixListener::bind(&path).expect("first socket");
@@ -373,10 +377,7 @@ mod tests {
 
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let tag = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "odytty-automation-lifecycle-{:x}-{tag:x}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("oa-l{:x}-{tag:x}", std::process::id()));
         crate::state_dir::prepare_private_dir(&dir).expect("owner-private fixture dir");
         let endpoint = dir.join(format!("control-{}.sock", std::process::id()));
         let mut runtime = AutomationRuntime::default();

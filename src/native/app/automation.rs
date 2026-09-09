@@ -21,6 +21,7 @@ impl App {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::native) fn automation_objects(
         &self,
         instance: [u8; 16],
@@ -89,6 +90,104 @@ impl App {
         objects
     }
 
+    /// Resolve one object directly instead of projecting the whole tree.
+    pub(in crate::native) fn automation_status(
+        &self,
+        instance: [u8; 16],
+        hidden: bool,
+        kind: ObjectKind,
+        serial: u64,
+    ) -> Option<ObjectStatus> {
+        let window_id = object_id(instance, ObjectKind::Window, self.process_window_id.0);
+        let window_focused = self.focused && !hidden;
+        let status = |id, parent, focused| ObjectStatus {
+            id,
+            parent,
+            focused,
+            hidden,
+        };
+        match kind {
+            ObjectKind::Window => (self.process_window_id.0 == serial)
+                .then(|| status(window_id, None, window_focused)),
+            ObjectKind::Workspace => {
+                let index = self
+                    .sessions
+                    .workspaces
+                    .iter()
+                    .position(|workspace| workspace.identity.0 == serial)?;
+                let focused = window_focused && index == self.sessions.active_workspace_index();
+                Some(status(
+                    object_id(instance, kind, serial),
+                    Some(window_id),
+                    focused,
+                ))
+            }
+            ObjectKind::Tab => {
+                let (workspace_index, workspace) = self
+                    .sessions
+                    .workspaces
+                    .iter()
+                    .enumerate()
+                    .find(|(_, workspace)| {
+                        workspace.tabs.iter().any(|tab| tab.identity.0 == serial)
+                    })?;
+                let tab_index = workspace
+                    .tabs
+                    .iter()
+                    .position(|tab| tab.identity.0 == serial)?;
+                let workspace_focused =
+                    window_focused && workspace_index == self.sessions.active_workspace_index();
+                Some(status(
+                    object_id(instance, kind, serial),
+                    Some(object_id(
+                        instance,
+                        ObjectKind::Workspace,
+                        workspace.identity.0,
+                    )),
+                    workspace_focused && tab_index == workspace.active_tab,
+                ))
+            }
+            ObjectKind::Pane => {
+                let token = SessionToken(serial);
+                if !self.sessions.owns_session(token) {
+                    return None;
+                }
+                let (workspace_index, workspace) = self
+                    .sessions
+                    .workspaces
+                    .iter()
+                    .enumerate()
+                    .find(|(_, workspace)| {
+                        workspace
+                            .tabs
+                            .iter()
+                            .any(|tab| tab.layout.leaves().contains(&token))
+                    })?;
+                let (tab_index, tab) = workspace
+                    .tabs
+                    .iter()
+                    .enumerate()
+                    .find(|(_, tab)| tab.layout.leaves().contains(&token))?;
+                let tab_focused = window_focused
+                    && workspace_index == self.sessions.active_workspace_index()
+                    && tab_index == workspace.active_tab;
+                Some(status(
+                    object_id(instance, kind, serial),
+                    Some(object_id(instance, ObjectKind::Tab, tab.identity.0)),
+                    tab_focused && tab.focused == token,
+                ))
+            }
+        }
+    }
+
+    /// Structural mutations honor the same ingress gate the keyboard ladder
+    /// applies: an open overlay, search, or keyboard modal (copy mode, hint
+    /// selection, rename) owns interaction, and switching panes underneath
+    /// one would leave pane-specific modal state active against another pane.
+    pub(in crate::native) fn automation_interaction_busy(&self) -> bool {
+        self.overlay.is_open() || self.search.is_open() || self.active_modal() != ActiveModal::None
+    }
+
     pub(in crate::native) fn automation_focus(&mut self, kind: ObjectKind, serial: u64) -> bool {
         let token = match kind {
             ObjectKind::Window => {
@@ -150,9 +249,9 @@ impl App {
     }
 
     pub(in crate::native) fn automation_create_tab(&mut self) -> Result<u64, ErrorCode> {
-        let before = self.tab_serials();
+        let before = self.active_tab_serial();
         self.handle_new_tab();
-        self.new_active_tab_serial(&before)
+        self.new_active_tab_serial(before)
     }
 
     pub(in crate::native) fn automation_open_profile(
@@ -168,9 +267,9 @@ impl App {
         {
             return Err(ErrorCode::InvalidRequest);
         }
-        let before = self.tab_serials();
+        let before = self.active_tab_serial();
         self.handle_new_tab_with_profile(name);
-        self.new_active_tab_serial(&before)
+        self.new_active_tab_serial(before)
     }
 
     pub(in crate::native) fn automation_create_workspace(
@@ -178,26 +277,13 @@ impl App {
         name: &str,
     ) -> Result<u64, ErrorCode> {
         let name = trimmed_name(name)?.to_owned();
-        let before: Vec<u64> = self
-            .sessions
-            .workspaces
-            .iter()
-            .map(|workspace| workspace.identity.0)
-            .collect();
+        let before = self.active_workspace_serial();
         self.handle_new_workspace();
-        let workspace = self
-            .sessions
-            .workspaces
-            .iter()
-            .find(|workspace| !before.contains(&workspace.identity.0))
-            .ok_or(ErrorCode::Unavailable)?;
-        let serial = workspace.identity.0;
-        let index = self
-            .sessions
-            .workspaces
-            .iter()
-            .position(|workspace| workspace.identity.0 == serial)
-            .ok_or(ErrorCode::Unavailable)?;
+        let index = self.sessions.active_workspace_index();
+        let serial = self.sessions.workspaces[index].identity.0;
+        if Some(serial) == before {
+            return Err(ErrorCode::Unavailable);
+        }
         self.sessions.rename_workspace(index, name);
         self.request_selection_redraw();
         Ok(serial)
@@ -211,13 +297,16 @@ impl App {
         if !self.automation_focus(ObjectKind::Pane, pane) {
             return Err(ErrorCode::StaleIdentity);
         }
-        let before = self.session_serials();
+        let before = self.sessions.active_id().0;
         let axis = match direction {
             SplitDirection::Columns => SplitAxis::Columns,
             SplitDirection::Rows => SplitAxis::Rows,
         };
         self.split_active_pane(axis);
-        self.new_active_pane_serial(&before)
+        let serial = self.sessions.active_id().0;
+        (serial != before)
+            .then_some(serial)
+            .ok_or(ErrorCode::Unavailable)
     }
 
     pub(in crate::native) fn automation_rename(
@@ -256,30 +345,30 @@ impl App {
         Ok(())
     }
 
-    fn session_serials(&self) -> Vec<u64> {
-        self.sessions.iter().map(|session| session.id.0).collect()
+    // Creation routes activate what they create, so the prior active identity
+    // is the only comparison needed; snapshotting every identity would let a
+    // hostile client force repeated whole-tree allocations on the UI thread.
+    fn active_tab_serial(&self) -> Option<u64> {
+        let workspace = self
+            .sessions
+            .workspaces
+            .get(self.sessions.active_workspace_index())?;
+        workspace
+            .tabs
+            .get(workspace.active_tab)
+            .map(|tab| tab.identity.0)
     }
 
-    fn tab_serials(&self) -> Vec<u64> {
+    fn active_workspace_serial(&self) -> Option<u64> {
         self.sessions
             .workspaces
-            .iter()
-            .flat_map(|workspace| &workspace.tabs)
-            .map(|tab| tab.identity.0)
-            .collect()
+            .get(self.sessions.active_workspace_index())
+            .map(|workspace| workspace.identity.0)
     }
 
-    fn new_active_tab_serial(&self, before: &[u64]) -> Result<u64, ErrorCode> {
-        let workspace = &self.sessions.workspaces[self.sessions.active_workspace_index()];
-        let serial = workspace.tabs[workspace.active_tab].identity.0;
-        (!before.contains(&serial))
-            .then_some(serial)
-            .ok_or(ErrorCode::Unavailable)
-    }
-
-    fn new_active_pane_serial(&self, before: &[u64]) -> Result<u64, ErrorCode> {
-        let serial = self.sessions.active_id().0;
-        (!before.contains(&serial))
+    fn new_active_tab_serial(&self, before: Option<u64>) -> Result<u64, ErrorCode> {
+        let serial = self.active_tab_serial().ok_or(ErrorCode::Unavailable)?;
+        (Some(serial) != before)
             .then_some(serial)
             .ok_or(ErrorCode::Unavailable)
     }

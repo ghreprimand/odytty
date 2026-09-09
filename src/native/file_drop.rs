@@ -16,6 +16,11 @@ pub(super) enum DropError {
     UnknownShell,
     UnsupportedPath,
     NonLocalPane,
+    /// The platform PTY cannot establish the launch shell authority at all, so
+    /// the notice names the platform instead of describing a job-control check
+    /// that no action by the user can satisfy.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    PlatformUnsupported,
 }
 
 impl std::fmt::Display for DropError {
@@ -26,6 +31,7 @@ impl std::fmt::Display for DropError {
             Self::UnknownShell => "File insertion could not verify the local launch shell alone in the foreground. Return to the launch shell and stop its jobs, or copy the path manually if this platform cannot verify ownership.",
             Self::UnsupportedPath => "This path cannot be inserted losslessly with the active shell. Copy the path manually or cancel.",
             Self::NonLocalPane => "Drop files into a local shell. Remote and attached panes do not accept local paths.",
+            Self::PlatformUnsupported => "File drop insertion is not available on Windows in this version. Copy the path manually.",
         })
     }
 }
@@ -41,7 +47,7 @@ pub(super) struct FileDropBatch {
 }
 
 impl FileDropBatch {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn path_count_for_test(&self) -> usize {
         self.paths.len()
     }
