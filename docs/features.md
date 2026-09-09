@@ -10,6 +10,8 @@ they are not included in the published v0.14.0 packages.
 
 - [Configuring OdyTTY](#configuring-odytty)
 - [Terminal Compatibility](#terminal-compatibility)
+  - [Paste Safety](#paste-safety)
+  - [Drop Local File Paths](#drop-local-file-paths-v0150-development)
 - [Text, Emoji, And Graphics](#text-emoji-and-graphics)
 - [Tab And Pane Workflow](#tab-and-pane-workflow)
   - [Open, Close, And Switch Tabs](#open-close-and-switch-tabs)
@@ -20,6 +22,9 @@ they are not included in the published v0.14.0 packages.
   - [Restore Workspaces And Open Layouts](#restore-workspaces-and-open-layouts)
   - [Save And Reopen Named Layouts](#save-and-reopen-named-layouts)
   - [Open Local Tools](#open-local-tools)
+  - [Summon A Quick Terminal](#summon-a-quick-terminal-v0150-development)
+  - [Merge Windows From The Keyboard](#merge-windows-from-the-keyboard-v0150-development)
+  - [Control OdyTTY Locally](#control-odytty-locally-v0150-development)
 - [Shell Integration](#shell-integration)
 - [Settings And Themes](#settings-and-themes)
 
@@ -199,6 +204,24 @@ automation protocol exposes no input operation. See the
 [development boundaries](v0.15.0-foundation.md). The setting can be changed through
 Settings, `warn_on_risky_paste` in `odytty.conf`, or
 `ODYTTY_WARN_ON_RISKY_PASTE`; disabling it is an advanced global opt-out.
+
+### Drop Local File Paths (v0.15.0 Development)
+
+Unreleased v0.15.0 handles OS file-drop events as path text, not as open, read,
+upload, or execute. Dropped local paths share the paste-safety confirmation
+path above: bounded preview, explicit **Paste** or **Cancel**, and never an
+appended Enter. **Paste as One Line** is not offered for file-drop batches.
+
+Linux and macOS insert only when an eligible local launch shell owns and is the
+sole member of the PTY foreground group and its current executable still
+matches that shell family. Remote and attached panes refuse local paths. Open
+overlays refuse with `Close the current dialog before dropping files.` Windows
+refuses insertion with
+`File drop insertion is not available on Windows in this version. Copy the path manually.`
+because ConPTY exposes no foreground-process-group authority. Real-device drop
+delivery remains open acceptance evidence. See
+[Paste Safety](#paste-safety) and the
+[v0.15.0 contracts](v0.15.0-foundation.md#file-drop-insertion).
 
 A bracketed paste is queued as one transaction containing the opening marker,
 sanitized text, and closing marker, so unrelated input cannot split the frame.
@@ -676,6 +699,32 @@ action through Settings → Input, in the **Key bindings** row, or `keybinds`:
 ```conf
 keybinds = ctrl+alt+p=command-palette
 ```
+
+### Summon A Quick Terminal (v0.15.0 Development)
+
+`quick_terminal` is off by default. When on, OdyTTY keeps a dedicated summonable
+window with its own geometry (`quick_terminal_edge`, `quick_terminal_coverage`,
+`quick_terminal_span`, `quick_terminal_monitor`), optional profile, animation,
+and `quick_terminal_hide_on_focus_loss`. The default global accelerator is
+`quick_terminal_shortcut = F12`. Registration is confirmed by the platform after
+the first ordinary frame: Linux X11 grabs in-process, Wayland uses the
+`org.freedesktop.portal.GlobalShortcuts` portal or shows an actionable
+limitation, and macOS/Windows use their native global-shortcut paths. Hide keeps
+the same session; repeated summons do not create a second quick window. The
+palette exposes **Toggle Quick Terminal** when the setting is enabled. See
+[runtime knobs](runtime-knobs.md) and the
+[quick-terminal contract](v0.15.0-foundation.md#quick-terminal-role).
+
+### Merge Windows From The Keyboard (v0.15.0 Development)
+
+With two or more ordinary windows, the command palette offers
+**Merge This Window Into...** and **Pull Window Into This One...**. The Session
+Navigator legend adds `i merge window` and `p pull window` when targets exist.
+Candidates show temporary numerals painted inside each window surface, including
+decoration-less tiling compositors without compositor plugins. Tabs, panes,
+PTYs, profiles, and attach handles move with the transfer; the source window
+closes only after success. Escape cancels. See the
+[window-merge contract](v0.15.0-foundation.md).
 
 ### Control OdyTTY Locally (v0.15.0 Development)
 

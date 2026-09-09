@@ -6,7 +6,7 @@ and the opt-in features that are useful for particular workflows. The
 [runtime-knob reference](runtime-knobs.md) remains the complete list of config
 keys, environment variables, ranges, aliases, and reload behavior.
 
-## Unreleased quick-terminal settings
+## Unreleased v0.15.0 settings
 
 Current v0.15.0 source adds `quick_terminal`, `quick_terminal_shortcut`,
 `quick_terminal_edge`, `quick_terminal_coverage`, `quick_terminal_span`,
@@ -24,6 +24,14 @@ The `active` monitor policy uses the
 monitor of the focused window (falling back to any open window, then the
 primary); pointer position is not used for selection. See the
 [development contract](v0.15.0-foundation.md#quick-terminal-role).
+
+The same development line adds `automation_endpoint` (default off;
+`ODYTTY_AUTOMATION_ENDPOINT`). When enabled after the first presented frame,
+Linux and macOS bind owner-private sockets and Windows binds
+`\\.\pipe\odytty-control-<pid>` with an owner-only DACL. There is no network
+listener. File-drop insertion has no separate setting: it reuses paste safety
+and the Unix foreground-group ownership checks, and Windows refuses with an
+explicit platform notice.
 
 ## How Settings Work
 

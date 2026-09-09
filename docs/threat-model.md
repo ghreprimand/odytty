@@ -439,11 +439,10 @@ the reference implementation.
   untrusted.
 - **Current default:** bracketed paste is used where the application enables it,
   which is the standard mitigation against paste-executes-immediately.
-  Drag-and-drop of files onto the window is **not implemented**: no
-  window-system file-drop event is handled anywhere in the source, so this
-  boundary has no attack surface today. It is recorded here so a future
-  implementation inherits an explicit contract rather than starting from
-  silence.
+  Native OS file-drop events are handled as path-text insertion under the
+  confirm-first paste-safety policy; the dedicated file-drop contract lives in
+  **B18**. Clipboard image paste into remote sessions remains a separate
+  confirm-first path and is not file drop.
 - **Validation and caps:** bracketed paste is bounded at
   `MAX_BRACKETED_PASTE_BYTES` = 32 MiB and queued as one transaction so its
   framing can never tear mid-payload (`src/native/clipboard.rs`,
@@ -785,10 +784,13 @@ Three prohibitions apply to every boundary below:
 - **Trust assumption:** only a verified same-user local peer is eligible to
   request an operation. Same-user eligibility is necessary but does not turn a
   request into terminal-output authority.
-- **Planned default:** platform-native local IPC only, disabled or read-only
-  until explicitly enabled. No TCP, UDP, HTTP, WebSocket, or other network
-  listener exists. Requests use a versioned typed schema and structural object
-  identities rather than shell command strings.
+- **Current default:** `automation_endpoint` is off. When enabled after the
+  first presented frame, Linux and macOS use owner-private Unix sockets and
+  Windows uses a local `\\.\pipe\odytty-control-<pid>` named pipe with an
+  owner-only DACL, remote-client rejection, and mutual process-token SID
+  checks. No TCP, UDP, HTTP, WebSocket, or other network listener exists.
+  Requests use a versioned typed schema and structural object identities
+  rather than shell command strings.
 - **Validation and caps:** endpoint ownership/ACL, peer identity, frame length,
   field lengths, object generation, action authorization, and per-client rate
   are checked before mutation. The v0.15.0 protocol has no text-insertion or terminal-content-read capability;
@@ -813,13 +815,16 @@ Three prohibitions apply to every boundary below:
   timing. A path may name a symlink, device, or file whose contents are hostile.
 - **Trust assumption:** a drop gesture selects path text for a pane. It does not
   authorize opening, reading, uploading, executing, or submitting the path.
-- **Planned default:** quote each path for the positively identified shell
+- **Current default:** quote each path for the positively identified shell
   family, combine paths as inert arguments, and insert them through the shared
-  paste policy with no implicit Enter. An unknown shell or unimplemented
-  shell/platform quoting combination has no direct-insert action. Current
-  development refuses native insertion on Linux, macOS, and Windows until
-  input ownership is established; process snapshots cannot authorize a later
-  PTY write. This planned insertion behavior is not shipped acceptance.
+  paste-safety policy with no implicit Enter. Insertion proceeds only when the
+  eligible local Unix launch shell owns and is the sole member of the PTY
+  foreground group and its current executable still matches that shell family;
+  OSC 133 and other terminal-authored output are never authority. An unknown
+  shell, remote or attached pane, overlay, over-cap batch, or unsupported
+  encoding refuses. Windows refuses path insertion with an explicit
+  platform-unsupported notice because ConPTY has no foreground-group
+  equivalent. Real-device drop delivery remains open acceptance evidence.
 - **Validation and caps:** bound the number and encoded length of paths before
   building preview text. Quoters are argv/text transformations with synthetic
   tests for Bash, Zsh, Fish, PowerShell, Windows drive paths, and UNC paths.
@@ -1128,8 +1133,8 @@ behavior, and a Linux or macOS result is never a substitute for a Windows one.
 | B13 fonts | glyph corpus and raster smoke tests | malformed font corpus |
 | B15 risky paste | shared original-text predicate, bounded escaped preview, cancellation/owner checks, opt-out, and clipboard/PRIMARY/future-source routing tests | independent four-leg native acceptance and hostile platform-event fixtures |
 | B16 notifications/progress | bounded OSC 9/777/9;4 parsing, generic trusted chrome, pane ownership, rate/expiry, restoration-default, and native-adapter command fixtures | manual native-delivery acceptance on each platform |
-| B17 local automation | no product surface | same-user IPC, authorization, schema, stale-ID, and lifecycle fixtures |
-| B18 file drop | no product surface | shell quoting, paste policy, platform event, and hostile-path fixtures |
+| B17 local automation | Unix socket + Windows named-pipe transport, owner-bridge, hostile-client, and CLI fixtures | same-user IPC, authorization, schema, stale-ID, and lifecycle fixtures |
+| B18 file drop | shell quoting, paste-policy routing, Unix ownership, Windows platform refusal, and App-route fixtures | platform event delivery and hostile-path fixtures on each OS |
 | B19 broadcast input | no product surface | explicit group ownership, mixed-mode fan-out, disarm, and failure fixtures |
 | B20 triggers | no product surface | bounded matching and proof of prohibited side-effect isolation |
 | B21 session logging | transient in-memory replay bounds only | private file creation, cap, write-failure, rotation, and sanitization fixtures |
