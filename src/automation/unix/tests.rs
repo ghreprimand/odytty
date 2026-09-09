@@ -367,14 +367,17 @@ fn oversized_truncated_and_trailing_frames_fail_closed() {
     // Trailing bytes after a complete request cancel pending work (no half-close).
     {
         let mut stream = connect(&path, IO_TIMEOUT).expect("connect trailing");
+        // Arm the short read timeout before the server can close the
+        // connection: macOS rejects setsockopt on a peer-closed Unix socket
+        // with EINVAL, so setting it after the sleep is timing-dependent.
+        stream
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .expect("short read timeout");
         protocol::write_request(&mut stream, &capabilities_request(9)).expect("request");
         stream.write_all(&[0x55]).expect("trailing byte");
         stream.flush().expect("flush");
         // Keep the connection open while the server peeks the trailing byte.
         thread::sleep(POLL_INTERVAL * 5);
-        stream
-            .set_read_timeout(Some(Duration::from_millis(200)))
-            .expect("short read timeout");
         let mut buf = [0u8; 4];
         let result = stream.read(&mut buf);
         assert!(
