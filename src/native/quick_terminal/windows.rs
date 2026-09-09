@@ -15,7 +15,9 @@
 #[cfg(target_os = "windows")]
 pub(super) mod windows_grab {
     use super::super::{
-        Accelerator, GlobalShortcutAdapter, ShortcutRegistration, SummonSink, windows_vk,
+        Accelerator, GlobalShortcutAdapter, ShortcutRegistration, SummonSink,
+        windows_conflict_notice, windows_hotkey_already_registered,
+        windows_registration_failure_notice, windows_vk,
     };
     use std::sync::mpsc;
     use std::thread::JoinHandle;
@@ -88,12 +90,19 @@ pub(super) mod windows_grab {
         ) -> ShortcutRegistration {
             self.stop();
             let Some(vk) = windows_vk(&accelerator.key) else {
+                tracing::warn!(
+                    key = %accelerator.key,
+                    "quick terminal key has no Windows virtual keycode"
+                );
                 return ShortcutRegistration::Unavailable {
-                    reason: format!("no Windows virtual-key for key {:?}", accelerator.key),
+                    reason: windows_registration_failure_notice(accelerator),
                 };
             };
             let mods = modifiers(accelerator);
             let vk = u32::from(vk);
+            let conflict_notice = windows_conflict_notice(accelerator);
+            let failure_notice = windows_registration_failure_notice(accelerator);
+            let thread_failure_notice = failure_notice.clone();
             let (tx, rx) = mpsc::channel::<Result<u32, String>>();
             let spawned = std::thread::Builder::new()
                 .name("odytty-win-hotkey".to_owned())
@@ -112,7 +121,18 @@ pub(super) mod windows_grab {
                         let mut probe = MSG::default();
                         let _ = PeekMessageW(&mut probe, None, 0, 0, PM_NOREMOVE);
                         if let Err(err) = RegisterHotKey(None, HOTKEY_ID, mods, vk) {
-                            let _ = tx.send(Err(format!("RegisterHotKey failed: {err}")));
+                            let conflict = windows_hotkey_already_registered(err.code().0);
+                            tracing::warn!(
+                                error = %err,
+                                conflict,
+                                "Windows RegisterHotKey rejected the quick terminal shortcut"
+                            );
+                            let reason = if conflict {
+                                conflict_notice.clone()
+                            } else {
+                                thread_failure_notice.clone()
+                            };
+                            let _ = tx.send(Err(reason));
                             return;
                         }
                         if tx.send(Ok(tid)).is_err() {
@@ -141,8 +161,12 @@ pub(super) mod windows_grab {
             let handle = match spawned {
                 Ok(handle) => handle,
                 Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        "cannot spawn Windows quick terminal hotkey thread"
+                    );
                     return ShortcutRegistration::Unavailable {
-                        reason: format!("cannot spawn Windows hotkey thread: {err}"),
+                        reason: failure_notice,
                     };
                 }
             };
@@ -160,8 +184,7 @@ pub(super) mod windows_grab {
                 Err(_) => {
                     let _ = handle.join();
                     ShortcutRegistration::Unavailable {
-                        reason: "Windows hotkey thread exited before confirming registration"
-                            .to_owned(),
+                        reason: failure_notice,
                     }
                 }
             }

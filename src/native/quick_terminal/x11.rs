@@ -127,12 +127,17 @@ impl GlobalShortcutAdapter for LinuxShortcutAdapter {
 /// `XInitThreads` hazard shared with winit's X connection.
 #[cfg(target_os = "linux")]
 mod x11_grab {
-    use super::super::{Accelerator, SummonSink, x11_keysym};
+    use super::super::{
+        Accelerator, SummonSink, x11_grab_failure_notice, x11_keysym,
+        x11_registration_failure_notice,
+    };
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::JoinHandle;
     use std::time::Duration;
     use x11rb::connection::Connection;
+    use x11rb::errors::ReplyError;
+    use x11rb::protocol::ErrorKind;
     use x11rb::protocol::Event;
     use x11rb::protocol::xproto::{ConnectionExt, GrabMode, Keycode, ModMask};
     use x11rb::rust_connection::RustConnection;
@@ -214,18 +219,30 @@ mod x11_grab {
     /// and returns the live [`X11Grab`]; on any failure returns an actionable
     /// message and leaves nothing grabbed.
     pub(super) fn try_register(acc: &Accelerator, sink: SummonSink) -> Result<X11Grab, String> {
-        let keysym = u32::try_from(
-            x11_keysym(&acc.key).ok_or_else(|| format!("no X11 keysym for key {:?}", acc.key))?,
-        )
-        .map_err(|_| format!("X11 keysym out of range for key {:?}", acc.key))?;
+        let keysym = u32::try_from(x11_keysym(&acc.key).ok_or_else(|| {
+            tracing::warn!(key = %acc.key, "quick terminal key has no X11 keysym");
+            x11_registration_failure_notice(acc)
+        })?)
+        .map_err(|error| {
+            tracing::warn!(key = %acc.key, %error, "quick terminal X11 keysym is out of range");
+            x11_registration_failure_notice(acc)
+        })?;
 
         // Headless or no reachable X server (e.g. CI): honest Unavailable.
-        let (conn, screen_num) = x11rb::connect(None).map_err(|e| {
-            format!("cannot open an X11 display to register the global shortcut: {e}")
+        let (conn, screen_num) = x11rb::connect(None).map_err(|error| {
+            tracing::warn!(%error, "cannot open X11 display for quick terminal shortcut");
+            x11_registration_failure_notice(acc)
         })?;
         let root = conn.setup().roots[screen_num].root;
-        let keycode = keycode_for_keysym(&conn, keysym)?
-            .ok_or_else(|| format!("no X11 keycode for key {:?}", acc.key))?;
+        let keycode = keycode_for_keysym(&conn, keysym)
+            .map_err(|error| {
+                tracing::warn!(%error, "cannot read X11 keyboard mapping for quick terminal shortcut");
+                x11_registration_failure_notice(acc)
+            })?
+            .ok_or_else(|| {
+                tracing::warn!(key = %acc.key, "quick terminal key has no X11 keycode");
+                x11_registration_failure_notice(acc)
+            })?;
         let base = modifier_mask(acc);
         let variants = lock_variants();
 
@@ -240,15 +257,19 @@ mod x11_grab {
             match conn.grab_key(true, root, mods, keycode, GrabMode::ASYNC, GrabMode::ASYNC) {
                 Ok(cookie) => match cookie.check() {
                     Ok(()) => granted.push(mods),
-                    Err(_) => {
-                        failure = Some(
-                            "another application already holds this global shortcut".to_owned(),
+                    Err(error) => {
+                        let conflict = matches!(
+                            &error,
+                            ReplyError::X11Error(error) if error.error_kind == ErrorKind::Access
                         );
+                        tracing::warn!(%error, conflict, "X11 rejected quick terminal key grab");
+                        failure = Some(x11_grab_failure_notice(acc, conflict));
                         break;
                     }
                 },
-                Err(e) => {
-                    failure = Some(format!("X11 grab request failed: {e}"));
+                Err(error) => {
+                    tracing::warn!(%error, "X11 quick terminal grab request failed");
+                    failure = Some(x11_registration_failure_notice(acc));
                     break;
                 }
             }
@@ -285,7 +306,10 @@ mod x11_grab {
                 let _ = conn.flush();
                 // `conn` drops here, closing the socket.
             })
-            .map_err(|e| format!("cannot spawn X11 hotkey thread: {e}"))?;
+            .map_err(|error| {
+                tracing::warn!(%error, "cannot spawn X11 quick terminal hotkey thread");
+                x11_registration_failure_notice(acc)
+            })?;
 
         Ok(X11Grab {
             stop,

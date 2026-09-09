@@ -16,6 +16,7 @@
 pub(super) mod macos_grab {
     use super::super::{
         Accelerator, GlobalShortcutAdapter, ShortcutRegistration, SummonSink, macos_keycode,
+        macos_registration_confirmed, macos_registration_failure_notice,
     };
     use std::os::raw::c_void;
 
@@ -164,8 +165,12 @@ pub(super) mod macos_grab {
         ) -> ShortcutRegistration {
             self.teardown();
             let Some(code) = macos_keycode(&accelerator.key) else {
+                tracing::warn!(
+                    key = %accelerator.key,
+                    "quick terminal key has no macOS virtual keycode"
+                );
                 return ShortcutRegistration::Unavailable {
-                    reason: format!("no macOS keycode for key {:?}", accelerator.key),
+                    reason: macos_registration_failure_notice(accelerator),
                 };
             };
             let mods = carbon_modifiers(accelerator);
@@ -183,9 +188,13 @@ pub(super) mod macos_grab {
                 let mut handler: EventHandlerRef = std::ptr::null_mut();
                 let status =
                     InstallEventHandler(target, hotkey_handler, 1, &spec, user, &mut handler);
-                if status != NO_ERR {
+                if !macos_registration_confirmed(status) {
+                    tracing::warn!(
+                        status,
+                        "macOS could not install the quick terminal hotkey handler"
+                    );
                     return ShortcutRegistration::Unavailable {
-                        reason: format!("InstallEventHandler failed: OSStatus {status}"),
+                        reason: macos_registration_failure_notice(accelerator),
                     };
                 }
                 let hotkey_id = EventHotKeyID {
@@ -194,10 +203,14 @@ pub(super) mod macos_grab {
                 };
                 let mut hotkey: EventHotKeyRef = std::ptr::null_mut();
                 let status = RegisterEventHotKey(code, mods, hotkey_id, target, 0, &mut hotkey);
-                if status != NO_ERR {
+                if !macos_registration_confirmed(status) {
                     let _ = RemoveEventHandler(handler);
+                    tracing::warn!(
+                        status,
+                        "macOS RegisterEventHotKey rejected the quick terminal shortcut"
+                    );
                     return ShortcutRegistration::Unavailable {
-                        reason: format!("RegisterEventHotKey failed: OSStatus {status}"),
+                        reason: macos_registration_failure_notice(accelerator),
                     };
                 }
                 self.handler = handler;

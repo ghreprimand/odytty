@@ -598,8 +598,14 @@ impl MultiWindowHost {
 
     /// Record a resolved registration outcome and log it honestly: a confirmed
     /// grab at info, a real failure (enabled but Unsupported/Unavailable) at
-    /// warn so it is never silently swallowed.
+    /// warn and in the first live window's notice banner so it is never silently
+    /// swallowed. Success never raises a notice.
     fn record_registration_outcome(&mut self, outcome: ShortcutRegistration) {
+        let failure_notice = match &outcome {
+            ShortcutRegistration::Registered { .. } => None,
+            ShortcutRegistration::Unsupported { reason, .. }
+            | ShortcutRegistration::Unavailable { reason } => Some(reason.clone()),
+        };
         match &outcome {
             ShortcutRegistration::Registered { backend } => {
                 tracing::info!(backend, "quick terminal global shortcut registered");
@@ -612,6 +618,11 @@ impl MultiWindowHost {
             }
         }
         self.quick_registration_status = Some(outcome);
+        if let Some(reason) = failure_notice
+            && let Some(app) = self.windows.first_mut()
+        {
+            app.raise_open_notice(reason);
+        }
     }
 
     /// The summon sink: the backend fires it from its own thread; it posts a
@@ -1347,6 +1358,29 @@ pub(super) mod tests {
             }
             other => panic!("expected Unavailable for a malformed shortcut, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn registration_failure_is_visible_but_confirmed_success_is_not() {
+        let mut failed = host_of(vec![headless()]);
+        let reason = "Choose a different quick_terminal_shortcut, then restart OdyTTY.";
+        failed.record_registration_outcome(ShortcutRegistration::Unavailable {
+            reason: reason.to_owned(),
+        });
+        assert_eq!(
+            failed.windows[0].open_notice_message_for_test().as_deref(),
+            Some(reason)
+        );
+
+        let mut registered = host_of(vec![headless()]);
+        registered.record_registration_outcome(ShortcutRegistration::Registered {
+            backend: "confirmed-test-backend",
+        });
+        assert!(
+            registered.windows[0]
+                .open_notice_message_for_test()
+                .is_none()
+        );
     }
 
     #[test]

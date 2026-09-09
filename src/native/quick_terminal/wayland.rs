@@ -213,6 +213,22 @@ pub(super) fn portal_unavailable_reason(accelerator: &Accelerator) -> String {
     )
 }
 
+/// Stable notice for a portal that is present but does not grant the requested
+/// binding. The response code stays in the message for diagnostics; the next
+/// steps work for both a dismissed permission prompt and compositor refusal.
+pub(super) fn portal_refused_reason(accelerator: &Accelerator, code: u32) -> String {
+    let trigger = accelerator_to_trigger(accelerator);
+    format!(
+        "The Wayland GlobalShortcuts portal did not grant {trigger} (response code {code}). Allow the shortcut in your desktop's portal prompt or bind it in compositor shortcut settings, then restart OdyTTY."
+    )
+}
+
+fn portal_unconfirmed_binding_reason(trigger: &str) -> String {
+    format!(
+        "The Wayland GlobalShortcuts portal reported success without granting {trigger}. Open your desktop's shortcut settings and bind it there, or choose a different quick_terminal_shortcut, then restart OdyTTY."
+    )
+}
+
 pub(super) use transport::{PortalFailure, WaylandGrab, try_register_portal};
 
 /// The live `zbus` GlobalShortcuts portal transport. Kept in a submodule so the
@@ -226,7 +242,8 @@ mod transport {
     use super::{
         Accelerator, GLOBAL_SHORTCUTS_INTERFACE, PORTAL_BUS_NAME, PORTAL_OBJECT_PATH,
         PortalResponse, QUICK_SUMMON_SHORTCUT_ID, REQUEST_INTERFACE, SESSION_INTERFACE,
-        ShortcutBinding, handle_token, portal_unavailable_reason, request_object_path,
+        ShortcutBinding, handle_token, portal_refused_reason, portal_unavailable_reason,
+        portal_unconfirmed_binding_reason, request_object_path,
     };
     use crate::native::quick_terminal::SummonSink;
     use std::collections::HashMap;
@@ -451,10 +468,9 @@ mod transport {
         // unrelated, or malformed result set is a non-registration.
         if !bound.iter().any(|id| id == QUICK_SUMMON_SHORTCUT_ID) {
             bounded_close(t, to.close).await;
-            return Err(PortalFailure::Unavailable(format!(
-                "the GlobalShortcuts portal confirmed no binding for \
-                 {QUICK_SUMMON_SHORTCUT_ID}; the requested shortcut was not bound"
-            )));
+            return Err(PortalFailure::Unavailable(
+                portal_unconfirmed_binding_reason(&binding.preferred_trigger),
+            ));
         }
 
         if stop.load(Ordering::SeqCst) {
@@ -671,8 +687,8 @@ mod transport {
 
             let (code, results) = await_response(&mut responses).await?;
             if !PortalResponse::from_code(code).is_success() {
-                return Err(PortalFailure::Unavailable(format!(
-                    "the GlobalShortcuts portal did not create a session (response code {code})"
+                return Err(PortalFailure::Unavailable(portal_refused_reason(
+                    &self.acc, code,
                 )));
             }
             let handle = session_handle_from(&results).ok_or_else(|| {
@@ -734,8 +750,8 @@ mod transport {
 
             let (code, results) = await_response(&mut responses).await?;
             if !PortalResponse::from_code(code).is_success() {
-                return Err(PortalFailure::Unavailable(format!(
-                    "the GlobalShortcuts portal refused to bind the shortcut (response code {code})"
+                return Err(PortalFailure::Unavailable(portal_refused_reason(
+                    &self.acc, code,
                 )));
             }
             Ok(extract_bound_shortcut_ids(&results))
@@ -1072,7 +1088,11 @@ mod transport {
                     Step::Ok(bound),
                 );
                 let (res, log) = drive(fx);
-                assert!(matches!(res, Err(PortalFailure::Unavailable(_))));
+                assert!(matches!(
+                    res,
+                    Err(PortalFailure::Unavailable(ref reason))
+                        if reason == "The Wayland GlobalShortcuts portal reported success without granting F12. Open your desktop's shortcut settings and bind it there, or choose a different quick_terminal_shortcut, then restart OdyTTY."
+                ));
                 assert_eq!(log, vec!["connect", "create", "bind", "close"]);
             }
         }
@@ -1414,6 +1434,10 @@ mod tests {
     #[test]
     fn unavailable_reason_is_actionable_ascii() {
         let msg = portal_unavailable_reason(&acc(true, false, true, false, "F12"));
+        assert_eq!(
+            msg,
+            "Wayland does not let applications grab a global shortcut directly; the compositor owns the keyboard. Bind CTRL+SHIFT+F12 to summon OdyTTY through your compositor, or through the org.freedesktop.portal.GlobalShortcuts portal where your desktop provides it. Alternatively run the quick terminal under X11."
+        );
         assert!(msg.is_ascii(), "message must be ASCII (no em-dashes)");
         assert!(!msg.contains('\u{2014}'), "no em-dash");
         assert!(
@@ -1423,6 +1447,15 @@ mod tests {
         assert!(
             msg.contains("CTRL+SHIFT+F12"),
             "names the exact trigger to bind"
+        );
+    }
+
+    #[test]
+    fn refused_reason_is_exact_and_actionable_without_a_portal() {
+        let accelerator = acc(true, false, true, false, "F12");
+        assert_eq!(
+            portal_refused_reason(&accelerator, 1),
+            "The Wayland GlobalShortcuts portal did not grant CTRL+SHIFT+F12 (response code 1). Allow the shortcut in your desktop's portal prompt or bind it in compositor shortcut settings, then restart OdyTTY."
         );
     }
 }

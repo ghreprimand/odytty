@@ -753,6 +753,87 @@ impl Accelerator {
     }
 }
 
+/// Stable, platform-neutral spelling used in registration failure notices.
+/// Keeping this pure lets every OS-specific backend pin its user-facing text
+/// without requiring that OS or a display server in the test environment.
+fn accelerator_notice_label(acc: &Accelerator) -> String {
+    let mut parts: Vec<&str> = Vec::with_capacity(5);
+    if acc.ctrl {
+        parts.push("CTRL");
+    }
+    if acc.alt {
+        parts.push("ALT");
+    }
+    if acc.shift {
+        parts.push("SHIFT");
+    }
+    if acc.meta {
+        parts.push("SUPER");
+    }
+    parts.push(&acc.key);
+    parts.join("+")
+}
+
+fn x11_conflict_notice(acc: &Accelerator) -> String {
+    format!(
+        "X11 could not register {} because another application or the window manager already holds it. Release that binding or choose a different quick_terminal_shortcut, then restart OdyTTY.",
+        accelerator_notice_label(acc)
+    )
+}
+
+fn x11_registration_failure_notice(acc: &Accelerator) -> String {
+    format!(
+        "X11 could not register {}. Check DISPLAY access and the OdyTTY log, then retry or choose a different quick_terminal_shortcut.",
+        accelerator_notice_label(acc)
+    )
+}
+
+fn x11_grab_failure_notice(acc: &Accelerator, bad_access: bool) -> String {
+    if bad_access {
+        x11_conflict_notice(acc)
+    } else {
+        x11_registration_failure_notice(acc)
+    }
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn macos_registration_failure_notice(acc: &Accelerator) -> String {
+    format!(
+        "macOS did not grant {} to OdyTTY. If macOS requested Accessibility or Input Monitoring, allow OdyTTY in System Settings > Privacy & Security; otherwise release the conflicting shortcut or choose a different quick_terminal_shortcut, then restart OdyTTY.",
+        accelerator_notice_label(acc)
+    )
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn macos_registration_confirmed(status: i32) -> bool {
+    status == 0
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn windows_conflict_notice(acc: &Accelerator) -> String {
+    format!(
+        "Windows could not register {} because another application already holds it (ERROR_HOTKEY_ALREADY_REGISTERED). Release that binding or choose a different quick_terminal_shortcut, then restart OdyTTY.",
+        accelerator_notice_label(acc)
+    )
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn windows_registration_failure_notice(acc: &Accelerator) -> String {
+    format!(
+        "Windows could not register {}. Check the OdyTTY log, then retry or choose a different quick_terminal_shortcut.",
+        accelerator_notice_label(acc)
+    )
+}
+
+/// `HRESULT_FROM_WIN32(ERROR_HOTKEY_ALREADY_REGISTERED)`; kept platform-neutral
+/// so the Windows failure classifier is exercised on every CI host.
+const WINDOWS_HOTKEY_ALREADY_REGISTERED_HRESULT: i32 = 0x8007_0581_u32 as i32;
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn windows_hotkey_already_registered(hresult: i32) -> bool {
+    hresult == WINDOWS_HOTKEY_ALREADY_REGISTERED_HRESULT
+}
+
 /// Normalize a key token to a stable upper-case spelling, mapping a few common
 /// aliases so `` "`" `` and `"backtick"` both name the grave key.
 fn normalize_key(tok: &str) -> String {
@@ -1476,6 +1557,43 @@ mod tests {
             Accelerator::parse("a+b"),
             Err(AcceleratorError::MultipleKeys)
         );
+    }
+
+    #[test]
+    fn platform_registration_failure_notices_are_exact_and_actionable() {
+        let acc = Accelerator::parse("ctrl+shift+F12").expect("valid accelerator");
+        assert_eq!(
+            x11_conflict_notice(&acc),
+            "X11 could not register CTRL+SHIFT+F12 because another application or the window manager already holds it. Release that binding or choose a different quick_terminal_shortcut, then restart OdyTTY."
+        );
+        assert_eq!(
+            x11_registration_failure_notice(&acc),
+            "X11 could not register CTRL+SHIFT+F12. Check DISPLAY access and the OdyTTY log, then retry or choose a different quick_terminal_shortcut."
+        );
+        assert_eq!(
+            x11_grab_failure_notice(&acc, true),
+            x11_conflict_notice(&acc)
+        );
+        assert_eq!(
+            x11_grab_failure_notice(&acc, false),
+            x11_registration_failure_notice(&acc)
+        );
+        assert_eq!(
+            macos_registration_failure_notice(&acc),
+            "macOS did not grant CTRL+SHIFT+F12 to OdyTTY. If macOS requested Accessibility or Input Monitoring, allow OdyTTY in System Settings > Privacy & Security; otherwise release the conflicting shortcut or choose a different quick_terminal_shortcut, then restart OdyTTY."
+        );
+        assert!(macos_registration_confirmed(0));
+        assert!(!macos_registration_confirmed(-9878));
+        assert_eq!(
+            windows_conflict_notice(&acc),
+            "Windows could not register CTRL+SHIFT+F12 because another application already holds it (ERROR_HOTKEY_ALREADY_REGISTERED). Release that binding or choose a different quick_terminal_shortcut, then restart OdyTTY."
+        );
+        assert_eq!(
+            windows_registration_failure_notice(&acc),
+            "Windows could not register CTRL+SHIFT+F12. Check the OdyTTY log, then retry or choose a different quick_terminal_shortcut."
+        );
+        assert!(windows_hotkey_already_registered(-2_147_023_487));
+        assert!(!windows_hotkey_already_registered(-2_147_024_809));
     }
 
     #[test]

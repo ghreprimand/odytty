@@ -714,7 +714,10 @@ the first ordinary frame: Linux X11 grabs in-process, Wayland uses the
 `org.freedesktop.portal.GlobalShortcuts` portal or shows an actionable
 limitation, and macOS/Windows use their native global-shortcut paths. Hide keeps
 the same session; repeated summons do not create a second quick window. The
-palette exposes **Toggle Quick Terminal** when the setting is enabled. See
+platform must confirm the binding before OdyTTY reports success. A denial,
+shortcut conflict, or unavailable backend instead raises an actionable in-app
+notice and records the same stable guidance in the log. The palette exposes
+**Toggle Quick Terminal** when the setting is enabled. See
 [runtime knobs](runtime-knobs.md) and the
 [quick-terminal contract](v0.15.0-foundation.md#quick-terminal-role).
 
