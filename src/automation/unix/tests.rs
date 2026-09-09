@@ -30,6 +30,7 @@ fn assert_fd_cloexec(fd: i32, label: &str) {
     );
 }
 
+#[cfg(target_os = "linux")]
 fn fd_has_cloexec(fd: i32) -> bool {
     // SAFETY: fd is live while the accept observer runs.
     let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
