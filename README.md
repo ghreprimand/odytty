@@ -256,9 +256,11 @@ effect setting. See the [theme reference](docs/themes.md#electric-blue).
 
 The same development line now contains stable tab and workspace identities,
 same-process window merge foundations, cross-platform quick-terminal shortcut
-backends, and a bounded structural-control protocol with an explicit Unix CLI.
-These surfaces remain unreleased. Ordinary startup opens no automation endpoint,
-Windows named-pipe transport is pending, and native file drops now stage a
+backends, and an opt-in bounded structural-control endpoint with an explicit
+Unix CLI. The endpoint remains off by default and starts only after the first
+presented frame; Linux and macOS route requests through the existing live
+window owners. Windows named-pipe transport is pending, and native file drops
+now stage a
 confirm-first shell-quoted insertion only when the launch shell owns and is the
 sole member of the Unix PTY foreground group. Windows insertion remains refused
 because ConPTY exposes no foreground-process-group authority; live-device and

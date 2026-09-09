@@ -677,6 +677,23 @@ action through Settings → Input, in the **Key bindings** row, or `keybinds`:
 keybinds = ctrl+alt+p=command-palette
 ```
 
+### Control OdyTTY Locally (v0.15.0 Development)
+
+`automation_endpoint` is an opt-in setting, also available as
+`ODYTTY_AUTOMATION_ENDPOINT`. It is off by default; the ordinary startup path
+creates no automation socket or worker. After the first presented frame, Linux
+binds an owner-only socket at `$XDG_RUNTIME_DIR/odytty/control-<pid>.sock` and
+macOS binds below OdyTTY's owner-private state directory. A missing Linux
+runtime directory is an actionable refusal with no `/tmp` fallback. Windows
+accepts the setting but reports that named-pipe transport is not implemented.
+
+The endpoint lists and focuses existing windows, workspaces, tabs, and panes,
+opens profiles, creates tabs, workspaces, and splits, and renames supported
+objects through the same native ownership and action routes as the interface.
+It cannot send terminal input or read terminal contents. Live disable and clean
+shutdown cancel queued work and remove only the endpoint instance owned by the
+current process.
+
 ## Shell Integration
 
 ### Enable Prompt-Aware Actions

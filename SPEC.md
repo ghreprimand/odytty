@@ -959,10 +959,12 @@ work, not completed v0.14.0 changes.
 
 Current v0.15.0 development adds stable tab and workspace identities,
 same-process window ownership and merge routing, quick-terminal settings and
-platform shortcut backends, and a bounded structural-control protocol with an
-explicit Unix CLI. These are unreleased foundations, not completed platform or
-release acceptance. Ordinary startup opens no automation endpoint, Windows
-named-pipe transport remains pending, and native path drops use confirm-first
+platform shortcut backends, and an opt-in bounded structural-control endpoint
+with an explicit Unix CLI. These are unreleased foundations, not completed
+platform or release acceptance. The endpoint remains off by default and binds
+after the first presented frame on Linux or macOS; live requests resolve through
+the existing native window owners. Windows named-pipe transport remains pending,
+and native path drops use confirm-first
 shell-aware insertion only when an eligible local Unix launch shell still owns
 the PTY foreground group, is its sole process, and has a matching current
 executable. ConPTY provides no equivalent authority, so Windows insertion is

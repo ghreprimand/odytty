@@ -400,6 +400,13 @@ session_replay = off
 # Session Navigator. Off by default; previews never attach, wake, or write.
 navigator_preview = off
 
+# Expose the bounded same-user structural-control protocol after the first
+# terminal frame is presented. Default off: no socket or listener worker exists.
+# Linux requires XDG_RUNTIME_DIR and never falls back to /tmp; macOS uses an
+# owner-private state directory. Windows reports unavailable until its named-pipe
+# transport is implemented. This does not enable terminal input or content reads.
+automation_endpoint = off
+
 # Restore the previous workspace/tab/pane layout when odytty is launched with
 # no arguments. Default off. Shape only — workspace names, tab titles and order,
 # and each pane's split tree at its captured directory, each reopened with a

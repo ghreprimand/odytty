@@ -45,6 +45,10 @@ pub(super) enum UserEvent {
     /// one dedicated quick terminal. Carried through the event loop so the
     /// summon wakes an idle loop and is handled on the main thread.
     QuickTerminalSummon,
+    /// A local automation client queued work for the process owner. Global and
+    /// metadata-only: the host drains at most eight requests on this event-loop
+    /// turn, then posts another wake when the bounded queue still has work.
+    AutomationWake,
     /// v0.15.0 A: the deferred, post-readiness global-shortcut registration
     /// finished on its worker thread. Not session-scoped: the host records the
     /// honest outcome and logs it on the main thread. The live grab is kept
@@ -73,6 +77,7 @@ impl UserEvent {
             | UserEvent::CommandExportFinished { session, .. } => Some(*session),
             UserEvent::CommandExportDestination { .. }
             | UserEvent::QuickTerminalSummon
+            | UserEvent::AutomationWake
             | UserEvent::QuickTerminalRegistration { .. } => None,
         }
     }

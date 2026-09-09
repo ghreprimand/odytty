@@ -192,6 +192,7 @@ environment variable was not set at startup.
 | `remote_image_paste` | `ODYTTY_REMOTE_IMAGE_PASTE` | `ask`, `off` | `ask` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `navigator_preview` | `ODYTTY_NAVIGATOR_PREVIEW` | `on`, `off` | `off` |
+| `automation_endpoint` | `ODYTTY_AUTOMATION_ENDPOINT` | `on`, `off` | `off` |
 | `restore_workspaces` | `ODYTTY_RESTORE_WORKSPACES` | `on`, `off` | `off` |
 | `profile_auto_switch` | `ODYTTY_PROFILE_AUTO_SWITCH` | `on`, `off` | `off` |
 | `default_launch_profile` | `ODYTTY_DEFAULT_LAUNCH_PROFILE` | Profile name | unset |
@@ -708,6 +709,21 @@ while you scrub.
 
 The scrub view is a monochrome text preview of the recorded screen at each
 point.
+
+### Local automation endpoint (`automation_endpoint`)
+
+`automation_endpoint = on` (or `ODYTTY_AUTOMATION_ENDPOINT=on`) exposes the
+bounded same-user structural-control protocol after the first terminal frame is
+presented. It is off by default, so ordinary startup creates no socket, queue,
+entropy, or transport thread. Linux binds below `$XDG_RUNTIME_DIR/odytty` and
+refuses without that owner-private runtime directory; there is no `/tmp`
+fallback. macOS binds below OdyTTY's owner-private state directory. Windows
+accepts the setting but reports unavailable until named-pipe transport lands.
+
+The same setting authorizes structural requests; there is no separate live
+read-only endpoint mode. The protocol cannot send terminal input or read
+terminal contents. Turning the setting off cancels queued work and removes only
+the endpoint owned by the current process.
 
 ### Restore workspaces at launch (`restore_workspaces`)
 

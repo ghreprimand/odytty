@@ -331,4 +331,4 @@ mod tests;
 
 #[path = "protocol/response.rs"]
 mod response;
-pub use response::{ObjectStatus, Reply, Response, read_response, write_response};
+pub use response::{MAX_OBJECTS, ObjectStatus, Reply, Response, read_response, write_response};

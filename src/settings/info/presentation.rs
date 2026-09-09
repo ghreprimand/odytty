@@ -193,6 +193,7 @@ impl Settings {
                 .clone()
                 .unwrap_or_else(|| "(System Default)".to_owned()),
             "shell_exit_closes" => self.shell_exit_closes.as_str().to_owned(),
+            "automation_endpoint" => bool_display(self.automation_endpoint).to_owned(),
             "interactive_urls" => bool_display(self.interactive_urls).to_owned(),
             "interactive_paths" => bool_display(self.interactive_paths).to_owned(),
             "interactive_paths_barewords" => {

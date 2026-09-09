@@ -17,6 +17,7 @@ use super::config::{config_key_to_env, env_to_config_key};
 use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
 
+mod automation;
 /// Tests in this directory that call `apply_reloadable_values` — or that read
 /// one of the process-global switches it republishes — take
 /// `crate::test_lock::render_globals_lock`, the single coordinating guard for

@@ -581,6 +581,9 @@ impl App {
             // match exhaustive without pretending a single window owns the
             // global toggle.
             UserEvent::QuickTerminalSummon => false,
+            // The process host owns the single automation endpoint and consumes
+            // this event before routing. A window never dispatches it directly.
+            UserEvent::AutomationWake => false,
             // v0.15.0 A: the deferred registration outcome is consumed by the
             // process host (`MultiWindowHost::user_event`) before routing, so a
             // window never sees it. Defensive no-op to keep the match exhaustive.

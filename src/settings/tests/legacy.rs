@@ -274,6 +274,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "profile_auto_switch",
             "default_launch_profile",
             "shell_exit_closes",
+            "automation_endpoint",
             "osc52_write",
             "osc52_read",
             "copy_on_select",

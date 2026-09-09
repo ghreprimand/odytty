@@ -88,6 +88,8 @@ use super::viewport::{
     scrollbar_offset_for_drag_with_padding, wheel_lines, wheel_lines_scaled, wheel_zoom_steps,
 };
 
+mod automation;
+mod automation_host;
 mod background_ui;
 mod bell;
 pub(in crate::native) mod button_chip;

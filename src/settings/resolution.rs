@@ -941,6 +941,12 @@ impl Settings {
             DEFAULT_NAVIGATOR_PREVIEW,
             &mut warn,
         );
+        let automation_endpoint = parse_bool_setting(
+            get(AUTOMATION_ENDPOINT_ENV).as_deref(),
+            AUTOMATION_ENDPOINT_ENV,
+            DEFAULT_AUTOMATION_ENDPOINT,
+            &mut warn,
+        );
         let interactive_urls = parse_bool_setting(
             get(INTERACTIVE_URLS_ENV).as_deref(),
             INTERACTIVE_URLS_ENV,
@@ -1110,6 +1116,7 @@ impl Settings {
             remote_image_paste,
             session_replay,
             navigator_preview,
+            automation_endpoint,
             interactive_urls,
             interactive_paths,
             interactive_paths_barewords,

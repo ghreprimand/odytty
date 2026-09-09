@@ -52,6 +52,7 @@
 
 mod about;
 mod app;
+mod automation;
 // The attach client (Unix-domain socket transport to a detached session-host)
 // is Unix-only; the attach overlay UI stays cross-platform with an empty list.
 #[cfg(unix)]
@@ -362,6 +363,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // the loop and deliver a summon from the backend's own thread. Installed
     // before configure so the first registration can use it.
     host.set_quick_summon_proxy(event_loop.create_proxy());
+    host.set_automation_proxy(event_loop.create_proxy());
     // v0.15.0 A: activate the quick-terminal lifecycle from settings. It is
     // OFF by default (opt-in), so this registers no global shortcut and creates
     // no dedicated window - startup readiness and the default window path are

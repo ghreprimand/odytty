@@ -36,6 +36,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::*;
+#[cfg(test)]
+use crate::automation::dispatch::MAX_PER_DISPATCH;
+#[cfg(test)]
+use crate::automation::protocol::{
+    Action as AutomationAction, ErrorCode as AutomationError, ObjectId, ObjectKind,
+    Reply as AutomationReply,
+};
+use crate::native::automation::AutomationRuntime;
 use crate::native::merge_picker::{MergeDirection, MergePicker};
 use crate::native::quick_terminal::{
     Accelerator, GlobalShortcutAdapter, MonitorRect, QuickTerminalAction, QuickTerminalAnimation,
@@ -83,7 +91,7 @@ struct QuickReveal {
 
 /// The process multi-window event handler. Owns every live window.
 pub(in crate::native) struct MultiWindowHost {
-    windows: Vec<App>,
+    pub(super) windows: Vec<App>,
     shared: Arc<WatchdogShared>,
     last_seen_frames: u64,
     factory: SiblingFactory,
@@ -91,7 +99,7 @@ pub(in crate::native) struct MultiWindowHost {
     /// The single quick-terminal lifecycle (v0.15.0 A). Disabled until
     /// `configure_quick_terminal` is called with an enabled setting, so the
     /// ordinary window path is unaffected by default.
-    quick: QuickTerminalController,
+    pub(super) quick: QuickTerminalController,
     /// The live, registered global-shortcut backend, produced AFTER readiness
     /// (v0.15.0 A). Empty until a successful registration lands; kept alive here
     /// so its `Drop` ungrabs the key at teardown. Written by the registration
@@ -128,6 +136,12 @@ pub(in crate::native) struct MultiWindowHost {
     /// [`Self::set_quick_summon_proxy`] is called during run setup; without it
     /// the quick terminal is still summonable from the command palette.
     quick_summon_proxy: Option<winit::event_loop::EventLoopProxy<UserEvent>>,
+    /// One opt-in owner-private endpoint for every live window in this process.
+    /// Default construction is inert: no entropy, queue, socket, or thread.
+    pub(super) automation: AutomationRuntime,
+    /// Wakes the event loop after a transport worker enqueues a request. Stored
+    /// without binding; ordinary startup still creates no endpoint or thread.
+    pub(super) automation_proxy: Option<winit::event_loop::EventLoopProxy<UserEvent>>,
 }
 
 impl MultiWindowHost {
@@ -152,6 +166,8 @@ impl MultiWindowHost {
             quick_registration_status: None,
             quick_reveal: None,
             quick_summon_proxy: None,
+            automation: AutomationRuntime::default(),
+            automation_proxy: None,
         }
     }
 
@@ -168,8 +184,16 @@ impl MultiWindowHost {
 
     /// Consume the host, returning every live window for deterministic teardown
     /// (reap shells, save shape) in `run_native`. Window 0 is the primary.
-    pub(in crate::native) fn into_windows(self) -> Vec<App> {
-        self.windows
+    pub(in crate::native) fn into_windows(mut self) -> Vec<App> {
+        self.automation.shutdown();
+        std::mem::take(&mut self.windows)
+    }
+
+    pub(in crate::native) fn set_automation_proxy(
+        &mut self,
+        proxy: winit::event_loop::EventLoopProxy<UserEvent>,
+    ) {
+        self.automation_proxy = Some(proxy);
     }
 
     /// Mirror aggregate app state into the freeze watchdog after a delegated
@@ -463,7 +487,7 @@ impl MultiWindowHost {
     /// surface, not merely an existing window struct or an entered event loop.
     /// False during teardown when no window remains, so the stopping pass never
     /// dispatches the OS grab. Cheap: a single atomic load per window.
-    fn first_usable_frame_ready(&self) -> bool {
+    pub(super) fn first_usable_frame_ready(&self) -> bool {
         self.windows.iter().any(|app| app.frames_presented() > 0)
     }
 
@@ -1030,6 +1054,11 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
             self.refresh();
             return;
         }
+        if matches!(event, UserEvent::AutomationWake) {
+            self.dispatch_automation();
+            self.refresh();
+            return;
+        }
         if let Some(idx) = owner_index_for_user_event(&self.windows, &event)
             && self.windows[idx].apply_user_event(event)
         {
@@ -1070,6 +1099,7 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         // reached). The blocking OS grab runs off the event-loop thread on
         // Linux/Windows and inline (fast) on macOS - never on the startup path.
         self.service_quick_registration(event_loop);
+        self.service_automation_endpoint();
 
         // Service cross-window requests (may add or remove windows).
         self.service_new_windows(event_loop);
@@ -1103,6 +1133,8 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::automation::dispatch;
+    use crate::automation::protocol::{Request, VERSION};
     use crate::native::session::SessionToken;
     use crate::native::test_support::headless_app_for_test;
 
@@ -1126,6 +1158,8 @@ mod tests {
             quick_registration_status: None,
             quick_reveal: None,
             quick_summon_proxy: None,
+            automation: AutomationRuntime::default(),
+            automation_proxy: None,
         }
     }
 
@@ -1343,5 +1377,321 @@ mod tests {
         assert!(two_mut(&mut windows, 0, 5).is_none(), "out of range");
         let pair = two_mut(&mut windows, 1, 0);
         assert!(pair.is_some(), "distinct in-range indices split cleanly");
+    }
+
+    #[test]
+    fn default_automation_is_inert_and_enabled_state_waits_for_a_presented_frame() {
+        let mut host = host_of(vec![headless()]);
+        host.service_automation_endpoint();
+        assert!(!host.automation.is_running());
+        assert!(host.automation.instance().is_none());
+
+        host.windows[0].settings.automation_endpoint = true;
+        host.service_automation_endpoint();
+        assert!(
+            !host.automation.is_running(),
+            "an enabled endpoint must not bind before the first presented frame"
+        );
+        assert!(
+            host.automation.instance().is_none(),
+            "pre-readiness service allocates no automation state"
+        );
+    }
+
+    #[test]
+    fn owner_bridge_lists_statuses_focuses_renames_and_rejects_stale_instances() {
+        let mut host = host_of(vec![headless()]);
+        host.windows[0].settings.automation_endpoint = true;
+        let instance = [0x5a; 16];
+        let (submission, queue) = dispatch::channel(true);
+        host.automation.install_queue_for_test(instance, queue);
+
+        let list = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 1,
+                action: AutomationAction::List,
+            })
+            .expect("queue list");
+        host.dispatch_automation();
+        let AutomationReply::Objects(objects) = list.wait().reply else {
+            panic!("list reply")
+        };
+        assert_eq!(objects.len(), 4, "window + workspace + tab + pane");
+        let workspace = objects
+            .iter()
+            .find(|object| object.id.kind == ObjectKind::Workspace)
+            .expect("workspace")
+            .id;
+
+        let status = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 2,
+                action: AutomationAction::Status { target: workspace },
+            })
+            .expect("queue status");
+        host.dispatch_automation();
+        assert!(
+            matches!(status.wait().reply, AutomationReply::Objects(rows) if rows.len() == 1 && rows[0].id == workspace)
+        );
+
+        let rename = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 3,
+                action: AutomationAction::Rename {
+                    target: workspace,
+                    name: "ops".to_owned(),
+                },
+            })
+            .expect("queue rename");
+        host.dispatch_automation();
+        assert_eq!(rename.wait().reply, AutomationReply::Applied(workspace));
+        assert_eq!(
+            host.windows[0].workspace_set().workspace_name(0),
+            Some("ops")
+        );
+
+        let stale = ObjectId {
+            instance: [0x33; 16],
+            ..workspace
+        };
+        let focus = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 4,
+                action: AutomationAction::Focus { target: stale },
+            })
+            .expect("queue stale focus");
+        host.dispatch_automation();
+        assert_eq!(
+            focus.wait().reply,
+            AutomationReply::Error(AutomationError::StaleIdentity)
+        );
+
+        let detached_namespace_id = ObjectId {
+            instance,
+            kind: ObjectKind::Pane,
+            serial: u64::MAX,
+        };
+        assert!(
+            !objects
+                .iter()
+                .any(|object| object.id == detached_namespace_id),
+            "detached-host identities are not projected as live objects"
+        );
+        let focus = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 5,
+                action: AutomationAction::Focus {
+                    target: detached_namespace_id,
+                },
+            })
+            .expect("queue detached namespace target");
+        host.dispatch_automation();
+        assert_eq!(
+            focus.wait().reply,
+            AutomationReply::Error(AutomationError::StaleIdentity)
+        );
+    }
+
+    #[test]
+    fn owner_bridge_rechecks_structural_permission_when_dispatching() {
+        let mut host = host_of(vec![headless()]);
+        let instance = [0x34; 16];
+        let (submission, queue) = dispatch::channel(true);
+        host.automation.install_queue_for_test(instance, queue);
+        let workspace = host
+            .automation_objects(instance)
+            .into_iter()
+            .find(|object| object.id.kind == ObjectKind::Workspace)
+            .expect("workspace identity")
+            .id;
+
+        let rename = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 5,
+                action: AutomationAction::Rename {
+                    target: workspace,
+                    name: "must-not-apply".to_owned(),
+                },
+            })
+            .expect("the queue still reflects the formerly enabled setting");
+        host.dispatch_automation();
+
+        assert_eq!(
+            rename.wait().reply,
+            AutomationReply::Error(AutomationError::PermissionDenied)
+        );
+        assert_ne!(
+            host.windows[0].workspace_set().workspace_name(0),
+            Some("must-not-apply")
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn owner_bridge_round_trips_a_live_unix_request() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let mut host = host_of(vec![headless()]);
+        host.windows[0].settings.automation_endpoint = true;
+        let dir = std::env::temp_dir().join(format!(
+            "odytty-owner-bridge-{:x}",
+            host.windows[0].process_window_id().0
+        ));
+        crate::state_dir::prepare_private_dir(&dir).expect("owner-private fixture dir");
+        let endpoint = dir.join(format!("control-{}.sock", std::process::id()));
+        let (wake_tx, wake_rx) = mpsc::channel();
+        host.automation
+            .start_unix_at(endpoint.clone(), move || wake_tx.send(()).is_ok())
+            .expect("bind endpoint");
+        let instance = host.automation.instance().expect("instance identity");
+
+        let client = std::thread::spawn({
+            let endpoint = endpoint.clone();
+            move || {
+                crate::automation::unix::request(
+                    &endpoint,
+                    &Request {
+                        version: VERSION,
+                        request_id: 6,
+                        action: AutomationAction::List,
+                    },
+                )
+            }
+        });
+        wake_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("transport wake");
+        host.dispatch_automation();
+        let response = client.join().expect("client thread").expect("response");
+
+        assert_eq!(response.request_id, 6);
+        assert!(
+            matches!(response.reply, AutomationReply::Objects(objects) if objects.len() == 4 && objects.iter().all(|object| object.id.instance == instance))
+        );
+        host.automation.shutdown();
+        assert!(!endpoint.exists());
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn owner_bridge_dispatches_at_most_eight_requests_per_turn() {
+        let mut host = host_of(vec![headless()]);
+        host.windows[0].settings.automation_endpoint = true;
+        let (submission, queue) = dispatch::channel(true);
+        host.automation.install_queue_for_test([9; 16], queue);
+        let receipts: Vec<_> = (0..=MAX_PER_DISPATCH)
+            .map(|request_id| {
+                submission
+                    .submit(Request {
+                        version: VERSION,
+                        request_id: request_id as u64,
+                        action: AutomationAction::Capabilities,
+                    })
+                    .expect("queue capabilities")
+            })
+            .collect();
+
+        host.dispatch_automation();
+        assert!(
+            receipts[..MAX_PER_DISPATCH]
+                .iter()
+                .all(|receipt| receipt.try_response().is_some())
+        );
+        assert!(
+            receipts[MAX_PER_DISPATCH].try_response().is_none(),
+            "ninth request waits for the next event-loop turn"
+        );
+        host.dispatch_automation();
+        assert!(receipts[MAX_PER_DISPATCH].try_response().is_some());
+    }
+
+    #[test]
+    fn owner_bridge_maps_creation_actions_to_structured_spawn_and_profile_results() {
+        let mut host = host_of(vec![headless()]);
+        host.windows[0].settings.automation_endpoint = true;
+        let instance = [0x71; 16];
+        let (submission, queue) = dispatch::channel(true);
+        host.automation.install_queue_for_test(instance, queue);
+        let window = host
+            .automation_objects(instance)
+            .into_iter()
+            .find(|object| object.id.kind == ObjectKind::Window)
+            .expect("window identity")
+            .id;
+
+        let create_tab = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 10,
+                action: AutomationAction::CreateTab { window },
+            })
+            .expect("queue create tab");
+        host.dispatch_automation();
+        assert_eq!(
+            create_tab.wait().reply,
+            AutomationReply::Error(AutomationError::Unavailable),
+            "the headless App has no event-loop proxy, so the existing spawn route refuses"
+        );
+
+        let create_workspace = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 11,
+                action: AutomationAction::CreateWorkspace {
+                    window,
+                    name: "deploy".to_owned(),
+                },
+            })
+            .expect("queue create workspace");
+        host.dispatch_automation();
+        assert_eq!(
+            create_workspace.wait().reply,
+            AutomationReply::Error(AutomationError::Unavailable)
+        );
+
+        let pane = host
+            .automation_objects(instance)
+            .into_iter()
+            .find(|object| object.id.kind == ObjectKind::Pane && object.parent.is_some())
+            .expect("pane identity")
+            .id;
+        let split = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 12,
+                action: AutomationAction::Split {
+                    pane,
+                    direction: crate::automation::protocol::SplitDirection::Columns,
+                },
+            })
+            .expect("queue split");
+        host.dispatch_automation();
+        assert_eq!(
+            split.wait().reply,
+            AutomationReply::Error(AutomationError::Unavailable)
+        );
+
+        let missing_profile = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 13,
+                action: AutomationAction::OpenProfile {
+                    window,
+                    name: "profile-that-does-not-exist".to_owned(),
+                },
+            })
+            .expect("queue missing profile");
+        host.dispatch_automation();
+        assert_eq!(
+            missing_profile.wait().reply,
+            AutomationReply::Error(AutomationError::InvalidRequest)
+        );
     }
 }

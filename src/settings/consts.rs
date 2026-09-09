@@ -144,6 +144,7 @@ pub const REMOTE_PERSIST_ENV: &str = "ODYTTY_REMOTE_PERSIST";
 pub const REMOTE_IMAGE_PASTE_ENV: &str = "ODYTTY_REMOTE_IMAGE_PASTE";
 pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
 pub const NAVIGATOR_PREVIEW_ENV: &str = "ODYTTY_NAVIGATOR_PREVIEW";
+pub const AUTOMATION_ENDPOINT_ENV: &str = "ODYTTY_AUTOMATION_ENDPOINT";
 pub const INTERACTIVE_URLS_ENV: &str = "ODYTTY_INTERACTIVE_URLS";
 pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
 pub const INTERACTIVE_PATHS_BAREWORDS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_BAREWORDS";
@@ -290,6 +291,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     REMOTE_IMAGE_PASTE_ENV,
     SESSION_REPLAY_ENV,
     NAVIGATOR_PREVIEW_ENV,
+    AUTOMATION_ENDPOINT_ENV,
     INTERACTIVE_URLS_ENV,
     INTERACTIVE_PATHS_ENV,
     INTERACTIVE_PATHS_BAREWORDS_ENV,
@@ -366,6 +368,9 @@ pub const DEFAULT_SESSION_REPLAY: bool = false;
 /// Navigator output previews are explicitly opt-in. The default snapshot stays
 /// metadata-only and never reads a terminal screen.
 pub const DEFAULT_NAVIGATOR_PREVIEW: bool = false;
+/// Owner-private local structural-control endpoint. Off keeps startup free of
+/// socket creation, threads, profile discovery, and automation dispatch work.
+pub const DEFAULT_AUTOMATION_ENDPOINT: bool = false;
 
 /// Opt-in interactive filesystem paths (`ODYTTY_INTERACTIVE_PATHS`). Off by
 /// default, so the pointer path never scans terminal text for paths and the
