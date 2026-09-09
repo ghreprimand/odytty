@@ -43,6 +43,10 @@ rather than unchecked boxes, so this file does not present them as
 implementation commitments. Longer-range candidates require a separately
 recorded milestone before implementation.
 
+## Release preparation
+
+- [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
+
 ## v0.14.0: Profiles and Navigation (in progress)
 
 Release state: implementation complete and in-tree; the hands-on acceptance

@@ -298,6 +298,12 @@ jobs:
         # and that only a completed success for the exact commit passes.
         run: bash .github/scripts/verify-release-ci-test.sh
 
+      - name: Release notes fixtures and current-version check
+        run: |
+          python3 scripts/release-notes-test.py
+          version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          python3 scripts/release-notes.py --version "$version" --check
+
       - name: Release CI-gate waiter fixtures
         # Fixtures for the bounded waiter (.github/scripts/await-release-ci.sh)
         # that lets the gate ride out a same-commit CI run still in progress.

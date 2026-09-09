@@ -850,6 +850,11 @@ unchanged.
 
 ## Scope
 
+Release preparation validates that indexed versioned notes match the package
+version and contain a publishable opening summary. Generated release descriptions
+prepend that summary and the tagged notes link while preserving the download and
+verification guide and automatically generated change list.
+
 The first prototype foundation is complete. Stages 1 through 4.5 are
 substantially complete. The parity
 half of Stage 6 (graphics protocols, wide glyphs, subpixel AA, text quality) is

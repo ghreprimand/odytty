@@ -268,6 +268,12 @@ their archived public keys; never rewrite or remove their signatures.
 
 ### 1. Update Release Metadata
 
+Before preparing artifacts, run `python3 scripts/release-notes.py --version <version> --check`.
+The matching `docs/releases/<version>.md` must be indexed and begin with a short
+publishable summary. Publication prepends that summary and the tagged notes link
+to the download guide in `.github/release-downloads.md`; the generated change list
+remains enabled. Run `python3 scripts/release-notes-test.py` for offline fixtures.
+
 Set `Cargo.toml` to `X.Y.Z` and refresh `Cargo.lock`. Keep the declared MSRV in
 `Cargo.toml` aligned with `rust-toolchain.toml` if the Rust version changes.
 

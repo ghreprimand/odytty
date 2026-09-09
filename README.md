@@ -255,6 +255,9 @@ See the [ownership boundary](SPEC.md#ownership-boundary),
 
 ## Build And Test
 
+Release preparation requires matching versioned notes and includes their short
+summary and canonical link above the download and verification instructions.
+
 OdyTTY pins Rust 1.96 as its verified minimum supported version. The repository
 toolchain file selects it automatically when Rust is managed by `rustup`.
 
