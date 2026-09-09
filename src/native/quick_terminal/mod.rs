@@ -570,7 +570,9 @@ impl QuickTerminalController {
     }
 
     /// Record that the host created the dedicated window with this identity.
-    /// Called exactly once, in response to [`QuickTerminalAction::CreateAndShow`].
+    /// Called in response to [`QuickTerminalAction::CreateAndShow`], at most
+    /// once per window lifetime: after a close or merge releases the identity,
+    /// the next summon creates a fresh window and attaches again.
     pub(in crate::native) fn attach_window(&mut self, identity: QuickTerminalIdentity) {
         debug_assert!(self.identity.is_none(), "quick terminal is a singleton");
         self.identity = Some(identity);

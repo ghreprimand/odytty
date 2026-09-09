@@ -495,7 +495,19 @@ impl Write for PipeIo {
     }
 }
 
-fn wait_for_client(handle: &OwnedHandle, stopped: &AtomicBool) -> io::Result<bool> {
+/// Outcome of waiting for one client on a listening pipe instance.
+enum Accept {
+    /// A client is connected and the instance can be served.
+    Connected,
+    /// A client connected and closed before the listener observed it. Windows
+    /// reports this as `ERROR_NO_DATA` from `ConnectNamedPipe`; the instance is
+    /// consumed and must be replaced, but listening continues.
+    Abandoned,
+    /// The server is stopping.
+    Stopped,
+}
+
+fn wait_for_client(handle: &OwnedHandle, stopped: &AtomicBool) -> io::Result<Accept> {
     let event = owned_handle(
         unsafe { CreateEventW(None, true, false, PCWSTR::null()) }.map_err(windows_error)?,
     )?;
@@ -505,8 +517,9 @@ fn wait_for_client(handle: &OwnedHandle, stopped: &AtomicBool) -> io::Result<boo
     };
     let started = unsafe { ConnectNamedPipe(raw_handle(handle), Some(&raw mut overlapped)) };
     match started {
-        Ok(()) => return Ok(true),
-        Err(error) if is_error(&error, ERROR_PIPE_CONNECTED.0) => return Ok(true),
+        Ok(()) => return Ok(Accept::Connected),
+        Err(error) if is_error(&error, ERROR_PIPE_CONNECTED.0) => return Ok(Accept::Connected),
+        Err(error) if is_error(&error, ERROR_NO_DATA.0) => return Ok(Accept::Abandoned),
         Err(error) if !is_error(&error, ERROR_IO_PENDING.0) => {
             return Err(windows_error(error));
         }
@@ -515,7 +528,7 @@ fn wait_for_client(handle: &OwnedHandle, stopped: &AtomicBool) -> io::Result<boo
     loop {
         if stopped.load(Ordering::Acquire) {
             cancel_and_drain(raw_handle(handle), &overlapped);
-            return Ok(false);
+            return Ok(Accept::Stopped);
         }
         let mut transferred = 0;
         match unsafe {
@@ -527,8 +540,9 @@ fn wait_for_client(handle: &OwnedHandle, stopped: &AtomicBool) -> io::Result<boo
                 false,
             )
         } {
-            Ok(()) => return Ok(true),
+            Ok(()) => return Ok(Accept::Connected),
             Err(error) if is_error(&error, WAIT_TIMEOUT.0) => {}
+            Err(error) if is_error(&error, ERROR_NO_DATA.0) => return Ok(Accept::Abandoned),
             Err(error) => return Err(windows_error(error)),
         }
     }
@@ -606,8 +620,32 @@ impl Server {
                         break;
                     };
                     match wait_for_client(listener, &stop) {
-                        Ok(true) => {}
-                        Ok(false) => break,
+                        Ok(Accept::Connected) => {}
+                        Ok(Accept::Abandoned) => {
+                            // The consumed instance is released only after its
+                            // replacement exists, so the pipe name stays claimed.
+                            // Counting it against the per-second budget bounds
+                            // successor churn from a connect-and-close loop.
+                            accepted += 1;
+                            let abandoned = pending.take();
+                            pending = match create_pipe(&name, &owner, false) {
+                                Ok(successor) => Some(successor),
+                                Err(error) => {
+                                    record_fault(
+                                        &fault_slot,
+                                        &*wake,
+                                        format!("successor pipe instance failed: {error}"),
+                                    );
+                                    None
+                                }
+                            };
+                            drop(abandoned);
+                            if pending.is_none() {
+                                break;
+                            }
+                            continue;
+                        }
+                        Ok(Accept::Stopped) => break,
                         Err(error) => {
                             record_fault(
                                 &fault_slot,
@@ -761,7 +799,8 @@ fn serve(
 /// connection leaves the only pipe instance in its closing state, and Windows
 /// reports the name as absent until the listener creates the successor on its
 /// next poll. A missing name is therefore retried for this bounded window
-/// before it is reported; a genuinely absent endpoint still fails fast.
+/// before it is reported; a genuinely absent endpoint is reported once the
+/// window elapses.
 const NOT_FOUND_GRACE: Duration = Duration::from_millis(250);
 
 fn connect(path: &Path, timeout: Duration) -> io::Result<PipeIo> {
@@ -807,7 +846,8 @@ fn connect(path: &Path, timeout: Duration) -> io::Result<PipeIo> {
 }
 
 /// Exchange exactly once. The endpoint must be an explicit local OdyTTY pipe;
-/// no remote UNC name, discovery, shell parsing, or automatic retry is used.
+/// no remote UNC name, discovery, or shell parsing is used. The only retry is
+/// the bounded missing-name grace in [`connect`]; a request is never resent.
 pub fn request(path: &Path, request: &Request) -> io::Result<Response> {
     let owner = process_user_sid(None)?;
     let mut io = connect(path, IO_TIMEOUT)?;

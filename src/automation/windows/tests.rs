@@ -4,7 +4,7 @@
 use super::*;
 use crate::automation::dispatch::{self, MAX_PER_DISPATCH};
 use crate::automation::protocol::{Action, ErrorCode, MAX_MESSAGE_BYTES, Reply, VERSION};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Instant;
@@ -288,28 +288,37 @@ fn slowloris_partial_body_hits_absolute_io_deadline_without_wake() {
         }
     }
     client.reset_deadline(Duration::from_millis(500));
-    let mut buf = [0u8; 32];
-    let result = client.read(&mut buf);
+    // The server writes the length prefix and body separately, so the reply
+    // is read as a frame rather than assumed to arrive in one read.
+    let result = protocol::read_response(&mut client);
     let elapsed = started.elapsed();
     assert!(
         elapsed <= IO_TIMEOUT + Duration::from_secs(2),
         "slowloris must end within the absolute I/O deadline window, got {elapsed:?}"
     );
     assert!(
-        write_closed
-            || matches!(result, Ok(0) | Err(_))
-                && elapsed >= IO_TIMEOUT.saturating_sub(Duration::from_millis(500)),
+        write_closed || elapsed >= IO_TIMEOUT.saturating_sub(Duration::from_millis(500)),
         "slowloris must fail closed near the I/O deadline; write_closed={write_closed} result={result:?} elapsed={elapsed:?}"
     );
-    // The deadline may surface as a closed pipe or as a bounded `timed_out`
-    // rejection with request id 0; either way no request reached the owner.
-    if let Ok(n) = result
-        && n != 0
-    {
-        let response = protocol::read_response(&mut io::Cursor::new(&buf[..n]))
-            .expect("a non-empty reply is a protocol rejection");
-        assert_eq!(response.request_id, 0);
-        assert_eq!(response.reply, Reply::Error(ErrorCode::TimedOut));
+    // The deadline may surface as a closed pipe (a transport error) or as a
+    // bounded `timed_out` rejection with request id 0; either way no request
+    // reached the owner.
+    match result {
+        Ok(response) => {
+            assert_eq!(response.request_id, 0);
+            assert_eq!(response.reply, Reply::Error(ErrorCode::TimedOut));
+        }
+        Err(error) => assert!(
+            matches!(
+                error.kind(),
+                io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::UnexpectedEof
+                    | io::ErrorKind::TimedOut
+                    | io::ErrorKind::NotConnected
+            ),
+            "unexpected slowloris read error: {error:?}"
+        ),
     }
     assert_eq!(harness.wakes.load(Ordering::Relaxed), wakes_before);
     assert_eq!(
