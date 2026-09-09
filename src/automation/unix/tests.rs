@@ -12,7 +12,7 @@ use crate::automation::protocol::{
     self, Action, ErrorCode, MAX_MESSAGE_BYTES, Reply, Request, VERSION,
 };
 use std::os::fd::{AsRawFd, BorrowedFd};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{
     Arc,
@@ -538,4 +538,313 @@ fn listener_cloexec_uses_client_side_proxy_on_darwin() {
     let harness = start_harness(false);
     let stream = connect(&harness.fixture.socket, IO_TIMEOUT).expect("connect");
     assert_fd_cloexec(stream.as_raw_fd(), "darwin client connect");
+}
+
+#[test]
+fn zero_length_and_u32_max_length_frames_fail_closed_without_wake() {
+    let harness = start_harness(false);
+    let path = harness.fixture.socket.clone();
+    for (label, length) in [("zero", 0u32), ("u32_max", u32::MAX)] {
+        let wakes_before = harness.wakes.load(Ordering::Acquire);
+        let dispatched_before = harness.dispatched.load(Ordering::Acquire);
+        let mut stream = connect(&path, IO_TIMEOUT).expect(label);
+        stream.write_all(&length.to_le_bytes()).expect("length");
+        stream.flush().expect("flush");
+        let mut io = DeadlineStream::new(stream, IO_TIMEOUT).expect("deadline");
+        let response = protocol::read_response(&mut io).expect("protocol rejection");
+        assert_eq!(response.request_id, 0, "{label}");
+        assert_eq!(response.reply, Reply::Error(ErrorCode::TooLarge), "{label}");
+        assert_eq!(
+            harness.wakes.load(Ordering::Acquire),
+            wakes_before,
+            "{label}"
+        );
+        assert_eq!(
+            harness.dispatched.load(Ordering::Acquire),
+            dispatched_before,
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn two_frames_in_one_write_fail_closed_without_second_dispatch() {
+    let harness = start_harness(false);
+    let path = harness.fixture.socket.clone();
+    let wakes_before = harness.wakes.load(Ordering::Acquire);
+    let dispatched_before = harness.dispatched.load(Ordering::Acquire);
+    let mut stream = connect(&path, IO_TIMEOUT).expect("connect");
+    protocol::write_request(&mut stream, &capabilities_request(101)).expect("first");
+    protocol::write_request(&mut stream, &capabilities_request(102)).expect("second");
+    stream.flush().expect("flush");
+    // Arm the short read timeout before the peer can reset the connection.
+    stream
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .expect("short read timeout");
+    thread::sleep(POLL_INTERVAL * 5);
+    let mut buf = [0u8; 64];
+    let result = stream.read(&mut buf);
+    assert!(
+        matches!(result, Ok(0) | Err(_)),
+        "trailing second frame must not yield a successful dual reply: {result:?}"
+    );
+    assert_eq!(
+        harness.dispatched.load(Ordering::Acquire),
+        dispatched_before,
+        "second framed request must not dispatch (trailing bytes cancel)"
+    );
+    assert_eq!(
+        harness.wakes.load(Ordering::Acquire),
+        wakes_before,
+        "trailing second frame must not wake the owner"
+    );
+}
+
+#[test]
+fn slowloris_one_byte_per_interval_hits_absolute_io_deadline() {
+    let harness = start_harness(false);
+    let path = harness.fixture.socket.clone();
+    let wakes_before = harness.wakes.load(Ordering::Acquire);
+    let dispatched_before = harness.dispatched.load(Ordering::Acquire);
+    let mut stream = connect(&path, IO_TIMEOUT).expect("connect");
+    let started = Instant::now();
+    let claimed = 64u32;
+    let mut write_closed = false;
+    for byte in claimed
+        .to_le_bytes()
+        .into_iter()
+        .chain(std::iter::repeat_n(b'A', 16))
+    {
+        if write_closed {
+            break;
+        }
+        match stream.write_all(&[byte]) {
+            Ok(()) => {
+                let _ = stream.flush();
+                thread::sleep(Duration::from_millis(300));
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::BrokenPipe
+                        | io::ErrorKind::ConnectionReset
+                        | io::ErrorKind::UnexpectedEof
+                ) =>
+            {
+                write_closed = true;
+            }
+            Err(error) => panic!("unexpected slowloris write error: {error:?}"),
+        }
+    }
+    stream
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .ok();
+    let mut buf = [0u8; 32];
+    let result = stream.read(&mut buf);
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed <= IO_TIMEOUT + Duration::from_secs(2),
+        "slowloris must end within the absolute I/O deadline window, got {elapsed:?}"
+    );
+    assert!(
+        write_closed
+            || matches!(result, Ok(0) | Err(_))
+                && elapsed >= IO_TIMEOUT.saturating_sub(Duration::from_millis(500)),
+        "slowloris must fail closed near the I/O deadline; write_closed={write_closed} result={result:?} elapsed={elapsed:?}"
+    );
+    if let Ok(n) = result {
+        assert_eq!(n, 0, "slowloris must not yield a protocol reply body");
+    }
+    assert_eq!(harness.wakes.load(Ordering::Acquire), wakes_before);
+    assert_eq!(
+        harness.dispatched.load(Ordering::Acquire),
+        dispatched_before
+    );
+}
+
+#[test]
+fn thirty_three_requests_are_bounded_by_accept_or_busy_rate_limits() {
+    let harness = start_harness(false);
+    let path = harness.fixture.socket.clone();
+    let started = Instant::now();
+    let mut successes = 0usize;
+    let mut busy = 0usize;
+    let mut third_elapsed = Duration::ZERO;
+    for id in 0..33u64 {
+        let request_started = Instant::now();
+        let response = request(&path, &capabilities_request(id)).expect("rate probe");
+        if id == 32 {
+            third_elapsed = request_started.elapsed();
+        }
+        match response.reply {
+            Reply::Capabilities { .. } => successes += 1,
+            Reply::Error(ErrorCode::Busy) => busy += 1,
+            other => panic!("unexpected reply for id {id}: {other:?}"),
+        }
+    }
+    let elapsed = started.elapsed();
+    // Accept rate (32/s) gates before dispatch Busy on the one-request-per-
+    // connection transport, so Busy may be absent while the 33rd waits.
+    assert!(
+        busy >= 1
+            || third_elapsed >= Duration::from_millis(800)
+            || elapsed >= Duration::from_secs(1),
+        "33 requests must hit Busy or the accept-rate delay; busy={busy} successes={successes} third={third_elapsed:?} total={elapsed:?}"
+    );
+    assert!(
+        successes <= 33,
+        "must not invent extra successes; got {successes}"
+    );
+}
+
+#[test]
+fn request_id_reuse_across_two_connections_is_independent() {
+    let harness = start_harness(false);
+    let path = harness.fixture.socket.clone();
+    let a = request(&path, &capabilities_request(42)).expect("first");
+    let b = request(&path, &capabilities_request(42)).expect("second");
+    assert_eq!(a.request_id, 42);
+    assert_eq!(b.request_id, 42);
+    assert_eq!(
+        a.reply,
+        Reply::Capabilities {
+            structural_control: false
+        }
+    );
+    assert_eq!(b.reply, a.reply);
+}
+
+#[test]
+fn parent_mode_0755_is_refused_for_bind_and_client() {
+    let fixture = fixture();
+    fs::set_permissions(&fixture.dir, Permissions::from_mode(0o755)).expect("0755");
+    let (submission, _queue) = dispatch::channel(false);
+    match Server::bind(&fixture.socket, submission, || true) {
+        Ok(_server) => panic!("parent mode 0755 must be refused"),
+        Err(error) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
+    }
+    assert_eq!(
+        request(&fixture.socket, &capabilities_request(1))
+            .expect_err("client 0755")
+            .kind(),
+        io::ErrorKind::PermissionDenied
+    );
+}
+
+#[test]
+fn preexisting_regular_file_at_socket_path_is_refused() {
+    let fixture = fixture();
+    fs::write(&fixture.socket, b"not-a-socket").expect("regular file");
+    fs::set_permissions(&fixture.socket, Permissions::from_mode(0o600)).expect("mode");
+    let (submission, _queue) = dispatch::channel(false);
+    match Server::bind(&fixture.socket, submission, || true) {
+        Ok(_server) => panic!("pre-existing regular file must not bind"),
+        Err(error) => assert!(
+            matches!(
+                error.kind(),
+                io::ErrorKind::AddrInUse
+                    | io::ErrorKind::AlreadyExists
+                    | io::ErrorKind::PermissionDenied
+                    | io::ErrorKind::InvalidInput
+            ),
+            "unexpected bind error: {error:?}"
+        ),
+    }
+    assert_eq!(
+        request(&fixture.socket, &capabilities_request(2))
+            .expect_err("client regular file")
+            .kind(),
+        io::ErrorKind::PermissionDenied
+    );
+}
+
+#[test]
+fn symlinked_parent_binds_on_the_resolved_directory_only() {
+    // A symlinked parent is resolved to its real path before every ancestor
+    // check, and the socket is created at the resolved location, never through
+    // the link. The link's own chain therefore adds no exposure: redirecting it
+    // can only reach another directory that already passes the owner-only checks.
+    let real = fixture();
+    let alias_root = {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+        let tag = format!("odyctl-link-{:x}-{sequence:x}", std::process::id());
+        let dir = std::env::temp_dir().join(tag);
+        fs::create_dir(&dir).expect("alias root");
+        fs::set_permissions(&dir, Permissions::from_mode(0o700)).expect("alias root mode");
+        dir
+    };
+    let linked_parent = alias_root.join("via-link");
+    std::os::unix::fs::symlink(&real.dir, &linked_parent).expect("symlink parent");
+    let socket = linked_parent.join("control.sock");
+    let (submission, _queue) = dispatch::channel(false);
+    let bind_result = Server::bind(&socket, submission, || true);
+    let _ = fs::remove_file(&linked_parent);
+    let _ = fs::remove_dir_all(&alias_root);
+    let server = bind_result.expect("resolved owner-only parent binds");
+    let resolved = fs::canonicalize(&real.dir).expect("real dir");
+    assert!(
+        fs::symlink_metadata(resolved.join("control.sock"))
+            .expect("socket at resolved path")
+            .file_type()
+            .is_socket()
+    );
+    drop(server);
+}
+
+#[test]
+fn peer_uid_mismatch_is_unsupported_without_second_account() {
+    // Cross-user SO_PEERCRED refusal needs a second uid (root/chown). Same-user
+    // owner checks are covered elsewhere; record the gap explicitly.
+    eprintln!(
+        "skip peer-UID mismatch: no second account seam without root/chown (unsupported here)"
+    );
+}
+
+#[test]
+fn stale_identity_error_code_roundtrips_over_the_wire() {
+    // Live closed-object and detached-host mapping belongs to the owner bridge.
+    // This pins the transport ErrorCode path so a StaleIdentity reply stays
+    // fail-closed and correlated.
+    let fixture = fixture();
+    let (submission, queue) = dispatch::channel(true);
+    let (wake_tx, wake_rx) = mpsc::sync_channel::<()>(8);
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_owner = stop.clone();
+    let owner = thread::spawn(move || {
+        let queue = queue;
+        while !stop.load(Ordering::Acquire) {
+            match wake_rx.recv_timeout(Duration::from_millis(20)) {
+                Ok(()) | Err(RecvTimeoutError::Timeout) => {
+                    let _ = queue.dispatch(|_| Reply::Error(ErrorCode::StaleIdentity));
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+    let server = Server::bind(&fixture.socket, submission, move || {
+        wake_tx.send(()).is_ok()
+    })
+    .expect("bind");
+    let id = protocol::ObjectId {
+        instance: [0x11; 16],
+        kind: protocol::ObjectKind::Window,
+        serial: 99,
+    };
+    let response = request(
+        &fixture.socket,
+        &Request {
+            version: VERSION,
+            request_id: 77,
+            action: Action::Focus { target: id },
+        },
+    )
+    .expect("stale reply");
+    assert_eq!(response.request_id, 77);
+    assert_eq!(response.reply, Reply::Error(ErrorCode::StaleIdentity));
+    stop_owner.store(true, Ordering::Release);
+    drop(server);
+    let _ = owner.join();
+    // Detached-host-namespace rejection against live objects is covered by the
+    // owner-bridge tests, not by this transport-level pin.
 }

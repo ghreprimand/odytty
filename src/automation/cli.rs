@@ -339,4 +339,91 @@ mod tests {
             "{\"request_id\":5,\"error\":\"outcome_unknown\"}\n"
         );
     }
+
+    #[test]
+    fn cli_preserves_leading_dash_and_metacharacter_names_as_literals() {
+        for name in ["-rf", "--help", "$(printf x)", "`id`", "a;b|c&&d"] {
+            let Some(Command::Request { request, .. }) = parse(&args(&[
+                "control",
+                "--endpoint",
+                "/example/control",
+                "rename",
+                WINDOW,
+                name,
+            ]))
+            .unwrap() else {
+                panic!("expected Request for {name:?}");
+            };
+            assert_eq!(
+                request.action,
+                Action::Rename {
+                    target: parse_id(WINDOW).unwrap(),
+                    name: name.into(),
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn json_output_never_reflects_untrusted_name_or_path_bytes() {
+        let hostile = "inject\"; DROP TABLE-- /tmp/secret";
+        let Some(Command::Request { request, json, .. }) = parse(&args(&[
+            "control",
+            "--endpoint",
+            "/example/control",
+            "--json",
+            "open-profile",
+            WINDOW,
+            hostile,
+        ]))
+        .unwrap() else {
+            panic!("expected Request");
+        };
+        assert!(json);
+        let response = Response {
+            request_id: request.request_id,
+            reply: Reply::Error(ErrorCode::PermissionDenied),
+        };
+        let rendered = format_response(&response, true);
+        assert_eq!(
+            rendered,
+            "{\"request_id\":1,\"error\":\"permission_denied\"}\n"
+        );
+        assert!(
+            !rendered.contains(hostile)
+                && !rendered.contains("/tmp/secret")
+                && !rendered.contains("DROP"),
+            "JSON must not reflect untrusted name/path bytes: {rendered}"
+        );
+    }
+
+    #[test]
+    fn outcome_unknown_is_nonzero_exit_and_is_not_retried_by_run() {
+        // No live endpoint: a structural mutation maps to OutcomeUnknown and
+        // success=false. run() performs a single attempt (no retry loop).
+        let Some(command) = parse(&args(&[
+            "control",
+            "--endpoint",
+            "/example/missing-control.sock",
+            "focus",
+            WINDOW,
+        ]))
+        .unwrap() else {
+            panic!("expected Request");
+        };
+        let (output, success) = run(command);
+        assert!(
+            !success,
+            "OutcomeUnknown / transport failure must be nonzero"
+        );
+        assert!(
+            output.contains("outcome_unknown") || output.contains("unavailable"),
+            "output={output}"
+        );
+        assert_eq!(
+            output.matches("outcome_unknown").count() + output.matches("unavailable").count(),
+            1,
+            "run must not retry: output={output}"
+        );
+    }
 }

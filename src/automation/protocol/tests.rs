@@ -191,3 +191,83 @@ fn partial_frame_write_propagates_failure() {
         io::ErrorKind::BrokenPipe
     );
 }
+
+#[test]
+fn version_zero_and_u16_max_fail_closed_as_version_mismatch() {
+    let mut bytes = encode(&request(Action::Capabilities)).unwrap();
+    bytes[4..6].copy_from_slice(&0u16.to_le_bytes());
+    assert_eq!(decode(&bytes), Err(ErrorCode::VersionMismatch));
+    bytes[4..6].copy_from_slice(&u16::MAX.to_le_bytes());
+    assert_eq!(decode(&bytes), Err(ErrorCode::VersionMismatch));
+}
+
+#[test]
+fn name_at_max_bytes_is_accepted_and_one_over_is_rejected() {
+    let accepted = "n".repeat(MAX_NAME_BYTES);
+    assert_eq!(accepted.len(), MAX_NAME_BYTES);
+    let value = request(Action::Rename {
+        target: object(ObjectKind::Tab),
+        name: accepted.clone(),
+    });
+    assert_eq!(decode(&encode(&value).unwrap()).unwrap(), value);
+
+    let rejected = "n".repeat(MAX_NAME_BYTES + 1);
+    assert_eq!(
+        encode(&request(Action::Rename {
+            target: object(ObjectKind::Tab),
+            name: rejected,
+        })),
+        Err(ErrorCode::InvalidRequest)
+    );
+}
+
+#[test]
+fn csi_and_osc_bytes_in_names_never_encode() {
+    for name in [
+        "a\u{1b}[31mb".to_owned(),           // CSI-shaped ESC [
+        "a\u{1b}]0;title\u{07}b".to_owned(), // OSC-shaped ESC ]
+        "a\u{9b}31mb".to_owned(),            // single-byte CSI
+        "a\u{9d}0;x\u{9c}b".to_owned(),      // OSC / ST
+    ] {
+        assert!(
+            name.chars().any(char::is_control),
+            "fixture must contain a control scalar: {name:?}"
+        );
+        assert_eq!(
+            encode(&request(Action::OpenProfile {
+                window: object(ObjectKind::Window),
+                name: name.clone(),
+            })),
+            Err(ErrorCode::InvalidRequest),
+            "control-bearing name must not encode: {name:?}"
+        );
+    }
+}
+
+#[test]
+fn out_of_range_object_kind_byte_is_invalid_request() {
+    let mut bytes = encode(&request(Action::Status {
+        target: object(ObjectKind::Pane),
+    }))
+    .unwrap();
+    // Object layout after opcode: 16-byte instance, 1-byte kind, 8-byte serial.
+    let kind_index = 4 + 2 + 8 + 1 + 16;
+    assert_eq!(bytes[kind_index], 3, "fixture starts as Pane");
+    for kind in [4u8, 5, 255] {
+        bytes[kind_index] = kind;
+        assert_eq!(
+            decode(&bytes),
+            Err(ErrorCode::InvalidRequest),
+            "kind {kind} must fail closed"
+        );
+    }
+}
+
+#[test]
+fn unknown_action_tag_is_unsupported_capability() {
+    let mut bytes = encode(&request(Action::Capabilities)).unwrap();
+    bytes[14] = 42;
+    assert_eq!(decode(&bytes), Err(ErrorCode::UnsupportedCapability));
+    bytes[14] = 255;
+    assert_eq!(decode(&bytes), Err(ErrorCode::UnsupportedCapability));
+}
