@@ -258,8 +258,11 @@ The same development line now contains stable tab and workspace identities,
 same-process window merge foundations, cross-platform quick-terminal shortcut
 backends, and a bounded structural-control protocol with an explicit Unix CLI.
 These surfaces remain unreleased. Ordinary startup opens no automation endpoint,
-Windows named-pipe transport is pending, native file drop is not enabled, and
-live-device and three-platform acceptance remain open. See the
+Windows named-pipe transport is pending, and native file drops now stage a
+confirm-first shell-quoted insertion only when the launch shell owns and is the
+sole member of the Unix PTY foreground group. Windows insertion remains refused
+because ConPTY exposes no foreground-process-group authority; live-device and
+three-platform acceptance remain open. See the
 [v0.15.0 contracts](docs/v0.15.0-foundation.md) for the exact boundaries.
 
 The terminal core and visual experience layer are deliberately separate.

@@ -360,10 +360,12 @@ impl App {
         });
     }
 
-    /// True while any unconfirmed merge-relevant input (risky text paste or
-    /// pending image paste) is staged.
+    /// True while any unconfirmed merge-relevant input (risky text paste,
+    /// accumulated file drop, or pending image paste) is staged.
     pub(in crate::native) fn has_pending_merge_input_for_test(&self) -> bool {
-        self.pending_text_paste.is_some() || self.pending_image_paste.is_some()
+        self.pending_text_paste.is_some()
+            || self.pending_image_paste.is_some()
+            || self.pending_file_drop.is_some()
     }
 }
 

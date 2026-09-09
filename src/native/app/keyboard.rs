@@ -565,6 +565,7 @@ impl App {
     }
 
     pub(super) fn toggle_settings_overlay(&mut self) {
+        self.cancel_pending_text_paste();
         if self.search.is_open() {
             self.close_search(true);
         }
@@ -587,6 +588,7 @@ impl App {
         &mut self,
         target: crate::native::overlay::SettingsTarget,
     ) {
+        self.cancel_pending_text_paste();
         if self.search.is_open() {
             self.close_search(true);
         }
@@ -603,6 +605,7 @@ impl App {
     }
 
     pub(super) fn open_theme_picker_overlay(&mut self) {
+        self.cancel_pending_text_paste();
         if self.search.is_open() {
             self.close_search(true);
         }

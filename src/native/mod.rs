@@ -65,6 +65,7 @@ mod context_menu_ui;
 mod copy_mode;
 mod cursor;
 mod cvd_theme;
+mod file_drop;
 mod font_picker;
 mod gpu;
 mod image_decode;

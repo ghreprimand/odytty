@@ -962,7 +962,11 @@ same-process window ownership and merge routing, quick-terminal settings and
 platform shortcut backends, and a bounded structural-control protocol with an
 explicit Unix CLI. These are unreleased foundations, not completed platform or
 release acceptance. Ordinary startup opens no automation endpoint, Windows
-named-pipe transport remains pending, and native file drop is not enabled. The
+named-pipe transport remains pending, and native path drops use confirm-first
+shell-aware insertion only when an eligible local Unix launch shell still owns
+the PTY foreground group, is its sole process, and has a matching current
+executable. ConPTY provides no equivalent authority, so Windows insertion is
+refused. The
 [v0.15.0 ownership and platform contracts](docs/v0.15.0-foundation.md) record
 the exact implemented and remaining boundaries.
 

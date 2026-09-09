@@ -31,7 +31,9 @@ pub(super) use lifecycle::SHUTDOWN_REAP_DEADLINE;
 pub(super) use model::{Session, SessionToken, WorkspaceSet};
 pub(super) use persistence::{RestoreReport, RestoredLocalLeaf};
 pub(super) use presentation::CursorComparison;
-pub(super) use transport::{apply_local_backend_caps, seed_initial_working_directory};
+pub(super) use transport::{
+    SessionSource, apply_local_backend_caps, seed_initial_working_directory,
+};
 pub(super) use window_merge::{MergeError, MergePlan};
 
 #[cfg(not(test))]

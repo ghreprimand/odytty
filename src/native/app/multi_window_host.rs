@@ -921,6 +921,7 @@ fn implies_pending_work(event: &WindowEvent) -> bool {
             | WindowEvent::MouseWheel { .. }
             | WindowEvent::Ime(_)
             | WindowEvent::Touch(_)
+            | WindowEvent::DroppedFile(_)
     )
 }
 

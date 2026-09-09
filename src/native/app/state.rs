@@ -345,6 +345,9 @@ pub(in crate::native) struct App {
     /// Original clipboard/PRIMARY text held behind the suspicious-paste modal.
     /// Nothing reaches the PTY until an explicit outcome consumes this value.
     pub(super) pending_text_paste: Option<PendingTextPaste>,
+    pub(super) pending_file_drop: Option<(SessionToken, crate::native::file_drop::FileDropBatch)>,
+    #[cfg(test)]
+    pub(super) file_drop_shell_for_test: Option<crate::shell_integration::ShellKind>,
     /// v0.15.0 D New Window seam: a request to open a same-process sibling
     /// window, captured on the window-open chord and serviced by the process
     /// window owner (which spawns the sibling `App` in-process instead of
@@ -659,6 +662,9 @@ impl App {
             pending_exit: false,
             pending_image_paste: None,
             pending_text_paste: None,
+            pending_file_drop: None,
+            #[cfg(test)]
+            file_drop_shell_for_test: None,
             pending_new_window: None,
             pending_quick_toggle: false,
             // Fail-closed at the construction boundary: the allocator refuses

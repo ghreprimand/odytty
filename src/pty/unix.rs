@@ -45,6 +45,8 @@ fn classify_foreground<Fd: AsFd>(fd: Fd, shell_pgid: RawPid) -> ForegroundJob {
 }
 
 pub struct PtySession {
+    /// Shell family captured from the actual spawn command, never from terminal output.
+    launch_shell: Option<crate::shell_integration::ShellKind>,
     master: File,
     child: Child,
     /// Write end of a self-pipe that force-wakes every live [`PtyReader`]. A
@@ -275,7 +277,39 @@ impl PtySession {
         Self::spawn_command(dimensions, command)
     }
 
+    /// The launch-time shell family; attached and remote sessions are gated by the caller.
+    pub fn launch_shell(&self) -> Option<crate::shell_integration::ShellKind> {
+        self.launch_shell
+    }
+
+    /// Check launch-child eligibility for explicit local-path insertion.
+    ///
+    /// Called at the confirmed insertion boundary, never from terminal output.
+    /// The launch shell must still own the PTY foreground process group, be the
+    /// group's only process, and have a current executable matching the
+    /// launch-time shell family. A foreground job, same-group child, in-place
+    /// exec, missing metadata, or unsupported platform fails closed.
+    ///
+    /// The membership observation and subsequent PTY write are not atomic: a
+    /// process can join the group between them. This is the same accepted
+    /// observation race as close confirmation. An executable deliberately
+    /// renamed to a supported shell is also outside this boundary; a program
+    /// already executing as the user can write to the user's terminal itself.
+    pub fn file_drop_shell(&self) -> Option<crate::shell_integration::ShellKind> {
+        let expected = self.launch_shell?;
+        if self.foreground_job() != ForegroundJob::None
+            || !foreground_group_is_launch_child_only(self.child.id())
+        {
+            return None;
+        }
+        let executable = current_program(self.child.id())?;
+        (crate::shell_integration::ShellKind::from_program(executable.as_os_str())
+            == Some(expected))
+        .then_some(expected)
+    }
+
     pub fn spawn_command(dimensions: Dimensions, command: CommandBuilder) -> Result<Self> {
+        let launch_shell = crate::shell_integration::ShellKind::from_program(command.program());
         let (master, slave) = open_pty_pair(dimensions)?;
         let slave_fd = slave.as_raw_fd();
 
@@ -316,6 +350,7 @@ impl PtySession {
         let child = command.spawn().context("spawn pty command")?;
 
         Ok(Self {
+            launch_shell,
             master,
             child,
             reader_wake_write,
@@ -500,6 +535,143 @@ impl PtySession {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn current_program(pid: u32) -> Option<PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const MAX_GROUP_SCAN_PIDS: usize = 65_536;
+
+#[cfg(target_os = "linux")]
+fn proc_stat_pgrp(stat: &str) -> Option<u32> {
+    // Field 2 (`comm`) is parenthesized and may itself contain spaces or `)`.
+    // Fields after its final `)` are state (3), ppid (4), then pgrp (5).
+    let after_comm = stat.get(stat.rfind(')')? + 1..)?;
+    let mut fields = after_comm.split_whitespace();
+    let _state = fields.next()?;
+    let _ppid = fields.next()?;
+    fields.next()?.parse().ok()
+}
+
+#[cfg(target_os = "linux")]
+fn foreground_group_is_launch_child_only(launch_pid: u32) -> bool {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    let mut numeric_entries = 0usize;
+    let mut found_launch = false;
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        numeric_entries = numeric_entries.saturating_add(1);
+        if numeric_entries > MAX_GROUP_SCAN_PIDS {
+            return false;
+        }
+        let stat = match std::fs::read_to_string(entry.path().join("stat")) {
+            Ok(stat) => stat,
+            // The process exited between read_dir and this read (ENOENT or
+            // ESRCH). Any other failure hides a possible group member: refuse.
+            Err(err)
+                if err.kind() == std::io::ErrorKind::NotFound
+                    || err.raw_os_error() == Some(libc::ESRCH) =>
+            {
+                continue;
+            }
+            Err(_) => return false,
+        };
+        if proc_stat_pgrp(&stat) != Some(launch_pid) {
+            continue;
+        }
+        if pid != launch_pid {
+            return false;
+        }
+        found_launch = true;
+    }
+    found_launch
+}
+
+#[cfg(target_os = "macos")]
+fn current_program(pid: u32) -> Option<PathBuf> {
+    // Apple's proc_pidpath writes at most PROC_PIDPATHINFO_MAXSIZE bytes,
+    // including a terminator. It obtains kernel metadata, not terminal output.
+    let mut buffer = [0u8; 4096];
+    // SAFETY: the bounded writable buffer lives through this call; pid is our
+    // owned child. The API returns no borrowed pointer.
+    let length = unsafe {
+        libc::proc_pidpath(
+            pid.try_into().ok()?,
+            buffer.as_mut_ptr().cast(),
+            buffer.len() as u32,
+        )
+    };
+    if length <= 0 {
+        return None;
+    }
+    let path = CStr::from_bytes_until_nul(&buffer).ok()?;
+    Some(PathBuf::from(OsString::from_vec(path.to_bytes().to_vec())))
+}
+
+#[cfg(target_os = "macos")]
+fn foreground_group_is_launch_child_only(launch_pid: u32) -> bool {
+    // sys/proc_info.h defines PROC_PGRP_ONLY as 2. The libc crate exposes
+    // proc_listpids but not this private libproc selector constant.
+    const PROC_PGRP_ONLY: u32 = 2;
+    let pid_bytes = std::mem::size_of::<libc::pid_t>();
+    // SAFETY: a null buffer and zero size is libproc's documented size probe.
+    let required =
+        unsafe { libc::proc_listpids(PROC_PGRP_ONLY, launch_pid, std::ptr::null_mut(), 0) };
+    let Ok(required) = usize::try_from(required) else {
+        return false;
+    };
+    if required == 0 || required % pid_bytes != 0 {
+        return false;
+    }
+    let Some(buffer_bytes) = required.checked_add(pid_bytes) else {
+        return false;
+    };
+    if buffer_bytes / pid_bytes > MAX_GROUP_SCAN_PIDS {
+        return false;
+    }
+    let Ok(buffer_size) = libc::c_int::try_from(buffer_bytes) else {
+        return false;
+    };
+    let mut pids = vec![0 as libc::pid_t; buffer_bytes / pid_bytes];
+    // SAFETY: the vector is writable for exactly buffer_size bytes and remains
+    // live through the call. libproc returns the number of bytes written.
+    let filled = unsafe {
+        libc::proc_listpids(
+            PROC_PGRP_ONLY,
+            launch_pid,
+            pids.as_mut_ptr().cast(),
+            buffer_size,
+        )
+    };
+    let Ok(filled) = usize::try_from(filled) else {
+        return false;
+    };
+    if filled == 0 || filled >= buffer_bytes || filled % pid_bytes != 0 {
+        return false;
+    }
+    let members = &pids[..filled / pid_bytes];
+    members == [launch_pid as libc::pid_t]
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn current_program(_pid: u32) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn foreground_group_is_launch_child_only(_launch_pid: u32) -> bool {
+    false
+}
+
 struct PtyReader {
     file: File,
     /// Read end of the session's reader-wake self-pipe. When it becomes readable
@@ -661,6 +833,10 @@ fn winsize(dimensions: Dimensions, cell_metrics: CellMetrics) -> Winsize {
         ws_ypixel,
     }
 }
+
+#[cfg(test)]
+#[path = "unix/file_drop_shell_tests.rs"]
+mod file_drop_shell_tests;
 
 #[cfg(test)]
 mod tests {

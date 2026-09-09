@@ -141,6 +141,7 @@ mod lifecycle;
 // Env-gated memory-attribution diagnostic: the walk that fills a report from
 // live window state, and the sampler that schedules it. Inert when the gate is
 // unset.
+mod file_drop;
 pub(in crate::native) mod memory_report;
 mod mouse_protocol;
 mod multi_window;
@@ -313,6 +314,8 @@ struct PendingTextPaste {
     session: SessionToken,
     source: PasteSource,
     text: String,
+    bracketed: bool,
+    file_shell: Option<crate::shell_integration::ShellKind>,
 }
 
 /// Human-readable byte size for the image paste-through confirm prompt (F6-i7):

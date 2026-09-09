@@ -262,7 +262,7 @@ impl App {
         match outcome {
             OverlayOutcome::Consumed => {}
             OverlayOutcome::Close => {
-                self.pending_text_paste = None;
+                self.cancel_pending_text_paste();
                 self.flush_pending_overlay_settings();
                 self.overlay.close();
             }

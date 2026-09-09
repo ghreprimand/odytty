@@ -33,6 +33,8 @@ impl App {
             session,
             source,
             text,
+            bracketed: false,
+            file_shell: None,
         });
         self.reset_pointer_state_for_overlay();
         self.overlay.open_risky_paste(RiskyPasteDialog {
@@ -61,7 +63,21 @@ impl App {
         self.route_paste_text(PasteSource::Automation, text);
     }
 
+    /// A pending paste or file-drop batch is valid only while its preview
+    /// dialog is showing. Every overlay opener replaces the current dialog
+    /// through `Overlay::close`, so any opener that does not cancel explicitly
+    /// leaves stale pending state behind. Reconcile at the shared event entry
+    /// and at the next drop so no later event can extend or commit it.
+    pub(super) fn reconcile_displaced_pending_paste(&mut self) {
+        if (self.pending_text_paste.is_some() || self.pending_file_drop.is_some())
+            && !self.overlay.is_risky_paste()
+        {
+            self.cancel_pending_text_paste();
+        }
+    }
+
     pub(super) fn cancel_pending_text_paste(&mut self) {
+        self.cancel_file_drop();
         self.pending_text_paste = None;
         if self.overlay.is_risky_paste() {
             self.overlay.close();
@@ -69,6 +85,7 @@ impl App {
     }
 
     pub(super) fn commit_pending_text_paste(&mut self, one_line: bool) {
+        self.cancel_file_drop();
         let Some(pending) = self.pending_text_paste.take() else {
             self.overlay.close();
             return;
@@ -81,12 +98,18 @@ impl App {
         if self.sessions.active_id() != pending.session {
             return;
         }
-        let still_plain = self
+        let same_mode = self
             .terminal
             .lock()
-            .map(|terminal| !terminal.bracketed_paste_enabled())
+            .map(|terminal| terminal.bracketed_paste_enabled() == pending.bracketed)
             .unwrap_or(false);
-        if !still_plain {
+        if !same_mode {
+            return;
+        }
+
+        if let Some(shell) = pending.file_shell
+            && (one_line || !self.focused || self.file_drop_shell() != Ok(shell))
+        {
             return;
         }
 
@@ -101,6 +124,40 @@ impl App {
         let _source = pending.source;
         self.return_to_live();
         let _ = write_paste_text(&self.terminal, &self.writer, &text);
+    }
+
+    /// File paths use the same transient confirmation and encoder authority.
+    /// Their quoted tokens must not be transformed by Paste as One Line.
+    pub(super) fn hold_file_paste(
+        &mut self,
+        text: String,
+        shell: crate::shell_integration::ShellKind,
+    ) {
+        self.cancel_pending_text_paste();
+        let assessment = assess(&text);
+        let Ok(terminal) = self.terminal.lock() else {
+            return;
+        };
+        let bracketed = terminal.bracketed_paste_enabled();
+        drop(terminal);
+        self.pending_text_paste = Some(PendingTextPaste {
+            session: self.sessions.active_id(),
+            source: PasteSource::ExternalTextDrop,
+            text,
+            bracketed,
+            file_shell: Some(shell),
+        });
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_risky_paste(RiskyPasteDialog {
+            line_count: assessment.line_count,
+            byte_count: assessment.byte_count,
+            escaped_preview: assessment.escaped_preview,
+            preview_truncated: assessment.preview_truncated,
+            one_line_available: false,
+        });
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
     }
 
     #[cfg(test)]

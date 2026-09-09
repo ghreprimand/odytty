@@ -75,6 +75,7 @@ impl App {
         event_loop: &ActiveEventLoop,
         event: WindowEvent,
     ) -> bool {
+        self.reconcile_displaced_pending_paste();
         match event {
             WindowEvent::CloseRequested => {
                 self.on_close_requested(event_loop);
@@ -133,6 +134,10 @@ impl App {
                 key_event_diagnostics::log_ime_event(&ime);
                 self.handle_ime(ime);
             }
+            // Hover is intentionally inert: no path is previewed or trusted
+            // before the OS reports a completed drop.
+            WindowEvent::HoveredFile(_) | WindowEvent::HoveredFileCancelled => {}
+            WindowEvent::DroppedFile(path) => self.queue_file_drop(path),
             _ => {}
         }
         false

@@ -60,17 +60,19 @@ Development contracts: [`docs/v0.15.0-foundation.md`](docs/v0.15.0-foundation.md
 The current source includes stable tab/workspace identities, same-process
 window-host and merge foundations, quick-terminal settings and shortcut
 backends, plus a bounded structural-control protocol and explicit Unix CLI.
-Ordinary startup opens no automation endpoint. Windows named pipes, native file
-drop, remaining live-window behavior, independent device acceptance, blocking
-CI, and release closure remain open.
+Native path drops now stage confirm-first, shell-quoted insertion on eligible
+local Unix panes. Ordinary startup opens no automation endpoint. Windows named
+pipes, Windows file-drop insertion authority, remaining live-window behavior,
+independent device acceptance, blocking CI, and release closure remain open.
 
 - [ ] Cross-platform quick-terminal lifecycle and confirmed global shortcuts.
 - [x] Stable tab/workspace creation identities and Navigator action routing
       across pane closure, moves, merge, and restoration.
 - [ ] Owner-restricted structural automation protocol and CLI, without input or
       content access.
-- [ ] Native file drop with shell-aware path insertion through the shipped paste
-      policy.
+- [ ] Complete native file-drop platform validation and resolve the explicit
+      Windows refusal; eligible local Unix panes already use shell-aware path
+      insertion through the shipped paste policy.
 - [ ] Keyboard window merge and pull with stable target identities, in-window
       numerals, and atomic live-session transfer.
 - [x] Add the Electric Blue preset (`odyssey-electric-blue`) with blue-black

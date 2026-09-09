@@ -197,6 +197,7 @@ mod context_menu;
 mod ctrl_click_open;
 mod cursor_icon;
 mod cvd_wiring;
+mod file_drop_app;
 mod font_save;
 mod gpu_render;
 mod graphics_anim;

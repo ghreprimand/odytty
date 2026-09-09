@@ -91,6 +91,8 @@ const STILL_ACTIVE_CODE: u32 = 259;
 const KILL_EXIT_CODE: u32 = 1;
 
 pub struct PtySession {
+    /// Shell family captured from the actual spawn command, never from terminal output.
+    launch_shell: Option<crate::shell_integration::ShellKind>,
     /// The pseudoconsole handle plus its close state, shared with the
     /// child-waiter thread. P2-FIX: `ResizePseudoConsole` and
     /// `ClosePseudoConsole` are serialized under the [`PconShared`] mutex so a
@@ -250,7 +252,21 @@ impl PtySession {
         Self::spawn_command(dimensions, command)
     }
 
+    /// The launch-time shell family; attached and remote sessions are gated by the caller.
+    pub fn launch_shell(&self) -> Option<crate::shell_integration::ShellKind> {
+        self.launch_shell
+    }
+
+    /// Refuse local-path insertion on Windows.
+    ///
+    /// ConPTY has no foreground-process-group equivalent, so launch metadata
+    /// alone cannot establish that the launch shell currently owns input.
+    pub fn file_drop_shell(&self) -> Option<crate::shell_integration::ShellKind> {
+        None
+    }
+
     pub fn spawn_command(dimensions: Dimensions, command: CommandBuilder) -> Result<Self> {
+        let launch_shell = crate::shell_integration::ShellKind::from_program(command.program());
         // SAFETY: the whole spawn sequence is a chain of Win32 calls whose
         // ordering and handle ownership rules are documented inline. Every raw
         // handle is wrapped in an `OwnedHandle`/RAII guard immediately after
@@ -467,6 +483,7 @@ impl PtySession {
             };
 
             Ok(Self {
+                launch_shell,
                 pcon,
                 job,
                 process,

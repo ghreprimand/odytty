@@ -186,10 +186,16 @@ The choices have explicit behavior:
   state also cancels the held paste.
 
 Shortcut, command-palette/menu, context-menu, and Linux PRIMARY paste use the
-same policy. PRIMARY has no platform surface on macOS or Windows. External
-text-drop and automation-paste functions are reserved entry points with test
-coverage, not live user input routes. OS text-drop delivery is unimplemented,
-and the v0.15.0 automation protocol exposes no input operation. See the
+same policy. PRIMARY has no platform surface on macOS or Windows. Native path
+drops in unreleased v0.15.0 always stage a bounded preview and require explicit
+confirmation, even when bracketed paste is enabled. Confirmation rechecks the
+same pane, mode, focus, Unix PTY foreground group, sole group membership, and
+launch-shell executable; it never appends Enter. Remote and attached panes
+refuse local paths, and
+Windows refuses insertion because ConPTY exposes no equivalent foreground-group
+authority. External text-drop and automation-paste functions remain reserved
+entry points with test coverage, not live user input routes. The v0.15.0
+automation protocol exposes no input operation. See the
 [development boundaries](v0.15.0-foundation.md). The setting can be changed through
 Settings, `warn_on_risky_paste` in `odytty.conf`, or
 `ODYTTY_WARN_ON_RISKY_PASTE`; disabling it is an advanced global opt-out.

@@ -30,11 +30,11 @@ impl ShellKind {
         }
     }
 
-    /// Classify a shell from a spawned program's basename. Only the Unix
-    /// spawn-time injector calls this, so it is `cfg(unix)`; the cross-platform
-    /// CLI snippet path classifies from the user-supplied name via [`parse`].
+    /// Classify a Unix program basename for launch-time integration and saved
+    /// PTY launch metadata. This does not prove which interpreter is currently
+    /// reading input after a later exec. The CLI uses [`Self::parse`].
     #[cfg(unix)]
-    pub(super) fn from_program(program: &OsStr) -> Option<Self> {
+    pub(crate) fn from_program(program: &OsStr) -> Option<Self> {
         let name = std::path::Path::new(program)
             .file_name()
             .and_then(OsStr::to_str)?
@@ -43,12 +43,12 @@ impl ShellKind {
         Self::parse(&name)
     }
 
-    /// Classify a Windows shell from a spawned program's basename. Only the
-    /// Windows spawn-time injector calls this, so it is `cfg(windows)`.
+    /// Classify a Windows program basename for launch-time integration and
+    /// saved PTY launch metadata; this does not establish foreground identity.
     /// PowerShell (`pwsh.exe` / `powershell.exe`) is the only family with an
     /// OSC 133 hook surface; `cmd.exe` is intentionally unsupported.
     #[cfg(windows)]
-    pub(super) fn from_program(program: &OsStr) -> Option<Self> {
+    pub(crate) fn from_program(program: &OsStr) -> Option<Self> {
         let name = Path::new(program)
             .file_name()
             .and_then(OsStr::to_str)?
