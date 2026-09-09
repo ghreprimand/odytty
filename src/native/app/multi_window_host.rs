@@ -48,7 +48,7 @@ use crate::native::merge_picker::{MergeDirection, MergePicker};
 use crate::native::quick_terminal::{
     Accelerator, GlobalShortcutAdapter, MonitorRect, QuickTerminalAction, QuickTerminalAnimation,
     QuickTerminalController, QuickTerminalIdentity, QuickTerminalSettings, RevealTimeline,
-    ShortcutRegistration, SummonSink, platform_shortcut_adapter,
+    ShortcutRegistration, SummonSink, platform_shortcut_adapter, resolve_monitor_rect,
 };
 use crate::native::watchdog::WatchdogShared;
 use crate::native::window_owner::{
@@ -187,6 +187,19 @@ impl MultiWindowHost {
     pub(in crate::native) fn into_windows(mut self) -> Vec<App> {
         self.automation.shutdown();
         std::mem::take(&mut self.windows)
+    }
+
+    /// Persist only an ordinary, restorable primary window on clean shutdown.
+    /// The App's primary-instance guard remains authoritative, while the quick
+    /// identity is excluded explicitly so restore safety does not depend on the
+    /// quick App merely having been constructed as a secondary.
+    pub(in crate::native) fn save_restorable_shape_on_exit(&mut self) {
+        let quick = &self.quick;
+        if let Some(primary) = self.windows.iter_mut().find(|app| {
+            app.startup_error.is_none() && quick.window_is_restorable(app.process_window_id())
+        }) {
+            primary.save_shape_on_exit();
+        }
     }
 
     pub(in crate::native) fn set_automation_proxy(
@@ -488,7 +501,12 @@ impl MultiWindowHost {
     /// False during teardown when no window remains, so the stopping pass never
     /// dispatches the OS grab. Cheap: a single atomic load per window.
     pub(super) fn first_usable_frame_ready(&self) -> bool {
-        self.windows.iter().any(|app| app.frames_presented() > 0)
+        quick_registration_ready(
+            self.windows
+                .iter()
+                .filter(|app| self.quick.window_is_restorable(app.process_window_id()))
+                .map(App::frames_presented),
+        )
     }
 
     /// Dispatch the deferred registration exactly once, after the first usable
@@ -676,6 +694,11 @@ impl MultiWindowHost {
                     profile: self.quick.settings().profile.clone(),
                 };
                 if let Some(mut app) = (self.factory)(request) {
+                    // Enforce the role at the ownership boundary even though
+                    // sibling construction defaults to non-primary. This keeps
+                    // the quick App out of debounced autosave as well as the
+                    // explicit clean-exit persistence selection below.
+                    app.set_primary_instance(false);
                     app.on_resumed(event_loop);
                     let id = app.process_window_id();
                     self.windows.push(app);
@@ -803,6 +826,18 @@ impl MultiWindowHost {
         }
     }
 
+    /// Resolve focus-loss hiding without touching a native surface. A process
+    /// merge picker or an App-owned overlay/search/modal keeps the quick window
+    /// visible until that interaction releases ownership.
+    fn quick_focus_loss_action(&mut self, window_index: usize) -> QuickTerminalAction {
+        let interaction_owned = self.picker.is_some()
+            || self
+                .windows
+                .get(window_index)
+                .is_some_and(App::interaction_busy);
+        self.quick.on_focus_lost(interaction_owned)
+    }
+
     /// The target monitor work area for the quick terminal, in physical pixels,
     /// honoring the configured [`MonitorPolicy`] (v0.15.0 A):
     ///
@@ -819,18 +854,18 @@ impl MultiWindowHost {
     /// -> a 1080p default) so a stale index or a headless/monitor-less loop
     /// still yields a valid rect and never a silent no-show.
     fn quick_work_area(&self, event_loop: &ActiveEventLoop) -> MonitorRect {
-        let primary = || {
-            event_loop
-                .primary_monitor()
-                .or_else(|| event_loop.available_monitors().next())
-        };
+        let available: Vec<MonitorRect> = event_loop
+            .available_monitors()
+            .map(|monitor| monitor_rect_of(&monitor))
+            .collect();
+        let primary = event_loop.primary_monitor().as_ref().map(monitor_rect_of);
         // The monitor a live ordinary window is on, for the ActiveMonitor policy
         // and as the fallback for a gone indexed monitor. The quick window
         // itself is skipped so it does not anchor to its own last position. The
         // FOCUSED ordinary window wins - that is the monitor the user is on -
         // and only when none reports focus does any live ordinary window's
         // monitor stand in.
-        let active = || {
+        let active = {
             let quick_id = self.quick.identity().map(|identity| identity.window());
             let ordinary = || {
                 self.windows
@@ -841,28 +876,18 @@ impl MultiWindowHost {
                 .filter(|app| app.window_has_focus())
                 .find_map(App::current_monitor)
                 .or_else(|| ordinary().find_map(App::current_monitor))
+                .as_ref()
+                .map(monitor_rect_of)
         };
-        let chosen = match self.quick.settings().monitor {
-            crate::native::quick_terminal::MonitorPolicy::Primary => primary(),
-            crate::native::quick_terminal::MonitorPolicy::Index(i) => event_loop
-                .available_monitors()
-                .nth(i)
-                .or_else(active)
-                .or_else(primary),
-            crate::native::quick_terminal::MonitorPolicy::ActiveMonitor => {
-                active().or_else(primary)
-            }
-        };
-        match chosen {
-            Some(monitor) => monitor_rect_of(&monitor),
-            None => MonitorRect {
-                x: 0,
-                y: 0,
-                width: 1920,
-                height: 1080,
-            },
-        }
+        resolve_monitor_rect(self.quick.settings().monitor, &available, active, primary)
     }
+}
+
+/// Registration may begin only after some ordinary startup surface has
+/// presented. Kept pure so startup readiness is pinned without constructing an
+/// OS event loop or GPU surface.
+fn quick_registration_ready(frames_presented: impl IntoIterator<Item = u64>) -> bool {
+    frames_presented.into_iter().any(|frames| frames > 0)
 }
 
 /// Validate quick-terminal settings for registration. `Ok(accelerator)` when
@@ -1014,7 +1039,7 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
                 .quick
                 .owns_window(self.windows[idx].process_window_id())
         {
-            let action = self.quick.on_focus_lost();
+            let action = self.quick_focus_loss_action(idx);
             self.execute_quick_action(action, event_loop);
         }
         let redraw_early_exit = self.windows[idx].process_window_event(event_loop, event);
@@ -1322,6 +1347,134 @@ pub(super) mod tests {
             }
             other => panic!("expected Unavailable for a malformed shortcut, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn registration_readiness_requires_a_presented_frame() {
+        assert!(!quick_registration_ready([]));
+        assert!(!quick_registration_ready([0, 0, 0]));
+        assert!(quick_registration_ready([0, 1, 0]));
+    }
+
+    #[test]
+    fn focus_loss_waits_for_quick_overlay_and_merge_picker_interactions() {
+        let mut quick_window = headless();
+        quick_window.open_settings_overlay_for_test();
+        let quick_id = quick_window.process_window_id();
+        let mut host = host_of(vec![headless(), quick_window]);
+        host.quick.update_settings(QuickTerminalSettings {
+            enabled: true,
+            hide_on_focus_loss: true,
+            ..QuickTerminalSettings::default()
+        });
+        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
+        host.quick
+            .attach_window(QuickTerminalIdentity::new(quick_id));
+
+        assert_eq!(
+            host.quick_focus_loss_action(1),
+            QuickTerminalAction::Nothing,
+            "the quick window's overlay owns interaction"
+        );
+
+        // A process-wide merge picker also owns interaction, regardless of
+        // which candidate received the native focus transition.
+        let mut host = host_of(vec![headless(), headless()]);
+        let quick_id = host.windows[1].process_window_id();
+        host.quick.update_settings(QuickTerminalSettings {
+            enabled: true,
+            hide_on_focus_loss: true,
+            ..QuickTerminalSettings::default()
+        });
+        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
+        host.quick
+            .attach_window(QuickTerminalIdentity::new(quick_id));
+        host.open_picker(0, MergeDirection::MergeThisInto);
+        assert!(host.picker.is_some());
+        assert_eq!(
+            host.quick_focus_loss_action(1),
+            QuickTerminalAction::Nothing,
+            "the merge picker keeps its quick candidate visible"
+        );
+    }
+
+    #[test]
+    fn hiding_preserves_the_same_quick_app_and_session() {
+        let quick_window = headless();
+        let quick_id = quick_window.process_window_id();
+        let quick_session = quick_window.active_session_token_for_test();
+        let mut host = host_of(vec![headless(), quick_window]);
+        host.quick.update_settings(QuickTerminalSettings {
+            enabled: true,
+            ..QuickTerminalSettings::default()
+        });
+        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
+        host.quick
+            .attach_window(QuickTerminalIdentity::new(quick_id));
+
+        assert_eq!(host.quick.hide(), QuickTerminalAction::Hide);
+        assert_eq!(host.windows.len(), 2, "hide removes no App");
+        assert!(
+            host.windows
+                .iter()
+                .any(|app| app.process_window_id() == quick_id && app.owns_session(quick_session)),
+            "the same quick App still owns the same session"
+        );
+        assert_eq!(host.quick.summon(), QuickTerminalAction::Show);
+        assert_eq!(host.quick.identity().map(|id| id.window()), Some(quick_id));
+    }
+
+    #[test]
+    fn clean_exit_persistence_explicitly_excludes_the_quick_window() {
+        let mut ordinary = headless();
+        let mut quick_window = headless();
+        let quick_id = quick_window.process_window_id();
+
+        // Deliberately give the quick App the primary bit: the explicit role
+        // check must still exclude it rather than relying on that incidental
+        // construction default.
+        ordinary.set_primary_instance(false);
+        quick_window.set_primary_instance(true);
+        let mut host = host_of(vec![ordinary, quick_window]);
+        host.quick.update_settings(QuickTerminalSettings {
+            enabled: true,
+            ..QuickTerminalSettings::default()
+        });
+        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
+        host.quick
+            .attach_window(QuickTerminalIdentity::new(quick_id));
+
+        host.save_restorable_shape_on_exit();
+        assert_eq!(host.windows[0].autosave_saves_for_test(), 0);
+        assert_eq!(
+            host.windows[1].autosave_saves_for_test(),
+            0,
+            "the quick identity never reaches the restoration writer"
+        );
+
+        host.windows[0].set_primary_instance(true);
+        host.save_restorable_shape_on_exit();
+        assert_eq!(host.windows[0].autosave_saves_for_test(), 1);
+        assert_eq!(host.windows[1].autosave_saves_for_test(), 0);
+    }
+
+    #[test]
+    fn closing_or_retiring_the_quick_window_allows_one_clean_recreation() {
+        let quick_window = headless();
+        let quick_id = quick_window.process_window_id();
+        let mut host = host_of(vec![headless(), quick_window]);
+        host.quick.update_settings(QuickTerminalSettings {
+            enabled: true,
+            ..QuickTerminalSettings::default()
+        });
+        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
+        host.quick
+            .attach_window(QuickTerminalIdentity::new(quick_id));
+
+        host.detach_quick_if_owned(quick_id);
+        assert!(host.quick.identity().is_none());
+        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
+        assert_eq!(host.quick.summon(), QuickTerminalAction::Nothing);
     }
 
     #[test]

@@ -370,6 +370,36 @@ fn centered(origin: i32, available: u32, size: u32) -> i32 {
     origin + i32::try_from(slack).unwrap_or(0)
 }
 
+const FALLBACK_MONITOR_RECT: MonitorRect = MonitorRect {
+    x: 0,
+    y: 0,
+    width: 1920,
+    height: 1080,
+};
+
+/// Resolve a monitor policy from one current monitor snapshot. The live host
+/// converts winit monitor handles to [`MonitorRect`] first; keeping selection
+/// here makes stale-index and display-removal behavior deterministic and
+/// headlessly testable.
+pub(in crate::native) fn resolve_monitor_rect(
+    policy: MonitorPolicy,
+    available: &[MonitorRect],
+    active: Option<MonitorRect>,
+    primary: Option<MonitorRect>,
+) -> MonitorRect {
+    let primary_or_first = || primary.or_else(|| available.first().copied());
+    match policy {
+        MonitorPolicy::Primary => primary_or_first(),
+        MonitorPolicy::Index(index) => available
+            .get(index)
+            .copied()
+            .or(active)
+            .or_else(primary_or_first),
+        MonitorPolicy::ActiveMonitor => active.or_else(primary_or_first),
+    }
+    .unwrap_or(FALLBACK_MONITOR_RECT)
+}
+
 /// The reveal slide duration. Short enough to feel immediate, long enough to
 /// read as motion; collapsed to zero under reduced-motion / `Instant`.
 pub(in crate::native) const REVEAL_DURATION_MS: u32 = 140;
@@ -490,6 +520,11 @@ pub(in crate::native) struct QuickTerminalController {
     /// The identity of the dedicated window once created, or `None` before the
     /// first summon (lazy creation). There is never more than one.
     identity: Option<QuickTerminalIdentity>,
+    /// True after the first summon has issued `CreateAndShow` and before the
+    /// host either attaches the new window or reports creation failure through
+    /// `detach_window`. This closes the otherwise duplicate-producing interval
+    /// where repeated summons arrive before an identity exists.
+    creation_pending: bool,
 }
 
 impl QuickTerminalController {
@@ -498,6 +533,7 @@ impl QuickTerminalController {
             settings,
             visibility: QuickVisibility::Hidden,
             identity: None,
+            creation_pending: false,
         }
     }
 
@@ -537,6 +573,7 @@ impl QuickTerminalController {
     pub(in crate::native) fn attach_window(&mut self, identity: QuickTerminalIdentity) {
         debug_assert!(self.identity.is_none(), "quick terminal is a singleton");
         self.identity = Some(identity);
+        self.creation_pending = false;
         self.visibility = QuickVisibility::Visible;
     }
 
@@ -546,6 +583,7 @@ impl QuickTerminalController {
     /// are preserved.
     pub(in crate::native) fn detach_window(&mut self) {
         self.identity = None;
+        self.creation_pending = false;
         self.visibility = QuickVisibility::Hidden;
     }
 
@@ -577,9 +615,16 @@ impl QuickTerminalController {
                 self.visibility = QuickVisibility::Visible;
                 QuickTerminalAction::Show
             }
-            // First summon: create the singleton lazily. `attach_window` will
-            // record the identity and mark it visible.
-            (None, _) => QuickTerminalAction::CreateAndShow,
+            // First summon: reserve the singleton creation before returning the
+            // action. A second summon cannot issue another CreateAndShow while
+            // the host is still constructing and attaching the first window.
+            (None, _) if !self.creation_pending => {
+                self.creation_pending = true;
+                QuickTerminalAction::CreateAndShow
+            }
+            // Creation is already in flight. The host will attach it or clear
+            // the reservation through `detach_window` after a failed spawn.
+            (None, _) => QuickTerminalAction::Nothing,
         }
     }
 
@@ -597,8 +642,11 @@ impl QuickTerminalController {
 
     /// Called when the quick window loses focus. Hides it only when
     /// `hide_on_focus_loss` is set; otherwise it stays up.
-    pub(in crate::native) fn on_focus_lost(&mut self) -> QuickTerminalAction {
-        if self.settings.hide_on_focus_loss {
+    pub(in crate::native) fn on_focus_lost(
+        &mut self,
+        interaction_owned: bool,
+    ) -> QuickTerminalAction {
+        if self.settings.hide_on_focus_loss && !interaction_owned {
             self.hide()
         } else {
             QuickTerminalAction::Nothing
@@ -609,6 +657,16 @@ impl QuickTerminalController {
     /// keep the quick window out of ordinary window-close/restoration handling.
     pub(in crate::native) fn owns_window(&self, id: ProcessWindowId) -> bool {
         self.identity.map(|i| i.window()) == Some(id)
+    }
+
+    /// Ordinary session persistence may write only non-quick windows. Keeping
+    /// this query on the controller couples the live identity to the
+    /// `QuickTerminalIdentity::is_restorable` contract instead of relying on the
+    /// quick App's incidental secondary-instance state.
+    pub(in crate::native) fn window_is_restorable(&self, id: ProcessWindowId) -> bool {
+        self.identity
+            .filter(|identity| identity.window() == id)
+            .is_none_or(|identity| identity.is_restorable())
     }
 }
 
@@ -1130,6 +1188,67 @@ mod tests {
     }
 
     #[test]
+    fn monitor_policy_resolution_survives_index_removal() {
+        let first = MonitorRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let second = MonitorRect {
+            x: 1920,
+            y: 0,
+            width: 2560,
+            height: 1440,
+        };
+        let available = [first, second];
+
+        assert_eq!(
+            resolve_monitor_rect(
+                MonitorPolicy::Index(1),
+                &available,
+                Some(first),
+                Some(first)
+            ),
+            second
+        );
+        assert_eq!(
+            resolve_monitor_rect(
+                MonitorPolicy::ActiveMonitor,
+                &available,
+                Some(second),
+                Some(first)
+            ),
+            second
+        );
+        assert_eq!(
+            resolve_monitor_rect(
+                MonitorPolicy::Primary,
+                &available,
+                Some(second),
+                Some(first)
+            ),
+            first
+        );
+
+        // The indexed display disappeared while the quick window was hidden.
+        // The next summon sees a fresh one-monitor snapshot and falls back to
+        // the active monitor rather than retaining off-screen geometry.
+        assert_eq!(
+            resolve_monitor_rect(MonitorPolicy::Index(1), &[first], Some(first), Some(first)),
+            first
+        );
+        assert_eq!(
+            resolve_monitor_rect(MonitorPolicy::Index(9), &[first], None, Some(first)),
+            first
+        );
+        assert_eq!(
+            resolve_monitor_rect(MonitorPolicy::Index(9), &[], None, None),
+            FALLBACK_MONITOR_RECT
+        );
+    }
+
+    #[test]
     fn extent_clamps_degenerate_fractions() {
         // Zero/negative/NaN never produce a zero-size window.
         assert_eq!(QuickTerminalExtent::Fraction(0.0).resolve(1000), 10);
@@ -1240,6 +1359,28 @@ mod tests {
     }
 
     #[test]
+    fn creation_reservation_blocks_duplicate_then_clears_for_retry() {
+        let mut c = enabled_controller();
+        assert_eq!(c.summon(), QuickTerminalAction::CreateAndShow);
+        assert_eq!(
+            c.summon(),
+            QuickTerminalAction::Nothing,
+            "a summon before attach must not request a second window"
+        );
+        assert_eq!(
+            c.toggle(),
+            QuickTerminalAction::Nothing,
+            "rapid toggles while creation is pending remain deduplicated"
+        );
+
+        // A failed host creation clears the reservation so summon can retry.
+        c.detach_window();
+        assert_eq!(c.summon(), QuickTerminalAction::CreateAndShow);
+        c.attach_window(QuickTerminalIdentity::new(ProcessWindowId(9)));
+        assert_eq!(c.summon(), QuickTerminalAction::Nothing);
+    }
+
+    #[test]
     fn toggle_alternates_show_and_hide() {
         let mut c = enabled_controller();
         assert_eq!(c.toggle(), QuickTerminalAction::CreateAndShow);
@@ -1260,7 +1401,7 @@ mod tests {
         });
         c.summon();
         c.attach_window(QuickTerminalIdentity::new(ProcessWindowId(1)));
-        assert_eq!(c.on_focus_lost(), QuickTerminalAction::Hide);
+        assert_eq!(c.on_focus_lost(false), QuickTerminalAction::Hide);
         assert_eq!(c.visibility(), QuickVisibility::Hidden);
 
         // With the option off, focus loss leaves it up.
@@ -1271,14 +1412,36 @@ mod tests {
         });
         c.summon();
         c.attach_window(QuickTerminalIdentity::new(ProcessWindowId(2)));
-        assert_eq!(c.on_focus_lost(), QuickTerminalAction::Nothing);
+        assert_eq!(c.on_focus_lost(false), QuickTerminalAction::Nothing);
         assert_eq!(c.visibility(), QuickVisibility::Visible);
     }
 
     #[test]
+    fn focus_loss_does_not_hide_while_an_interaction_owns_input() {
+        let mut c = QuickTerminalController::new(QuickTerminalSettings {
+            enabled: true,
+            hide_on_focus_loss: true,
+            ..QuickTerminalSettings::default()
+        });
+        assert_eq!(c.summon(), QuickTerminalAction::CreateAndShow);
+        c.attach_window(QuickTerminalIdentity::new(ProcessWindowId(4)));
+
+        assert_eq!(c.on_focus_lost(true), QuickTerminalAction::Nothing);
+        assert_eq!(c.visibility(), QuickVisibility::Visible);
+        assert_eq!(c.on_focus_lost(false), QuickTerminalAction::Hide);
+    }
+
+    #[test]
     fn quick_identity_is_never_restorable() {
-        let id = QuickTerminalIdentity::new(ProcessWindowId(3));
+        let window = ProcessWindowId(3);
+        let id = QuickTerminalIdentity::new(window);
         assert!(!id.is_restorable());
+
+        let mut c = enabled_controller();
+        c.summon();
+        c.attach_window(id);
+        assert!(!c.window_is_restorable(window));
+        assert!(c.window_is_restorable(ProcessWindowId(8)));
     }
 
     #[test]

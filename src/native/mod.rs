@@ -426,21 +426,17 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     let run_result = event_loop
         .run_app(&mut host)
         .map_err(|err| NativeError::EventLoop(err.to_string()));
-    let mut windows = host.into_windows();
 
     // WP2 sub-ODP 8c: unconditional shape save on a clean exit (primary only,
     // self-guarded). Runs while the sessions are still live so per-pane cwds are
     // captured, and only when the loop exited cleanly so a startup failure never
-    // clobbers a good snapshot. The primary is window 0; siblings are always
-    // secondary and never save.
-    if run_result.is_ok()
-        && windows
-            .first()
-            .is_some_and(|app| app.startup_error.is_none())
-        && let Some(primary) = windows.first_mut()
-    {
-        primary.save_shape_on_exit();
+    // clobbers a good snapshot. The host explicitly excludes its quick identity;
+    // the selected App still self-guards on primary-instance ownership, so an
+    // ordinary sibling cannot write if the original primary already closed.
+    if run_result.is_ok() {
+        host.save_restorable_shape_on_exit();
     }
+    let mut windows = host.into_windows();
 
     // Tear down every live window deterministically: kill + reap each shell,
     // which closes the PTY master and unblocks the pump thread's `read`, then

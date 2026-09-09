@@ -251,7 +251,7 @@ impl MultiWindowHost {
         };
         // Every caller mutates structure; the owning window's interactive
         // guards apply exactly as they do for the keyboard ladder.
-        if self.windows[index].automation_interaction_busy() {
+        if self.windows[index].interaction_busy() {
             return Reply::Error(ErrorCode::Busy);
         }
         self.windows[index].settle_for_automation_mutation();

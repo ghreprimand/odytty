@@ -180,13 +180,13 @@ impl App {
         }
     }
 
-    /// Structural mutations honor the same ingress gate the keyboard ladder
-    /// applies: an open overlay, search, keyboard modal (copy mode, hint
-    /// selection, rename), or OSC 52 write confirmation owns interaction, and
-    /// switching panes underneath one would leave pane-specific modal state
-    /// active against another pane. The confirmation is checked here because
-    /// it consumes every key before the overlay and modal ladder runs.
-    pub(in crate::native) fn automation_interaction_busy(&self) -> bool {
+    /// Whether an open overlay, search, keyboard modal (copy mode, hint
+    /// selection, rename), or OSC 52 write confirmation owns this window's
+    /// interaction. Structural automation and quick-terminal focus-loss hiding
+    /// both honor this shared gate so neither switches state underneath a live
+    /// interaction. The confirmation is checked here because it consumes every
+    /// key before the overlay and modal ladder runs.
+    pub(in crate::native) fn interaction_busy(&self) -> bool {
         self.overlay.is_open()
             || self.search.is_open()
             || self.active_modal() != ActiveModal::None
