@@ -13,7 +13,7 @@
 /// is reported as a failure rather than a false `Registered`. This module is
 /// compiled only on Windows; its CI leg provides the platform build check.
 #[cfg(target_os = "windows")]
-mod windows_grab {
+pub(super) mod windows_grab {
     use super::super::{
         Accelerator, GlobalShortcutAdapter, ShortcutRegistration, SummonSink, windows_vk,
     };

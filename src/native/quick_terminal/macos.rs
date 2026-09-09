@@ -13,7 +13,7 @@
 /// module is compiled only on macOS; its CI leg provides the platform build
 /// check.
 #[cfg(target_os = "macos")]
-mod macos_grab {
+pub(super) mod macos_grab {
     use super::super::{
         Accelerator, GlobalShortcutAdapter, ShortcutRegistration, SummonSink, macos_keycode,
     };
