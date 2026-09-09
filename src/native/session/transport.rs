@@ -1021,8 +1021,13 @@ impl WorkspaceSet {
                 "session spawn unavailable without event loop proxy",
             ));
         };
-        let session_id = SessionToken(self.next_token);
-        self.next_token = self.next_token.saturating_add(1);
+        // Process-unique token (v0.15.0 D): a live local session may later be
+        // moved into a sibling window, so it must never share a token with a
+        // session in another window's arena. `None` means this window exhausted
+        // its disjoint token range; refuse the spawn rather than alias a token.
+        let session_id = self.mint_session_token().ok_or_else(|| {
+            std::io::Error::other("session token range exhausted for this window")
+        })?;
         let session = spawn(grid).map_err(std::io::Error::other)?;
         let reader = session.try_clone_reader().map_err(std::io::Error::other)?;
         let writer: PtyWriter = Arc::new(Mutex::new(crate::native::pty_writer::writer_shim(
@@ -1247,8 +1252,11 @@ impl WorkspaceSet {
             AttachClient::connect_within(socket, session_id, snapshot_deadline)
                 .map_err(std::io::Error::other)?;
 
-        let token = SessionToken(self.next_token);
-        self.next_token = self.next_token.saturating_add(1);
+        // Process-unique token (v0.15.0 D), as for local sessions. `None` means
+        // the window's disjoint token range is exhausted; refuse the attach.
+        let token = self.mint_session_token().ok_or_else(|| {
+            std::io::Error::other("session token range exhausted for this window")
+        })?;
 
         let mut terminal = terminal;
         terminal.set_local_hostname(self.local_hostname.clone());

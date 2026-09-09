@@ -363,15 +363,16 @@ Where an evidence file listed above does not exist yet, that absence is the
 recorded gap: the gate stays `OPEN` and the path is the agreed destination for
 its evidence.
 
-## Scope freeze while gates are open
+## Scope freeze during a stabilization decision
 
-Until the gates above are closed, work is limited to architecture
-stabilization, compatibility, correctness, security, performance evidence,
-documentation accuracy, and defects. New profiles, graphics protocols, themes,
-workflow layers, dashboards, and plugin or assistant systems wait. This is a
-sequencing decision, not a judgment about those features: measurement is
-cheaper before the surface grows, and every added surface enlarges G1, G3, and
-G4.
+The original stabilization program froze new features while collecting evidence
+for its release decision. That freeze is not a permanent ban on the later
+pre-1.0 milestones recorded in the [full roadmap](full-build-roadmap.md). Named
+profiles and other later features have since shipped under their own release
+contracts. During a new stabilization or 1.0 decision, freeze that candidate
+scope while collecting its evidence; additions require an explicit scope change
+and the affected compatibility, platform, and security checks. Publishing a
+pre-1.0 feature release does not close the remaining 1.0 gates.
 
 ## The 1.0 decision
 

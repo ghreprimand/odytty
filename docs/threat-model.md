@@ -791,8 +791,8 @@ Three prohibitions apply to every boundary below:
   identities rather than shell command strings.
 - **Validation and caps:** endpoint ownership/ACL, peer identity, frame length,
   field lengths, object generation, action authorization, and per-client rate
-  are checked before mutation. Text insertion and multi-pane effects require an
-  explicit authorized mode and still traverse paste or broadcast policy.
+  are checked before mutation. The v0.15.0 protocol has no text-insertion or terminal-content-read capability;
+  any future capability needs a separately reviewed contract.
 - **Failure behavior:** unverifiable peers, stale identities, unknown actions,
   partial frames, and over-cap requests fail closed without changing terminal
   state. Shutdown removes or invalidates the endpoint.
@@ -816,7 +816,10 @@ Three prohibitions apply to every boundary below:
 - **Planned default:** quote each path for the positively identified shell
   family, combine paths as inert arguments, and insert them through the shared
   paste policy with no implicit Enter. An unknown shell or unimplemented
-  shell/platform quoting combination has no direct-insert action.
+  shell/platform quoting combination has no direct-insert action. Current
+  development refuses native insertion on Linux, macOS, and Windows until
+  input ownership is established; process snapshots cannot authorize a later
+  PTY write. This planned insertion behavior is not shipped acceptance.
 - **Validation and caps:** bound the number and encoded length of paths before
   building preview text. Quoters are argv/text transformations with synthetic
   tests for Bash, Zsh, Fish, PowerShell, Windows drive paths, and UNC paths.

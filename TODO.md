@@ -1,5 +1,11 @@
 # OdyTTY — TODO
 
+Published release: **v0.14.0**.
+
+The milestones below distinguish published work, active development, explicit
+deferrals, and unmet evidence. Release corrections are listed in the
+[release index](docs/releases/README.md).
+
 Living delivery record and forward backlog for OdyTTY. Historical stage
 sections preserve what shipped in each development cycle; the unchecked items
 identify current future work. See the [`DEVLOG.md`](DEVLOG.md) index for the
@@ -31,12 +37,13 @@ provenance, clean source build, and Scoop, Homebrew, and AUR publication are
 complete. Native macOS and Windows on-device runtime checks remain explicitly
 unperformed because maintainer hardware was unavailable. Version 0.14.0
 (named profiles, external palette following, security review closure, and the
-Session Navigator) is implemented and in-tree; its hands-on acceptance and
-version checkpoint are open. Planned v0.15.0 work (quick terminal, local
+Session Navigator) is published. Profile and navigator acceptance,
+release-image testing, blocking CI, signed artifacts, provenance, and package
+propagation are complete. The isolated published-source release build also
+passed on Linux with Rust 1.97.1; no new MSRV claim is made. Planned v0.15.0
+work (quick terminal, local
 automation API, file drop, and keyboard-first window merge) is described in the
-roadmap. A checked item
-is delivered at the current head (or at the
-historical
+roadmap. A checked item is delivered at the current head (or at the historical
 milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as
@@ -47,10 +54,37 @@ recorded milestone before implementation.
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
 
-## v0.14.0: Profiles and Navigation (in progress)
+## v0.15.0: Quick Access, Local Control, File Drop, and Window Merge (in progress)
 
-Release state: implementation complete and in-tree; the hands-on acceptance
-run and the version checkpoint remain open.
+Development contracts: [`docs/v0.15.0-foundation.md`](docs/v0.15.0-foundation.md).
+The current source includes stable tab/workspace identities, same-process
+window-host and merge foundations, quick-terminal settings and shortcut
+backends, plus a bounded structural-control protocol and explicit Unix CLI.
+Ordinary startup opens no automation endpoint. Windows named pipes, native file
+drop, remaining live-window behavior, independent device acceptance, blocking
+CI, and release closure remain open.
+
+- [ ] Cross-platform quick-terminal lifecycle and confirmed global shortcuts.
+- [x] Stable tab/workspace creation identities and Navigator action routing
+      across pane closure, moves, merge, and restoration.
+- [ ] Owner-restricted structural automation protocol and CLI, without input or
+      content access.
+- [ ] Native file drop with shell-aware path insertion through the shipped paste
+      policy.
+- [ ] Keyboard window merge and pull with stable target identities, in-window
+      numerals, and atomic live-session transfer.
+- [x] Add the Electric Blue preset (`odyssey-electric-blue`) with blue-black
+      surfaces, lavender text, and cyan accents through the shared theme library.
+- [ ] Complete local gates, independent platform evidence, hands-on acceptance,
+      blocking CI, and release closure.
+
+## v0.14.0: Profiles and Navigation (published)
+
+Release state: published at `15a688844393225d50252af05b45a7ef7ae89351`.
+Profile and navigator acceptance, blocking CI, signed 17-asset verification,
+seven matching alias pairs, platform provenance, package propagation, and
+release-image testing are complete. The isolated source build passed on Linux
+with Rust 1.97.1; the package checkpoint is complete without repeating MSRV tests.
 
 - [x] Named launch profiles: versioned no-secret schema, deterministic
       precedence, atomic storage with malformed-file recovery, migration of the
@@ -72,15 +106,21 @@ run and the version checkpoint remain open.
       ([`docs/keybindings.md`](docs/keybindings.md)).
 - [x] One hit-test model for every overlay: pointer actions resolve from the
       rendered line list the renderer draws, with per-state click tests.
-- [ ] Internal hardening pass from the September code, security, and
+- [x] Shipped hardening from the September code, security, and
       documentation reviews: bracketed-paste sanitizer convergence, opener and
       hover path bounds, Sixel and inline-image work budgets, attach writer
       truncation propagation, overlay input edge cases, CI permissions, and
-      source-comment accuracy. Documentation corrections are landed; code items
-      are in progress.
-- [ ] Hands-on acceptance of profile and navigator behavior on Linux, then the
-      version checkpoint: retained local gates, blocking three-platform CI,
-      package checks, and artifact verification.
+      source-comment accuracy. Explicit efficiency deferrals remain below.
+- [x] Hands-on acceptance of profile and navigator behavior, blocking
+      three-platform CI, signed release publication, artifact verification, and
+      release-image testing.
+- [x] Record the isolated clean build from the signed published source archive
+      under the prescribed limits. Linux release build passed with Rust 1.97.1;
+      the v0.14.0 package checkpoint is complete without repeating MSRV tests.
+- [ ] Deferred efficiency work: consolidate per-cell color resolution only
+      after frozen-apparatus before/after evidence, and reduce scrollback-search
+      rescan frequency only with correctness and measurement evidence. Neither
+      is part of the source-package carryover.
 
 ## v0.13.0: Safer Command-Aware Work
 
@@ -726,7 +766,7 @@ not a stretch goal.
         the conventional blinking terminal default because `winit` exposes no
         OS caret-blink preference; the settings help text now says this plainly.
 - [x] Add CLI config introspection.
-  - [x] `--list-themes`: enumerate the 144 built-in themes as
+  - [x] `--list-themes`: enumerate the built-in theme library as
         `name`/appearance/family rows.
   - [x] `--list-fonts`: enumerate discoverable font files (path, filename-stem
         name, monospace on/off) from the renderer's bounded search directories.
@@ -746,8 +786,8 @@ not a stretch goal.
       `colors.toml` / `colors.json` / OdyTTY-Base16 compatibility are in-tree
       (`docs/v0.14.0-external-palette.md`), together with adversarial coverage
       for exact projections, startup isolation, replacement, malformed input,
-      and recovery. The retained local landing gate is green; blocking
-      three-platform CI remains open.
+      and recovery. The retained local landing gate and blocking
+      three-platform release CI passed.
 
 ## Visual Capability Parity (Stage 6 parity half)
 
@@ -1138,8 +1178,8 @@ feature validates against.
         `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
         in File Manager. See [`docs/keybindings.md`](docs/keybindings.md) for the chord reference.
 - [x] Deliver the current theme-library and configuration UX scope.
-  - [x] Built-in theme library expanded to 144 contrast-validated themes
-        (data-only, ongoing).
+  - [x] Built-in theme library expanded to 145 contrast-validated themes in
+        current unreleased source (144 in published v0.14.0; data-only, ongoing).
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
         entry.
   - [x] Surface font-load failures in the overlay instead of failing silently.

@@ -59,6 +59,23 @@ missing, queued, in progress, cancelled, failed, or from another commit.
 
 ## Release Readiness
 
+Every release requires `docs/releases/X.Y.Z.md`, linked from the release-notes
+index, with a matching `# OdyTTY vX.Y.Z` heading and a short opening summary.
+Run `python3 scripts/release-notes.py --version X.Y.Z --check` before tagging.
+Also run `python3 scripts/documentation-guard.py --release-version X.Y.Z`.
+This checks publication markers and the target TODO milestone; it does not
+verify the evidence behind completion claims. Follow the
+[documentation maintenance policy](documentation-policy.md) for candidate and
+post-publication status. The notes check rejects a missing, mismatched, or
+unreleased summary. CI checks the
+current package version; the source producer and publication workflow enforce
+the same requirement for the release version.
+
+Publication places that summary and a link to the version-pinned canonical notes
+above the download and verification information in `.github/release-downloads.md`.
+The full notes stay in the repository, and automatically generated GitHub changes
+remain below the existing preamble. Historical releases and assets are unchanged.
+
 The release must agree with the current public references:
 
 | Surface | Authoritative reference |
@@ -121,6 +138,18 @@ install and runtime smoke passes before or after publication. Those checks are
 recorded as **not performed**, not inferred from hosted CI or earlier releases.
 A defect found later is fixed in a patch release; the missing v0.13.0 evidence
 is not rewritten as a success.
+
+For v0.14.0, publication and blocking three-platform CI passed at tag commit
+`15a688844393225d50252af05b45a7ef7ae89351`. Verification covered all 17 assets,
+the signed checksum manifest, seven byte-identical alias pairs, platform
+provenance, and Scoop/Homebrew/AUR propagation. Profile and navigator hands-on
+acceptance and testing of all release images are complete. On
+2026-09-08, an isolated clean release build of the signed source archive passed
+on Linux under the prescribed resource limits. Its archive SHA-256 is
+`388ed7c448c1cc28f63d286013778496b6f34b59f2e1db6fe5301c7d5bf592bc`.
+That build used Rust 1.97.1 because rustup was unavailable; it establishes source
+package buildability, not another verification of the pinned 1.96 MSRV. No
+application reinstall or repeat image acceptance was part of this carryover.
 
 ## Release Artifacts
 
@@ -238,9 +267,10 @@ records the key identifier used as the published fingerprint. The same key must
 also be linked from the project website and each signed release's notes so users
 can compare it through more than one publication surface.
 
-Before the first signed tag, replace the repository's
-`REPLACE-WITH-PUBLIC-KEY-BEFORE-TAG` marker. Generate the release pair offline
-on a maintainer-controlled machine that is not a CI runner:
+The canonical release key is already published. The following command is for
+initial key provisioning or an explicitly planned rotation, not a routine
+release step. Generate a new pair offline on a maintainer-controlled machine
+that is not a CI runner:
 
 ```sh
 umask 077
@@ -268,12 +298,6 @@ their archived public keys; never rewrite or remove their signatures.
 
 ### 1. Update Release Metadata
 
-Before preparing artifacts, run `python3 scripts/release-notes.py --version <version> --check`.
-The matching `docs/releases/<version>.md` must be indexed and begin with a short
-publishable summary. Publication prepends that summary and the tagged notes link
-to the download guide in `.github/release-downloads.md`; the generated change list
-remains enabled. Run `python3 scripts/release-notes-test.py` for offline fixtures.
-
 Set `Cargo.toml` to `X.Y.Z` and refresh `Cargo.lock`. Keep the declared MSRV in
 `Cargo.toml` aligned with `rust-toolchain.toml` if the Rust version changes.
 
@@ -283,11 +307,18 @@ to the current `devlog/YYYY-MM.md` archive linked from
 [`DEVLOG.md`](../DEVLOG.md), using this shape:
 
 ```text
-## YYYY-MM-DD -- Release vX.Y.Z
+## YYYY-MM-DD -- Release vX.Y.Z -- Summary
 ```
 
 If the release begins a new month, create that archive and add its exact
 newest-first relative link to `DEVLOG.md` in the same commit.
+
+Before the version commit, reconcile README, SPEC, TODO, release notes, feature
+guides, known gaps, installer/package documentation, and the website handoff.
+Keep candidate status distinct from verified publication; leave only explicitly
+separated post-publication checks open. Run both documentation and notes guards.
+After publication, record the actual artifact/channel outcomes and update all
+published-version markers together. Never move an existing tag to repair prose.
 
 Commit these changes together and push `master`. Wait for the complete CI
 workflow on that exact commit to pass: the Linux, macOS, and Windows matrix jobs

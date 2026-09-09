@@ -37,6 +37,19 @@ use winit::event_loop::EventLoopProxy;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(in crate::native) struct SessionToken(pub(in crate::native) u64);
 
+// Cross-window token uniqueness (v0.15.0 D) does NOT use a
+// process-global per-session counter: that would make a live-spawned token
+// depend on how many sessions every other window happened to spawn first, which
+// is nondeterministic and untestable. Instead each `WorkspaceSet` allocates
+// tokens sequentially within its own DISJOINT range: the primary window's range
+// starts at 0 (tokens 0, 1, 2, ...), and the process window owner seeds each
+// sibling window's launch session with a large, unique base (see
+// `window_owner::next_window_token_base`), so window K allocates in
+// `[K*STRIDE, (K+1)*STRIDE)`. A window would need to outlive 2^40 sessions to
+// reach the next window's range, so the ranges never overlap and a merge moves
+// tokens between arenas without re-keying. Single-window and every test keep the
+// unchanged `0, 1, 2, ...` sequence because their base is 0.
+
 pub(in crate::native) struct Session {
     pub(in crate::native) id: SessionToken,
     pub(in crate::native) terminal: Arc<Mutex<Terminal>>,
@@ -254,9 +267,11 @@ pub(in crate::native) struct Session {
 /// [`PaneNode`]) and tracks which pane within the tab is focused. A fresh tab
 /// is a single [`PaneNode::Leaf`], which the render/resize paths treat
 /// byte-identically to today's single-session window (design doc §2.3). Pane
-/// splitting is wired in later work; for now every tab is a single
-/// leaf, so `tabs.len()` equals the session count and behaviour is unchanged.
+/// splits retain the same tab identity while adding or removing leaf sessions.
 pub(in crate::native) struct Tab {
+    /// Creation identity, seeded once from the first pane token. It remains
+    /// valid after that pane closes and moves with the tab between owners.
+    pub(in crate::native) identity: SessionToken,
     pub(in crate::native) layout: PaneNode,
     pub(in crate::native) focused: SessionToken,
     /// Optional user-assigned tab name (the Phase-0 rename feature). When set it
@@ -288,6 +303,7 @@ impl Tab {
     /// A single-pane tab wrapping one session.
     pub(super) fn single(token: SessionToken) -> Self {
         Self {
+            identity: token,
             layout: PaneNode::leaf(token),
             focused: token,
             title_override: None,
@@ -312,6 +328,9 @@ impl Tab {
 /// tab's panes reference by token. Per the §3.3 naming hazard this layer is
 /// never called a "session".
 pub(in crate::native) struct Workspace {
+    /// Creation identity, independent of active tab and surviving pane tokens.
+    /// Workspace and tab identities occupy separate object-kind namespaces.
+    pub(in crate::native) identity: SessionToken,
     /// User-visible, renameable label; defaults to "Workspace N". Read by the
     /// command palette / keyboard layer and the workspace-rail chrome.
     pub(in crate::native) name: String,
@@ -335,6 +354,7 @@ impl Workspace {
     /// A fresh workspace wrapping a single single-pane tab for `token`.
     pub(super) fn single(name: String, token: SessionToken) -> Self {
         Self {
+            identity: token,
             name,
             tabs: vec![Tab::single(token)],
             active_tab: 0,
@@ -370,6 +390,16 @@ pub(in crate::native) struct WorkspaceSet {
     pub(in crate::native) workspaces: Vec<Workspace>,
     pub(super) active_ws: usize,
     pub(super) next_token: u64,
+    /// Exclusive upper bound of this set's disjoint token range. A window mints
+    /// tokens in `[base, token_ceiling)` where `base` is its seed token (0 for
+    /// the primary window, a stride multiple for each sibling, seeded by
+    /// `window_owner::next_window_token_base`). `mint_session_token` REFUSES at
+    /// the ceiling rather than mint a token in the next window's range, so a
+    /// window that exhausts its 2^40-token stride fails a session spawn closed
+    /// instead of silently aliasing a sibling's token. Derived from the initial
+    /// session token in [`Self::new`]; the primary/test path (token 0) gets
+    /// `WINDOW_TOKEN_STRIDE`.
+    pub(super) token_ceiling: u64,
     pub(super) proxy: Option<EventLoopProxy<UserEvent>>,
     /// Whether output recording is currently enabled (`session_replay`). Newly
     /// spawned sessions inherit this so recording follows the live setting;
@@ -406,6 +436,14 @@ impl WorkspaceSet {
     ) -> Self {
         let token = initial.id;
         let next_token = token.0.saturating_add(1);
+        // This set's disjoint token range is `[base, ceiling)` where `base` is
+        // rounded down to the stride boundary at or below the seed token and
+        // `ceiling` is the next stride boundary strictly above it. The primary
+        // window and every test seed at token 0, so their ceiling is one full
+        // stride (2^40): unreachable in practice, and the sequence stays the
+        // unchanged 0, 1, 2, ....
+        let stride = crate::native::window_owner::WINDOW_TOKEN_STRIDE;
+        let token_ceiling = (token.0 / stride).saturating_add(1).saturating_mul(stride);
         let mut sessions = HashMap::new();
         sessions.insert(token, initial);
         Self {
@@ -413,6 +451,7 @@ impl WorkspaceSet {
             workspaces: vec![Workspace::single(default_workspace_name(0), token)],
             active_ws: 0,
             next_token,
+            token_ceiling,
             proxy,
             recording_enabled: false,
             local_hostname: None,
@@ -546,6 +585,34 @@ impl WorkspaceSet {
         self.active_workspace().active_tab
     }
 
+    /// Mint the next token for a session this set is about to insert, advancing
+    /// the set's own sequential counter. Production live-spawn, attach, and
+    /// restore paths mint through here. Uniqueness ACROSS windows comes from
+    /// each set allocating within its own disjoint range (the owner seeds a
+    /// sibling window's base; the primary window's base is 0), so within one
+    /// window this stays the unchanged `0, 1, 2, ...` sequence.
+    pub(in crate::native) fn mint_session_token(&mut self) -> Option<SessionToken> {
+        // Refuse at the disjoint-range ceiling rather than mint a token that
+        // would fall in a sibling window's range (or, at u64 saturation, alias
+        // this set's own last token). A spawn caller treats `None` as an
+        // exhausted-range spawn refusal; in practice a window never approaches
+        // 2^40 sessions, so this only fires on a violated invariant.
+        if self.next_token >= self.token_ceiling {
+            return None;
+        }
+        let token = SessionToken(self.next_token);
+        self.next_token = self.next_token.saturating_add(1);
+        Some(token)
+    }
+
+    /// True when this set's arena currently holds `token`. The window owner uses
+    /// this to route a `UserEvent` to the window that presently owns the
+    /// session, so a PTY wake that arrives after a merge lands on the new owner
+    /// and a wake for an already-closed session is a no-op.
+    pub(in crate::native) fn owns_session(&self, token: SessionToken) -> bool {
+        self.sessions.contains_key(&token)
+    }
+
     pub(in crate::native) fn get_mut(&mut self, token: SessionToken) -> Option<&mut Session> {
         self.sessions.get_mut(&token)
     }
@@ -616,6 +683,27 @@ impl WorkspaceSet {
         self.sessions.insert(id, session);
         self.active_workspace_mut().tabs.push(Tab::single(id));
         id
+    }
+
+    /// Move a single-session set's sole session onto `new` and rebuild every
+    /// tab/pane reference to it (test-only). Lets a cross-window merge test give
+    /// two headless windows disjoint tokens without an event-loop proxy, since
+    /// both default headless launch sessions are token 0.
+    #[cfg(test)]
+    pub(in crate::native) fn rekey_sole_session_for_test(&mut self, new: SessionToken) {
+        assert_eq!(self.sessions.len(), 1, "rekey expects exactly one session");
+        let (_old, mut session) = self.sessions.drain().next().expect("one session present");
+        session.id = new;
+        self.sessions.insert(new, session);
+        for ws in &mut self.workspaces {
+            ws.identity = new;
+            for tab in &mut ws.tabs {
+                tab.identity = new;
+                tab.layout = crate::native::layout::PaneNode::leaf(new);
+                tab.focused = new;
+            }
+        }
+        self.next_token = self.next_token.max(new.0.saturating_add(1));
     }
 
     /// Insert `session` into the arena and append it as a brand-new

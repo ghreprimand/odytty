@@ -8,6 +8,7 @@
 
 use crate::session_host::ListedSession;
 
+use super::merge_picker::MergeDirection;
 use super::session::{SessionToken, WorkspaceSet};
 
 /// Snapshot safety cap. Display remains bounded by the picker's independent
@@ -37,10 +38,9 @@ pub(super) enum ClosedNavigatorKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum NavigatorTarget {
-    /// The first live pane token gives a workspace a stable identity without
-    /// inventing parallel workspace ids.
+    /// The workspace's latched creation identity; not a current pane token.
     Workspace(SessionToken),
-    /// A tab's focused pane is its existing stable identity.
+    /// The tab's latched creation identity, preserved when pane focus changes.
     Tab(SessionToken),
     Live(SessionToken),
     Detached(String),
@@ -71,15 +71,48 @@ pub(super) struct NavigatorEntry {
     pub(super) preview: Vec<String>,
 }
 
+/// Resolve a snapshotted target against current ownership. A tab/workspace ID
+/// can outlive its original pane, so only the Live variant looks up a pane ID.
+/// Returns the object's currently focused pane for existing App action routing.
+pub(super) fn live_token(set: &WorkspaceSet, target: &NavigatorTarget) -> Option<SessionToken> {
+    let token = match target {
+        NavigatorTarget::Workspace(id) => {
+            let workspace = set
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.identity == *id)?;
+            workspace.tabs.get(workspace.active_tab)?.focused
+        }
+        NavigatorTarget::Tab(id) => {
+            set.workspaces
+                .iter()
+                .flat_map(|workspace| &workspace.tabs)
+                .find(|tab| tab.identity == *id)?
+                .focused
+        }
+        NavigatorTarget::Live(token) => *token,
+        NavigatorTarget::Detached(_) => return None,
+    };
+    set.locate_token(token).map(|_| token)
+}
+
 /// Navigator commands carry only existing stable ownership identifiers. The
 /// App resolves them through WorkspaceSet and its established command paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum NavigatorAction {
+    Focus(NavigatorTarget),
     Rename(NavigatorTarget),
     Duplicate(NavigatorTarget),
     Move(NavigatorTarget),
     Close(NavigatorTarget),
     Reopen,
+    /// v0.15.0 D window-level action (no session target): open the keyboard
+    /// window-merge target picker in this direction. Offered only when the owner
+    /// has told the window a sibling exists, so it never opens an empty picker.
+    /// Routes through the same `request_merge_picker` seam the command palette
+    /// uses; the process window owner services the picker over its live window
+    /// list.
+    MergeWindow(MergeDirection),
 }
 
 impl NavigatorEntry {
@@ -142,13 +175,7 @@ impl From<ListedSession> for NavigatorEntry {
 pub(super) fn live_entries(set: &WorkspaceSet, include_preview: bool) -> Vec<NavigatorEntry> {
     let mut entries = Vec::new();
     for (workspace_index, workspace) in set.workspaces.iter().enumerate() {
-        let Some(workspace_token) = workspace
-            .tabs
-            .first()
-            .and_then(|tab| tab.layout.leaves().into_iter().next())
-        else {
-            continue;
-        };
+        let workspace_token = workspace.identity;
         entries.push(NavigatorEntry {
             target: NavigatorTarget::Workspace(workspace_token),
             stable_id: format!("workspace:{}", workspace_token.0),
@@ -161,8 +188,8 @@ pub(super) fn live_entries(set: &WorkspaceSet, include_preview: bool) -> Vec<Nav
         });
         for tab in &workspace.tabs {
             entries.push(NavigatorEntry {
-                target: NavigatorTarget::Tab(tab.focused),
-                stable_id: format!("tab:{}", tab.focused.0),
+                target: NavigatorTarget::Tab(tab.identity),
+                stable_id: format!("tab:{}", tab.identity.0),
                 name: tab
                     .title_override
                     .clone()

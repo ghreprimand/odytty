@@ -1,5 +1,10 @@
 # OdyTTY Runtime Knobs
 
+This reference follows the current source tree. The `quick_terminal` setting
+and `quick_terminal_*` family are unreleased v0.15.0 development and are absent
+from published v0.14.0 packages; enabling them does not establish native-platform
+acceptance. See the [development contract](v0.15.0-foundation.md).
+
 OdyTTY loads native runtime settings from built-in defaults, then
 `odytty.conf`, then environment variables. Environment variables always win and
 remain pinned for the session, so use `odytty.conf` for durable preferences and
@@ -139,6 +144,15 @@ environment variable was not set at startup.
 | `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `on` |
 | `cursor_trail_strength` | `ODYTTY_CURSOR_TRAIL_STRENGTH` | `subtle`, `balanced`, `expressive` | `balanced` |
 | `reduced_motion` | `ODYTTY_REDUCED_MOTION` | `on`, `off` | `off` |
+| `quick_terminal` | `ODYTTY_QUICK_TERMINAL` | `on`, `off` | `off` |
+| `quick_terminal_shortcut` | `ODYTTY_QUICK_TERMINAL_SHORTCUT` | Accelerator, e.g. `F12` or `ctrl+shift+grave` | `F12` |
+| `quick_terminal_edge` | `ODYTTY_QUICK_TERMINAL_EDGE` | `top`, `bottom`, `left`, `right` | `top` |
+| `quick_terminal_coverage` | `ODYTTY_QUICK_TERMINAL_COVERAGE` | Percentage e.g. `40%` or pixels e.g. `600px` | `40%` |
+| `quick_terminal_span` | `ODYTTY_QUICK_TERMINAL_SPAN` | Percentage e.g. `100%` or pixels e.g. `800px` | `100%` |
+| `quick_terminal_monitor` | `ODYTTY_QUICK_TERMINAL_MONITOR` | `active`, `primary`, or a monitor index | `active` |
+| `quick_terminal_animation` | `ODYTTY_QUICK_TERMINAL_ANIMATION` | `instant`, `slide` | `instant` |
+| `quick_terminal_hide_on_focus_loss` | `ODYTTY_QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS` | `on`, `off` | `off` |
+| `quick_terminal_profile` | `ODYTTY_QUICK_TERMINAL_PROFILE` | Profile name, empty for default | (empty) |
 | `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `on` |
 | `new_output_fade_ms` | `ODYTTY_NEW_OUTPUT_FADE_MS` | Float, `50..=1000` ms | `250` |
 | `keybinds` | `ODYTTY_KEYBINDS` | `chord=action` list | empty |

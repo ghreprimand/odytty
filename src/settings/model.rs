@@ -1021,6 +1021,37 @@ pub struct Settings {
     /// new-output fade. When on, the effects use static or instant behavior
     /// without mutating their stored individual settings.
     pub reduced_motion: bool,
+    /// Whether the dedicated, summonable quick terminal (v0.15.0 A) is enabled.
+    /// Off by default (opt-in): when off no global shortcut is registered and no
+    /// dedicated window is created, so startup readiness is unchanged.
+    pub quick_terminal: bool,
+    /// The human-readable global shortcut accelerator that toggles the quick
+    /// terminal (e.g. `F12` or `ctrl+shift+grave`). Only meaningful when
+    /// `quick_terminal` is on; whether the OS can grant the grab is
+    /// platform-dependent and reported honestly at startup.
+    pub quick_terminal_shortcut: String,
+    /// Which monitor edge the quick terminal anchors to: `top` (default),
+    /// `bottom`, `left`, or `right`. Only meaningful when `quick_terminal` is on.
+    pub quick_terminal_edge: String,
+    /// How far the quick terminal extends from its edge, as a percentage of the
+    /// monitor work area (e.g. `40%`) or an absolute pixel size (e.g. `600px`).
+    pub quick_terminal_coverage: String,
+    /// How wide (Top/Bottom) or tall (Left/Right) the quick terminal is, as a
+    /// percentage of the monitor work area or an absolute pixel size.
+    pub quick_terminal_span: String,
+    /// Which monitor the quick terminal uses: `active` (default), `primary`, or
+    /// a fixed monitor index.
+    pub quick_terminal_monitor: String,
+    /// Quick terminal reveal animation: `instant` (default, no motion) or
+    /// `slide`. Always forced to instant when `reduced_motion` is on.
+    pub quick_terminal_animation: String,
+    /// Whether the quick terminal hides automatically when it loses focus. Off
+    /// by default (per the foundation contract) so it stays put until summoned
+    /// away.
+    pub quick_terminal_hide_on_focus_loss: bool,
+    /// Optional profile name the quick session launches with. Empty uses the
+    /// default profile.
+    pub quick_terminal_profile: String,
     /// Whether OSC 52 clipboard read/query replies are enabled. Off by default
     /// to avoid silent clipboard exfiltration.
     pub osc52_read: bool,
@@ -1465,6 +1496,15 @@ impl Default for Settings {
             cursor_trail_strength: CursorTrailStrength::default(),
             cursor_motion: DEFAULT_CURSOR_MOTION,
             reduced_motion: DEFAULT_REDUCED_MOTION,
+            quick_terminal: DEFAULT_QUICK_TERMINAL,
+            quick_terminal_shortcut: DEFAULT_QUICK_TERMINAL_SHORTCUT.to_owned(),
+            quick_terminal_edge: DEFAULT_QUICK_TERMINAL_EDGE.to_owned(),
+            quick_terminal_coverage: DEFAULT_QUICK_TERMINAL_COVERAGE.to_owned(),
+            quick_terminal_span: DEFAULT_QUICK_TERMINAL_SPAN.to_owned(),
+            quick_terminal_monitor: DEFAULT_QUICK_TERMINAL_MONITOR.to_owned(),
+            quick_terminal_animation: DEFAULT_QUICK_TERMINAL_ANIMATION.to_owned(),
+            quick_terminal_hide_on_focus_loss: DEFAULT_QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS,
+            quick_terminal_profile: DEFAULT_QUICK_TERMINAL_PROFILE.to_owned(),
             osc52_read: false,
             osc52_write: Osc52WritePolicy::default(),
             synthetic_styles: true,

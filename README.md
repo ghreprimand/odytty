@@ -1,5 +1,10 @@
 # OdyTTY
 
+Published release: **v0.14.0**.
+
+Current development work is tracked in [TODO.md](TODO.md). Release evidence
+and historical corrections are listed in the [release index](docs/releases/README.md).
+
 [Website](https://odytty.unfinished-works.com) |
 [Latest release](https://github.com/ghreprimand/odytty/releases/latest) |
 [Release notes](docs/releases/README.md) |
@@ -164,7 +169,8 @@ sessions.
   searchable Session Navigator with bounded metadata, confirmed close actions,
   a process-lifetime fresh-shell reopen history, and an optional redacted preview.
 - **Configuration without ceremony:** a live settings panel, command palette,
-  font and theme pickers, 144 built-in themes, user themes, a theme builder
+  font and theme pickers, 145 built-in themes in current unreleased source
+  (144 in published v0.14.0), user themes, a theme builder
   with sliders and click-to-edit hex values (including capture of a pane's live
   colors into a new theme),
   backgrounds, transparency, bloom, CRT, and retro effects. Config-file editing
@@ -180,7 +186,7 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.14.0 is prepared and in-tree,
+OdyTTY is a broad pre-1.0 terminal. Version 0.14.0 is published,
 adding named launch profiles, external palette following, and a unified Session
 Navigator, and closing an external security review. Named profiles have a
 versioned no-secret on-disk schema, deterministic precedence, atomic storage
@@ -193,8 +199,8 @@ defaults, precedence, launch surfaces, and switching. External
 palette following is an optional opt-in that applies a complete local palette
 file through the existing theme seam with fail-closed parsing and last-known-good
 retention. The Session Navigator searches workspaces, tabs, panes, and
-detachable sessions with a redacted opt-in preview. The most recent published
-release is v0.13.0.
+detachable sessions with a redacted opt-in preview. The release index above
+records the published version.
 
 The v0.14.0 work does not optimize rendering, terminal storage, GPU allocation,
 or presentation timing, so it carries forward rather than relabels the v0.12.0
@@ -208,29 +214,25 @@ Separately classified software-endpoint results, memory composition, and
 scrollback scaling are published alongside W6 without pooling their evidence
 classes; W7's four-hour memory-growth workload remains explicitly deferred.
 
-The tagged v0.13.0 release passed exact-commit blocking Linux, macOS, and
-Windows CI, all seven artifact producers and smoke tests, the locked dependency
-audit, Minisign and GitHub provenance verification, and Scoop, Homebrew, and AUR
-publication. The 16 published assets passed an independent checksum,
-signature, alias-identity, provenance, and source-build check. For v0.14.0 the
-same release-closure gate, operator acceptance run, version checkpoint, blocking
-three-platform CI, package checks, and artifact verification are release
-requirements whose results are recorded against the tagged commit at release
-time; they are not asserted in advance here. Native macOS and
-Windows on-device runtime checks remain unperformed because maintainer hardware
-was unavailable; automated platform evidence is not relabeled as a manual
-pass. Full evidence and limitations are recorded in the [release
+The tagged v0.14.0 release passed blocking Linux, macOS, and Windows CI,
+release publication, signed checksums for all 17 assets, seven byte-identical
+alias pairs, platform provenance checks, and Scoop, Homebrew, and AUR
+propagation. Profile and navigator hands-on acceptance and release-image testing
+are complete. An isolated clean release build from the signed source archive
+also passed on Linux with Rust 1.97.1; this was not a repeat MSRV verification.
+These results do not imply exhaustive device or application coverage. Full
+evidence and limitations are recorded in the [release
 guide](docs/release.md). The full benchmark results remain in
 [docs/benchmark-results.md](docs/benchmark-results.md); carried-forward results
 do not cover every GPU, compositor, IME, font, or hardware configuration.
 
 Linux is the primary target. macOS and Windows are supported, shipped, and
 blocking CI targets. Known gaps include Windows detached and resumable session
-hosting, profiles, full bidi and complex-script reordering, and SVG-in-OpenType
-color glyphs.
+hosting, full bidi and complex-script reordering, and SVG-in-OpenType color
+glyphs.
 The [v0.13.0 foundation contract](docs/v0.13.0-foundation.md) records the
-security, architecture, platform, and measurement boundaries used by this
-release. Named launch profiles have a versioned on-disk foundation and a settings Profile
+security, architecture, platform, and measurement boundaries carried forward
+from v0.13.0. Named launch profiles have a versioned on-disk foundation and a settings Profile
 Manager for local create/edit/import/export/delete. The editor exposes the
 complete profile schema, including bounded launch and switching lists, visual
 settings, cursor/effect overrides, saved layout, and platform applicability
@@ -247,6 +249,18 @@ opt-in that applies a complete local palette file through the existing theme
 seam without delaying ordinary startup. See
 [current work](TODO.md) and the
 [full roadmap](docs/full-build-roadmap.md) for later milestones.
+
+Current v0.15.0 development adds the `odyssey-electric-blue` preset through the
+existing cross-platform theme path. It does not change the default theme or any
+effect setting. See the [theme reference](docs/themes.md#electric-blue).
+
+The same development line now contains stable tab and workspace identities,
+same-process window merge foundations, cross-platform quick-terminal shortcut
+backends, and a bounded structural-control protocol with an explicit Unix CLI.
+These surfaces remain unreleased. Ordinary startup opens no automation endpoint,
+Windows named-pipe transport is pending, native file drop is not enabled, and
+live-device and three-platform acceptance remain open. See the
+[v0.15.0 contracts](docs/v0.15.0-foundation.md) for the exact boundaries.
 
 The terminal core and visual experience layer are deliberately separate.
 See the [ownership boundary](SPEC.md#ownership-boundary),

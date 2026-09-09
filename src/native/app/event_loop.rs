@@ -4,6 +4,15 @@
 //! The event ingress stays in one place: every arm forwards to the handler that
 //! owns the responsibility, and the trailing pending-exit check runs after the
 //! window-event match exactly as before.
+//!
+//! The window-event match body lives in [`App::process_window_event`] so the
+//! single-window `ApplicationHandler` impl here and the multi-window
+//! [`crate::native::app::multi_window_host::MultiWindowHost`] dispatch the exact
+//! same arms to the exact same handlers - the two run paths cannot drift on
+//! which event reaches which method. The single-window impl treats a confirmed
+//! close as the process exit; the host routes it through
+//! [`crate::native::window_owner::resolve_window_close`] so a sibling close
+//! removes only that window.
 
 use super::*;
 
@@ -18,6 +27,54 @@ impl ApplicationHandler<UserEvent> for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
+        let redraw_early_exit = self.process_window_event(event_loop, event);
+        // CLOSE-CONFIRM: an overlay outcome dispatched during this event (the
+        // confirmation dialog's Enter/Y) may have requested the window close.
+        // The overlay apply path only holds `&mut self`, so it sets this flag
+        // and the actual exit happens here where the event loop is in scope.
+        // The redraw early-exit paths left `window_event` before this check
+        // historically, so honor that by skipping it when the redraw took one.
+        if !redraw_early_exit && self.pending_exit {
+            event_loop.exit();
+        }
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        if self.apply_user_event(event) {
+            event_loop.exit();
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        self.run_about_to_wait_maintenance(now);
+
+        if let Some(deadline) = self.deadline
+            && now >= deadline
+        {
+            event_loop.exit();
+            return;
+        }
+
+        self.update_control_flow_deadline(event_loop);
+    }
+}
+
+impl App {
+    /// Dispatch a single `WindowEvent` to the handler that owns it, WITHOUT the
+    /// trailing `pending_exit`/exit decision (which differs between the
+    /// single-window and multi-window run paths). Shared verbatim by the
+    /// single-window [`ApplicationHandler`] impl above and the multi-window
+    /// host, so the two paths cannot drift on which event reaches which handler.
+    ///
+    /// Returns `true` when the redraw path took one of its early exits - the
+    /// caller must NOT run its trailing close check on that path, exactly as the
+    /// single-window match returned early from `window_event` before.
+    pub(super) fn process_window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        event: WindowEvent,
+    ) -> bool {
         match event {
             WindowEvent::CloseRequested => {
                 self.on_close_requested(event_loop);
@@ -37,9 +94,9 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::RedrawRequested => {
                 // The redraw path has two early exits that left this handler
                 // before the trailing pending-exit check; preserve that by
-                // returning here on exactly those paths.
+                // returning `true` here on exactly those paths.
                 if self.on_redraw_requested() {
-                    return;
+                    return true;
                 }
             }
             // `winit` reports modifier state separately from key presses; cache
@@ -78,34 +135,6 @@ impl ApplicationHandler<UserEvent> for App {
             }
             _ => {}
         }
-        // CLOSE-CONFIRM: an overlay outcome dispatched during this event (the
-        // confirmation dialog's Enter/Y) may have requested the window close.
-        // The overlay apply path only holds `&mut self`, so it sets this flag
-        // and the actual exit happens here where the event loop is in scope.
-        // Stays `false` on every path that does not confirm a close, so the
-        // off/default behavior is unchanged.
-        if self.pending_exit {
-            event_loop.exit();
-        }
-    }
-
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
-        if self.apply_user_event(event) {
-            event_loop.exit();
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let now = Instant::now();
-        self.run_about_to_wait_maintenance(now);
-
-        if let Some(deadline) = self.deadline
-            && now >= deadline
-        {
-            event_loop.exit();
-            return;
-        }
-
-        self.update_control_flow_deadline(event_loop);
+        false
     }
 }

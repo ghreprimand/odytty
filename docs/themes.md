@@ -19,6 +19,7 @@ There are two kinds of theme:
 ## Contents
 
 - [Selecting a theme](#selecting-a-theme)
+- [Electric Blue](#electric-blue)
 - [In-app theme tools](#in-app-theme-tools)
 - [Create theme from current colors](#create-theme-from-current-colors)
 - [Built-in theme library](#built-in-theme-library)
@@ -78,6 +79,28 @@ takes effect on the next reload poll, the same way every other setting reloads
 — no restart needed. (Editing the *contents* of an already-selected theme file
 is picked up the next time the config file itself changes; touch
 `odytty.conf` to force a re-read.)
+
+## Electric Blue
+
+Available in current unreleased v0.15.0 source, `odyssey-electric-blue` pairs a
+blue-black background (`#03040B`) with lavender text (`#D0D0FF`), an electric
+cyan cursor (`#00BFFF`), muted lavender (`#7D83B8`), and deep-blue selection
+(`#0A1A40`). Its 16 ANSI colors retain distinct red, green, amber, blue, purple,
+and cyan roles.
+
+Published v0.14.0 packages contain 144 presets and do not include Electric Blue.
+The development source contains 145. In a development build, select
+`odyssey-electric-blue` in the Theme Picker or set
+`theme = odyssey-electric-blue` in `odytty.conf`. The palette uses the same
+shared theme path on Linux Wayland/X11, macOS, and Windows; parser integration
+does not establish independent native-platform acceptance. It changes
+colors only; bloom, transparency, motion, fonts, and the default preset retain
+their existing settings.
+
+On the opaque authored colors, foreground/background contrast is approximately
+13.79:1, muted/background is 5.66:1, and foreground/selection is 11.46:1.
+These are calculated sRGB ratios; transparency, backgrounds, effects, and the
+existing runtime contrast adjustment can change the displayed result.
 
 ## In-app theme tools
 
@@ -259,6 +282,7 @@ or endorsement from any of those vendors.
 | `odyssey-sienna-light` | light | OdyTTY original (warm sienna-cream daylight companion with terracotta accents) |
 | `odyssey-periwinkle-light` | light | OdyTTY original (cool blue-violet periwinkle daylight companion) |
 | `odyssey-pine` | dark | OdyTTY original (muted forest-pine dark with sage-green text) |
+| `odyssey-electric-blue` | dark | Unreleased v0.15.0 Electric Blue (blue-black surfaces, lavender text, electric cyan accents) |
 | `odyssey-eclipse` | dark | OdyTTY original (umbral indigo with a corona-gold ring accent) |
 | `odyssey-comet` | dark | OdyTTY original (near-black void with an icy blue-white tail) |
 | `odyssey-obsidian` | dark | OdyTTY original (cool volcanic glass with teal and violet glints) |

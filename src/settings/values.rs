@@ -1512,6 +1512,184 @@ fn split_key_binding_entries(value: &str) -> Vec<&str> {
 }
 
 /// The default multiplexer prefix chord, `Ctrl-b` (§7), matching tmux.
+/// Parse `ODYTTY_QUICK_TERMINAL_SHORTCUT` into the quick-terminal summon
+/// accelerator string (v0.15.0 A). Unset or blank falls back to the `F12`
+/// default. The value is stored verbatim (trimmed); the accelerator grammar is
+/// validated by the host at registration time, which reports an actionable
+/// result rather than silently registering nothing, so a malformed value here
+/// surfaces at startup instead of being dropped at parse time.
+pub(super) fn parse_quick_terminal_shortcut(
+    raw: Option<&OsStr>,
+    _warn: &mut impl FnMut(&str),
+) -> String {
+    match raw {
+        Some(value) => {
+            let text = value.to_string_lossy();
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                DEFAULT_QUICK_TERMINAL_SHORTCUT.to_owned()
+            } else {
+                trimmed.to_owned()
+            }
+        }
+        None => DEFAULT_QUICK_TERMINAL_SHORTCUT.to_owned(),
+    }
+}
+
+/// Parse `ODYTTY_QUICK_TERMINAL_EDGE` (v0.15.0 A) into the normalized anchor
+/// edge string `top`/`bottom`/`left`/`right`. Unset or blank is the `top`
+/// default; an unrecognized value warns and falls back to `top` rather than
+/// silently mis-anchoring the window.
+pub(super) fn parse_quick_terminal_edge(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> String {
+    let Some(raw) = raw else {
+        return DEFAULT_QUICK_TERMINAL_EDGE.to_owned();
+    };
+    let text = raw.to_string_lossy();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_QUICK_TERMINAL_EDGE.to_owned();
+    }
+    match normalize_name(trimmed).as_str() {
+        "top" | "up" => "top".to_owned(),
+        "bottom" | "down" => "bottom".to_owned(),
+        "left" => "left".to_owned(),
+        "right" => "right".to_owned(),
+        _ => {
+            warn(&format!(
+                "unrecognized quick_terminal_edge '{trimmed}', using '{DEFAULT_QUICK_TERMINAL_EDGE}' (expected top, bottom, left, or right)"
+            ));
+            DEFAULT_QUICK_TERMINAL_EDGE.to_owned()
+        }
+    }
+}
+
+/// Parse `ODYTTY_QUICK_TERMINAL_ANIMATION` (v0.15.0 A) into `slide`/`instant`.
+/// Unset or blank is the `instant` default; an unrecognized value warns and falls
+/// back. Reduced motion still forces instant downstream regardless of this
+/// value.
+pub(super) fn parse_quick_terminal_animation(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> String {
+    let Some(raw) = raw else {
+        return DEFAULT_QUICK_TERMINAL_ANIMATION.to_owned();
+    };
+    let text = raw.to_string_lossy();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_QUICK_TERMINAL_ANIMATION.to_owned();
+    }
+    match normalize_name(trimmed).as_str() {
+        "slide" | "animate" | "on" => "slide".to_owned(),
+        "instant" | "none" | "off" | "static" => "instant".to_owned(),
+        _ => {
+            warn(&format!(
+                "unrecognized quick_terminal_animation '{trimmed}', using '{DEFAULT_QUICK_TERMINAL_ANIMATION}' (expected slide or instant)"
+            ));
+            DEFAULT_QUICK_TERMINAL_ANIMATION.to_owned()
+        }
+    }
+}
+
+/// Parse `ODYTTY_QUICK_TERMINAL_MONITOR` (v0.15.0 A) into `active`, `primary`,
+/// or a bare monitor index (e.g. `1`). Unset or blank is the `active` default;
+/// a non-numeric, unrecognized value warns and falls back to `active`.
+pub(super) fn parse_quick_terminal_monitor(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> String {
+    let Some(raw) = raw else {
+        return DEFAULT_QUICK_TERMINAL_MONITOR.to_owned();
+    };
+    let text = raw.to_string_lossy();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_QUICK_TERMINAL_MONITOR.to_owned();
+    }
+    let normalized = normalize_name(trimmed);
+    match normalized.as_str() {
+        "active" | "current" | "focused" | "cursor" => return "active".to_owned(),
+        "primary" | "main" => return "primary".to_owned(),
+        _ => {}
+    }
+    if trimmed.chars().all(|c| c.is_ascii_digit()) {
+        // Store the bare index verbatim; the host clamps/falls back if the
+        // monitor is gone at summon time.
+        return trimmed.to_owned();
+    }
+    warn(&format!(
+        "unrecognized quick_terminal_monitor '{trimmed}', using '{DEFAULT_QUICK_TERMINAL_MONITOR}' (expected active, primary, or a monitor index)"
+    ));
+    DEFAULT_QUICK_TERMINAL_MONITOR.to_owned()
+}
+
+/// Parse a quick-terminal extent value (`coverage`/`span`, v0.15.0 A): a
+/// percentage in `(0, 100]` (e.g. `40%`) or an absolute pixel size (e.g.
+/// `600px` or a bare positive integer). Unset or blank uses `default_value`; an
+/// out-of-range or malformed value warns and falls back. The normalized form is
+/// stored (`NN%` or `NNpx`); the host resolves it against the live monitor.
+pub(super) fn parse_quick_terminal_extent(
+    raw: Option<&OsStr>,
+    key: &str,
+    default_value: &str,
+    warn: &mut impl FnMut(&str),
+) -> String {
+    let Some(raw) = raw else {
+        return default_value.to_owned();
+    };
+    let text = raw.to_string_lossy();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return default_value.to_owned();
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if let Some(pct) = lower.strip_suffix('%') {
+        match pct.trim().parse::<f32>() {
+            Ok(v) if v.is_finite() && v > 0.0 && v <= 100.0 => {
+                // Normalize to a compact percentage form without trailing zeros.
+                let rounded = (v * 100.0).round() / 100.0;
+                if (rounded - rounded.round()).abs() < f32::EPSILON {
+                    return format!("{}%", rounded.round() as i64);
+                }
+                return format!("{rounded}%");
+            }
+            _ => {
+                warn(&format!(
+                    "invalid {key} percentage '{trimmed}', using '{default_value}' (expected 0 < N <= 100)"
+                ));
+                return default_value.to_owned();
+            }
+        }
+    }
+    let digits = lower.strip_suffix("px").unwrap_or(&lower);
+    match digits.trim().parse::<u32>() {
+        Ok(px) if px > 0 => format!("{px}px"),
+        _ => {
+            warn(&format!(
+                "invalid {key} size '{trimmed}', using '{default_value}' (expected a percentage like 40% or a pixel size like 600px)"
+            ));
+            default_value.to_owned()
+        }
+    }
+}
+
+/// Parse `ODYTTY_QUICK_TERMINAL_PROFILE` (v0.15.0 A) into the optional quick
+/// session profile name. Stored verbatim (trimmed); blank means "use the
+/// default profile" and is stored as the empty string. Profile existence is
+/// resolved by the launcher, matching the other profile-name settings.
+pub(super) fn parse_quick_terminal_profile(
+    raw: Option<&OsStr>,
+    _warn: &mut impl FnMut(&str),
+) -> String {
+    match raw {
+        Some(value) => value.to_string_lossy().trim().to_owned(),
+        None => DEFAULT_QUICK_TERMINAL_PROFILE.to_owned(),
+    }
+}
+
 pub(super) fn default_pane_prefix() -> Option<KeyChord> {
     Some(KeyChord {
         modifiers: KeyBindingModifiers {

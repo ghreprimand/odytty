@@ -52,6 +52,15 @@ pub const CURSOR_GLOW_INTENSITY_ENV: &str = "ODYTTY_CURSOR_GLOW_INTENSITY";
 pub const CURSOR_TRAIL_ENV: &str = "ODYTTY_CURSOR_TRAIL";
 pub const CURSOR_TRAIL_STRENGTH_ENV: &str = "ODYTTY_CURSOR_TRAIL_STRENGTH";
 pub const REDUCED_MOTION_ENV: &str = "ODYTTY_REDUCED_MOTION";
+pub const QUICK_TERMINAL_ENV: &str = "ODYTTY_QUICK_TERMINAL";
+pub const QUICK_TERMINAL_SHORTCUT_ENV: &str = "ODYTTY_QUICK_TERMINAL_SHORTCUT";
+pub const QUICK_TERMINAL_EDGE_ENV: &str = "ODYTTY_QUICK_TERMINAL_EDGE";
+pub const QUICK_TERMINAL_COVERAGE_ENV: &str = "ODYTTY_QUICK_TERMINAL_COVERAGE";
+pub const QUICK_TERMINAL_SPAN_ENV: &str = "ODYTTY_QUICK_TERMINAL_SPAN";
+pub const QUICK_TERMINAL_MONITOR_ENV: &str = "ODYTTY_QUICK_TERMINAL_MONITOR";
+pub const QUICK_TERMINAL_ANIMATION_ENV: &str = "ODYTTY_QUICK_TERMINAL_ANIMATION";
+pub const QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS_ENV: &str = "ODYTTY_QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS";
+pub const QUICK_TERMINAL_PROFILE_ENV: &str = "ODYTTY_QUICK_TERMINAL_PROFILE";
 pub const NEW_OUTPUT_FADE_ENV: &str = "ODYTTY_NEW_OUTPUT_FADE";
 pub const NEW_OUTPUT_FADE_MS_ENV: &str = "ODYTTY_NEW_OUTPUT_FADE_MS";
 pub const WINDOW_BORDER_ENV: &str = "ODYTTY_WINDOW_BORDER";
@@ -197,6 +206,15 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CURSOR_TRAIL_ENV,
     CURSOR_TRAIL_STRENGTH_ENV,
     REDUCED_MOTION_ENV,
+    QUICK_TERMINAL_ENV,
+    QUICK_TERMINAL_SHORTCUT_ENV,
+    QUICK_TERMINAL_EDGE_ENV,
+    QUICK_TERMINAL_COVERAGE_ENV,
+    QUICK_TERMINAL_SPAN_ENV,
+    QUICK_TERMINAL_MONITOR_ENV,
+    QUICK_TERMINAL_ANIMATION_ENV,
+    QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS_ENV,
+    QUICK_TERMINAL_PROFILE_ENV,
     NEW_OUTPUT_FADE_ENV,
     NEW_OUTPUT_FADE_MS_ENV,
     WINDOW_BORDER_ENV,
@@ -624,6 +642,66 @@ pub const DEFAULT_CURSOR_TRAIL: bool = true;
 /// individual settings. The explicit setting has the same behavior on every
 /// supported platform; OS preference discovery remains future work.
 pub const DEFAULT_REDUCED_MOTION: bool = false;
+
+/// Quick terminal (`ODYTTY_QUICK_TERMINAL`, v0.15.0 A): the dedicated,
+/// summonable drop-down terminal. Off by default (opt-in): when off no global
+/// shortcut is registered and no dedicated window is created, so startup
+/// readiness and the default local terminal are unchanged.
+pub const DEFAULT_QUICK_TERMINAL: bool = false;
+
+/// Quick terminal summon accelerator (`ODYTTY_QUICK_TERMINAL_SHORTCUT`,
+/// v0.15.0 A): the human-readable global shortcut that toggles the quick
+/// terminal, e.g. `F12` or `ctrl+shift+grave`. Only meaningful when
+/// `quick_terminal` is on. Whether the OS can grant a global grab is
+/// platform-dependent and reported after the first usable frame.
+pub const DEFAULT_QUICK_TERMINAL_SHORTCUT: &str = "F12";
+
+/// Quick terminal anchor edge (`ODYTTY_QUICK_TERMINAL_EDGE`, v0.15.0 A): which
+/// monitor edge the drop-down anchors to. One of `top`, `bottom`, `left`,
+/// `right`. Default `top` (the conventional "quake" drop-down placement). Only
+/// meaningful when `quick_terminal` is on.
+pub const DEFAULT_QUICK_TERMINAL_EDGE: &str = "top";
+
+/// Quick terminal coverage along its anchored axis
+/// (`ODYTTY_QUICK_TERMINAL_COVERAGE`, v0.15.0 A): how far the window extends
+/// from its edge, as a percentage of the monitor work area (e.g. `40%`) or an
+/// absolute pixel size (e.g. `600px`). Percentages are the accessible default
+/// because they scale with the display. Default `40%`.
+pub const DEFAULT_QUICK_TERMINAL_COVERAGE: &str = "40%";
+
+/// Quick terminal span across its other axis
+/// (`ODYTTY_QUICK_TERMINAL_SPAN`, v0.15.0 A): how wide (Top/Bottom) or tall
+/// (Left/Right) the window is, as a percentage of the monitor work area or an
+/// absolute pixel size. Default `100%` (spans the full edge).
+pub const DEFAULT_QUICK_TERMINAL_SPAN: &str = "100%";
+
+/// Quick terminal monitor policy (`ODYTTY_QUICK_TERMINAL_MONITOR`, v0.15.0 A):
+/// which monitor the window uses. `active` uses the monitor of the focused
+/// window (falling back to any open window, then the primary); pointer position
+/// is not used for selection. `primary` uses the primary
+/// monitor, and a bare integer
+/// (e.g. `1`) pins a fixed monitor index (falling back to the active monitor if
+/// that index is gone at summon time, never a silent no-show).
+pub const DEFAULT_QUICK_TERMINAL_MONITOR: &str = "active";
+
+/// Quick terminal reveal animation (`ODYTTY_QUICK_TERMINAL_ANIMATION`,
+/// v0.15.0 A): `instant` appears with no motion (default); `slide` slides the
+/// window in from its anchored edge. Motion defaults off per the foundation
+/// contract, and it is always forced to instant when `reduced_motion` is on,
+/// regardless of this setting.
+pub const DEFAULT_QUICK_TERMINAL_ANIMATION: &str = "instant";
+
+/// Quick terminal hide-on-focus-loss (`ODYTTY_QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS`,
+/// v0.15.0 A): when off (the default per the foundation contract), the quick
+/// terminal stays visible until summoned away. When on it hides automatically
+/// on focus loss so it never lingers over other work.
+pub const DEFAULT_QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS: bool = false;
+
+/// Quick terminal profile (`ODYTTY_QUICK_TERMINAL_PROFILE`, v0.15.0 A): optional
+/// profile name the quick session launches with. Empty (the default) uses the
+/// default profile, so the quick terminal needs no profile configuration to
+/// work.
+pub const DEFAULT_QUICK_TERMINAL_PROFILE: &str = "";
 
 /// New-output fade-in (`ODYTTY_NEW_OUTPUT_FADE`, VE4): when on, the TEXT of
 /// freshly arrived output rows at the live tail fades in over a short ease-out

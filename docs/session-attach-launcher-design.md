@@ -1,5 +1,9 @@
 # Session Navigator and Attach Launcher Design
 
+This design record describes the v0.14.0 Navigator and attach behavior.
+Unreleased identity and window-merge changes are separate in the
+[v0.15.0 foundation](v0.15.0-foundation.md).
+
 This record covers the in-window session navigator and the detached-session
 attach flow. Live GUI session, tab, and workspace entries populate on every
 platform through `session_navigator::live_entries`, so the navigator lists live

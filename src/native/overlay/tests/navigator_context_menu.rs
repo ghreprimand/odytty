@@ -11,7 +11,8 @@
 //! - Applicable actions by class:
 //!   - Workspace / Tab / Live: Focus, Rename, Duplicate, Move, Close
 //!   - Detached: Attach (enabled only when available), Close (kill)
-//! - Activation: Focus -> `FocusSession`; Attach -> `AttachSession`;
+//! - Activation: pane Focus -> `FocusSession`; tab/workspace Focus keeps its
+//!   structural target in `NavigatorAction::Focus`; Attach -> `AttachSession`;
 //!   Rename/Duplicate/Move -> `NavigatorAction`; Close live ->
 //!   `NavigatorCloseRequest`; Close detached -> `KillSessionRequest`.
 //!
@@ -86,7 +87,7 @@ fn mixed_catalog() -> Vec<NavigatorEntry> {
 
 fn open_navigator(entries: Vec<NavigatorEntry>, stable_id: Option<&str>) -> OverlayUi {
     let mut overlay = OverlayUi::default();
-    overlay.open_session_navigator_selected(entries, stable_id);
+    overlay.open_session_navigator_selected(entries, stable_id, false);
     overlay
 }
 
@@ -586,4 +587,17 @@ fn navigator_row_menu_esc_preserves_filter_query() {
         overlay.session_attach.render_signature().selected,
         selected_before
     );
+}
+
+#[test]
+fn navigator_keyboard_and_menu_focus_preserve_structural_target_kind() {
+    for entry in [tab_entry(11, "tab"), workspace_entry(12, "workspace")] {
+        let expected =
+            OverlayOutcome::NavigatorAction(NavigatorAction::Focus(entry.target.clone()));
+        let mut keyboard = open_navigator(vec![entry.clone()], None);
+        assert_eq!(keyboard.handle_input(OverlayInput::Activate), expected);
+        let mut menu = open_navigator(vec![entry.clone()], None);
+        right_click_navigator_row(&mut menu, &entry.name, 80, 24);
+        assert_eq!(menu.handle_input(OverlayInput::Activate), expected);
+    }
 }

@@ -1,5 +1,10 @@
 # OdyTTY — Spec
 
+Published release: **v0.14.0**.
+
+Current development work is tracked in [TODO.md](TODO.md). Release evidence
+and historical corrections are listed in the [release index](docs/releases/README.md).
+
 This specification defines OdyTTY's product boundaries, owned architecture,
 shipped scope, platform model, and rendering stack.
 
@@ -942,11 +947,24 @@ through the existing theme seam with fail-closed parsing and last-known-good
 retention. The Session Navigator searches workspaces, tabs, panes, and
 detachable sessions with a redacted opt-in preview. Rendering, terminal storage,
 GPU allocation, and presentation timing are unchanged, so the v0.12.0
-performance evidence carries forward. The v0.14.0 implementation is in-tree; the
-operator acceptance run, version checkpoint, blocking three-platform CI, package
-checks, and artifact verification are release requirements whose results are
-recorded against the tagged commit at release time and are not asserted in
-advance.
+performance evidence carries forward. Tag `v0.14.0` identifies commit
+`15a688844393225d50252af05b45a7ef7ae89351`. Blocking three-platform CI,
+publication, signed checksums for all 17 assets, seven byte-identical alias
+pairs, platform provenance, and Scoop/Homebrew/AUR propagation passed. Profile
+and navigator acceptance and release-image testing are complete. The isolated
+source-archive clean release build passed on Linux with Rust 1.97.1; this checks
+source packaging, not the Rust 1.96 MSRV floor. Per-cell color-resolution
+consolidation and scrollback-search rescan frequency remain deferred efficiency
+work, not completed v0.14.0 changes.
+
+Current v0.15.0 development adds stable tab and workspace identities,
+same-process window ownership and merge routing, quick-terminal settings and
+platform shortcut backends, and a bounded structural-control protocol with an
+explicit Unix CLI. These are unreleased foundations, not completed platform or
+release acceptance. Ordinary startup opens no automation endpoint, Windows
+named-pipe transport remains pending, and native file drop is not enabled. The
+[v0.15.0 ownership and platform contracts](docs/v0.15.0-foundation.md) record
+the exact implemented and remaining boundaries.
 
 The project remains pre-1.0; any later milestone requires a separately recorded
 scope rather than silently inheriting deferred work from a prior release.
@@ -1073,10 +1091,15 @@ scope rather than silently inheriting deferred work from a prior release.
 
 ### Native UI And Workspaces
 
+- Stable tab and workspace creation identities in current v0.15.0 development;
+  Navigator actions resolve the current owner after pane closure, tab movement,
+  and same-process window transfer, while restoration creates fresh identities
+
 - Theme system: full 16-color ANSI palette + semantic roles (cursor, selection,
   search highlight, reserved border/inactive) per theme; a curated,
-  contrast-validated 144-theme built-in library plus user `.theme` files through
-  one shared dependency-free parse path (see
+  contrast-validated 145-theme library in current unreleased source (144 in
+  published v0.14.0), including the v0.15.0 `odyssey-electric-blue` preset,
+  plus user `.theme` files through one shared dependency-free parse path (see
   [`docs/themes.md`](docs/themes.md) for the current roster and file format);
   `ODYTTY_THEME` accepts a built-in name, directory-relative name, or file path;
   OSC-4 / OSC-10/11/12 dynamic overrides layer on top with correct precedence;

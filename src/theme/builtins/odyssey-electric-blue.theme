@@ -1,0 +1,31 @@
+# OdyTTY theme
+# Electric Blue: blue-black surfaces, lavender text, and electric cyan accents.
+name = odyssey-electric-blue
+appearance = dark
+
+foreground = #d0d0ff
+background = #03040b
+clear = #03040b
+
+cursor = #00bfff
+selection = #0a1a40
+search = #352811
+border = #171a36
+inactive = #7d83b8
+
+color0 = #171a36
+color1 = #f85149
+color2 = #3fb950
+color3 = #d29922
+color4 = #58a6ff
+color5 = #bc8cff
+color6 = #00bfff
+color7 = #d0d0ff
+color8 = #7d83b8
+color9 = #fa7d77
+color10 = #6fcb7c
+color11 = #ddb359
+color12 = #82bcff
+color13 = #cda9ff
+color14 = #40cfff
+color15 = #f0f0ff

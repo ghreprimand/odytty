@@ -3,7 +3,8 @@
 Use this guide to understand OdyTTY's terminal behavior, configure the native
 app, and work with tabs, panes, workspaces, remote hosts, and shell integration.
 For installation and a shorter overview, start with the
-[README](../README.md).
+[README](../README.md). Unreleased v0.15.0 additions are labelled explicitly;
+they are not included in the published v0.14.0 packages.
 
 ## Contents
 
@@ -184,9 +185,12 @@ The choices have explicit behavior:
   pane exit, window close, preview setup failure, or a stale bracketed-paste
   state also cancels the held paste.
 
-Shortcut, command-palette/menu, context-menu, Linux PRIMARY, external text
-drop, and authorized automation paste routes use the same policy. PRIMARY has
-no platform surface on macOS or Windows. The setting can be changed through
+Shortcut, command-palette/menu, context-menu, and Linux PRIMARY paste use the
+same policy. PRIMARY has no platform surface on macOS or Windows. External
+text-drop and automation-paste functions are reserved entry points with test
+coverage, not live user input routes. OS text-drop delivery is unimplemented,
+and the v0.15.0 automation protocol exposes no input operation. See the
+[development boundaries](v0.15.0-foundation.md). The setting can be changed through
 Settings, `warn_on_risky_paste` in `odytty.conf`, or
 `ODYTTY_WARN_ON_RISKY_PASTE`; disabling it is an advanced global opt-out.
 
@@ -1091,6 +1095,14 @@ presentation control remains independently configurable in Settings or
 [Runtime Knobs](runtime-knobs.md); `reduced_motion =
 on` makes slide, trail, glow, easing, and new-output fade static or instant
 while preserving their saved choices.
+
+### Electric Blue
+
+Current unreleased v0.15.0 source adds `odyssey-electric-blue`, with a blue-black
+background, lavender text, cyan accents, and distinct ANSI colors. It is absent
+from published v0.14.0 packages. Development builds can select it in the Theme
+Picker or set `theme = odyssey-electric-blue`. See
+[Electric Blue](themes.md#electric-blue) for palette and readability details.
 
 ### Follow The Desktop Theme
 

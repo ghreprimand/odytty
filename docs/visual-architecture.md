@@ -205,7 +205,8 @@ clear). At startup the native layer calls `text::set_ansi_palette` to publish
 the theme's 16-color palette alongside the default fg/bg, and passes `clear` to
 `src/native/gpu/resources.rs` as the wgpu surface clear color.
 
-The built-in library contains 144 contrast-validated themes. `plain`
+The current unreleased v0.15.0 library contains 145 contrast-validated themes
+(the published v0.14.0 library has 144). `plain`
 reproduces the historical xterm table byte-for-byte, while `odyssey-default` is
 the fresh-install default. The settings loader warns and falls back to
 `odyssey-default` for unknown names; `Theme::from_name_or_default` uses `plain`.
@@ -405,8 +406,8 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
   border, inactive), carried by `Theme`.
 - A dependency-free `.theme` file format with built-in themes and live reload
   through the settings/config seam.
-- 144 built-in themes across OdyTTY original, community, and retro/phosphor
-  families.
+- 145 built-in themes in unreleased v0.15.0 source (144 in v0.14.0), across
+  OdyTTY original, community, and retro/phosphor families.
 - An in-app theme builder with live preview, OKLCH sliders, and click-to-edit hex
   values, saved to a user theme file. Its draft can be cloned from a theme,
   generated from a seed, or captured from the focused pane's live dynamic

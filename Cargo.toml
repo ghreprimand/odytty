@@ -84,6 +84,39 @@ winit = "0.30.13"
 libc = "0.2.178"
 rustix = { version = "1.1.4", features = ["pipe", "pty", "termios", "process"] }
 
+# Linux-only: the X11 global-shortcut backend for the quick terminal
+# (`src/native/quick_terminal/x11.rs`, v0.15.0 A). `x11rb` is a pure-Rust X11
+# protocol client used through its `RustConnection`, so the grab code owns its
+# own connection and uses CHECKED requests (`grab_key(...).check()`): a grab
+# error (e.g. another client already holds the combo) is returned on this
+# connection alone. That avoids the process-global `XSetErrorHandler` and the
+# `XInitThreads` ordering hazard that a libX11 (Xlib) backend would share with
+# winit's own X connection. A headless build/run without an X server degrades to
+# the honest "cannot open display" Unavailable path rather than failing to
+# start. x11rb is already in the tree transitively via winit's X11 backend at
+# this 0.13 line and its default feature set is empty, so this direct entry adds
+# no new compiled surface. macOS (also unix) is excluded: its backend is Carbon.
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.13", default-features = false }
+
+# Linux-only: the Wayland global-shortcut backend for the quick terminal
+# (`src/native/quick_terminal/wayland.rs`, v0.15.0 A). Wayland denies apps a
+# direct global key grab (the compositor owns the keyboard), so the supported
+# route is the `org.freedesktop.portal.GlobalShortcuts` D-Bus portal. `zbus` is
+# the D-Bus client; the async-io backend (its default, minus the blocking-api
+# macros we do not use) is driven on a dedicated thread via `async_io::block_on`
+# so no async runtime touches the main event loop. `async-io` supplies the
+# bounded `Timer` that caps every portal wait; `futures-lite` supplies the
+# stream/future combinators (`next`, `or`) used to race those waits. All portal
+# work is off the first-usable-terminal path (post-presented-frame deferred
+# registration). On a host without a session bus or a portal that lacks
+# GlobalShortcuts, the backend degrades to an honest, actionable Unsupported,
+# never a false Registered. No network listener and no cross-user surface: the
+# session bus is the user's own. macOS/Windows are excluded (Carbon / RegisterHotKey).
+zbus = { version = "5", default-features = false, features = ["async-io"] }
+async-io = "2"
+futures-lite = "2"
+
 # Windows-only: the ConPTY PTY backend (`src/pty/windows.rs`). Pinned to the
 # `windows` 0.62 stack `wgpu` already locks transitively (Cargo.lock has
 # windows 0.62.2) so no second copy is pulled. `Win32_Security` is required even
@@ -107,6 +140,8 @@ windows = { version = "0.62", features = [
     "Win32_System_ProcessStatus",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 # Windows-only build dependency: embeds the application icon (and version

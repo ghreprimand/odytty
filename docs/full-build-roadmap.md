@@ -227,8 +227,9 @@ live-applied, and written back to the config file; a live theme picker; an
 in-app custom theme builder (clone, tweak, live preview, save, and capture of
 the pane's current dynamic colors as a new draft); and CLI config
 introspection. A dependency-free `.theme` format, a full 16-color + bright ANSI
-palette plus semantic roles, and a curated 144-theme built-in library (dark and
-light, all contrast-validated).
+palette plus semantic roles, and a curated 145-theme library in current
+unreleased source (144 in published v0.14.0; dark and light, all
+contrast-validated).
 
 ### The Visual Engine
 
@@ -677,15 +678,11 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   `baseline`, `odyssey`, or `community`, and `--list-themes` exposes the family.
   The original blue-black palette is listed canonically as `odyssey-classic`;
   the former `odyssey` name remains a compatibility alias.
-- **Later — Theme-library expansion** past 100, using data-only additions. The
-  roster is now 144 after the published Red Planet palette and an OdyTTY
-  Red Planet Dark companion joined the prior six contrast-validated original
-  OdysseyOS palettes: four dark palettes (inkwell navy, citadel slate,
-  verdigris teal, and wildfire ember) and two light palettes (moonstone and
-  primrose). Earlier
-  batches brought the roster to 112, 124, and then 136. Expansion was explicitly
-  resumed for this focused pair; further additions remain paused until a
-  separate scope decision.
+- **v0.15.0 development - Theme-library expansion** remains data-only. Electric
+  Blue brings current unreleased source to 145 themes after the published Red
+  Planet palette and OdyTTY Red Planet Dark companion brought v0.14.0 to 144.
+  The new preset uses the existing parser, picker, settings, and export paths;
+  the default theme and effect settings remain unchanged.
 
 ## Track 8 — Positioning And Performance Posture
 

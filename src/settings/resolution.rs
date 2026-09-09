@@ -574,6 +574,40 @@ impl Settings {
             DEFAULT_REDUCED_MOTION,
             &mut warn,
         );
+        let quick_terminal = parse_bool_setting(
+            get(QUICK_TERMINAL_ENV).as_deref(),
+            QUICK_TERMINAL_ENV,
+            DEFAULT_QUICK_TERMINAL,
+            &mut warn,
+        );
+        let quick_terminal_shortcut =
+            parse_quick_terminal_shortcut(get(QUICK_TERMINAL_SHORTCUT_ENV).as_deref(), &mut warn);
+        let quick_terminal_edge =
+            parse_quick_terminal_edge(get(QUICK_TERMINAL_EDGE_ENV).as_deref(), &mut warn);
+        let quick_terminal_coverage = parse_quick_terminal_extent(
+            get(QUICK_TERMINAL_COVERAGE_ENV).as_deref(),
+            "quick_terminal_coverage",
+            DEFAULT_QUICK_TERMINAL_COVERAGE,
+            &mut warn,
+        );
+        let quick_terminal_span = parse_quick_terminal_extent(
+            get(QUICK_TERMINAL_SPAN_ENV).as_deref(),
+            "quick_terminal_span",
+            DEFAULT_QUICK_TERMINAL_SPAN,
+            &mut warn,
+        );
+        let quick_terminal_monitor =
+            parse_quick_terminal_monitor(get(QUICK_TERMINAL_MONITOR_ENV).as_deref(), &mut warn);
+        let quick_terminal_animation =
+            parse_quick_terminal_animation(get(QUICK_TERMINAL_ANIMATION_ENV).as_deref(), &mut warn);
+        let quick_terminal_hide_on_focus_loss = parse_bool_setting(
+            get(QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS_ENV).as_deref(),
+            QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS_ENV,
+            DEFAULT_QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS,
+            &mut warn,
+        );
+        let quick_terminal_profile =
+            parse_quick_terminal_profile(get(QUICK_TERMINAL_PROFILE_ENV).as_deref(), &mut warn);
         let osc52_read = parse_bool_setting(
             get(OSC52_READ_ENV).as_deref(),
             OSC52_READ_ENV,
@@ -998,6 +1032,15 @@ impl Settings {
             cursor_trail_strength,
             cursor_motion,
             reduced_motion,
+            quick_terminal,
+            quick_terminal_shortcut,
+            quick_terminal_edge,
+            quick_terminal_coverage,
+            quick_terminal_span,
+            quick_terminal_monitor,
+            quick_terminal_animation,
+            quick_terminal_hide_on_focus_loss,
+            quick_terminal_profile,
             osc52_read,
             osc52_write,
             synthetic_styles,

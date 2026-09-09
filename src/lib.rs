@@ -5,6 +5,7 @@
 #[cfg(unix)]
 pub mod app;
 pub mod atlas;
+pub mod automation;
 pub mod boxdraw;
 pub mod color;
 pub mod connection_hosts;
