@@ -50,11 +50,12 @@ pub(super) struct DeadlineStream {
 }
 
 impl DeadlineStream {
-    pub(super) fn new(stream: UnixStream, timeout: Duration) -> Self {
-        Self {
+    pub(super) fn new(stream: UnixStream, timeout: Duration) -> io::Result<Self> {
+        stream.set_nonblocking(true)?;
+        Ok(Self {
             stream,
             deadline: Instant::now() + timeout,
-        }
+        })
     }
 
     pub(super) fn reset_deadline(&mut self, timeout: Duration) {
@@ -65,7 +66,39 @@ impl DeadlineStream {
         self.deadline
             .checked_duration_since(Instant::now())
             .filter(|remaining| !remaining.is_zero())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, ErrorCode::TimedOut))
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::TimedOut, "automation I/O deadline elapsed")
+            })
+    }
+
+    fn wait(&self, events: libc::c_short) -> io::Result<()> {
+        loop {
+            let remaining = self.remaining()?;
+            let mut poll = libc::pollfd {
+                fd: self.stream.as_raw_fd(),
+                events,
+                revents: 0,
+            };
+            // SAFETY: one live descriptor and a timeout bounded by the absolute
+            // deadline. Read/write below surfaces POLLERR and POLLHUP precisely.
+            let ready = unsafe {
+                libc::poll(
+                    &mut poll,
+                    1,
+                    remaining.as_millis().clamp(1, i32::MAX as u128) as i32,
+                )
+            };
+            if ready > 0 {
+                return Ok(());
+            }
+            if ready == 0 {
+                continue;
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
     }
 
     /// One-request connections must stay open and send no trailing bytes while
@@ -94,15 +127,39 @@ impl DeadlineStream {
 
 impl Read for DeadlineStream {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        self.stream.set_read_timeout(Some(self.remaining()?))?;
-        self.stream.read(bytes)
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            self.wait(libc::POLLIN)?;
+            match self.stream.read(bytes) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
+                    ) => {}
+                result => return result,
+            }
+        }
     }
 }
 
 impl Write for DeadlineStream {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.stream.set_write_timeout(Some(self.remaining()?))?;
-        self.stream.write(bytes)
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            self.wait(libc::POLLOUT)?;
+            match self.stream.write(bytes) {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
+                    ) => {}
+                result => return result,
+            }
+        }
     }
     fn flush(&mut self) -> io::Result<()> {
         self.stream.flush()

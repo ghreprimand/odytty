@@ -300,7 +300,7 @@ fn oversized_truncated_and_trailing_frames_fail_closed() {
         let length = (MAX_MESSAGE_BYTES as u32).saturating_add(1).to_le_bytes();
         stream.write_all(&length).expect("length");
         stream.flush().expect("flush");
-        let mut io = DeadlineStream::new(stream, IO_TIMEOUT);
+        let mut io = DeadlineStream::new(stream, IO_TIMEOUT).expect("deadline stream");
         let response = protocol::read_response(&mut io).expect("too-large reply");
         assert_eq!(response.request_id, 0);
         assert_eq!(response.reply, Reply::Error(ErrorCode::TooLarge));

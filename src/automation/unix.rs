@@ -214,7 +214,7 @@ fn serve(
     stopped: Arc<AtomicBool>,
 ) -> io::Result<()> {
     peer_is_owner(&stream)?;
-    let mut io = DeadlineStream::new(stream, IO_TIMEOUT);
+    let mut io = DeadlineStream::new(stream, IO_TIMEOUT)?;
     let request = match protocol::read_request(&mut io) {
         Ok(request) => request,
         Err(error) => {
@@ -280,7 +280,7 @@ pub fn request(path: &Path, request: &Request) -> io::Result<Response> {
     }
     let stream = connect(&path, IO_TIMEOUT)?;
     peer_is_owner(&stream)?;
-    let mut io = DeadlineStream::new(stream, IO_TIMEOUT);
+    let mut io = DeadlineStream::new(stream, IO_TIMEOUT)?;
     protocol::write_request(&mut io, request)?;
     io.reset_deadline(IO_TIMEOUT + super::dispatch::REQUEST_TIMEOUT);
     let response = protocol::read_response(&mut io)?;
