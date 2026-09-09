@@ -1084,8 +1084,9 @@ scope rather than silently inheriting deferred work from a prior release.
 
 - Theme system: full 16-color ANSI palette + semantic roles (cursor, selection,
   search highlight, reserved border/inactive) per theme; a curated,
-  contrast-validated 144-theme built-in library plus user `.theme` files through
-  one shared dependency-free parse path (see
+  contrast-validated 145-theme library in current unreleased source (144 in
+  published v0.14.0), including the v0.15.0 `odyssey-electric-blue` preset,
+  plus user `.theme` files through one shared dependency-free parse path (see
   [`docs/themes.md`](docs/themes.md) for the current roster and file format);
   `ODYTTY_THEME` accepts a built-in name, directory-relative name, or file path;
   OSC-4 / OSC-10/11/12 dynamic overrides layer on top with correct precedence;

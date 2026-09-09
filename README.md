@@ -169,7 +169,8 @@ sessions.
   searchable Session Navigator with bounded metadata, confirmed close actions,
   a process-lifetime fresh-shell reopen history, and an optional redacted preview.
 - **Configuration without ceremony:** a live settings panel, command palette,
-  font and theme pickers, 144 built-in themes, user themes, a theme builder
+  font and theme pickers, 145 built-in themes in current unreleased source
+  (144 in published v0.14.0), user themes, a theme builder
   with sliders and click-to-edit hex values (including capture of a pane's live
   colors into a new theme),
   backgrounds, transparency, bloom, CRT, and retro effects. Config-file editing
@@ -248,6 +249,10 @@ opt-in that applies a complete local palette file through the existing theme
 seam without delaying ordinary startup. See
 [current work](TODO.md) and the
 [full roadmap](docs/full-build-roadmap.md) for later milestones.
+
+Current v0.15.0 development adds the `odyssey-electric-blue` preset through the
+existing cross-platform theme path. It does not change the default theme or any
+effect setting. See the [theme reference](docs/themes.md#electric-blue).
 
 The terminal core and visual experience layer are deliberately separate.
 See the [ownership boundary](SPEC.md#ownership-boundary),

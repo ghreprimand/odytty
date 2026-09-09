@@ -42,6 +42,8 @@
 //! `odyssey-sienna-light` (light), `odyssey-periwinkle-light` (light),
 //! and `odyssey-pine`.
 //!
+//! Electric Blue: `odyssey-electric-blue` (blue-black, lavender, and cyan).
+//!
 //! Extended Odyssey originals: `odyssey-eclipse`, `odyssey-comet`,
 //! `odyssey-obsidian`, `odyssey-jade`, `odyssey-basalt`, `odyssey-fjord`,
 //! `odyssey-mangrove`, `odyssey-nocturne`, `odyssey-quartz-light` (light),
@@ -567,6 +569,10 @@ const REGISTRY: &[(&str, &str)] = &[
         "odyssey-primrose-light",
         include_str!("builtins/odyssey-primrose-light.theme"),
     ),
+    (
+        "odyssey-electric-blue",
+        include_str!("builtins/odyssey-electric-blue.theme"),
+    ),
 ];
 
 static LIBRARY: OnceLock<Vec<Theme>> = OnceLock::new();
@@ -620,7 +626,7 @@ mod tests {
     #[test]
     fn library_has_the_full_roster() {
         assert_eq!(all().len(), REGISTRY.len());
-        assert_eq!(all().len(), 144, "roster size changed - update docs + this");
+        assert_eq!(all().len(), 145, "roster size changed - update docs + this");
     }
 
     #[test]

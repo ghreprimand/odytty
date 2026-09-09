@@ -7,6 +7,7 @@ For the detailed development history, see the [devlog](../../DEVLOG.md).
 
 | Release | Highlights |
 | --- | --- |
+| [v0.15.0 (unreleased)](0.15.0.md) | Development in progress; Electric Blue is available in source. |
 | [v0.14.0](0.14.0.md) | Named profiles, external palette following, Session Navigator, and targeted hardening. |
 | [v0.13.0](0.13.0.md) | Risky-paste previews, command-output actions, and completion and progress monitoring. |
 | [v0.12.2](0.12.2.md) | Correct cursor controls for multiline progress redraws. |

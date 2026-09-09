@@ -54,6 +54,20 @@ recorded milestone before implementation.
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
 
+## v0.15.0: Quick Access, Local Control, File Drop, and Window Merge (in progress)
+
+- [ ] Cross-platform quick-terminal lifecycle and confirmed global shortcuts.
+- [ ] Owner-restricted structural automation protocol and CLI, without input or
+      content access.
+- [ ] Native file drop with shell-aware path insertion through the shipped paste
+      policy.
+- [ ] Keyboard window merge and pull with stable target identities, in-window
+      numerals, and atomic live-session transfer.
+- [x] Add the Electric Blue preset (`odyssey-electric-blue`) with blue-black
+      surfaces, lavender text, and cyan accents through the shared theme library.
+- [ ] Complete local gates, independent platform evidence, hands-on acceptance,
+      blocking CI, and release closure.
+
 ## v0.14.0: Profiles and Navigation (published)
 
 Release state: published at `15a688844393225d50252af05b45a7ef7ae89351`.
@@ -742,7 +756,7 @@ not a stretch goal.
         the conventional blinking terminal default because `winit` exposes no
         OS caret-blink preference; the settings help text now says this plainly.
 - [x] Add CLI config introspection.
-  - [x] `--list-themes`: enumerate the 144 built-in themes as
+  - [x] `--list-themes`: enumerate the built-in theme library as
         `name`/appearance/family rows.
   - [x] `--list-fonts`: enumerate discoverable font files (path, filename-stem
         name, monospace on/off) from the renderer's bounded search directories.
@@ -1154,8 +1168,8 @@ feature validates against.
         `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
         in File Manager. See [`docs/keybindings.md`](docs/keybindings.md) for the chord reference.
 - [x] Deliver the current theme-library and configuration UX scope.
-  - [x] Built-in theme library expanded to 144 contrast-validated themes
-        (data-only, ongoing).
+  - [x] Built-in theme library expanded to 145 contrast-validated themes in
+        current unreleased source (144 in published v0.14.0; data-only, ongoing).
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
         entry.
   - [x] Surface font-load failures in the overlay instead of failing silently.

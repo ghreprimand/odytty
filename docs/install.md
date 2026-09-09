@@ -774,7 +774,8 @@ odytty --show-config    # print the effective configuration
 odytty --core-smoke     # print a parser/core smoke transcript
 ```
 
-`--list-themes` prints the 144 built-in themes as stable
+`--list-themes` prints the built-in themes (144 in published v0.14.0; 145 in
+unreleased v0.15.0 source) as stable
 `name`/`appearance`/`family` rows. `--list-fonts` prints discoverable
 system font files. `--show-config` prints the stable effective-config subset,
 including `symbol_fallback` and the resolved `symbol_font_source` fallback

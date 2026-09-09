@@ -3,7 +3,8 @@
 Use this guide to understand OdyTTY's terminal behavior, configure the native
 app, and work with tabs, panes, workspaces, remote hosts, and shell integration.
 For installation and a shorter overview, start with the
-[README](../README.md).
+[README](../README.md). Unreleased v0.15.0 additions are labelled explicitly;
+they are not included in the published v0.14.0 packages.
 
 ## Contents
 
@@ -1091,6 +1092,14 @@ presentation control remains independently configurable in Settings or
 [Runtime Knobs](runtime-knobs.md); `reduced_motion =
 on` makes slide, trail, glow, easing, and new-output fade static or instant
 while preserving their saved choices.
+
+### Electric Blue
+
+Current unreleased v0.15.0 source adds `odyssey-electric-blue`, with a blue-black
+background, lavender text, cyan accents, and distinct ANSI colors. It is absent
+from published v0.14.0 packages. Development builds can select it in the Theme
+Picker or set `theme = odyssey-electric-blue`. See
+[Electric Blue](themes.md#electric-blue) for palette and readability details.
 
 ### Follow The Desktop Theme
 
