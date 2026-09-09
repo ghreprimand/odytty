@@ -124,9 +124,15 @@ pub(super) fn connect(path: &Path, timeout: Duration) -> io::Result<UnixStream> 
     for (destination, source) in address.sun_path.iter_mut().zip(bytes) {
         *destination = *source as libc::c_char;
     }
+    let address_len = std::mem::offset_of!(libc::sockaddr_un, sun_path)
+        .checked_add(bytes.len())
+        .and_then(|length| length.checked_add(1))
+        .and_then(|length| libc::socklen_t::try_from(length).ok())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "endpoint path too long"))?;
     #[cfg(target_os = "macos")]
     {
-        address.sun_len = std::mem::size_of_val(&address) as u8;
+        address.sun_len = u8::try_from(address_len)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "endpoint path too long"))?;
     }
     // SAFETY: socket returns an owned descriptor; it is immediately wrapped.
     #[cfg(target_os = "linux")]
@@ -164,7 +170,7 @@ pub(super) fn connect(path: &Path, timeout: Duration) -> io::Result<UnixStream> 
         libc::connect(
             fd,
             (&address as *const libc::sockaddr_un).cast(),
-            std::mem::size_of_val(&address) as libc::socklen_t,
+            address_len,
         )
     };
     if result != 0 {

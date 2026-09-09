@@ -26,6 +26,8 @@ const MAX_CONNECTIONS_PER_SECOND: usize = 32;
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+type AcceptObserver = Arc<dyn Fn(&UnixStream) + Send + Sync>;
+
 fn denied() -> io::Error {
     io::Error::new(
         io::ErrorKind::PermissionDenied,
@@ -103,6 +105,25 @@ impl Server {
         submission: Submission,
         wake: impl Fn() -> bool + Send + Sync + 'static,
     ) -> io::Result<Self> {
+        Self::bind_inner(path, submission, Arc::new(wake), None)
+    }
+
+    #[cfg(test)]
+    fn bind_with_accept_observer(
+        path: &Path,
+        submission: Submission,
+        wake: impl Fn() -> bool + Send + Sync + 'static,
+        observer: impl Fn(&UnixStream) + Send + Sync + 'static,
+    ) -> io::Result<Self> {
+        Self::bind_inner(path, submission, Arc::new(wake), Some(Arc::new(observer)))
+    }
+
+    fn bind_inner(
+        path: &Path,
+        submission: Submission,
+        wake: Arc<dyn Fn() -> bool + Send + Sync>,
+        accept_observer: Option<AcceptObserver>,
+    ) -> io::Result<Self> {
         let path = endpoint_path(path)?;
         let parent = fs::symlink_metadata(path.parent().ok_or_else(denied)?)?;
         let listener = UnixListener::bind(&path)?;
@@ -115,7 +136,6 @@ impl Server {
         listener.set_nonblocking(true)?;
         let stopped = Arc::new(AtomicBool::new(false));
         let stop = stopped.clone();
-        let wake: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(wake);
         let thread = thread::Builder::new()
             .name("odytty-control".into())
             .spawn(move || {
@@ -141,6 +161,9 @@ impl Server {
                     if workers.len() < MAX_CLIENTS && accepted < MAX_CONNECTIONS_PER_SECOND {
                         match listener.accept() {
                             Ok((stream, _)) => {
+                                if let Some(observer) = accept_observer.as_ref() {
+                                    observer(&stream);
+                                }
                                 accepted += 1;
                                 let submission = submission.clone();
                                 let wake = wake.clone();

@@ -11,14 +11,12 @@ use crate::automation::dispatch::{self, MAX_PER_DISPATCH};
 use crate::automation::protocol::{
     self, Action, ErrorCode, MAX_MESSAGE_BYTES, Reply, Request, VERSION,
 };
-#[cfg(target_os = "linux")]
-use std::collections::HashSet;
 use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
 };
 use std::time::Duration;
 
@@ -30,6 +28,13 @@ fn assert_fd_cloexec(fd: i32, label: &str) {
         flags.contains(rustix::io::FdFlags::CLOEXEC),
         "{label} fd {fd} must have FD_CLOEXEC; flags={flags:?}"
     );
+}
+
+fn fd_has_cloexec(fd: i32) -> bool {
+    // SAFETY: fd is live while the accept observer runs.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+    rustix::io::fcntl_getfd(borrowed)
+        .is_ok_and(|flags| flags.contains(rustix::io::FdFlags::CLOEXEC))
 }
 
 #[cfg(target_os = "linux")]
@@ -62,26 +67,6 @@ fn find_fd_for_socket_inode(inode: u64) -> Option<i32> {
     None
 }
 
-#[cfg(target_os = "linux")]
-fn open_socket_fds() -> HashSet<i32> {
-    let mut fds = HashSet::new();
-    let Ok(dir) = fs::read_dir("/proc/self/fd") else {
-        return fds;
-    };
-    for entry in dir.flatten() {
-        let Ok(fd) = entry.file_name().to_str().unwrap_or("").parse::<i32>() else {
-            continue;
-        };
-        let Ok(target) = fs::read_link(entry.path()) else {
-            continue;
-        };
-        if target.to_string_lossy().starts_with("socket:[") {
-            fds.insert(fd);
-        }
-    }
-    fds
-}
-
 struct Fixture {
     dir: PathBuf,
     socket: PathBuf,
@@ -96,11 +81,9 @@ impl Drop for Fixture {
 
 fn fixture() -> Fixture {
     // Synthetic entropy only: no host usernames, homes, or machine paths.
-    let tag = format!(
-        "odyctl-{:x}-{:x}",
-        std::process::id(),
-        Instant::now().elapsed().as_nanos()
-    );
+    static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+    let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
+    let tag = format!("odyctl-{:x}-{sequence:x}", std::process::id());
     let dir = std::env::temp_dir().join(tag);
     fs::create_dir(&dir).expect("private fixture directory");
     fs::set_permissions(&dir, Permissions::from_mode(0o700)).expect("dir mode 0700");
@@ -513,30 +496,33 @@ fn client_connect_sets_fd_cloexec() {
 #[cfg(target_os = "linux")]
 #[test]
 fn listener_and_accepted_connection_set_fd_cloexec() {
-    let harness = start_harness(false);
-    let path = harness.fixture.socket.clone();
+    let fixture = fixture();
+    let path = fixture.socket.clone();
+    let (submission, _queue) = dispatch::channel(false);
+    let (accepted_tx, accepted_rx) = mpsc::sync_channel(1);
+    let server = Server::bind_with_accept_observer(
+        &path,
+        submission,
+        || true,
+        move |stream| {
+            let _ = accepted_tx.send(fd_has_cloexec(stream.as_raw_fd()));
+        },
+    )
+    .expect("bind observed endpoint");
     let inode = unix_listening_inode(&path).expect("listening inode in /proc/net/unix");
     let listener_fd = find_fd_for_socket_inode(inode).expect("listener fd in /proc/self/fd");
     assert_fd_cloexec(listener_fd, "automation listener");
 
-    let before = open_socket_fds();
     let stream = connect(&path, IO_TIMEOUT).expect("held client");
-    // Give the nonblocking accept loop one poll interval to spawn the worker.
-    thread::sleep(POLL_INTERVAL * 5);
     assert_fd_cloexec(stream.as_raw_fd(), "client after accept");
-
-    let after = open_socket_fds();
-    let mut seen_accepted = false;
-    for fd in after.difference(&before) {
-        assert_fd_cloexec(*fd, "post-accept socket");
-        if *fd != stream.as_raw_fd() {
-            seen_accepted = true;
-        }
-    }
     assert!(
-        seen_accepted,
-        "expected a distinct accepted-connection fd with FD_CLOEXEC"
+        accepted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("accept observer result"),
+        "accepted connection must have FD_CLOEXEC"
     );
+    drop(stream);
+    drop(server);
 }
 
 #[cfg(target_os = "macos")]

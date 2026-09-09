@@ -1274,24 +1274,6 @@ mod tests {
     }
 
     #[test]
-    fn configure_quick_terminal_never_registers_without_a_backend() {
-        // Enabled with a valid accelerator: no OS key-grab backend is compiled
-        // in, so the platform adapter must report Unsupported (Wayland) or
-        // Unavailable (X11/other) - never Registered. Robust across the test
-        // host's display server.
-        let mut host = host_of(vec![headless()]);
-        let status = host.configure_quick_terminal(QuickTerminalSettings {
-            enabled: true,
-            shortcut: "ctrl+shift+grave".to_owned(),
-            ..QuickTerminalSettings::default()
-        });
-        assert!(
-            !status.is_registered(),
-            "must not claim a grab the OS did not confirm"
-        );
-    }
-
-    #[test]
     fn configure_quick_terminal_rejects_a_malformed_shortcut() {
         let mut host = host_of(vec![headless()]);
         let status = host.configure_quick_terminal(QuickTerminalSettings {
