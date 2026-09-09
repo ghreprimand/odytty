@@ -40,10 +40,11 @@ unperformed because maintainer hardware was unavailable. Version 0.14.0
 Session Navigator) is published. Profile and navigator acceptance,
 release-image testing, blocking CI, signed artifacts, provenance, and package
 propagation are complete. The isolated published-source release build also
-passed on Linux with Rust 1.97.1; no new MSRV claim is made. Planned v0.15.0
-work (quick terminal, local
-automation API, file drop, and keyboard-first window merge) is described in the
-roadmap. A checked item is delivered at the current head (or at the historical
+passed on Linux with Rust 1.97.1; no new MSRV claim is made. Active v0.15.0
+development (quick terminal, local automation API, file drop, and keyboard-first
+window merge) is unit-evidenced on `master` with device acceptance and release
+closure still open; see the roadmap and
+[`docs/releases/0.15.0.md`](docs/releases/0.15.0.md). A checked item is delivered at the current head (or at the historical
 milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as
@@ -57,31 +58,36 @@ recorded milestone before implementation.
 ## v0.15.0: Quick Access, Local Control, File Drop, and Window Merge (in progress)
 
 Development contracts: [`docs/v0.15.0-foundation.md`](docs/v0.15.0-foundation.md).
-The current source includes stable tab/workspace identities, same-process
-window-host and merge foundations, quick-terminal settings and shortcut
-backends, plus a bounded structural-control protocol and explicit local CLI.
-The opt-in automation owner bridge is live on Linux, macOS, and Windows after
-the first presented frame and remains off during ordinary startup. Native path
-drops now stage confirm-first, shell-quoted insertion on eligible local Unix panes.
-Windows named-pipe CI and device acceptance, Windows file-drop insertion
-authority, remaining live-window behavior, blocking CI, and release closure
-remain open.
+Hands-on packets: [`docs/acceptance/v0.15.0.md`](docs/acceptance/v0.15.0.md).
+Status notes: [`docs/releases/0.15.0.md`](docs/releases/0.15.0.md).
 
-- [ ] Cross-platform quick-terminal lifecycle and confirmed global shortcuts.
+Unit-evidenced on current `master`: Electric Blue; quick-terminal
+lifecycle and shortcut adapters; opt-in structural automation on Unix sockets and
+the Windows named pipe (busy/unavailable/listener-fault and hostile-client
+coverage); confirm-first Unix file-drop insertion with an explicit Windows
+refusal; keyboard-first window merge/pull. Device acceptance, blocking release
+CI, packaging, and publication remain open. No release claim.
+
+- [x] Quick-terminal lifecycle and platform shortcut adapters (hidden-session
+      retention, single-instance summons, monitor fallback, post-first-frame
+      registration readiness). Device confirmation of grabs, fullscreen,
+      multi-monitor, and virtual-desktop behavior remains open.
 - [x] Stable tab/workspace creation identities and Navigator action routing
       across pane closure, moves, merge, and restoration.
-- [ ] Owner-restricted structural automation protocol and CLI, without input or
-      content access. Unix owner routing and Windows named-pipe transport are
-      implemented; three-platform acceptance remains open.
-- [ ] Complete native file-drop platform validation and resolve the explicit
-      Windows refusal; eligible local Unix panes already use shell-aware path
-      insertion through the shipped paste policy.
-- [ ] Keyboard window merge and pull with stable target identities, in-window
-      numerals, and atomic live-session transfer.
+- [x] Owner-restricted structural automation protocol and CLI, without input or
+      content access, including Unix owner routing, Windows named-pipe transport,
+      busy/unavailable/listener-fault contracts, and hostile-client suites.
+      Three-platform and hands-on acceptance remain open.
+- [x] Confirm-first native file-drop path insertion on eligible local Unix panes
+      through the shipped paste policy; Windows refuses with an explicit platform
+      notice. Device delivery on X11, Wayland, macOS, and Windows remains open.
+- [x] Keyboard window merge and pull with stable target identities, in-window
+      numerals, and atomic live-session transfer (unit-evidenced). Hands-on
+      acceptance remains open.
 - [x] Add the Electric Blue preset (`odyssey-electric-blue`) with blue-black
       surfaces, lavender text, and cyan accents through the shared theme library.
-- [ ] Complete local gates, independent platform evidence, hands-on acceptance,
-      blocking CI, and release closure.
+- [ ] Complete independent platform evidence, hands-on acceptance, blocking CI,
+      and release closure.
 
 ## v0.14.0: Profiles and Navigation (published)
 

@@ -254,20 +254,16 @@ Current v0.15.0 development adds the `odyssey-electric-blue` preset through the
 existing cross-platform theme path. It does not change the default theme or any
 effect setting. See the [theme reference](docs/themes.md#electric-blue).
 
-The same development line now contains stable tab and workspace identities,
-same-process window merge foundations, cross-platform quick-terminal shortcut
-backends, and an opt-in bounded structural-control endpoint with an explicit
-local CLI. The endpoint remains off by default and starts only after the first
-presented frame; every supported platform routes requests through the existing
-live window owners. Windows uses a local named pipe claimed by the first server
-instance, restricted to the process owner's SID, and checked in both directions
-before protocol I/O. Windows CI execution and hands-on remote-client refusal
-remain open. Native file drops now stage a
-confirm-first shell-quoted insertion only when the launch shell owns and is the
-sole member of the Unix PTY foreground group. Windows insertion remains refused
-because ConPTY exposes no foreground-process-group authority; live-device and
-three-platform acceptance remain open. See the
-[v0.15.0 contracts](docs/v0.15.0-foundation.md) for the exact boundaries.
+The same unreleased line now carries unit-evidenced quick-terminal lifecycle and
+shortcut adapters; opt-in structural automation on Linux/macOS owner-private
+sockets and a Windows owner-DACL named pipe (busy/unavailable/listener-fault
+contracts and hostile-client suites); confirm-first Unix file-drop insertion with
+an explicit Windows refusal; and keyboard-first window merge/pull with in-window
+numerals. Device acceptance, blocking release CI, packaging, and publication
+remain open. No v0.15.0 release claim. See the
+[v0.15.0 contracts](docs/v0.15.0-foundation.md),
+[status notes](docs/releases/0.15.0.md), and
+[acceptance packets](docs/acceptance/v0.15.0.md).
 
 The terminal core and visual experience layer are deliberately separate.
 See the [ownership boundary](SPEC.md#ownership-boundary),
