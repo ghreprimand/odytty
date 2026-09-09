@@ -497,8 +497,9 @@ pub(in crate::native) enum QuickVisibility {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) enum QuickTerminalAction {
     /// First summon while no quick window exists: create the single dedicated
-    /// window and session, then reveal it. Happens at most once per process
-    /// lifetime (the window is preserved when hidden).
+    /// window and session, then reveal it. Happens at most once per live
+    /// creation reservation or identity: the window is preserved when hidden,
+    /// and only closing or merging it away permits a later recreation.
     CreateAndShow,
     /// Reveal the existing, hidden quick window. Its session is preserved
     /// exactly as it was left.

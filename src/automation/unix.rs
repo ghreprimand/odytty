@@ -94,6 +94,8 @@ impl Drop for EndpointGuard {
 pub struct Server {
     stopped: Arc<AtomicBool>,
     fault: Arc<Mutex<Option<String>>>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    wake: Arc<dyn Fn() -> bool + Send + Sync>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -105,6 +107,13 @@ impl Server {
             |_| Some("listener state poisoned".to_owned()),
             |fault| fault.clone(),
         )
+    }
+
+    /// Record a terminal fault through the shared cell exactly as the listener
+    /// thread does, including the owner wake, without an OS-level failure.
+    #[cfg(test)]
+    pub fn inject_fault_for_test(&self, reason: &str) {
+        record_fault(&self.fault, &*self.wake, reason.to_owned());
     }
 
     /// Invoke off the first-terminal critical path, after explicit opt-in.
@@ -148,6 +157,7 @@ impl Server {
         let stop = stopped.clone();
         let fault = Arc::new(Mutex::new(None));
         let fault_slot = fault.clone();
+        let wake_handle = wake.clone();
         let thread = thread::Builder::new()
             .name("odytty-control".into())
             .spawn(move || {
@@ -198,7 +208,11 @@ impl Server {
                             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                             Err(error) => {
-                                record_fault(&fault_slot, format!("accept failed: {error}"));
+                                record_fault(
+                                    &fault_slot,
+                                    &*wake,
+                                    format!("accept failed: {error}"),
+                                );
                                 break;
                             }
                         }
@@ -214,18 +228,22 @@ impl Server {
         Ok(Self {
             stopped,
             fault,
+            wake: wake_handle,
             thread: Some(thread),
         })
     }
 }
 
 /// Records the first terminal listener failure; later ones keep the original.
-fn record_fault(slot: &Mutex<Option<String>>, reason: String) {
+/// The owner is woken so the runtime observes the fault on its next turn even
+/// when the event loop is otherwise idle.
+fn record_fault(slot: &Mutex<Option<String>>, wake: &dyn Fn() -> bool, reason: String) {
     if let Ok(mut fault) = slot.lock()
         && fault.is_none()
     {
         *fault = Some(reason);
     }
+    let _ = wake();
 }
 
 impl Drop for Server {

@@ -70,7 +70,9 @@ impl AutomationRuntime {
     ) -> ReconcileOutcome {
         if !enabled {
             self.attempted = false;
-            return if self.is_running() {
+            // A faulted server is no longer running but its queue and thread
+            // are still resident; disabling must release them too.
+            return if self.queue.is_some() {
                 self.shutdown();
                 ReconcileOutcome::Stopped
             } else {
@@ -190,6 +192,7 @@ impl AutomationRuntime {
     }
 
     /// True while a dispatch queue exists and the listener has not faulted.
+    #[cfg(test)]
     pub(in crate::native) fn is_running(&self) -> bool {
         #[cfg(any(target_os = "linux", target_os = "macos", windows))]
         if self.server.as_ref().and_then(Server::fault).is_some() {
@@ -450,6 +453,84 @@ mod tests {
         runtime.shutdown();
         assert!(!runtime.is_running());
         assert!(!endpoint.exists(), "owned endpoint removed on shutdown");
+
+        let _ = fs::remove_dir(dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn listener_fault_tears_down_and_retries_only_after_off_and_on() {
+        use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let tag = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("oa-f{:x}-{tag:x}", std::process::id()));
+        crate::state_dir::prepare_private_dir(&dir).expect("owner-private fixture dir");
+        let endpoint = dir.join(format!("control-{}.sock", std::process::id()));
+        let wakes = std::sync::Arc::new(AtomicUsize::new(0));
+        let wake = {
+            let wakes = wakes.clone();
+            move || {
+                wakes.fetch_add(1, Ordering::Relaxed);
+                true
+            }
+        };
+
+        let mut runtime = AutomationRuntime::default();
+        runtime.attempted = true;
+        runtime
+            .start_unix_at(endpoint.clone(), wake.clone())
+            .expect("bind endpoint");
+        assert!(runtime.is_running());
+
+        let server = runtime.server.as_ref().expect("server");
+        server.inject_fault_for_test("accept failed: injected");
+        server.inject_fault_for_test("later reason");
+        assert_eq!(
+            wakes.load(Ordering::Relaxed),
+            2,
+            "each fault wakes the owner"
+        );
+        assert!(!runtime.is_running(), "a faulted listener is not running");
+
+        // Enabled: the fault is observed, the endpoint is torn down, and no
+        // retry happens while the setting stays on.
+        assert_eq!(
+            runtime.reconcile(true, true, wake.clone()),
+            ReconcileOutcome::Faulted("accept failed: injected".to_owned()),
+            "the first reason is retained"
+        );
+        assert!(runtime.queue.is_none() && runtime.server.is_none());
+        assert!(!endpoint.exists(), "faulted endpoint removed");
+        assert_eq!(
+            runtime.reconcile(true, true, wake.clone()),
+            ReconcileOutcome::Unchanged,
+            "no automatic rebind while the setting stays on"
+        );
+
+        // Off then on: one clean retry.
+        assert_eq!(
+            runtime.reconcile(false, true, wake.clone()),
+            ReconcileOutcome::Unchanged
+        );
+        assert!(!runtime.attempted);
+
+        // Disabled after a fault must still release the resident queue.
+        runtime.attempted = true;
+        runtime
+            .start_unix_at(endpoint.clone(), wake.clone())
+            .expect("rebind endpoint");
+        runtime
+            .server
+            .as_ref()
+            .expect("server")
+            .inject_fault_for_test("accept failed: second");
+        assert_eq!(
+            runtime.reconcile(false, true, wake),
+            ReconcileOutcome::Stopped,
+            "disabling a faulted endpoint tears it down"
+        );
+        assert!(runtime.queue.is_none() && !endpoint.exists());
 
         let _ = fs::remove_dir(dir);
     }

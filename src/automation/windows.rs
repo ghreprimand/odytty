@@ -540,6 +540,8 @@ fn wait_for_client(handle: &OwnedHandle, stopped: &AtomicBool) -> io::Result<boo
 pub struct Server {
     stopped: Arc<AtomicBool>,
     fault: Arc<Mutex<Option<String>>>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    wake: Arc<dyn Fn() -> bool + Send + Sync>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -551,6 +553,13 @@ impl Server {
             |_| Some("listener state poisoned".to_owned()),
             |fault| fault.clone(),
         )
+    }
+
+    /// Record a terminal fault through the shared cell exactly as the listener
+    /// thread does, including the owner wake, without an OS-level failure.
+    #[cfg(test)]
+    pub fn inject_fault_for_test(&self, reason: &str) {
+        record_fault(&self.fault, &*self.wake, reason.to_owned());
     }
 
     pub fn bind(
@@ -567,7 +576,8 @@ impl Server {
         let stop = stopped.clone();
         let fault = Arc::new(Mutex::new(None));
         let fault_slot = fault.clone();
-        let wake = Arc::new(wake);
+        let wake: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(wake);
+        let wake_handle = wake.clone();
         let thread = thread::Builder::new()
             .name("odytty-control".into())
             .spawn(move || {
@@ -599,7 +609,11 @@ impl Server {
                         Ok(true) => {}
                         Ok(false) => break,
                         Err(error) => {
-                            record_fault(&fault_slot, format!("connect wait failed: {error}"));
+                            record_fault(
+                                &fault_slot,
+                                &*wake,
+                                format!("connect wait failed: {error}"),
+                            );
                             break;
                         }
                     }
@@ -615,6 +629,7 @@ impl Server {
                         Err(error) => {
                             record_fault(
                                 &fault_slot,
+                                &*wake,
                                 format!("successor pipe instance failed: {error}"),
                             );
                             None
@@ -649,18 +664,22 @@ impl Server {
         Ok(Self {
             stopped,
             fault,
+            wake: wake_handle,
             thread: Some(thread),
         })
     }
 }
 
 /// Records the first terminal listener failure; later ones keep the original.
-fn record_fault(slot: &Mutex<Option<String>>, reason: String) {
+/// The owner is woken so the runtime observes the fault on its next turn even
+/// when the event loop is otherwise idle.
+fn record_fault(slot: &Mutex<Option<String>>, wake: &dyn Fn() -> bool, reason: String) {
     if let Ok(mut fault) = slot.lock()
         && fault.is_none()
     {
         *fault = Some(reason);
     }
+    let _ = wake();
 }
 
 impl Drop for Server {
@@ -738,14 +757,26 @@ fn serve(
     protocol::write_response(&mut io, &response)
 }
 
+/// A client that connects and closes before the listener thread observes the
+/// connection leaves the only pipe instance in its closing state, and Windows
+/// reports the name as absent until the listener creates the successor on its
+/// next poll. A missing name is therefore retried for this bounded window
+/// before it is reported; a genuinely absent endpoint still fails fast.
+const NOT_FOUND_GRACE: Duration = Duration::from_millis(250);
+
 fn connect(path: &Path, timeout: Duration) -> io::Result<PipeIo> {
     let name = wide_endpoint(path)?;
     let deadline = Instant::now() + timeout;
+    let not_found_until = Instant::now() + NOT_FOUND_GRACE.min(timeout);
     loop {
         let wait = remaining_millis(deadline)?;
         if !unsafe { WaitNamedPipeW(PCWSTR(name.as_ptr()), wait) }.as_bool() {
             let error = io::Error::last_os_error();
             if error.raw_os_error() == Some(ERROR_FILE_NOT_FOUND.0 as i32) {
+                if Instant::now() < not_found_until {
+                    thread::sleep(POLL_INTERVAL);
+                    continue;
+                }
                 return Err(error);
             }
             if matches!(

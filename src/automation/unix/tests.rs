@@ -856,8 +856,18 @@ fn listener_fault_is_none_while_listening_and_keeps_first_reason() {
     let server = Server::bind(&fixture.socket, submission, || true).expect("bind");
     assert_eq!(server.fault(), None, "a listening server reports no fault");
     let slot = Mutex::new(None);
-    record_fault(&slot, "first".to_owned());
-    record_fault(&slot, "second".to_owned());
+    let woken = AtomicUsize::new(0);
+    let wake = || {
+        woken.fetch_add(1, Ordering::Relaxed);
+        true
+    };
+    record_fault(&slot, &wake, "first".to_owned());
+    record_fault(&slot, &wake, "second".to_owned());
     assert_eq!(slot.lock().expect("slot").as_deref(), Some("first"));
+    assert_eq!(
+        woken.load(Ordering::Relaxed),
+        2,
+        "every fault wakes the owner"
+    );
     drop(server);
 }
