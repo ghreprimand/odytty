@@ -117,11 +117,13 @@ zbus = { version = "5", default-features = false, features = ["async-io"] }
 async-io = "2"
 futures-lite = "2"
 
-# Windows-only: the ConPTY PTY backend (`src/pty/windows.rs`). Pinned to the
+# Windows-only: the ConPTY PTY backend (`src/pty/windows.rs`) and owner-verified
+# local automation pipe (`src/automation/windows.rs`). Pinned to the
 # `windows` 0.62 stack `wgpu` already locks transitively (Cargo.lock has
 # windows 0.62.2) so no second copy is pulled. `Win32_Security` is required even
 # though it is not called directly: the `CreatePipe`/`CreateProcessW` bindings
 # are cfg-gated on it in 0.62.2 (their `SECURITY_ATTRIBUTES` parameters).
+# `Win32_System_IO` supplies overlapped pipe deadlines and cancellation;
 # `Win32_System_ProcessStatus` backs the memory-attribution diagnostic's
 # process-level read (`GetProcessMemoryInfo`), which is the Windows equivalent
 # of the Linux `/proc/self/status` source — Windows reads its own interface
@@ -136,6 +138,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Console",
     "Win32_System_Environment",
     "Win32_System_JobObjects",
+    "Win32_System_IO",
     "Win32_System_Pipes",
     "Win32_System_ProcessStatus",
     "Win32_System_SystemInformation",

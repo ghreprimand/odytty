@@ -15,7 +15,7 @@ Commands: capabilities | list | status ID | focus ID | open-profile WINDOW NAME 
           split PANE columns|rows | rename ID NAME\n\
 IDs: 32-hex-instance:window|workspace|tab|pane:decimal-serial\n\
 The endpoint must be explicitly enabled by its owner. No terminal input or content reads.\n\
-Unix requires an existing owner-private directory. Windows transport is unavailable.\n\
+Unix requires an owner-private directory; Windows requires a local OdyTTY named pipe.\n\
 A lost mutation reply has an unknown outcome; do not retry automatically.\n";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -235,7 +235,16 @@ pub fn run(command: Command) -> (String, bool) {
             ErrorCode::OutcomeUnknown
         }),
     });
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(windows)]
+    let response = super::windows::request(&endpoint, &request).unwrap_or_else(|_| Response {
+        request_id: request.request_id,
+        reply: Reply::Error(if request.action.is_read_only() {
+            ErrorCode::Unavailable
+        } else {
+            ErrorCode::OutcomeUnknown
+        }),
+    });
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     let response = {
         let _ = endpoint;
         Response {

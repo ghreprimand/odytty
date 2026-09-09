@@ -323,7 +323,7 @@ pub(super) fn tail_setting_rows(settings: &Settings) -> Vec<SettingInfo> {
             env: AUTOMATION_ENDPOINT_ENV,
             name: "Local automation endpoint",
             value: bool_display(settings.automation_endpoint).to_owned(),
-            description: "Expose the bounded structural-control protocol to this same-user session. Off by default, so ordinary startup creates no socket or listener thread. On grants list/status plus structural window, workspace, tab, and pane actions; terminal input and terminal-content reads remain unavailable. Linux requires XDG_RUNTIME_DIR, macOS uses an owner-private state directory, and Windows reports unavailable until named-pipe support lands.",
+            description: "Expose the bounded structural-control protocol to this same-user session. Off by default, so ordinary startup creates no socket or listener thread. On grants list/status plus structural window, workspace, tab, and pane actions; terminal input and terminal-content reads remain unavailable. Linux requires XDG_RUNTIME_DIR, macOS uses an owner-private state directory, and Windows uses a local owner-only named pipe.",
             kind: SettingKind::Bool,
             range: None,
             options: &["on", "off"],

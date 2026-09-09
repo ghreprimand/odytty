@@ -403,8 +403,8 @@ navigator_preview = off
 # Expose the bounded same-user structural-control protocol after the first
 # terminal frame is presented. Default off: no socket or listener worker exists.
 # Linux requires XDG_RUNTIME_DIR and never falls back to /tmp; macOS uses an
-# owner-private state directory. Windows reports unavailable until its named-pipe
-# transport is implemented. This does not enable terminal input or content reads.
+# owner-private state directory. Windows uses a local owner-only named pipe.
+# This does not enable terminal input or content reads.
 automation_endpoint = off
 
 # Restore the previous workspace/tab/pane layout when odytty is launched with

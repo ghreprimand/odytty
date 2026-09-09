@@ -46,7 +46,7 @@ impl MultiWindowHost {
                     #[cfg(target_os = "macos")]
                     let message = "Local automation unavailable; check the OdyTTY log for the owner-private state-directory error.";
                     #[cfg(windows)]
-                    let message = "Local automation is unavailable on Windows until named-pipe support is enabled.";
+                    let message = "Local automation unavailable; check the OdyTTY log for the named-pipe security or bind error.";
                     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
                     let message = "Local automation is unavailable on this platform.";
                     app.automation_notice(message.to_owned(), true);

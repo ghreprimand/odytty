@@ -257,10 +257,12 @@ effect setting. See the [theme reference](docs/themes.md#electric-blue).
 The same development line now contains stable tab and workspace identities,
 same-process window merge foundations, cross-platform quick-terminal shortcut
 backends, and an opt-in bounded structural-control endpoint with an explicit
-Unix CLI. The endpoint remains off by default and starts only after the first
-presented frame; Linux and macOS route requests through the existing live
-window owners. Windows named-pipe transport is pending, and native file drops
-now stage a
+local CLI. The endpoint remains off by default and starts only after the first
+presented frame; every supported platform routes requests through the existing
+live window owners. Windows uses a local named pipe claimed by the first server
+instance, restricted to the process owner's SID, and checked in both directions
+before protocol I/O. Windows CI execution and hands-on remote-client refusal
+remain open. Native file drops now stage a
 confirm-first shell-quoted insertion only when the launch shell owns and is the
 sole member of the Unix PTY foreground group. Windows insertion remains refused
 because ConPTY exposes no foreground-process-group authority; live-device and

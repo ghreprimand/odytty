@@ -685,7 +685,8 @@ creates no automation socket or worker. After the first presented frame, Linux
 binds an owner-only socket at `$XDG_RUNTIME_DIR/odytty/control-<pid>.sock` and
 macOS binds below OdyTTY's owner-private state directory. A missing Linux
 runtime directory is an actionable refusal with no `/tmp` fallback. Windows
-accepts the setting but reports that named-pipe transport is not implemented.
+binds `\\.\pipe\odytty-control-<pid>` with an owner-only DACL, remote-client
+rejection, and mutual process-token SID verification before protocol I/O.
 
 The endpoint lists and focuses existing windows, workspaces, tabs, and panes,
 opens profiles, creates tabs, workspaces, and splits, and renames supported
@@ -693,6 +694,11 @@ objects through the same native ownership and action routes as the interface.
 It cannot send terminal input or read terminal contents. Live disable and clean
 shutdown cancel queued work and remove only the endpoint instance owned by the
 current process.
+
+The Windows CLI accepts only the explicit local OdyTTY pipe form; remote UNC
+pipe names are rejected before opening. Windows CI covers same-user round trips,
+exclusive-name collision, and malformed-frame refusal. Remote-machine and
+second-account permission checks remain hands-on release acceptance.
 
 ## Shell Integration
 

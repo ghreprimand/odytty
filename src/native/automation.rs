@@ -10,15 +10,19 @@ use crate::automation::protocol::{Reply, Request};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::fs::{self, Metadata};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 use std::io;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+use std::path::PathBuf;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use crate::automation::unix::Server;
+#[cfg(windows)]
+use crate::automation::windows::Server;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 const MAX_STALE_ENTRIES: usize = 1024;
@@ -26,7 +30,10 @@ const MAX_STALE_ENTRIES: usize = 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::native) enum ReconcileOutcome {
     Unchanged,
-    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos", windows)),
+        allow(dead_code)
+    )]
     Started(String),
     Stopped,
     Unavailable(String),
@@ -40,9 +47,9 @@ pub(in crate::native) struct AutomationRuntime {
     attempted: bool,
     instance: Option<[u8; 16]>,
     queue: Option<DispatchQueue>,
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     server: Option<Server>,
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     endpoint: Option<PathBuf>,
 }
 
@@ -83,13 +90,42 @@ impl AutomationRuntime {
             }
         }
 
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        #[cfg(windows)]
+        {
+            match self.start_windows(wake) {
+                Ok(path) => ReconcileOutcome::Started(path.display().to_string()),
+                Err(error) => ReconcileOutcome::Unavailable(error.to_string()),
+            }
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         {
             let _ = wake;
             ReconcileOutcome::Unavailable(
                 "local automation transport is unavailable on this platform".to_owned(),
             )
         }
+    }
+
+    #[cfg(windows)]
+    fn start_windows(
+        &mut self,
+        wake: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> io::Result<PathBuf> {
+        let endpoint = crate::automation::windows::endpoint(std::process::id());
+        if self.instance.is_none() {
+            let mut instance = [0; 16];
+            getrandom::fill(&mut instance)
+                .map_err(|error| io::Error::other(format!("instance entropy: {error}")))?;
+            self.instance = Some(instance);
+        }
+        let (submission, mut queue) = crate::automation::dispatch::channel(true);
+        queue.set_structural_control(true);
+        let server = Server::bind(&endpoint, submission, wake)?;
+        self.endpoint = Some(endpoint.clone());
+        self.queue = Some(queue);
+        self.server = Some(server);
+        Ok(endpoint)
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -146,10 +182,10 @@ impl AutomationRuntime {
         if let Some(queue) = self.queue.as_mut() {
             queue.shutdown();
         }
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
         {
-            // Dropping the listener after queue shutdown cancels client work and
-            // removes only the inode this server created.
+            // Unix removes only its owned socket inode. Windows has no
+            // filesystem cleanup: the named pipe vanishes with its handles.
             drop(self.server.take());
             self.endpoint = None;
         }
@@ -294,14 +330,15 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn windows_accepts_the_setting_but_reports_transport_unavailable() {
+    fn windows_starts_only_after_readiness_and_shutdown_drops_the_pipe() {
         let mut runtime = AutomationRuntime::default();
+        let expected = crate::automation::windows::endpoint(std::process::id());
         assert_eq!(
             runtime.reconcile(true, true, || true),
-            ReconcileOutcome::Unavailable(
-                "local automation transport is unavailable on this platform".to_owned()
-            )
+            ReconcileOutcome::Started(expected.display().to_string())
         );
+        assert!(runtime.is_running());
+        runtime.shutdown();
         assert!(!runtime.is_running());
     }
 

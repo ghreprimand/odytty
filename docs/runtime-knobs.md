@@ -718,7 +718,8 @@ presented. It is off by default, so ordinary startup creates no socket, queue,
 entropy, or transport thread. Linux binds below `$XDG_RUNTIME_DIR/odytty` and
 refuses without that owner-private runtime directory; there is no `/tmp`
 fallback. macOS binds below OdyTTY's owner-private state directory. Windows
-accepts the setting but reports unavailable until named-pipe transport lands.
+binds a local `\\.\pipe\odytty-control-<pid>` endpoint with an owner-only DACL,
+remote-client rejection, and mutual process-token SID verification.
 
 The same setting authorizes structural requests; there is no separate live
 read-only endpoint mode. The protocol cannot send terminal input or read
