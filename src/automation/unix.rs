@@ -9,7 +9,7 @@ use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 use std::thread::{self, JoinHandle};
@@ -93,10 +93,20 @@ impl Drop for EndpointGuard {
 /// It never removes an existing endpoint to make startup succeed.
 pub struct Server {
     stopped: Arc<AtomicBool>,
+    fault: Arc<Mutex<Option<String>>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Server {
+    /// Reports the reason the listener thread stopped on its own, if it did.
+    /// `None` means the listener is still accepting or was stopped by drop.
+    pub fn fault(&self) -> Option<String> {
+        self.fault.lock().map_or_else(
+            |_| Some("listener state poisoned".to_owned()),
+            |fault| fault.clone(),
+        )
+    }
+
     /// Invoke off the first-terminal critical path, after explicit opt-in.
     /// `wake` must enqueue an event for the existing owner and return false when
     /// that owner is gone. It must not execute terminal actions on this thread.
@@ -136,6 +146,8 @@ impl Server {
         listener.set_nonblocking(true)?;
         let stopped = Arc::new(AtomicBool::new(false));
         let stop = stopped.clone();
+        let fault = Arc::new(Mutex::new(None));
+        let fault_slot = fault.clone();
         let thread = thread::Builder::new()
             .name("odytty-control".into())
             .spawn(move || {
@@ -168,19 +180,27 @@ impl Server {
                                 let submission = submission.clone();
                                 let wake = wake.clone();
                                 let stop = stop.clone();
-                                if let Ok(worker) = thread::Builder::new()
+                                match thread::Builder::new()
                                     .name("odytty-control-client".into())
                                     .spawn(move || {
                                         let _ = serve(stream, submission, wake, stop);
-                                    })
-                                {
-                                    workers.push(worker);
+                                    }) {
+                                    Ok(worker) => workers.push(worker),
+                                    // The accepted stream drops here, so the
+                                    // client sees a close instead of a hang.
+                                    Err(error) => tracing::warn!(
+                                        %error,
+                                        "automation client worker spawn failed"
+                                    ),
                                 }
                                 continue;
                             }
                             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                            Err(_) => break,
+                            Err(error) => {
+                                record_fault(&fault_slot, format!("accept failed: {error}"));
+                                break;
+                            }
                         }
                     }
                     thread::sleep(POLL_INTERVAL);
@@ -193,8 +213,18 @@ impl Server {
             })?;
         Ok(Self {
             stopped,
+            fault,
             thread: Some(thread),
         })
+    }
+}
+
+/// Records the first terminal listener failure; later ones keep the original.
+fn record_fault(slot: &Mutex<Option<String>>, reason: String) {
+    if let Ok(mut fault) = slot.lock()
+        && fault.is_none()
+    {
+        *fault = Some(reason);
     }
 }
 

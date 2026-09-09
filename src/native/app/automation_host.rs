@@ -38,6 +38,15 @@ impl MultiWindowHost {
                     app.automation_notice("Local automation disabled.".to_owned(), false);
                 }
             }
+            ReconcileOutcome::Faulted(reason) => {
+                tracing::warn!(%reason, "local automation endpoint stopped");
+                if let Some(app) = self.windows.first_mut() {
+                    app.automation_notice(
+                        "Local automation stopped; the endpoint listener failed. Check the OdyTTY log, then disable and re-enable the setting to retry.".to_owned(),
+                        true,
+                    );
+                }
+            }
             ReconcileOutcome::Unavailable(reason) => {
                 tracing::warn!(%reason, "local automation endpoint unavailable");
                 if let Some(app) = self.windows.first_mut() {
@@ -245,6 +254,7 @@ impl MultiWindowHost {
         if self.windows[index].automation_interaction_busy() {
             return Reply::Error(ErrorCode::Busy);
         }
+        self.windows[index].settle_for_automation_mutation();
         apply(&mut self.windows[index])
     }
 }
@@ -361,6 +371,62 @@ mod tests {
         assert_eq!(
             apply(&mut host, instance, rename),
             Reply::Error(ErrorCode::Busy)
+        );
+    }
+
+    #[test]
+    fn mutations_are_busy_while_an_osc52_write_confirmation_is_pending() {
+        let (mut host, instance) = enabled_host();
+        let tab = object(&host, instance, ObjectKind::Tab);
+        let window = object(&host, instance, ObjectKind::Window);
+        host.windows[0].queue_osc52_prompt_for_test();
+        assert_eq!(
+            apply(
+                &mut host,
+                instance,
+                Action::Rename {
+                    target: tab,
+                    name: "later".to_owned(),
+                }
+            ),
+            Reply::Error(ErrorCode::Busy)
+        );
+        assert_eq!(
+            apply(&mut host, instance, Action::CreateTab { window }),
+            Reply::Error(ErrorCode::Busy)
+        );
+        assert_eq!(
+            apply(&mut host, instance, Action::Focus { target: tab }),
+            Reply::Error(ErrorCode::Busy)
+        );
+        assert!(
+            matches!(
+                apply(&mut host, instance, Action::Status { target: tab }),
+                Reply::Objects(_)
+            ),
+            "read-only status stays available beneath the confirmation"
+        );
+        assert_eq!(
+            host.windows[0].osc52_prompt_metadata_for_test(),
+            Some(("Clipboard", 1)),
+            "a refused mutation leaves the confirmation untouched"
+        );
+    }
+
+    #[test]
+    fn mutations_settle_a_pointer_owned_divider_before_applying() {
+        let (mut host, instance) = enabled_host();
+        let tab = object(&host, instance, ObjectKind::Tab);
+        host.windows[0].begin_divider_drag_for_test(0);
+        assert!(host.windows[0].divider_drag_active_for_test());
+        let reply = apply(&mut host, instance, Action::Focus { target: tab });
+        assert!(
+            !matches!(reply, Reply::Error(ErrorCode::Busy)),
+            "a divider gesture settles instead of refusing: {reply:?}"
+        );
+        assert!(
+            !host.windows[0].divider_drag_active_for_test(),
+            "the gesture is settled at the mutation boundary"
         );
     }
 

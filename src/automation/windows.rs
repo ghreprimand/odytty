@@ -4,7 +4,7 @@
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 use std::thread::{self, JoinHandle};
@@ -20,8 +20,7 @@ use windows::Win32::Security::Authorization::{
 };
 use windows::Win32::Security::{
     CopySid, EqualSid, GetLengthSid, GetTokenInformation, IsValidSecurityDescriptor, IsValidSid,
-    OpenProcessToken, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
-    TokenUser,
+    PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_SHARE_MODE,
@@ -36,7 +35,8 @@ use windows::Win32::System::Pipes::{
     WaitNamedPipeW,
 };
 use windows::Win32::System::Threading::{
-    CreateEventW, GetCurrentProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    CreateEventW, GetCurrentProcess, OpenProcess, OpenProcessToken,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::core::{PCWSTR, PWSTR};
 
@@ -163,8 +163,15 @@ struct OwnedSid {
 }
 
 impl OwnedSid {
+    /// Read-only view for comparison and string conversion. The pointer is
+    /// derived from a shared borrow, so callers must not write through it.
     fn as_psid(&self) -> PSID {
         PSID(self.words.as_ptr().cast_mut().cast())
+    }
+
+    /// Writable destination for `CopySid`; derived from a mutable borrow.
+    fn as_psid_mut(&mut self) -> PSID {
+        PSID(self.words.as_mut_ptr().cast())
     }
 }
 
@@ -222,10 +229,10 @@ fn process_user_sid(pid: Option<u32>) -> io::Result<OwnedSid> {
         .and_then(|bytes| bytes.checked_add(std::mem::size_of::<usize>() - 1))
         .map(|bytes| bytes / std::mem::size_of::<usize>())
         .ok_or_else(denied)?;
-    let sid = OwnedSid {
+    let mut sid = OwnedSid {
         words: vec![0usize; sid_words],
     };
-    unsafe { CopySid(length, sid.as_psid(), source) }.map_err(windows_error)?;
+    unsafe { CopySid(length, sid.as_psid_mut(), source) }.map_err(windows_error)?;
     if !unsafe { IsValidSid(sid.as_psid()) }.as_bool() {
         return Err(denied());
     }
@@ -408,6 +415,9 @@ impl PipeIo {
         }
     }
 
+    /// Mirrors the Unix contract: one-request connections must stay open and
+    /// send no trailing bytes while awaiting a reply. A disconnected client,
+    /// any unread trailing byte, or a peek error all cancel pending dispatch.
     fn peer_finished(&self) -> io::Result<bool> {
         let mut available = 0u32;
         match unsafe {
@@ -529,10 +539,20 @@ fn wait_for_client(handle: &OwnedHandle, stopped: &AtomicBool) -> io::Result<boo
 /// pipe name; Windows needs no filesystem cleanup.
 pub struct Server {
     stopped: Arc<AtomicBool>,
+    fault: Arc<Mutex<Option<String>>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Server {
+    /// Reports the reason the listener thread stopped on its own, if it did.
+    /// `None` means the listener is still accepting or was stopped by drop.
+    pub fn fault(&self) -> Option<String> {
+        self.fault.lock().map_or_else(
+            |_| Some("listener state poisoned".to_owned()),
+            |fault| fault.clone(),
+        )
+    }
+
     pub fn bind(
         path: &Path,
         submission: Submission,
@@ -545,6 +565,8 @@ impl Server {
         let first = create_pipe(&name, &owner, true)?;
         let stopped = Arc::new(AtomicBool::new(false));
         let stop = stopped.clone();
+        let fault = Arc::new(Mutex::new(None));
+        let fault_slot = fault.clone();
         let wake = Arc::new(wake);
         let thread = thread::Builder::new()
             .name("odytty-control".into())
@@ -576,22 +598,43 @@ impl Server {
                     match wait_for_client(listener, &stop) {
                         Ok(true) => {}
                         Ok(false) => break,
-                        Err(_) => break,
+                        Err(error) => {
+                            record_fault(&fault_slot, format!("connect wait failed: {error}"));
+                            break;
+                        }
                     }
                     accepted += 1;
                     let connected = pending.take().expect("connected pipe instance");
-                    pending = create_pipe(&name, &owner, false).ok();
+                    // The successor is created before the connected instance is
+                    // served, so the pipe name never disappears between clients.
+                    // A creation failure ends listening: the name would be free
+                    // for another process to claim, and reporting that beats
+                    // serving one last client on a vanished endpoint.
+                    pending = match create_pipe(&name, &owner, false) {
+                        Ok(successor) => Some(successor),
+                        Err(error) => {
+                            record_fault(
+                                &fault_slot,
+                                format!("successor pipe instance failed: {error}"),
+                            );
+                            None
+                        }
+                    };
                     let submission = submission.clone();
                     let wake = wake.clone();
                     let worker_stop = stop.clone();
                     let worker_owner = owner.clone();
-                    if let Ok(worker) = thread::Builder::new()
+                    match thread::Builder::new()
                         .name("odytty-control-client".into())
                         .spawn(move || {
                             let _ = serve(connected, submission, wake, worker_stop, worker_owner);
-                        })
-                    {
-                        workers.push(worker);
+                        }) {
+                        Ok(worker) => workers.push(worker),
+                        // The connected instance drops here, so the client sees
+                        // a broken pipe instead of a hang.
+                        Err(error) => {
+                            tracing::warn!(%error, "automation client worker spawn failed");
+                        }
                     }
                     if pending.is_none() {
                         break;
@@ -605,8 +648,18 @@ impl Server {
             })?;
         Ok(Self {
             stopped,
+            fault,
             thread: Some(thread),
         })
+    }
+}
+
+/// Records the first terminal listener failure; later ones keep the original.
+fn record_fault(slot: &Mutex<Option<String>>, reason: String) {
+    if let Ok(mut fault) = slot.lock()
+        && fault.is_none()
+    {
+        *fault = Some(reason);
     }
 }
 
@@ -676,9 +729,12 @@ fn serve(
         },
     };
     io.reset_deadline(IO_TIMEOUT);
-    // Closing the server handle after the bounded write preserves buffered
-    // response bytes for the client. DisconnectNamedPipe would discard bytes
-    // the client had not yet consumed; FlushFileBuffers can wait indefinitely.
+    // The server handle closes after the bounded write without calling
+    // DisconnectNamedPipe, which would discard bytes the client has not yet
+    // consumed. FlushFileBuffers is deliberately not used because it blocks
+    // until the client reads and has no timeout. Delivery of the buffered
+    // response is therefore an empirical claim pinned by the round-trip and
+    // oversized-reply tests on the Windows CI leg, not a documented guarantee.
     protocol::write_response(&mut io, &response)
 }
 

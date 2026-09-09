@@ -37,6 +37,14 @@ pub(in crate::native) enum ReconcileOutcome {
     Started(String),
     Stopped,
     Unavailable(String),
+    /// The listener thread stopped on its own after a successful start. The
+    /// runtime has already been torn down; no retry happens until the setting
+    /// is toggled off and on again.
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "macos", windows)),
+        allow(dead_code)
+    )]
+    Faulted(String),
 }
 
 /// One endpoint for the process. Default construction allocates no entropy,
@@ -70,6 +78,13 @@ impl AutomationRuntime {
             };
         }
 
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+        if let Some(reason) = self.server.as_ref().and_then(Server::fault) {
+            // A listener that exits on its own must not leave the setting
+            // reporting an endpoint that no longer accepts clients.
+            self.shutdown();
+            return ReconcileOutcome::Faulted(reason);
+        }
         if let Some(queue) = self.queue.as_mut() {
             // The same opt-in controls endpoint availability and structural
             // mutations. Route policy changes through the queue's epoch seam so
@@ -174,7 +189,12 @@ impl AutomationRuntime {
         self.instance
     }
 
+    /// True while a dispatch queue exists and the listener has not faulted.
     pub(in crate::native) fn is_running(&self) -> bool {
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+        if self.server.as_ref().and_then(Server::fault).is_some() {
+            return false;
+        }
         self.queue.is_some()
     }
 

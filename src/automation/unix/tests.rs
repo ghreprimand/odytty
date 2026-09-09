@@ -848,3 +848,16 @@ fn stale_identity_error_code_roundtrips_over_the_wire() {
     // Detached-host-namespace rejection against live objects is covered by the
     // owner-bridge tests, not by this transport-level pin.
 }
+
+#[test]
+fn listener_fault_is_none_while_listening_and_keeps_first_reason() {
+    let fixture = fixture();
+    let (submission, _queue) = dispatch::channel(true);
+    let server = Server::bind(&fixture.socket, submission, || true).expect("bind");
+    assert_eq!(server.fault(), None, "a listening server reports no fault");
+    let slot = Mutex::new(None);
+    record_fault(&slot, "first".to_owned());
+    record_fault(&slot, "second".to_owned());
+    assert_eq!(slot.lock().expect("slot").as_deref(), Some("first"));
+    drop(server);
+}

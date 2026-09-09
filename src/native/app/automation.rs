@@ -181,11 +181,23 @@ impl App {
     }
 
     /// Structural mutations honor the same ingress gate the keyboard ladder
-    /// applies: an open overlay, search, or keyboard modal (copy mode, hint
-    /// selection, rename) owns interaction, and switching panes underneath
-    /// one would leave pane-specific modal state active against another pane.
+    /// applies: an open overlay, search, keyboard modal (copy mode, hint
+    /// selection, rename), or OSC 52 write confirmation owns interaction, and
+    /// switching panes underneath one would leave pane-specific modal state
+    /// active against another pane. The confirmation is checked here because
+    /// it consumes every key before the overlay and modal ladder runs.
     pub(in crate::native) fn automation_interaction_busy(&self) -> bool {
-        self.overlay.is_open() || self.search.is_open() || self.active_modal() != ActiveModal::None
+        self.overlay.is_open()
+            || self.search.is_open()
+            || self.active_modal() != ActiveModal::None
+            || self.osc52_write.prompt_pending()
+    }
+
+    /// Pointer-owned divider state must settle against its original layout
+    /// before any structural mutation, exactly as the keyboard ladder settles
+    /// it before routing a key. Called at the automation mutation boundary.
+    pub(in crate::native) fn settle_for_automation_mutation(&mut self) {
+        self.finish_divider_drag();
     }
 
     pub(in crate::native) fn automation_focus(&mut self, kind: ObjectKind, serial: u64) -> bool {

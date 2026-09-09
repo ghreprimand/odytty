@@ -2925,6 +2925,12 @@ impl App {
         self.divider_drag.is_some()
     }
 
+    /// Latch a pointer-owned divider gesture without a pointer event.
+    #[cfg(test)]
+    pub(in crate::native) fn begin_divider_drag_for_test(&mut self, index: usize) {
+        self.divider_drag = Some(index);
+    }
+
     /// Invoke the shared completion seam a second time to pin idempotence across
     /// duplicate release/focus/leave/resize ordering.
     #[cfg(test)]

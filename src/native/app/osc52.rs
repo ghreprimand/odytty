@@ -57,6 +57,12 @@ pub(in crate::native) struct Osc52WriteState {
 }
 
 impl Osc52WriteState {
+    /// Whether a write confirmation is awaiting the user's decision. While it
+    /// is, the prompt owns every key press.
+    pub(super) fn prompt_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
     /// Whether a real OS focus event has been observed since launch. The
     /// OSC 52 read authority (C41) consults this alongside `App::focused`,
     /// mirroring the write path, so a read is denied until focus is confirmed.
@@ -311,6 +317,14 @@ impl App {
             attrs,
         );
         true
+    }
+
+    /// Stage a write confirmation for the active session without PTY bytes.
+    #[cfg(test)]
+    pub(in crate::native) fn queue_osc52_prompt_for_test(&mut self) {
+        let session = self.sessions.active_id();
+        self.osc52_write
+            .queue(session, ClipboardSelection::Clipboard, "x".to_owned());
     }
 
     #[cfg(test)]
