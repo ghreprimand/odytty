@@ -14,6 +14,19 @@ use super::*;
 use crate::native::watchdog::WatchdogAppState;
 
 impl App {
+    /// The count of GPU frames this window has actually presented (v0.15.0 A
+    /// readiness probe). Zero until the first usable terminal frame lands.
+    /// Cheap: a single atomic load through the GPU state, no snapshot build.
+    /// Used as the first-usable-frame predicate that gates deferred
+    /// global-shortcut registration, so the OS grab never runs before a real
+    /// terminal surface exists.
+    pub(in crate::native) fn frames_presented(&self) -> u64 {
+        self.gpu
+            .as_ref()
+            .map(GpuState::frames_presented)
+            .unwrap_or(0)
+    }
+
     /// Snapshot the freeze-relevant state machine: the postmortem's requested
     /// fields (focused flag, occluded/minimized latch, active overlay/modal,
     /// `self.window` presence, frame counters), all as plain state.

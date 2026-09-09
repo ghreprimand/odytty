@@ -441,10 +441,15 @@ impl OverlayUi {
         &mut self,
         entries: Vec<crate::native::session_navigator::NavigatorEntry>,
         stable_id: Option<&str>,
+        merge_targets_available: bool,
     ) {
         self.panel.end_slider_drag();
         self.theme_builder.end_channel_drag();
         self.session_attach.open_selected(entries, stable_id);
+        // v0.15.0 D: gate the navigator's window merge/pull shortcuts on whether
+        // the process window owner has told this window a sibling exists.
+        self.session_attach
+            .set_merge_targets_available(merge_targets_available);
         self.mode = OverlayMode::SessionAttach;
         self.open = true;
     }

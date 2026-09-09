@@ -957,6 +957,15 @@ source packaging, not the Rust 1.96 MSRV floor. Per-cell color-resolution
 consolidation and scrollback-search rescan frequency remain deferred efficiency
 work, not completed v0.14.0 changes.
 
+Current v0.15.0 development adds stable tab and workspace identities,
+same-process window ownership and merge routing, quick-terminal settings and
+platform shortcut backends, and a bounded structural-control protocol with an
+explicit Unix CLI. These are unreleased foundations, not completed platform or
+release acceptance. Ordinary startup opens no automation endpoint, Windows
+named-pipe transport remains pending, and native file drop is not enabled. The
+[v0.15.0 ownership and platform contracts](docs/v0.15.0-foundation.md) record
+the exact implemented and remaining boundaries.
+
 The project remains pre-1.0; any later milestone requires a separately recorded
 scope rather than silently inheriting deferred work from a prior release.
 
@@ -1081,6 +1090,10 @@ scope rather than silently inheriting deferred work from a prior release.
   as Apple's `pico`/`nano` that lean on IRM for incremental line redraw.
 
 ### Native UI And Workspaces
+
+- Stable tab and workspace creation identities in current v0.15.0 development;
+  Navigator actions resolve the current owner after pane closure, tab movement,
+  and same-process window transfer, while restoration creates fresh identities
 
 - Theme system: full 16-color ANSI palette + semantic roles (cursor, selection,
   search highlight, reserved border/inactive) per theme; a curated,

@@ -254,6 +254,14 @@ Current v0.15.0 development adds the `odyssey-electric-blue` preset through the
 existing cross-platform theme path. It does not change the default theme or any
 effect setting. See the [theme reference](docs/themes.md#electric-blue).
 
+The same development line now contains stable tab and workspace identities,
+same-process window merge foundations, cross-platform quick-terminal shortcut
+backends, and a bounded structural-control protocol with an explicit Unix CLI.
+These surfaces remain unreleased. Ordinary startup opens no automation endpoint,
+Windows named-pipe transport is pending, native file drop is not enabled, and
+live-device and three-platform acceptance remain open. See the
+[v0.15.0 contracts](docs/v0.15.0-foundation.md) for the exact boundaries.
+
 The terminal core and visual experience layer are deliberately separate.
 See the [ownership boundary](SPEC.md#ownership-boundary),
 [module map](CONTRIBUTING.md#module-map), and

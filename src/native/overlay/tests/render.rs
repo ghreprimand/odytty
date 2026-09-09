@@ -288,7 +288,7 @@ fn open_navigator_menu_for_render() -> OverlayUi {
         preview: Vec::new(),
     }];
     let mut overlay = OverlayUi::default();
-    overlay.open_session_navigator_selected(entries, Some("live:12"));
+    overlay.open_session_navigator_selected(entries, Some("live:12"), false);
     let rect = overlay_rect(&overlay, 80, 24).expect("navigator rect");
     let _ = overlay
         .session_attach

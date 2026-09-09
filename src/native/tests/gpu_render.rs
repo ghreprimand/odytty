@@ -1503,6 +1503,7 @@ fn render_sig() -> RenderSignature {
                 transient_hud: OverlayFragment::Inert,
                 armed_path: OverlayFragment::Inert,
                 buttons: OverlayFragment::Inert,
+                merge_numeral: OverlayFragment::Inert,
             },
             rail_overlay: crate::native::render_helpers::RailOverlaySignature::default(),
         },

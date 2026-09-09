@@ -118,6 +118,8 @@ impl PaletteOverlay {
         let mut entries = compose_default_palette_entries(history, directories);
         entries.extend(workspace_palette_entries(workspaces));
         entries.extend(profile_palette_entries(workspaces));
+        entries.extend(merge_palette_entries(workspaces));
+        entries.extend(quick_terminal_palette_entries(workspaces));
         self.model = PaletteModel::with_options(entries, palette_options());
         self.reset_scroll();
     }
@@ -366,6 +368,21 @@ pub(super) const PROFILE_LAUNCH_ID_PREFIX: &str = "profile-launch-";
 /// Stable id prefix for the "Bind Workspace to Profile ..." rows.
 pub(super) const PROFILE_BIND_ID_PREFIX: &str = "profile-bind-";
 
+/// Stable id for the v0.15.0 D "Merge This Window Into..." row: moves this
+/// window's workspaces into a keyboard-selected target window, then closes this
+/// window. Only offered when a sibling window exists.
+pub(super) const MERGE_WINDOW_INTO_ID: &str = "merge-window-into";
+/// Stable id for the v0.15.0 D "Pull Window Into This One..." row: moves a
+/// keyboard-selected window's workspaces into this window, then closes that
+/// window. Only offered when a sibling window exists.
+pub(super) const MERGE_WINDOW_PULL_ID: &str = "merge-window-pull";
+/// Stable id for the v0.15.0 A "Toggle Quick Terminal" row: summons the
+/// dedicated quick terminal when it is hidden and hides it when it is visible.
+/// Only offered when the `quick_terminal` setting is enabled, so it is never a
+/// dead no-op row. This is the always-available keyboard trigger; a global
+/// summon shortcut, where the platform can grant one, is the additive path.
+pub(super) const QUICK_TERMINAL_TOGGLE_ID: &str = "quick-terminal-toggle";
+
 /// The workspace-facing context the command palette needs to build its rows:
 /// the workspace names (switch rows, ODP-5), the known-host aliases (F6-W5 bind
 /// rows), and which host — if any — the active workspace is currently bound to
@@ -381,6 +398,16 @@ pub(super) struct WorkspacePaletteContext<'a> {
     pub(super) profile_names: &'a [(String, String)],
     /// The named launch profile currently bound to the active workspace, if any.
     pub(super) bound_launch_profile: Option<&'a str>,
+    /// v0.15.0 D: true when at least one OTHER window exists, so the keyboard
+    /// window-merge rows ("Merge This Window Into..." / "Pull Window Into This
+    /// One...") have a possible target. False in a single-window session, which
+    /// suppresses the rows entirely rather than offering a merge that could only
+    /// open an empty, refused picker.
+    pub(super) merge_targets_available: bool,
+    /// v0.15.0 A: true when the `quick_terminal` setting is enabled, so the
+    /// "Toggle Quick Terminal" row is offered. False suppresses the row so a
+    /// disabled feature never shows a dead no-op entry.
+    pub(super) quick_terminal_enabled: bool,
 }
 
 impl<'a> WorkspacePaletteContext<'a> {
@@ -395,6 +422,8 @@ impl<'a> WorkspacePaletteContext<'a> {
             layout_names: &[],
             profile_names: &[],
             bound_launch_profile: None,
+            merge_targets_available: false,
+            quick_terminal_enabled: false,
         }
     }
 }
@@ -484,6 +513,34 @@ fn profile_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEntr
         ));
     }
     entries
+}
+
+/// The v0.15.0 D keyboard window-merge rows. Empty unless a sibling window
+/// exists (`ctx.merge_targets_available`), so a single-window session shows no
+/// merge row. Each row carries a stable id the App dispatches into a merge-picker
+/// request; the owner then opens the picker over its live sibling-window list.
+fn merge_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEntry> {
+    if !ctx.merge_targets_available {
+        return Vec::new();
+    }
+    vec![
+        PaletteEntry::action(MERGE_WINDOW_INTO_ID, "Merge This Window Into..."),
+        PaletteEntry::action(MERGE_WINDOW_PULL_ID, "Pull Window Into This One..."),
+    ]
+}
+
+/// The v0.15.0 A quick-terminal row. Empty unless the `quick_terminal` setting
+/// is enabled (`ctx.quick_terminal_enabled`), so a disabled feature shows no
+/// dead row. The single row toggles the dedicated quick terminal (summon when
+/// hidden, hide when visible) through the App's quick-toggle request seam.
+fn quick_terminal_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEntry> {
+    if !ctx.quick_terminal_enabled {
+        return Vec::new();
+    }
+    vec![PaletteEntry::action(
+        QUICK_TERMINAL_TOGGLE_ID,
+        "Toggle Quick Terminal",
+    )]
 }
 
 /// Recover the layout index from an `layout-open-<idx>` action id.
@@ -622,6 +679,8 @@ mod tests {
             layout_names: &[],
             profile_names: &[],
             bound_launch_profile: None,
+            merge_targets_available: false,
+            quick_terminal_enabled: false,
         };
         let ids: Vec<String> = workspace_palette_entries(&unbound)
             .into_iter()
@@ -648,6 +707,8 @@ mod tests {
             layout_names: &[],
             profile_names: &[],
             bound_launch_profile: None,
+            merge_targets_available: false,
+            quick_terminal_enabled: false,
         };
         let labels: Vec<String> = workspace_palette_entries(&bound)
             .into_iter()
@@ -672,6 +733,8 @@ mod tests {
             layout_names: &[],
             profile_names: &[],
             bound_launch_profile: None,
+            merge_targets_available: false,
+            quick_terminal_enabled: false,
         };
         let entries = workspace_palette_entries(&ctx);
         let ids: Vec<String> = entries
@@ -692,6 +755,78 @@ mod tests {
         let labels: Vec<&str> = entries.iter().map(|entry| entry.label()).collect();
         assert!(labels.contains(&"Save All Workspaces as Layout"));
         assert!(labels.contains(&"Save Workspace as Layout"));
+    }
+
+    /// v0.15.0 D: the keyboard merge/pull rows appear only when a sibling window
+    /// exists. A single-window session (`merge_targets_available: false`) shows
+    /// neither row, so a merge that could only open an empty picker is never
+    /// offered.
+    #[test]
+    fn merge_rows_appear_only_when_a_sibling_window_exists() {
+        fn merge_ids(available: bool) -> Vec<String> {
+            let ctx = WorkspacePaletteContext {
+                names: &["Workspace 1".to_owned()],
+                host_aliases: &[],
+                bound_profile: None,
+                layout_names: &[],
+                profile_names: &[],
+                bound_launch_profile: None,
+                merge_targets_available: available,
+                quick_terminal_enabled: false,
+            };
+            merge_palette_entries(&ctx)
+                .into_iter()
+                .filter_map(|entry| match entry.selection() {
+                    PaletteSelection::Action { id } => Some(id),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        assert!(
+            merge_ids(false).is_empty(),
+            "no merge rows without a sibling window"
+        );
+        let ids = merge_ids(true);
+        assert!(ids.contains(&MERGE_WINDOW_INTO_ID.to_owned()));
+        assert!(ids.contains(&MERGE_WINDOW_PULL_ID.to_owned()));
+    }
+
+    /// v0.15.0 A: the quick-terminal toggle row appears only when the
+    /// `quick_terminal` setting is enabled, so a disabled feature never shows a
+    /// dead no-op row.
+    #[test]
+    fn quick_terminal_row_appears_only_when_enabled() {
+        fn quick_ids(enabled: bool) -> Vec<String> {
+            let names = ["Workspace 1".to_owned()];
+            let ctx = WorkspacePaletteContext {
+                names: &names,
+                host_aliases: &[],
+                bound_profile: None,
+                layout_names: &[],
+                profile_names: &[],
+                bound_launch_profile: None,
+                merge_targets_available: false,
+                quick_terminal_enabled: enabled,
+            };
+            quick_terminal_palette_entries(&ctx)
+                .into_iter()
+                .filter_map(|entry| match entry.selection() {
+                    PaletteSelection::Action { id } => Some(id),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        assert!(
+            quick_ids(false).is_empty(),
+            "no quick-terminal row when the feature is disabled"
+        );
+        assert_eq!(
+            quick_ids(true),
+            vec![QUICK_TERMINAL_TOGGLE_ID.to_owned()],
+            "exactly the toggle row when enabled"
+        );
     }
 
     #[test]

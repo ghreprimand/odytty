@@ -27,14 +27,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use winit::application::ApplicationHandler;
-use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
-use winit::event_loop::ActiveEventLoop;
-use winit::window::WindowId;
-
-use super::app::App;
-use super::pty::UserEvent;
-
 /// How long input/redraw work may stay pending with no presented frame
 /// before the watchdog logs a stall. Conservative: normal frames land in
 /// milliseconds; ten seconds of pending-but-unpresented work is a freeze.
@@ -140,7 +132,7 @@ impl WatchdogShared {
         u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 
-    fn note_activity(&self) {
+    pub(in crate::native) fn note_activity(&self) {
         if !self.pending.swap(true, Ordering::Relaxed) {
             self.pending_since_ms
                 .store(self.now_ms(), Ordering::Relaxed);
@@ -155,7 +147,7 @@ impl WatchdogShared {
         }
     }
 
-    fn note_present(&self) {
+    pub(in crate::native) fn note_present(&self) {
         self.pending.store(false, Ordering::Relaxed);
         self.logged.store(false, Ordering::Relaxed);
     }
@@ -165,7 +157,7 @@ impl WatchdogShared {
         self.render_owed.store(owed, Ordering::Relaxed);
     }
 
-    fn store_state(&self, state: &WatchdogAppState) {
+    pub(in crate::native) fn store_state(&self, state: &WatchdogAppState) {
         self.focused.store(state.focused, Ordering::Relaxed);
         self.window_minimized
             .store(state.window_minimized, Ordering::Relaxed);
@@ -329,112 +321,15 @@ fn modal_name(discriminant: u8) -> &'static str {
     }
 }
 
-/// The winit handler odytty actually runs: the real [`App`] plus watchdog
-/// bookkeeping around every delegated event. All state and behavior stay in
-/// `App`; this wrapper only observes.
-pub(super) struct WatchdogApp {
-    app: App,
-    shared: Arc<WatchdogShared>,
-    last_seen_frames: u64,
-}
-
-impl WatchdogApp {
-    pub(super) fn new(app: App, shared: Arc<WatchdogShared>) -> Self {
-        Self {
-            app,
-            shared,
-            last_seen_frames: 0,
-        }
-    }
-
-    pub(super) fn into_inner(self) -> App {
-        self.app
-    }
-
-    /// Mirror the app state after a delegated event; a grown frame counter
-    /// means a frame presented since last time, which clears the pending
-    /// latch.
-    fn refresh(&mut self) {
-        let state = self.app.watchdog_state();
-        if state.frames_presented != self.last_seen_frames {
-            self.last_seen_frames = state.frames_presented;
-            self.shared.note_present();
-        }
-        self.shared.store_state(&state);
-    }
-}
-
-/// Whether a window event implies work the user can observe not happening:
-/// input that should reach the PTY/UI, or a redraw the compositor asked for.
-fn implies_pending_work(event: &WindowEvent) -> bool {
-    matches!(
-        event,
-        WindowEvent::RedrawRequested
-            | WindowEvent::KeyboardInput { .. }
-            | WindowEvent::MouseInput { .. }
-            | WindowEvent::MouseWheel { .. }
-            | WindowEvent::Ime(_)
-            | WindowEvent::Touch(_)
-    )
-}
-
-impl ApplicationHandler<UserEvent> for WatchdogApp {
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        self.app.new_events(event_loop, cause);
-    }
-
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.app.resumed(event_loop);
-        self.refresh();
-    }
-
-    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
-        self.app.suspended(event_loop);
-        self.refresh();
-    }
-
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: WindowId,
-        event: WindowEvent,
-    ) {
-        if implies_pending_work(&event) {
-            self.shared.note_activity();
-        }
-        self.app.window_event(event_loop, window_id, event);
-        self.refresh();
-    }
-
-    fn device_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        device_id: DeviceId,
-        event: DeviceEvent,
-    ) {
-        self.app.device_event(event_loop, device_id, event);
-    }
-
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
-        // PTY pump wakes and session events imply a redraw is wanted.
-        self.shared.note_activity();
-        self.app.user_event(event_loop, event);
-        self.refresh();
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        self.app.about_to_wait(event_loop);
-        self.refresh();
-    }
-
-    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
-        self.app.exiting(event_loop);
-    }
-
-    fn memory_warning(&mut self, event_loop: &ActiveEventLoop) {
-        self.app.memory_warning(event_loop);
-    }
-}
+// The winit handler odytty actually runs is
+// `crate::native::app::MultiWindowHost` (v0.15.0 D): it owns every live `App`,
+// routes events through current ownership, aggregates control flow and freeze
+// watchdog across windows, and services New Window / keyboard-merge requests.
+// This module now owns only the shared freeze-detector record
+// ([`WatchdogShared`]) and its monitor thread; the host calls `note_activity`,
+// `note_present`, and `store_state` directly. The former single-window
+// `WatchdogApp` wrapper was folded into the host so watchdog bookkeeping and
+// multi-window routing live in one place.
 
 #[cfg(test)]
 mod tests {

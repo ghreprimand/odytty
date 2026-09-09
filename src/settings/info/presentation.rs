@@ -61,6 +61,23 @@ impl Settings {
             "inactive_pane_dim" => format_float(self.inactive_pane_dim),
             "render_quality" => self.render_quality.as_str().to_owned(),
             "window_padding" => format_float(self.window_padding_px),
+            "quick_terminal" => bool_display(self.quick_terminal).to_owned(),
+            "quick_terminal_shortcut" => self.quick_terminal_shortcut.clone(),
+            "quick_terminal_edge" => self.quick_terminal_edge.clone(),
+            "quick_terminal_coverage" => self.quick_terminal_coverage.clone(),
+            "quick_terminal_span" => self.quick_terminal_span.clone(),
+            "quick_terminal_monitor" => self.quick_terminal_monitor.clone(),
+            "quick_terminal_animation" => self.quick_terminal_animation.clone(),
+            "quick_terminal_hide_on_focus_loss" => {
+                bool_display(self.quick_terminal_hide_on_focus_loss).to_owned()
+            }
+            "quick_terminal_profile" => {
+                if self.quick_terminal_profile.trim().is_empty() {
+                    "(default profile)".to_owned()
+                } else {
+                    self.quick_terminal_profile.clone()
+                }
+            }
             "window_border" => bool_display(self.window_border).to_owned(),
             "window_decorations" => bool_display(self.window_decorations).to_owned(),
             "window_transparency" => bool_display(self.window_transparency).to_owned(),

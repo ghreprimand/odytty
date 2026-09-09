@@ -6,10 +6,12 @@
 //! the focused pane or dispatching an existing local action.
 
 use super::*;
+use crate::native::merge_picker::MergeDirection;
 use crate::native::palette_overlay::{
-    LAYOUT_SAVE_ALL_ID, LAYOUT_SAVE_ID, WORKSPACE_NEW_ID, WORKSPACE_NEW_LOCAL_TAB_ID,
-    WORKSPACE_RENAME_ID, WORKSPACE_UNBIND_ID, WorkspacePaletteContext, parse_layout_delete_id,
-    parse_layout_open_id, parse_profile_bind_id, parse_profile_launch_id, parse_workspace_bind_id,
+    LAYOUT_SAVE_ALL_ID, LAYOUT_SAVE_ID, MERGE_WINDOW_INTO_ID, MERGE_WINDOW_PULL_ID,
+    QUICK_TERMINAL_TOGGLE_ID, WORKSPACE_NEW_ID, WORKSPACE_NEW_LOCAL_TAB_ID, WORKSPACE_RENAME_ID,
+    WORKSPACE_UNBIND_ID, WorkspacePaletteContext, parse_layout_delete_id, parse_layout_open_id,
+    parse_profile_bind_id, parse_profile_launch_id, parse_workspace_bind_id,
     parse_workspace_switch_id,
 };
 use crate::palette_catalog::PaletteAction;
@@ -52,6 +54,8 @@ impl App {
             layout_names: &layout_names,
             profile_names: &profile_names,
             bound_launch_profile: bound_launch_profile.as_deref(),
+            merge_targets_available: self.merge_targets_available(),
+            quick_terminal_enabled: self.settings.quick_terminal,
         };
         self.overlay.open_command_palette(cwd.as_deref(), &context);
         self.request_selection_redraw();
@@ -113,6 +117,18 @@ impl App {
                 self.sessions
                     .set_active_workspace_launch_profile(Some(name));
             }
+            return;
+        }
+        if id == MERGE_WINDOW_INTO_ID {
+            self.request_merge_picker(MergeDirection::MergeThisInto);
+            return;
+        }
+        if id == MERGE_WINDOW_PULL_ID {
+            self.request_merge_picker(MergeDirection::PullIntoThis);
+            return;
+        }
+        if id == QUICK_TERMINAL_TOGGLE_ID {
+            self.request_quick_toggle();
             return;
         }
         if id == LAYOUT_SAVE_ALL_ID {

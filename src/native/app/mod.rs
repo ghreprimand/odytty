@@ -143,6 +143,8 @@ mod lifecycle;
 // unset.
 pub(in crate::native) mod memory_report;
 mod mouse_protocol;
+mod multi_window;
+mod multi_window_host;
 mod new_row_fade;
 mod open_notice;
 mod open_with_ui;
@@ -154,6 +156,8 @@ mod palette_ui;
 mod panes;
 mod paste;
 pub(in crate::native) mod platform_opener;
+pub(in crate::native) use multi_window::NewWindowRequest;
+pub(in crate::native) use multi_window_host::{MultiWindowHost, SiblingFactory};
 mod pointer;
 mod pointer_motion;
 pub(super) use pointer::ChromeBand;

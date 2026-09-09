@@ -20,6 +20,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::fuzzy;
+use crate::native::merge_picker::MergeDirection;
 use crate::native::session_navigator::{NavigatorAction, NavigatorEntry, NavigatorTarget};
 
 use super::overlay::OverlayInput;
@@ -55,6 +56,12 @@ pub(super) struct SessionAttachOverlay {
     filtered: Vec<usize>,
     /// Selection cursor into `filtered`. Clamped whenever `filtered` changes.
     selected: usize,
+    /// v0.15.0 D: whether the process window owner has told this window a sibling
+    /// window exists. Set from `App::merge_targets_available()` when the
+    /// navigator opens. Gates the `i`/`p` window merge/pull shortcuts and their
+    /// legend rows so a single-window session never offers a merge that could
+    /// only open an empty, refused picker. `false` by default.
+    merge_targets_available: bool,
     /// Scroll offset into `filtered` for the visible window on a short overlay
     /// (OVERLAY-SMALL-WINDOW). Interior-mutable so the render pass — the only
     /// place the live body height is known — can keep the selection in view,
@@ -112,6 +119,14 @@ impl SessionAttachOverlay {
         self.selected = 0;
         self.reset_scroll();
         self.recompute();
+    }
+
+    /// Record whether a keyboard window merge has any target (v0.15.0 D). The
+    /// App sets this from `merge_targets_available()` each time the navigator
+    /// opens, so the `i`/`p` shortcuts and legend rows appear only when a
+    /// sibling window exists.
+    pub(super) fn set_merge_targets_available(&mut self, available: bool) {
+        self.merge_targets_available = available;
     }
 
     /// Reopen the navigator after cancelling a destructive card with the same
@@ -249,6 +264,19 @@ impl SessionAttachOverlay {
             OverlayInput::Char('o') if self.query.is_empty() => {
                 SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::Reopen)
             }
+            // v0.15.0 D window-level merge/pull: only when the owner reports a
+            // sibling window, so a lone window falls through to type-to-filter
+            // rather than opening an empty, refused picker.
+            OverlayInput::Char('i') if self.query.is_empty() && self.merge_targets_available => {
+                SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::MergeWindow(
+                    MergeDirection::MergeThisInto,
+                ))
+            }
+            OverlayInput::Char('p') if self.query.is_empty() && self.merge_targets_available => {
+                SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::MergeWindow(
+                    MergeDirection::PullIntoThis,
+                ))
+            }
             OverlayInput::Char(ch) if !ch.is_control() => {
                 self.query.push(ch);
                 self.recompute();
@@ -262,9 +290,12 @@ impl SessionAttachOverlay {
                         SessionAttachOverlayOutcome::Attach(id.clone())
                     }
                     NavigatorTarget::Detached(_) => SessionAttachOverlayOutcome::Consumed,
-                    NavigatorTarget::Workspace(token)
-                    | NavigatorTarget::Tab(token)
-                    | NavigatorTarget::Live(token) => SessionAttachOverlayOutcome::Focus(*token),
+                    NavigatorTarget::Workspace(_) | NavigatorTarget::Tab(_) => {
+                        SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::Focus(
+                            entry.target.clone(),
+                        ))
+                    }
+                    NavigatorTarget::Live(token) => SessionAttachOverlayOutcome::Focus(*token),
                 },
                 None => SessionAttachOverlayOutcome::Consumed,
             },
@@ -426,11 +457,16 @@ impl SessionAttachOverlay {
         // keeping render and hit geometry in lockstep without a row-offset. When
         // the list fills the body they are simply not drawn.
         if lines.len() < body_height {
-            let legend = crate::native::overlay::wrap_segments(
-                &NAV_LEGEND_SEGMENTS,
-                NAV_LEGEND_SEP,
-                body_width,
-            );
+            // v0.15.0 D: the window merge/pull shortcuts are appended to the
+            // legend only when the owner reports a sibling window, matching the
+            // `i`/`p` key gate so a lone window never advertises a merge.
+            let mut segments: Vec<&str> = NAV_LEGEND_SEGMENTS.to_vec();
+            if self.merge_targets_available {
+                segments.push("i merge window");
+                segments.push("p pull window");
+            }
+            let legend =
+                crate::native::overlay::wrap_segments(&segments, NAV_LEGEND_SEP, body_width);
             // A blank separator row first, only if it and at least one legend
             // row both fit, so the legend reads as a distinct footer block.
             if !legend.is_empty() && lines.len() + 1 < body_height {
@@ -925,6 +961,61 @@ mod tests {
         assert!(
             lines[preview_start..].iter().all(|line| !line.focused),
             "no focused result may paint inside the preview block"
+        );
+    }
+
+    #[test]
+    fn merge_shortcuts_emit_directional_actions_when_a_sibling_exists() {
+        let mut overlay = open(entries());
+        overlay.set_merge_targets_available(true);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Char('i')),
+            SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::MergeWindow(
+                MergeDirection::MergeThisInto
+            ))
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Char('p')),
+            SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::MergeWindow(
+                MergeDirection::PullIntoThis
+            ))
+        );
+    }
+
+    #[test]
+    fn merge_shortcuts_fall_through_to_filtering_without_a_sibling() {
+        // A lone window: 'i'/'p' are ordinary query characters, not merge rows,
+        // so the navigator never opens an empty, refused picker.
+        let mut overlay = open(entries());
+        assert!(!overlay.merge_targets_available);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Char('i')),
+            SessionAttachOverlayOutcome::Consumed
+        );
+        assert_eq!(overlay.render_signature().query, "i");
+    }
+
+    #[test]
+    fn merge_legend_rows_appear_only_when_a_sibling_exists() {
+        let mut overlay = open(entries());
+        let without = overlay.visible_lines(40, 16);
+        assert!(
+            !without
+                .iter()
+                .any(|line| line.text.contains("merge window")),
+            "no merge legend for a lone window"
+        );
+
+        overlay.set_merge_targets_available(true);
+        let with = overlay.visible_lines(40, 16);
+        let joined: String = with
+            .iter()
+            .map(|line| line.text.clone())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            joined.contains("i merge window") && joined.contains("p pull window"),
+            "merge legend must list both shortcuts; got:\n{joined}"
         );
     }
 }

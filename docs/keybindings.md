@@ -10,6 +10,12 @@ The default global chords remain Ctrl-based on macOS; Cmd+C and Cmd+V are not
 default copy/paste bindings. The exception is opening links and interactive
 paths, which uses Cmd+click on macOS because Ctrl+click is a secondary click.
 
+Unreleased v0.15.0 source adds a Quick Terminal palette action and configurable
+OS shortcut, plus Merge/Pull palette and Session Navigator actions. They are
+outside the published v0.14.0 table below. No new fixed merge chord is defined;
+global quick-terminal registration and live-platform acceptance remain open.
+See the [v0.15.0 contract](v0.15.0-foundation.md).
+
 ## Contents
 
 - [How OdyTTY's shortcuts stay out of the shell's way](#how-odyttys-shortcuts-stay-out-of-the-shells-way)

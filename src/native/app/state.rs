@@ -345,6 +345,46 @@ pub(in crate::native) struct App {
     /// Original clipboard/PRIMARY text held behind the suspicious-paste modal.
     /// Nothing reaches the PTY until an explicit outcome consumes this value.
     pub(super) pending_text_paste: Option<PendingTextPaste>,
+    /// v0.15.0 D New Window seam: a request to open a same-process sibling
+    /// window, captured on the window-open chord and serviced by the process
+    /// window owner (which spawns the sibling `App` in-process instead of
+    /// re-execing a new process). `None` at rest, so the single-window path is
+    /// unaffected.
+    pub(super) pending_new_window: Option<crate::native::app::NewWindowRequest>,
+    /// v0.15.0 A quick-terminal seam: a captured request to toggle (summon or
+    /// hide) the dedicated quick terminal, set by the global shortcut backend or
+    /// a "Toggle Quick Terminal" command and drained by the process window owner
+    /// (which owns the single quick-terminal lifecycle). `false` at rest, so the
+    /// ordinary window path is unaffected.
+    pub(super) pending_quick_toggle: bool,
+    /// v0.15.0 D stable process window identity, minted once at construction and
+    /// never reused for the process lifetime. The process window owner names
+    /// this window by it (merge target picker, event routing) so a backend
+    /// `winit::window::WindowId` changing across a surface recreate never
+    /// reassigns identity. Single-window behavior is unaffected: it is only read
+    /// through cross-window operations that do not exist until a second window
+    /// opens.
+    pub(super) process_window_id: crate::native::window_owner::ProcessWindowId,
+    /// v0.15.0 D keyboard window merge seam: a captured request to open the
+    /// merge target picker in a direction, set when the user picks "Merge this
+    /// window into..." / "Pull window ... into this one" from the command
+    /// palette or Session Navigator, and drained by the process window owner
+    /// (which has the live sibling-window list the picker needs). `None` at
+    /// rest, so the single-window path is unaffected.
+    pub(super) pending_merge_picker: Option<crate::native::merge_picker::MergeDirection>,
+    /// v0.15.0 D: how many OTHER live windows this window's owner currently
+    /// knows about. The process window owner keeps this current; the command
+    /// palette only offers the merge/pull rows when it is non-zero, so a
+    /// single-window session never shows a merge row that could only open an
+    /// empty (refused) picker. `0` until the owner sets it.
+    pub(super) sibling_window_count: usize,
+    /// v0.15.0 D: the temporary 1-based numeral this window paints while it is a
+    /// candidate in an open keyboard merge target picker, or `None` when no
+    /// picker is targeting it. The process window owner sets this on every
+    /// candidate when a picker opens and clears it on select/cancel; the frame
+    /// path paints the badge inside this window's own surface (compositor
+    /// independent). `None` at rest, so the single-window path never paints it.
+    pub(super) merge_numeral: Option<u8>,
     /// A background Test Connection probe (ODP-8) in flight from the Add / Edit
     /// connection form. The worker thread sends its tri-state result here and
     /// wakes a redraw; `run_about_to_wait_maintenance` drains it into the form.
@@ -619,6 +659,18 @@ impl App {
             pending_exit: false,
             pending_image_paste: None,
             pending_text_paste: None,
+            pending_new_window: None,
+            pending_quick_toggle: false,
+            // Fail-closed at the construction boundary: the allocator refuses
+            // (returns None) only after 2^64 window constructions, a physically
+            // unreachable ceiling. A None here would mean the id space is
+            // exhausted; reusing an id is never acceptable, so this panics rather
+            // than aliasing a live window's identity.
+            process_window_id: crate::native::window_owner::next_window_id()
+                .expect("ProcessWindowId space exhausted (2^64 windows); refusing to reuse an id"),
+            pending_merge_picker: None,
+            sibling_window_count: 0,
+            merge_numeral: None,
             connection_probe: None,
             #[cfg(test)]
             last_image_upload: None,

@@ -18,8 +18,11 @@ use super::{
     FONT_SIZE_ENV, FONT_WEIGHT_ENV, GEOMETRIC_BOXDRAW_ENV, INACTIVE_PANE_DIM_ENV, KEYBINDS_ENV,
     MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, NEW_OUTPUT_FADE_MS_ENV,
     NOTIFICATIONS_ENV, OS_THEME_DARK_ENV, OS_THEME_LIGHT_ENV, OSC52_READ_ENV, OSC52_WRITE_ENV,
-    PANE_PREFIX_ENV, PIXEL_SCROLL_ENV, PROFILE_AUTO_SWITCH_ENV, REDUCED_MOTION_ENV,
-    RENDER_QUALITY_ENV, RESTORE_WORKSPACES_ENV, RETRO_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_GLIDE_ENV,
+    PANE_PREFIX_ENV, PIXEL_SCROLL_ENV, PROFILE_AUTO_SWITCH_ENV, QUICK_TERMINAL_ANIMATION_ENV,
+    QUICK_TERMINAL_COVERAGE_ENV, QUICK_TERMINAL_EDGE_ENV, QUICK_TERMINAL_ENV,
+    QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS_ENV, QUICK_TERMINAL_MONITOR_ENV, QUICK_TERMINAL_PROFILE_ENV,
+    QUICK_TERMINAL_SHORTCUT_ENV, QUICK_TERMINAL_SPAN_ENV, REDUCED_MOTION_ENV, RENDER_QUALITY_ENV,
+    RESTORE_WORKSPACES_ENV, RETRO_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_GLIDE_ENV,
     SCROLL_PIXEL_SPEED_ENV, SCROLL_WHEEL_LINES_ENV, SCROLLBACK_LINES_ENV, SCROLLBAR_DRAG_ENV,
     SELECTION_DRAG_EXTEND_ENV, SELECTION_OPACITY_ENV, SH_CLICK_ENV, SHELL_EXIT_CLOSES_ENV,
     SHELL_INTEGRATION_ENV, SHELL_KEY_ENHANCEMENT_ENV, SMART_CTRL_C_ENV, STEM_DARKEN_ENV,
@@ -243,6 +246,25 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
             Some(CURSOR_TRAIL_STRENGTH_ENV)
         }
         "reducedmotion" | "reducemotion" | "nomotion" => Some(REDUCED_MOTION_ENV),
+        "quickterminal" | "dropdownterminal" | "quaketerminal" => Some(QUICK_TERMINAL_ENV),
+        "quickterminalshortcut" | "quickterminalkey" | "dropdownterminalshortcut" => {
+            Some(QUICK_TERMINAL_SHORTCUT_ENV)
+        }
+        "quickterminaledge" | "quickterminalanchor" => Some(QUICK_TERMINAL_EDGE_ENV),
+        "quickterminalcoverage" | "quickterminalsize" | "quickterminalheight" => {
+            Some(QUICK_TERMINAL_COVERAGE_ENV)
+        }
+        "quickterminalspan" | "quickterminalwidth" => Some(QUICK_TERMINAL_SPAN_ENV),
+        "quickterminalmonitor" | "quickterminalscreen" | "quickterminaldisplay" => {
+            Some(QUICK_TERMINAL_MONITOR_ENV)
+        }
+        "quickterminalanimation" | "quickterminalmotion" | "quickterminalreveal" => {
+            Some(QUICK_TERMINAL_ANIMATION_ENV)
+        }
+        "quickterminalhideonfocusloss" | "quickterminalautohide" | "quickterminalhideonblur" => {
+            Some(QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS_ENV)
+        }
+        "quickterminalprofile" => Some(QUICK_TERMINAL_PROFILE_ENV),
         "newoutputfade" | "outputfade" | "fadein" | "newlinefade" => Some(NEW_OUTPUT_FADE_ENV),
         "newoutputfadems" | "outputfadems" | "fadeinms" | "newoutputfadeduration" => {
             Some(NEW_OUTPUT_FADE_MS_ENV)
@@ -444,6 +466,15 @@ pub(crate) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CURSOR_TRAIL_STRENGTH_ENV => Some("cursor_trail_strength"),
         CURSOR_MOTION_ENV => Some("cursor_motion"),
         REDUCED_MOTION_ENV => Some("reduced_motion"),
+        QUICK_TERMINAL_ENV => Some("quick_terminal"),
+        QUICK_TERMINAL_SHORTCUT_ENV => Some("quick_terminal_shortcut"),
+        QUICK_TERMINAL_EDGE_ENV => Some("quick_terminal_edge"),
+        QUICK_TERMINAL_COVERAGE_ENV => Some("quick_terminal_coverage"),
+        QUICK_TERMINAL_SPAN_ENV => Some("quick_terminal_span"),
+        QUICK_TERMINAL_MONITOR_ENV => Some("quick_terminal_monitor"),
+        QUICK_TERMINAL_ANIMATION_ENV => Some("quick_terminal_animation"),
+        QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS_ENV => Some("quick_terminal_hide_on_focus_loss"),
+        QUICK_TERMINAL_PROFILE_ENV => Some("quick_terminal_profile"),
         OSC52_READ_ENV => Some("osc52_read"),
         OSC52_WRITE_ENV => Some("osc52_write"),
         SYNTHETIC_STYLES_ENV => Some("synthetic_styles"),

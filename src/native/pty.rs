@@ -40,6 +40,51 @@ pub(super) enum UserEvent {
         session: SessionToken,
         result: Result<(), super::command_export::CommandExportError>,
     },
+    /// v0.15.0 A: a registered global shortcut fired (from the platform
+    /// hotkey backend's own thread). Not session-scoped: the host toggles the
+    /// one dedicated quick terminal. Carried through the event loop so the
+    /// summon wakes an idle loop and is handled on the main thread.
+    QuickTerminalSummon,
+    /// v0.15.0 A: the deferred, post-readiness global-shortcut registration
+    /// finished on its worker thread. Not session-scoped: the host records the
+    /// honest outcome and logs it on the main thread. The live grab is kept
+    /// alive in the host's registration slot, not carried in this event.
+    /// `generation` is the cancellation token captured at dispatch; the host
+    /// drops the outcome when it no longer matches the current registration, so
+    /// a superseded worker cannot record or log after disable/reconfigure.
+    QuickTerminalRegistration {
+        generation: u64,
+        outcome: super::quick_terminal::ShortcutRegistration,
+    },
+}
+
+impl UserEvent {
+    /// The session this event should be delivered to, when it is session-scoped.
+    /// The process window owner routes by this so a PTY wake reaches whichever
+    /// window presently owns the session (v0.15.0 D). `CommandExportDestination`
+    /// is keyed by request id instead (see [`Self::command_export_request`]), so
+    /// it returns `None` here.
+    pub(super) fn routed_session(&self) -> Option<SessionToken> {
+        match self {
+            UserEvent::Redraw { session }
+            | UserEvent::ShellExited { session }
+            | UserEvent::ImageUploaded { session, .. }
+            | UserEvent::CommandExportFinished { session, .. } => Some(*session),
+            UserEvent::CommandExportDestination { .. }
+            | UserEvent::QuickTerminalSummon
+            | UserEvent::QuickTerminalRegistration { .. } => None,
+        }
+    }
+
+    /// The save-dialog request id this event resolves, for the one variant that
+    /// is not session-scoped. The owner routes it to the window holding that
+    /// pending command export.
+    pub(super) fn command_export_request(&self) -> Option<u64> {
+        match self {
+            UserEvent::CommandExportDestination { request_id, .. } => Some(*request_id),
+            _ => None,
+        }
+    }
 }
 
 /// The single PTY master writer, shared behind a lock.

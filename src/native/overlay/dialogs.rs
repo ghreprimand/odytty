@@ -1325,9 +1325,11 @@ impl OverlayUi {
             // Focus a live target through the arena's stable-token switch. Not
             // applicable to a detached row (it has no arena token yet).
             ContextMenuItem::NavFocus => match &target {
-                NavigatorTarget::Workspace(token)
-                | NavigatorTarget::Tab(token)
-                | NavigatorTarget::Live(token) => {
+                NavigatorTarget::Workspace(_) | NavigatorTarget::Tab(_) => {
+                    self.close();
+                    OverlayOutcome::NavigatorAction(NavigatorAction::Focus(target))
+                }
+                NavigatorTarget::Live(token) => {
                     let token = *token;
                     self.close();
                     OverlayOutcome::FocusSession(token)

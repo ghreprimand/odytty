@@ -572,6 +572,11 @@ impl App {
                 // Static centered feedback for bounded window-level gestures
                 // such as Ctrl+wheel font zoom. No-op at rest.
                 self.paint_transient_hud_cells(&mut snapshot);
+                // v0.15.0 D keyboard window merge: the temporary numeral badge
+                // this window paints while it is a candidate in an open merge
+                // target picker. Written into the grid snapshot so it shows on
+                // every platform without compositor cooperation. No-op at rest.
+                self.paint_merge_numeral_cells(&mut snapshot);
                 // Frame-overlay quad manifest: scroll indicator, then the
                 // SH2 status gutter, then the no-op new slots.
                 let mut overlays: Vec<SolidQuad> = Vec::new();
@@ -679,6 +684,11 @@ impl App {
                                 &visible_buttons,
                                 hovered_button_key,
                             ),
+                            // v0.15.0 D keyboard merge target badge: Inert at
+                            // rest so the composite stays constant on the
+                            // default path; keyed by the numeral while a picker
+                            // targets this window so the badge repaints.
+                            merge_numeral: self.merge_numeral_overlay_signature(),
                         },
                         // F4-P3: fold the revealed rail overlay's
                         // visibility + geometry + visual state so a pure

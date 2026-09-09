@@ -56,7 +56,17 @@ recorded milestone before implementation.
 
 ## v0.15.0: Quick Access, Local Control, File Drop, and Window Merge (in progress)
 
+Development contracts: [`docs/v0.15.0-foundation.md`](docs/v0.15.0-foundation.md).
+The current source includes stable tab/workspace identities, same-process
+window-host and merge foundations, quick-terminal settings and shortcut
+backends, plus a bounded structural-control protocol and explicit Unix CLI.
+Ordinary startup opens no automation endpoint. Windows named pipes, native file
+drop, remaining live-window behavior, independent device acceptance, blocking
+CI, and release closure remain open.
+
 - [ ] Cross-platform quick-terminal lifecycle and confirmed global shortcuts.
+- [x] Stable tab/workspace creation identities and Navigator action routing
+      across pane closure, moves, merge, and restoration.
 - [ ] Owner-restricted structural automation protocol and CLI, without input or
       content access.
 - [ ] Native file drop with shell-aware path insertion through the shipped paste

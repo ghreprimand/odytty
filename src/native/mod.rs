@@ -75,6 +75,7 @@ mod key_remap_ui;
 mod layout;
 #[cfg(target_os = "macos")]
 mod macos_open_with;
+mod merge_picker;
 mod notifications;
 mod onboarding;
 mod open_with_overlay;
@@ -89,6 +90,7 @@ mod profile_manager;
 mod profile_picker;
 mod pty;
 mod pty_writer;
+mod quick_terminal;
 mod render_helpers;
 mod replay_overlay;
 mod resize;
@@ -105,6 +107,7 @@ mod theme_picker;
 mod viewport;
 mod watchdog;
 mod window_icon;
+mod window_owner;
 mod workspace_picker;
 
 #[cfg(test)]
@@ -124,7 +127,7 @@ use crate::pty::PtySession;
 use crate::settings::Settings;
 use crate::text;
 
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::event_loop::{ControlFlow, EventLoop, EventLoopProxy};
 
 pub use options::{NativeCommand, NativeError, NativeOptions};
 pub(crate) use viewport::WindowPadding;
@@ -227,6 +230,13 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     apply_local_backend_caps(&mut model, &session);
     let terminal = Arc::new(Mutex::new(model));
 
+    // The primary window's launch session holds the reserved token 0 (v0.15.0
+    // D). There is exactly one primary launch per process, so token 0 is never
+    // handed out by the process-wide allocator (which starts at 1); a sibling
+    // window's launch session is minted through the live spawn path instead.
+    // This keeps the single-window token sequence at 0, 1, 2, ... unchanged.
+    let launch_token = SessionToken(0);
+
     // Start pumping the shell PTY output into the shared terminal.
     let reader = session
         .try_clone_reader()
@@ -238,7 +248,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
             session
                 .take_writer()
                 .map_err(|err| NativeError::Pty(err.to_string()))?,
-            SessionToken(0),
+            launch_token,
         )
         .map_err(|err| NativeError::Pty(err.to_string()))?,
     ));
@@ -263,7 +273,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         writer.clone(),
         terminal.clone(),
         proxy.clone(),
-        SessionToken(0),
+        launch_token,
         recorder.clone(),
         diagnostic,
     )
@@ -274,7 +284,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     let session = Arc::new(Mutex::new(session));
     let mut session_set = WorkspaceSet::new(
         Session::new_local_with_recorder(
-            SessionToken(0),
+            launch_token,
             terminal,
             writer,
             session.clone(),
@@ -320,39 +330,292 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // once at startup when the user expects restore, so relaunching over a
     // still-running or wedged first window no longer reads as "restore failed".
     app.notice_secondary_instance_if_suppressed();
-    // FREEZE-HARDEN (b): run the app under the freeze watchdog — a thin
-    // ApplicationHandler wrapper noting input/redraw activity and mirroring a
-    // state snapshot, plus a detached monitor thread that logs the state
-    // machine when work stays pending >10s with no presented frame. The
+    // FREEZE-HARDEN (b): run the app under the freeze watchdog - the
+    // multi-window host notes input/redraw activity and mirrors a state
+    // snapshot into the shared record, and a detached monitor thread logs the
+    // state machine when work stays pending >10s with no presented frame. The
     // monitor holds only a weak reference, so it winds down with the loop.
     let watchdog_shared = watchdog::WatchdogShared::new();
     watchdog::spawn_monitor(&watchdog_shared);
-    let mut watched = watchdog::WatchdogApp::new(app, watchdog_shared);
+
+    // v0.15.0 D: the process event handler is the multi-window host. The primary
+    // window is window 0; the host services same-process New Window and
+    // keyboard-merge requests by spawning/retiring sibling `App`s in-process.
+    // The sibling factory captures the settings and a fresh event-loop proxy and
+    // mints a DISJOINT token-base per sibling, returning `None` (dropping the
+    // request) when a spawn fails or the base space is exhausted. With one
+    // window the host reproduces the previous single-window run path exactly.
+    let factory_settings = settings.clone();
+    let factory_proxy = event_loop.create_proxy();
+    let factory: app::SiblingFactory = Box::new(move |request| {
+        let base = crate::native::window_owner::next_window_token_base()?;
+        build_sibling_app(
+            request,
+            &factory_settings,
+            factory_proxy.clone(),
+            SessionToken(base),
+        )
+    });
+    let mut host = app::MultiWindowHost::new(app, watchdog_shared, factory);
+    // v0.15.0 A: give the host a proxy so a registered global shortcut can wake
+    // the loop and deliver a summon from the backend's own thread. Installed
+    // before configure so the first registration can use it.
+    host.set_quick_summon_proxy(event_loop.create_proxy());
+    // v0.15.0 A: activate the quick-terminal lifecycle from settings. It is
+    // OFF by default (opt-in), so this registers no global shortcut and creates
+    // no dedicated window - startup readiness and the default window path are
+    // unchanged. When enabled, the platform shortcut adapter reports its honest
+    // capability; an unsupported environment (for example Wayland, where the
+    // compositor owns global grabs) is logged as an actionable limitation
+    // rather than failing silently. The global reduced-motion preference is
+    // carried in so a summon reveal honors it.
+    {
+        use crate::native::quick_terminal::{
+            MonitorPolicy, QuickTerminalAnimation, QuickTerminalEdge, QuickTerminalExtent,
+        };
+        let default_quick = crate::native::quick_terminal::QuickTerminalSettings::default();
+        let profile = settings.quick_terminal_profile.trim();
+        let quick_settings = crate::native::quick_terminal::QuickTerminalSettings {
+            enabled: settings.quick_terminal,
+            shortcut: settings.quick_terminal_shortcut.clone(),
+            edge: QuickTerminalEdge::from_setting(&settings.quick_terminal_edge),
+            coverage: QuickTerminalExtent::from_setting(
+                &settings.quick_terminal_coverage,
+                default_quick.coverage,
+            ),
+            span: QuickTerminalExtent::from_setting(
+                &settings.quick_terminal_span,
+                default_quick.span,
+            ),
+            monitor: MonitorPolicy::from_setting(&settings.quick_terminal_monitor),
+            animation: QuickTerminalAnimation::from_setting(&settings.quick_terminal_animation),
+            hide_on_focus_loss: settings.quick_terminal_hide_on_focus_loss,
+            profile: if profile.is_empty() {
+                None
+            } else {
+                Some(profile.to_owned())
+            },
+            reduced_motion: settings.reduced_motion,
+        };
+        // v0.15.0 A: STAGE the registration only - no OS grab runs here. The
+        // blocking global-shortcut grab is dispatched by the host after the
+        // first usable terminal exists (see
+        // `MultiWindowHost::service_quick_registration`), so an enabled quick
+        // terminal never delays startup. A disabled feature or a malformed
+        // accelerator resolves statically here; a valid enabled shortcut defers
+        // and its confirmed/failed outcome is logged when it lands.
+        match host.stage_quick_terminal(quick_settings) {
+            Ok(()) => {
+                // Registration staged; the outcome is logged after readiness.
+            }
+            Err(crate::native::quick_terminal::ShortcutRegistration::Unavailable { reason }) => {
+                // A malformed accelerator surfaces immediately; a disabled
+                // feature is the silent default and carries a benign reason.
+                if settings.quick_terminal {
+                    tracing::warn!(%reason, "quick terminal global shortcut unavailable");
+                }
+            }
+            Err(other) => {
+                tracing::warn!(?other, "quick terminal registration could not be staged");
+            }
+        }
+    }
     let run_result = event_loop
-        .run_app(&mut watched)
+        .run_app(&mut host)
         .map_err(|err| NativeError::EventLoop(err.to_string()));
-    let mut app = watched.into_inner();
+    let mut windows = host.into_windows();
 
     // WP2 sub-ODP 8c: unconditional shape save on a clean exit (primary only,
     // self-guarded). Runs while the sessions are still live so per-pane cwds are
     // captured, and only when the loop exited cleanly so a startup failure never
-    // clobbers a good snapshot.
-    if run_result.is_ok() && app.startup_error.is_none() {
-        app.save_shape_on_exit();
+    // clobbers a good snapshot. The primary is window 0; siblings are always
+    // secondary and never save.
+    if run_result.is_ok()
+        && windows
+            .first()
+            .is_some_and(|app| app.startup_error.is_none())
+        && let Some(primary) = windows.first_mut()
+    {
+        primary.save_shape_on_exit();
     }
 
-    // Tear down deterministically: kill + reap the shell, which closes the PTY
-    // master and unblocks the pump thread's `read`, then join the thread. The
-    // App's session clone is dropped with `app` after this; reaping the child
-    // is what EOFs the pump's reader, independent of master drop order.
-    app.close_all_sessions();
+    // Tear down every live window deterministically: kill + reap each shell,
+    // which closes the PTY master and unblocks the pump thread's `read`, then
+    // joins the thread. Each `App`'s session clone is dropped with it after
+    // this; reaping the child is what EOFs the pump's reader, independent of
+    // master drop order. A window retired by a merge is already gone from this
+    // list, and its moved PTYs live on in the target window until that window
+    // closes here.
+    for app in &mut windows {
+        app.close_all_sessions();
+    }
     drop(instance_lock);
 
     run_result?;
-    if let Some(err) = app.startup_error {
+    if let Some(err) = windows.first_mut().and_then(|app| app.startup_error.take()) {
         return Err(err);
     }
     Ok(())
+}
+
+/// Build a same-process sibling window's [`App`] for a New Window request
+/// (v0.15.0 D), mirroring `run_native`'s primary launch: spawn a default shell
+/// in the inherited working directory, wire the PTY pump to the shared event
+/// loop, and construct the window's `WorkspaceSet` and `App`. Returns `None` on
+/// any spawn/pump failure so the owner drops the request rather than crashing
+/// the requesting window (the pre-v0.15.0 log-and-drop New Window policy).
+///
+/// The sibling's launch session is seeded at `base_token`, a disjoint token
+/// range base from `window_owner::next_window_token_base`, so its tokens never
+/// collide with another window's and the keyboard merge can move whole
+/// workspaces between windows without re-keying a live pump. The surface itself
+/// is created later by the owner (`App::on_resumed`) when the event loop is in
+/// scope; this builds only the model/session/pump.
+///
+/// A New Window is a fresh settings-derived default window (matching the
+/// historical re-exec New Window behavior), not a clone of the primary's CLI
+/// options: it never restores workspaces, attaches a session, or re-runs a
+/// launch command. Only the working directory is inherited.
+/// Resolve the launch settings + optional local spawn plan for a sibling
+/// window. When `request.profile` names a profile, its effective settings and
+/// spawn plan are resolved through the profile catalog (one bounded local read,
+/// only for the profile case); resolver warnings are logged. Otherwise the input
+/// settings pass through unchanged with no plan, so a default New Window is
+/// unaffected and no catalog scan occurs.
+fn resolve_sibling_launch(
+    request: &app::NewWindowRequest,
+    settings: &Settings,
+) -> (Settings, Option<crate::profiles::LocalLaunchPlan>) {
+    let Some(name) = request
+        .profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    else {
+        return (settings.clone(), None);
+    };
+    let catalog = app::profile_launch::load_profile_catalog();
+    let cli = crate::profiles::LaunchCliOverrides {
+        profile_name: Some(name.to_owned()),
+        ..Default::default()
+    };
+    let effective = app::profile_launch::resolve_effective_launch(
+        &catalog,
+        &cli,
+        &crate::profiles::RestoredLaunchOverrides::default(),
+    );
+    for warning in &effective.warnings {
+        tracing::warn!(warning = %warning, "quick terminal profile launch notice");
+    }
+    let plan = crate::profiles::LocalLaunchPlan::from_effective(&effective);
+    (effective.settings, Some(plan))
+}
+
+fn build_sibling_app(
+    request: app::NewWindowRequest,
+    settings: &Settings,
+    proxy: EventLoopProxy<UserEvent>,
+    base_token: SessionToken,
+) -> Option<App> {
+    // v0.15.0 A: when the request names a launch profile (the quick terminal
+    // launches its configured profile), resolve that profile's effective
+    // settings + local spawn plan once here. A default New Window names no
+    // profile, so `plan` stays `None` and the path is byte-identical to before.
+    // The bounded catalog read only happens for the profile case (at most once
+    // for the quick window's first summon), never on the startup path.
+    let (resolved_settings, plan) = resolve_sibling_launch(&request, settings);
+    let settings: &Settings = &resolved_settings;
+
+    let mut options = NativeOptions::from_settings(settings);
+    options.working_directory = request.cwd.as_deref().map(std::path::PathBuf::from);
+
+    let local_hostname = crate::local_hostname::get();
+    let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);
+    model.set_local_hostname(local_hostname.clone());
+    seed_initial_working_directory(&mut model, options.working_directory.as_deref());
+    seed_launch_session_model(&mut model, settings);
+
+    let spawned = match plan.as_ref() {
+        Some(plan) => crate::profiles::spawn_local_plan(options.initial_grid, plan),
+        None => PtySession::spawn_default_shell_in_with_settings(
+            options.initial_grid,
+            options.working_directory.clone(),
+            settings,
+        ),
+    };
+    let session = match spawned {
+        Ok(session) => session,
+        Err(err) => {
+            tracing::error!(error = %err, "sibling window shell spawn failed; dropping New Window");
+            return None;
+        }
+    };
+    apply_local_backend_caps(&mut model, &session);
+    let terminal = Arc::new(Mutex::new(model));
+
+    let reader = match session.try_clone_reader() {
+        Ok(reader) => reader,
+        Err(err) => {
+            tracing::error!(error = %err, "sibling window reader clone failed; dropping New Window");
+            return None;
+        }
+    };
+    let raw_writer = match session.take_writer() {
+        Ok(writer) => writer,
+        Err(err) => {
+            tracing::error!(error = %err, "sibling window writer take failed; dropping New Window");
+            return None;
+        }
+    };
+    let writer: PtyWriter = match pty_writer::writer_shim(raw_writer, base_token) {
+        Ok(shim) => Arc::new(Mutex::new(shim)),
+        Err(err) => {
+            tracing::error!(error = %err, "sibling window writer shim failed; dropping New Window");
+            return None;
+        }
+    };
+    let diagnostic = session.pending_diagnostic_slot();
+    let recorder = output_recorder::RecorderHandle::new();
+    let pump_thread = match spawn_pty_pump(
+        reader,
+        writer.clone(),
+        terminal.clone(),
+        proxy.clone(),
+        base_token,
+        recorder.clone(),
+        diagnostic,
+    ) {
+        Ok(handle) => handle,
+        Err(err) => {
+            tracing::error!(error = %err, "sibling window pump spawn failed; dropping New Window");
+            return None;
+        }
+    };
+
+    let session = Arc::new(Mutex::new(session));
+    let mut session_set = WorkspaceSet::new(
+        Session::new_local_with_recorder(
+            base_token,
+            terminal,
+            writer,
+            session,
+            Some(pump_thread),
+            recorder,
+        ),
+        Some(proxy),
+    );
+    session_set.set_local_hostname(local_hostname);
+
+    // A sibling window is always a secondary instance: it never restores or
+    // autosaves the workspace shape (the primary holds the instance lock), so it
+    // is constructed inert on both without touching `set_primary_instance`
+    // (which defaults to non-primary).
+    Some(App::new_with_sessions(
+        options,
+        session_set,
+        settings.clone(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    ))
 }
 
 fn rgb(color: (u8, u8, u8)) -> RgbColor {

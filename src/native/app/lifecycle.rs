@@ -575,6 +575,16 @@ impl App {
                 }
                 false
             }
+            // v0.15.0 A: the quick-terminal summon is handled by the process
+            // host (`MultiWindowHost::user_event`) before it ever routes to a
+            // window, so a window never sees it. This defensive no-op keeps the
+            // match exhaustive without pretending a single window owns the
+            // global toggle.
+            UserEvent::QuickTerminalSummon => false,
+            // v0.15.0 A: the deferred registration outcome is consumed by the
+            // process host (`MultiWindowHost::user_event`) before routing, so a
+            // window never sees it. Defensive no-op to keep the match exhaustive.
+            UserEvent::QuickTerminalRegistration { .. } => false,
         }
     }
 

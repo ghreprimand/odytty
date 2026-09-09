@@ -185,9 +185,12 @@ The choices have explicit behavior:
   pane exit, window close, preview setup failure, or a stale bracketed-paste
   state also cancels the held paste.
 
-Shortcut, command-palette/menu, context-menu, Linux PRIMARY, external text
-drop, and authorized automation paste routes use the same policy. PRIMARY has
-no platform surface on macOS or Windows. The setting can be changed through
+Shortcut, command-palette/menu, context-menu, and Linux PRIMARY paste use the
+same policy. PRIMARY has no platform surface on macOS or Windows. External
+text-drop and automation-paste functions are reserved entry points with test
+coverage, not live user input routes. OS text-drop delivery is unimplemented,
+and the v0.15.0 automation protocol exposes no input operation. See the
+[development boundaries](v0.15.0-foundation.md). The setting can be changed through
 Settings, `warn_on_risky_paste` in `odytty.conf`, or
 `ODYTTY_WARN_ON_RISKY_PASTE`; disabling it is an advanced global opt-out.
 

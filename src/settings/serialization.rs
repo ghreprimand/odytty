@@ -140,6 +140,36 @@ impl Settings {
             REDUCED_MOTION_ENV,
             bool_display(self.reduced_motion).to_owned(),
         );
+        values.insert(
+            QUICK_TERMINAL_ENV,
+            bool_display(self.quick_terminal).to_owned(),
+        );
+        values.insert(
+            QUICK_TERMINAL_SHORTCUT_ENV,
+            self.quick_terminal_shortcut.clone(),
+        );
+        values.insert(QUICK_TERMINAL_EDGE_ENV, self.quick_terminal_edge.clone());
+        values.insert(
+            QUICK_TERMINAL_COVERAGE_ENV,
+            self.quick_terminal_coverage.clone(),
+        );
+        values.insert(QUICK_TERMINAL_SPAN_ENV, self.quick_terminal_span.clone());
+        values.insert(
+            QUICK_TERMINAL_MONITOR_ENV,
+            self.quick_terminal_monitor.clone(),
+        );
+        values.insert(
+            QUICK_TERMINAL_ANIMATION_ENV,
+            self.quick_terminal_animation.clone(),
+        );
+        values.insert(
+            QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS_ENV,
+            bool_display(self.quick_terminal_hide_on_focus_loss).to_owned(),
+        );
+        values.insert(
+            QUICK_TERMINAL_PROFILE_ENV,
+            self.quick_terminal_profile.clone(),
+        );
         values.insert(OSC52_READ_ENV, bool_display(self.osc52_read).to_owned());
         values.insert(OSC52_WRITE_ENV, self.osc52_write.as_str().to_owned());
         values.insert(

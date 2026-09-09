@@ -6,6 +6,25 @@ and the opt-in features that are useful for particular workflows. The
 [runtime-knob reference](runtime-knobs.md) remains the complete list of config
 keys, environment variables, ranges, aliases, and reload behavior.
 
+## Unreleased quick-terminal settings
+
+Current v0.15.0 source adds `quick_terminal`, `quick_terminal_shortcut`,
+`quick_terminal_edge`, `quick_terminal_coverage`, `quick_terminal_span`,
+`quick_terminal_monitor`, `quick_terminal_animation`,
+`quick_terminal_hide_on_focus_loss`, and `quick_terminal_profile`. These settings
+are absent from published v0.14.0 packages. Quick access, motion, and focus-loss
+hiding default off; a named profile resolves on summon. Enabling the setting
+does not guarantee OS shortcut registration. Wayland binds through the
+`org.freedesktop.portal.GlobalShortcuts` D-Bus portal, reporting an actionable
+unsupported state where that portal is absent; independent platform and live
+runtime acceptance remain open. Wayland binding confirmation, cancellation,
+session cleanup, activation filtering, and adapter teardown have passing
+mock-transport coverage; this does not establish real-portal acceptance.
+The `active` monitor policy uses the
+monitor of the focused window (falling back to any open window, then the
+primary); pointer position is not used for selection. See the
+[development contract](v0.15.0-foundation.md#quick-terminal-role).
+
 ## How Settings Work
 
 Open Settings with `Ctrl+Shift+,` or from a context menu. Changes apply live;

@@ -59,6 +59,7 @@ scaling behavior.
 - [v0.14.0 profiles foundation](v0.14.0-profiles-foundation.md)
 - [v0.14.0 session navigator](v0.14.0-session-navigator.md)
 - [v0.14.0 external palette following](v0.14.0-external-palette.md)
+- [v0.15.0 ownership and platform contracts](v0.15.0-foundation.md)
 
 ## Stabilization And Evidence
 

@@ -30,7 +30,9 @@ use winit::platform::x11::EventLoopBuilderExtX11;
 mod lifecycle;
 mod persistence;
 mod presentation;
+mod stable_identity;
 mod transport;
+mod window_merge;
 
 fn build_session_with_id(id: SessionToken) -> Session {
     // Pure WorkspaceSet bookkeeping: no PTY behavior is asserted, so a

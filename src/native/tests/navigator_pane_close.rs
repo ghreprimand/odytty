@@ -224,3 +224,38 @@ fn navigator_stale_menu_focus_and_close_confirmed_are_harmless() {
     assert!(app.session_exists_for_test(pane_b));
     assert!(app.session_exists_for_test(second_tab));
 }
+
+#[test]
+fn navigator_tab_close_resolves_after_its_original_pane_has_closed() {
+    let (mut app, pane_a, pane_b, other) = app_with_split_and_extra_tab();
+    app.close_navigator_target_for_test(NavigatorTarget::Live(pane_a));
+    app.focus_session_token_for_test(other);
+    app.close_navigator_target_for_test(NavigatorTarget::Tab(pane_a));
+    assert!(!app.session_exists_for_test(pane_b));
+    assert!(app.session_exists_for_test(other));
+}
+
+#[test]
+fn navigator_structural_focus_resolves_the_surviving_pane() {
+    use crate::native::session_navigator::NavigatorAction;
+    let (mut app, pane_a, pane_b, other) = app_with_split_and_extra_tab();
+    app.close_navigator_target_for_test(NavigatorTarget::Live(pane_a));
+    for target in [
+        NavigatorTarget::Tab(pane_a),
+        NavigatorTarget::Workspace(pane_a),
+    ] {
+        app.focus_session_token_for_test(pane_b);
+        app.focus_session_token_for_test(other);
+        app.apply_overlay_outcome_for_test(OverlayOutcome::NavigatorAction(
+            NavigatorAction::Focus(target.clone()),
+        ));
+        // A workspace focuses its currently active tab; a tab finds its own
+        // surviving pane even while another tab is active.
+        let expected = if matches!(target, NavigatorTarget::Workspace(_)) {
+            other
+        } else {
+            pane_b
+        };
+        assert_eq!(app.focused_pane_id_for_test() as u64, expected.0);
+    }
+}

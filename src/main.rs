@@ -28,6 +28,29 @@ fn main() -> Result<()> {
     // record is actually emitted, so CLI invocations stay disk-silent.
     odytty::logging::init();
 
+    // Control uses OS strings so an explicit Unix endpoint preserves path
+    // bytes. Handle it before GUI settings or native startup are touched.
+    let os_args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    match odytty::automation::cli::parse(&os_args) {
+        Ok(Some(command)) => {
+            #[cfg(windows)]
+            attach_parent_console_for_cli(&["control".into()]);
+            let (output, success) = odytty::automation::cli::run(command);
+            print!("{output}");
+            if !success {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+        Err(error) => {
+            #[cfg(windows)]
+            attach_parent_console_for_cli(&["control".into()]);
+            eprintln!("control: {error}; use odytty control --help");
+            std::process::exit(2);
+        }
+        Ok(None) => {}
+    }
+
     let args = std::env::args().skip(1).collect::<Vec<_>>();
 
     // Windows GUI-subsystem builds start with no console, so a CLI invocation

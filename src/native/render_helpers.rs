@@ -235,6 +235,12 @@ pub(super) enum OverlayFragment {
     /// chips. `Inert` when no button is visible (the gate-off / no-button path),
     /// so the default cache decision is unchanged.
     Buttons { state_hash: u64 },
+    /// v0.15.0 D keyboard window merge: the temporary numeral this window paints
+    /// while it is a candidate in an open merge target picker. The numeral keys
+    /// the frame so the badge repaints when the picker opens, changes numeral,
+    /// or closes. `Inert` at rest (no picker targeting this window), so the
+    /// default cache decision is unchanged.
+    MergeNumeral { numeral: u8 },
 }
 
 /// Folds the NEW overlay contributors' fragments into one hashable cache key.
@@ -268,6 +274,10 @@ pub(super) struct OverlayCompositeSignature {
     /// otherwise a folded hash that re-keys the frame on any button define /
     /// move / invalidate / scroll so the chips repaint.
     pub(super) buttons: OverlayFragment,
+    /// v0.15.0 D keyboard merge target numeral badge. `Inert` at rest (no picker
+    /// targeting this window), so the composite stays constant on the default
+    /// path; carries the numeral while a picker is open so the badge repaints.
+    pub(super) merge_numeral: OverlayFragment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

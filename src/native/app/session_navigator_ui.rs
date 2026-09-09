@@ -35,8 +35,12 @@ impl App {
         let _ = &mut entries;
         self.reset_pointer_state_for_overlay();
         let selected = selected.map(|target| target.stable_id());
-        self.overlay
-            .open_session_navigator_selected(entries, selected.as_deref());
+        let merge_targets_available = self.merge_targets_available();
+        self.overlay.open_session_navigator_selected(
+            entries,
+            selected.as_deref(),
+            merge_targets_available,
+        );
         self.request_selection_redraw();
     }
 
@@ -54,40 +58,56 @@ impl App {
     }
 
     pub(super) fn run_navigator_action(&mut self, action: NavigatorAction) {
-        match action {
-            NavigatorAction::Rename(NavigatorTarget::Workspace(token)) => {
+        let resolved = match &action {
+            NavigatorAction::Focus(target)
+            | NavigatorAction::Rename(target)
+            | NavigatorAction::Duplicate(target)
+            | NavigatorAction::Move(target) => {
+                crate::native::session_navigator::live_token(&self.sessions, target)
+            }
+            _ => None,
+        };
+        match (action, resolved) {
+            (NavigatorAction::Focus(_), Some(token)) => self.focus_session_from_navigator(token),
+            (NavigatorAction::Rename(NavigatorTarget::Workspace(_)), Some(token)) => {
                 if let Some((workspace, _)) = self.sessions.locate_token(token) {
                     self.enter_rename_workspace(workspace);
                 }
             }
-            NavigatorAction::Rename(NavigatorTarget::Tab(token))
-            | NavigatorAction::Rename(NavigatorTarget::Live(token)) => {
+            (
+                NavigatorAction::Rename(NavigatorTarget::Tab(_) | NavigatorTarget::Live(_)),
+                Some(token),
+            ) => {
                 self.focus_session_from_navigator(token);
                 self.enter_rename_tab(token);
             }
-            NavigatorAction::Duplicate(NavigatorTarget::Workspace(token)) => {
+            (NavigatorAction::Duplicate(NavigatorTarget::Workspace(_)), Some(token)) => {
                 self.focus_session_from_navigator(token);
                 self.handle_duplicate_workspace();
             }
-            NavigatorAction::Duplicate(NavigatorTarget::Tab(token))
-            | NavigatorAction::Duplicate(NavigatorTarget::Live(token)) => {
+            (
+                NavigatorAction::Duplicate(NavigatorTarget::Tab(_) | NavigatorTarget::Live(_)),
+                Some(token),
+            ) => {
                 self.focus_session_from_navigator(token);
                 self.handle_new_local_tab();
             }
-            NavigatorAction::Move(NavigatorTarget::Workspace(token)) => {
+            (NavigatorAction::Move(NavigatorTarget::Workspace(_)), Some(token)) => {
                 if let Some((workspace, _)) = self.sessions.locate_token(token) {
                     self.move_workspace_at(workspace, false);
                 }
             }
-            NavigatorAction::Move(NavigatorTarget::Tab(token))
-            | NavigatorAction::Move(NavigatorTarget::Live(token)) => {
+            (
+                NavigatorAction::Move(NavigatorTarget::Tab(_) | NavigatorTarget::Live(_)),
+                Some(token),
+            ) => {
                 self.open_move_tab_workspace_picker(token);
             }
-            NavigatorAction::Close(_) => {}
-            NavigatorAction::Reopen => self.reopen_last_closed_navigator_item(),
-            NavigatorAction::Rename(NavigatorTarget::Detached(_))
-            | NavigatorAction::Duplicate(NavigatorTarget::Detached(_))
-            | NavigatorAction::Move(NavigatorTarget::Detached(_)) => {}
+            (NavigatorAction::Reopen, _) => self.reopen_last_closed_navigator_item(),
+            (NavigatorAction::MergeWindow(direction), _) => self.request_merge_picker(direction),
+            // A detached or stale structural target never falls through to an
+            // operation on whichever unrelated session happens to be active.
+            _ => {}
         }
     }
 
@@ -95,13 +115,17 @@ impl App {
     /// stable target through the workspace arena at execution time; a stale row
     /// cannot close a replacement tab or workspace.
     pub(super) fn close_navigator_target(&mut self, target: NavigatorTarget) {
+        let Some(token) = crate::native::session_navigator::live_token(&self.sessions, &target)
+        else {
+            return;
+        };
         match target {
-            NavigatorTarget::Workspace(token) => {
+            NavigatorTarget::Workspace(_) => {
                 if let Some((workspace, _)) = self.sessions.locate_token(token) {
                     self.close_workspace_at(workspace);
                 }
             }
-            NavigatorTarget::Tab(token) => {
+            NavigatorTarget::Tab(_) => {
                 // Whole-tab close: reap every leaf of the target's tab. Resolve
                 // the stable token first so a stale row cannot focus-then-close
                 // an unrelated current tab (`focus_session_from_navigator`
@@ -113,7 +137,7 @@ impl App {
                 self.focus_session_from_navigator(token);
                 let _ = self.close_active_tab();
             }
-            NavigatorTarget::Live(token) => {
+            NavigatorTarget::Live(_) => {
                 // Pane-scoped close: reap only this leaf, collapsing its split
                 // parent into the sibling and keeping a multi-pane tab alive
                 // (distinct from the Tab arm above). Resolve the stable token

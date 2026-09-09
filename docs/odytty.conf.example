@@ -184,6 +184,35 @@ cursor_trail = on
 # the nearby echo and the large-jump follower stretch/settle.
 cursor_trail_strength = balanced
 reduced_motion = off
+# Quick terminal (v0.15.0): a dedicated, summonable drop-down terminal with its
+# own window and preserved session, kept separate from ordinary windows and
+# window restoration. Off by default (opt-in): when off no global shortcut is
+# registered and no dedicated window is created, so startup is unchanged.
+# Whether a global summon shortcut can be granted is platform-dependent (on
+# Wayland the compositor, not the application, owns global grabs); the result is
+# reported after the first usable frame. The palette toggle is available only
+# when quick_terminal is on.
+# These quick-terminal settings are unreleased v0.15.0 development;
+# published v0.14.0 packages do not provide this feature.
+# quick_terminal = off
+# Summon accelerator: ctrl/alt/shift/super modifiers plus one key.
+# quick_terminal_shortcut = F12
+# Monitor edge the drop-down anchors to: top, bottom, left, or right.
+# quick_terminal_edge = top
+# Coverage from the edge: a percentage of the work area or a pixel size.
+# quick_terminal_coverage = 40%
+# Span across the other axis: a percentage of the work area or a pixel size.
+# quick_terminal_span = 100%
+# Monitor: active, primary, or a fixed monitor index. active uses the monitor of
+# the focused window (falling back to any open window, then the primary); pointer
+# position is not used for selection.
+# quick_terminal_monitor = active
+# Reveal animation: instant (default) or slide. Reduced motion always forces instant.
+# quick_terminal_animation = instant
+# Hide automatically when the quick terminal loses focus (default off).
+# quick_terminal_hide_on_focus_loss = off
+# Optional profile the quick session launches with; empty uses the default.
+# quick_terminal_profile =
 new_output_fade = on
 # Fade-in ramp length in milliseconds; only acts while new_output_fade is on.
 new_output_fade_ms = 250

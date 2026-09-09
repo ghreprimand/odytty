@@ -477,6 +477,7 @@ pub fn usage_text() -> String {
     out.push_str(&format!("OdyTTY {version}\n"));
     out.push_str("usage: odytty [OPTION]\n\n");
     out.push_str("With no option, launch the native terminal.\n\n");
+    out.push_str("  control --help  owner-scoped local automation commands\n\n");
     out.push_str("Options:\n");
     out.push_str("  --native        launch the native terminal\n");
     out.push_str("  -e COMMAND...   execute a command instead of the user's shell\n");

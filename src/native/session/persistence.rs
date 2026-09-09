@@ -443,6 +443,7 @@ impl WorkspaceSet {
                     .or_else(|| leaves.first().copied())
                     .expect("a rebuilt pane tree always has at least one leaf");
                 tabs.push(Tab {
+                    identity: leaves[0],
                     layout,
                     focused,
                     title_override: tab_shape.title.clone(),
@@ -455,6 +456,7 @@ impl WorkspaceSet {
             }
             let active_tab = ws.active_tab.min(tabs.len() - 1);
             build.workspaces.push(Workspace {
+                identity: tabs[0].identity,
                 name: ws.name.clone(),
                 tabs,
                 active_tab,
