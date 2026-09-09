@@ -2,7 +2,13 @@
 
 [Project overview](../README.md) | [Website](https://odytty.unfinished-works.com)
 
-This is the complete map of OdyTTY's tracked project documentation.
+This index groups current guides, design contracts, and historical evidence.
+Documents in the source tree may describe unreleased changes; use the matching
+tag for shipped behavior and the [release index](releases/README.md) for current
+publication status and corrections.
+
+[Documentation maintenance policy](documentation-policy.md) defines these scopes
+and the checks used during release preparation.
 
 ## Start Here
 

@@ -48,6 +48,7 @@ jobs:
 
       - name: Require matching release documentation
         run: |
+          python3 scripts/documentation-guard.py --release-version "$VERSION"
           python3 scripts/release-notes.py --version "$VERSION" --check
 
       - name: Create source archive
@@ -705,6 +706,7 @@ jobs:
 
       - name: Prepare release description
         run: |
+          python3 scripts/documentation-guard.py --release-version "$VERSION"
           python3 scripts/release-notes.py --version "$VERSION" --output release-body.md
 
       - name: Publish GitHub Release

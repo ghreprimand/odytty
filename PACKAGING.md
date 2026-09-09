@@ -29,8 +29,10 @@ Each release publishes seven artifact types:
 | Windows | x86_64 portable zip |
 | Source builds | Versioned source archive |
 
-Every artifact has an always-latest alias and a byte-identical version-pinned
-copy. `SHA256SUMS` is the fifteenth release asset. Use the
+Each of these seven package types has an always-latest alias and a byte-identical
+version-pinned copy. From v0.14.0, the version-pinned installer is an additional
+asset without an alias. The fourteen package files, installer, `SHA256SUMS`,
+and `SHA256SUMS.minisig` make seventeen published assets. Use the
 [Install Guide artifact table](docs/install.md#release-artifact-names-and-checksums)
 for exact filenames and the [Release Guide](docs/release.md) for publication
 checks.

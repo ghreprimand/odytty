@@ -351,6 +351,11 @@ check between code changes.
 
 ## Pre-commit gate
 
+Public claims must agree across README, SPEC, TODO, user guides, and release
+notes. Follow the [documentation maintenance policy](docs/documentation-policy.md);
+run `python3 scripts/documentation-guard.py` for status convergence and retain
+historical evidence with its original scope.
+
 Before every commit, run through this gate and stop if anything is unclear:
 
 1. **Inspect the staged diff.** Review exactly what is staged
@@ -406,9 +411,11 @@ Before every commit, run through this gate and stop if anything is unclear:
    - `.github/scripts/verify-release-ci-test.sh` and
      `.github/scripts/await-release-ci-test.sh` guard the release workflow.
    - `.github/scripts/rustsec-audit.sh` runs whenever `Cargo.toml` or
-     `Cargo.lock` changes; run it after any dependency edit. All of these pass at
-     the current revision, so they are surfaced here as documentation of the full
-     gate, not as new work.
+     `Cargo.lock` changes; run it after any dependency edit. These are required
+     checks, not a claim that an arbitrary current working tree passes them.
+   - `python3 scripts/documentation-guard-test.py` and
+     `python3 scripts/documentation-guard.py` check release-status convergence;
+     `python3 scripts/release-notes-test.py` checks release-note preparation.
 
 **Toolchain lockstep.** OdyTTY pins a verified Minimum Supported Rust Version:
 `rust-toolchain.toml` (`channel = "1.96.0"`) and `Cargo.toml`
@@ -482,7 +489,7 @@ references.
 
 ## Adding a built-in theme
 
-All 144 built-in themes live in `src/theme/builtins/` as `.theme` files.
+Built-in themes live in `src/theme/builtins/` as `.theme` files.
 The `REGISTRY` slice in `src/theme/builtins.rs` maps names to
 `include_str!`-embedded sources. Adding a new built-in is five steps:
 

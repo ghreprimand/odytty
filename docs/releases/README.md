@@ -1,5 +1,7 @@
 # Release notes
 
+Published release: **v0.14.0**.
+
 A short guide to what each OdyTTY release adds or improves for everyday use.
 For the detailed development history, see the [devlog](../../DEVLOG.md).
 
@@ -16,5 +18,9 @@ For the detailed development history, see the [devlog](../../DEVLOG.md).
 
 These summaries cover v0.10.0 onward, including intervening patch releases.
 Earlier releases remain available in the full release history and devlog.
+
+The v0.14.0 tag contains stale README/TODO release-status text. The
+[v0.14.0 documentation correction](0.14.0.md#documentation-correction) records
+the discrepancy; the published tag and archive remain unchanged.
 
 [Install and update](../install.md) | [All published releases](https://github.com/ghreprimand/odytty/releases)

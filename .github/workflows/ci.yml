@@ -298,6 +298,11 @@ jobs:
         # and that only a completed success for the exact commit passes.
         run: bash .github/scripts/verify-release-ci-test.sh
 
+      - name: Documentation convergence fixtures and status check
+        run: |
+          python3 scripts/documentation-guard-test.py
+          python3 scripts/documentation-guard.py
+
       - name: Release notes fixtures and current-version check
         run: |
           python3 scripts/release-notes-test.py
