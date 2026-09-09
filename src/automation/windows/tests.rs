@@ -451,7 +451,10 @@ fn response_request_id_mismatch_is_rejected_by_client() {
     let server = thread::spawn(move || {
         let stopped = AtomicBool::new(false);
         assert!(
-            wait_for_client(&listener, &stopped).expect("wait"),
+            matches!(
+                wait_for_client(&listener, &stopped).expect("wait"),
+                Accept::Connected
+            ),
             "rogue server must accept one client"
         );
         let mut io = PipeIo::new(listener, IO_TIMEOUT);

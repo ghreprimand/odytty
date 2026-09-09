@@ -774,6 +774,7 @@ fn accelerator_notice_label(acc: &Accelerator) -> String {
     parts.join("+")
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn x11_conflict_notice(acc: &Accelerator) -> String {
     format!(
         "X11 could not register {} because another application or the window manager already holds it. Release that binding or choose a different quick_terminal_shortcut, then restart OdyTTY.",
@@ -781,6 +782,7 @@ fn x11_conflict_notice(acc: &Accelerator) -> String {
     )
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn x11_registration_failure_notice(acc: &Accelerator) -> String {
     format!(
         "X11 could not register {}. Check DISPLAY access and the OdyTTY log, then retry or choose a different quick_terminal_shortcut.",
@@ -788,6 +790,7 @@ fn x11_registration_failure_notice(acc: &Accelerator) -> String {
     )
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn x11_grab_failure_notice(acc: &Accelerator, bad_access: bool) -> String {
     if bad_access {
         x11_conflict_notice(acc)
