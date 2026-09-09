@@ -8,6 +8,18 @@ use crate::shell_integration::ShellKind;
 use std::path::PathBuf;
 
 impl App {
+    fn check_file_drop_target(
+        remote: bool,
+        reconnecting: bool,
+        attached: bool,
+    ) -> Result<(), DropError> {
+        if remote || reconnecting || attached {
+            Err(DropError::NonLocalPane)
+        } else {
+            Ok(())
+        }
+    }
+
     pub(super) fn queue_file_drop(&mut self, path: PathBuf) {
         self.reconcile_displaced_pending_paste();
         let file_preview = self.overlay.is_risky_paste()
@@ -44,9 +56,15 @@ impl App {
     /// a local path as a remote path; an active foreground job is not a shell.
     pub(super) fn file_drop_shell(&self) -> Result<ShellKind, DropError> {
         let session = self.sessions.active();
-        if session.remote_destination.is_some() || session.reconnect.is_some() {
-            return Err(DropError::NonLocalPane);
-        }
+        #[cfg(unix)]
+        let attached = matches!(&session.source, SessionSource::Attached { .. });
+        #[cfg(not(unix))]
+        let attached = false;
+        Self::check_file_drop_target(
+            session.remote_destination.is_some(),
+            session.reconnect.is_some(),
+            attached,
+        )?;
         match &session.source {
             // ConPTY has no foreground-process-group equivalent, so launch
             // metadata alone cannot establish that the launch shell currently
@@ -128,5 +146,14 @@ impl App {
     #[cfg(all(test, unix))]
     pub(in crate::native) fn set_file_drop_shell_for_test(&mut self, shell: Option<ShellKind>) {
         self.file_drop_shell_for_test = shell;
+    }
+
+    #[cfg(all(test, unix))]
+    pub(in crate::native) fn check_file_drop_target_for_test(
+        remote: bool,
+        reconnecting: bool,
+        attached: bool,
+    ) -> Result<(), DropError> {
+        Self::check_file_drop_target(remote, reconnecting, attached)
     }
 }

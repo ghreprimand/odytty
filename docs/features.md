@@ -199,7 +199,10 @@ launch-shell executable; it never appends Enter. Remote and attached panes
 refuse local paths, and
 Windows refuses insertion because ConPTY exposes no equivalent foreground-group
 authority. External text-drop and automation-paste functions remain reserved
-entry points with test coverage, not live user input routes. The v0.15.0
+entry points with test coverage, not live user input routes: `winit` delivers
+`DroppedFile(PathBuf)` for native paths on Linux, macOS, and Windows, but no
+text-drop window event. Backend delivery still requires per-platform hands-on
+validation. The v0.15.0
 automation protocol exposes no input operation. See the
 [development boundaries](v0.15.0-foundation.md). The setting can be changed through
 Settings, `warn_on_risky_paste` in `odytty.conf`, or
@@ -1058,6 +1061,10 @@ confirmation in the pane:
 Only `Enter` starts the transfer. The image streams over the authenticated
 `ssh` connection, reusing ControlMaster when available, into an unguessable
 `0600` file under `/tmp`.
+
+This upload path begins only from an explicit Paste action when the clipboard
+has no text. Native file drops never enter it: local paths are not interpreted
+as remote paths, and remote, attached, or reconnecting panes refuse them.
 
 Nothing executes remotely, and files above 10 MiB are refused. After a
 successful upload, OdyTTY shows

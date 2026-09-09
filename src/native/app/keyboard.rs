@@ -876,7 +876,7 @@ impl App {
     }
 
     /// Drive the image paste-through confirm prompt (F6-i7). Enter uploads the
-    /// held image and, on success, pastes the remote path into the shell;
+    /// held image and, on success, copies the remote path to the local clipboard;
     /// Esc/Ctrl+D cancel with nothing sent. Any other key leaves the prompt up.
     /// Called only on a key press while a paste is pending.
     pub(super) fn handle_image_paste_key(&mut self, logical: &WinitKey, mods: Modifiers) {
@@ -902,9 +902,9 @@ impl App {
 
     /// Confirm a pending image paste: hand the held PNG to a background upload
     /// worker for the originating remote session. The worker uploads over `ssh`
-    /// (reusing the live master), then pastes the remote path into that shell on
-    /// success or writes a one-line failure notice on error — so the UI never
-    /// blocks on the transfer. Under `cfg(test)` the spawn is replaced by a
+    /// (reusing the live master), then copies the remote path to the local
+    /// clipboard on success or writes a one-line failure notice on error, so the
+    /// UI never blocks on the transfer. Under `cfg(test)` the spawn is replaced by a
     /// record into `last_image_upload`, so the confirm flow is testable without a
     /// network.
     pub(super) fn commit_image_paste(&mut self) {

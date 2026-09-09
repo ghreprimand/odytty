@@ -176,12 +176,36 @@ fn file_drop_one_line_confirm_is_refused() {
 }
 
 #[test]
-fn file_drop_remote_pane_is_rejected() {
+fn file_drop_remote_attached_and_reconnecting_panes_refuse_without_image_upload() {
+    for (remote, reconnecting, attached, label) in [
+        (true, false, false, "remote"),
+        (false, true, false, "reconnecting"),
+        (false, false, true, "attached"),
+    ] {
+        assert_eq!(
+            App::check_file_drop_target_for_test(remote, reconnecting, attached),
+            Err(crate::native::file_drop::DropError::NonLocalPane),
+            "{label} panes must refuse local path insertion"
+        );
+    }
+
     let (mut app, bytes, _) = drop_app();
     ready_local_bash(&mut app);
+    app.set_active_remote_upload_for_test("deploy@edge.example.invalid");
+    app.set_remote_image_paste_enabled_for_test(true);
+    app.set_clipboard_image_for_test(Some(vec![0x89, b'P', b'N', b'G']));
     app.set_active_remote_destination_for_test(Some("deploy@edge.example.invalid:22".to_owned()));
     app.queue_file_drop_for_test(PathBuf::from("/tmp/remote-tab"));
     assert!(!app.risky_paste_pending_for_test());
+    assert!(
+        !app.image_paste_pending_for_test(),
+        "a native path drop must not enter the clipboard-image upload flow"
+    );
+    assert_eq!(
+        app.confirm_image_paste_for_test(),
+        None,
+        "there is no upload action for Enter to confirm after a path drop"
+    );
     assert!(app.pending_file_drop_len_for_test().is_none());
     assert!(bytes.lock().expect("remote").is_empty());
     let notice = app

@@ -302,8 +302,8 @@ thread_local! {
 /// A clipboard image awaiting the image paste-through confirm prompt (F6-i7).
 /// Holds the PNG bytes off to the side until Enter confirms the upload, so image
 /// data never leaves the machine on the paste keystroke alone. `session` pins
-/// the tab that initiated it — if the user switches tabs before confirming, the
-/// upload (and its injected path) still target the originating remote shell.
+/// the tab that initiated it. Tab/workspace switches and other ownership changes
+/// cancel the pending upload before a later key can confirm it.
 struct PendingImagePaste {
     session: SessionToken,
     png: Vec<u8>,
