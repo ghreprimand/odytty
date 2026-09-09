@@ -547,10 +547,15 @@ const MAX_GROUP_SCAN_PIDS: usize = 65_536;
 fn proc_stat_pgrp(stat: &str) -> Option<u32> {
     // Field 2 (`comm`) is parenthesized and may itself contain spaces or `)`.
     // Fields after its final `)` are state (3), ppid (4), then pgrp (5).
+    // Validate the state and ppid tokens so a malformed prefix cannot shift a
+    // different numeric field into the pgrp position.
     let after_comm = stat.get(stat.rfind(')')? + 1..)?;
     let mut fields = after_comm.split_whitespace();
-    let _state = fields.next()?;
-    let _ppid = fields.next()?;
+    let state = fields.next()?;
+    if state.len() != 1 || !state.chars().all(|c| c.is_ascii_uppercase()) {
+        return None;
+    }
+    fields.next()?.parse::<u32>().ok()?;
     fields.next()?.parse().ok()
 }
 
@@ -561,7 +566,11 @@ fn foreground_group_is_launch_child_only(launch_pid: u32) -> bool {
     };
     let mut numeric_entries = 0usize;
     let mut found_launch = false;
-    for entry in entries.flatten() {
+    for entry in entries {
+        // A directory iteration error hides an unobserved entry: refuse.
+        let Ok(entry) = entry else {
+            return false;
+        };
         let Some(pid) = entry
             .file_name()
             .to_str()
