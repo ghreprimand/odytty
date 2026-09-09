@@ -52,6 +52,7 @@ pub(super) enum UserEvent {
     /// `generation` is the cancellation token captured at dispatch; the host
     /// drops the outcome when it no longer matches the current registration, so
     /// a superseded worker cannot record or log after disable/reconfigure.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     QuickTerminalRegistration {
         generation: u64,
         outcome: super::quick_terminal::ShortcutRegistration,

@@ -721,6 +721,7 @@ pub(in crate::native) enum ShortcutRegistration {
     Registered { backend: &'static str },
     /// The platform/environment fundamentally cannot register this shortcut.
     /// `reason` is user-facing and actionable (what to do instead).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Unsupported {
         platform: &'static str,
         reason: String,
@@ -792,6 +793,7 @@ impl GlobalShortcutAdapter for NullShortcutAdapter {
 /// Map a normalized accelerator key token to an X11 keysym (see
 /// `X11/keysymdef.h`). Letters use the lower-case keysym, which resolves to the
 /// same physical keycode as the upper-case one via `XKeysymToKeycode`.
+#[allow(dead_code)]
 pub(in crate::native) fn x11_keysym(key: &str) -> Option<std::os::raw::c_ulong> {
     let k = key.trim().to_ascii_uppercase();
     // Function keys F1..F24 (XK_F1 = 0xFFBE).
@@ -979,6 +981,7 @@ pub(in crate::native) fn macos_keycode(key: &str) -> Option<u32> {
 
 /// Detected Linux display server, used to give an accurate global-shortcut
 /// capability answer.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) enum LinuxDisplayServer {
     Wayland,
@@ -989,6 +992,7 @@ pub(in crate::native) enum LinuxDisplayServer {
 /// Detect the Linux display server from the environment. Wayland is detected by
 /// `WAYLAND_DISPLAY` or `XDG_SESSION_TYPE=wayland`; X11 by `DISPLAY` /
 /// `XDG_SESSION_TYPE=x11`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(in crate::native) fn detect_linux_display_server(
     wayland_display: Option<&str>,
     x11_display: Option<&str>,
