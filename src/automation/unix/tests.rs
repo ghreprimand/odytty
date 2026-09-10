@@ -216,6 +216,9 @@ fn discovery_enumerates_only_pid_shaped_names_and_refuses_over_bound_sets() {
     fs::set_permissions(&runtime, Permissions::from_mode(0o700)).expect("runtime mode");
     fs::create_dir(&control).expect("control directory");
     fs::set_permissions(&control, Permissions::from_mode(0o700)).expect("control mode");
+    // Discovery reports validated (canonical) paths; macOS temp directories
+    // resolve through the /private symlink.
+    let control = fs::canonicalize(&control).expect("canonical control directory");
 
     let first = UnixListener::bind(control.join("control-1.sock")).expect("first socket");
     let second = UnixListener::bind(control.join("control-42.sock")).expect("second socket");
