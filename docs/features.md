@@ -734,6 +734,16 @@ For Hyprland:
 bind = , F12, exec, odytty control quick-terminal toggle
 ```
 
+Where the portal is present, OdyTTY registers itself with
+`org.freedesktop.host.portal.Registry` as `io.unfinished_works.odytty` before
+requesting the shortcut. Some portal backends attach the key themselves; on
+Hyprland the portal accepts the shortcut and the key is attached in the
+compositor configuration instead:
+
+```text
+bind = , F12, global, io.unfinished_works.odytty:odytty_quick_terminal_summon
+```
+
 On Unix, the bare toggle probes at most 32 owner-private PID endpoints for one
 second and proceeds only when exactly one advertises the capability. Linux
 scans `$XDG_RUNTIME_DIR/odytty`; macOS scans OdyTTY's owner-private state

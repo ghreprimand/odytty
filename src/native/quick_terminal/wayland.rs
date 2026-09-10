@@ -20,9 +20,10 @@
 //! exercised by an injected mock in unit tests, not only against a live portal.
 //! The orchestration guarantees, each covered by a mock test:
 //!
-//! - Every potentially blocking step (session-bus connect, proxy creation,
-//!   signal subscription, `CreateSession`/`BindShortcuts` calls, their
-//!   `Response` waits, and the teardown `Close`) is raced against BOTH a
+//! - Every potentially blocking step (session-bus connect, host-application
+//!   `Registry.Register`, proxy creation, signal subscription,
+//!   `CreateSession`/`BindShortcuts` calls, their `Response` waits, and the
+//!   teardown `Close`) is raced against BOTH a
 //!   per-step timeout AND the stop flag, so a wedged portal cannot outlive a
 //!   disable/reconfigure.
 //! - A `CreateSession` that succeeds is closed (bounded, best-effort) on ANY
@@ -68,6 +69,15 @@ pub(super) const PORTAL_OBJECT_PATH: &str = "/org/freedesktop/portal/desktop";
 /// `ListShortcuts`; `Activated` / `Deactivated` / `ShortcutsChanged` signals).
 /// Named in the actionable Wayland message, so it is a live consumer.
 pub(super) const GLOBAL_SHORTCUTS_INTERFACE: &str = "org.freedesktop.portal.GlobalShortcuts";
+
+/// Host-application registry used by unsandboxed portal clients. Since
+/// xdg-desktop-portal 1.18, a host application must register its application id
+/// on a connection before using another portal interface on that connection.
+pub(super) const REGISTRY_INTERFACE: &str = "org.freedesktop.host.portal.Registry";
+
+/// Packaged Linux desktop identity, shared with the Wayland `app_id`, desktop
+/// filename, icon, and `StartupWMClass`.
+pub(super) const PORTAL_APP_ID: &str = "io.unfinished_works.odytty";
 
 /// The portal `Request` interface. Every asynchronous portal call replies once
 /// on this interface's `Response` signal at a request object path the client
@@ -230,6 +240,18 @@ fn portal_unconfirmed_binding_reason(trigger: &str) -> String {
     )
 }
 
+fn portal_registry_registration_failed_reason(trigger: &str) -> String {
+    format!(
+        "The Wayland portal could not register OdyTTY's application ID with {REGISTRY_INTERFACE}.Register before requesting {trigger}. Restart xdg-desktop-portal and OdyTTY, then try again. Alternatively, bind {trigger} in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on."
+    )
+}
+
+fn portal_registry_required_reason(trigger: &str) -> String {
+    format!(
+        "The Wayland GlobalShortcuts portal requires an application ID, but this xdg-desktop-portal does not provide {REGISTRY_INTERFACE}.Register (requires xdg-desktop-portal 1.18 or newer). Update the portal and restart OdyTTY. Until then, bind {trigger} in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on."
+    )
+}
+
 pub(super) use transport::{PortalFailure, WaylandGrab, try_register_portal};
 
 /// The live `zbus` GlobalShortcuts portal transport. Kept in a submodule so the
@@ -241,9 +263,11 @@ pub(super) use transport::{PortalFailure, WaylandGrab, try_register_portal};
 /// injected mock (see `transport_tests`), independent of a live portal.
 mod transport {
     use super::{
-        Accelerator, GLOBAL_SHORTCUTS_INTERFACE, PORTAL_BUS_NAME, PORTAL_OBJECT_PATH,
-        PortalResponse, QUICK_SUMMON_SHORTCUT_ID, REQUEST_INTERFACE, SESSION_INTERFACE,
-        ShortcutBinding, handle_token, portal_refused_reason, portal_unavailable_reason,
+        Accelerator, GLOBAL_SHORTCUTS_INTERFACE, PORTAL_APP_ID, PORTAL_BUS_NAME,
+        PORTAL_OBJECT_PATH, PortalResponse, QUICK_SUMMON_SHORTCUT_ID, REGISTRY_INTERFACE,
+        REQUEST_INTERFACE, SESSION_INTERFACE, ShortcutBinding, accelerator_to_trigger,
+        handle_token, portal_refused_reason, portal_registry_registration_failed_reason,
+        portal_registry_required_reason, portal_unavailable_reason,
         portal_unconfirmed_binding_reason, request_object_path,
     };
     use crate::native::quick_terminal::SummonSink;
@@ -313,10 +337,12 @@ mod transport {
     /// `async_fn_in_trait` shape is deliberate.
     #[allow(async_fn_in_trait)]
     trait PortalTransport {
-        /// Open the session bus, resolve the unique name, create the
-        /// GlobalShortcuts proxy, and subscribe to `Activated` (before any
-        /// bind, so no early activation is lost).
+        /// Open the session bus and resolve the unique connection name.
         async fn connect(&mut self) -> Result<(), PortalFailure>;
+        /// Register the packaged application id before any GlobalShortcuts
+        /// method is used. A missing Registry interface is a fallthrough for
+        /// compatibility with older portals; other errors are terminal.
+        async fn register_app_id(&mut self) -> Result<RegistryRegistration, PortalFailure>;
         /// Issue `CreateSession` and await its `Response`. On success, retain
         /// the session handle internally (for later `Close`) and return it as a
         /// string for activation filtering.
@@ -331,6 +357,12 @@ mod transport {
         async fn next_activation(&mut self, tick: Duration) -> ActivationPoll;
         /// Best-effort `Session.Close` of any created session.
         async fn close_session(&mut self);
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum RegistryRegistration {
+        Registered,
+        Missing,
     }
 
     /// One poll of the activation stream.
@@ -409,9 +441,10 @@ mod transport {
         )
     }
 
-    /// Drive connect -> create -> bind, returning the created session handle
-    /// string on success. Every step is bounded by timeout and stop; a session
-    /// created before a later failure is closed (bounded) before returning.
+    /// Drive connect -> host-app registration -> create -> bind, returning the
+    /// created session handle string on success. Every step is bounded by
+    /// timeout and stop; a session created before a later failure is closed
+    /// (bounded) before returning.
     async fn run_setup<T: PortalTransport>(
         t: &mut T,
         binding: &ShortcutBinding,
@@ -427,6 +460,20 @@ mod transport {
             Bounded::TimedOut => {
                 return Err(PortalFailure::Unavailable(
                     "connecting to the GlobalShortcuts portal timed out".to_owned(),
+                ));
+            }
+            Bounded::Cancelled => return Err(cancelled_failure()),
+        }
+
+        if stop.load(Ordering::SeqCst) {
+            return Err(cancelled_failure());
+        }
+        match bounded(t.register_app_id(), to.response, stop).await {
+            Bounded::Done(Ok(_)) => {}
+            Bounded::Done(Err(e)) => return Err(e),
+            Bounded::TimedOut => {
+                return Err(PortalFailure::Unavailable(
+                    portal_registry_registration_failed_reason(&binding.preferred_trigger),
                 ));
             }
             Bounded::Cancelled => return Err(cancelled_failure()),
@@ -603,9 +650,9 @@ mod transport {
         }
     }
 
-    /// The production `zbus` transport. Holds the session-bus connection, the
-    /// GlobalShortcuts proxy, the live `Activated` stream, and the created
-    /// session handle across the trait's steps.
+    /// The production `zbus` transport. Holds the session-bus connection, host
+    /// registration result, GlobalShortcuts proxy, live `Activated` stream, and
+    /// created session handle across the trait's steps.
     struct RealTransport {
         acc: Accelerator,
         conn: Option<Connection>,
@@ -613,6 +660,7 @@ mod transport {
         shortcuts: Option<Proxy<'static>>,
         activated: Option<SignalStream<'static>>,
         session_handle: Option<OwnedObjectPath>,
+        registry_registration: Option<RegistryRegistration>,
     }
 
     impl RealTransport {
@@ -624,6 +672,7 @@ mod transport {
                 shortcuts: None,
                 activated: None,
                 session_handle: None,
+                registry_registration: None,
             }
         }
     }
@@ -637,6 +686,75 @@ mod transport {
                 .unique_name()
                 .map(|name| name.as_str().to_owned())
                 .ok_or_else(|| PortalFailure::Unsupported(portal_unavailable_reason(&self.acc)))?;
+            self.unique_name = unique;
+            self.conn = Some(conn);
+            Ok(())
+        }
+
+        async fn register_app_id(&mut self) -> Result<RegistryRegistration, PortalFailure> {
+            let conn = self
+                .conn
+                .clone()
+                .ok_or_else(|| internal_unavailable("no active portal connection"))?;
+            let registry = match Proxy::new(
+                &conn,
+                PORTAL_BUS_NAME,
+                PORTAL_OBJECT_PATH,
+                REGISTRY_INTERFACE,
+            )
+            .await
+            {
+                Ok(proxy) => proxy,
+                Err(e) if is_missing_portal(&e) => {
+                    self.registry_registration = Some(RegistryRegistration::Missing);
+                    return Ok(RegistryRegistration::Missing);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        interface = REGISTRY_INTERFACE,
+                        "Wayland portal app-id registry proxy failed"
+                    );
+                    return Err(PortalFailure::Unavailable(
+                        portal_registry_registration_failed_reason(&accelerator_to_trigger(
+                            &self.acc,
+                        )),
+                    ));
+                }
+            };
+            let options: HashMap<&str, Value> = HashMap::new();
+            match registry
+                .call_method("Register", &(PORTAL_APP_ID, options))
+                .await
+            {
+                Ok(_) => {
+                    self.registry_registration = Some(RegistryRegistration::Registered);
+                    Ok(RegistryRegistration::Registered)
+                }
+                Err(e) if is_missing_portal(&e) => {
+                    self.registry_registration = Some(RegistryRegistration::Missing);
+                    Ok(RegistryRegistration::Missing)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        interface = REGISTRY_INTERFACE,
+                        "Wayland portal app-id registration failed"
+                    );
+                    Err(PortalFailure::Unavailable(
+                        portal_registry_registration_failed_reason(&accelerator_to_trigger(
+                            &self.acc,
+                        )),
+                    ))
+                }
+            }
+        }
+
+        async fn create_session(&mut self) -> Result<String, PortalFailure> {
+            let conn = self
+                .conn
+                .clone()
+                .ok_or_else(|| internal_unavailable("no active portal connection"))?;
             let shortcuts = Proxy::new(
                 &conn,
                 PORTAL_BUS_NAME,
@@ -645,27 +763,12 @@ mod transport {
             )
             .await
             .map_err(|_| PortalFailure::Unsupported(portal_unavailable_reason(&self.acc)))?;
-            // Subscribe to Activated BEFORE any bind so an activation cannot
-            // race ahead of the subscription.
+            // Subscribe to Activated before CreateSession/BindShortcuts so no
+            // activation can race ahead of the subscription. Registry.Register
+            // has already run on this connection.
             let activated = shortcuts.receive_signal("Activated").await.map_err(|e| {
                 PortalFailure::Unavailable(format!("cannot watch portal activations: {e}"))
             })?;
-            self.unique_name = unique;
-            self.shortcuts = Some(shortcuts);
-            self.activated = Some(activated);
-            self.conn = Some(conn);
-            Ok(())
-        }
-
-        async fn create_session(&mut self) -> Result<String, PortalFailure> {
-            let conn = self
-                .conn
-                .clone()
-                .ok_or_else(|| internal_unavailable("no active portal connection"))?;
-            let shortcuts = self
-                .shortcuts
-                .clone()
-                .ok_or_else(|| internal_unavailable("no GlobalShortcuts proxy"))?;
             let token = handle_token();
             let session_token = handle_token();
             let request_path = request_object_path(&self.unique_name, &token);
@@ -684,7 +787,17 @@ mod transport {
             shortcuts
                 .call_method("CreateSession", &(options,))
                 .await
-                .map_err(|e| classify_call_error("CreateSession", &e, &self.acc))?;
+                .map_err(|e| {
+                    if self.registry_registration == Some(RegistryRegistration::Missing)
+                        && is_app_id_required_error(&e)
+                    {
+                        PortalFailure::Unavailable(portal_registry_required_reason(
+                            &accelerator_to_trigger(&self.acc),
+                        ))
+                    } else {
+                        classify_call_error("CreateSession", &e, &self.acc)
+                    }
+                })?;
 
             let (code, results) = await_response(&mut responses).await?;
             if !PortalResponse::from_code(code).is_success() {
@@ -698,6 +811,8 @@ mod transport {
                 )
             })?;
             let as_string = handle.as_str().to_owned();
+            self.shortcuts = Some(shortcuts);
+            self.activated = Some(activated);
             self.session_handle = Some(handle);
             Ok(as_string)
         }
@@ -886,6 +1001,25 @@ mod transport {
         }
     }
 
+    /// The old-portal failure seen after Registry was absent: GlobalShortcuts
+    /// refuses a host client whose connection has no registered application id.
+    fn is_app_id_required_error(err: &zbus::Error) -> bool {
+        let zbus::Error::MethodError(name, detail, _) = err else {
+            return false;
+        };
+        detail
+            .as_deref()
+            .is_some_and(|message| is_app_id_required(name.as_str(), message))
+    }
+
+    fn is_app_id_required(error_name: &str, message: &str) -> bool {
+        if !error_name.ends_with(".NotAllowed") {
+            return false;
+        }
+        let message = message.to_ascii_lowercase();
+        message.contains("app id is required") || message.contains("application id is required")
+    }
+
     #[cfg(test)]
     mod transport_tests {
         use super::*;
@@ -941,6 +1075,8 @@ mod transport {
             Never,
             /// Flip as soon as `connect` is entered (before its programmed step).
             OnConnect,
+            /// Flip as soon as `register_app_id` is entered.
+            OnRegister,
             /// Flip as soon as `create_session` is entered.
             OnCreate,
             /// Flip after `create_session` returns Ok (cancels the pending bind).
@@ -954,6 +1090,7 @@ mod transport {
             stop: Arc<AtomicBool>,
             flip_stop: FlipStop,
             connect: Step<()>,
+            register: Step<RegistryRegistration>,
             create: Step<String>,
             bind: Step<Vec<String>>,
             close: Step<()>,
@@ -967,6 +1104,14 @@ mod transport {
                     self.stop.store(true, Ordering::SeqCst);
                 }
                 run_step(&self.connect).await
+            }
+
+            async fn register_app_id(&mut self) -> Result<RegistryRegistration, PortalFailure> {
+                self.log.borrow_mut().push("register");
+                if matches!(self.flip_stop, FlipStop::OnRegister) {
+                    self.stop.store(true, Ordering::SeqCst);
+                }
+                run_step(&self.register).await
             }
 
             async fn create_session(&mut self) -> Result<String, PortalFailure> {
@@ -1023,6 +1168,7 @@ mod transport {
                     FlipStop::Never
                 },
                 connect,
+                Step::Ok(RegistryRegistration::Registered),
                 create,
                 bind,
                 Step::Ok(()),
@@ -1033,6 +1179,7 @@ mod transport {
         fn fixture_ex(
             flip_stop: FlipStop,
             connect: Step<()>,
+            register: Step<RegistryRegistration>,
             create: Step<String>,
             bind: Step<Vec<String>>,
             close: Step<()>,
@@ -1045,6 +1192,7 @@ mod transport {
                 stop: Arc::clone(&stop),
                 flip_stop,
                 connect,
+                register,
                 create,
                 bind,
                 close,
@@ -1075,7 +1223,63 @@ mod transport {
             );
             let (res, log) = drive(fx);
             assert!(matches!(res, Ok(ref s) if s == "/session/1"));
-            assert_eq!(log, vec!["connect", "create", "bind"]);
+            assert_eq!(log, vec!["connect", "register", "create", "bind"]);
+        }
+
+        #[test]
+        fn missing_registry_falls_through_to_create_session() {
+            let fx = fixture_ex(
+                FlipStop::Never,
+                Step::Ok(()),
+                Step::Ok(RegistryRegistration::Missing),
+                Step::Ok("/session/1".to_owned()),
+                Step::Ok(vec![QUICK_SUMMON_SHORTCUT_ID.to_owned()]),
+                Step::Ok(()),
+                Vec::new(),
+            );
+            let (res, log) = drive(fx);
+            assert!(matches!(res, Ok(ref s) if s == "/session/1"));
+            assert_eq!(log, vec!["connect", "register", "create", "bind"]);
+        }
+
+        #[test]
+        fn register_failure_stops_before_create_session() {
+            let reason = portal_registry_registration_failed_reason("F12");
+            let fx = fixture_ex(
+                FlipStop::Never,
+                Step::Ok(()),
+                Step::Fail(PortalFailure::Unavailable(reason.clone())),
+                Step::Ok("/session/1".to_owned()),
+                Step::Ok(vec![QUICK_SUMMON_SHORTCUT_ID.to_owned()]),
+                Step::Ok(()),
+                Vec::new(),
+            );
+            let (res, log) = drive(fx);
+            assert!(matches!(
+                res,
+                Err(PortalFailure::Unavailable(ref actual)) if actual == &reason
+            ));
+            assert_eq!(log, vec!["connect", "register"]);
+        }
+
+        #[test]
+        fn register_timeout_stops_before_create_session() {
+            let fx = fixture_ex(
+                FlipStop::Never,
+                Step::Ok(()),
+                Step::Block,
+                Step::Ok("/session/1".to_owned()),
+                Step::Ok(vec![QUICK_SUMMON_SHORTCUT_ID.to_owned()]),
+                Step::Ok(()),
+                Vec::new(),
+            );
+            let (res, log) = drive(fx);
+            assert!(matches!(
+                res,
+                Err(PortalFailure::Unavailable(ref reason))
+                    if reason == &portal_registry_registration_failed_reason("F12")
+            ));
+            assert_eq!(log, vec!["connect", "register"]);
         }
 
         #[test]
@@ -1094,7 +1298,7 @@ mod transport {
                     Err(PortalFailure::Unavailable(ref reason))
                         if reason == "The Wayland GlobalShortcuts portal reported success without granting F12. Choose a different quick_terminal_shortcut and restart OdyTTY, or bind F12 in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on. Toggle Quick Terminal in the command palette also works from an ordinary window."
                 ));
-                assert_eq!(log, vec!["connect", "create", "bind", "close"]);
+                assert_eq!(log, vec!["connect", "register", "create", "bind", "close"]);
             }
         }
 
@@ -1108,7 +1312,7 @@ mod transport {
             );
             let (res, log) = drive(fx);
             assert!(matches!(res, Err(PortalFailure::Unavailable(_))));
-            assert_eq!(log, vec!["connect", "create", "bind", "close"]);
+            assert_eq!(log, vec!["connect", "register", "create", "bind", "close"]);
         }
 
         #[test]
@@ -1121,7 +1325,7 @@ mod transport {
             );
             let (res, log) = drive(fx);
             assert!(matches!(res, Err(PortalFailure::Unavailable(_))));
-            assert_eq!(log, vec!["connect", "create", "bind", "close"]);
+            assert_eq!(log, vec!["connect", "register", "create", "bind", "close"]);
         }
 
         #[test]
@@ -1136,7 +1340,7 @@ mod transport {
             );
             let (res, log) = drive(fx);
             assert!(matches!(res, Err(PortalFailure::Unavailable(_))));
-            assert_eq!(log, vec!["connect", "create", "bind", "close"]);
+            assert_eq!(log, vec!["connect", "register", "create", "bind", "close"]);
         }
 
         #[test]
@@ -1150,7 +1354,7 @@ mod transport {
             let (res, log) = drive(fx);
             assert!(matches!(res, Err(PortalFailure::Unavailable(_))));
             // Nothing was created, so nothing is closed.
-            assert_eq!(log, vec!["connect", "create"]);
+            assert_eq!(log, vec!["connect", "register", "create"]);
         }
 
         #[test]
@@ -1163,7 +1367,7 @@ mod transport {
             );
             let (res, log) = drive(fx);
             assert!(matches!(res, Err(PortalFailure::Unavailable(_))));
-            assert_eq!(log, vec!["connect", "create"]);
+            assert_eq!(log, vec!["connect", "register", "create"]);
         }
 
         #[test]
@@ -1240,10 +1444,31 @@ mod transport {
         }
 
         #[test]
+        fn app_id_required_error_needs_not_allowed_name_and_specific_message() {
+            assert!(is_app_id_required(
+                "org.freedesktop.portal.Error.NotAllowed",
+                "An app id is required"
+            ));
+            assert!(is_app_id_required(
+                "org.freedesktop.portal.Error.NotAllowed",
+                "An application ID is required"
+            ));
+            assert!(!is_app_id_required(
+                "org.freedesktop.portal.Error.NotAllowed",
+                "The shortcut is reserved"
+            ));
+            assert!(!is_app_id_required(
+                "org.freedesktop.DBus.Error.UnknownMethod",
+                "An app id is required"
+            ));
+        }
+
+        #[test]
         fn cancel_during_connect_creates_nothing() {
             let fx = fixture_ex(
                 FlipStop::OnConnect,
                 Step::Block,
+                Step::Ok(RegistryRegistration::Registered),
                 Step::Ok("/session/1".to_owned()),
                 Step::Ok(vec![QUICK_SUMMON_SHORTCUT_ID.to_owned()]),
                 Step::Ok(()),
@@ -1261,6 +1486,7 @@ mod transport {
             let fx = fixture_ex(
                 FlipStop::OnCreate,
                 Step::Ok(()),
+                Step::Ok(RegistryRegistration::Registered),
                 Step::Block,
                 Step::Ok(vec![QUICK_SUMMON_SHORTCUT_ID.to_owned()]),
                 Step::Ok(()),
@@ -1268,7 +1494,23 @@ mod transport {
             );
             let (res, log) = drive(fx);
             assert!(matches!(res, Err(PortalFailure::Unavailable(_))));
-            assert_eq!(log, vec!["connect", "create"]);
+            assert_eq!(log, vec!["connect", "register", "create"]);
+        }
+
+        #[test]
+        fn cancel_during_registry_registration_creates_nothing() {
+            let fx = fixture_ex(
+                FlipStop::OnRegister,
+                Step::Ok(()),
+                Step::Block,
+                Step::Ok("/session/1".to_owned()),
+                Step::Ok(vec![QUICK_SUMMON_SHORTCUT_ID.to_owned()]),
+                Step::Ok(()),
+                Vec::new(),
+            );
+            let (res, log) = drive(fx);
+            assert!(matches!(res, Err(PortalFailure::Unavailable(_))));
+            assert_eq!(log, vec!["connect", "register"]);
         }
 
         #[test]
@@ -1276,6 +1518,7 @@ mod transport {
             let mut fx = fixture_ex(
                 FlipStop::Never,
                 Step::Ok(()),
+                Step::Ok(RegistryRegistration::Registered),
                 Step::Ok("/session/1".to_owned()),
                 Step::Ok(vec![QUICK_SUMMON_SHORTCUT_ID.to_owned()]),
                 Step::Block,
@@ -1301,6 +1544,7 @@ mod transport {
             let mut fx = fixture_ex(
                 FlipStop::Never,
                 Step::Ok(()),
+                Step::Ok(RegistryRegistration::Registered),
                 Step::Ok("/session/1".to_owned()),
                 Step::Ok(vec![QUICK_SUMMON_SHORTCUT_ID.to_owned()]),
                 Step::Ok(()),
@@ -1430,6 +1674,12 @@ mod tests {
         assert!(PORTAL_OBJECT_PATH.starts_with('/'));
         assert!(REQUEST_INTERFACE.ends_with(".Request"));
         assert!(GLOBAL_SHORTCUTS_INTERFACE.ends_with(".GlobalShortcuts"));
+        assert_eq!(REGISTRY_INTERFACE, "org.freedesktop.host.portal.Registry");
+        assert_eq!(PORTAL_APP_ID, "io.unfinished_works.odytty");
+        assert!(
+            include_str!("../../../dist/linux/io.unfinished_works.odytty.desktop")
+                .contains(&format!("StartupWMClass={PORTAL_APP_ID}\n"))
+        );
     }
 
     #[test]
@@ -1465,6 +1715,22 @@ mod tests {
         assert_eq!(
             portal_unconfirmed_binding_reason("F12"),
             "The Wayland GlobalShortcuts portal reported success without granting F12. Choose a different quick_terminal_shortcut and restart OdyTTY, or bind F12 in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on. Toggle Quick Terminal in the command palette also works from an ordinary window."
+        );
+    }
+
+    #[test]
+    fn registry_registration_failure_reason_is_exact_and_actionable() {
+        assert_eq!(
+            portal_registry_registration_failed_reason("F12"),
+            "The Wayland portal could not register OdyTTY's application ID with org.freedesktop.host.portal.Registry.Register before requesting F12. Restart xdg-desktop-portal and OdyTTY, then try again. Alternatively, bind F12 in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on."
+        );
+    }
+
+    #[test]
+    fn old_portal_app_id_requirement_names_minimum_version() {
+        assert_eq!(
+            portal_registry_required_reason("F12"),
+            "The Wayland GlobalShortcuts portal requires an application ID, but this xdg-desktop-portal does not provide org.freedesktop.host.portal.Registry.Register (requires xdg-desktop-portal 1.18 or newer). Update the portal and restart OdyTTY. Until then, bind F12 in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on."
         );
     }
 }
