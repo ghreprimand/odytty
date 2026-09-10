@@ -205,13 +205,23 @@ fn foreground_group_scan_stays_true_for_idle_bash_under_proc_churn() {
     let launch = shell.session.child.id();
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = stop.clone();
+    // The thread returns how many churn processes ran to completion so the
+    // probe cannot pass vacuously when spawning fails.
     let churn = std::thread::spawn(move || {
+        let mut completed = 0usize;
         while !flag.load(std::sync::atomic::Ordering::Relaxed) {
-            let _ = std::process::Command::new("true").status();
-            let _ = std::process::Command::new("bash")
-                .args(["-c", "true"])
-                .status();
+            for status in [
+                std::process::Command::new("true").status(),
+                std::process::Command::new("bash")
+                    .args(["-c", "true"])
+                    .status(),
+            ] {
+                if status.is_ok_and(|status| status.success()) {
+                    completed += 1;
+                }
+            }
         }
+        completed
     });
     let started = Instant::now();
     let mut false_hits = 0usize;
@@ -224,7 +234,11 @@ fn foreground_group_scan_stays_true_for_idle_bash_under_proc_churn() {
         std::thread::sleep(Duration::from_millis(1));
     }
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
-    let _ = churn.join();
+    let completed = churn.join().expect("churn thread");
+    assert!(
+        completed >= 10,
+        "churn probe ran too few processes ({completed}); the scan was not exercised under churn"
+    );
     assert!(
         samples >= 50,
         "churn probe took too few samples ({samples})"
