@@ -331,7 +331,6 @@ impl AdapterDiagnostics {
 
 pub(in crate::native) struct GpuState {
     pub(super) instance: wgpu::Instance,
-    pub(super) window: Arc<Window>,
     pub(super) adapter: wgpu::Adapter,
     pub(super) surface: wgpu::Surface<'static>,
     pub(super) device: wgpu::Device,
@@ -539,9 +538,25 @@ pub(in crate::native) struct GpuState {
     pub(super) atlas_sampler: wgpu::Sampler,
     pub(super) color_glyph_atlas_texture: wgpu::Texture,
     pub(super) color_glyph_atlas_sampler: wgpu::Sampler,
+    /// Keep the native window alive until every GPU object, especially the
+    /// presentation surface, has been released. Rust drops struct fields in
+    /// declaration order; this field must therefore remain last.
+    pub(super) window: Arc<Window>,
 }
 
 impl GpuState {
+    /// Wait for submitted work before the owning `App` releases this renderer.
+    ///
+    /// A frame's [`wgpu::SurfaceTexture`] is local to `render` and is presented
+    /// before that call returns, so no acquired texture is retained here. The
+    /// wait drains the queue before normal field destruction releases the
+    /// surface and, last of all, the native window held by this state.
+    pub(in crate::native) fn wait_for_idle_before_release(&self) {
+        if let Err(err) = self.device.poll(wgpu::PollType::wait_indefinitely()) {
+            tracing::warn!(?err, "GPU device wait failed during window teardown");
+        }
+    }
+
     /// Read-only GPU adapter diagnostics for the About panel (name, backend,
     /// device type, driver). Captured once at init.
     pub(in crate::native) fn adapter_diagnostics(&self) -> &AdapterDiagnostics {
@@ -633,6 +648,7 @@ impl GpuState {
         stem_darken: f32,
         bloom: BloomOptions,
         crt: CrtOptions,
+        display: winit::event_loop::OwnedDisplayHandle,
         event_proxy: Option<winit::event_loop::EventLoopProxy<UserEvent>>,
         session: SessionToken,
     ) -> Result<Self, NativeError> {
@@ -641,7 +657,7 @@ impl GpuState {
         let size = window.inner_size();
         let scale = (window.scale_factor() as f32).max(1.0);
         let physical_px = physical_font_px(options.font_size_px, scale);
-        let (instance, surface, adapter, adapter_info) = bring_up_adapter(&window)?;
+        let (instance, surface, adapter, adapter_info) = bring_up_adapter(&window, &display)?;
 
         // Capture adapter identity for the About panel before any device work.
         // Read-only diagnostics; does not influence rendering.
@@ -1015,7 +1031,6 @@ impl GpuState {
 
         Ok(Self {
             instance,
-            window,
             adapter,
             surface,
             device,
@@ -1107,6 +1122,7 @@ impl GpuState {
             atlas_sampler,
             color_glyph_atlas_texture,
             color_glyph_atlas_sampler,
+            window,
         })
     }
 

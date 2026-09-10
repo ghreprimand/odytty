@@ -37,6 +37,19 @@ pub(in crate::native) struct NewWindowRequest {
 }
 
 impl App {
+    /// Release this window's presentation state in driver-safe order.
+    ///
+    /// `App::window` deliberately stays alive while `GpuState` waits for its
+    /// per-window device and drops the surface. Only then is the final app-owned
+    /// window reference released. Calling this twice is harmless.
+    pub(in crate::native) fn release_surface(&mut self) {
+        if let Some(gpu) = self.gpu.take() {
+            gpu.wait_for_idle_before_release();
+            drop(gpu);
+        }
+        self.window = None;
+    }
+
     /// This window's live `winit` window id, or `None` before the surface is
     /// created (pre-`resumed`) or after it is torn down. The owner routes a
     /// `WindowEvent` to the `App` whose id matches.
@@ -432,5 +445,14 @@ mod tests {
             app.merge_numeral_overlay_signature(),
             OverlayFragment::Inert
         );
+    }
+
+    #[test]
+    fn releasing_an_absent_surface_is_idempotent() {
+        let (mut app, _t) = headless_app_for_test();
+        app.release_surface();
+        app.release_surface();
+        assert!(app.gpu.is_none());
+        assert!(app.window.is_none());
     }
 }

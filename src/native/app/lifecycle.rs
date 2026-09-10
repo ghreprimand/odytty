@@ -912,6 +912,7 @@ impl App {
             self.settings.effective_stem_darken(),
             bloom_options(&self.settings),
             crt_options(&self.settings),
+            event_loop.owned_display_handle(),
             self.sessions.event_proxy(),
             self.sessions.active_id(),
         ) {

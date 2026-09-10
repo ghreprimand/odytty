@@ -5,7 +5,7 @@
 //! adapter and surface report, they choose what the renderer asks for. Keeping
 //! them free of GPU handles lets the policy be tested headlessly.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use winit::window::Window;
 
@@ -14,6 +14,47 @@ use crate::text::{self, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 
 use super::post::PostProcessOptions;
+
+/// Process-lifetime presentation instances, keyed by enabled backend set.
+///
+/// OdyTTY may host several native windows in one process. NVIDIA's Wayland
+/// Vulkan WSI can leave a surviving swapchain unusable when another window's
+/// independent `VkInstance` is destroyed, so each `GpuState` clones a handle
+/// retained here instead of owning a distinct root instance.
+#[derive(Default)]
+struct InstanceOwner {
+    instances: Mutex<Vec<(wgpu::Backends, wgpu::Instance)>>,
+}
+
+static INSTANCE_OWNER: OnceLock<InstanceOwner> = OnceLock::new();
+
+impl InstanceOwner {
+    fn get_or_insert_with(
+        &self,
+        backends: wgpu::Backends,
+        create: impl FnOnce() -> wgpu::Instance,
+    ) -> wgpu::Instance {
+        let mut instances = self
+            .instances
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((_, instance)) = instances.iter().find(|(existing, _)| *existing == backends) {
+            return instance.clone();
+        }
+        let instance = create();
+        instances.push((backends, instance.clone()));
+        instance
+    }
+}
+
+fn process_instance(
+    backends: wgpu::Backends,
+    descriptor: wgpu::InstanceDescriptor,
+) -> wgpu::Instance {
+    INSTANCE_OWNER
+        .get_or_init(InstanceOwner::default)
+        .get_or_insert_with(backends, || wgpu::Instance::new(descriptor))
+}
 
 pub(in crate::native) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
     let (r, g, b) = theme.clear;
@@ -224,6 +265,7 @@ pub(in crate::native) fn software_adapter_is_final(stage_index: usize, stages: u
 /// final-software case, behave exactly as before.
 pub(in crate::native) fn bring_up_adapter(
     window: &Arc<Window>,
+    display: &winit::event_loop::OwnedDisplayHandle,
 ) -> Result<
     (
         wgpu::Instance,
@@ -243,15 +285,18 @@ pub(in crate::native) fn bring_up_adapter(
     )> = None;
 
     for (index, backends) in stages.iter().enumerate() {
-        // GL/GLES requires the window's display handle to create a presentable
-        // surface on both Wayland and X11. Vulkan, Metal, and DX12 ignore this
-        // field, so their existing adapter and rendering paths are unchanged.
+        // GL/GLES requires a display handle to create a presentable surface on
+        // both Wayland and X11. Every window owned by this host comes from the
+        // same winit event loop, so its OwnedDisplayHandle is the stable,
+        // process-lifetime handle for every sibling; unlike an Arc<Window>, it
+        // does not keep the first native window alive. Vulkan, Metal, and DX12
+        // currently ignore the display field.
         // `..._from_env` applies WGPU_BACKEND; the stage set is only imposed
         // when the environment named nothing, so an explicit request still wins.
         let mut descriptor =
-            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone()));
+            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display.clone()));
         descriptor.backends = *backends;
-        let instance = wgpu::Instance::new(descriptor);
+        let instance = process_instance(*backends, descriptor);
 
         let surface = match instance.create_surface(window.clone()) {
             Ok(surface) => surface,
@@ -455,5 +500,35 @@ pub(in crate::native) fn scene_target_format(
         post_process_format.unwrap_or(surface_format)
     } else {
         surface_format
+    }
+}
+
+#[cfg(test)]
+mod instance_owner_tests {
+    use super::*;
+
+    #[test]
+    fn headless_requests_for_same_backend_share_one_process_instance() {
+        let backends = wgpu::Backends::PRIMARY;
+        let mut first_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        first_descriptor.backends = backends;
+        let first = process_instance(backends, first_descriptor);
+        let mut second_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        second_descriptor.backends = backends;
+        let second = process_instance(backends, second_descriptor);
+
+        assert_eq!(first, second);
+        assert_eq!(
+            INSTANCE_OWNER
+                .get()
+                .expect("process instance owner")
+                .instances
+                .lock()
+                .expect("instance owner lock")
+                .iter()
+                .filter(|(existing, _)| *existing == backends)
+                .count(),
+            1
+        );
     }
 }

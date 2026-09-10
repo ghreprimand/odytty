@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Native GPU renderer.
 //!
-//! `GpuState` is the single UI-thread owner of the instance, window, adapter,
-//! surface, device, queue, pipelines, bindings, buffers, CPU-side vertices,
-//! image state, post-processing state, atlases, and fonts. This file is the
-//! facade over its responsibility modules and preserves the
+//! `GpuState` is the single UI-thread owner of one window's instance handle,
+//! surface, adapter, device, queue, pipelines, bindings, buffers, CPU-side
+//! vertices, image state, post-processing state, atlases, and fonts. The root
+//! instance is retained by a process owner so retiring one window cannot tear
+//! down the graphics instance used by another. This file is the facade over its
+//! responsibility modules and preserves the
 //! `crate::native::gpu::*` paths the rest of the native layer uses:
 //!
 //! * [`types`] — pane, cursor, overlay, and frame input contracts, plus the

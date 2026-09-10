@@ -247,9 +247,12 @@ impl MultiWindowHost {
                 if i < self.windows.len() {
                     // A genuine window close reaps its own sessions (kills +
                     // joins the PTYs). This is NOT the merge-retirement path,
-                    // whose source arena is already empty.
+                    // whose source arena is already empty. Release the surface
+                    // before PTY teardown so the native window is dropped only
+                    // after its per-window GPU state has drained.
                     let mut app = self.windows.remove(i);
                     let removed_id = app.process_window_id();
+                    app.release_surface();
                     app.close_all_sessions();
                     self.detach_quick_if_owned(removed_id);
                     self.cancel_picker_if_target_gone();
@@ -405,8 +408,10 @@ impl MultiWindowHost {
             Ok(_plan) => {
                 // The source arena is now empty: retire the window WITHOUT a
                 // session shutdown (its PTYs moved and are live in the target).
-                // Dropping the App tears down only its now-idle surface.
-                let retired = self.windows.remove(source_idx);
+                // Explicitly drain and release its now-idle GPU surface before
+                // the native window is dropped.
+                let mut retired = self.windows.remove(source_idx);
+                retired.release_surface();
                 // If the quick terminal was merged away, forget it so a later
                 // summon recreates it cleanly.
                 self.detach_quick_if_owned(retired.process_window_id());
