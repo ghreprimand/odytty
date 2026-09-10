@@ -37,12 +37,39 @@ fn bash(script: &str) -> ChildGuard {
     spawn("bash", &["--noprofile", "--norc", "-c", script]).expect("spawn fixture Bash")
 }
 
-fn await_state(mut ready: impl FnMut() -> bool) {
+fn await_state(label: &str, mut ready: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !ready() {
         assert!(
             Instant::now() < deadline,
-            "fixture did not reach required process state"
+            "fixture did not reach required process state: {label}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Snapshot why [`PtySession::file_drop_shell`] is not yet accepting Bash.
+/// Used only in panic messages so a timed-out await names the failing predicate.
+#[cfg(target_os = "linux")]
+fn file_drop_bash_diag(session: &PtySession) -> String {
+    let job = session.foreground_job();
+    let sole = foreground_group_is_launch_child_only(session.child.id());
+    let exe_bash = launch_child_is_shell(session, crate::shell_integration::ShellKind::Bash);
+    let got = session.file_drop_shell();
+    format!(
+        "foreground_job={job:?} sole_member={sole} exe_is_bash={exe_bash} file_drop_shell={got:?} launch_shell={:?}",
+        session.launch_shell()
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn await_file_drop_bash(session: &PtySession, label: &str) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while session.file_drop_shell() != Some(crate::shell_integration::ShellKind::Bash) {
+        assert!(
+            Instant::now() < deadline,
+            "fixture did not reach required process state: {label} ({})",
+            file_drop_bash_diag(session)
         );
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -60,7 +87,7 @@ fn launch_child_is_shell(
 #[test]
 fn file_drop_shell_accepts_idle_direct_bash() {
     let shell = bash("while IFS= read -r line; do :; done");
-    await_state(|| {
+    await_state("idle direct bash: job None and exe Bash", || {
         shell.session.foreground_job() == ForegroundJob::None
             && launch_child_is_shell(&shell.session, crate::shell_integration::ShellKind::Bash)
     });
@@ -79,55 +106,64 @@ fn file_drop_shell_accepts_idle_direct_bash() {
 #[test]
 fn file_drop_shell_refuses_foreground_job_then_accepts_after_exit() {
     let shell = spawn("bash", &["--noprofile", "--norc", "-i"]).expect("spawn interactive Bash");
-    await_state(|| {
-        shell.session.file_drop_shell() == Some(crate::shell_integration::ShellKind::Bash)
-    });
+    await_file_drop_bash(
+        &shell.session,
+        "interactive bash idle before foreground job",
+    );
 
     let mut writer = shell.session.take_writer().expect("PTY writer");
     writer
         .write_all(b"set -m\nsleep 30\n")
         .expect("start foreground job");
     writer.flush().expect("flush foreground job");
-    await_state(|| shell.session.foreground_job() == ForegroundJob::Running);
+    await_state("foreground job Running after sleep", || {
+        shell.session.foreground_job() == ForegroundJob::Running
+    });
     assert_eq!(shell.session.file_drop_shell(), None);
 
     writer.write_all(&[3]).expect("interrupt foreground job");
     writer.flush().expect("flush interrupt");
-    await_state(|| {
-        shell.session.file_drop_shell() == Some(crate::shell_integration::ShellKind::Bash)
-    });
+    await_file_drop_bash(
+        &shell.session,
+        "interactive bash idle after foreground job exit",
+    );
 }
 
 #[cfg(target_os = "linux")]
 #[test]
 fn file_drop_shell_refuses_same_group_child_then_accepts_after_exit() {
     let shell = spawn("bash", &["--noprofile", "--norc", "-i"]).expect("spawn interactive Bash");
-    await_state(|| {
-        shell.session.file_drop_shell() == Some(crate::shell_integration::ShellKind::Bash)
-    });
+    await_file_drop_bash(
+        &shell.session,
+        "interactive bash idle before same-group child",
+    );
 
     let mut writer = shell.session.take_writer().expect("PTY writer");
     writer
         .write_all(b"set +m\nsleep 30\n")
         .expect("start same-group child");
     writer.flush().expect("flush same-group child");
-    await_state(|| {
-        shell.session.foreground_job() == ForegroundJob::None
-            && launch_child_is_shell(&shell.session, crate::shell_integration::ShellKind::Bash)
-            && shell.session.file_drop_shell().is_none()
-    });
+    await_state(
+        "same-group child: job None, exe Bash, file_drop_shell None",
+        || {
+            shell.session.foreground_job() == ForegroundJob::None
+                && launch_child_is_shell(&shell.session, crate::shell_integration::ShellKind::Bash)
+                && shell.session.file_drop_shell().is_none()
+        },
+    );
 
     writer.write_all(&[3]).expect("interrupt same-group child");
     writer.flush().expect("flush interrupt");
-    await_state(|| {
-        shell.session.file_drop_shell() == Some(crate::shell_integration::ShellKind::Bash)
-    });
+    await_file_drop_bash(
+        &shell.session,
+        "interactive bash idle after same-group child exit",
+    );
 }
 
 #[test]
 fn file_drop_shell_refuses_launch_child_exec_to_another_program() {
     let shell = bash("exec sleep 30");
-    await_state(|| {
+    await_state("launch child exe became sleep", || {
         current_program(shell.session.child.id())
             .is_some_and(|path| path.file_name().is_some_and(|name| name == "sleep"))
     });
@@ -158,13 +194,58 @@ fn proc_stat_pgrp_uses_field_after_final_comm_parenthesis() {
     assert_eq!(proc_stat_pgrp("17 (comm) S 1 4242"), Some(4242));
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn foreground_group_scan_stays_true_for_idle_bash_under_proc_churn() {
+    // Evidence probe: while many short-lived processes churn /proc, an idle
+    // sole-member Bash group must keep returning true. A transient non-ENOENT/
+    // ESRCH read_dir or stat error would fail closed and flip this false.
+    let shell = bash("while IFS= read -r line; do :; done");
+    await_file_drop_bash(&shell.session, "idle bash before /proc churn probe");
+    let launch = shell.session.child.id();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = stop.clone();
+    let churn = std::thread::spawn(move || {
+        while !flag.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = std::process::Command::new("true").status();
+            let _ = std::process::Command::new("bash")
+                .args(["-c", "true"])
+                .status();
+        }
+    });
+    let started = Instant::now();
+    let mut false_hits = 0usize;
+    let mut samples = 0usize;
+    while started.elapsed() < Duration::from_millis(750) {
+        samples += 1;
+        if !foreground_group_is_launch_child_only(launch) {
+            false_hits += 1;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = churn.join();
+    assert!(
+        samples >= 50,
+        "churn probe took too few samples ({samples})"
+    );
+    assert_eq!(
+        false_hits, 0,
+        "foreground_group_is_launch_child_only flipped false {false_hits}/{samples} times under /proc churn; investigate non-ENOENT/ESRCH scan errors"
+    );
+    assert_eq!(
+        shell.session.file_drop_shell(),
+        Some(crate::shell_integration::ShellKind::Bash)
+    );
+}
+
 #[test]
 fn file_drop_shell_accepts_idle_zsh_when_installed() {
     let Ok(shell) = spawn("zsh", &["-f", "-c", "while read -r line; do :; done"]) else {
         println!("skipped file_drop_shell_accepts_idle_zsh_when_installed: zsh is not installed");
         return;
     };
-    await_state(|| {
+    await_state("idle zsh: job None and exe Zsh", || {
         shell.session.foreground_job() == ForegroundJob::None
             && launch_child_is_shell(&shell.session, crate::shell_integration::ShellKind::Zsh)
     });
@@ -183,7 +264,7 @@ fn file_drop_shell_accepts_idle_fish_when_installed() {
         println!("skipped file_drop_shell_accepts_idle_fish_when_installed: fish is not installed");
         return;
     };
-    await_state(|| {
+    await_state("idle fish: job None and exe Fish", || {
         shell.session.foreground_job() == ForegroundJob::None
             && launch_child_is_shell(&shell.session, crate::shell_integration::ShellKind::Fish)
     });
@@ -196,7 +277,9 @@ fn file_drop_shell_accepts_idle_fish_when_installed() {
 #[test]
 fn file_drop_shell_refuses_non_shell_launch_program() {
     let program = spawn("sleep", &["30"]).expect("spawn non-shell fixture");
-    await_state(|| current_program(program.session.child.id()).is_some());
+    await_state("non-shell sleep exe visible", || {
+        current_program(program.session.child.id()).is_some()
+    });
     assert_eq!(program.session.foreground_job(), ForegroundJob::None);
     assert_eq!(program.session.launch_shell(), None);
     assert_eq!(program.session.file_drop_shell(), None);

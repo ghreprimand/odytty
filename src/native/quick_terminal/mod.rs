@@ -802,7 +802,7 @@ fn x11_grab_failure_notice(acc: &Accelerator, bad_access: bool) -> String {
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn macos_registration_failure_notice(acc: &Accelerator) -> String {
     format!(
-        "macOS did not grant {} to OdyTTY. If macOS requested Accessibility or Input Monitoring, allow OdyTTY in System Settings > Privacy & Security; otherwise release the conflicting shortcut or choose a different quick_terminal_shortcut, then restart OdyTTY.",
+        "macOS did not grant {} to OdyTTY, usually because another application already holds it. Release that shortcut or choose a different quick_terminal_shortcut, then restart OdyTTY. The OdyTTY log records the OSStatus.",
         accelerator_notice_label(acc)
     )
 }
@@ -1583,7 +1583,7 @@ mod tests {
         );
         assert_eq!(
             macos_registration_failure_notice(&acc),
-            "macOS did not grant CTRL+SHIFT+F12 to OdyTTY. If macOS requested Accessibility or Input Monitoring, allow OdyTTY in System Settings > Privacy & Security; otherwise release the conflicting shortcut or choose a different quick_terminal_shortcut, then restart OdyTTY."
+            "macOS did not grant CTRL+SHIFT+F12 to OdyTTY, usually because another application already holds it. Release that shortcut or choose a different quick_terminal_shortcut, then restart OdyTTY. The OdyTTY log records the OSStatus."
         );
         assert!(macos_registration_confirmed(0));
         assert!(!macos_registration_confirmed(-9878));
