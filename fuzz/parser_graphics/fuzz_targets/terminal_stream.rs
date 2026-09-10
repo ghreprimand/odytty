@@ -8,7 +8,7 @@ use odytty::core::{
     CharsetModes, KeyboardModes, MouseProtocol, Snapshot, SnapshotLayoutState,
     SnapshotTerminalState, Terminal,
 };
-use odytty::graphics::{GraphicsCommand, ImagePlacement, StoredImage, VisiblePlacement};
+use odytty::graphics::{ImagePlacement, StoredImage, VirtualPlacement, VisiblePlacement};
 use support::{
     assert_graphics_bounds, assert_recovery_sentinel, bounded_terminal, host_output_cap,
 };
@@ -33,7 +33,7 @@ struct Observable {
     host_output: Vec<u8>,
     visible_graphics: Vec<VisiblePlacement>,
     placements: Vec<ImagePlacement>,
-    raw_commands: Vec<GraphicsCommand>,
+    virtual_placements: Vec<VirtualPlacement>,
     stored_images: Vec<StoredImage>,
     sixel_decode_errors: u64,
 }
@@ -64,7 +64,7 @@ fn capture(terminal: &mut Terminal) -> Observable {
         host_output: terminal.take_host_output(),
         visible_graphics: terminal.visible_graphics(0),
         placements: terminal.graphics().placements().to_vec(),
-        raw_commands: terminal.graphics().raw_commands().iter().cloned().collect(),
+        virtual_placements: terminal.graphics().virtual_placements().to_vec(),
         stored_images,
         sixel_decode_errors: terminal.screen().sixel_decode_errors(),
     }

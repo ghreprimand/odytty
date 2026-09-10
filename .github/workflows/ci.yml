@@ -79,6 +79,16 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
+      # The coverage-guided fuzz crate is a separate workspace, so the root
+      # build and clippy steps do not compile its targets. Check it on stable in
+      # the Linux leg so public-API drift fails on each push instead of waiting
+      # for the scheduled nightly-toolchain fuzz campaign.
+      - name: Coverage-guided fuzz target API check
+        if: runner.os == 'Linux'
+        run: >-
+          cargo check --manifest-path fuzz/parser_graphics/Cargo.toml
+          --locked --bins
+
       # Linux/Windows: a single `cargo test --locked` attempt, parallel.
       # Step-level timeout: a wedged test must fail THIS step in ~15 min, not
       # spin until the job backstop. Run 28609779371 (a P2-FIX resize pressure

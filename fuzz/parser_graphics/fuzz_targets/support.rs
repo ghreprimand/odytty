@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use odytty::core::Terminal;
-use odytty::graphics::placement::{
-    MAX_IMAGE_PLACEMENTS_PER_BUFFER, MAX_RAW_GRAPHICS_BYTES, MAX_RAW_GRAPHICS_COMMANDS,
-};
-use odytty::graphics::{GraphicsCommand, ImageScene, ImageStoreLimits};
+use odytty::graphics::placement::{MAX_IMAGE_PLACEMENTS_PER_BUFFER, MAX_VIRTUAL_PLACEMENTS};
+use odytty::graphics::{ImageScene, ImageStoreLimits};
 
 pub const MAX_DECODED_GRAPHICS_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_STORED_IMAGES: usize = 32;
@@ -26,15 +24,7 @@ pub fn assert_graphics_bounds(terminal: &Terminal) {
     assert!(store.decoded_bytes() <= MAX_DECODED_GRAPHICS_BYTES);
     assert!(store.len() <= MAX_STORED_IMAGES);
     assert!(scene.placements().len() <= MAX_IMAGE_PLACEMENTS_PER_BUFFER);
-    assert!(scene.raw_commands().len() <= MAX_RAW_GRAPHICS_COMMANDS);
-
-    for command in scene.raw_commands() {
-        let raw_bytes = match command {
-            GraphicsCommand::KittyApc { payload } => payload.len(),
-            GraphicsCommand::SixelDcs { raw_body, .. } => raw_body.len(),
-        };
-        assert!(raw_bytes <= MAX_RAW_GRAPHICS_BYTES);
-    }
+    assert!(scene.virtual_placements().len() <= MAX_VIRTUAL_PLACEMENTS);
 }
 
 pub fn assert_recovery_sentinel(terminal: &mut Terminal) {
