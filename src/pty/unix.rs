@@ -336,6 +336,35 @@ impl PtySession {
                     return Err(std::io::Error::last_os_error());
                 }
 
+                // A shell must start with default job-control and interrupt
+                // dispositions regardless of how the terminal itself was
+                // launched. Ignored dispositions are inherited across exec,
+                // and a shell keeps them ignored for its own children, so a
+                // terminal started as a background job of a non-interactive
+                // shell (SIGINT and SIGQUIT ignored) would otherwise run
+                // shells whose foreground commands never see Ctrl+C. Reset
+                // the terminal-relevant signals and clear the signal mask.
+                for signal in [
+                    libc::SIGINT,
+                    libc::SIGQUIT,
+                    libc::SIGTSTP,
+                    libc::SIGTTIN,
+                    libc::SIGTTOU,
+                    libc::SIGHUP,
+                    libc::SIGTERM,
+                    libc::SIGCHLD,
+                    libc::SIGPIPE,
+                ] {
+                    if libc::signal(signal, libc::SIG_DFL) == libc::SIG_ERR {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                let mut mask: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut mask);
+                if libc::sigprocmask(libc::SIG_SETMASK, &mask, std::ptr::null_mut()) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+
                 Ok(())
             });
         }

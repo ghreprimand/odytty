@@ -334,3 +334,34 @@ fn file_drop_shell_refuses_non_shell_launch_program() {
     assert_eq!(program.session.launch_shell(), None);
     assert_eq!(program.session.file_drop_shell(), None);
 }
+
+/// The spawned child must start with default signal dispositions even when
+/// the terminal process itself inherited ignored ones (for example when it was
+/// started as a background job of a non-interactive shell, which ignores
+/// SIGINT and SIGQUIT). Otherwise the shell keeps those signals ignored for
+/// its foreground commands and Ctrl+C never interrupts them.
+#[cfg(target_os = "linux")]
+#[test]
+fn spawned_child_resets_inherited_ignored_signals() {
+    // SAFETY: plain disposition changes on the test process; restored below.
+    let previous = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
+    assert_ne!(previous, libc::SIG_ERR);
+    let mut shell = spawn("sh", &["-c", "grep SigIgn /proc/self/status"]).expect("spawn sh");
+    let output = shell.session.read_to_end().expect("read child output");
+    let _ = shell.session.wait();
+    // SAFETY: restore the disposition captured above.
+    unsafe {
+        libc::signal(libc::SIGINT, previous);
+    }
+    let text = String::from_utf8_lossy(&output);
+    let mask = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("SigIgn:"))
+        .map(|value| u64::from_str_radix(value.trim(), 16).expect("hex mask"))
+        .expect("SigIgn line in child output");
+    assert_eq!(
+        mask & (1 << (libc::SIGINT - 1)),
+        0,
+        "child inherited an ignored SIGINT: {text}"
+    );
+}
