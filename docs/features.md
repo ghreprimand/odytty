@@ -721,6 +721,28 @@ notice and records the same stable guidance in the log. The palette exposes
 [runtime knobs](runtime-knobs.md) and the
 [quick-terminal contract](v0.15.0-foundation.md#quick-terminal-role).
 
+On Wayland compositors without the portal, enable both `quick_terminal` and
+`automation_endpoint`, then bind the typed local-control command. For Sway:
+
+```text
+bindsym F12 exec odytty control quick-terminal toggle
+```
+
+For Hyprland:
+
+```text
+bind = , F12, exec, odytty control quick-terminal toggle
+```
+
+On Unix, the bare toggle probes at most 32 owner-private PID endpoints for one
+second and proceeds only when exactly one advertises the capability. Linux
+scans `$XDG_RUNTIME_DIR/odytty`; macOS scans OdyTTY's owner-private state
+`control` directory. It refuses zero or multiple eligible instances. Discovery
+skips stale sockets; it refuses without mutation when any live socket cannot be
+classified. Select a specific instance with `--endpoint PATH` when several are
+running or classification is uncertain. Windows requires the explicit local pipe path
+`--endpoint \\.\pipe\odytty-control-<pid>` and does not enumerate pipes.
+
 ### Merge Windows From The Keyboard (v0.15.0 Development)
 
 With two or more ordinary windows, the command palette offers
@@ -746,9 +768,10 @@ rejection, and mutual process-token SID verification before protocol I/O.
 The endpoint lists and focuses existing windows, workspaces, tabs, and panes,
 opens profiles, creates tabs, workspaces, and splits, and renames supported
 objects through the same native ownership and action routes as the interface.
-It cannot send terminal input or read terminal contents. Live disable and clean
-shutdown cancel queued work and remove only the endpoint instance owned by the
-current process.
+It can also queue a quick-terminal visibility toggle when `quick_terminal` is
+enabled. The accepted reply means queued, not visible or hidden. It cannot send
+terminal input or read terminal contents. Live disable and clean shutdown cancel
+queued work and remove only the endpoint instance owned by the current process.
 
 The Windows CLI accepts only the explicit local OdyTTY pipe form; remote UNC
 pipe names are rejected before opening. Windows CI covers same-user round trips,

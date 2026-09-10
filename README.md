@@ -257,7 +257,8 @@ effect setting. See the [theme reference](docs/themes.md#electric-blue).
 The same unreleased line now carries unit-evidenced quick-terminal lifecycle and
 shortcut adapters; opt-in structural automation on Linux/macOS owner-private
 sockets and a Windows owner-DACL named pipe (busy/unavailable/listener-fault
-contracts and hostile-client suites); confirm-first Unix file-drop insertion with
+contracts, fail-closed Unix quick-terminal toggle discovery, and hostile-client
+suites); confirm-first Unix file-drop insertion with
 an explicit Windows refusal; and keyboard-first window merge/pull with in-window
 numerals. Device acceptance, blocking release CI, packaging, and publication
 remain open. No v0.15.0 release claim. See the

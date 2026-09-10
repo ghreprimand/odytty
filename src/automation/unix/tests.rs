@@ -134,7 +134,10 @@ fn start_harness(structural_control: bool) -> Harness {
                     let handled = queue.dispatch(|request| {
                         dispatch_count.fetch_add(1, Ordering::Relaxed);
                         match request.action {
-                            Action::Capabilities => Reply::Capabilities { structural_control },
+                            Action::Capabilities => Reply::Capabilities {
+                                structural_control,
+                                quick_terminal_toggle: structural_control,
+                            },
                             Action::List => Reply::Objects(Vec::new()),
                             Action::Focus { target } => Reply::Applied(target),
                             Action::Status { .. }
@@ -142,7 +145,8 @@ fn start_harness(structural_control: bool) -> Harness {
                             | Action::CreateTab { .. }
                             | Action::CreateWorkspace { .. }
                             | Action::Split { .. }
-                            | Action::Rename { .. } => {
+                            | Action::Rename { .. }
+                            | Action::QuickTerminalToggle => {
                                 Reply::Error(ErrorCode::UnsupportedCapability)
                             }
                         }
@@ -193,9 +197,63 @@ fn capabilities_roundtrip_over_owner_private_endpoint() {
     assert_eq!(
         response.reply,
         Reply::Capabilities {
-            structural_control: true
+            structural_control: true,
+            quick_terminal_toggle: true,
         }
     );
+}
+
+#[test]
+fn discovery_enumerates_only_pid_shaped_names_and_refuses_over_bound_sets() {
+    let missing = discovery_candidates(None, Instant::now() + Duration::from_secs(1))
+        .expect_err("missing runtime base");
+    assert_eq!(missing.kind(), io::ErrorKind::NotFound);
+    assert!(missing.unresolved_paths().is_empty());
+    let fixture = fixture();
+    let runtime = fixture.dir.join("runtime");
+    let control = runtime.join("odytty");
+    fs::create_dir(&runtime).expect("runtime directory");
+    fs::set_permissions(&runtime, Permissions::from_mode(0o700)).expect("runtime mode");
+    fs::create_dir(&control).expect("control directory");
+    fs::set_permissions(&control, Permissions::from_mode(0o700)).expect("control mode");
+
+    let first = UnixListener::bind(control.join("control-1.sock")).expect("first socket");
+    let second = UnixListener::bind(control.join("control-42.sock")).expect("second socket");
+    let ignored = UnixListener::bind(control.join("control-no.sock")).expect("ignored socket");
+    assert_eq!(
+        discovery_candidates(
+            Some(runtime.as_os_str()),
+            Instant::now() + Duration::from_secs(1)
+        )
+        .expect("candidate enumeration"),
+        vec![
+            control.join("control-1.sock"),
+            control.join("control-42.sock")
+        ]
+    );
+    let expired = discovery_candidates(Some(runtime.as_os_str()), Instant::now())
+        .expect_err("expired enumeration budget");
+    assert_eq!(expired.kind(), io::ErrorKind::TimedOut);
+    assert_eq!(expired.unresolved_paths(), std::slice::from_ref(&control));
+    drop((first, second, ignored));
+
+    fs::remove_dir_all(&control).expect("replace candidate directory");
+    fs::create_dir(&control).expect("replacement control directory");
+    fs::set_permissions(&control, Permissions::from_mode(0o700)).expect("replacement mode");
+    let listeners = (1..=MAX_DISCOVERY_CANDIDATES + 1)
+        .map(|pid| {
+            UnixListener::bind(control.join(format!("control-{pid}.sock")))
+                .expect("bounded candidate socket")
+        })
+        .collect::<Vec<_>>();
+    let over_bound = discovery_candidates(
+        Some(runtime.as_os_str()),
+        Instant::now() + Duration::from_secs(1),
+    )
+    .expect_err("over-bound candidate set");
+    assert_eq!(over_bound.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(over_bound.unresolved_paths(), &[control]);
+    drop(listeners);
 }
 
 #[test]
@@ -708,7 +766,8 @@ fn request_id_reuse_across_two_connections_is_independent() {
     assert_eq!(
         a.reply,
         Reply::Capabilities {
-            structural_control: false
+            structural_control: false,
+            quick_terminal_toggle: false,
         }
     );
     assert_eq!(b.reply, a.reply);

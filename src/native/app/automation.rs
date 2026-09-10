@@ -13,6 +13,10 @@ impl App {
         self.settings.automation_endpoint
     }
 
+    pub(in crate::native) fn quick_terminal_enabled(&self) -> bool {
+        self.settings.quick_terminal
+    }
+
     pub(in crate::native) fn automation_notice(&mut self, message: String, failure: bool) {
         if failure {
             self.raise_open_notice(message);

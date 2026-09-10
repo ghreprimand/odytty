@@ -357,9 +357,9 @@ pub(in crate::native) struct App {
     /// v0.15.0 A quick-terminal seam: a captured request to toggle (summon or
     /// hide) the dedicated quick terminal, set by the global shortcut backend or
     /// a "Toggle Quick Terminal" command and drained by the process window owner
-    /// (which owns the single quick-terminal lifecycle). `false` at rest, so the
+    /// (which owns the single quick-terminal lifecycle). Zero at rest, so the
     /// ordinary window path is unaffected.
-    pub(super) pending_quick_toggle: bool,
+    pub(super) pending_quick_toggles: usize,
     /// v0.15.0 D stable process window identity, minted once at construction and
     /// never reused for the process lifetime. The process window owner names
     /// this window by it (merge target picker, event routing) so a backend
@@ -666,7 +666,7 @@ impl App {
             #[cfg(test)]
             file_drop_shell_for_test: None,
             pending_new_window: None,
-            pending_quick_toggle: false,
+            pending_quick_toggles: 0,
             // Fail-closed at the construction boundary: the allocator refuses
             // (returns None) only after 2^64 window constructions, a physically
             // unreachable ceiling. A None here would mean the id space is

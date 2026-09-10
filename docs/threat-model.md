@@ -791,6 +791,13 @@ Three prohibitions apply to every boundary below:
   checks. No TCP, UDP, HTTP, WebSocket, or other network listener exists.
   Requests use a versioned typed schema and structural object identities
   rather than shell command strings.
+- **Quick-terminal visibility:** an opted-in same-user process may queue a
+  quick-terminal visibility toggle. This is the same trust boundary as the
+  existing structural actions: it grants no terminal input or content access.
+  Bare Unix discovery is fail-closed, bounded to 32 owner-private candidates
+  and one second, and refuses multiple eligible instances or any unclassified
+  live socket rather than choosing by PID. Only definitive stale-connect and
+  clean incompatibility results are skipped. Windows remains endpoint-explicit.
 - **Validation and caps:** endpoint ownership/ACL, peer identity, frame length,
   field lengths, object generation, action authorization, and per-client rate
   are checked before mutation. The v0.15.0 protocol has no text-insertion or terminal-content-read capability;

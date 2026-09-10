@@ -90,12 +90,18 @@ impl MultiWindowHost {
             .windows
             .first()
             .is_some_and(App::automation_endpoint_enabled);
+        let quick_terminal_toggle = structural
+            && self
+                .windows
+                .first()
+                .is_some_and(App::quick_terminal_enabled);
         if !structural && !request.action.is_read_only() {
             return Reply::Error(ErrorCode::PermissionDenied);
         }
         match request.action {
             Action::Capabilities => Reply::Capabilities {
                 structural_control: structural,
+                quick_terminal_toggle,
             },
             Action::List => self.automation_list(instance),
             Action::Status { target } => {
@@ -190,6 +196,21 @@ impl MultiWindowHost {
                         .unwrap_or_else(Reply::Error)
                 })
             }
+            Action::QuickTerminalToggle => {
+                if !quick_terminal_toggle {
+                    return Reply::Error(ErrorCode::Unavailable);
+                }
+                // This changes only the process-owned window visibility; it
+                // does not mutate tab/pane structure or consume overlay input.
+                // The existing quick-terminal focus-loss policy already
+                // defers hiding while an overlay owns interaction, so the
+                // structural target's interactive Busy gate does not apply.
+                let Some(app) = self.windows.first_mut() else {
+                    return Reply::Error(ErrorCode::Unavailable);
+                };
+                app.request_quick_toggle();
+                Reply::Accepted
+            }
         }
     }
 
@@ -262,9 +283,12 @@ impl MultiWindowHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::automation::dispatch;
     use crate::automation::protocol::{Reply, Request, SplitDirection, VERSION};
     use crate::native::app::multi_window_host::tests::{headless, host_of};
-    use crate::native::quick_terminal::QuickTerminalIdentity;
+    use crate::native::quick_terminal::{
+        QuickTerminalIdentity, QuickTerminalSettings, QuickVisibility,
+    };
     use std::sync::{Arc, Mutex};
 
     fn enabled_host() -> (MultiWindowHost, [u8; 16]) {
@@ -482,6 +506,101 @@ mod tests {
                 },
             ),
             Reply::Error(ErrorCode::Unavailable)
+        );
+    }
+
+    #[test]
+    fn quick_toggle_capability_and_dispatch_permissions_follow_both_settings() {
+        let mut host = host_of(vec![headless()]);
+        let instance = [0x61; 16];
+
+        assert_eq!(
+            apply(&mut host, instance, Action::QuickTerminalToggle),
+            Reply::Error(ErrorCode::PermissionDenied)
+        );
+        host.windows[0].settings.automation_endpoint = true;
+        assert_eq!(
+            apply(&mut host, instance, Action::Capabilities),
+            Reply::Capabilities {
+                structural_control: true,
+                quick_terminal_toggle: false,
+            }
+        );
+        assert_eq!(
+            apply(&mut host, instance, Action::QuickTerminalToggle),
+            Reply::Error(ErrorCode::Unavailable)
+        );
+
+        host.windows[0].settings.quick_terminal = true;
+        assert_eq!(
+            apply(&mut host, instance, Action::Capabilities),
+            Reply::Capabilities {
+                structural_control: true,
+                quick_terminal_toggle: true,
+            }
+        );
+        assert_eq!(
+            apply(&mut host, instance, Action::QuickTerminalToggle),
+            Reply::Accepted
+        );
+        assert_eq!(host.windows[0].take_quick_toggle_requests(), 1);
+    }
+
+    #[test]
+    fn two_quick_toggles_in_one_dispatch_are_accepted_and_do_not_coalesce() {
+        let mut host = host_of(vec![headless()]);
+        host.windows[0].settings.automation_endpoint = true;
+        host.windows[0].settings.quick_terminal = true;
+        host.quick.update_settings(QuickTerminalSettings {
+            enabled: true,
+            ..QuickTerminalSettings::default()
+        });
+        let quick_id = host.windows[0].process_window_id();
+        host.quick
+            .attach_window(QuickTerminalIdentity::new(quick_id));
+        assert_eq!(
+            host.quick.hide(),
+            crate::native::quick_terminal::QuickTerminalAction::Hide
+        );
+        assert_eq!(host.quick.visibility(), QuickVisibility::Hidden);
+
+        let (submission, queue) = dispatch::channel(true);
+        host.automation.install_queue_for_test([0x62; 16], queue);
+        let first = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 1,
+                action: Action::QuickTerminalToggle,
+            })
+            .expect("queue first toggle");
+        let second = submission
+            .submit(Request {
+                version: VERSION,
+                request_id: 2,
+                action: Action::QuickTerminalToggle,
+            })
+            .expect("queue second toggle");
+        host.dispatch_automation();
+        assert_eq!(first.wait().reply, Reply::Accepted);
+        assert_eq!(second.wait().reply, Reply::Accepted);
+
+        let toggles = host.windows[0].take_quick_toggle_requests();
+        assert_eq!(toggles, 2, "accepted requests must not coalesce");
+        for index in 0..toggles {
+            let _ = host.quick.toggle();
+            assert_eq!(
+                host.quick.visibility(),
+                if index == 0 {
+                    QuickVisibility::Visible
+                } else {
+                    QuickVisibility::Hidden
+                }
+            );
+        }
+        assert_eq!(
+            host.quick.visibility(),
+            QuickVisibility::Hidden,
+            "two drained transitions return an existing hidden terminal to hidden"
         );
     }
 }

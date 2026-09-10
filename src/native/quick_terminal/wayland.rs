@@ -205,12 +205,12 @@ impl ShortcutBinding {
 pub(super) fn portal_unavailable_reason(accelerator: &Accelerator) -> String {
     let trigger = accelerator_to_trigger(accelerator);
     format!(
-        "Wayland does not let applications grab a global shortcut directly, and \
-         this version has no command a compositor keybinding can invoke to \
-         toggle the quick terminal, so {trigger} cannot be registered here. Use \
-         a desktop that provides the {GLOBAL_SHORTCUTS_INTERFACE} portal, run \
-         OdyTTY under X11, or use Toggle Quick Terminal from the command palette \
-         in an ordinary window."
+        "Wayland does not let applications grab a global shortcut directly, so \
+         {trigger} cannot be registered here. To use the compositor fallback, \
+         bind {trigger} in your compositor to run: odytty control quick-terminal \
+         toggle, with automation_endpoint = on. You can also use a desktop that \
+         provides the {GLOBAL_SHORTCUTS_INTERFACE} portal, run OdyTTY under X11, \
+         or use Toggle Quick Terminal from the command palette in an ordinary window."
     )
 }
 
@@ -220,13 +220,13 @@ pub(super) fn portal_unavailable_reason(accelerator: &Accelerator) -> String {
 pub(super) fn portal_refused_reason(accelerator: &Accelerator, code: u32) -> String {
     let trigger = accelerator_to_trigger(accelerator);
     format!(
-        "The Wayland GlobalShortcuts portal did not grant {trigger} (response code {code}). Allow the shortcut in your desktop's portal prompt or choose a different quick_terminal_shortcut, then restart OdyTTY. Until then, Toggle Quick Terminal in the command palette still works from an ordinary window."
+        "The Wayland GlobalShortcuts portal did not grant {trigger} (response code {code}). Allow the shortcut in your desktop's portal prompt or choose a different quick_terminal_shortcut, then restart OdyTTY. Alternatively, bind {trigger} in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on. Toggle Quick Terminal in the command palette also works from an ordinary window."
     )
 }
 
 fn portal_unconfirmed_binding_reason(trigger: &str) -> String {
     format!(
-        "The Wayland GlobalShortcuts portal reported success without granting {trigger}. Choose a different quick_terminal_shortcut and restart OdyTTY, or use Toggle Quick Terminal from the command palette in an ordinary window."
+        "The Wayland GlobalShortcuts portal reported success without granting {trigger}. Choose a different quick_terminal_shortcut and restart OdyTTY, or bind {trigger} in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on. Toggle Quick Terminal in the command palette also works from an ordinary window."
     )
 }
 
@@ -1092,7 +1092,7 @@ mod transport {
                 assert!(matches!(
                     res,
                     Err(PortalFailure::Unavailable(ref reason))
-                        if reason == "The Wayland GlobalShortcuts portal reported success without granting F12. Choose a different quick_terminal_shortcut and restart OdyTTY, or use Toggle Quick Terminal from the command palette in an ordinary window."
+                        if reason == "The Wayland GlobalShortcuts portal reported success without granting F12. Choose a different quick_terminal_shortcut and restart OdyTTY, or bind F12 in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on. Toggle Quick Terminal in the command palette also works from an ordinary window."
                 ));
                 assert_eq!(log, vec!["connect", "create", "bind", "close"]);
             }
@@ -1437,7 +1437,7 @@ mod tests {
         let msg = portal_unavailable_reason(&acc(true, false, true, false, "F12"));
         assert_eq!(
             msg,
-            "Wayland does not let applications grab a global shortcut directly, and this version has no command a compositor keybinding can invoke to toggle the quick terminal, so CTRL+SHIFT+F12 cannot be registered here. Use a desktop that provides the org.freedesktop.portal.GlobalShortcuts portal, run OdyTTY under X11, or use Toggle Quick Terminal from the command palette in an ordinary window."
+            "Wayland does not let applications grab a global shortcut directly, so CTRL+SHIFT+F12 cannot be registered here. To use the compositor fallback, bind CTRL+SHIFT+F12 in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on. You can also use a desktop that provides the org.freedesktop.portal.GlobalShortcuts portal, run OdyTTY under X11, or use Toggle Quick Terminal from the command palette in an ordinary window."
         );
         assert!(msg.is_ascii(), "message must be ASCII (no em-dashes)");
         assert!(!msg.contains('\u{2014}'), "no em-dash");
@@ -1456,7 +1456,15 @@ mod tests {
         let accelerator = acc(true, false, true, false, "F12");
         assert_eq!(
             portal_refused_reason(&accelerator, 1),
-            "The Wayland GlobalShortcuts portal did not grant CTRL+SHIFT+F12 (response code 1). Allow the shortcut in your desktop's portal prompt or choose a different quick_terminal_shortcut, then restart OdyTTY. Until then, Toggle Quick Terminal in the command palette still works from an ordinary window."
+            "The Wayland GlobalShortcuts portal did not grant CTRL+SHIFT+F12 (response code 1). Allow the shortcut in your desktop's portal prompt or choose a different quick_terminal_shortcut, then restart OdyTTY. Alternatively, bind CTRL+SHIFT+F12 in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on. Toggle Quick Terminal in the command palette also works from an ordinary window."
+        );
+    }
+
+    #[test]
+    fn unconfirmed_reason_names_the_compositor_fallback() {
+        assert_eq!(
+            portal_unconfirmed_binding_reason("F12"),
+            "The Wayland GlobalShortcuts portal reported success without granting F12. Choose a different quick_terminal_shortcut and restart OdyTTY, or bind F12 in your compositor to run: odytty control quick-terminal toggle, with automation_endpoint = on. Toggle Quick Terminal in the command palette also works from an ordinary window."
         );
     }
 }

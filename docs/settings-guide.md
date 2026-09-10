@@ -20,6 +20,11 @@ unsupported state where that portal is absent; independent platform and live
 runtime acceptance remain open. Wayland binding confirmation, cancellation,
 session cleanup, activation filtering, and adapter teardown have passing
 mock-transport coverage; this does not establish real-portal acceptance.
+Where the portal is absent, `automation_endpoint = on` provides the compositor
+bind target `odytty control quick-terminal toggle`. The bare command discovers
+exactly one eligible Unix instance and refuses ambiguity; other automation
+commands still require `--endpoint PATH`. Windows requires the explicit pipe
+path for this command as well.
 The `active` monitor policy uses the
 monitor of the focused window (falling back to any open window, then the
 primary); pointer position is not used for selection. See the

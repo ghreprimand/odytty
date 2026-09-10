@@ -60,6 +60,8 @@ pub enum Action {
         target: ObjectId,
         name: String,
     },
+    /// Queue one summon/hide transition on the existing quick-terminal owner.
+    QuickTerminalToggle,
 }
 
 impl Action {
@@ -184,6 +186,7 @@ pub fn decode(bytes: &[u8]) -> Result<Request, ErrorCode> {
             target: cursor.object()?,
             name: cursor.name()?,
         },
+        9 => Action::QuickTerminalToggle,
         _ => return Err(ErrorCode::UnsupportedCapability),
     };
     if !cursor.0.is_empty() {
@@ -239,6 +242,7 @@ pub fn encode(request: &Request) -> Result<Vec<u8>, ErrorCode> {
             put_object(&mut body, target);
             put_name(&mut body, name)?;
         }
+        Action::QuickTerminalToggle => body.push(9),
     }
     // The same validator applies on both sides, including object-kind constraints.
     decode(&body)?;

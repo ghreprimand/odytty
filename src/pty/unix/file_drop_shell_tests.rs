@@ -97,6 +97,40 @@ fn file_drop_shell_accepts_idle_direct_bash() {
     );
 }
 
+/// True once a process named `comm` runs in the launch child's session. The
+/// interactive fixtures wait for this before sending `^C`: between Bash's
+/// fork (which already moves the terminal foreground group under `set -m`)
+/// and the child's exec of `sleep`, the not-yet-exec'd child still carries
+/// Bash's interactive SIGINT handler, so an interrupt delivered in that
+/// window is swallowed and `sleep` then runs to its full duration. Under host
+/// load that window is wide enough to miss the 5 s fixture deadline.
+#[cfg(target_os = "linux")]
+fn session_runs_program(session_leader: u32, comm: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    let wanted = format!("({comm})");
+    entries.flatten().any(|entry| {
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            return false;
+        };
+        let Some(close) = stat.rfind(')') else {
+            return false;
+        };
+        // Fields after `comm`: state, ppid, pgrp, session.
+        let session = stat[close + 1..].split_whitespace().nth(3);
+        stat[..=close].ends_with(&wanted) && session == Some(session_leader.to_string().as_str())
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn await_session_program(session: &PtySession, comm: &str) {
+    let leader = session.child.id();
+    await_state(&format!("{comm} exec'd in the fixture session"), || {
+        session_runs_program(leader, comm)
+    });
+}
+
 // The two interactive-Bash transition tests run on Linux only. On the macOS CI
 // runner the interactive fixture wedged the single-threaded sweep on every
 // attempt (per-attempt timeout, both retries), so macOS interactive
@@ -120,6 +154,7 @@ fn file_drop_shell_refuses_foreground_job_then_accepts_after_exit() {
         shell.session.foreground_job() == ForegroundJob::Running
     });
     assert_eq!(shell.session.file_drop_shell(), None);
+    await_session_program(&shell.session, "sleep");
 
     writer.write_all(&[3]).expect("interrupt foreground job");
     writer.flush().expect("flush interrupt");
@@ -151,6 +186,7 @@ fn file_drop_shell_refuses_same_group_child_then_accepts_after_exit() {
                 && shell.session.file_drop_shell().is_none()
         },
     );
+    await_session_program(&shell.session, "sleep");
 
     writer.write_all(&[3]).expect("interrupt same-group child");
     writer.flush().expect("flush interrupt");

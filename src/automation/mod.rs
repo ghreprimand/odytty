@@ -3,7 +3,8 @@
 //!
 //! No request can carry terminal input, content reads, argv, environment,
 //! profile writes, or file transfer. Endpoints require explicit construction;
-//! importing this module performs no discovery or startup work.
+//! only the invoked quick-terminal CLI verb performs bounded, fail-closed Unix
+//! discovery. Importing this module performs no discovery or startup work.
 
 pub mod cli;
 pub mod dispatch;

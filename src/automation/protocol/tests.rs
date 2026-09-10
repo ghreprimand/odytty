@@ -46,6 +46,7 @@ fn actions() -> Vec<Action> {
             target: object(ObjectKind::Tab),
             name: "Build; $(literal)".into(),
         },
+        Action::QuickTerminalToggle,
     ]
 }
 
@@ -59,6 +60,16 @@ fn structural_actions_roundtrip_without_lossy_ids_or_names() {
         write_request(&mut framed, &value).unwrap();
         assert_eq!(read_request(&mut framed.as_slice()).unwrap(), value);
     }
+}
+
+#[test]
+fn quick_terminal_toggle_uses_tag_nine_without_a_target_payload() {
+    let value = request(Action::QuickTerminalToggle);
+    let encoded = encode(&value).unwrap();
+    assert_eq!(encoded.len(), 15, "header plus action tag only");
+    assert_eq!(encoded[14], 9);
+    assert!(!value.action.is_read_only());
+    assert_eq!(decode(&encoded), Ok(value));
 }
 
 #[test]
@@ -83,7 +94,7 @@ fn versions_and_unknown_capabilities_fail_closed() {
     bytes[4..6].copy_from_slice(&2u16.to_le_bytes());
     assert_eq!(decode(&bytes), Err(ErrorCode::VersionMismatch));
     bytes[4..6].copy_from_slice(&VERSION.to_le_bytes());
-    for opcode in 9..=255 {
+    for opcode in 10..=255 {
         bytes[14] = opcode;
         assert_eq!(decode(&bytes), Err(ErrorCode::UnsupportedCapability));
     }

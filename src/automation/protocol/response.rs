@@ -19,10 +19,13 @@ pub enum Reply {
     /// Structural control is explicitly enabled separately from read access.
     Capabilities {
         structural_control: bool,
+        quick_terminal_toggle: bool,
     },
     Objects(Vec<ObjectStatus>),
     /// Creation returns its new stable identity. Focus/rename return the target.
     Applied(ObjectId),
+    /// The action was queued for the next event-loop maintenance turn.
+    Accepted,
     Error(ErrorCode),
 }
 
@@ -61,8 +64,15 @@ fn encode(response: &Response) -> Result<Vec<u8>, ErrorCode> {
     bytes.extend_from_slice(&VERSION.to_le_bytes());
     bytes.extend_from_slice(&response.request_id.to_le_bytes());
     match &response.reply {
-        Reply::Capabilities { structural_control } => {
-            bytes.extend_from_slice(&[0, u8::from(*structural_control)]);
+        Reply::Capabilities {
+            structural_control,
+            quick_terminal_toggle,
+        } => {
+            bytes.extend_from_slice(&[
+                0,
+                u8::from(*structural_control),
+                u8::from(*quick_terminal_toggle),
+            ]);
         }
         Reply::Objects(objects) => {
             if objects.len() > MAX_OBJECTS {
@@ -101,6 +111,7 @@ fn encode(response: &Response) -> Result<Vec<u8>, ErrorCode> {
                 },
             ]);
         }
+        Reply::Accepted => bytes.push(4),
     }
     if bytes.len() > MAX_MESSAGE_BYTES {
         return Err(ErrorCode::TooLarge);
@@ -123,6 +134,7 @@ fn decode(bytes: &[u8]) -> Result<Response, ErrorCode> {
     let reply = match cursor.byte()? {
         0 => Reply::Capabilities {
             structural_control: boolean(&mut cursor)?,
+            quick_terminal_toggle: boolean(&mut cursor)?,
         },
         1 => {
             let count = u16::from_le_bytes(cursor.array()?) as usize;
@@ -165,6 +177,7 @@ fn decode(bytes: &[u8]) -> Result<Response, ErrorCode> {
             10 => ErrorCode::Cancelled,
             _ => return Err(ErrorCode::InvalidRequest),
         }),
+        4 => Reply::Accepted,
         _ => return Err(ErrorCode::InvalidRequest),
     };
     if !cursor.0.is_empty() {
@@ -203,12 +216,15 @@ mod tests {
         for reply in [
             Reply::Capabilities {
                 structural_control: false,
+                quick_terminal_toggle: false,
             },
             Reply::Capabilities {
                 structural_control: true,
+                quick_terminal_toggle: true,
             },
             Reply::Objects(vec![object()]),
             Reply::Applied(object().id),
+            Reply::Accepted,
             Reply::Error(ErrorCode::OutcomeUnknown),
         ] {
             let value = Response {

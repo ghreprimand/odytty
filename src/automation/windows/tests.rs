@@ -50,6 +50,7 @@ fn start_harness() -> Harness {
                     let handled = queue.dispatch(|request| match request.action {
                         Action::Capabilities => Reply::Capabilities {
                             structural_control: true,
+                            quick_terminal_toggle: true,
                         },
                         _ => Reply::Error(ErrorCode::UnsupportedCapability),
                     });
@@ -90,7 +91,8 @@ fn capabilities_round_trip_over_owner_verified_pipe() {
         Response {
             request_id: 19,
             reply: Reply::Capabilities {
-                structural_control: true
+                structural_control: true,
+                quick_terminal_toggle: true,
             }
         }
     );
@@ -127,7 +129,8 @@ fn truncated_frame_disconnects_without_waking_owner() {
         Response {
             request_id: 20,
             reply: Reply::Capabilities {
-                structural_control: true
+                structural_control: true,
+                quick_terminal_toggle: true,
             }
         }
     );
@@ -218,7 +221,8 @@ fn zero_length_and_u32_max_length_frames_fail_closed_without_wake() {
         Response {
             request_id: 31,
             reply: Reply::Capabilities {
-                structural_control: true
+                structural_control: true,
+                quick_terminal_toggle: true,
             }
         }
     );
@@ -246,7 +250,8 @@ fn trailing_second_frame_fails_closed_without_second_wake() {
         Response {
             request_id: 103,
             reply: Reply::Capabilities {
-                structural_control: true
+                structural_control: true,
+                quick_terminal_toggle: true,
             }
         }
     );
@@ -326,7 +331,8 @@ fn slowloris_partial_body_hits_absolute_io_deadline_without_wake() {
         Response {
             request_id: 41,
             reply: Reply::Capabilities {
-                structural_control: true
+                structural_control: true,
+                quick_terminal_toggle: true,
             }
         }
     );
@@ -376,7 +382,8 @@ fn ninth_concurrent_client_is_deferred_not_dropped() {
         Response {
             request_id: 13,
             reply: Reply::Capabilities {
-                structural_control: true
+                structural_control: true,
+                quick_terminal_toggle: true,
             }
         }
     );
@@ -435,7 +442,8 @@ fn client_close_before_reply_does_not_wake_owner() {
         Response {
             request_id: 12,
             reply: Reply::Capabilities {
-                structural_control: true
+                structural_control: true,
+                quick_terminal_toggle: true,
             }
         }
     );
@@ -463,6 +471,7 @@ fn response_request_id_mismatch_is_rejected_by_client() {
             request_id: incoming.request_id.wrapping_add(1),
             reply: Reply::Capabilities {
                 structural_control: true,
+                quick_terminal_toggle: true,
             },
         };
         protocol::write_response(&mut io, &mismatched).expect("rogue write");

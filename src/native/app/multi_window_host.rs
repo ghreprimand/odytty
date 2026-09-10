@@ -674,9 +674,7 @@ impl MultiWindowHost {
     fn service_quick_toggle(&mut self, event_loop: &ActiveEventLoop) {
         let mut toggles = 0usize;
         for app in &mut self.windows {
-            if app.take_quick_toggle_request() {
-                toggles += 1;
-            }
+            toggles = toggles.saturating_add(app.take_quick_toggle_requests());
         }
         for _ in 0..toggles {
             let action = self.quick.toggle();
@@ -1092,6 +1090,9 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         }
         if matches!(event, UserEvent::AutomationWake) {
             self.dispatch_automation();
+            // Winit calls `about_to_wait` after this event batch; that pass
+            // drains accepted quick-terminal requests through
+            // `service_quick_toggle`, so no second synthetic wake is needed.
             self.refresh();
             return;
         }
@@ -1548,11 +1549,13 @@ pub(super) mod tests {
     #[test]
     fn quick_toggle_request_is_captured_and_drained() {
         let mut app = headless();
-        assert!(!app.take_quick_toggle_request(), "none at rest");
+        assert_eq!(app.take_quick_toggle_requests(), 0, "none at rest");
         app.request_quick_toggle();
-        assert!(app.take_quick_toggle_request(), "captured");
-        assert!(
-            !app.take_quick_toggle_request(),
+        app.request_quick_toggle();
+        assert_eq!(app.take_quick_toggle_requests(), 2, "both captured");
+        assert_eq!(
+            app.take_quick_toggle_requests(),
+            0,
             "drained: a second take is empty"
         );
     }

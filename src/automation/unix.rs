@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Explicit owner-private Unix endpoints. One bounded request per connection.
+//! Owner-private Unix endpoints. One bounded request per connection; only the
+//! quick-terminal CLI asks for bounded, fail-closed endpoint discovery.
 //! Linux and macOS verify peer credentials independently of socket file mode.
 
 use std::fs::{self, Metadata, Permissions};
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -25,6 +27,27 @@ const MAX_CLIENTS: usize = 8;
 const MAX_CONNECTIONS_PER_SECOND: usize = 32;
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
+pub(crate) const MAX_DISCOVERY_CANDIDATES: usize = 32;
+
+#[derive(Debug)]
+pub(crate) struct DiscoveryScanError {
+    kind: io::ErrorKind,
+    unresolved: Vec<PathBuf>,
+}
+
+impl DiscoveryScanError {
+    fn new(kind: io::ErrorKind, unresolved: Vec<PathBuf>) -> Self {
+        Self { kind, unresolved }
+    }
+
+    pub(crate) fn kind(&self) -> io::ErrorKind {
+        self.kind
+    }
+
+    pub(crate) fn unresolved_paths(&self) -> &[PathBuf] {
+        &self.unresolved
+    }
+}
 
 type AcceptObserver = Arc<dyn Fn(&UnixStream) + Send + Sync>;
 
@@ -316,8 +339,72 @@ fn serve(
 }
 
 /// Exchange exactly once. A partial write or lost reply can have an unknown
-/// mutation outcome; callers must not retry. No path discovery or shell use.
+/// mutation outcome; callers must not retry. No implicit path discovery or
+/// shell use occurs in this explicit request function.
 pub fn request(path: &Path, request: &Request) -> io::Result<Response> {
+    request_with_deadlines(
+        path,
+        request,
+        IO_TIMEOUT,
+        IO_TIMEOUT + super::dispatch::REQUEST_TIMEOUT,
+    )
+}
+
+/// Exchange exactly once under a caller-supplied absolute operation budget.
+/// Discovery uses this to keep all read-only probes inside its one-second
+/// budget. Mutations continue to use [`request`] and are never retried.
+pub(crate) fn request_with_timeout(
+    path: &Path,
+    request: &Request,
+    timeout: Duration,
+) -> io::Result<Response> {
+    let deadline = Instant::now() + timeout;
+    let path = validated_endpoint(path)?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "discovery probe timed out",
+        ));
+    }
+    let stream = connect(&path, remaining.min(IO_TIMEOUT))?;
+    peer_is_owner(&stream)?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "discovery probe timed out",
+        ));
+    }
+    let mut io = DeadlineStream::new(stream, remaining)?;
+    protocol::write_request(&mut io, request)?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "discovery probe timed out",
+        ));
+    }
+    io.reset_deadline(remaining);
+    validate_response(protocol::read_response(&mut io)?, request)
+}
+
+fn request_with_deadlines(
+    path: &Path,
+    request: &Request,
+    io_timeout: Duration,
+    response_timeout: Duration,
+) -> io::Result<Response> {
+    let path = validated_endpoint(path)?;
+    let stream = connect(&path, io_timeout)?;
+    peer_is_owner(&stream)?;
+    let mut io = DeadlineStream::new(stream, io_timeout)?;
+    protocol::write_request(&mut io, request)?;
+    io.reset_deadline(response_timeout);
+    validate_response(protocol::read_response(&mut io)?, request)
+}
+
+fn validated_endpoint(path: &Path) -> io::Result<PathBuf> {
     let path = endpoint_path(path)?;
     let metadata = fs::symlink_metadata(&path)?;
     if !metadata.file_type().is_socket()
@@ -326,12 +413,10 @@ pub fn request(path: &Path, request: &Request) -> io::Result<Response> {
     {
         return Err(denied());
     }
-    let stream = connect(&path, IO_TIMEOUT)?;
-    peer_is_owner(&stream)?;
-    let mut io = DeadlineStream::new(stream, IO_TIMEOUT)?;
-    protocol::write_request(&mut io, request)?;
-    io.reset_deadline(IO_TIMEOUT + super::dispatch::REQUEST_TIMEOUT);
-    let response = protocol::read_response(&mut io)?;
+    Ok(path)
+}
+
+fn validate_response(response: Response, request: &Request) -> io::Result<Response> {
     let rejected_frame = response.request_id == 0
         && matches!(
             response.reply,
@@ -349,6 +434,97 @@ pub fn request(path: &Path, request: &Request) -> io::Result<Response> {
         ));
     }
     Ok(response)
+}
+
+/// Return only PID-shaped endpoint entries below the validated owner-private
+/// runtime directory. Endpoint type, owner, and mode are rechecked by each
+/// probe so a replacement between enumeration and connect is refused.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn discovery_candidates(
+    runtime_base: Option<&std::ffi::OsStr>,
+    deadline: Instant,
+) -> Result<Vec<PathBuf>, DiscoveryScanError> {
+    let base = runtime_base
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| DiscoveryScanError::new(io::ErrorKind::NotFound, Vec::new()))?;
+    discovery_candidates_in(&Path::new(base).join("odytty"), deadline)
+}
+
+/// Enumerate candidate sockets below the platform's established owner-private
+/// endpoint directory without creating it or any other filesystem state.
+pub(crate) fn discovery_candidates_in(
+    directory: &Path,
+    deadline: Instant,
+) -> Result<Vec<PathBuf>, DiscoveryScanError> {
+    match fs::symlink_metadata(directory) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(DiscoveryScanError::new(
+                io::ErrorKind::NotFound,
+                vec![directory.to_path_buf()],
+            ));
+        }
+        Err(_) => return Err(discovery_uncertain(directory)),
+    }
+    let validated = endpoint_path(&directory.join("control-1.sock"))
+        .map_err(|_| discovery_uncertain(directory))?;
+    let directory = validated
+        .parent()
+        .ok_or_else(|| discovery_uncertain(directory))?;
+    let mut candidates = Vec::new();
+    let entries = fs::read_dir(directory).map_err(|_| discovery_uncertain(directory))?;
+    for entry in entries {
+        if Instant::now() >= deadline {
+            return Err(DiscoveryScanError::new(
+                io::ErrorKind::TimedOut,
+                vec![directory.to_path_buf()],
+            ));
+        }
+        let entry = entry.map_err(|_| discovery_uncertain(directory))?;
+        if !is_control_endpoint_name(&entry.file_name()) {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path).map_err(|_| discovery_uncertain(&path))?;
+        if !metadata.file_type().is_socket() {
+            continue;
+        }
+        candidates.push(path);
+        if candidates.len() > MAX_DISCOVERY_CANDIDATES {
+            return Err(DiscoveryScanError::new(
+                io::ErrorKind::InvalidData,
+                vec![directory.to_path_buf()],
+            ));
+        }
+    }
+    if Instant::now() >= deadline {
+        return Err(DiscoveryScanError::new(
+            io::ErrorKind::TimedOut,
+            vec![directory.to_path_buf()],
+        ));
+    }
+    candidates.sort();
+    Ok(candidates)
+}
+
+fn discovery_uncertain(path: &Path) -> DiscoveryScanError {
+    DiscoveryScanError::new(io::ErrorKind::Other, vec![path.to_path_buf()])
+}
+
+fn is_control_endpoint_name(name: &std::ffi::OsStr) -> bool {
+    let bytes = name.as_bytes();
+    let Some(pid) = bytes
+        .strip_prefix(b"control-")
+        .and_then(|value| value.strip_suffix(b".sock"))
+    else {
+        return false;
+    };
+    !pid.is_empty()
+        && pid.iter().all(u8::is_ascii_digit)
+        && std::str::from_utf8(pid)
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .is_some_and(|pid| pid != 0)
 }
 
 #[cfg(test)]

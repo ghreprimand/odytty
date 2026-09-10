@@ -726,6 +726,22 @@ read-only endpoint mode. The protocol cannot send terminal input or read
 terminal contents. Turning the setting off cancels queued work and removes only
 the endpoint owned by the current process.
 
+`odytty control quick-terminal toggle` is the sole command allowed to omit
+`--endpoint`. Linux scans `$XDG_RUNTIME_DIR/odytty/control-<pid>.sock`; macOS
+scans the `control` directory below OdyTTY's owner-private state directory.
+Discovery considers at most 32 sockets and spends at most one second probing
+the read-only capabilities reply. Exactly one endpoint advertising
+`quick_terminal_toggle=true` is required. Zero eligible endpoints report that
+automation is unavailable or quick terminal is off; multiple eligible endpoints
+are listed and refused so the caller can repeat the mutation once with
+`--endpoint PATH`. Definitively stale sockets are skipped. A timeout, permission
+or peer-identity failure, malformed or oversized reply, metadata race, or any
+other live socket that cannot be classified refuses the whole discovery and
+names the unresolved path; no toggle is sent. A probe never retries the toggle,
+and a connection lost after the probe reports `outcome_unknown`. Every other
+control verb remains endpoint-explicit. Windows performs no pipe discovery and
+requires `--endpoint \\.\pipe\odytty-control-<pid>`.
+
 ### Restore workspaces at launch (`restore_workspaces`)
 
 `restore_workspaces = on` (or `ODYTTY_RESTORE_WORKSPACES=on`) reopens the

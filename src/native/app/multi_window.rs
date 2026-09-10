@@ -136,18 +136,17 @@ impl App {
     /// Capture a request to toggle the dedicated quick terminal (v0.15.0 A). Set
     /// by the global-shortcut backend or a "Toggle Quick Terminal" command and
     /// drained by the process window owner, which owns the single quick-terminal
-    /// lifecycle. Idempotent: a repeated request before the owner services it
-    /// collapses to one toggle (a summon then hide from two rapid presses is the
-    /// user pressing twice, serviced as two drained toggles across passes, not a
-    /// stack). Capturing a request changes no terminal/session/window state.
+    /// lifecycle. Each accepted request is counted so two requests before the
+    /// owner services them still produce two transitions. Capturing a request
+    /// changes no terminal/session/window state.
     pub(in crate::native) fn request_quick_toggle(&mut self) {
-        self.pending_quick_toggle = true;
+        self.pending_quick_toggles = self.pending_quick_toggles.saturating_add(1);
     }
 
     /// Take the pending quick-terminal toggle request. The owner drains this in
     /// its maintenance pass and drives the quick-terminal lifecycle.
-    pub(in crate::native) fn take_quick_toggle_request(&mut self) -> bool {
-        std::mem::take(&mut self.pending_quick_toggle)
+    pub(in crate::native) fn take_quick_toggle_requests(&mut self) -> usize {
+        std::mem::take(&mut self.pending_quick_toggles)
     }
 
     /// Show or hide this window's surface (v0.15.0 A quick-terminal summon/hide).

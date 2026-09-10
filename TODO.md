@@ -64,7 +64,8 @@ Status notes: [`docs/releases/0.15.0.md`](docs/releases/0.15.0.md).
 Unit-evidenced on current `master`: Electric Blue; quick-terminal
 lifecycle and shortcut adapters; opt-in structural automation on Unix sockets and
 the Windows named pipe (busy/unavailable/listener-fault and hostile-client
-coverage); confirm-first Unix file-drop insertion with an explicit Windows
+coverage), including the fail-closed Unix compositor toggle command; confirm-first
+Unix file-drop insertion with an explicit Windows
 refusal; keyboard-first window merge/pull. Device acceptance, blocking release
 CI, packaging, and publication remain open. No release claim.
 
