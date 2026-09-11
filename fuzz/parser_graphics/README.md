@@ -21,6 +21,11 @@ The workspace owns its Cargo workspace boundary and lockfile. It pins
 `rustc 1.99.0-nightly (da80ed070 2026-07-14)`. The normal project MSRV remains
 Rust 1.96.
 
+Root dependency changes must also synchronize this workspace's lockfile. Run
+`cargo check --manifest-path fuzz/parser_graphics/Cargo.toml --locked --bins`
+from the repository root to match the blocking Linux CI API check. This stable
+compile check does not run fuzzing or replace the nightly campaign below.
+
 ## Tool setup and structural checks
 
 Install the command at the documented version:

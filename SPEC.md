@@ -5,6 +5,10 @@ Published release: **v0.14.0**.
 Current development work is tracked in [TODO.md](TODO.md). Release evidence
 and historical corrections are listed in the [release index](docs/releases/README.md).
 
+Dependency changes keep both the root and standalone fuzz workspace lockfiles
+synchronized. Blocking Linux CI checks the fuzz target API with `--locked`;
+this compile check does not constitute a fuzz campaign.
+
 This specification defines OdyTTY's product boundaries, owned architecture,
 shipped scope, platform model, and rendering stack.
 

@@ -291,8 +291,8 @@ cargo fmt --check
 ```
 
 The default test suite is bounded and deterministic. Blocking CI adds Clippy,
-platform builds, and a production-file architecture guard; scheduled lanes run
-deeper fuzzing, Miri, and sanitizers. See the
+platform builds, a locked fuzz-target API check, and a production-file architecture
+guard; scheduled lanes run deeper fuzzing, Miri, and sanitizers. See the
 [contribution guide](CONTRIBUTING.md#test-battery) for the complete test battery,
 platform gates, and pre-commit checks.
 

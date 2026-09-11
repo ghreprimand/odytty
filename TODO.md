@@ -6,6 +6,9 @@ The milestones below distinguish published work, active development, explicit
 deferrals, and unmet evidence. Release corrections are listed in the
 [release index](docs/releases/README.md).
 
+Dependency maintenance includes the standalone fuzz workspace lockfile and its
+locked API compile check before landing.
+
 Living delivery record and forward backlog for OdyTTY. Historical stage
 sections preserve what shipped in each development cycle; the unchecked items
 identify current future work. See the [`DEVLOG.md`](DEVLOG.md) index for the

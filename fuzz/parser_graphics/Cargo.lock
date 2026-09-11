@@ -1638,6 +1638,7 @@ dependencies = [
  "tracing-subscriber",
  "ttf-parser",
  "unicode-width",
+ "wayland-client",
  "wgpu",
  "windows",
  "winit",
