@@ -229,12 +229,23 @@ impl MultiWindowHost {
         }
     }
 
-    /// Keep every window's sibling count current so the command palette offers
-    /// the merge/pull rows only when a real target exists.
+    /// Keep every ordinary window's sibling count current so the command palette
+    /// offers merge/pull only when another ordinary window exists. The quick
+    /// terminal is never a merge target and never advertises merge rows.
     fn sync_sibling_counts(&mut self) {
-        let total = self.windows.len();
+        let quick_id = self.quick.identity().map(|identity| identity.window());
+        let ordinary = self
+            .windows
+            .iter()
+            .filter(|app| Some(app.process_window_id()) != quick_id)
+            .count();
         for app in &mut self.windows {
-            app.set_sibling_window_count(total.saturating_sub(1));
+            let count = if Some(app.process_window_id()) == quick_id {
+                0
+            } else {
+                ordinary.saturating_sub(1)
+            };
+            app.set_sibling_window_count(count);
         }
     }
 
@@ -299,16 +310,22 @@ impl MultiWindowHost {
         }
     }
 
-    /// Open the keyboard merge target picker over the live windows, painting a
-    /// numeral inside each candidate. Does nothing when there is no other window
-    /// (the picker refuses an empty candidate set).
+    /// Open the keyboard merge target picker over ordinary windows only,
+    /// painting a numeral inside each candidate. The quick terminal is never a
+    /// merge origin or candidate. Does nothing when there is no other ordinary
+    /// window (the picker refuses an empty candidate set).
     fn open_picker(&mut self, origin_idx: usize, direction: MergeDirection) {
         let Some(origin) = self.windows.get(origin_idx).map(App::process_window_id) else {
             return;
         };
+        let quick_id = self.quick.identity().map(|identity| identity.window());
+        if Some(origin) == quick_id {
+            return;
+        }
         let listing: Vec<(ProcessWindowId, String)> = self
             .windows
             .iter()
+            .filter(|app| Some(app.process_window_id()) != quick_id)
             .map(|app| (app.process_window_id(), app.merge_picker_label()))
             .collect();
         let Some(picker) = MergePicker::open(direction, origin, &listing) else {
@@ -1418,9 +1435,11 @@ pub(super) mod tests {
         );
 
         // A process-wide merge picker also owns interaction, regardless of
-        // which candidate received the native focus transition.
-        let mut host = host_of(vec![headless(), headless()]);
-        let quick_id = host.windows[1].process_window_id();
+        // which candidate received the native focus transition. The quick
+        // window is never a merge candidate, so the picker needs a second
+        // ordinary window.
+        let mut host = host_of(vec![headless(), headless(), headless()]);
+        let quick_id = host.windows[2].process_window_id();
         host.quick.update_settings(QuickTerminalSettings {
             enabled: true,
             hide_on_focus_loss: true,
@@ -1429,12 +1448,49 @@ pub(super) mod tests {
         assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
         host.quick
             .attach_window(QuickTerminalIdentity::new(quick_id));
+        host.sync_sibling_counts();
         host.open_picker(0, MergeDirection::MergeThisInto);
         assert!(host.picker.is_some());
+        assert_eq!(host.windows[1].merge_numeral(), Some(1));
         assert_eq!(
-            host.quick_focus_loss_action(1),
+            host.windows[2].merge_numeral(),
+            None,
+            "the quick terminal is never a merge candidate"
+        );
+        assert!(!host.windows[2].merge_targets_available());
+        assert_eq!(
+            host.quick_focus_loss_action(2),
             QuickTerminalAction::Nothing,
-            "the merge picker keeps its quick candidate visible"
+            "an open merge picker keeps the quick window visible"
+        );
+    }
+
+    #[test]
+    fn primary_plus_quick_offers_no_merge_targets() {
+        let quick_window = headless();
+        let quick_id = quick_window.process_window_id();
+        let mut host = host_of(vec![headless(), quick_window]);
+        host.quick.update_settings(QuickTerminalSettings {
+            enabled: true,
+            ..QuickTerminalSettings::default()
+        });
+        host.quick
+            .attach_window(QuickTerminalIdentity::new(quick_id));
+        host.sync_sibling_counts();
+        assert!(
+            !host.windows[0].merge_targets_available(),
+            "quick alone is not an ordinary merge sibling"
+        );
+        assert!(!host.windows[1].merge_targets_available());
+        host.open_picker(0, MergeDirection::MergeThisInto);
+        assert!(
+            host.picker.is_none(),
+            "no ordinary candidate for the picker"
+        );
+        host.open_picker(1, MergeDirection::PullIntoThis);
+        assert!(
+            host.picker.is_none(),
+            "merge cannot originate from the quick window"
         );
     }
 

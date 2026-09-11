@@ -303,7 +303,7 @@ impl App {
                     return;
                 }
                 Some(BindableAction::NewWindow) => {
-                    self.handle_new_window();
+                    self.request_new_window();
                     return;
                 }
                 Some(BindableAction::NextTab) => {

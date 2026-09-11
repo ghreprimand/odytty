@@ -121,7 +121,7 @@ pub(in crate::native) enum OverlayOutcome {
     /// uses), the same effect as the `duplicate-tab` bindable action.
     ContextMenuDuplicateTab,
     /// Launch another OdyTTY window from the context menu (F1). The overlay has
-    /// already closed itself; the App dispatches this to `handle_new_window`
+    /// already closed itself; the App dispatches this to `request_new_window`
     /// (the same handler the `Ctrl+Shift+N` chord fires).
     ContextMenuNewWindow,
     ContextMenuRenameTab(SessionToken),

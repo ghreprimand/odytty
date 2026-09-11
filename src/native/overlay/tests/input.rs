@@ -910,7 +910,7 @@ fn content_close_tab_emits_active_close_outcome() {
 fn context_menu_new_window_emits_new_window_outcome() {
     // F1: activating the New Window item (single-pane visible index 7, right
     // after New Tab with Profile at 6) routes up as the ContextMenuNewWindow
-    // outcome the App dispatches to `handle_new_window` - the same handler the
+    // outcome the App dispatches to `request_new_window` - the same handler the
     // Ctrl+Shift+N chord fires.
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu(

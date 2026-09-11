@@ -755,13 +755,16 @@ running or classification is uncertain. Windows requires the explicit local pipe
 
 ### Merge Windows From The Keyboard (v0.15.0 Development)
 
+**New Window** (default `Ctrl+Shift+N`, also the context menu) opens another
+ordinary window in the same process so keyboard merge has a reachable target.
 With two or more ordinary windows, the command palette offers
 **Merge This Window Into...** and **Pull Window Into This One...**. The Session
 Navigator legend adds `i merge window` and `p pull window` when targets exist.
 Candidates show temporary numerals painted inside each window surface, including
-decoration-less tiling compositors without compositor plugins. Tabs, panes,
-PTYs, profiles, and attach handles move with the transfer; the source window
-closes only after success. Escape cancels. See the
+decoration-less tiling compositors without compositor plugins. The quick
+terminal is never a merge origin or candidate. Tabs, panes, PTYs, profiles, and
+attach handles move with the transfer; the source window closes only after
+success. Escape cancels. See the
 [window-merge contract](v0.15.0-foundation.md).
 
 ### Control OdyTTY Locally (v0.15.0 Development)

@@ -264,68 +264,6 @@ impl App {
         }
     }
 
-    /// F1: launch another top-level OdyTTY window — a fresh process instance,
-    /// not a tab. Spawned from [`std::env::current_exe`] with no extra args, so
-    /// the child inherits this process's environment (theme/env overrides carry
-    /// over naturally). Routed through the reaper-backed [`spawn_detached`]
-    /// (never a bare `Command::spawn`), so the child is reaped and never left a
-    /// zombie. Best-effort: an unresolvable executable path or a spawn failure
-    /// is logged and dropped — a new-window request must never crash the
-    /// running window (consistent with the C6 log-and-drop philosophy). F1 cwd
-    /// inheritance: when the focused pane has a tracked OSC 7 cwd, the new window
-    /// is launched with `--working-directory <cwd>` so it opens where the active
-    /// pane is; a pane with no tracked cwd launches in the default directory,
-    /// unchanged. Cross-platform — `--working-directory` is honored on Windows,
-    /// and drive-letter OSC 7 cwds are already normalized upstream.
-    pub(in crate::native) fn handle_new_window(&mut self) {
-        // D-1: validate the tracked cwd before threading it into
-        // `--working-directory`, so a bogus / non-filesystem OSC 7 cwd cannot make
-        // the new window die with `CreateProcessW` rejecting `lpCurrentDirectory`.
-        let cwd = self
-            .validated_spawn_cwd()
-            .and_then(|dir| dir.into_os_string().into_string().ok());
-        let Some(argv) = Self::new_window_argv(cwd.as_deref()) else {
-            tracing::warn!(
-                "new-window: could not resolve the current executable; not launching a window"
-            );
-            return;
-        };
-        #[cfg(test)]
-        {
-            // Test seam: record the argv that WOULD be spawned instead of
-            // launching a real second instance, so the chord/menu dispatch can
-            // be asserted at the spawn boundary without side effects.
-            NEW_WINDOW_SPAWN_ARGV.with(|cell| cell.borrow_mut().push(argv));
-        }
-        #[cfg(not(test))]
-        {
-            if let Err(err) = interactive_paths::spawn_detached(&argv) {
-                // D-1: a new-window spawn failure is surfaced, not just logged --
-                // otherwise the window silently never appears. Still non-fatal:
-                // a failed new-window request must never crash the running window.
-                tracing::warn!(error = %err, "new-window: failed to launch a new OdyTTY window");
-                self.raise_open_notice(format!("Could not open a new window: {err}"));
-            }
-        }
-    }
-
-    /// The argv that opens a new OdyTTY window: the current executable, plus
-    /// `["--working-directory", cwd]` when `cwd` is `Some` (F1 cwd inheritance).
-    /// The child otherwise inherits the environment. Pure — returns `None` when
-    /// the current-exe path cannot be resolved or is not valid UTF-8 (the argv
-    /// seam is `String`-based). Split out so the dispatch decision (and the cwd
-    /// propagation) is unit-testable without spawning. `cwd == None` yields the
-    /// bare-exe argv, byte-identical to the pre-F1 behavior.
-    pub(super) fn new_window_argv(cwd: Option<&str>) -> Option<Vec<String>> {
-        let exe = std::env::current_exe().ok()?;
-        let mut argv = vec![exe.into_os_string().into_string().ok()?];
-        if let Some(cwd) = cwd.filter(|dir| !dir.is_empty()) {
-            argv.push("--working-directory".to_owned());
-            argv.push(cwd.to_owned());
-        }
-        Some(argv)
-    }
-
     /// Attach to a detached, session-host-backed session by id and present it as
     /// a new live tab in this window — the production "reopen by id, full
     /// scrollback intact" path. The mirror terminal is restored from the host

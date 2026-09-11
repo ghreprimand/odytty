@@ -163,18 +163,14 @@ fn held_settings_chord_does_not_repeat_toggle_the_overlay() {
 }
 
 #[test]
-fn new_window_chord_reaches_the_spawn_boundary() {
-    // F1: Ctrl+Shift+N routes through the full production key path
-    // (handle_key_event → action_for → the NewWindow arm → handle_new_window)
-    // and reaches the spawn boundary. Under the test target the handler records
-    // the argv it WOULD spawn instead of launching a real second instance, so
-    // this asserts dispatch without any process side effect.
+fn new_window_chord_requests_an_in_process_sibling() {
+    // Ctrl+Shift+N routes through the full production key path to
+    // request_new_window (same-process sibling), not a re-exec spawn.
     let Some(mut app) = build_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
 
-    // Ctrl+Shift+N is New Window's default binding (F1 reclaimed it).
     let n = WinitKey::Character("n".into());
     assert_eq!(
         app.live_action_for_chord_for_test(&n, true, true),
@@ -182,89 +178,41 @@ fn new_window_chord_reaches_the_spawn_boundary() {
         "Ctrl+Shift+N binds to New Window by default"
     );
 
-    // Clear any prior recordings on this thread, then drive the chord as a Press.
-    let _ = app.drain_new_window_spawns_for_test();
+    assert!(
+        !app.has_pending_new_window_for_test(),
+        "no New Window request at rest"
+    );
     app.drive_char_with_mods_typed_for_test('n', true, true, KeyEventType::Press);
-
-    let spawns = app.drain_new_window_spawns_for_test();
-    assert_eq!(
-        spawns.len(),
-        1,
-        "the chord fires exactly one new-window spawn request"
-    );
-    let argv = &spawns[0];
-    assert_eq!(
-        argv.len(),
-        1,
-        "v1 launches the current exe with no extra args"
-    );
-    let exe = std::env::current_exe()
-        .expect("current exe resolvable in tests")
-        .into_os_string()
-        .into_string()
-        .expect("test exe path is valid UTF-8");
-    assert_eq!(
-        argv[0], exe,
-        "new-window argv is the current executable (inherits env)"
+    let request = app
+        .take_new_window_request_for_test()
+        .expect("chord queues one New Window request");
+    assert!(
+        request.profile.is_none(),
+        "ordinary New Window uses the default launch profile"
     );
 
-    // A plain 'n' (no Ctrl+Shift) must NOT spawn — it is ordinary shell input.
-    let _ = app.drain_new_window_spawns_for_test();
+    // A plain 'n' (no Ctrl+Shift) must NOT request a sibling.
+    assert!(!app.has_pending_new_window_for_test());
     app.drive_char_with_mods_typed_for_test('n', false, false, KeyEventType::Press);
     assert!(
-        app.drain_new_window_spawns_for_test().is_empty(),
-        "an unmodified 'n' is shell input, never a new-window spawn"
+        !app.has_pending_new_window_for_test(),
+        "an unmodified 'n' is shell input, never a New Window request"
     );
 }
 
 #[test]
-fn new_window_argv_is_the_current_executable() {
-    // F1: with no cwd, the pure argv builder returns exactly the current exe.
-    let argv = App::new_window_argv_for_test(None).expect("current exe resolvable in tests");
-    assert_eq!(
-        argv.len(),
-        1,
-        "no extra args when the pane has no tracked cwd"
+fn new_window_chord_is_idempotent_while_a_request_is_pending() {
+    let Some(mut app) = build_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.drive_char_with_mods_typed_for_test('n', true, true, KeyEventType::Press);
+    assert!(app.has_pending_new_window_for_test());
+    app.drive_char_with_mods_typed_for_test('n', true, true, KeyEventType::Press);
+    assert!(
+        app.has_pending_new_window_for_test(),
+        "a second chord while pending still leaves exactly one request"
     );
-    let exe = std::env::current_exe()
-        .expect("current exe resolvable")
-        .into_os_string()
-        .into_string()
-        .expect("valid UTF-8");
-    assert_eq!(argv[0], exe);
-}
-
-#[test]
-fn new_window_argv_propagates_the_focused_pane_cwd() {
-    // F1 cwd inheritance: a tracked OSC 7 cwd is appended as
-    // `--working-directory <cwd>` so the new window opens where the active pane
-    // is. Cross-platform: `--working-directory` is honored on Windows too.
-    let argv = App::new_window_argv_for_test(Some("/home/user/project"))
-        .expect("current exe resolvable in tests");
-    let exe = std::env::current_exe()
-        .expect("current exe resolvable")
-        .into_os_string()
-        .into_string()
-        .expect("valid UTF-8");
-    assert_eq!(
-        argv,
-        vec![
-            exe,
-            "--working-directory".to_owned(),
-            "/home/user/project".to_owned(),
-        ]
-    );
-}
-
-#[test]
-fn new_window_argv_ignores_an_empty_cwd() {
-    // A pane whose OSC 7 cwd is an empty string (the detach dialog's "unknown"
-    // sentinel) must NOT emit a `--working-directory ""` arg — it falls back to
-    // the bare-exe argv, opening in the default directory.
-    let argv = App::new_window_argv_for_test(Some("")).expect("current exe resolvable in tests");
-    assert_eq!(
-        argv.len(),
-        1,
-        "an empty cwd adds no --working-directory arg"
-    );
+    let _ = app.take_new_window_request_for_test();
+    assert!(!app.has_pending_new_window_for_test());
 }

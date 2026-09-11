@@ -288,17 +288,6 @@ pub(super) struct RenameState {
     anchor: Option<usize>,
 }
 
-#[cfg(test)]
-thread_local! {
-    /// F1 test seam: argv vectors that [`App::handle_new_window`] would have
-    /// spawned. Under the test target the handler records here instead of
-    /// launching a real second OdyTTY instance, so chord/menu dispatch can be
-    /// asserted at the spawn boundary. Thread-local, so each libtest thread sees
-    /// only its own recordings; tests clear it before driving the dispatch.
-    static NEW_WINDOW_SPAWN_ARGV: std::cell::RefCell<Vec<Vec<String>>> =
-        const { std::cell::RefCell::new(Vec::new()) };
-}
-
 /// A clipboard image awaiting the image paste-through confirm prompt (F6-i7).
 /// Holds the PNG bytes off to the side until Enter confirms the upload, so image
 /// data never leaves the machine on the paste keystroke alone. `session` pins

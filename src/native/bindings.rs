@@ -542,7 +542,7 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             char_chord('t', true, true, false, false),
             BindableAction::NewTab,
         ),
-        // New Window (F1): launch another OdyTTY instance. `Ctrl+Shift+N` is the
+        // New Window: request a same-process sibling window. `Ctrl+Shift+N` is the
         // gnome-terminal / kitty convention; it was freed in v0.3.1 (the old
         // prompt-jump letter fallback was dropped) and is reclaimed here.
         (

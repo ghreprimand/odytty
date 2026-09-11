@@ -3491,22 +3491,19 @@ impl App {
         self.ime_preedit = text.to_owned();
     }
 
-    /// Test seam (F1): drain and clear the argv vectors that
-    /// [`App::handle_new_window`] recorded instead of actually spawning a second
-    /// OdyTTY instance. Lets a chord/menu dispatch test assert a New Window
-    /// request reached the spawn boundary without launching a real process.
+    /// Test seam: whether a same-process New Window request is pending (chord /
+    /// context menu dispatch without draining it for the host).
     #[cfg(test)]
-    pub(in crate::native) fn drain_new_window_spawns_for_test(&self) -> Vec<Vec<String>> {
-        NEW_WINDOW_SPAWN_ARGV.with(|cell| std::mem::take(&mut *cell.borrow_mut()))
+    pub(in crate::native) fn has_pending_new_window_for_test(&self) -> bool {
+        self.pending_new_window.is_some()
     }
 
-    /// Test seam (F1): the argv the App would spawn for a new window. Exposes the
-    /// pure `new_window_argv` builder (with the optional cwd propagation) so a
-    /// test can assert the argv shape — bare exe, or exe +
-    /// `--working-directory <cwd>` — without driving a full dispatch.
+    /// Test seam: take the pending New Window request, including optional cwd.
     #[cfg(test)]
-    pub(in crate::native) fn new_window_argv_for_test(cwd: Option<&str>) -> Option<Vec<String>> {
-        Self::new_window_argv(cwd)
+    pub(in crate::native) fn take_new_window_request_for_test(
+        &mut self,
+    ) -> Option<crate::native::app::NewWindowRequest> {
+        self.take_new_window_request()
     }
 
     // --- F6-i7 image paste-through seams ---
