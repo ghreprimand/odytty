@@ -71,8 +71,10 @@ CI, packaging, and publication remain open. No release claim.
 
 - [x] Quick-terminal lifecycle and platform shortcut adapters (hidden-session
       retention, single-instance summons, monitor fallback, post-first-frame
-      registration readiness). Device confirmation of grabs, fullscreen,
-      multi-monitor, and virtual-desktop behavior remains open.
+      registration readiness). Native Wayland hide/summon passed on Hyprland
+      with two quick tabs and stable identities retained across surface recreation.
+      Device confirmation of grabs, fullscreen, multi-monitor, and virtual-desktop
+      behavior remains open.
 - [x] Stable tab/workspace creation identities and Navigator action routing
       across pane closure, moves, merge, and restoration.
 - [x] Owner-restricted structural automation protocol and CLI, without input or

@@ -47,8 +47,9 @@ use crate::native::automation::AutomationRuntime;
 use crate::native::merge_picker::{MergeDirection, MergePicker};
 use crate::native::quick_terminal::{
     Accelerator, GlobalShortcutAdapter, MonitorRect, QuickTerminalAction, QuickTerminalAnimation,
-    QuickTerminalController, QuickTerminalIdentity, QuickTerminalSettings, RevealTimeline,
-    ShortcutRegistration, SummonSink, platform_shortcut_adapter, resolve_monitor_rect,
+    QuickTerminalController, QuickTerminalIdentity, QuickTerminalSettings, QuickVisibility,
+    RevealTimeline, ShortcutRegistration, SummonSink, platform_shortcut_adapter,
+    resolve_monitor_rect,
 };
 use crate::native::watchdog::WatchdogShared;
 use crate::native::window_owner::{
@@ -87,6 +88,52 @@ struct QuickReveal {
     window: ProcessWindowId,
     timeline: RevealTimeline,
     start: Instant,
+}
+
+/// How the active display server can hide a quick-terminal surface. X11,
+/// macOS, and Windows have a real visibility operation. Wayland xdg-toplevel
+/// does not, so hiding must release only the presentation objects and a later
+/// summon recreates them around the preserved [`App`] and sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuickSurfacePolicy {
+    NativeVisibility,
+    RecreateOnHide,
+}
+
+impl QuickSurfacePolicy {
+    fn for_wayland(is_wayland: bool) -> Self {
+        if is_wayland {
+            Self::RecreateOnHide
+        } else {
+            Self::NativeVisibility
+        }
+    }
+
+    fn permits_slide(self) -> bool {
+        self == Self::NativeVisibility
+    }
+
+    fn needs_recreate(self, surface_exists: bool) -> bool {
+        self == Self::RecreateOnHide && !surface_exists
+    }
+}
+
+const WAYLAND_QUICK_SURFACE_NOTICE: &str = "Wayland controls quick-terminal placement and motion. OdyTTY requested size and focus and used instant motion; configure compositor rules to choose an edge, monitor, workspace, or floating layout.";
+
+#[cfg(target_os = "linux")]
+fn quick_surface_policy(event_loop: &ActiveEventLoop) -> QuickSurfacePolicy {
+    use winit::platform::wayland::ActiveEventLoopExtWayland;
+
+    QuickSurfacePolicy::for_wayland(event_loop.is_wayland())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn quick_surface_policy(_event_loop: &ActiveEventLoop) -> QuickSurfacePolicy {
+    QuickSurfacePolicy::for_wayland(false)
+}
+
+fn quick_needs_host_resume(visibility: QuickVisibility, surface_exists: bool) -> bool {
+    visibility == QuickVisibility::Visible && !surface_exists
 }
 
 /// The process multi-window event handler. Owns every live window.
@@ -131,6 +178,10 @@ pub(in crate::native) struct MultiWindowHost {
     /// until the deferred registration resolves (asynchronously on
     /// Linux/Windows).
     quick_registration_status: Option<ShortcutRegistration>,
+    /// One-shot guard for the actionable Wayland surface limitation. The first
+    /// summon explains that xdg-shell controls placement and motion; later
+    /// toggles stay quiet. Inert on X11, macOS, and Windows.
+    quick_wayland_limitation_notified: bool,
     /// Event-loop proxy the global-shortcut backend uses to deliver a summon
     /// into the loop from its own thread (v0.15.0 A). `None` until
     /// [`Self::set_quick_summon_proxy`] is called during run setup; without it
@@ -164,6 +215,7 @@ impl MultiWindowHost {
             quick_registration_started: false,
             quick_registration_generation: Arc::new(AtomicU64::new(0)),
             quick_registration_status: None,
+            quick_wayland_limitation_notified: false,
             quick_reveal: None,
             quick_summon_proxy: None,
             automation: AutomationRuntime::default(),
@@ -710,6 +762,7 @@ impl MultiWindowHost {
     /// (create/show/hide/position a real window) are the on-device step, no-ops
     /// on a headless `App` without a surface.
     fn execute_quick_action(&mut self, action: QuickTerminalAction, event_loop: &ActiveEventLoop) {
+        let surface_policy = quick_surface_policy(event_loop);
         match action {
             QuickTerminalAction::Nothing => {}
             QuickTerminalAction::CreateAndShow => {
@@ -730,12 +783,21 @@ impl MultiWindowHost {
                     // the quick App out of debounced autosave as well as the
                     // explicit clean-exit persistence selection below.
                     app.set_primary_instance(false);
-                    app.on_resumed(event_loop);
+                    if let Err(err) = app.try_resume_presentation(event_loop) {
+                        app.release_surface();
+                        app.close_all_sessions();
+                        self.quick.detach_window();
+                        tracing::warn!(
+                            %err,
+                            "quick terminal surface creation failed; session cleaned up and summon dropped without exiting ordinary windows"
+                        );
+                        return;
+                    }
                     let id = app.process_window_id();
                     self.windows.push(app);
                     self.quick.attach_window(QuickTerminalIdentity::new(id));
                     self.sync_sibling_counts();
-                    self.position_and_show_quick(event_loop);
+                    self.position_and_show_quick(event_loop, surface_policy);
                 } else {
                     // The spawn failed; forget the (never created) window so a
                     // later summon retries cleanly rather than believing it
@@ -744,11 +806,29 @@ impl MultiWindowHost {
                     tracing::warn!("quick terminal window spawn failed; summon dropped");
                 }
             }
-            QuickTerminalAction::Show => self.position_and_show_quick(event_loop),
-            QuickTerminalAction::Hide => {
-                if let Some(app) = self.quick_window() {
-                    app.set_window_visible(false);
-                }
+            QuickTerminalAction::Show => {
+                self.position_and_show_quick(event_loop, surface_policy);
+            }
+            QuickTerminalAction::Hide => self.hide_quick_surface(surface_policy),
+        }
+    }
+
+    /// Hide the quick presentation while retaining its App and complete session
+    /// tree. Wayland has no xdg-toplevel visibility request, so it releases the
+    /// surface in the same driver-safe order used by window retirement. Other
+    /// platforms keep their existing native visibility operation.
+    fn hide_quick_surface(&mut self, surface_policy: QuickSurfacePolicy) {
+        self.quick_reveal = None;
+        let Some(index) = self.quick_window_index() else {
+            return;
+        };
+        match surface_policy {
+            QuickSurfacePolicy::NativeVisibility => {
+                self.windows[index].set_window_visible(false);
+            }
+            QuickSurfacePolicy::RecreateOnHide => {
+                self.windows[index].quiesce_for_surface_hide();
+                self.windows[index].release_surface();
             }
         }
     }
@@ -758,15 +838,43 @@ impl MultiWindowHost {
     /// the window is shown at its off-edge start and a reveal timeline is armed
     /// for the tick loop to advance; under `Instant`/reduced-motion the final
     /// geometry is applied at once.
-    fn position_and_show_quick(&mut self, event_loop: &ActiveEventLoop) {
+    fn position_and_show_quick(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        surface_policy: QuickSurfacePolicy,
+    ) {
         let Some(identity) = self.quick.identity() else {
             return;
         };
         let window_id = identity.window();
+
+        // A hidden Wayland quick terminal retains its App/session tree but has
+        // no native presentation objects. Recreate them now. The recoverable
+        // presentation path snapshots the existing terminal and never spawns
+        // or replaces a PTY; unlike ordinary startup it returns an error to the
+        // host instead of asking the event loop to exit.
+        if surface_policy == QuickSurfacePolicy::RecreateOnHide {
+            let Some(index) = self.quick_window_index() else {
+                self.quick.detach_window();
+                return;
+            };
+            if surface_policy.needs_recreate(self.windows[index].window_winit_id().is_some())
+                && !self.resume_quick_surface_with(window_id, |app| {
+                    app.try_resume_presentation(event_loop)
+                })
+            {
+                return;
+            }
+        }
+
+        // Resolve monitor intent and geometry only after any recreation. This
+        // takes a fresh display snapshot on every summon, so hotplug/rescale
+        // changes cannot reuse the previous surface's stale dimensions.
         let work_area = self.quick_work_area(event_loop);
         let settings = self.quick.settings();
         let geometry = settings.geometry(work_area);
-        let animate = settings.effective_animation() == QuickTerminalAnimation::Slide;
+        let animate = surface_policy.permits_slide()
+            && settings.effective_animation() == QuickTerminalAnimation::Slide;
         let edge = settings.edge;
 
         // A fresh summon supersedes any in-flight reveal.
@@ -777,9 +885,11 @@ impl MultiWindowHost {
             (timeline, start_geometry)
         });
 
+        let should_notify_wayland = surface_policy == QuickSurfacePolicy::RecreateOnHide
+            && !self.quick_wayland_limitation_notified;
         if let Some(app) = self
             .windows
-            .iter()
+            .iter_mut()
             .find(|app| app.process_window_id() == window_id)
         {
             match &reveal {
@@ -794,6 +904,10 @@ impl MultiWindowHost {
                     app.set_window_visible(true);
                     app.focus_quick_window();
                 }
+            }
+            if should_notify_wayland {
+                app.raise_neutral_notice(WAYLAND_QUICK_SURFACE_NOTICE.to_owned());
+                self.quick_wayland_limitation_notified = true;
             }
         }
         if let Some((timeline, _)) = reveal {
@@ -841,12 +955,73 @@ impl MultiWindowHost {
             .map(|_| Instant::now() + Duration::from_millis(16))
     }
 
-    /// The live quick window, if it exists.
-    fn quick_window(&self) -> Option<&App> {
+    fn quick_window_index(&self) -> Option<usize> {
         let id = self.quick.identity()?.window();
-        self.windows
-            .iter()
-            .find(|app| app.process_window_id() == id)
+        self.index_of(id)
+    }
+
+    /// Run the quick terminal's recoverable presentation initializer and
+    /// contain any failure to that secondary App. This is the production
+    /// propagation boundary: ordinary [`App::on_resumed`] remains fatal, while
+    /// quick-window failures release their identity and leave sibling Apps and
+    /// the event loop alive.
+    fn resume_quick_surface_with(
+        &mut self,
+        id: ProcessWindowId,
+        resume: impl FnOnce(&mut App) -> Result<(), NativeError>,
+    ) -> bool {
+        let Some(index) = self.index_of(id) else {
+            self.quick.detach_window();
+            self.quick_reveal = None;
+            return false;
+        };
+        match resume(&mut self.windows[index]) {
+            Ok(()) => true,
+            Err(err) => {
+                self.retire_failed_quick_surface(id);
+                tracing::warn!(
+                    %err,
+                    "quick terminal surface recreation failed; session cleaned up and identity released without exiting ordinary windows"
+                );
+                false
+            }
+        }
+    }
+
+    /// Resume a visible quick App through its recoverable secondary-window
+    /// boundary. A hidden Wayland quick App deliberately remains surface-less;
+    /// a general host resume must not reveal it behind the controller's back.
+    fn resume_visible_quick(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(id) = self.quick.identity().map(|identity| identity.window()) else {
+            return;
+        };
+        let Some(index) = self.index_of(id) else {
+            self.quick.detach_window();
+            return;
+        };
+        if quick_needs_host_resume(
+            self.quick.visibility(),
+            self.windows[index].window_winit_id().is_some(),
+        ) {
+            let _ =
+                self.resume_quick_surface_with(id, |app| app.try_resume_presentation(event_loop));
+        }
+    }
+
+    /// Remove a quick App whose presentation recreation failed. Its controller
+    /// identity must be cleared before another summon can reserve a replacement;
+    /// its sessions are reaped because there is no surface through which the
+    /// user could recover them. This path is deliberately local to the quick
+    /// App: it never records an ordinary startup error or exits the event loop.
+    fn retire_failed_quick_surface(&mut self, id: ProcessWindowId) {
+        if let Some(index) = self.index_of(id) {
+            let mut failed = self.windows.remove(index);
+            failed.release_surface();
+            failed.close_all_sessions();
+        }
+        self.quick.detach_window();
+        self.quick_reveal = None;
+        self.sync_sibling_counts();
     }
 
     /// Detach the quick-terminal lifecycle if `id` was its window (a user close
@@ -1028,9 +1203,13 @@ fn decode_picker_key(event: &winit::event::KeyEvent) -> Option<PickerKey> {
 
 impl ApplicationHandler<UserEvent> for MultiWindowHost {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let quick_id = self.quick.identity().map(|identity| identity.window());
         for app in &mut self.windows {
-            app.on_resumed(event_loop);
+            if Some(app.process_window_id()) != quick_id {
+                app.on_resumed(event_loop);
+            }
         }
+        self.resume_visible_quick(event_loop);
         self.refresh();
     }
 
@@ -1065,15 +1244,22 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         // window loses focus and the policy is set, hide it (preserving its
         // session) so it never lingers over other work. The App still processes
         // the focus-out below, exactly as it would for any window.
-        if matches!(event, WindowEvent::Focused(false))
+        let quick_focus_loss_action = if matches!(event, WindowEvent::Focused(false))
             && self
                 .quick
                 .owns_window(self.windows[idx].process_window_id())
         {
-            let action = self.quick_focus_loss_action(idx);
+            Some(self.quick_focus_loss_action(idx))
+        } else {
+            None
+        };
+        let redraw_early_exit = self.windows[idx].process_window_event(event_loop, event);
+        // Process the native focus loss before hiding. This keeps the existing
+        // App handler as the sole cleanup/report authority; the hide path sees
+        // `focused == false` and therefore cannot emit the report twice.
+        if let Some(action) = quick_focus_loss_action {
             self.execute_quick_action(action, event_loop);
         }
-        let redraw_early_exit = self.windows[idx].process_window_event(event_loop, event);
         if !redraw_early_exit && self.windows[idx].wants_exit() {
             self.close_window(idx, event_loop);
         }
@@ -1190,759 +1376,5 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
-    use super::*;
-    use crate::automation::dispatch;
-    use crate::automation::protocol::{Request, VERSION};
-    use crate::native::session::SessionToken;
-    use crate::native::test_support::headless_app_for_test;
-
-    /// A host over headless windows with a factory that spawns nothing, so the
-    /// cross-window orchestration (picker, merge, sibling counts) can be driven
-    /// without a real event loop. The event-loop-scoped methods (`resumed`,
-    /// `window_event`, `about_to_wait`) are display-coupled and validated
-    /// on-device; every helper exercised here holds `&mut self` only.
-    pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
-        MultiWindowHost {
-            windows,
-            shared: WatchdogShared::new(),
-            last_seen_frames: 0,
-            factory: Box::new(|_| None),
-            picker: None,
-            quick: QuickTerminalController::new(QuickTerminalSettings::default()),
-            quick_live: Arc::new(Mutex::new(None)),
-            quick_pending_config: None,
-            quick_registration_started: false,
-            quick_registration_generation: Arc::new(AtomicU64::new(0)),
-            quick_registration_status: None,
-            quick_reveal: None,
-            quick_summon_proxy: None,
-            automation: AutomationRuntime::default(),
-            automation_proxy: None,
-        }
-    }
-
-    pub(in crate::native::app) fn headless() -> App {
-        headless_app_for_test().0
-    }
-
-    #[test]
-    fn sibling_counts_reflect_the_other_window_total() {
-        let mut host = host_of(vec![headless()]);
-        host.sync_sibling_counts();
-        assert!(
-            !host.windows[0].merge_targets_available(),
-            "a lone window offers no merge target"
-        );
-
-        host.windows.push(headless());
-        host.windows.push(headless());
-        host.sync_sibling_counts();
-        assert!(host.windows.iter().all(App::merge_targets_available));
-    }
-
-    #[test]
-    fn open_picker_paints_numerals_on_candidates_not_the_origin() {
-        let mut host = host_of(vec![headless(), headless(), headless()]);
-        host.open_picker(0, MergeDirection::MergeThisInto);
-
-        assert!(host.picker.is_some(), "picker opened over two candidates");
-        assert_eq!(host.windows[0].merge_numeral(), None, "origin unbadged");
-        assert_eq!(host.windows[1].merge_numeral(), Some(1));
-        assert_eq!(host.windows[2].merge_numeral(), Some(2));
-
-        host.close_picker();
-        assert!(host.picker.is_none());
-        assert!(
-            host.windows.iter().all(|w| w.merge_numeral().is_none()),
-            "numerals cleared on close"
-        );
-    }
-
-    #[test]
-    fn a_lone_window_opens_no_picker() {
-        let mut host = host_of(vec![headless()]);
-        host.open_picker(0, MergeDirection::PullIntoThis);
-        assert!(host.picker.is_none(), "no other window to target");
-        assert_eq!(host.windows[0].merge_numeral(), None);
-    }
-
-    #[test]
-    fn selecting_a_candidate_merges_this_into_it_and_retires_the_source() {
-        let source = headless();
-        let mut target = headless();
-        // Disjoint tokens so the merge does not (correctly) refuse a collision.
-        target
-            .workspace_set_mut()
-            .rekey_sole_session_for_test(SessionToken(500));
-        let source_id = source.process_window_id();
-        let target_id = target.process_window_id();
-        let mut host = host_of(vec![source, target]);
-
-        // "Merge this window into..." from the source: candidate 1 is the target.
-        host.open_picker(0, MergeDirection::MergeThisInto);
-        host.handle_picker_key(PickerKey::Select(1));
-
-        // Source window retired; target absorbed its workspace + session.
-        assert_eq!(host.windows.len(), 1, "source window removed after merge");
-        let survivor = &host.windows[0];
-        assert_eq!(survivor.process_window_id(), target_id);
-        assert!(survivor.workspace_set().owns_session(SessionToken(0)));
-        assert!(survivor.workspace_set().owns_session(SessionToken(500)));
-        assert_eq!(survivor.workspace_set().workspace_count(), 2);
-        assert!(host.picker.is_none(), "picker closed after select");
-        assert_eq!(survivor.merge_numeral(), None, "numerals cleared");
-        assert!(
-            host.index_of(source_id).is_none(),
-            "source id no longer live"
-        );
-    }
-
-    #[test]
-    fn pull_into_this_moves_the_selected_window_into_the_origin() {
-        let origin = headless();
-        let mut other = headless();
-        other
-            .workspace_set_mut()
-            .rekey_sole_session_for_test(SessionToken(500));
-        let origin_id = origin.process_window_id();
-        let mut host = host_of(vec![origin, other]);
-
-        // "Pull window ... into this one" from the origin: candidate 1 is `other`,
-        // which becomes the SOURCE and is retired.
-        host.open_picker(0, MergeDirection::PullIntoThis);
-        host.handle_picker_key(PickerKey::Select(1));
-
-        assert_eq!(host.windows.len(), 1);
-        let survivor = &host.windows[0];
-        assert_eq!(survivor.process_window_id(), origin_id, "origin survives");
-        assert_eq!(survivor.workspace_set().workspace_count(), 2);
-    }
-
-    #[test]
-    fn a_refused_merge_leaves_both_windows_untouched() {
-        // Both windows own token 0: the merge fails closed and changes nothing.
-        let a = headless();
-        let b = headless();
-        let mut host = host_of(vec![a, b]);
-        host.open_picker(0, MergeDirection::MergeThisInto);
-        host.handle_picker_key(PickerKey::Select(1));
-
-        assert_eq!(host.windows.len(), 2, "both windows remain");
-        assert_eq!(host.windows[0].workspace_set().workspace_count(), 1);
-        assert_eq!(host.windows[1].workspace_set().workspace_count(), 1);
-        assert!(host.picker.is_none());
-    }
-
-    #[test]
-    fn cancel_closes_the_picker_without_merging() {
-        let mut host = host_of(vec![headless(), headless()]);
-        host.open_picker(0, MergeDirection::MergeThisInto);
-        assert!(host.picker.is_some());
-        host.handle_picker_key(PickerKey::Cancel);
-        assert!(host.picker.is_none());
-        assert_eq!(host.windows.len(), 2, "cancel merges nothing");
-        assert!(host.windows.iter().all(|w| w.merge_numeral().is_none()));
-    }
-
-    #[test]
-    fn a_closed_candidate_cancels_an_open_picker() {
-        let mut host = host_of(vec![headless(), headless()]);
-        host.open_picker(0, MergeDirection::MergeThisInto);
-        assert!(host.picker.is_some());
-        // Simulate the candidate window closing out from under the open picker.
-        host.windows.pop();
-        host.cancel_picker_if_target_gone();
-        assert!(host.picker.is_none(), "stale picker cancelled");
-    }
-
-    #[test]
-    fn configure_quick_terminal_reports_disabled_when_off() {
-        let mut host = host_of(vec![headless()]);
-        let status = host.configure_quick_terminal(QuickTerminalSettings::default());
-        assert!(
-            !status.is_registered(),
-            "a disabled feature registers nothing"
-        );
-        assert!(matches!(status, ShortcutRegistration::Unavailable { .. }));
-    }
-
-    #[test]
-    fn configure_quick_terminal_rejects_a_malformed_shortcut() {
-        let mut host = host_of(vec![headless()]);
-        let status = host.configure_quick_terminal(QuickTerminalSettings {
-            enabled: true,
-            shortcut: "ctrl+shift".to_owned(), // no key
-            ..QuickTerminalSettings::default()
-        });
-        match status {
-            ShortcutRegistration::Unavailable { reason } => {
-                assert!(reason.contains("invalid"), "reason names the parse failure");
-            }
-            other => panic!("expected Unavailable for a malformed shortcut, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn registration_failure_is_visible_but_confirmed_success_is_not() {
-        let mut failed = host_of(vec![headless()]);
-        let reason = "Choose a different quick_terminal_shortcut, then restart OdyTTY.";
-        failed.record_registration_outcome(ShortcutRegistration::Unavailable {
-            reason: reason.to_owned(),
-        });
-        assert_eq!(
-            failed.windows[0].open_notice_message_for_test().as_deref(),
-            Some(reason)
-        );
-
-        let mut registered = host_of(vec![headless()]);
-        registered.record_registration_outcome(ShortcutRegistration::Registered {
-            backend: "confirmed-test-backend",
-        });
-        assert!(
-            registered.windows[0]
-                .open_notice_message_for_test()
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn registration_readiness_requires_a_presented_frame() {
-        assert!(!quick_registration_ready([]));
-        assert!(!quick_registration_ready([0, 0, 0]));
-        assert!(quick_registration_ready([0, 1, 0]));
-    }
-
-    #[test]
-    fn focus_loss_waits_for_quick_overlay_and_merge_picker_interactions() {
-        let mut quick_window = headless();
-        quick_window.open_settings_overlay_for_test();
-        let quick_id = quick_window.process_window_id();
-        let mut host = host_of(vec![headless(), quick_window]);
-        host.quick.update_settings(QuickTerminalSettings {
-            enabled: true,
-            hide_on_focus_loss: true,
-            ..QuickTerminalSettings::default()
-        });
-        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
-        host.quick
-            .attach_window(QuickTerminalIdentity::new(quick_id));
-
-        assert_eq!(
-            host.quick_focus_loss_action(1),
-            QuickTerminalAction::Nothing,
-            "the quick window's overlay owns interaction"
-        );
-
-        // A process-wide merge picker also owns interaction, regardless of
-        // which candidate received the native focus transition. The quick
-        // window is never a merge candidate, so the picker needs a second
-        // ordinary window.
-        let mut host = host_of(vec![headless(), headless(), headless()]);
-        let quick_id = host.windows[2].process_window_id();
-        host.quick.update_settings(QuickTerminalSettings {
-            enabled: true,
-            hide_on_focus_loss: true,
-            ..QuickTerminalSettings::default()
-        });
-        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
-        host.quick
-            .attach_window(QuickTerminalIdentity::new(quick_id));
-        host.sync_sibling_counts();
-        host.open_picker(0, MergeDirection::MergeThisInto);
-        assert!(host.picker.is_some());
-        assert_eq!(host.windows[1].merge_numeral(), Some(1));
-        assert_eq!(
-            host.windows[2].merge_numeral(),
-            None,
-            "the quick terminal is never a merge candidate"
-        );
-        assert!(!host.windows[2].merge_targets_available());
-        assert_eq!(
-            host.quick_focus_loss_action(2),
-            QuickTerminalAction::Nothing,
-            "an open merge picker keeps the quick window visible"
-        );
-    }
-
-    #[test]
-    fn primary_plus_quick_offers_no_merge_targets() {
-        let quick_window = headless();
-        let quick_id = quick_window.process_window_id();
-        let mut host = host_of(vec![headless(), quick_window]);
-        host.quick.update_settings(QuickTerminalSettings {
-            enabled: true,
-            ..QuickTerminalSettings::default()
-        });
-        host.quick
-            .attach_window(QuickTerminalIdentity::new(quick_id));
-        host.sync_sibling_counts();
-        assert!(
-            !host.windows[0].merge_targets_available(),
-            "quick alone is not an ordinary merge sibling"
-        );
-        assert!(!host.windows[1].merge_targets_available());
-        host.open_picker(0, MergeDirection::MergeThisInto);
-        assert!(
-            host.picker.is_none(),
-            "no ordinary candidate for the picker"
-        );
-        host.open_picker(1, MergeDirection::PullIntoThis);
-        assert!(
-            host.picker.is_none(),
-            "merge cannot originate from the quick window"
-        );
-    }
-
-    #[test]
-    fn hiding_preserves_the_same_quick_app_and_session() {
-        let quick_window = headless();
-        let quick_id = quick_window.process_window_id();
-        let quick_session = quick_window.active_session_token_for_test();
-        let mut host = host_of(vec![headless(), quick_window]);
-        host.quick.update_settings(QuickTerminalSettings {
-            enabled: true,
-            ..QuickTerminalSettings::default()
-        });
-        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
-        host.quick
-            .attach_window(QuickTerminalIdentity::new(quick_id));
-
-        assert_eq!(host.quick.hide(), QuickTerminalAction::Hide);
-        assert_eq!(host.windows.len(), 2, "hide removes no App");
-        assert!(
-            host.windows
-                .iter()
-                .any(|app| app.process_window_id() == quick_id && app.owns_session(quick_session)),
-            "the same quick App still owns the same session"
-        );
-        assert_eq!(host.quick.summon(), QuickTerminalAction::Show);
-        assert_eq!(host.quick.identity().map(|id| id.window()), Some(quick_id));
-    }
-
-    #[test]
-    fn clean_exit_persistence_explicitly_excludes_the_quick_window() {
-        let mut ordinary = headless();
-        let mut quick_window = headless();
-        let quick_id = quick_window.process_window_id();
-
-        // Deliberately give the quick App the primary bit: the explicit role
-        // check must still exclude it rather than relying on that incidental
-        // construction default.
-        ordinary.set_primary_instance(false);
-        quick_window.set_primary_instance(true);
-        let mut host = host_of(vec![ordinary, quick_window]);
-        host.quick.update_settings(QuickTerminalSettings {
-            enabled: true,
-            ..QuickTerminalSettings::default()
-        });
-        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
-        host.quick
-            .attach_window(QuickTerminalIdentity::new(quick_id));
-
-        host.save_restorable_shape_on_exit();
-        assert_eq!(host.windows[0].autosave_saves_for_test(), 0);
-        assert_eq!(
-            host.windows[1].autosave_saves_for_test(),
-            0,
-            "the quick identity never reaches the restoration writer"
-        );
-
-        host.windows[0].set_primary_instance(true);
-        host.save_restorable_shape_on_exit();
-        assert_eq!(host.windows[0].autosave_saves_for_test(), 1);
-        assert_eq!(host.windows[1].autosave_saves_for_test(), 0);
-    }
-
-    #[test]
-    fn closing_or_retiring_the_quick_window_allows_one_clean_recreation() {
-        let quick_window = headless();
-        let quick_id = quick_window.process_window_id();
-        let mut host = host_of(vec![headless(), quick_window]);
-        host.quick.update_settings(QuickTerminalSettings {
-            enabled: true,
-            ..QuickTerminalSettings::default()
-        });
-        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
-        host.quick
-            .attach_window(QuickTerminalIdentity::new(quick_id));
-
-        host.detach_quick_if_owned(quick_id);
-        assert!(host.quick.identity().is_none());
-        assert_eq!(host.quick.summon(), QuickTerminalAction::CreateAndShow);
-        assert_eq!(host.quick.summon(), QuickTerminalAction::Nothing);
-    }
-
-    #[test]
-    fn restaging_invalidates_an_earlier_registration_generation() {
-        // The deferred worker and the outcome handler both gate on the
-        // generation token: a worker captures it at dispatch and only stores
-        // its grab / records its outcome while it still matches the host's
-        // current generation. Restaging (or any reconfigure/teardown, which all
-        // route through `take_live_adapter`) must bump the token so an in-flight
-        // worker's captured value no longer matches - the exact condition that
-        // makes a superseded outcome be dropped rather than stored/logged.
-        let mut host = host_of(vec![headless()]);
-        let enabled = QuickTerminalSettings {
-            enabled: true,
-            shortcut: "ctrl+shift+grave".to_owned(),
-            ..QuickTerminalSettings::default()
-        };
-
-        let _ = host.stage_quick_terminal(enabled.clone());
-        let captured_at_dispatch = host.quick_registration_generation.load(Ordering::SeqCst);
-
-        // A second stage (a reconfigure) supersedes the first.
-        let _ = host.stage_quick_terminal(enabled);
-        let current = host.quick_registration_generation.load(Ordering::SeqCst);
-
-        assert!(
-            current > captured_at_dispatch,
-            "restaging must bump the generation so a stale worker is rejected"
-        );
-        // This is exactly the comparison the worker/handler make.
-        assert_ne!(
-            captured_at_dispatch, current,
-            "a worker holding the earlier generation must not match the current one"
-        );
-    }
-
-    #[test]
-    fn quick_toggle_request_is_captured_and_drained() {
-        let mut app = headless();
-        assert_eq!(app.take_quick_toggle_requests(), 0, "none at rest");
-        app.request_quick_toggle();
-        app.request_quick_toggle();
-        assert_eq!(app.take_quick_toggle_requests(), 2, "both captured");
-        assert_eq!(
-            app.take_quick_toggle_requests(),
-            0,
-            "drained: a second take is empty"
-        );
-    }
-
-    #[test]
-    fn two_mut_rejects_equal_or_out_of_range_indices() {
-        let mut windows = vec![headless(), headless()];
-        assert!(two_mut(&mut windows, 0, 0).is_none(), "equal indices");
-        assert!(two_mut(&mut windows, 0, 5).is_none(), "out of range");
-        let pair = two_mut(&mut windows, 1, 0);
-        assert!(pair.is_some(), "distinct in-range indices split cleanly");
-    }
-
-    #[test]
-    fn default_automation_is_inert_and_enabled_state_waits_for_a_presented_frame() {
-        let mut host = host_of(vec![headless()]);
-        host.service_automation_endpoint();
-        assert!(!host.automation.is_running());
-        assert!(host.automation.instance().is_none());
-
-        host.windows[0].settings.automation_endpoint = true;
-        host.service_automation_endpoint();
-        assert!(
-            !host.automation.is_running(),
-            "an enabled endpoint must not bind before the first presented frame"
-        );
-        assert!(
-            host.automation.instance().is_none(),
-            "pre-readiness service allocates no automation state"
-        );
-    }
-
-    #[test]
-    fn owner_bridge_lists_statuses_focuses_renames_and_rejects_stale_instances() {
-        let mut host = host_of(vec![headless()]);
-        host.windows[0].settings.automation_endpoint = true;
-        let instance = [0x5a; 16];
-        let (submission, queue) = dispatch::channel(true);
-        host.automation.install_queue_for_test(instance, queue);
-
-        let list = submission
-            .submit(Request {
-                version: VERSION,
-                request_id: 1,
-                action: AutomationAction::List,
-            })
-            .expect("queue list");
-        host.dispatch_automation();
-        let AutomationReply::Objects(objects) = list.wait().reply else {
-            panic!("list reply")
-        };
-        assert_eq!(objects.len(), 4, "window + workspace + tab + pane");
-        let workspace = objects
-            .iter()
-            .find(|object| object.id.kind == ObjectKind::Workspace)
-            .expect("workspace")
-            .id;
-
-        let status = submission
-            .submit(Request {
-                version: VERSION,
-                request_id: 2,
-                action: AutomationAction::Status { target: workspace },
-            })
-            .expect("queue status");
-        host.dispatch_automation();
-        assert!(
-            matches!(status.wait().reply, AutomationReply::Objects(rows) if rows.len() == 1 && rows[0].id == workspace)
-        );
-
-        let rename = submission
-            .submit(Request {
-                version: VERSION,
-                request_id: 3,
-                action: AutomationAction::Rename {
-                    target: workspace,
-                    name: "ops".to_owned(),
-                },
-            })
-            .expect("queue rename");
-        host.dispatch_automation();
-        assert_eq!(rename.wait().reply, AutomationReply::Applied(workspace));
-        assert_eq!(
-            host.windows[0].workspace_set().workspace_name(0),
-            Some("ops")
-        );
-
-        let stale = ObjectId {
-            instance: [0x33; 16],
-            ..workspace
-        };
-        let focus = submission
-            .submit(Request {
-                version: VERSION,
-                request_id: 4,
-                action: AutomationAction::Focus { target: stale },
-            })
-            .expect("queue stale focus");
-        host.dispatch_automation();
-        assert_eq!(
-            focus.wait().reply,
-            AutomationReply::Error(AutomationError::StaleIdentity)
-        );
-
-        let detached_namespace_id = ObjectId {
-            instance,
-            kind: ObjectKind::Pane,
-            serial: u64::MAX,
-        };
-        assert!(
-            !objects
-                .iter()
-                .any(|object| object.id == detached_namespace_id),
-            "detached-host identities are not projected as live objects"
-        );
-        let focus = submission
-            .submit(Request {
-                version: VERSION,
-                request_id: 5,
-                action: AutomationAction::Focus {
-                    target: detached_namespace_id,
-                },
-            })
-            .expect("queue detached namespace target");
-        host.dispatch_automation();
-        assert_eq!(
-            focus.wait().reply,
-            AutomationReply::Error(AutomationError::StaleIdentity)
-        );
-    }
-
-    #[test]
-    fn owner_bridge_rechecks_structural_permission_when_dispatching() {
-        let mut host = host_of(vec![headless()]);
-        let instance = [0x34; 16];
-        let (submission, queue) = dispatch::channel(true);
-        host.automation.install_queue_for_test(instance, queue);
-        let workspace = host
-            .automation_objects(instance)
-            .into_iter()
-            .find(|object| object.id.kind == ObjectKind::Workspace)
-            .expect("workspace identity")
-            .id;
-
-        let rename = submission
-            .submit(Request {
-                version: VERSION,
-                request_id: 5,
-                action: AutomationAction::Rename {
-                    target: workspace,
-                    name: "must-not-apply".to_owned(),
-                },
-            })
-            .expect("the queue still reflects the formerly enabled setting");
-        host.dispatch_automation();
-
-        assert_eq!(
-            rename.wait().reply,
-            AutomationReply::Error(AutomationError::PermissionDenied)
-        );
-        assert_ne!(
-            host.windows[0].workspace_set().workspace_name(0),
-            Some("must-not-apply")
-        );
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
-    fn owner_bridge_round_trips_a_live_unix_request() {
-        use std::sync::mpsc;
-        use std::time::Duration;
-
-        let mut host = host_of(vec![headless()]);
-        host.windows[0].settings.automation_endpoint = true;
-        let dir = std::env::temp_dir().join(format!(
-            "odytty-owner-bridge-{:x}",
-            host.windows[0].process_window_id().0
-        ));
-        crate::state_dir::prepare_private_dir(&dir).expect("owner-private fixture dir");
-        let endpoint = dir.join(format!("control-{}.sock", std::process::id()));
-        let (wake_tx, wake_rx) = mpsc::channel();
-        host.automation
-            .start_unix_at(endpoint.clone(), move || wake_tx.send(()).is_ok())
-            .expect("bind endpoint");
-        let instance = host.automation.instance().expect("instance identity");
-
-        let client = std::thread::spawn({
-            let endpoint = endpoint.clone();
-            move || {
-                crate::automation::unix::request(
-                    &endpoint,
-                    &Request {
-                        version: VERSION,
-                        request_id: 6,
-                        action: AutomationAction::List,
-                    },
-                )
-            }
-        });
-        wake_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("transport wake");
-        host.dispatch_automation();
-        let response = client.join().expect("client thread").expect("response");
-
-        assert_eq!(response.request_id, 6);
-        assert!(
-            matches!(response.reply, AutomationReply::Objects(objects) if objects.len() == 4 && objects.iter().all(|object| object.id.instance == instance))
-        );
-        host.automation.shutdown();
-        assert!(!endpoint.exists());
-        let _ = std::fs::remove_dir(dir);
-    }
-
-    #[test]
-    fn owner_bridge_dispatches_at_most_eight_requests_per_turn() {
-        let mut host = host_of(vec![headless()]);
-        host.windows[0].settings.automation_endpoint = true;
-        let (submission, queue) = dispatch::channel(true);
-        host.automation.install_queue_for_test([9; 16], queue);
-        let receipts: Vec<_> = (0..=MAX_PER_DISPATCH)
-            .map(|request_id| {
-                submission
-                    .submit(Request {
-                        version: VERSION,
-                        request_id: request_id as u64,
-                        action: AutomationAction::Capabilities,
-                    })
-                    .expect("queue capabilities")
-            })
-            .collect();
-
-        host.dispatch_automation();
-        assert!(
-            receipts[..MAX_PER_DISPATCH]
-                .iter()
-                .all(|receipt| receipt.try_response().is_some())
-        );
-        assert!(
-            receipts[MAX_PER_DISPATCH].try_response().is_none(),
-            "ninth request waits for the next event-loop turn"
-        );
-        host.dispatch_automation();
-        assert!(receipts[MAX_PER_DISPATCH].try_response().is_some());
-    }
-
-    #[test]
-    fn owner_bridge_maps_creation_actions_to_structured_spawn_and_profile_results() {
-        let mut host = host_of(vec![headless()]);
-        host.windows[0].settings.automation_endpoint = true;
-        let instance = [0x71; 16];
-        let (submission, queue) = dispatch::channel(true);
-        host.automation.install_queue_for_test(instance, queue);
-        let window = host
-            .automation_objects(instance)
-            .into_iter()
-            .find(|object| object.id.kind == ObjectKind::Window)
-            .expect("window identity")
-            .id;
-
-        let create_tab = submission
-            .submit(Request {
-                version: VERSION,
-                request_id: 10,
-                action: AutomationAction::CreateTab { window },
-            })
-            .expect("queue create tab");
-        host.dispatch_automation();
-        assert_eq!(
-            create_tab.wait().reply,
-            AutomationReply::Error(AutomationError::Unavailable),
-            "the headless App has no event-loop proxy, so the existing spawn route refuses"
-        );
-
-        let create_workspace = submission
-            .submit(Request {
-                version: VERSION,
-                request_id: 11,
-                action: AutomationAction::CreateWorkspace {
-                    window,
-                    name: "deploy".to_owned(),
-                },
-            })
-            .expect("queue create workspace");
-        host.dispatch_automation();
-        assert_eq!(
-            create_workspace.wait().reply,
-            AutomationReply::Error(AutomationError::Unavailable)
-        );
-
-        let pane = host
-            .automation_objects(instance)
-            .into_iter()
-            .find(|object| object.id.kind == ObjectKind::Pane && object.parent.is_some())
-            .expect("pane identity")
-            .id;
-        let split = submission
-            .submit(Request {
-                version: VERSION,
-                request_id: 12,
-                action: AutomationAction::Split {
-                    pane,
-                    direction: crate::automation::protocol::SplitDirection::Columns,
-                },
-            })
-            .expect("queue split");
-        host.dispatch_automation();
-        assert_eq!(
-            split.wait().reply,
-            AutomationReply::Error(AutomationError::Unavailable)
-        );
-
-        let missing_profile = submission
-            .submit(Request {
-                version: VERSION,
-                request_id: 13,
-                action: AutomationAction::OpenProfile {
-                    window,
-                    name: "profile-that-does-not-exist".to_owned(),
-                },
-            })
-            .expect("queue missing profile");
-        host.dispatch_automation();
-        assert_eq!(
-            missing_profile.wait().reply,
-            AutomationReply::Error(AutomationError::InvalidRequest)
-        );
-    }
-}
+#[path = "multi_window_host/tests.rs"]
+pub(super) mod tests;

@@ -260,8 +260,10 @@ sockets and a Windows owner-DACL named pipe (busy/unavailable/listener-fault
 contracts, fail-closed Unix quick-terminal toggle discovery, and hostile-client
 suites); confirm-first Unix file-drop insertion with
 an explicit Windows refusal; and keyboard-first window merge/pull with in-window
-numerals. Device acceptance, blocking release CI, packaging, and publication
-remain open. No v0.15.0 release claim. See the
+numerals. Native Wayland quick-terminal hide/summon has passed on Hyprland,
+retaining tabs and stable identities across surface recreation. Broader device
+acceptance, blocking release CI, packaging, and publication remain open.
+No v0.15.0 release claim. See the
 [v0.15.0 contracts](docs/v0.15.0-foundation.md),
 [status notes](docs/releases/0.15.0.md), and
 [acceptance checklists](docs/acceptance/v0.15.0.md).

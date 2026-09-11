@@ -125,6 +125,8 @@ impl App {
     }
 
     pub(super) fn send_focus_report(&mut self, focused: bool) {
+        #[cfg(test)]
+        let session = self.sessions.active_id();
         let Some(bytes) = self
             .terminal
             .lock()
@@ -135,6 +137,8 @@ impl App {
         };
 
         self.write_pty_bytes(&bytes);
+        #[cfg(test)]
+        self.focus_reports_for_test.push((session, focused));
     }
 
     pub(super) fn handle_reported_mouse_input(

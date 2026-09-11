@@ -721,6 +721,22 @@ notice and records the same stable guidance in the log. The palette exposes
 [runtime knobs](runtime-knobs.md) and the
 [quick-terminal contract](v0.15.0-foundation.md#quick-terminal-role).
 
+Wayland's standard xdg-toplevel protocol does not let an application hide or
+absolutely position its own window. OdyTTY therefore hides the quick terminal
+by releasing only its native window and GPU surface; the session, tabs, panes,
+and stable identity remain live, and the presentation objects are recreated on
+summon. Hiding performs the same focus-loss cleanup as a native focus event and
+stops render-only timer wakes until a surface exists again; session and
+lifecycle maintenance continue while hidden. OdyTTY requests the configured
+size and focus, but the compositor
+controls the edge, absolute position, monitor, virtual desktop, floating state,
+and stacking. A failed quick-window recreation is contained to that secondary
+window: its sessions are reaped, its identity is released for a later retry,
+and ordinary windows keep running. Ordinary startup presentation failures
+remain fatal. Slide motion resolves to instant on Wayland. If an anchored
+drop-down is required, configure compositor window rules; OdyTTY reports this
+limitation in the quick window instead of claiming that placement succeeded.
+
 On Wayland compositors without the portal, enable both `quick_terminal` and
 `automation_endpoint`, then bind the typed local-control command. For Sway:
 

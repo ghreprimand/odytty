@@ -36,6 +36,21 @@ pub(in crate::native) struct NewWindowRequest {
     pub(in crate::native) profile: Option<String>,
 }
 
+/// Release renderer and native-window ownership in that order. The generic
+/// shape keeps the ordering headlessly testable without constructing a GPU or
+/// display surface; production supplies `GpuState` and `Arc<Window>`.
+fn release_presentation<G, W>(
+    gpu: &mut Option<G>,
+    window: &mut Option<W>,
+    wait_for_idle: impl FnOnce(&G),
+) {
+    if let Some(gpu) = gpu.take() {
+        wait_for_idle(&gpu);
+        drop(gpu);
+    }
+    *window = None;
+}
+
 impl App {
     /// Release this window's presentation state in driver-safe order.
     ///
@@ -43,11 +58,26 @@ impl App {
     /// per-window device and drops the surface. Only then is the final app-owned
     /// window reference released. Calling this twice is harmless.
     pub(in crate::native) fn release_surface(&mut self) {
-        if let Some(gpu) = self.gpu.take() {
-            gpu.wait_for_idle_before_release();
-            drop(gpu);
+        release_presentation(
+            &mut self.gpu,
+            &mut self.window,
+            GpuState::wait_for_idle_before_release,
+        );
+    }
+
+    /// Settle window-scoped input and consent state before a quick terminal's
+    /// native presentation is destroyed. An explicit Wayland hide can remove
+    /// the native window before the compositor delivers `Focused(false)`, so
+    /// the ordinary focus-loss handler must run while the App is still
+    /// routable. The focus guard makes the later compositor-driven hide path
+    /// idempotent and prevents a duplicate terminal focus report.
+    pub(in crate::native) fn quiesce_for_surface_hide(&mut self) {
+        if self.focused {
+            self.on_window_focus_changed(false);
         }
-        self.window = None;
+        // A retry belongs to the surface that was just retired. Keeping it
+        // would request a meaningless immediate redraw after recreation.
+        self.skipped_frame_retry_deadline = None;
     }
 
     /// This window's live `winit` window id, or `None` before the surface is
@@ -387,6 +417,8 @@ mod tests {
     use crate::core::{Dimensions, Position};
     use crate::native::render_helpers::OverlayFragment;
     use crate::native::test_support::headless_app_for_test;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     fn blank(columns: usize, rows: usize) -> Snapshot {
         Snapshot {
@@ -454,5 +486,34 @@ mod tests {
         app.release_surface();
         assert!(app.gpu.is_none());
         assert!(app.window.is_none());
+    }
+
+    #[test]
+    fn presentation_release_waits_then_drops_gpu_before_window() {
+        struct Probe {
+            label: &'static str,
+            events: Rc<RefCell<Vec<&'static str>>>,
+        }
+
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                self.events.borrow_mut().push(self.label);
+            }
+        }
+
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let mut gpu = Some(Probe {
+            label: "gpu",
+            events: events.clone(),
+        });
+        let mut window = Some(Probe {
+            label: "window",
+            events: events.clone(),
+        });
+        release_presentation(&mut gpu, &mut window, |gpu| {
+            gpu.events.borrow_mut().push("wait");
+        });
+
+        assert_eq!(&*events.borrow(), &["wait", "gpu", "window"]);
     }
 }

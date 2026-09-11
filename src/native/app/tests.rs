@@ -885,14 +885,14 @@ fn config_reload_wake_is_suppressed_while_unfocused() {
 
     app.focused = true;
     assert_eq!(
-        app.next_wake_deadline(),
+        app.next_wake_deadline_for_surface_for_test(true),
         Some(config_deadline),
         "a focused window schedules the config-reload poll"
     );
 
     app.focused = false;
     assert_eq!(
-        app.next_wake_deadline(),
+        app.next_wake_deadline_for_surface_for_test(true),
         None,
         "a backgrounded window schedules no timer wake (zero-wake idle)"
     );
@@ -919,7 +919,7 @@ fn timed_out_prefix_does_not_spin_the_event_loop() {
     // nothing else is armed on a fresh idle app.
     app.focused = false;
     assert_eq!(
-        app.next_wake_deadline(),
+        app.next_wake_deadline_for_surface_for_test(true),
         None,
         "idle app parks at zero wake"
     );
@@ -938,7 +938,7 @@ fn timed_out_prefix_does_not_spin_the_event_loop() {
         .pending_deadline()
         .expect("a pending prefix arms a timeout boundary");
     assert_eq!(
-        app.next_wake_deadline(),
+        app.next_wake_deadline_for_surface_for_test(true),
         Some(deadline),
         "the pending prefix is the scheduled wake (a future boundary)"
     );
@@ -952,7 +952,7 @@ fn timed_out_prefix_does_not_spin_the_event_loop() {
         !app.prefix_engine.is_pending(),
         "the timed-out prefix is expired on the timer, not left pending"
     );
-    match app.next_wake_deadline() {
+    match app.next_wake_deadline_for_surface_for_test(true) {
         None => {}
         Some(next) => assert!(
             next > woken,
@@ -978,7 +978,7 @@ fn idle_single_pane_schedules_no_animation_wake() {
         "no contributor is animating at rest"
     );
     assert_eq!(
-        app.next_wake_deadline(),
+        app.next_wake_deadline_for_surface_for_test(true),
         None,
         "idle single-pane parks at zero wake — the NF21-2 source adds nothing at rest"
     );
@@ -987,7 +987,9 @@ fn idle_single_pane_schedules_no_animation_wake() {
 /// NF21-2 acceptance (i, bell contributor): a bell flash schedules a repaint
 /// wake and a due wake requests a rebuild — even while the window is
 /// unfocused and the cursor is not blinking. Fails before both halves of the
-/// fix (no wake scheduled; no rebuild on the due wake).
+/// fix (no wake scheduled; no rebuild on the due wake). Headless Apps have no
+/// native surface, so the presented-window wake partition is modeled with
+/// [`App::next_wake_deadline_for_surface_for_test`]`(true)`.
 #[test]
 fn bell_flash_while_unfocused_schedules_a_wake_and_advances() {
     let Some(mut app) = build_idle_app() else {
@@ -995,12 +997,12 @@ fn bell_flash_while_unfocused_schedules_a_wake_and_advances() {
     };
     app.focused = false;
     assert_eq!(
-        app.next_wake_deadline(),
+        app.next_wake_deadline_for_surface_for_test(true),
         None,
         "precondition: the idle app parks at zero wake"
     );
     app.bell_flash_start = Some(Instant::now());
-    let wake = app.next_wake_deadline();
+    let wake = app.next_wake_deadline_for_surface_for_test(true);
     assert!(
         wake.is_some(),
         "an in-flight bell flash must schedule a repaint wake (NF21-2)"

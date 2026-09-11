@@ -489,6 +489,11 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
     // panes' timers in maintenance. This drives the real switch + maintenance
     // and asserts the STRICT invariant: after maintenance the next wake is None
     // or STRICTLY in the future — never a stale past instant.
+    //
+    // Headless Apps have no native surface (`window.is_some()` is false), so
+    // render-gated blink/animation sources would be excluded by the plain
+    // next_wake_deadline path. Model a presented window explicitly so this
+    // regression cannot pass vacuously on sync-hold / config-only wakes.
     let Some((mut app, _fixtures)) = app_with_two_sessions() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -504,7 +509,7 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
     app.arm_active_cursor_anim_for_test(t0); // ease t0+200ms, slide t0+150ms
     app.arm_active_sync_hold_for_test(t0);
     assert!(
-        app.next_wake_deadline_for_test()
+        app.next_wake_deadline_for_surface_for_test(true)
             .is_some_and(|d| d <= t0 + Duration::from_millis(530)),
         "an armed active pane schedules a near-future wake"
     );
@@ -518,7 +523,7 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
     // deadline in the wake set.
     let later = t0 + Duration::from_secs(5);
     app.run_about_to_wait_maintenance_for_test(later);
-    match app.next_wake_deadline_for_test() {
+    match app.next_wake_deadline_for_surface_for_test(true) {
         None => {}
         Some(next) => assert!(
             next > later,
@@ -534,7 +539,7 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
     assert!(app.switch_to_session_for_test(0));
     let later2 = later + Duration::from_secs(1);
     app.run_about_to_wait_maintenance_for_test(later2);
-    match app.next_wake_deadline_for_test() {
+    match app.next_wake_deadline_for_surface_for_test(true) {
         None => {}
         Some(next) => assert!(
             next > later2,
@@ -643,9 +648,9 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
         "idle panes arm no cursor-animation wake"
     );
     assert!(
-        app.next_wake_deadline_for_test()
+        app.next_wake_deadline_for_surface_for_test(true)
             .is_some_and(|deadline| deadline > t0),
-        "the focused pane retains a bounded future wake"
+        "the focused pane retains a bounded future wake on a presented surface"
     );
 
     // A later consumer frame settles the slide/ease; only the normal blink
@@ -653,7 +658,7 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
     let later = t0 + Duration::from_secs(5);
     app.run_about_to_wait_maintenance_for_test(later);
     let _ = app.advance_multipane_cursor_effects_for_test(later, &mut current, cell, origin);
-    match app.next_wake_deadline_for_test() {
+    match app.next_wake_deadline_for_surface_for_test(true) {
         None => {}
         Some(next) => assert!(
             next > later,

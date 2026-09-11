@@ -199,14 +199,31 @@ impl App {
     /// `ActiveEventLoop` (which cannot be constructed in a unit test). The
     /// caller maps `Some`/`None` onto `WaitUntil`/`Wait`.
     pub(super) fn next_wake_deadline(&self) -> Option<Instant> {
+        self.next_wake_deadline_for_surface(self.window.is_some())
+    }
+
+    /// Compute the deadline set for an explicit presentation state. A hidden
+    /// Wayland quick terminal retains its App/session tree without a native
+    /// surface, so render-only timers have no redraw consumer and must not keep
+    /// the process awake. Session correctness and lifecycle maintenance remain
+    /// live: autoclose, synchronized-output release, storage, diagnostics, and
+    /// pane monitors still contribute deadlines.
+    pub(super) fn next_wake_deadline_for_surface(
+        &self,
+        presentation_active: bool,
+    ) -> Option<Instant> {
         [
             self.deadline,
-            self.resize_debounce.deadline(),
+            presentation_active
+                .then(|| self.resize_debounce.deadline())
+                .flatten(),
             // BLACK-SCREEN-ON-RESTORE: bounded retry for a transiently-skipped
             // frame. `None` at rest, so the idle wake set is unchanged; when a
             // frame was skipped this wakes the loop to repaint the recovered
             // surface instead of leaving it black until an unrelated event.
-            self.skipped_frame_retry_deadline,
+            presentation_active
+                .then_some(self.skipped_frame_retry_deadline)
+                .flatten(),
             // §7: wake when a pending multiplexer prefix times out, so the
             // pending state clears promptly even with no further input. `None`
             // (the at-rest case) leaves the min unchanged.
@@ -219,7 +236,9 @@ impl App {
             // left a wake with no consumer → `WaitUntil(<past>)` busy-spin after a
             // tab switch. Background panes are parked in maintenance, so this
             // active-only source is the whole live set.
-            self.cursor_blink.deadline(),
+            presentation_active
+                .then(|| self.cursor_blink.deadline())
+                .flatten(),
             // Config-file live-reload poll. Only schedule its timer wake while
             // the window is focused: a backgrounded terminal that nobody is
             // editing config *and watching* has no reason to stat the file once
@@ -245,16 +264,22 @@ impl App {
             // Cursor-animation wake source, ACTIVE focused pane only (NF20-B).
             // Both single-pane and split render paths advance this consumer;
             // background panes stay parked and never fan wakes into this set.
-            self.focused_cursor_animation_deadline(),
+            presentation_active
+                .then(|| self.focused_cursor_animation_deadline())
+                .flatten(),
             // F4-P3: wake at the next rail auto-hide boundary (show debounce /
             // hide grace / flash expiry). `None` at rest — steady Hidden, or
             // Revealed with the pointer parked — so the idle wake set is
             // unchanged when nothing is animating.
-            self.rail_autohide.wake_deadline(Instant::now()),
+            presentation_active
+                .then(|| self.rail_autohide.wake_deadline(Instant::now()))
+                .flatten(),
             // One-shot centered HUD expiry. The surface paints in both the
             // single-pane snapshot and the focused split pane, so unlike the
             // single-pane animation aggregator it is safe to source globally.
-            self.transient_hud_deadline(),
+            presentation_active
+                .then(|| self.transient_hud_deadline())
+                .flatten(),
             // NF21-2: the overlay/scroll/bell/fade animation aggregator
             // (`animation_deadline()` — smooth-scroll glide, bell flash, new-row
             // fade, open-notice + click-hint auto-expiry, and the cursor
@@ -271,8 +296,7 @@ impl App {
             // with no consumer (a spin). NF21-1/7 restores the multipane
             // advancement and widens this gate. `None` at rest (every
             // contributor `None`), so the idle wake set is unchanged.
-            self.sessions
-                .active_is_single_pane()
+            (presentation_active && self.sessions.active_is_single_pane())
                 .then(|| self.animation_deadline())
                 .flatten(),
             // In a split, source ONLY the per-pane glide wake here.
@@ -282,14 +306,18 @@ impl App {
             // single-pane-only consumers, so widening all of
             // `animation_deadline()` would fan wakes beyond their consumers.
             // `None` at rest / single-pane, so the idle wake set is unchanged.
-            self.multipane_glide_deadline(),
+            presentation_active
+                .then(|| self.multipane_glide_deadline())
+                .flatten(),
             // Kitty graphics animation: wake when a visible animated image is due
             // for its next frame. Sourced from the ACTIVE pane (the same pane the
             // maintenance consumer advances), so - per the "a source must not fan
             // wider than its consumer" rule - no wake is scheduled for an
             // animation nobody is looking at. `None` unless an animated placement
             // is visible and running, so the idle wake set is unchanged.
-            self.animated_graphics_deadline,
+            presentation_active
+                .then_some(self.animated_graphics_deadline)
+                .flatten(),
             // WP2: wake to flush the debounced workspace-shape autosave. `None`
             // at rest (nothing pending), so the idle wake set is unchanged; when
             // a shape mutation is pending this fires the one write ~1.5s later.
@@ -857,8 +885,22 @@ impl App {
 // match; the match itself remains the stable ingress in `mod.rs`.
 impl App {
     pub(super) fn on_resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if let Err(err) = self.try_resume_presentation(event_loop) {
+            self.fail(event_loop, err);
+        }
+    }
+
+    /// Create this App's native presentation without deciding process-fatal
+    /// policy. Ordinary startup routes an error through [`Self::on_resumed`]
+    /// and exits the event loop; the quick terminal uses the returned error to
+    /// retire only its recoverable secondary App while ordinary siblings keep
+    /// running.
+    pub(super) fn try_resume_presentation(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+    ) -> Result<(), NativeError> {
         if self.window.is_some() {
-            return;
+            return Ok(());
         }
 
         let (w, h) = self.options.window_logical_size();
@@ -887,13 +929,11 @@ impl App {
             attributes.with_name(linux_window_app_id(&self.options), "odytty")
         };
 
-        let window = match event_loop.create_window(attributes) {
-            Ok(window) => Arc::new(window),
-            Err(err) => {
-                self.fail(event_loop, NativeError::WindowCreation(err.to_string()));
-                return;
-            }
-        };
+        let window = Arc::new(
+            event_loop
+                .create_window(attributes)
+                .map_err(|err| NativeError::WindowCreation(err.to_string()))?,
+        );
 
         // IME: allow composition input (CJK input methods, compose/dead-key
         // accents) to deliver `Ime::Preedit`/`Ime::Commit` events. Without this
@@ -903,7 +943,7 @@ impl App {
         // Seed the first buffer from the current shared-terminal snapshot (any
         // PTY output already pumped is picked up by the first redraw below).
         let initial_snapshot = crate::native::lock_recover(&self.terminal).snapshot();
-        match GpuState::new(
+        let mut gpu = GpuState::new(
             window.clone(),
             &self.options,
             &initial_snapshot,
@@ -915,46 +955,39 @@ impl App {
             event_loop.owned_display_handle(),
             self.sessions.event_proxy(),
             self.sessions.active_id(),
-        ) {
-            Ok(mut gpu) => {
-                // Push live cell pixel metrics to the terminal core so graphics
-                // placements (sixel/kitty) compute the correct cell extent.
-                let cell = gpu.cell();
-                if let Ok(mut term) = self.terminal.lock() {
-                    term.set_cell_metrics(cell.width, cell.height);
-                }
-                self.last_cursor_comparison_snapshot = Some(
-                    crate::native::session::CursorComparison::of(&initial_snapshot),
-                );
-                self.last_presented_snapshot = Some(initial_snapshot.clone());
-                // ID3/U5: seed the background-image pass from the launch config
-                // so the very first frame already reflects an `image` treatment
-                // (no-op / off path when no image is configured).
-                gpu.set_background_image(
-                    self.settings.effective_background_treatment()
-                        == crate::settings::BackgroundTreatment::Image,
-                    self.settings.background_image.as_deref(),
-                    self.settings.background_blur_radius,
-                    self.settings.background_image_scrim,
-                    self.settings.cell_bg_opacity,
-                    self.effective_theme,
-                );
-                // SELECTION-OPACITY: seed the selection strength for the first
-                // frame from the launch config (identity / off path at 1.0).
-                gpu.set_selection_opacity(self.settings.selection_opacity);
-                // COLORED-BG-FLOOR: seed the colored-background opacity floor
-                // from the launch config so the first frame already floors.
-                gpu.set_colored_bg_opacity(self.settings.colored_bg_opacity);
-                // TEXT-BRIGHTNESS: seed the glyph-foreground lift from the
-                // launch config (identity / off path at 1.0).
-                gpu.set_text_brightness(self.settings.text_brightness);
-                self.gpu = Some(gpu);
-            }
-            Err(err) => {
-                self.fail(event_loop, err);
-                return;
-            }
+        )?;
+        // Push live cell pixel metrics to the terminal core so graphics
+        // placements (sixel/kitty) compute the correct cell extent.
+        let cell = gpu.cell();
+        if let Ok(mut term) = self.terminal.lock() {
+            term.set_cell_metrics(cell.width, cell.height);
         }
+        self.last_cursor_comparison_snapshot = Some(crate::native::session::CursorComparison::of(
+            &initial_snapshot,
+        ));
+        self.last_presented_snapshot = Some(initial_snapshot.clone());
+        // ID3/U5: seed the background-image pass from the launch config
+        // so the very first frame already reflects an `image` treatment
+        // (no-op / off path when no image is configured).
+        gpu.set_background_image(
+            self.settings.effective_background_treatment()
+                == crate::settings::BackgroundTreatment::Image,
+            self.settings.background_image.as_deref(),
+            self.settings.background_blur_radius,
+            self.settings.background_image_scrim,
+            self.settings.cell_bg_opacity,
+            self.effective_theme,
+        );
+        // SELECTION-OPACITY: seed the selection strength for the first
+        // frame from the launch config (identity / off path at 1.0).
+        gpu.set_selection_opacity(self.settings.selection_opacity);
+        // COLORED-BG-FLOOR: seed the colored-background opacity floor
+        // from the launch config so the first frame already floors.
+        gpu.set_colored_bg_opacity(self.settings.colored_bg_opacity);
+        // TEXT-BRIGHTNESS: seed the glyph-foreground lift from the
+        // launch config (identity / off path at 1.0).
+        gpu.set_text_brightness(self.settings.text_brightness);
+        self.gpu = Some(gpu);
 
         self.needs_rebuild = true;
         window.request_redraw();
@@ -989,6 +1022,7 @@ impl App {
             self.deadline = Some(deadline);
             event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
         }
+        Ok(())
     }
 
     pub(super) fn on_close_requested(&mut self, event_loop: &ActiveEventLoop) {

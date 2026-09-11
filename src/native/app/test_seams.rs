@@ -1593,13 +1593,16 @@ impl App {
         self.cursor_blink.poll(now, true, true);
     }
 
-    /// Test seam (NF20-B): the aggregate next event-loop wake deadline. Exposes
-    /// the private `next_wake_deadline` so the multi-pane deadline fan-out
-    /// regression can assert the loop parks (no stale past instant) after a tab /
-    /// pane switch + maintenance.
+    /// Test the same deadline partition used when a quick terminal drops and
+    /// recreates its native Wayland surface. Headless Apps have no real window,
+    /// so the explicit flag lets the regression compare visible and hidden
+    /// policy without constructing display/GPU objects.
     #[cfg(test)]
-    pub(in crate::native) fn next_wake_deadline_for_test(&self) -> Option<std::time::Instant> {
-        self.next_wake_deadline()
+    pub(in crate::native) fn next_wake_deadline_for_surface_for_test(
+        &self,
+        presentation_active: bool,
+    ) -> Option<std::time::Instant> {
+        self.next_wake_deadline_for_surface(presentation_active)
     }
 
     /// Test seam (NF20-B): arm the ACTIVE pane's cursor-animation (ease + slide)
@@ -1609,6 +1612,25 @@ impl App {
     pub(in crate::native) fn arm_active_cursor_anim_for_test(&mut self, now: std::time::Instant) {
         self.cursor_ease_deadline = Some(now + std::time::Duration::from_millis(200));
         self.cursor_slide_deadline = Some(now + std::time::Duration::from_millis(150));
+    }
+
+    /// Arm the surface-acquisition retry source without requiring a GPU.
+    #[cfg(test)]
+    pub(in crate::native) fn arm_skipped_frame_retry_for_test(
+        &mut self,
+        deadline: std::time::Instant,
+    ) {
+        self.skipped_frame_retry_deadline = Some(deadline);
+    }
+
+    /// Arm the App lifetime deadline so hidden-presentation tests can prove
+    /// lifecycle wakes remain live while render-only wakes are suppressed.
+    #[cfg(test)]
+    pub(in crate::native) fn arm_autoclose_deadline_for_test(
+        &mut self,
+        deadline: std::time::Instant,
+    ) {
+        self.deadline = Some(deadline);
     }
 
     /// Test seam for the focused split-pane cursor consumer. Enables every
@@ -3544,8 +3566,8 @@ impl App {
         self.pending_image_paste.is_some()
     }
 
-    /// Enable DEC focus reporting in the active terminal and drain the routed
-    /// session-transition observations recorded by the test build.
+    /// Enable DEC focus reporting in the active terminal and drain the window
+    /// and routed session-transition observations recorded by the test build.
     #[cfg(test)]
     pub(in crate::native) fn enable_focus_reporting_for_test(&mut self) {
         crate::native::lock_recover(&self.terminal).advance(b"\x1b[?1004h");
