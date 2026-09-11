@@ -30,6 +30,18 @@ pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
         quick_summon_proxy: None,
         automation: AutomationRuntime::default(),
         automation_proxy: None,
+        #[cfg(target_os = "linux")]
+        wayland_drop_proxy: None,
+        #[cfg(target_os = "linux")]
+        wayland_drop: None,
+        #[cfg(target_os = "linux")]
+        wayland_drop_started: false,
+        #[cfg(target_os = "linux")]
+        wayland_surface_registry: None,
+        #[cfg(target_os = "linux")]
+        wayland_surface_cache: Vec::new(),
+        #[cfg(target_os = "linux")]
+        wayland_drop_limitation_notified: false,
     }
 }
 
@@ -915,4 +927,114 @@ fn owner_bridge_maps_creation_actions_to_structured_spawn_and_profile_results() 
         missing_profile.wait().reply,
         AutomationReply::Error(AutomationError::InvalidRequest)
     );
+}
+
+/// v0.15.0 C: native Wayland file-drop routing validates against
+/// LIVE App state (window presence, live surface, current generation), NOT the
+/// listener's shared registry. These tests leave the registry deliberately
+/// STALE and mutate only live App state, proving delivery re-validates against
+/// the true current incarnation. Linux only.
+#[cfg(target_os = "linux")]
+mod wayland_file_drop_routing {
+    use super::*;
+    use crate::native::wayland_file_drop::{SurfaceEntry, SurfaceRegistry, WaylandSurfaceIdent};
+    use crate::pty::ForegroundJob;
+    use crate::shell_integration::ShellKind;
+
+    fn registry_with(entries: Vec<SurfaceEntry>) -> SurfaceRegistry {
+        Arc::new(Mutex::new(entries))
+    }
+
+    fn ready_local_bash(app: &mut App) {
+        if let Some(session) = app.headless_session() {
+            session.set_foreground_job(ForegroundJob::None);
+        }
+        app.set_file_drop_shell_for_test(Some(ShellKind::Bash));
+        app.set_window_focus_for_test(true);
+    }
+
+    /// Populate a stale registry that still records `(window, generation)`. It is
+    /// intentionally NEVER updated by these tests: if routing consulted it, a
+    /// stale drop would pass. Routing must ignore it and read live App state.
+    fn stale_registry_for(host: &mut MultiWindowHost, window: u64, generation: u64) {
+        host.wayland_surface_registry = Some(registry_with(vec![SurfaceEntry {
+            ptr: 0xDEAD_BEEF,
+            ident: WaylandSurfaceIdent { window, generation },
+        }]));
+    }
+
+    #[test]
+    fn stale_generation_against_live_app_is_refused() {
+        let mut host = host_of(vec![headless()]);
+        ready_local_bash(&mut host.windows[0]);
+        let window = host.windows[0].process_window_id().0;
+        // The live surface was captured at generation 5, then recreated: the
+        // live App now presents generation 6. The registry still says 5.
+        host.windows[0].set_wayland_surface_present_for_test(true);
+        host.windows[0].set_surface_generation_for_test(6);
+        stale_registry_for(&mut host, window, 5);
+        // Routing reads live App (generation 6), so the generation-5 capture is
+        // stale and refused - even though the stale registry still lists 5.
+        assert!(!host.wayland_surface_is_current(window, 5));
+        assert!(host.wayland_surface_is_current(window, 6));
+        host.route_wayland_file_drop(window, 5, vec![std::path::PathBuf::from("/tmp/stale")]);
+        assert!(
+            host.windows[0].pending_file_drop_len_for_test().is_none(),
+            "a stale-generation drop inserts nothing even with a stale registry"
+        );
+    }
+
+    #[test]
+    fn disappeared_presentation_is_refused() {
+        let mut host = host_of(vec![headless()]);
+        ready_local_bash(&mut host.windows[0]);
+        let window = host.windows[0].process_window_id().0;
+        // The surface was destroyed (window hidden) after Enter; the registry
+        // still lists the old incarnation, but the live App has no surface.
+        host.windows[0].set_wayland_surface_present_for_test(false);
+        host.windows[0].set_surface_generation_for_test(5);
+        stale_registry_for(&mut host, window, 5);
+        assert!(
+            !host.wayland_surface_is_current(window, 5),
+            "a drop whose live surface has disappeared is refused"
+        );
+        host.route_wayland_file_drop(window, 5, vec![std::path::PathBuf::from("/tmp/gone")]);
+        assert!(
+            host.windows[0].pending_file_drop_len_for_test().is_none(),
+            "a drop against a disappeared surface inserts nothing"
+        );
+    }
+
+    #[test]
+    fn closed_window_drop_is_refused() {
+        let mut host = host_of(vec![headless()]);
+        ready_local_bash(&mut host.windows[0]);
+        host.windows[0].set_wayland_surface_present_for_test(true);
+        host.windows[0].set_surface_generation_for_test(4);
+        let live_window = host.windows[0].process_window_id().0;
+        // A drop captured for a window id that is not among the live windows
+        // (closed since Enter) has no live match and is refused.
+        let closed_window = live_window.wrapping_add(1);
+        stale_registry_for(&mut host, closed_window, 4);
+        assert!(!host.wayland_surface_is_current(closed_window, 4));
+        host.route_wayland_file_drop(closed_window, 4, vec![std::path::PathBuf::from("/tmp/x")]);
+        assert!(host.windows[0].pending_file_drop_len_for_test().is_none());
+    }
+
+    #[test]
+    fn live_matching_incarnation_is_inserted() {
+        let mut host = host_of(vec![headless()]);
+        ready_local_bash(&mut host.windows[0]);
+        let window = host.windows[0].process_window_id().0;
+        host.windows[0].set_wayland_surface_present_for_test(true);
+        host.windows[0].set_surface_generation_for_test(3);
+        // Registry is empty/stale on purpose; routing depends only on live App.
+        host.wayland_surface_registry = Some(registry_with(vec![]));
+        assert!(host.wayland_surface_is_current(window, 3));
+        host.route_wayland_file_drop(window, 3, vec![std::path::PathBuf::from("/tmp/ok")]);
+        let pending = host.windows[0]
+            .pending_file_drop_len_for_test()
+            .expect("a current-generation drop is inserted under preview");
+        assert_eq!(pending.1, 1);
+    }
 }

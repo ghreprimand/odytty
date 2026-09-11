@@ -973,7 +973,11 @@ open. Native path drops use confirm-first
 shell-aware insertion only when an eligible local Unix launch shell still owns
 the PTY foreground group, is its sole process, and has a matching current
 executable. ConPTY provides no equivalent authority, so Windows insertion is
-refused. The
+refused. On Wayland, winit emits no drop event, so a companion non-owning
+`wl_data_device` on winit's display supplies one, accepting only the Copy
+action and only on compositors that honor destination action negotiation; it
+is not started on Hyprland, which cannot negotiate copy safely and is shown an
+actionable limitation notice. The
 [v0.15.0 ownership and platform contracts](docs/v0.15.0-foundation.md) record
 the exact implemented and remaining boundaries.
 

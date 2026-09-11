@@ -98,6 +98,13 @@ rustix = { version = "1.1.4", features = ["pipe", "pty", "termios", "process"] }
 # no new compiled surface. macOS (also unix) is excluded: its backend is Carbon.
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.13", default-features = false }
+# v0.15.0 C native Wayland file drop: a second, NON-owning `wl_data_device`
+# on a foreign connection sharing winit's live `wl_display`. winit's Wayland
+# backend already links `wayland-client` at this exact 0.31.14 line, so this
+# direct entry pulls no new crate; the `system` feature exposes
+# `Backend::from_foreign_display`. Linux-only (macOS backend is Cocoa); X11,
+# macOS, and Windows keep their existing winit file-drop event paths.
+wayland-client = { version = "0.31.14", features = ["system"] }
 
 # Linux-only: the Wayland global-shortcut backend for the quick terminal
 # (`src/native/quick_terminal/wayland.rs`, v0.15.0 A). Wayland denies apps a

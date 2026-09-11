@@ -616,6 +616,14 @@ impl App {
             // process host (`MultiWindowHost::user_event`) before routing, so a
             // window never sees it. Defensive no-op to keep the match exhaustive.
             UserEvent::QuickTerminalRegistration { .. } => false,
+            // v0.15.0 C: a native Wayland file drop is routed by the process
+            // host (`MultiWindowHost::user_event`) to the window under the drop
+            // before reaching a window, so an App never dispatches it here.
+            // Defensive no-op to keep the match exhaustive on every platform.
+            UserEvent::WaylandFileDrop { .. }
+            | UserEvent::WaylandFileDropRejected
+            | UserEvent::WaylandFileDropUnavailable
+            | UserEvent::WaylandFileDropFailed => false,
         }
     }
 
@@ -934,6 +942,17 @@ impl App {
                 .create_window(attributes)
                 .map_err(|err| NativeError::WindowCreation(err.to_string()))?,
         );
+        // v0.15.0 C: this native surface is a fresh incarnation. Advance the
+        // window's surface generation NOW, at the actual creation transition, so
+        // the host's file-drop surface registry never carries a stale generation
+        // for a recreated surface (even one that reuses a `wl_surface` address).
+        #[cfg(target_os = "linux")]
+        {
+            self.surface_generation = crate::native::window_owner::next_surface_generation()
+                .ok_or_else(|| {
+                    NativeError::WindowCreation("surface generation space exhausted".to_owned())
+                })?;
+        }
 
         // IME: allow composition input (CJK input methods, compose/dead-key
         // accents) to deliver `Ime::Preedit`/`Ime::Commit` events. Without this

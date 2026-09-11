@@ -115,6 +115,79 @@ impl App {
         self.process_window_id
     }
 
+    /// This window's current Wayland `wl_surface` proxy pointer, when it has a
+    /// live Wayland window (v0.15.0 C). Used by the host to route a native
+    /// Wayland file drop to the window under the drop; a pointer with no match
+    /// is a stale surface and the drop is dropped. `None` on X11/other backends
+    /// and before the window exists. Linux only.
+    #[cfg(target_os = "linux")]
+    pub(in crate::native) fn wayland_surface_ptr(&self) -> Option<u64> {
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let window = self.window.as_ref()?;
+        match window.window_handle().ok()?.as_raw() {
+            RawWindowHandle::Wayland(handle) => Some(handle.surface.as_ptr() as u64),
+            _ => None,
+        }
+    }
+
+    /// This window's current native surface incarnation (v0.15.0 C). Advanced by
+    /// `try_resume_presentation` at each surface creation, so a hide/recreate
+    /// that reuses a `wl_surface` address still reports a NEW generation. The
+    /// host publishes `(process_window_id, ptr, generation)` and validates the
+    /// generation at drop delivery for ABA-safe routing. Linux only.
+    #[cfg(target_os = "linux")]
+    pub(in crate::native) fn wayland_surface_generation(&self) -> u64 {
+        self.surface_generation
+    }
+
+    /// Whether THIS live window currently presents surface incarnation
+    /// `generation` (v0.15.0 C). Reads the actual App state: the
+    /// window must have a live `wl_surface` right now AND its current
+    /// generation must equal the captured one. This is the authority at drop
+    /// delivery - NOT the shared registry, which the listener populates at
+    /// Enter and may lag a hide/recreate that happened before the next surface
+    /// reconciliation. A drop captured against a since-destroyed surface (ptr
+    /// gone) or a since-recreated surface (generation advanced) is refused.
+    /// Linux only.
+    #[cfg(target_os = "linux")]
+    pub(in crate::native) fn wayland_surface_matches(&self, generation: u64) -> bool {
+        #[cfg(test)]
+        if let Some(present) = self.wayland_surface_present_for_test {
+            return present && self.surface_generation == generation;
+        }
+        self.wayland_surface_ptr().is_some() && self.surface_generation == generation
+    }
+
+    /// Test-only: set this window's current surface incarnation without a real
+    /// surface create. Pairs with `set_wayland_surface_present_for_test` so a
+    /// headless test can exercise live-state drop routing. Linux tests.
+    #[cfg(all(test, target_os = "linux"))]
+    pub(in crate::native) fn set_surface_generation_for_test(&mut self, generation: u64) {
+        self.surface_generation = generation;
+    }
+
+    /// Test-only: override the live `wl_surface` presence check used by
+    /// `wayland_surface_matches`. `true` models a present surface, `false` a
+    /// destroyed/hidden one. Linux tests.
+    #[cfg(all(test, target_os = "linux"))]
+    pub(in crate::native) fn set_wayland_surface_present_for_test(&mut self, present: bool) {
+        self.wayland_surface_present_for_test = Some(present);
+    }
+
+    /// This window's Wayland `wl_display` proxy pointer, when running on the
+    /// Wayland backend (v0.15.0 C). The display is process-wide, so the host
+    /// starts the single native file-drop listener against the first window
+    /// that reports one. `None` on X11/other backends. Linux only.
+    #[cfg(target_os = "linux")]
+    pub(in crate::native) fn wayland_display_ptr(&self) -> Option<u64> {
+        use winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+        let window = self.window.as_ref()?;
+        match window.display_handle().ok()?.as_raw() {
+            RawDisplayHandle::Wayland(handle) => Some(handle.display.as_ptr() as u64),
+            _ => None,
+        }
+    }
+
     /// A short human label for this window in the merge target picker: the
     /// active tab title, falling back to the window title. Presentation only;
     /// carries no session-sensitive content beyond the visible tab name.

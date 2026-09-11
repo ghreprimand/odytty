@@ -83,7 +83,14 @@ CI, packaging, and publication remain open. No release claim.
       Three-platform and hands-on acceptance remain open.
 - [x] Confirm-first native file-drop path insertion on eligible local Unix panes
       through the shipped paste policy; Windows refuses with an explicit platform
-      notice. Device delivery on X11, Wayland, macOS, and Windows remains open.
+      notice. Native Wayland delivery is implemented through a companion
+      non-owning `wl_data_device` on winit's display (Copy action only, bounded
+      `text/uri-list`, same confirm-first quoting path, surface-generation
+      routing). It is limited to compositors that honor destination copy
+      negotiation; it is NOT started on Hyprland (which ignores the negotiation
+      and can signal completion on offer release), which shows an actionable
+      notice instead. X11/macOS/Windows keep their existing winit drop events.
+      Real-device delivery acceptance per compositor remains open.
 - [x] Keyboard window merge and pull with stable target identities, in-window
       numerals, and atomic live-session transfer (unit-evidenced). Hands-on
       acceptance remains open.

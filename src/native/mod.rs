@@ -108,6 +108,12 @@ mod theme_builder;
 mod theme_picker;
 mod viewport;
 mod watchdog;
+/// Native Wayland external file drop (v0.15.0 C). Linux only: winit's
+/// Wayland backend emits no drop event, so a second non-owning
+/// `wl_data_device` on winit's display supplies it. X11/macOS/Windows keep
+/// their existing winit drop paths.
+#[cfg(target_os = "linux")]
+mod wayland_file_drop;
 mod window_icon;
 mod window_owner;
 mod workspace_picker;
@@ -364,6 +370,12 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // before configure so the first registration can use it.
     host.set_quick_summon_proxy(event_loop.create_proxy());
     host.set_automation_proxy(event_loop.create_proxy());
+    // v0.15.0 C: give the host a proxy the native Wayland file-drop listener
+    // uses to deliver drops from its own thread. The listener itself is started
+    // after readiness (never on the startup path) and only on the Wayland
+    // backend; X11/macOS/Windows keep their existing winit drop events.
+    #[cfg(target_os = "linux")]
+    host.set_wayland_drop_proxy(event_loop.create_proxy());
     // v0.15.0 A: activate the quick-terminal lifecycle from settings. It is
     // OFF by default (opt-in), so this registers no global shortcut and creates
     // no dedicated window - startup readiness and the default window path are

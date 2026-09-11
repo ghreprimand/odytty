@@ -221,8 +221,15 @@ matches that shell family. Remote and attached panes refuse local paths. Open
 overlays refuse with `Close the current dialog before dropping files.` Windows
 refuses insertion with
 `File drop insertion is not available on Windows in this version. Copy the path manually.`
-because ConPTY exposes no foreground-process-group authority. Real-device drop
-delivery remains open acceptance evidence. See
+because ConPTY exposes no foreground-process-group authority. On Wayland,
+winit emits no drop event, so a companion non-owning `wl_data_device` on
+winit's display supplies it, accepting the Copy action only. Delivery needs a
+compositor that honors destination action negotiation; where a copy is never
+confirmed the path is not inserted and an actionable notice is shown. On
+Hyprland the listener is not started (it ignores the negotiation and can
+signal completion on offer release), and the notice explains the limitation.
+X11, macOS, and Windows keep their existing winit drop events. Real-device
+drop acceptance per compositor remains open evidence. See
 [Paste Safety](#paste-safety) and the
 [v0.15.0 contracts](v0.15.0-foundation.md#file-drop-insertion).
 

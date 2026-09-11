@@ -258,8 +258,11 @@ The same unreleased line now carries unit-evidenced quick-terminal lifecycle and
 shortcut adapters; opt-in structural automation on Linux/macOS owner-private
 sockets and a Windows owner-DACL named pipe (busy/unavailable/listener-fault
 contracts, fail-closed Unix quick-terminal toggle discovery, and hostile-client
-suites); confirm-first Unix file-drop insertion with
-an explicit Windows refusal; and keyboard-first window merge/pull with in-window
+suites); confirm-first Unix file-drop insertion, now including native Wayland
+drop delivery through a companion data device on compositors that honor copy
+action negotiation (not started on Hyprland, which cannot negotiate it safely;
+an actionable notice explains the limit), with an explicit Windows refusal;
+and keyboard-first window merge/pull with in-window
 numerals. Native Wayland quick-terminal hide/summon has passed on Hyprland,
 retaining tabs and stable identities across surface recreation. Broader device
 acceptance, blocking release CI, packaging, and publication remain open.

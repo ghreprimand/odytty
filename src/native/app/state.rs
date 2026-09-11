@@ -368,6 +368,18 @@ pub(in crate::native) struct App {
     /// through cross-window operations that do not exist until a second window
     /// opens.
     pub(super) process_window_id: crate::native::window_owner::ProcessWindowId,
+    /// v0.15.0 C: monotonic incarnation of THIS window's native Wayland surface,
+    /// bumped in `try_resume_presentation` each time the surface is (re)created
+    /// and read by the host to publish the ABA-safe file-drop surface registry.
+    /// 0 before the first surface exists. Linux/Wayland only.
+    #[cfg(target_os = "linux")]
+    pub(super) surface_generation: u64,
+    /// Test-only override for live Wayland surface presence, since a headless
+    /// test App has no winit surface. When `Some`, `wayland_surface_matches`
+    /// uses it in place of the real `wl_surface` presence check so routing can
+    /// be exercised against live App state without a compositor. Linux tests.
+    #[cfg(all(test, target_os = "linux"))]
+    pub(super) wayland_surface_present_for_test: Option<bool>,
     /// v0.15.0 D keyboard window merge seam: a captured request to open the
     /// merge target picker in a direction, set when the user picks "Merge this
     /// window into..." / "Pull window ... into this one" from the command
@@ -674,6 +686,10 @@ impl App {
             // than aliasing a live window's identity.
             process_window_id: crate::native::window_owner::next_window_id()
                 .expect("ProcessWindowId space exhausted (2^64 windows); refusing to reuse an id"),
+            #[cfg(target_os = "linux")]
+            surface_generation: 0,
+            #[cfg(all(test, target_os = "linux"))]
+            wayland_surface_present_for_test: None,
             pending_merge_picker: None,
             sibling_window_count: 0,
             merge_numeral: None,

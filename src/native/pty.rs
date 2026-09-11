@@ -61,6 +61,44 @@ pub(super) enum UserEvent {
         generation: u64,
         outcome: super::quick_terminal::ShortcutRegistration,
     },
+    /// v0.15.0 C: an external OS file drop arrived on a winit-owned Wayland
+    /// surface, delivered by the native Wayland listener thread (winit's own
+    /// backend emits no drop event on Wayland). The captured window identity
+    /// and surface generation are checked against live presentation state before
+    /// routing; a hidden, closed, or recreated destination refuses the drop.
+    /// `paths` are the scheme-validated, in-order local paths parsed from the
+    /// `text/uri-list` payload; they flow through the same
+    /// [`crate::native::app::App::queue_file_drop`] confirm-first/quoting path
+    /// as a winit drop. Constructed only on Linux.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    WaylandFileDrop {
+        /// `ProcessWindowId` raw value captured at Enter; the host routes by it.
+        window: u64,
+        /// Surface incarnation captured at Enter; the host refuses the drop if
+        /// the window's surface has since been recreated (ABA-safe routing).
+        generation: u64,
+        paths: Vec<std::path::PathBuf>,
+    },
+    /// v0.15.0 C: a native Wayland `text/uri-list` drop was engaged but could
+    /// not be completed safely (the compositor did not confirm a copy action).
+    /// The host raises an actionable notice reporting the observable failure.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    WaylandFileDropRejected,
+    /// v0.15.0 C: the native Wayland file-drop listener could not start or find
+    /// the data-device v3 negotiation it needs in this session, so external
+    /// file drop is unavailable here. Distinct from a per-drop rejection: it
+    /// reports the FEATURE is inert, not that one drop failed. The host raises
+    /// a one-shot actionable notice.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    WaylandFileDropUnavailable,
+    /// v0.15.0 C: a native Wayland drop NEGOTIATED a copy action, but the data
+    /// transfer itself did not complete (deadline reached, payload exceeded the
+    /// size cap, or the receive pipe errored). Distinct from
+    /// `WaylandFileDropRejected`: the compositor DID negotiate correctly, so the
+    /// notice must NOT blame copy negotiation. The host raises a one-shot
+    /// generic transfer-failure notice.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    WaylandFileDropFailed,
 }
 
 impl UserEvent {
@@ -78,7 +116,11 @@ impl UserEvent {
             UserEvent::CommandExportDestination { .. }
             | UserEvent::QuickTerminalSummon
             | UserEvent::AutomationWake
-            | UserEvent::QuickTerminalRegistration { .. } => None,
+            | UserEvent::QuickTerminalRegistration { .. }
+            | UserEvent::WaylandFileDrop { .. }
+            | UserEvent::WaylandFileDropRejected
+            | UserEvent::WaylandFileDropUnavailable
+            | UserEvent::WaylandFileDropFailed => None,
         }
     }
 

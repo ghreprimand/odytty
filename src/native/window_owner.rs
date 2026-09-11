@@ -63,6 +63,40 @@ pub(in crate::native) fn next_window_id() -> Option<ProcessWindowId> {
         .map(ProcessWindowId)
 }
 
+/// Process-monotonic surface-incarnation counter. Bumped every time a window
+/// actually creates its native surface (see `App::try_resume_presentation`), so
+/// each surface incarnation carries a value that is NEVER reused for the process
+/// lifetime, even when the platform hands back a recycled `wl_surface` address.
+/// v0.15.0 C uses it to make native Wayland file-drop routing ABA-safe: a drop
+/// captured against generation N is refused once the window's live surface has
+/// advanced to a later generation. Starts at 0 so 0 can mean "no surface yet";
+/// the first minted generation is 1.
+#[cfg(target_os = "linux")]
+static NEXT_SURFACE_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Mint the next process-monotonic surface generation (>= 1), or `None` once the
+/// generation space is exhausted. Like [`next_window_id`], this advances with a
+/// checked `fetch_update` and REFUSES rather than wrapping: a wrapping
+/// `fetch_add` would reissue `0` after `u64::MAX` bumps and alias a live
+/// surface's generation, and saturating the RETURNED value does not stop that
+/// because the stored atomic still wraps. The ceiling needs 2^64 surface
+/// creations and is physically unreachable, so the caller at the surface-creation
+/// boundary treats `None` as an unreachable fail-closed error rather than a case
+/// to recover from.
+#[cfg(target_os = "linux")]
+pub(in crate::native) fn next_surface_generation() -> Option<u64> {
+    // `fetch_update` stores `cur + 1` and returns the PREVIOUS `cur`; adding 1 to
+    // that yields the minted generation (first mint: cur 0 -> stored 1 -> return
+    // Some(1)). `checked_add` on the stored value fails closed at the ceiling so
+    // the atomic never wraps and no generation is ever reissued.
+    NEXT_SURFACE_GENERATION
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
+            cur.checked_add(1)
+        })
+        .ok()
+        .map(|prev| prev + 1)
+}
+
 /// The session-token range each sibling window owns. A window allocates session
 /// tokens sequentially from its base ([`WorkspaceSet`] `next_token`); the next
 /// window's base is one stride higher, so two windows' token ranges never
