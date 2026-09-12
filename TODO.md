@@ -90,13 +90,15 @@ CI, packaging, and publication remain open. No release claim.
       non-owning `wl_data_device` on winit's display (Copy action only, bounded
       `text/uri-list`, same confirm-first quoting path, surface-generation
       routing). It is limited to compositors that honor destination copy
-      negotiation; it is NOT started on Hyprland (which ignores the negotiation
-      and can signal completion on offer release), which shows an actionable
-      notice instead. X11/macOS/Windows keep their existing winit drop events
-      (one path per `DroppedFile`; overflow stays refused until cancel or
-      focus-loss). Native Wayland uri-list overflow refuses the whole gesture
-      and does not restart on leftover files. Real-device delivery
-      acceptance per compositor remains open.
+      negotiation; it is NOT started when `HYPRLAND_INSTANCE_SIGNATURE` is set
+      (Hyprland ignores the negotiation and can signal completion on offer
+      release), which shows an actionable notice instead. X11/macOS/Windows keep
+      their existing winit drop events (one path per `DroppedFile`; overflow
+      stays refused until cancel or focus-loss). Native Wayland uri-list overflow
+      refuses the whole gesture; a later uri-list may start fresh. Nested-KWin
+      and native-Hyprland gate evidence is recorded in
+      docs/acceptance/v0.15.0.md; additional compositor and OS device acceptance
+      remain open.
 - [x] Keyboard window merge and pull with stable target identities, in-window
       numerals, and atomic live-session transfer (unit-evidenced). Hands-on
       acceptance remains open.

@@ -831,17 +831,22 @@ Three prohibitions apply to every boundary below:
   shell, remote or attached pane, overlay, over-cap batch, or unsupported
   encoding refuses. Windows refuses path insertion with an explicit
   platform-unsupported notice because ConPTY has no foreground-group
-  equivalent. Native Wayland delivers one `text/uri-list` collection, so an
-  over-cap drop refuses the whole gesture. X11, macOS, and Windows still see
-  one `DroppedFile` per path; overflow stays refused until cancel or focus-loss
-  rather than opening a leftover preview. Real-device drop delivery remains
-  open acceptance evidence.
-- **Validation and caps:** bound the number and encoded length of paths before
-  building preview text. Quoters are argv/text transformations with synthetic
-  tests for Bash, Zsh, Fish, PowerShell, Windows drive paths, and UNC paths.
+  equivalent. On Wayland, winit emits no drop event; a companion non-owning
+  `wl_data_device` supplies delivery on compositors that honor copy negotiation.
+  When `HYPRLAND_INSTANCE_SIGNATURE` is set the listener is not started and an
+  actionable notice is shown instead. Native Wayland delivers one
+  `text/uri-list` collection, so an over-cap drop (more than 128 files or
+  256 KiB of path bytes) refuses the whole gesture; a later uri-list may start
+  a fresh transaction. X11, macOS, and Windows still see one `DroppedFile` per
+  path; overflow stays refused until cancel or focus-loss rather than opening a
+  leftover preview. Additional OS and compositor device acceptance remain open.
+- **Validation and caps:** cap collections at 128 paths and 256 KiB of path
+  bytes before building preview text. Quoters are argv/text transformations with
+  synthetic tests for Bash, Zsh, Fish, PowerShell, Windows drive paths, and UNC
+  paths.
 - **Failure behavior:** unknown shell, invalid path encoding, over-cap input,
-  focus change, or cancellation writes nothing. Copy-to-clipboard may be
-  offered as a separate explicit action.
+  focus change, or cancellation writes nothing. The confirm dialog offers Paste
+  or Cancel only.
 - **Privacy:** dropped paths are not logged, restored, included in workspace
   metadata, or exposed through notifications. File contents are never read by
   the drop path.

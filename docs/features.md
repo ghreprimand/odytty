@@ -200,9 +200,10 @@ refuse local paths, and
 Windows refuses insertion because ConPTY exposes no equivalent foreground-group
 authority. External text-drop and automation-paste functions remain reserved
 entry points with test coverage, not live user input routes: `winit` delivers
-`DroppedFile(PathBuf)` for native paths on Linux, macOS, and Windows, but no
-text-drop window event. Backend delivery still requires per-platform hands-on
-validation. The v0.15.0
+`DroppedFile(PathBuf)` for native paths on X11, macOS, and Windows, but no
+text-drop window event. On Wayland, winit emits no drop event; a companion
+non-owning `wl_data_device` supplies path delivery instead. Backend delivery
+still requires per-platform hands-on validation. The v0.15.0
 automation protocol exposes no input operation. See the
 [development boundaries](v0.15.0-foundation.md). The setting can be changed through
 Settings, `warn_on_risky_paste` in `odytty.conf`, or
@@ -226,12 +227,16 @@ winit emits no drop event, so a companion non-owning `wl_data_device` on
 winit's display supplies it, accepting the Copy action only. Delivery needs a
 compositor that honors destination action negotiation; where a copy is never
 confirmed the path is not inserted and an actionable notice is shown. On
-Hyprland the listener is not started (it ignores the negotiation and can
-signal completion on offer release), and the notice explains the limitation.
-X11, macOS, and Windows keep their existing winit drop events. Real-device
-drop acceptance per compositor remains open evidence. A native Wayland
+Hyprland the listener is not started when `HYPRLAND_INSTANCE_SIGNATURE` is
+set (Hyprland ignores the negotiation and can signal completion on offer
+release), and the notice explains the limitation.
+X11, macOS, and Windows keep their existing winit drop events. Nested-KWin and
+native-Hyprland gate evidence is recorded in
+[acceptance/v0.15.0.md](acceptance/v0.15.0.md); additional compositor and OS
+device acceptance remain open. A native Wayland
 `text/uri-list` is one bounded collection: more than 128 files or 256 KiB of
 path bytes refuses the whole gesture and does not leave a leftover confirm.
+A later Wayland uri-list may start a fresh transaction after that refusal.
 X11, macOS, and Windows still see one `DroppedFile` per path, so overflow stays
 refused until cancel or focus-loss; leftover events do not open a fresh
 preview. See

@@ -980,10 +980,10 @@ executable. ConPTY provides no equivalent authority, so Windows insertion is
 refused. On Wayland, winit emits no drop event, so a companion non-owning
 `wl_data_device` on winit's display supplies one, accepting only the Copy
 action and only on compositors that honor destination action negotiation; it
-is not started on Hyprland, which cannot negotiate copy safely and is shown an
+is not started when `HYPRLAND_INSTANCE_SIGNATURE` is set, and Hyprland shows an
 actionable limitation notice. A Wayland `text/uri-list` is one bounded
-collection: overflow refuses the whole gesture rather than restarting on
-leftover files. Per-file `DroppedFile` on X11, macOS, and Windows has no OS
+collection: overflow refuses the whole gesture; a later uri-list may start a
+fresh transaction. Per-file `DroppedFile` on X11, macOS, and Windows has no OS
 transaction, so overflow stays refused until cancel or focus-loss. The
 [v0.15.0 ownership and platform contracts](docs/v0.15.0-foundation.md) record
 the exact implemented and remaining boundaries.

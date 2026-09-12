@@ -32,9 +32,10 @@
 //! Compositor support is NOT universal. Delivery relies on destination-side
 //! action negotiation (Wayland data-device v3). A compositor that ignores
 //! `wl_data_offer.set_actions` leaves the action at the source default, so a
-//! Copy drop cannot be confirmed. The host does not activate this listener on
-//! Hyprland (see `MultiWindowHost::service_wayland_file_drop`), whose data-device
-//! also signals completion on offer destruction; that combination has no
+//! Copy drop cannot be confirmed. The host does not activate this listener when
+//! `HYPRLAND_INSTANCE_SIGNATURE` is set (see
+//! `MultiWindowHost::service_wayland_file_drop`); Hyprland's data-device also
+//! signals completion on offer destruction, so that combination has no
 //! demonstrated-safe policy and is a tracked limitation, not a universal claim.
 //!
 //! X11, macOS, and Windows keep their existing winit file-drop event paths.

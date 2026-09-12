@@ -349,12 +349,12 @@ impl MultiWindowHost {
     /// shares winit's live `wl_display` and is stopped before the display is
     /// released (see the `exiting` hook and the module-level teardown ordering).
     ///
-    /// It is NOT activated on Hyprland: that compositor ignores destination
-    /// `wl_data_offer.set_actions` (so a copy action is never confirmed) and its
-    /// data-device signals completion on offer destruction, a combination with
-    /// no demonstrated-safe policy. In that case an actionable notice is raised
-    /// once instead. A no-op off Wayland, without a proxy, or after the one-shot
-    /// start. Linux only.
+    /// It is NOT activated when `HYPRLAND_INSTANCE_SIGNATURE` is set: Hyprland
+    /// ignores destination `wl_data_offer.set_actions` (so a copy action is never
+    /// confirmed) and its data-device signals completion on offer destruction, a
+    /// combination with no demonstrated-safe policy. In that case an actionable
+    /// notice is raised once instead. A no-op off Wayland, without a proxy, or
+    /// after the one-shot start. Linux only.
     #[cfg(target_os = "linux")]
     fn service_wayland_file_drop(&mut self) {
         if self.wayland_drop_started || !self.first_usable_frame_ready() {
