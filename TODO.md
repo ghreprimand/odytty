@@ -92,8 +92,11 @@ CI, packaging, and publication remain open. No release claim.
       routing). It is limited to compositors that honor destination copy
       negotiation; it is NOT started on Hyprland (which ignores the negotiation
       and can signal completion on offer release), which shows an actionable
-      notice instead. X11/macOS/Windows keep their existing winit drop events.
-      Real-device delivery acceptance per compositor remains open.
+      notice instead. X11/macOS/Windows keep their existing winit drop events
+      (one path per `DroppedFile`; overflow stays refused until cancel or
+      focus-loss). Native Wayland uri-list overflow refuses the whole gesture
+      and does not restart on leftover files. Real-device delivery
+      acceptance per compositor remains open.
 - [x] Keyboard window merge and pull with stable target identities, in-window
       numerals, and atomic live-session transfer (unit-evidenced). Hands-on
       acceptance remains open.

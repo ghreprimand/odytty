@@ -482,10 +482,12 @@ impl MultiWindowHost {
     }
 
     /// v0.15.0 C: route a validated native Wayland file drop to the window whose
-    /// current surface incarnation matches the one captured at Enter, inserting
-    /// each path through the same confirm-first/quoting/authority path as a winit
-    /// drop. A stale incarnation (surface recreated, or window hidden/closed
-    /// between the drop and this turn) is dropped without insertion. Linux only.
+    /// current surface incarnation matches the one captured at Enter. The whole
+    /// `text/uri-list` is one bounded collection through the same confirm-first
+    /// quoting and authority path as a winit drop; overflow refuses the gesture
+    /// rather than restarting on leftover files. A stale incarnation (surface
+    /// recreated, or window hidden/closed between the drop and this turn) is
+    /// dropped without insertion. Linux only.
     #[cfg(target_os = "linux")]
     fn route_wayland_file_drop(
         &mut self,
@@ -493,6 +495,9 @@ impl MultiWindowHost {
         generation: u64,
         paths: Vec<std::path::PathBuf>,
     ) {
+        if paths.is_empty() {
+            return;
+        }
         if !self.wayland_surface_is_current(window, generation) {
             return;
         }
@@ -503,9 +508,7 @@ impl MultiWindowHost {
         else {
             return;
         };
-        for path in paths {
-            self.windows[idx].queue_file_drop(path);
-        }
+        self.windows[idx].queue_file_drop_batch(paths);
     }
 
     /// Raise the one-shot actionable notice for the native Wayland drop

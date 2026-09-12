@@ -69,10 +69,16 @@ impl App {
     /// leaves stale pending state behind. Reconcile at the shared event entry
     /// and at the next drop so no later event can extend or commit it.
     pub(super) fn reconcile_displaced_pending_paste(&mut self) {
-        if (self.pending_text_paste.is_some() || self.pending_file_drop.is_some())
-            && !self.overlay.is_risky_paste()
-        {
-            self.cancel_pending_text_paste();
+        if !self.overlay.is_risky_paste() {
+            if self.pending_text_paste.is_some() {
+                self.cancel_pending_text_paste();
+            } else if self
+                .pending_file_drop
+                .as_ref()
+                .is_some_and(|(_, batch)| !batch.is_rejected())
+            {
+                self.cancel_file_drop();
+            }
         }
     }
 

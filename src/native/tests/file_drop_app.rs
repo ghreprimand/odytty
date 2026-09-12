@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! App-route file-drop regressions through the paste confirmation authority.
 //!
-//! Native drops have no OS batch boundary: paths accumulate in the preview
-//! until explicit accept or cancel. Headless uses `set_file_drop_shell_for_test`
+//! Native per-file drops have no OS batch boundary: paths accumulate in the
+//! preview until explicit accept or cancel. Native Wayland delivers one
+//! `text/uri-list` event and uses `queue_file_drop_batch_for_test` so overflow
+//! refuses the whole gesture. Headless uses `set_file_drop_shell_for_test`
 //! after remote/foreground checks; production Local/Attached paths are unchanged.
 
 use super::*;
@@ -241,7 +243,14 @@ fn file_drop_whole_collection_overflow_rejects_without_prefix_write() {
         !app.risky_paste_pending_for_test(),
         "overflow must drop the preview rather than keep a prefix"
     );
-    assert!(app.pending_file_drop_len_for_test().is_none());
+    assert!(
+        app.file_drop_rejected_for_test(),
+        "overflow must latch until cancel rather than dropping the collection"
+    );
+    assert_eq!(
+        app.pending_file_drop_len_for_test().map(|(_, n)| n),
+        Some(0)
+    );
     assert!(bytes.lock().expect("overflow").is_empty());
     let notice = app
         .open_notice_message_for_test()
@@ -250,6 +259,13 @@ fn file_drop_whole_collection_overflow_rejects_without_prefix_write() {
         notice.contains("128") || notice.to_ascii_lowercase().contains("fewer"),
         "notice={notice}"
     );
+    app.queue_file_drop_for_test(PathBuf::from("/tmp/f129.txt"));
+    assert!(
+        !app.risky_paste_pending_for_test(),
+        "a later per-file event must not restart with leftover files"
+    );
+    assert!(app.file_drop_rejected_for_test());
+    assert!(bytes.lock().expect("remainder").is_empty());
 }
 
 #[test]
@@ -315,7 +331,11 @@ fn file_drop_byte_overflow_cancels_whole_batch_without_prefix_write() {
     let oversized = PathBuf::from(format!("/{}", "z".repeat(256 * 1024)));
     app.queue_file_drop_for_test(oversized);
     assert!(!app.risky_paste_pending_for_test());
-    assert!(app.pending_file_drop_len_for_test().is_none());
+    assert!(app.file_drop_rejected_for_test());
+    assert_eq!(
+        app.pending_file_drop_len_for_test().map(|(_, n)| n),
+        Some(0)
+    );
     assert!(bytes.lock().expect("byte overflow").is_empty());
     let notice = app
         .open_notice_message_for_test()
@@ -345,13 +365,100 @@ fn file_drop_ten_thousand_events_never_write_and_never_exceed_cap() {
             "a 10_000-path flood must never auto-insert; event {i}"
         );
     }
-    // Overflow clears the collection; later events may open a fresh in-budget
-    // preview, but still require explicit confirm and must not have written.
+    // Overflow latches the rejected collection. Later per-file events must not
+    // open a leftover preview; the only clears are cancel, focus-loss, or a
+    // fresh Wayland uri-list.
     assert!(bytes.lock().expect("final").is_empty());
-    if let Some((_, len)) = app.pending_file_drop_len_for_test() {
-        assert!(len <= 128);
-        app.cancel_risky_paste_for_test();
-    }
+    assert!(
+        !app.risky_paste_pending_for_test(),
+        "a 10_000-path flood must not restart an in-budget leftover preview"
+    );
+    assert!(app.file_drop_rejected_for_test());
+    app.cancel_risky_paste_for_test();
+    assert!(!app.file_drop_rejected_for_test());
+    app.queue_file_drop_for_test(PathBuf::from("/tmp/after-cancel"));
+    assert!(app.risky_paste_pending_for_test());
+    assert_eq!(
+        app.pending_file_drop_len_for_test().map(|(_, n)| n),
+        Some(1)
+    );
+    app.cancel_risky_paste_for_test();
+}
+
+#[test]
+fn file_drop_atomic_batch_overflow_does_not_restart_with_remainder() {
+    let (mut app, bytes, _) = drop_app();
+    ready_local_bash(&mut app);
+    let paths: Vec<PathBuf> = (0..130)
+        .map(|i| PathBuf::from(format!("/tmp/f{i}.txt")))
+        .collect();
+    app.queue_file_drop_batch_for_test(paths);
+    assert!(
+        !app.risky_paste_pending_for_test(),
+        "an oversized uri-list must not leave a leftover confirm"
+    );
+    assert!(app.file_drop_rejected_for_test());
+    assert_eq!(
+        app.pending_file_drop_len_for_test().map(|(_, n)| n),
+        Some(0)
+    );
+    assert!(bytes.lock().expect("overflow").is_empty());
+    let notice = app
+        .open_notice_message_for_test()
+        .expect("overflow shows a size notice");
+    assert!(
+        notice.contains("128") || notice.to_ascii_lowercase().contains("fewer"),
+        "notice={notice}"
+    );
+    app.queue_file_drop_batch_for_test(vec![PathBuf::from("/tmp/next-gesture.txt")]);
+    assert!(
+        app.risky_paste_pending_for_test(),
+        "a later Wayland uri-list is a fresh transaction and may start a new preview"
+    );
+    assert_eq!(
+        app.pending_file_drop_len_for_test().map(|(_, n)| n),
+        Some(1)
+    );
+    assert!(bytes.lock().expect("fresh gesture").is_empty());
+}
+
+#[test]
+fn file_drop_atomic_batch_byte_overflow_does_not_keep_prefix() {
+    let (mut app, bytes, _) = drop_app();
+    ready_local_bash(&mut app);
+    let paths = vec![
+        PathBuf::from("/tmp/kept-first"),
+        PathBuf::from(format!("/{}", "z".repeat(256 * 1024))),
+    ];
+    app.queue_file_drop_batch_for_test(paths);
+    assert!(!app.risky_paste_pending_for_test());
+    assert!(app.file_drop_rejected_for_test());
+    assert!(bytes.lock().expect("byte overflow").is_empty());
+    let notice = app
+        .open_notice_message_for_test()
+        .expect("byte overflow shows a size notice");
+    assert!(
+        notice.to_ascii_lowercase().contains("fewer")
+            || notice.contains("256")
+            || notice.contains("128"),
+        "notice={notice}"
+    );
+}
+
+#[test]
+fn file_drop_atomic_batch_at_cap_stays_under_preview() {
+    let (mut app, bytes, _) = drop_app();
+    ready_local_bash(&mut app);
+    let paths: Vec<PathBuf> = (0..128)
+        .map(|i| PathBuf::from(format!("/tmp/n{i}")))
+        .collect();
+    app.queue_file_drop_batch_for_test(paths);
+    assert!(app.risky_paste_pending_for_test());
+    assert_eq!(
+        app.pending_file_drop_len_for_test().map(|(_, n)| n),
+        Some(128)
+    );
+    assert!(bytes.lock().expect("held").is_empty());
 }
 
 #[test]

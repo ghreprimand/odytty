@@ -261,7 +261,9 @@ contracts, fail-closed Unix quick-terminal toggle discovery, and hostile-client
 suites); confirm-first Unix file-drop insertion, now including native Wayland
 drop delivery through a companion data device on compositors that honor copy
 action negotiation (not started on Hyprland, which cannot negotiate it safely;
-an actionable notice explains the limit), with an explicit Windows refusal;
+an actionable notice explains the limit; an oversized drop refuses the whole
+gesture and leftover files do not restart a preview), with an explicit Windows
+refusal;
 and keyboard-first window merge/pull with in-window
 numerals. Native Wayland quick-terminal hide/summon has passed on Hyprland,
 retaining tabs and stable identities across surface recreation. Broader device

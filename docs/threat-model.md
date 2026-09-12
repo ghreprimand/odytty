@@ -831,7 +831,11 @@ Three prohibitions apply to every boundary below:
   shell, remote or attached pane, overlay, over-cap batch, or unsupported
   encoding refuses. Windows refuses path insertion with an explicit
   platform-unsupported notice because ConPTY has no foreground-group
-  equivalent. Real-device drop delivery remains open acceptance evidence.
+  equivalent. Native Wayland delivers one `text/uri-list` collection, so an
+  over-cap drop refuses the whole gesture. X11, macOS, and Windows still see
+  one `DroppedFile` per path; overflow stays refused until cancel or focus-loss
+  rather than opening a leftover preview. Real-device drop delivery remains
+  open acceptance evidence.
 - **Validation and caps:** bound the number and encoded length of paths before
   building preview text. Quoters are argv/text transformations with synthetic
   tests for Bash, Zsh, Fish, PowerShell, Windows drive paths, and UNC paths.

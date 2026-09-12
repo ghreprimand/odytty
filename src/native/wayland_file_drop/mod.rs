@@ -21,7 +21,7 @@
 //! - URI bytes are bounded, the receive pipe is non-blocking and
 //!   deadline-bounded, offers are bounded, and the parser rejects non-`file:`
 //!   URIs, non-local authorities, query/fragment, malformed escapes, and NUL.
-//! - Parsed paths flow through [`crate::native::app::App::queue_file_drop`]
+//! - Parsed paths flow through [`crate::native::app::App::queue_file_drop_batch`]
 //!   exactly like a winit drop, so shell-aware quoting, the confirm-first
 //!   preview, and the foreground-group insertion authority are reused. Enter is
 //!   never appended.

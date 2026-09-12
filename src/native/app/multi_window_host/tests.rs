@@ -1037,4 +1037,77 @@ mod wayland_file_drop_routing {
             .expect("a current-generation drop is inserted under preview");
         assert_eq!(pending.1, 1);
     }
+
+    #[test]
+    fn oversized_wayland_batch_refuses_without_remainder_preview() {
+        let mut host = host_of(vec![headless()]);
+        ready_local_bash(&mut host.windows[0]);
+        let window = host.windows[0].process_window_id().0;
+        host.windows[0].set_wayland_surface_present_for_test(true);
+        host.windows[0].set_surface_generation_for_test(3);
+        host.wayland_surface_registry = Some(registry_with(vec![]));
+        let paths: Vec<_> = (0..130)
+            .map(|i| std::path::PathBuf::from(format!("/tmp/f{i}.txt")))
+            .collect();
+        host.route_wayland_file_drop(window, 3, paths);
+        assert!(
+            host.windows[0].file_drop_rejected_for_test(),
+            "an oversized Wayland uri-list must latch overflow rather than drop it"
+        );
+        assert_eq!(
+            host.windows[0]
+                .pending_file_drop_len_for_test()
+                .map(|(_, n)| n),
+            Some(0)
+        );
+        assert!(!host.windows[0].risky_paste_pending_for_test());
+        let notice = host.windows[0]
+            .open_notice_message_for_test()
+            .expect("TooLarge notice");
+        assert!(
+            notice.contains("128") || notice.to_ascii_lowercase().contains("fewer"),
+            "notice={notice}"
+        );
+        host.route_wayland_file_drop(
+            window,
+            3,
+            vec![std::path::PathBuf::from("/tmp/next-gesture.txt")],
+        );
+        assert!(
+            host.windows[0].risky_paste_pending_for_test(),
+            "a later Wayland uri-list is a fresh transaction"
+        );
+        assert_eq!(
+            host.windows[0]
+                .pending_file_drop_len_for_test()
+                .map(|(_, n)| n),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn oversized_wayland_path_bytes_refuse_without_prefix_preview() {
+        let mut host = host_of(vec![headless()]);
+        ready_local_bash(&mut host.windows[0]);
+        let window = host.windows[0].process_window_id().0;
+        host.windows[0].set_wayland_surface_present_for_test(true);
+        host.windows[0].set_surface_generation_for_test(7);
+        host.wayland_surface_registry = Some(registry_with(vec![]));
+        let paths = vec![
+            std::path::PathBuf::from("/tmp/kept-first"),
+            std::path::PathBuf::from(format!("/{}", "z".repeat(256 * 1024))),
+        ];
+        host.route_wayland_file_drop(window, 7, paths);
+        assert!(host.windows[0].file_drop_rejected_for_test());
+        assert!(!host.windows[0].risky_paste_pending_for_test());
+        let notice = host.windows[0]
+            .open_notice_message_for_test()
+            .expect("TooLarge notice");
+        assert!(
+            notice.to_ascii_lowercase().contains("fewer")
+                || notice.contains("256")
+                || notice.contains("128"),
+            "notice={notice}"
+        );
+    }
 }

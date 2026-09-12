@@ -37,8 +37,11 @@ impl std::fmt::Display for DropError {
 }
 
 /// User-managed collection of native path events, held until explicit accept or
-/// cancel. Overflow rejects the entire collection, never a prefix. Native
-/// events do not provide a portable OS drop-transaction boundary.
+/// cancel. Overflow rejects the entire collection, never a prefix, and the App
+/// keeps that rejected latch until cancel, focus-loss, or a fresh Wayland
+/// uri-list (the only portable drop-transaction boundary). Per-file
+/// `DroppedFile` events on X11, macOS, and Windows flush after each path but
+/// must not start a new preview from leftovers.
 #[derive(Default)]
 pub(super) struct FileDropBatch {
     paths: Vec<PathBuf>,
@@ -47,6 +50,16 @@ pub(super) struct FileDropBatch {
 }
 
 impl FileDropBatch {
+    pub(super) fn is_rejected(&self) -> bool {
+        self.rejected
+    }
+
+    pub(super) fn reject(&mut self) {
+        self.rejected = true;
+        self.paths.clear();
+        self.bytes = 0;
+    }
+
     #[cfg(all(test, unix))]
     pub(super) fn path_count_for_test(&self) -> usize {
         self.paths.len()
@@ -58,8 +71,7 @@ impl FileDropBatch {
             || self.paths.len() == MAX_DROP_FILES
             || bytes > MAX_DROP_BYTES.saturating_sub(self.bytes)
         {
-            self.rejected = true;
-            self.paths.clear();
+            self.reject();
             return;
         }
         self.bytes += bytes;

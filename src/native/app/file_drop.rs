@@ -21,6 +21,27 @@ impl App {
     }
 
     pub(super) fn queue_file_drop(&mut self, path: PathBuf) {
+        self.queue_file_drop_paths(std::iter::once(path), false);
+    }
+
+    /// Queue every path into the same collection, then flush once.
+    ///
+    /// Native Wayland delivers a whole `text/uri-list` as one event, so overflow
+    /// must refuse that entire gesture. That uri-list is also a fresh
+    /// transaction: it replaces a latched overflow so the next drag can start
+    /// cleanly. Per-file `DroppedFile` on X11, macOS, and Windows still calls
+    /// [`Self::queue_file_drop`] once per path; those platforms expose no drop
+    /// transaction, so an overflow stays refused until cancel or focus-loss.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub(super) fn queue_file_drop_batch(&mut self, paths: impl IntoIterator<Item = PathBuf>) {
+        self.queue_file_drop_paths(paths, true);
+    }
+
+    fn queue_file_drop_paths(
+        &mut self,
+        paths: impl IntoIterator<Item = PathBuf>,
+        fresh_transaction: bool,
+    ) {
         self.reconcile_displaced_pending_paste();
         let file_preview = self.overlay.is_risky_paste()
             && self
@@ -41,10 +62,23 @@ impl App {
             self.raise_open_notice("The target pane changed; drop the files again.".to_owned());
             return;
         }
-        self.pending_file_drop
-            .get_or_insert_with(|| (owner, FileDropBatch::default()))
-            .1
-            .push(path);
+        if fresh_transaction
+            && self
+                .pending_file_drop
+                .as_ref()
+                .is_some_and(|(_, batch)| batch.is_rejected())
+        {
+            self.cancel_file_drop();
+        }
+        {
+            let batch = &mut self
+                .pending_file_drop
+                .get_or_insert_with(|| (owner, FileDropBatch::default()))
+                .1;
+            for path in paths {
+                batch.push(path);
+            }
+        }
         self.flush_file_drop();
     }
 
@@ -94,11 +128,14 @@ impl App {
         }
     }
 
-    /// Native events do not identify a multi-file transaction boundary. Keep
-    /// accumulating into the visible preview until explicit acceptance/cancel;
+    /// Per-file `DroppedFile` events do not identify a multi-file transaction.
+    /// Keep accumulating into the visible preview until explicit accept/cancel;
     /// never infer completion from a timer or an event-loop batch boundary.
+    /// Native Wayland instead pushes the whole uri-list through
+    /// [`Self::queue_file_drop_batch`] before this flush. Overflow restores the
+    /// rejected batch so later per-file events cannot start a leftover preview.
     pub(super) fn flush_file_drop(&mut self) {
-        let Some((owner, batch)) = self.pending_file_drop.take() else {
+        let Some((owner, mut batch)) = self.pending_file_drop.take() else {
             return;
         };
         if owner != self.sessions.active_id() || self.pending_exit {
@@ -118,6 +155,10 @@ impl App {
             Err(error) => {
                 self.cancel_pending_text_paste();
                 self.raise_open_notice(error.to_string());
+                if matches!(error, DropError::TooLarge) {
+                    batch.reject();
+                    self.pending_file_drop = Some((owner, batch));
+                }
                 return;
             }
         };
@@ -133,12 +174,24 @@ impl App {
     }
 
     #[cfg(all(test, unix))]
+    pub(in crate::native) fn queue_file_drop_batch_for_test(&mut self, paths: Vec<PathBuf>) {
+        self.queue_file_drop_batch(paths);
+    }
+
+    #[cfg(all(test, unix))]
     pub(in crate::native) fn pending_file_drop_len_for_test(
         &self,
     ) -> Option<(SessionToken, usize)> {
         self.pending_file_drop
             .as_ref()
             .map(|(owner, batch)| (*owner, batch.path_count_for_test()))
+    }
+
+    #[cfg(all(test, unix))]
+    pub(in crate::native) fn file_drop_rejected_for_test(&self) -> bool {
+        self.pending_file_drop
+            .as_ref()
+            .is_some_and(|(_, batch)| batch.is_rejected())
     }
 
     /// Only the headless source reads this test override; local and attached

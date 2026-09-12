@@ -229,7 +229,12 @@ confirmed the path is not inserted and an actionable notice is shown. On
 Hyprland the listener is not started (it ignores the negotiation and can
 signal completion on offer release), and the notice explains the limitation.
 X11, macOS, and Windows keep their existing winit drop events. Real-device
-drop acceptance per compositor remains open evidence. See
+drop acceptance per compositor remains open evidence. A native Wayland
+`text/uri-list` is one bounded collection: more than 128 files or 256 KiB of
+path bytes refuses the whole gesture and does not leave a leftover confirm.
+X11, macOS, and Windows still see one `DroppedFile` per path, so overflow stays
+refused until cancel or focus-loss; leftover events do not open a fresh
+preview. See
 [Paste Safety](#paste-safety) and the
 [v0.15.0 contracts](v0.15.0-foundation.md#file-drop-insertion).
 

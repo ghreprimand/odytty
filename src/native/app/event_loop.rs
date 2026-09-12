@@ -135,7 +135,11 @@ impl App {
                 self.handle_ime(ime);
             }
             // Hover is intentionally inert: no path is previewed or trusted
-            // before the OS reports a completed drop.
+            // before the OS reports a completed drop. HoveredFileCancelled is
+            // also not a drop-transaction end: winit emits it when a drag leaves
+            // without dropping, not after DroppedFile, so it cannot clear an
+            // over-cap latch. Overflow stays refused until cancel, focus-loss,
+            // or a fresh Wayland uri-list.
             WindowEvent::HoveredFile(_) | WindowEvent::HoveredFileCancelled => {}
             WindowEvent::DroppedFile(path) => self.queue_file_drop(path),
             _ => {}

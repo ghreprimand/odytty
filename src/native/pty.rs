@@ -67,9 +67,9 @@ pub(super) enum UserEvent {
     /// and surface generation are checked against live presentation state before
     /// routing; a hidden, closed, or recreated destination refuses the drop.
     /// `paths` are the scheme-validated, in-order local paths parsed from the
-    /// `text/uri-list` payload; they flow through the same
-    /// [`crate::native::app::App::queue_file_drop`] confirm-first/quoting path
-    /// as a winit drop. Constructed only on Linux.
+    /// `text/uri-list` payload; they flow through
+    /// [`crate::native::app::App::queue_file_drop_batch`] as one collection so
+    /// overflow refuses the whole gesture. Constructed only on Linux.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     WaylandFileDrop {
         /// `ProcessWindowId` raw value captured at Enter; the host routes by it.
