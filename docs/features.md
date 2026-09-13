@@ -801,7 +801,10 @@ With two or more ordinary windows, the command palette offers
 **Merge This Window Into...** and **Pull Window Into This One...**. The Session
 Navigator legend adds `i merge window` and `p pull window` when targets exist.
 Candidates show temporary numerals painted inside each window surface, including
-decoration-less tiling compositors without compositor plugins. The quick
+decoration-less tiling compositors without compositor plugins. The window that
+opened the picker paints a banner naming the numerals to press and the Escape
+cancel (`Merge picker: press 1 in the other window, Esc cancels`), so the open
+picker is visible even when the candidate windows are stacked behind it. The quick
 terminal is never a merge origin or candidate. Tabs, panes, PTYs, profiles, and
 attach handles move with the transfer; the source window closes only after
 success. Escape cancels. See the

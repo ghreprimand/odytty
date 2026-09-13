@@ -341,6 +341,29 @@ impl App {
         self.merge_numeral
     }
 
+    /// Mark or clear this window as the ORIGIN of an open keyboard merge target
+    /// picker with `candidates` numbered targets (v0.15.0 D). The origin paints
+    /// a banner naming the numerals to press and the Escape cancel, so the open
+    /// picker is visible from the window that invoked it even when every
+    /// candidate is stacked behind it (an overlapping window manager) or on
+    /// another monitor. The owner sets this when a picker opens and clears it
+    /// on select/cancel. Requests a redraw so the banner appears/disappears
+    /// promptly.
+    pub(in crate::native) fn set_merge_origin_candidates(&mut self, candidates: Option<u8>) {
+        if self.merge_origin_candidates == candidates {
+            return;
+        }
+        self.merge_origin_candidates = candidates;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    /// The candidate count this window paints as a merge-picker origin, if any.
+    pub(in crate::native) fn merge_origin_candidates(&self) -> Option<u8> {
+        self.merge_origin_candidates
+    }
+
     /// Render-cache fragment for the merge-target numeral badge: `Inert` at rest
     /// so the composite stays constant on the default path, keyed by the numeral
     /// while a picker targets this window so the badge repaints on open/change/
@@ -348,11 +371,14 @@ impl App {
     pub(in crate::native) fn merge_numeral_overlay_signature(
         &self,
     ) -> crate::native::render_helpers::OverlayFragment {
-        match self.merge_numeral {
-            Some(numeral) => {
+        match (self.merge_numeral, self.merge_origin_candidates) {
+            (Some(numeral), _) => {
                 crate::native::render_helpers::OverlayFragment::MergeNumeral { numeral }
             }
-            None => crate::native::render_helpers::OverlayFragment::Inert,
+            (None, Some(candidates)) => {
+                crate::native::render_helpers::OverlayFragment::MergeOrigin { candidates }
+            }
+            (None, None) => crate::native::render_helpers::OverlayFragment::Inert,
         }
     }
 
@@ -391,16 +417,24 @@ impl App {
     /// The badge reads ` Press N to merge here ` centered near the top of the
     /// grid, where `N` is the window's assigned numeral. It never grows the
     /// grid and truncates to the visible width.
+    ///
+    /// The picker's ORIGIN window paints a banner in the same position instead:
+    /// ` Merge picker: press 1 in the other window, Esc cancels ` (or `1-N` for
+    /// N candidates), so the open picker is visible from the invoking window
+    /// when the candidates are hidden behind it. A window that is both (never
+    /// the case: the origin is not a candidate) would show the numeral.
     pub(in crate::native) fn paint_merge_numeral_cells(&self, snapshot: &mut Snapshot) {
-        let Some(numeral) = self.merge_numeral else {
-            return;
+        let text = match (self.merge_numeral, self.merge_origin_candidates) {
+            (Some(numeral), _) => format!(" Press {numeral} to merge here "),
+            (None, Some(candidates)) => merge_origin_banner(candidates),
+            (None, None) => return,
         };
         let columns = snapshot.dimensions.columns;
         let rows = snapshot.dimensions.rows;
         if columns < 3 || rows == 0 {
             return;
         }
-        let label: Vec<char> = format!(" Press {numeral} to merge here ")
+        let label: Vec<char> = text
             .chars()
             .filter(|ch| !ch.is_control())
             .take(columns)
@@ -455,6 +489,16 @@ impl App {
         // the machine yet, and the confirm keystroke must not resolve against a
         // session that is mid-transfer.
         self.pending_image_paste = None;
+    }
+}
+
+/// The banner the merge picker's origin window paints while its picker is open.
+/// Names the numeral range to press in the candidate window(s) and the cancel
+/// key; the transfer direction was chosen in the palette or Session Navigator.
+fn merge_origin_banner(candidates: u8) -> String {
+    match candidates {
+        0 | 1 => " Merge picker: press 1 in the other window, Esc cancels ".to_string(),
+        n => format!(" Merge picker: press 1-{n} in the target window, Esc cancels "),
     }
 }
 
@@ -555,6 +599,50 @@ mod tests {
             app.merge_numeral_overlay_signature(),
             OverlayFragment::Inert
         );
+    }
+
+    #[test]
+    fn a_picker_origin_paints_a_banner_and_keys_the_frame() {
+        let (mut app, _t) = headless_app_for_test();
+        app.set_merge_origin_candidates(Some(1));
+        assert_eq!(app.merge_origin_candidates(), Some(1));
+        assert_eq!(
+            app.merge_numeral_overlay_signature(),
+            OverlayFragment::MergeOrigin { candidates: 1 }
+        );
+        let mut snapshot = blank(70, 8);
+        app.paint_merge_numeral_cells(&mut snapshot);
+        assert!(
+            row_text(&snapshot, 1).contains("press 1 in the other window, Esc cancels"),
+            "banner row: {:?}",
+            row_text(&snapshot, 1)
+        );
+
+        // Several candidates name the numeral range.
+        app.set_merge_origin_candidates(Some(3));
+        let mut snapshot = blank(70, 8);
+        app.paint_merge_numeral_cells(&mut snapshot);
+        assert!(
+            row_text(&snapshot, 1).contains("press 1-3 in the target window"),
+            "banner row: {:?}",
+            row_text(&snapshot, 1)
+        );
+
+        // A narrow grid truncates the banner instead of growing the row.
+        let mut snapshot = blank(20, 8);
+        app.paint_merge_numeral_cells(&mut snapshot);
+        assert_eq!(row_text(&snapshot, 1).trim_end().len(), 20);
+
+        // Clearing removes the banner and returns the signature to Inert.
+        app.set_merge_origin_candidates(None);
+        assert_eq!(
+            app.merge_numeral_overlay_signature(),
+            OverlayFragment::Inert
+        );
+        let mut snapshot = blank(70, 8);
+        let untouched = snapshot.clone();
+        app.paint_merge_numeral_cells(&mut snapshot);
+        assert_eq!(snapshot, untouched);
     }
 
     #[test]

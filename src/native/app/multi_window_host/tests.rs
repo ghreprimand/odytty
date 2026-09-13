@@ -105,14 +105,31 @@ fn open_picker_paints_numerals_on_candidates_not_the_origin() {
 
     assert!(host.picker.is_some(), "picker opened over two candidates");
     assert_eq!(host.windows[0].merge_numeral(), None, "origin unbadged");
+    assert_eq!(
+        host.windows[0].merge_origin_candidates(),
+        Some(2),
+        "origin banners the candidate count"
+    );
     assert_eq!(host.windows[1].merge_numeral(), Some(1));
     assert_eq!(host.windows[2].merge_numeral(), Some(2));
+    assert!(
+        host.windows[1..]
+            .iter()
+            .all(|w| w.merge_origin_candidates().is_none()),
+        "candidates carry no origin banner"
+    );
 
     host.close_picker();
     assert!(host.picker.is_none());
     assert!(
         host.windows.iter().all(|w| w.merge_numeral().is_none()),
         "numerals cleared on close"
+    );
+    assert!(
+        host.windows
+            .iter()
+            .all(|w| w.merge_origin_candidates().is_none()),
+        "origin banner cleared on close"
     );
 }
 
@@ -122,6 +139,7 @@ fn a_lone_window_opens_no_picker() {
     host.open_picker(0, MergeDirection::PullIntoThis);
     assert!(host.picker.is_none(), "no other window to target");
     assert_eq!(host.windows[0].merge_numeral(), None);
+    assert_eq!(host.windows[0].merge_origin_candidates(), None);
 }
 
 #[test]
@@ -189,6 +207,12 @@ fn a_refused_merge_leaves_both_windows_untouched() {
     assert_eq!(host.windows[0].workspace_set().workspace_count(), 1);
     assert_eq!(host.windows[1].workspace_set().workspace_count(), 1);
     assert!(host.picker.is_none());
+    assert!(
+        host.windows
+            .iter()
+            .all(|w| w.merge_origin_candidates().is_none() && w.merge_numeral().is_none()),
+        "badges cleared after a refused merge"
+    );
 }
 
 #[test]
@@ -198,6 +222,7 @@ fn cancel_closes_the_picker_without_merging() {
     assert!(host.picker.is_some());
     host.handle_picker_key(PickerKey::Cancel);
     assert!(host.picker.is_none());
+    assert_eq!(host.windows[0].merge_origin_candidates(), None);
     assert_eq!(host.windows.len(), 2, "cancel merges nothing");
     assert!(host.windows.iter().all(|w| w.merge_numeral().is_none()));
 }

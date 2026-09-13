@@ -649,15 +649,29 @@ impl MultiWindowHost {
                 app.set_merge_numeral(Some(candidate.numeral));
             }
         }
+        // The origin paints a banner naming the numerals and the cancel key,
+        // so the open picker is visible from the invoking window even when
+        // every candidate is stacked behind it.
+        let count = u8::try_from(picker.candidates().len()).unwrap_or(u8::MAX);
+        if let Some(app) = self.windows.get_mut(origin_idx) {
+            app.set_merge_origin_candidates(Some(count));
+        }
         self.picker = Some(ActiveMergePicker { origin, picker });
     }
 
-    /// Clear every candidate numeral and drop the active picker.
+    /// Clear every candidate numeral and the origin banner, and drop the
+    /// active picker.
     fn close_picker(&mut self) {
+        self.clear_picker_badges();
+        self.picker = None;
+    }
+
+    /// Clear the candidate numerals and the origin banner on every window.
+    fn clear_picker_badges(&mut self) {
         for app in &mut self.windows {
             app.set_merge_numeral(None);
+            app.set_merge_origin_candidates(None);
         }
-        self.picker = None;
     }
 
     /// Cancel an open picker if its origin or any candidate window is no longer
@@ -687,10 +701,8 @@ impl MultiWindowHost {
         let Some(active) = self.picker.take() else {
             return;
         };
-        // Numerals are cleared regardless of outcome.
-        for app in &mut self.windows {
-            app.set_merge_numeral(None);
-        }
+        // Numerals and the origin banner are cleared regardless of outcome.
+        self.clear_picker_badges();
         match key {
             PickerKey::Cancel => {}
             PickerKey::Select(numeral) => {

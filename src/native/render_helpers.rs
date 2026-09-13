@@ -241,6 +241,10 @@ pub(super) enum OverlayFragment {
     /// or closes. `Inert` at rest (no picker targeting this window), so the
     /// default cache decision is unchanged.
     MergeNumeral { numeral: u8 },
+    /// v0.15.0 D keyboard window merge: the banner the picker's ORIGIN window
+    /// paints while its picker is open, keyed by the candidate count. `Inert`
+    /// at rest.
+    MergeOrigin { candidates: u8 },
 }
 
 /// Folds the NEW overlay contributors' fragments into one hashable cache key.
