@@ -625,6 +625,28 @@ fn a_surfaceless_redraw_reports_the_early_exit_that_skips_pending_exit() {
     );
 }
 
+/// A window close with no confirm prompt must request exit through
+/// `pending_exit`, not by exiting the event loop directly. The multi-window
+/// host reads `wants_exit()` and routes it through `resolve_window_close`, so a
+/// sibling close removes only that window while the last window's close exits
+/// the process. If this path called `event_loop.exit()` (the old single-window
+/// behavior) closing one of two windows would tear down the whole loop and
+/// close both.
+#[test]
+fn close_request_without_confirm_sets_pending_exit_not_a_loop_exit() {
+    let mut app = build_idle_app().expect("headless app builds without a surface");
+    app.settings.confirm_close = false;
+    assert!(!app.wants_exit(), "no exit pending at rest");
+
+    app.on_close_requested();
+
+    assert!(
+        app.wants_exit(),
+        "a non-confirming close must set pending_exit so the host can remove \
+         just this window"
+    );
+}
+
 /// The OS-theme arm records the reported preference unconditionally and
 /// re-resolves the active theme only while following is on. Recording is what
 /// a later `follow_os_theme` switch reads, so it must not become conditional.

@@ -78,7 +78,7 @@ impl App {
         self.reconcile_displaced_pending_paste();
         match event {
             WindowEvent::CloseRequested => {
-                self.on_close_requested(event_loop);
+                self.on_close_requested();
             }
             WindowEvent::ThemeChanged(os_theme) => {
                 self.on_os_theme_changed(os_theme);

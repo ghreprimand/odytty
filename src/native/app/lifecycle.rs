@@ -1052,7 +1052,7 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn on_close_requested(&mut self, event_loop: &ActiveEventLoop) {
+    pub(super) fn on_close_requested(&mut self) {
         // A window-close request supersedes a paste decision. Drop held source
         // text before replacing its modal or exiting.
         self.cancel_pending_text_paste();
@@ -1065,13 +1065,21 @@ impl App {
         // TRAP-5). An attached session reports not-running (the job lives
         // in the remote host), so closing an attached window detaches
         // immediately without prompting.
+        //
+        // MULTI-WINDOW: request exit through `pending_exit` rather than
+        // exiting the event loop here. The host reads `wants_exit()` after
+        // this event and routes it through `resolve_window_close`, so closing
+        // one sibling removes only that window while the last window's close
+        // exits the process. Calling `event_loop.exit()` here would tear down
+        // the whole loop and close every window (the single-window design's
+        // behavior, wrong once siblings exist).
         if self.settings.confirm_close && self.foreground_job_running() {
             self.overlay.open_confirm_close();
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
             }
         } else {
-            event_loop.exit();
+            self.pending_exit = true;
         }
     }
 
