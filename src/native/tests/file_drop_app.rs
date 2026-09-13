@@ -106,9 +106,54 @@ fn file_drop_cancel_and_focus_loss_write_nothing() {
     app.queue_file_drop_for_test(PathBuf::from("/tmp/focus-loss"));
     assert!(app.risky_paste_pending_for_test());
     app.on_window_focus_changed_for_test(false);
+    // The cancel settles after the event batch, not inside the focus event.
+    assert!(app.risky_paste_pending_for_test());
+    app.run_about_to_wait_maintenance_for_test(Instant::now());
     assert!(!app.risky_paste_pending_for_test());
     assert!(app.pending_file_drop_len_for_test().is_none());
     assert!(bytes.lock().expect("focus").is_empty());
+}
+
+/// Hyprland sends a keyboard leave and enter for the same surface when a drop
+/// lands. That pair must not discard the preview the drop just raised: the
+/// focus-loss cancel settles at the end of the batch and only when focus was
+/// not regained.
+#[test]
+fn file_drop_preview_survives_same_batch_focus_churn() {
+    let (mut app, bytes, _) = drop_app();
+    ready_local_bash(&mut app);
+
+    app.queue_file_drop_for_test(PathBuf::from("/tmp/churn"));
+    assert!(app.risky_paste_pending_for_test());
+    app.on_window_focus_changed_for_test(false);
+    app.on_window_focus_changed_for_test(true);
+    app.run_about_to_wait_maintenance_for_test(Instant::now());
+    assert!(app.risky_paste_pending_for_test());
+    assert!(app.pending_file_drop_len_for_test().is_some());
+    assert!(bytes.lock().expect("churn").is_empty());
+
+    // A regain followed by a real loss in the same batch still cancels.
+    app.on_window_focus_changed_for_test(false);
+    app.run_about_to_wait_maintenance_for_test(Instant::now());
+    assert!(!app.risky_paste_pending_for_test());
+    assert!(app.pending_file_drop_len_for_test().is_none());
+    assert!(bytes.lock().expect("churn loss").is_empty());
+}
+
+/// A drop that lands after the focus loss in the same batch is cancelled at
+/// settlement too: the latch is unconditional, so nothing raised while the
+/// window is unfocused outlives the batch.
+#[test]
+fn file_drop_raised_after_focus_loss_is_cancelled_at_settlement() {
+    let (mut app, bytes, _) = drop_app();
+    ready_local_bash(&mut app);
+
+    app.on_window_focus_changed_for_test(false);
+    app.queue_file_drop_for_test(PathBuf::from("/tmp/late"));
+    assert!(app.risky_paste_pending_for_test());
+    app.run_about_to_wait_maintenance_for_test(Instant::now());
+    assert!(!app.risky_paste_pending_for_test());
+    assert!(bytes.lock().expect("late").is_empty());
 }
 
 #[test]

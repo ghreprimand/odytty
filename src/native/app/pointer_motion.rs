@@ -116,6 +116,9 @@ impl App {
             // activates the window must never fire a button. Arm the marker;
             // the next content left press consumes it.
             self.focus_click_pending = true;
+            // Focus regained within the same event batch as the loss: the
+            // pending paste confirmation survives (see the field doc).
+            self.paste_focus_loss_pending = false;
             // A focus gain is a fresh visible-hold boundary for the active
             // cursor. This is presentation-only and leaves focus-report bytes
             // below unchanged.
@@ -131,7 +134,14 @@ impl App {
             // minimized, so the ordinary focus-gain path is unchanged.
             self.restore_from_minimized();
         } else {
-            self.cancel_pending_text_paste();
+            // A pending paste confirmation is cancelled by focus loss, but the
+            // cancel settles in `run_about_to_wait_maintenance` after this
+            // event batch rather than here: Hyprland re-sends keyboard focus
+            // (leave then enter, same surface) at the moment a drop lands, and
+            // that pair may be dispatched right after the drop raised the
+            // preview. The quick terminal's hide-on-focus-loss is a separate
+            // window policy in the multi-window host and stays immediate.
+            self.paste_focus_loss_pending = true;
             // A compositor may end a pointer grab by transferring focus without
             // delivering the paired button release. Settle a pane divider while
             // its original tab and geometry are still active, before clearing

@@ -257,6 +257,15 @@ pub(in crate::native) struct App {
     /// the safe side: a button fires a PTY write, so a click whose intent was
     /// "give this window focus" must never trigger one.
     pub(super) focus_click_pending: bool,
+    /// Focus was lost while a text paste (clipboard or file drop) awaited its
+    /// confirmation. The cancel settles at the end of the event batch, in
+    /// `run_about_to_wait_maintenance`, and only if focus was not regained in
+    /// the same batch. Some compositors (Hyprland at drop time) send a keyboard
+    /// leave and enter for the same surface microseconds apart; an immediate
+    /// cancel on the leave would discard the preview the drop just raised.
+    /// No key can reach an unfocused window in between, so nothing can be
+    /// authorized in the gap.
+    pub(super) paste_focus_loss_pending: bool,
     /// Whether this unfocused episode has already requested platform user
     /// attention for a bell. Cleared when the window regains focus.
     pub(super) bell_attention: bell::BellAttentionLatch,
@@ -647,6 +656,7 @@ impl App {
             // Startup counts as a focus gain: the very first click after
             // launch should not fire a button either.
             focus_click_pending: true,
+            paste_focus_loss_pending: false,
             bell_attention: bell::BellAttentionLatch::default(),
             notification_attention: bell::BellAttentionLatch::default(),
             notification_limiter: crate::native::notifications::NotificationLimiter::default(),

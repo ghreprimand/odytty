@@ -75,6 +75,11 @@ impl App {
         if self.focused {
             self.on_window_focus_changed(false);
         }
+        // An explicit hide is a definite focus loss with no regain in this
+        // batch, so the paste cancel that the focus handler only latches is
+        // settled here rather than waiting for the maintenance pass.
+        self.paste_focus_loss_pending = false;
+        self.cancel_pending_text_paste();
         // A retry belongs to the surface that was just retired. Keeping it
         // would request a meaningless immediate redraw after recreation.
         self.skipped_frame_retry_deadline = None;

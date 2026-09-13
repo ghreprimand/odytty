@@ -176,8 +176,24 @@ fn risky_paste_cancel_and_focus_loss_write_nothing() {
     app.inject_paste_text_for_test("again\rnext");
     app.handle_paste_shortcut_for_test();
     app.on_window_focus_changed_for_test(false);
+    app.run_about_to_wait_maintenance_for_test(Instant::now());
     assert!(!app.risky_paste_pending_for_test());
     assert!(bytes.lock().expect("focus bytes").is_empty());
+}
+
+/// Same-batch focus churn (keyboard leave then enter) keeps a clipboard paste
+/// confirmation pending; the cancel only settles on an unregained loss.
+#[test]
+fn risky_paste_survives_same_batch_focus_churn() {
+    let (mut app, bytes, _) = paste_app();
+    app.inject_paste_text_for_test("first\nsecond");
+    app.handle_paste_shortcut_for_test();
+    assert!(app.risky_paste_pending_for_test());
+    app.on_window_focus_changed_for_test(false);
+    app.on_window_focus_changed_for_test(true);
+    app.run_about_to_wait_maintenance_for_test(Instant::now());
+    assert!(app.risky_paste_pending_for_test());
+    assert!(bytes.lock().expect("churn bytes").is_empty());
 }
 
 #[test]

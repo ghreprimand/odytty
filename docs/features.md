@@ -188,7 +188,10 @@ The choices have explicit behavior:
   it does not silently discard or merge source bytes.
 - **Cancel** writes nothing. Focus loss, a destination-pane ownership change,
   pane exit, window close, preview setup failure, or a stale bracketed-paste
-  state also cancels the held paste.
+  state also cancels the held paste. The focus-loss cancel is applied once the
+  event batch that delivered the loss is complete, so a compositor that re-sends
+  keyboard focus at drop time (Hyprland) does not discard the preview a file
+  drop just raised; a loss that is not regained in the same batch still cancels.
 
 Shortcut, command-palette/menu, context-menu, and Linux PRIMARY paste use the
 same policy. PRIMARY has no platform surface on macOS or Windows. Native path

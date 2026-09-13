@@ -628,6 +628,14 @@ impl App {
     }
 
     pub(super) fn run_about_to_wait_maintenance(&mut self, now: Instant) {
+        // Settle a focus-loss paste cancellation once the event batch that
+        // delivered the loss is complete. A same-batch focus regain (Hyprland's
+        // leave+enter at drop) has cleared the latch by now, so the drop's
+        // confirm preview survives; a real focus loss still cancels before
+        // any later key could be read.
+        if std::mem::take(&mut self.paste_focus_loss_pending) && !self.focused {
+            self.cancel_pending_text_paste();
+        }
         // REMOTE-UX P4 / ODP-8: drain a finished Test Connection probe into the
         // open form. Idle when no probe is in flight.
         self.poll_connection_probe();
