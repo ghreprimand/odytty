@@ -1,14 +1,17 @@
-# Dev build: manually triggered (workflow_dispatch) Windows zip from any ref.
+# Dev build: manually triggered (workflow_dispatch) Windows zip and macOS app
+# zip from any ref.
 #
-# Purpose: produce a testable Windows binary WITHOUT cutting a release — e.g.
-# the NF18 diagnostic trace build, or operator smoke-testing of unreleased UI
-# work (F4 tab visuals). The zip is uploaded as a short-lived Actions artifact
-# (NOT a release asset, NOT signed, NOT for distribution). Mirrors the
-# packaging shape of release.yml's `windows` job, minus tag-derived versioning.
+# Purpose: produce testable Windows and macOS binaries WITHOUT cutting a
+# release, for hands-on acceptance of unreleased work. Each zip is uploaded as
+# a short-lived Actions artifact (NOT a release asset, NOT for distribution;
+# the macOS app carries only the ad-hoc signature, like the release build).
+# Mirrors the packaging shape of release.yml's `windows` and `macos` jobs,
+# minus tag-derived versioning.
 #
-# Usage: Actions tab -> "Dev build (Windows zip)" -> Run workflow -> pick the
-# branch -> download the `odytty-dev-windows-x86_64` artifact from the run page.
-name: Dev build (Windows zip)
+# Usage: Actions tab -> "Dev build (Windows zip, macOS app)" -> Run workflow ->
+# pick the branch -> download the `odytty-dev-windows-x86_64` or
+# `odytty-dev-macos-arm64` artifact from the run page.
+name: Dev build (Windows zip, macOS app)
 
 on:
   workflow_dispatch:
@@ -68,5 +71,62 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: odytty-dev-windows-x86_64
+          path: dist/build/*.zip
+          retention-days: 7
+
+  macos:
+    name: macOS dev app zip (arm64)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=."
+      # Embed the exact commit in the About panel (build.rs provenance
+      # precedence). Set at job scope, not inside a run: body.
+      ODYTTY_BUILD_SHA: ${{ github.sha }}
+      COMMIT_SHA: ${{ github.sha }}
+      REF_NAME: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Smoke test the macOS binary
+        # --version exits before any GPU/window init, so it runs headlessly in CI.
+        run: ./target/release/odytty --version
+
+      - name: Assemble and ad-hoc sign OdyTTY.app
+        run: |
+          version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          mkdir -p dist/build
+          cp target/release/odytty dist/build/odytty
+          bash dist/macos/make-app.sh "$version"
+          printf 'Unreleased development build of OdyTTY.\nCommit: %s\nRef:    %s\nNot a release artifact; do not redistribute.\n' \
+            "$COMMIT_SHA" "$REF_NAME" > dist/build/DEV-BUILD.txt
+          codesign --force --sign - --timestamp=none dist/build/OdyTTY.app
+          codesign --verify --verbose dist/build/OdyTTY.app
+
+      - name: Package macOS dev zip
+        run: |
+          sha="${COMMIT_SHA:0:9}"
+          mkdir -p dist/build/stage
+          cp -R dist/build/OdyTTY.app dist/build/stage/
+          cp dist/build/DEV-BUILD.txt dist/build/stage/
+          # ditto preserves the .app bundle structure; a plain zip can corrupt it.
+          ditto -c -k --sequesterRsrc dist/build/stage \
+            "dist/build/odytty-dev-$sha-macos-arm64.zip"
+
+      - name: Upload macOS dev artifact
+        # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: odytty-dev-macos-arm64
           path: dist/build/*.zip
           retention-days: 7
