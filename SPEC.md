@@ -978,10 +978,14 @@ shell-aware insertion only when an eligible local Unix launch shell still owns
 the PTY foreground group, is its sole process, and has a matching current
 executable. ConPTY provides no equivalent authority, so Windows insertion is
 refused. On Wayland, winit emits no drop event, so a companion non-owning
-`wl_data_device` on winit's display supplies one, accepting only the Copy
-action and only on compositors that honor destination action negotiation; it
-is not started when `HYPRLAND_INSTANCE_SIGNATURE` is set, and Hyprland shows an
-actionable limitation notice. A Wayland `text/uri-list` is one bounded
+`wl_data_device` on winit's display supplies one. It requests the Copy action
+only. An answered request admits only an unambiguous Copy; an unanswered
+request (Hyprland ignores destination `set_actions` and never reports an
+action to the source) admits only a source that advertised Copy; Move-only or
+absent source actions refuse with an actionable notice. OdyTTY performs no
+file operation on any branch. The mechanism and residual are stated in the
+[v0.15.0 contracts](docs/v0.15.0-foundation.md#drag-action-negotiation-and-the-hyprland-admission-rule).
+A Wayland `text/uri-list` is one bounded
 collection: overflow refuses the whole gesture; a later uri-list may start a
 fresh transaction. Per-file `DroppedFile` on X11, macOS, and Windows has no OS
 transaction, so overflow stays refused until cancel or focus-loss. The

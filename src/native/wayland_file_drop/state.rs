@@ -5,7 +5,7 @@
 //! proxies and performs the protocol side effects (accept, set_actions, receive,
 //! finish, destroy). This module owns the DECISIONS and BOOKKEEPING keyed by
 //! plain protocol object ids (`u32`), so the offer lifecycle, per-seat drag
-//! ownership, the Copy-only gate, bounded growth, and the transfer timeout are
+//! ownership, the copy-admission gate, bounded growth, and the transfer timeout are
 //! all testable without a live compositor.
 
 use std::collections::HashMap;
@@ -192,7 +192,7 @@ impl DropCore {
         drag.current_enter_offer.take()
     }
 
-    /// Drop on `seat`: classify against the Copy-only gate.
+    /// Drop on `seat`: classify against the copy-admission gate.
     pub(super) fn drop(&mut self, seat: u32) -> DropOutcome {
         let (accepted, enter_offer) = match self.seats.get_mut(&seat) {
             Some(drag) => (drag.accepted.take(), drag.current_enter_offer.take()),
@@ -211,8 +211,7 @@ impl DropCore {
         let confirmed = self
             .offers
             .get(&accepted.offer)
-            .map(|r| copy_drop_confirmed(r.negotiated, r.action_after_preference))
-            .unwrap_or(false);
+            .is_some_and(copy_drop_admitted);
         if confirmed {
             DropOutcome::Receive { drag: accepted }
         } else {
@@ -261,20 +260,17 @@ impl DropCore {
     }
 }
 
-/// Copy-only drop gate. A drop is received and finished ONLY when the compositor
-/// confirmed the Copy action AFTER our `set_actions(Copy)` preference. Move,
-/// Ask, Other, None, and a same-batch Enter+Drop (no post-preference action)
-/// are refused: in every refused case the offer is destroyed WITHOUT calling
-/// `finish`, and no bytes are received. This describes only what the listener
-/// does; it makes no claim about how any particular compositor's data source
-/// accounts for an offer that is destroyed without a `finish` (some signal the
-/// source on offer destruction), which is why the known-broken compositor gate
-/// exists separately.
-pub(super) fn copy_drop_confirmed(
-    negotiated: Option<DropAction>,
-    action_after_preference: bool,
-) -> bool {
-    negotiated == Some(DropAction::Copy) && action_after_preference
+/// Copy-advertised drop gate. On a compositor that answered our preference,
+/// receive only an unambiguous Copy action. On a compositor that did not answer
+/// after our preference, receive only when the source itself advertised Copy.
+/// An action before the preference is the compositor default, not an answer.
+/// Move-only and pre-v3 offers without `source_actions` refuse.
+pub(super) fn copy_drop_admitted(record: &OfferRecord) -> bool {
+    if record.action_after_preference {
+        record.negotiated == Some(DropAction::Copy)
+    } else {
+        record.source_has_copy
+    }
 }
 
 /// Whether adding `incoming` bytes to a `current` buffer would exceed the cap.

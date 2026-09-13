@@ -49,6 +49,40 @@ pub(in crate::native::app) fn headless() -> App {
     headless_app_for_test().0
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn hyprland_marker_does_not_block_wayland_listener_start() {
+    let _guard = crate::test_lock::test_env_lock();
+    let key = "HYPRLAND_INSTANCE_SIGNATURE";
+    let previous = std::env::var_os(key);
+    // SAFETY: this test holds the process-wide environment lock and restores
+    // the prior value before releasing it.
+    unsafe { std::env::set_var(key, "test-marker") };
+
+    let mut host = host_of(vec![headless()]);
+    let mut called = false;
+    host.start_wayland_file_drop(1, |display, registry| {
+        called = true;
+        assert_eq!(display, 1);
+        assert!(registry.lock().is_ok());
+        None
+    });
+
+    // SAFETY: this test still holds the process-wide environment lock.
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+    assert!(
+        called,
+        "the Hyprland marker must not suppress listener startup"
+    );
+    assert!(host.wayland_drop_started);
+    assert!(host.wayland_surface_registry.is_some());
+}
+
 #[test]
 fn sibling_counts_reflect_the_other_window_total() {
     let mut host = host_of(vec![headless()]);

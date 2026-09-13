@@ -832,9 +832,18 @@ Three prohibitions apply to every boundary below:
   encoding refuses. Windows refuses path insertion with an explicit
   platform-unsupported notice because ConPTY has no foreground-group
   equivalent. On Wayland, winit emits no drop event; a companion non-owning
-  `wl_data_device` supplies delivery on compositors that honor copy negotiation.
-  When `HYPRLAND_INSTANCE_SIGNATURE` is set the listener is not started and an
-  actionable notice is shown instead. Native Wayland delivers one
+  `wl_data_device` supplies delivery. OdyTTY requests Copy only. An answered
+  request admits only an unambiguous Copy; an unanswered request (Hyprland
+  never handles destination `set_actions` and never sends the source any
+  action) admits only a source that advertised Copy; Move-only or absent
+  source actions refuse. OdyTTY never moves, copies, or deletes a file; only
+  a source told "move" may delete, and no branch of this rule can produce
+  that report on a known compositor. Accepted residual, stated in full in the
+  [v0.15.0 contracts](v0.15.0-foundation.md#drag-action-negotiation-and-the-hyprland-admission-rule):
+  a future compositor that reports Move to the source while still ignoring
+  destination requests combined with a source that deletes uri-list data on
+  Move. Neither condition is known to exist; both would have to hold at once.
+  Native Wayland delivers one
   `text/uri-list` collection, so an over-cap drop (more than 128 files or
   256 KiB of path bytes) refuses the whole gesture; a later uri-list may start
   a fresh transaction. X11, macOS, and Windows still see one `DroppedFile` per

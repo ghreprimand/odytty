@@ -224,16 +224,20 @@ refuses insertion with
 `File drop insertion is not available on Windows in this version. Copy the path manually.`
 because ConPTY exposes no foreground-process-group authority. On Wayland,
 winit emits no drop event, so a companion non-owning `wl_data_device` on
-winit's display supplies it, accepting the Copy action only. Delivery needs a
-compositor that honors destination action negotiation; where a copy is never
-confirmed the path is not inserted and an actionable notice is shown. On
-Hyprland the listener is not started when `HYPRLAND_INSTANCE_SIGNATURE` is
-set (Hyprland ignores the negotiation and can signal completion on offer
-release), and the notice explains the limitation.
-X11, macOS, and Windows keep their existing winit drop events. Nested-KWin and
-native-Hyprland gate evidence is recorded in
-[acceptance/v0.15.0.md](acceptance/v0.15.0.md); additional compositor and OS
-device acceptance remain open. A native Wayland
+winit's display supplies it. OdyTTY requests the Copy action and only Copy.
+If the compositor answers that request, only an unambiguous Copy answer admits
+the drop; Move, Ask, or an ambiguous answer refuses it with an actionable
+notice. If the compositor never answers (Hyprland, which ignores destination
+action requests and also never reports an action to the source), the drop is
+admitted only when the source itself advertised Copy as an allowed action;
+a Move-only source is refused. OdyTTY performs no file operation in any case:
+it inserts quoted path text after confirmation and nothing else, so no branch
+of this rule moves or deletes a file. The full mechanism, the Hyprland
+specifics, and the exact residual are in the
+[v0.15.0 contracts](v0.15.0-foundation.md#drag-action-negotiation-and-the-hyprland-admission-rule).
+X11, macOS, and Windows keep their existing winit drop events. Nested-KWin
+device evidence is recorded in [acceptance/v0.15.0.md](acceptance/v0.15.0.md);
+Hyprland and additional compositor and OS device acceptance remain open. A native Wayland
 `text/uri-list` is one bounded collection: more than 128 files or 256 KiB of
 path bytes refuses the whole gesture and does not leave a leftover confirm.
 A later Wayland uri-list may start a fresh transaction after that refusal.

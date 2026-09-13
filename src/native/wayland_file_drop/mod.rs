@@ -15,9 +15,12 @@
 //!
 //! Safety boundary (shared with the v0.13.0 paste policy and the
 //! foreground-group authority in [`crate::native::app::file_drop`]):
-//! - Only `text/uri-list` is accepted, and only the Copy action. A drop is
-//!   received and `finish`ed ONLY when the compositor confirms Copy AFTER our
-//!   preference was sent; Move / Ask / None / an unconfirmed Copy are refused.
+//! - Only `text/uri-list` is accepted. A conforming compositor answers the
+//!   destination's Copy preference with an unambiguous Copy action, and only
+//!   that answer admits a drop. If the compositor never answers after the
+//!   preference, OdyTTY admits only an offer whose source advertised Copy.
+//!   Move-only, Ask, None, ambiguous actions, and offers without source actions
+//!   are refused.
 //! - URI bytes are bounded, the receive pipe is non-blocking and
 //!   deadline-bounded, offers are bounded, and the parser rejects non-`file:`
 //!   URIs, non-local authorities, query/fragment, malformed escapes, and NUL.
@@ -29,14 +32,24 @@
 //!   at Enter; the host validates it at delivery, so a reused surface address
 //!   (ABA) or a torn-down surface cannot misroute or insert.
 //!
-//! Compositor support is NOT universal. Delivery relies on destination-side
-//! action negotiation (Wayland data-device v3). A compositor that ignores
-//! `wl_data_offer.set_actions` leaves the action at the source default, so a
-//! Copy drop cannot be confirmed. The host does not activate this listener when
-//! `HYPRLAND_INSTANCE_SIGNATURE` is set (see
-//! `MultiWindowHost::service_wayland_file_drop`); Hyprland's data-device also
-//! signals completion on offer destruction, so that combination has no
-//! demonstrated-safe policy and is a tracked limitation, not a universal claim.
+//! A drag has three parties: the source offers MIME types and actions, the
+//! compositor carries the offer, and the destination chooses which MIME type it
+//! can receive and requests its preferred action. On a conforming data-device
+//! v3 compositor, the compositor answers the destination preference through
+//! `wl_data_offer.action` and sends the selected action to the source. OdyTTY
+//! then requires an unambiguous Copy answer before it reads the URI list and
+//! finishes the offer.
+//!
+//! Hyprland currently does not handle destination `set_actions`: it emits a
+//! one-shot source-default action before Enter and does not answer the later
+//! destination preference. It also never sends an action to the source. When
+//! that happens, OdyTTY admits only a URI offer whose source advertised Copy.
+//! The pre-preference action is not treated as an answer. OdyTTY reads path
+//! text only and performs no file move, delete, rename, or other file operation.
+//! Because Hyprland never sends an action to the source, the source cannot be
+//! told that this operation was Move by that compositor. The residual requires
+//! both a future compositor that mirrors Move to the source while still ignoring
+//! destination preferences and a source that deletes URI-list data on Move.
 //!
 //! X11, macOS, and Windows keep their existing winit file-drop event paths.
 

@@ -120,13 +120,6 @@ impl QuickSurfacePolicy {
 
 const WAYLAND_QUICK_SURFACE_NOTICE: &str = "Wayland controls quick-terminal placement and motion. OdyTTY requested size and focus and used instant motion; configure compositor rules to choose an edge, monitor, workspace, or floating layout.";
 
-/// Actionable notice when the native Wayland file-drop listener is not started
-/// on a compositor with no demonstrated-safe drop policy (Hyprland). With the
-/// listener disabled a file manager copy cannot be received here, so the
-/// guidance is paste or X11 - never "use a file manager that copies". Linux only.
-#[cfg(target_os = "linux")]
-const WAYLAND_DROP_UNSUPPORTED_NOTICE: &str = "This Wayland compositor does not support the copy negotiation OdyTTY needs to accept a dropped file safely, so file drop is disabled here. Paste the path instead, or run this session under X11 where file drag and drop works.";
-
 /// Actionable notice when a real file drop was engaged but the compositor never
 /// confirmed a copy action, so the path was not inserted. Linux only.
 #[cfg(target_os = "linux")]
@@ -249,7 +242,7 @@ pub(in crate::native) struct MultiWindowHost {
     #[cfg(target_os = "linux")]
     wayland_surface_cache: Vec<(u64, u64, u64)>,
     /// One-shot guard for the actionable native-Wayland-drop limitation notice
-    /// (Hyprland gate or an observed unconfirmed-copy refusal).
+    /// (an observed unconfirmed-copy refusal or listener failure).
     #[cfg(target_os = "linux")]
     wayland_drop_limitation_notified: bool,
 }
@@ -349,12 +342,9 @@ impl MultiWindowHost {
     /// shares winit's live `wl_display` and is stopped before the display is
     /// released (see the `exiting` hook and the module-level teardown ordering).
     ///
-    /// It is NOT activated when `HYPRLAND_INSTANCE_SIGNATURE` is set: Hyprland
-    /// ignores destination `wl_data_offer.set_actions` (so a copy action is never
-    /// confirmed) and its data-device signals completion on offer destruction, a
-    /// combination with no demonstrated-safe policy. In that case an actionable
-    /// notice is raised once instead. A no-op off Wayland, without a proxy, or
-    /// after the one-shot start. Linux only.
+    /// A no-op off Wayland, without a proxy, or after the one-shot start. The
+    /// listener's per-offer admission rule handles compositors that do not
+    /// answer the destination action preference. Linux only.
     #[cfg(target_os = "linux")]
     fn service_wayland_file_drop(&mut self) {
         if self.wayland_drop_started || !self.first_usable_frame_ready() {
@@ -370,37 +360,40 @@ impl MultiWindowHost {
             self.wayland_drop_started = true;
             return;
         };
-        self.wayland_drop_started = true;
-        // Known-broken compositor gate (CONSERVATIVE HEURISTIC, not a definitive
-        // identity). Hyprland ignores destination wl_data_offer.set_actions (so a
-        // copy action is never confirmed) and signals completion on offer
-        // destruction, a combination with no demonstrated-safe drop policy.
-        // HYPRLAND_INSTANCE_SIGNATURE is inherited by processes launched under a
-        // NESTED compositor (e.g. a nested KWin started from a Hyprland login),
-        // so it can false-positive. We err toward disabling: a false positive
-        // costs only the drop feature (paste still works), whereas a false
-        // negative could accept an unsafe drop. An acceptance harness that runs
-        // OdyTTY under a nested conforming compositor MUST clear
-        // HYPRLAND_INSTANCE_SIGNATURE from the child environment so the
-        // conforming path is exercised (see docs/acceptance/v0.15.0.md).
-        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
-            self.notify_wayland_drop_limitation(WAYLAND_DROP_UNSUPPORTED_NOTICE);
-            return;
-        }
         let Some(proxy) = self.wayland_drop_proxy.clone() else {
             return;
         };
+        self.start_wayland_file_drop(display, move |display, registry| {
+            // SAFETY: `display` is winit's live `wl_display`; this host owns the
+            // returned listener and is dropped before the event loop releases the
+            // display (module teardown ordering), and also stops it in `exiting`.
+            unsafe {
+                crate::native::wayland_file_drop::WaylandDropListener::start(
+                    display, registry, proxy,
+                )
+            }
+        });
+    }
+
+    /// Start the listener after the readiness, Wayland-display, and proxy gates
+    /// have passed. This policy intentionally does not inspect compositor
+    /// environment markers: admission is evaluated per offer from protocol data.
+    #[cfg(target_os = "linux")]
+    fn start_wayland_file_drop(
+        &mut self,
+        display: u64,
+        start: impl FnOnce(
+            u64,
+            crate::native::wayland_file_drop::SurfaceRegistry,
+        ) -> Option<crate::native::wayland_file_drop::WaylandDropListener>,
+    ) {
+        self.wayland_drop_started = true;
         let registry: crate::native::wayland_file_drop::SurfaceRegistry =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         self.wayland_surface_registry = Some(registry.clone());
         // Populate the registry before the listener reads it at the first Enter.
         self.reconcile_wayland_surfaces();
-        // SAFETY: `display` is winit's live `wl_display`; this host owns the
-        // returned listener and is dropped before the event loop releases the
-        // display (module teardown ordering), and also stops it in `exiting`.
-        self.wayland_drop = unsafe {
-            crate::native::wayland_file_drop::WaylandDropListener::start(display, registry, proxy)
-        };
+        self.wayland_drop = start(display, registry);
         if self.wayland_drop.is_none() {
             // The listener thread or its shutdown pipe could not be created:
             // report the feature as unavailable rather than failing silently.
@@ -511,9 +504,9 @@ impl MultiWindowHost {
         self.windows[idx].queue_file_drop_batch(paths);
     }
 
-    /// Raise the one-shot actionable notice for the native Wayland drop
-    /// limitation (Hyprland gate, or an observed unconfirmed-copy refusal) on the
-    /// primary window. Shown at most once per run. Linux only.
+    /// Raise the one-shot actionable notice for a native Wayland drop refusal or
+    /// listener failure on the primary window. Shown at most once per run.
+    /// Linux only.
     #[cfg(target_os = "linux")]
     fn notify_wayland_drop_limitation(&mut self, message: &str) {
         if self.wayland_drop_limitation_notified {

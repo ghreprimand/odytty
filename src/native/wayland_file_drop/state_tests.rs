@@ -4,7 +4,7 @@
 //! byte-faithful non-UTF-8, NUL / malformed-escape / query-fragment rejection,
 //! ordering) and the state machine (offer lifecycle and bound, per-seat
 //! current-enter-offer vs accepted drag, Leave always destroys the enter offer,
-//! seat removal, the Copy-only gate, transfer cap and timeout). The live
+//! seat removal, the copy-admission gate, transfer cap and timeout). The live
 //! protocol path is exercised on-device against a conforming compositor.
 
 use super::*;
@@ -111,16 +111,26 @@ fn empty_payload_no_paths() {
     assert!(parse_uri_list(b"\r\n\r\n").is_empty());
 }
 
-// ---- Copy-only gate ----
+// ---- Copy-admission gate ----
 
 #[test]
-fn gate_confirms_only_copy_after_preference() {
-    assert!(copy_drop_confirmed(Some(DropAction::Copy), true));
-    assert!(!copy_drop_confirmed(Some(DropAction::Copy), false));
-    assert!(!copy_drop_confirmed(Some(DropAction::Move), true));
-    assert!(!copy_drop_confirmed(Some(DropAction::Ask), true));
-    assert!(!copy_drop_confirmed(Some(DropAction::Other), true));
-    assert!(!copy_drop_confirmed(None, true));
+fn gate_uses_source_copy_only_without_an_answer() {
+    let mut record = OfferRecord {
+        source_has_copy: true,
+        ..OfferRecord::default()
+    };
+    assert!(copy_drop_admitted(&record));
+    record.source_has_copy = false;
+    assert!(!copy_drop_admitted(&record));
+    record.action_after_preference = true;
+    record.negotiated = Some(DropAction::Copy);
+    assert!(copy_drop_admitted(&record));
+    for action in [DropAction::Move, DropAction::Ask, DropAction::Other] {
+        record.negotiated = Some(action);
+        assert!(!copy_drop_admitted(&record));
+    }
+    record.negotiated = None;
+    assert!(!copy_drop_admitted(&record));
 }
 
 // ---- transfer bounds ----
@@ -185,31 +195,21 @@ fn superseding_enter_destroys_prior_enter_offer() {
 }
 
 #[test]
-fn accepted_drop_needs_confirmed_copy() {
+fn pre_preference_move_with_copy_source_is_received() {
     let mut core = DropCore::default();
     core.register_offer(7);
     core.set_supports_uri(7);
+    core.set_source_has_copy(7, true);
     let ident = SurfaceIdent {
         window: 3,
         generation: 5,
     };
     let outcome = core.enter(1, 7, 0xabc, Some(ident));
     assert!(outcome.accept);
+    // Hyprland emits its source-default Move before Enter. This is not an
+    // answer to our later Copy preference.
+    core.note_action(7, Some(DropAction::Move));
     core.mark_preference_sent(7);
-    // No confirmed Copy yet -> refuse.
-    match core.drop(1) {
-        DropOutcome::Refuse {
-            offer: 7,
-            was_uri: true,
-        } => {}
-        other => panic!("expected refuse, got {other:?}"),
-    }
-    // Re-enter and confirm Copy after preference -> receive.
-    core.register_offer(7);
-    core.set_supports_uri(7);
-    core.enter(1, 7, 0xabc, Some(ident));
-    core.mark_preference_sent(7);
-    core.note_action(7, Some(DropAction::Copy));
     match core.drop(1) {
         DropOutcome::Receive { drag } => {
             assert_eq!(drag.offer, 7);
@@ -217,6 +217,71 @@ fn accepted_drop_needs_confirmed_copy() {
             assert_eq!(drag.ident, Some(ident));
         }
         other => panic!("expected receive, got {other:?}"),
+    }
+}
+
+#[test]
+fn pre_preference_move_with_move_only_source_is_refused() {
+    let mut core = DropCore::default();
+    core.register_offer(4);
+    core.set_supports_uri(4);
+    core.enter(1, 4, 0, None);
+    core.note_action(4, Some(DropAction::Move));
+    core.mark_preference_sent(4);
+    assert!(matches!(
+        core.drop(1),
+        DropOutcome::Refuse {
+            offer: 4,
+            was_uri: true
+        }
+    ));
+}
+
+#[test]
+fn pre_preference_move_without_source_actions_is_refused() {
+    let mut core = DropCore::default();
+    core.register_offer(4);
+    core.set_supports_uri(4);
+    core.enter(1, 4, 0, None);
+    core.note_action(4, Some(DropAction::Move));
+    core.mark_preference_sent(4);
+    assert!(matches!(
+        core.drop(1),
+        DropOutcome::Refuse {
+            offer: 4,
+            was_uri: true
+        }
+    ));
+}
+
+#[test]
+fn copy_after_preference_is_received() {
+    let mut core = DropCore::default();
+    core.register_offer(4);
+    core.set_supports_uri(4);
+    core.enter(1, 4, 0, None);
+    core.mark_preference_sent(4);
+    core.note_action(4, Some(DropAction::Copy));
+    assert!(matches!(core.drop(1), DropOutcome::Receive { .. }));
+}
+
+#[test]
+fn move_or_combined_action_after_preference_is_refused_even_with_source_copy() {
+    for action in [DropAction::Move, DropAction::Other] {
+        let mut core = DropCore::default();
+        core.register_offer(4);
+        core.set_supports_uri(4);
+        core.set_source_has_copy(4, true);
+        core.enter(1, 4, 0, None);
+        core.mark_preference_sent(4);
+        core.note_action(4, Some(action));
+        assert!(matches!(
+            core.drop(1),
+            DropOutcome::Refuse {
+                offer: 4,
+                was_uri: true
+            }
+        ));
     }
 }
 
