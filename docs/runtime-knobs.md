@@ -738,7 +738,10 @@ are listed and refused so the caller can repeat the mutation once with
 or peer-identity failure, malformed or oversized reply, metadata race, or any
 other live socket that cannot be classified refuses the whole discovery and
 names the unresolved path; no toggle is sent. A probe never retries the toggle,
-and a connection lost after the probe reports `outcome_unknown`. Every other
+and a connection lost after the probe reports `outcome_unknown`. With an
+explicit `--endpoint`, a socket or pipe that does not exist, refuses the
+connection, or fails the owner check reports `unavailable` (nothing was sent);
+only a failure after the request may have left reports `outcome_unknown`. Every other
 control verb remains endpoint-explicit. Windows performs no pipe discovery and
 requires `--endpoint \\.\pipe\odytty-control-<pid>`.
 

@@ -269,13 +269,9 @@ pub fn run(command: Command) -> (String, bool) {
     #[cfg(windows)]
     let response =
         super::windows::request(endpoint.as_deref().expect("explicit endpoint"), &request)
-            .unwrap_or_else(|_| Response {
+            .unwrap_or_else(|error| Response {
                 request_id: request.request_id,
-                reply: Reply::Error(if request.action.is_read_only() {
-                    ErrorCode::Unavailable
-                } else {
-                    ErrorCode::OutcomeUnknown
-                }),
+                reply: Reply::Error(transport_error_code(&error, request.action.is_read_only())),
             });
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     let response = {
@@ -299,14 +295,36 @@ fn mutation_response(
     request: &Request,
     send: impl FnOnce() -> std::io::Result<Response>,
 ) -> Response {
-    send().unwrap_or_else(|_| Response {
+    send().unwrap_or_else(|error| Response {
         request_id: request.request_id,
-        reply: Reply::Error(if request.action.is_read_only() {
-            ErrorCode::Unavailable
-        } else {
-            ErrorCode::OutcomeUnknown
-        }),
+        reply: Reply::Error(transport_error_code(&error, request.action.is_read_only())),
     })
+}
+
+/// Classify a transport failure for the caller. A read-only request is always
+/// `unavailable`: repeating it is harmless. A mutation is `unavailable` only
+/// when the failure proves the request was never delivered: the endpoint does
+/// not exist (a stale pid in the name), refused the connection, failed the
+/// owner or path checks, or the name was invalid. Every other failure (a
+/// connect or reply timeout, a broken or reset stream, a malformed reply) may
+/// have happened after the request bytes left, so it stays `outcome_unknown`
+/// and the caller must not retry automatically.
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+fn transport_error_code(error: &std::io::Error, read_only: bool) -> ErrorCode {
+    use std::io::ErrorKind;
+    if read_only
+        || matches!(
+            error.kind(),
+            ErrorKind::NotFound
+                | ErrorKind::ConnectionRefused
+                | ErrorKind::PermissionDenied
+                | ErrorKind::InvalidInput
+        )
+    {
+        ErrorCode::Unavailable
+    } else {
+        ErrorCode::OutcomeUnknown
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -902,12 +920,62 @@ mod tests {
         let response = mutation_response(&request, || {
             calls.set(calls.get() + 1);
             Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "reply lost after the request was sent",
+            ))
+        });
+        assert_eq!(calls.get(), 1);
+        assert_eq!(response.reply, Reply::Error(ErrorCode::OutcomeUnknown));
+
+        // The endpoint vanished before anything was sent: the outcome is known
+        // (nothing was delivered), so the caller may repeat with a fresh path.
+        let calls = std::cell::Cell::new(0);
+        let response = mutation_response(&request, || {
+            calls.set(calls.get() + 1);
+            Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "endpoint replaced",
             ))
         });
         assert_eq!(calls.get(), 1);
-        assert_eq!(response.reply, Reply::Error(ErrorCode::OutcomeUnknown));
+        assert_eq!(response.reply, Reply::Error(ErrorCode::Unavailable));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    #[test]
+    fn transport_failures_before_delivery_are_unavailable_after_delivery_unknown() {
+        use std::io::{Error, ErrorKind};
+        for kind in [
+            ErrorKind::NotFound,
+            ErrorKind::ConnectionRefused,
+            ErrorKind::PermissionDenied,
+            ErrorKind::InvalidInput,
+        ] {
+            assert_eq!(
+                transport_error_code(&Error::new(kind, "before delivery"), false),
+                ErrorCode::Unavailable,
+                "{kind:?}"
+            );
+        }
+        for kind in [
+            ErrorKind::TimedOut,
+            ErrorKind::BrokenPipe,
+            ErrorKind::ConnectionReset,
+            ErrorKind::UnexpectedEof,
+            ErrorKind::InvalidData,
+            ErrorKind::Other,
+        ] {
+            assert_eq!(
+                transport_error_code(&Error::new(kind, "after delivery"), false),
+                ErrorCode::OutcomeUnknown,
+                "{kind:?}"
+            );
+            assert_eq!(
+                transport_error_code(&Error::new(kind, "read-only"), true),
+                ErrorCode::Unavailable,
+                "{kind:?} read-only"
+            );
+        }
     }
 
     #[cfg(windows)]
