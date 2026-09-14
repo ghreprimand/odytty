@@ -93,10 +93,10 @@ its cross-platform or evidence gate is not met.
   boundaries, four-leg platform matrix, and carried-forward performance
   baseline are frozen in
   [`v0.13.0-foundation.md`](v0.13.0-foundation.md).
-- **v0.14.0 — Profiles and navigation.** Named launch profiles with a fully
-  in-app editor, deterministic precedence, fast cached startup, and one
+- **Shipped v0.14.0 — Profiles and navigation.** Named launch profiles with a
+  fully in-app editor, deterministic precedence, fast cached startup, and one
   searchable navigator over workspaces, tabs, panes, and detachable sessions.
-- **v0.15.0 — Fast access and local control.** A cross-platform quick terminal,
+- **Shipped v0.15.0 — Fast access and local control.** A cross-platform quick terminal,
   an owner-scoped local automation API and CLI, external file drop with
   shell-aware path quoting and no implicit execution, and keyboard-first window
   merging that folds one window's tabs into another through a numbered,

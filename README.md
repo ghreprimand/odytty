@@ -1,8 +1,6 @@
 # OdyTTY
 
-Published release: **v0.14.0**.
-
-Release candidate: **v0.15.0**.
+Published release: **v0.15.0**.
 
 Current development work is tracked in [TODO.md](TODO.md). Release evidence
 and historical corrections are listed in the [release index](docs/releases/README.md).
@@ -187,23 +185,18 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.14.0 is published,
-adding named launch profiles, external palette following, and a unified Session
-Navigator, and closing an external security review. Named profiles have a
-versioned no-secret on-disk schema, deterministic precedence, atomic storage
-with malformed-file recovery, and a Profile Manager that exposes the complete
-schema; plain New Tab and New Workspace stay one-click on the effective default
-profile while an adjacent chooser and the context menus open a lazy searchable
-picker, and profile discovery never delays the first local terminal. The
-[named profiles guide](docs/profiles.md) covers the schema, Profile Manager,
-defaults, precedence, launch surfaces, and switching. External
-palette following is an optional opt-in that applies a complete local palette
-file through the existing theme seam with fail-closed parsing and last-known-good
-retention. The Session Navigator searches workspaces, tabs, panes, and
-detachable sessions with a redacted opt-in preview. The release index above
-records the published version.
+OdyTTY is a broad pre-1.0 terminal. Version 0.15.0 is published, adding a
+dedicated quick terminal, an owner-scoped local automation endpoint and control
+CLI, confirm-first external file drop, keyboard-first window merging, and the
+Electric Blue theme, while preserving the existing terminal-input and
+remote-upload security boundaries. The four v0.15.0 features are summarized above
+and detailed in the [feature reference](docs/features.md) and the
+[v0.15.0 release notes](docs/releases/0.15.0.md). It builds on v0.14.0's named
+launch profiles, external palette following, and unified Session Navigator; the
+[named profiles guide](docs/profiles.md) covers profiles, and the release index
+above records every published version.
 
-The v0.14.0 work does not optimize rendering, terminal storage, GPU allocation,
+The v0.15.0 work does not optimize rendering, terminal storage, GPU allocation,
 or presentation timing, so it carries forward rather than relabels the v0.12.0
 performance evidence.
 
@@ -215,14 +208,14 @@ Separately classified software-endpoint results, memory composition, and
 scrollback scaling are published alongside W6 without pooling their evidence
 classes; W7's four-hour memory-growth workload remains explicitly deferred.
 
-The tagged v0.14.0 release passed blocking Linux, macOS, and Windows CI,
-release publication, signed checksums for all 17 assets, seven byte-identical
-alias pairs, platform provenance checks, and Scoop, Homebrew, and AUR
-propagation. Profile and navigator hands-on acceptance and release-image testing
-are complete. An isolated clean release build from the signed source archive
-also passed on Linux with Rust 1.97.1; this was not a repeat MSRV verification.
-These results do not imply exhaustive device or application coverage. Full
-evidence and limitations are recorded in the [release
+The tagged v0.15.0 release passed blocking Linux, macOS, and Windows CI,
+release publication, signed checksums for all assets, and seven byte-identical
+always-latest/version-pinned alias pairs, with Scoop, Homebrew, and AUR
+propagation. Hands-on acceptance of the quick terminal, automation, file drop,
+and window merge was performed on Linux (native Hyprland and Wayland, and nested
+KWin), Windows, and macOS; rows that need hardware not available here are
+recorded as such. These results do not imply exhaustive device or application
+coverage. Full evidence and limitations are recorded in the [release
 guide](docs/release.md). The full benchmark results remain in
 [docs/benchmark-results.md](docs/benchmark-results.md); carried-forward results
 do not cover every GPU, compositor, IME, font, or hardware configuration.

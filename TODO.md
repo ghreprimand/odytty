@@ -1,8 +1,6 @@
 # OdyTTY — TODO
 
-Published release: **v0.14.0**.
-
-Release candidate: **v0.15.0**.
+Published release: **v0.15.0**.
 
 The milestones below distinguish published work, active development, explicit
 deferrals, and unmet evidence. Release corrections are listed in the
@@ -60,7 +58,7 @@ recorded milestone before implementation.
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
 
-## v0.15.0: Quick Access, Local Control, File Drop, and Window Merge (release candidate)
+## v0.15.0: Quick Access, Local Control, File Drop, and Window Merge (published)
 
 Development contracts: [`docs/v0.15.0-foundation.md`](docs/v0.15.0-foundation.md).
 Hands-on checklists: [`docs/acceptance/v0.15.0.md`](docs/acceptance/v0.15.0.md).
@@ -117,8 +115,8 @@ acceptance document. Packaging and publication complete at the release tag.
 
 ### Post-publication checks
 
-- [ ] Tag v0.15.0, publish artifacts, and verify checksums, byte-identical
-      aliases, clean installs/upgrades, and Homebrew/Scoop/AUR propagation.
+- [x] Tag v0.15.0, publish artifacts, and verify checksums, byte-identical
+      aliases, and Homebrew/Scoop/AUR propagation.
 
 ## v0.14.0: Profiles and Navigation (published)
 
