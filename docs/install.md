@@ -211,9 +211,10 @@ curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/inst
 
 The script chooses a native `.deb` on apt/dpkg systems, a native `.rpm` on
 dnf/rpm systems, or the portable binary tarball otherwise, and authenticates
-`SHA256SUMS` with the pinned release key before installing. Append
-` -s -- --dry-run` to preview the plan, or ` -s -- --insecure-skip-signature` to
-install without `minisign`.
+`SHA256SUMS` with the pinned release key before installing. Verification is
+automatic: if `minisign` is missing the script installs it from your package
+manager (`pacman`, `apt`, `dnf`, or `zypper`) first. Append ` -s -- --dry-run` to
+preview the plan, or ` -s -- --insecure-skip-signature` to skip verification.
 
 **Prefer to review the installer before running it?** Download, verify, and run
 it yourself. This is a Bash block (in fish or another shell, run `bash` first):

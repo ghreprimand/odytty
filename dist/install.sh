@@ -145,6 +145,24 @@ dl() { # url dest
     fi
 }
 
+# Install minisign from the system package manager when it is missing, so the
+# one-line installer can verify the release without a manual prerequisite.
+# Returns non-zero when no supported package manager can supply it.
+install_minisign() {
+    say "minisign is needed to verify the release; installing it ..."
+    if have pacman; then
+        "${SUDO[@]}" pacman -S --needed --noconfirm minisign
+    elif have apt-get; then
+        "${SUDO[@]}" apt-get update -qq && "${SUDO[@]}" apt-get install -y minisign
+    elif have dnf; then
+        "${SUDO[@]}" dnf install -y minisign
+    elif have zypper; then
+        "${SUDO[@]}" zypper --non-interactive install minisign
+    else
+        return 1
+    fi
+}
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 cd "$tmp"
@@ -154,9 +172,13 @@ dl "$url" "$artifact"
 say "Downloading SHA256SUMS ..."
 dl "$sums_url" "SHA256SUMS"
 if [ "$INSECURE_SKIP_SIGNATURE" -eq 0 ]; then
+    if ! have minisign && { [ "${#SUDO[@]}" -gt 0 ] || [ "$(id -u)" -eq 0 ]; }; then
+        install_minisign || true
+    fi
     if ! have minisign; then
-        err "minisign is required to authenticate SHA256SUMS; install it and retry."
-        err "Use --insecure-skip-signature only if you accept trusting the download channel."
+        err "minisign is required to authenticate SHA256SUMS and could not be installed automatically."
+        err "Install it (sudo pacman -S minisign / sudo apt install minisign / sudo dnf install minisign) and retry,"
+        err "or re-run with --insecure-skip-signature to trust the download channel."
         exit 1
     fi
     say "Downloading SHA256SUMS.minisig ..."

@@ -42,10 +42,11 @@ curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/inst
 The script detects apt or dnf and installs the matching signature-verified
 package; other x86_64 systems get the portable binary tarball. It downloads the
 latest release, authenticates `SHA256SUMS` with the pinned OdyTTY release key,
-and checks the artifact before installing. It needs `minisign` and `sha256sum`;
-if `minisign` is missing it says so and stops (append ` -s -- --insecure-skip-signature`
-to trust the download channel instead). To review the installer before running
-it, use the [manual verified path](docs/install.md#linux).
+and checks the artifact before installing. Verification is automatic: if
+`minisign` is not already present the script installs it from your package
+manager first (append ` -s -- --insecure-skip-signature` to skip verification
+instead). To review the installer before running it, use the
+[manual verified path](docs/install.md#linux).
 
 Arch users can install `odytty` from the AUR with `paru -S odytty` or
 `yay -S odytty`. Direct `.deb`, `.rpm`, AppImage, binary-tarball, and source
