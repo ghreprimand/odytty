@@ -2,12 +2,14 @@
 
 Published release: **v0.14.0**.
 
+Release candidate: **v0.15.0**.
+
 A short guide to what each OdyTTY release adds or improves for everyday use.
 For the detailed development history, see the [devlog](../../DEVLOG.md).
 
 | Release | Highlights |
 | --- | --- |
-| [v0.15.0 (unreleased)](0.15.0.md) | Electric Blue, quick terminal, local automation, file drop, and window merge are in source with unit evidence; device acceptance and release closure remain open. |
+| [v0.15.0 (release candidate)](0.15.0.md) | A dedicated quick terminal, owner-scoped local automation and control CLI, confirm-first external file drop, keyboard-first window merge, and the Electric Blue theme. |
 | [v0.14.0](0.14.0.md) | Named profiles, external palette following, Session Navigator, and targeted hardening. |
 | [v0.13.0](0.13.0.md) | Risky-paste previews, command-output actions, and completion and progress monitoring. |
 | [v0.12.2](0.12.2.md) | Correct cursor controls for multiline progress redraws. |

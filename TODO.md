@@ -2,6 +2,8 @@
 
 Published release: **v0.14.0**.
 
+Release candidate: **v0.15.0**.
+
 The milestones below distinguish published work, active development, explicit
 deferrals, and unmet evidence. Release corrections are listed in the
 [release index](docs/releases/README.md).
@@ -58,19 +60,21 @@ recorded milestone before implementation.
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
 
-## v0.15.0: Quick Access, Local Control, File Drop, and Window Merge (in progress)
+## v0.15.0: Quick Access, Local Control, File Drop, and Window Merge (release candidate)
 
 Development contracts: [`docs/v0.15.0-foundation.md`](docs/v0.15.0-foundation.md).
 Hands-on checklists: [`docs/acceptance/v0.15.0.md`](docs/acceptance/v0.15.0.md).
 Status notes: [`docs/releases/0.15.0.md`](docs/releases/0.15.0.md).
 
-Unit-evidenced on current `master`: Electric Blue; quick-terminal
-lifecycle and shortcut adapters; opt-in structural automation on Unix sockets and
-the Windows named pipe (busy/unavailable/listener-fault and hostile-client
-coverage), including the fail-closed Unix compositor toggle command; confirm-first
-Unix file-drop insertion with an explicit Windows
-refusal; keyboard-first window merge/pull. Device acceptance, blocking release
-CI, packaging, and publication remain open. No release claim.
+On current `master`: Electric Blue; quick-terminal lifecycle and shortcut
+adapters; opt-in structural automation on Unix sockets and the Windows named pipe
+(busy/unavailable/listener-fault and hostile-client coverage), including the
+fail-closed Unix compositor toggle command; confirm-first file-drop insertion
+with native-Wayland delivery and an explicit Windows refusal; keyboard-first
+window merge/pull. Device acceptance was performed on Linux (native
+Hyprland/Wayland and nested KWin), Windows, and macOS, with blocking three-OS CI
+green; per-row results (including hardware-unavailable rows) are recorded in the
+acceptance document. Packaging and publication complete at the release tag.
 
 - [x] Quick-terminal lifecycle and platform shortcut adapters (hidden-session
       retention, single-instance summons, monitor fallback, post-first-frame
@@ -105,8 +109,14 @@ CI, packaging, and publication remain open. No release claim.
       acceptance remains open.
 - [x] Add the Electric Blue preset (`odyssey-electric-blue`) with blue-black
       surfaces, lavender text, and cyan accents through the shared theme library.
-- [ ] Complete independent platform evidence, hands-on acceptance, blocking CI,
-      and release closure.
+- [x] Complete independent platform evidence and hands-on acceptance on Linux
+      (native Hyprland/Wayland and nested KWin), Windows, and macOS, with
+      blocking three-OS CI green.
+
+### Post-publication checks
+
+- [ ] Tag v0.15.0, publish artifacts, and verify checksums, byte-identical
+      aliases, clean installs/upgrades, and Homebrew/Scoop/AUR propagation.
 
 ## v0.14.0: Profiles and Navigation (published)
 

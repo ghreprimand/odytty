@@ -44,6 +44,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.15.0" date="2026-09-13">
+      <description>
+        <p>This release adds a dedicated quick terminal summoned by a global shortcut, with platform-specific registration, hidden-session retention, single-instance summons, and actionable notices for denied or conflicting shortcuts. An opt-in, owner-scoped local automation endpoint and a small control CLI list and focus windows, workspaces, tabs, and panes, open profiles, create tabs, splits, and workspaces, and rename, without sending terminal input or reading terminal content, and without any network listener.</p>
+        <p>External file drop inserts dropped paths through the confirm-first, shell-quoted paste-safety policy without appending Enter, including a companion native-Wayland listener that requests copy only and performs no file operation; Windows refuses file drop with an explicit notice. Keyboard-first window merging moves tabs, panes, PTYs, and attach handles between same-process windows through the command palette and Session Navigator, closing the source only after a successful transfer. The Electric Blue preset is added alongside the existing themes. Existing terminal input and remote-upload security boundaries are unchanged.</p>
+      </description>
+    </release>
     <release version="0.14.0" date="2026-09-07">
       <description>
         <p>This release adds named launch profiles with a versioned no-secret on-disk schema, deterministic precedence, atomic storage with malformed-file recovery, and a Profile Manager whose editor exposes the complete schema. Plain New Tab and New Workspace stay one-click on the effective default profile, while an adjacent chooser and the context menus open a lazy searchable profile picker; profile discovery, remote checks, and validation never delay the first local terminal.</p>
