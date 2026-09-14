@@ -32,34 +32,20 @@ and troubleshooting.
 
 ### Linux
 
-The version-pinned installer detects apt or dnf and installs the matching
-signature-verified package; other x86_64 systems receive the portable binary
-tarball. Paste this block to install or update to the latest release. It
-automatically resolves the version and verifies the installer before running it:
+Install or update with one command - the same command does both, and it works in
+any shell (bash, zsh, or fish):
 
 ```sh
-bash <<'ODYTTY_UPDATE'
-set -euo pipefail
-command -v minisign >/dev/null || { echo 'Install minisign first, then rerun this block.' >&2; exit 1; }
-workdir=$(mktemp -d)
-trap 'rm -rf "$workdir"' EXIT
-cd "$workdir"
-release=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/ghreprimand/odytty/releases/latest)
-version=${release##*/v}
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Could not resolve the latest release.' >&2; exit 1; }
-base="https://github.com/ghreprimand/odytty/releases/download/v${version}"
-curl -fLO "${base}/odytty-${version}-install.sh"
-curl -fLO "${base}/SHA256SUMS"
-curl -fLO "${base}/SHA256SUMS.minisig"
-minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev'
-awk -v file="odytty-${version}-install.sh" '$2 == file' SHA256SUMS | sha256sum -c -
-bash "odytty-${version}-install.sh"
-ODYTTY_UPDATE
+curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
 ```
 
-This needs `minisign` and `sha256sum`. A mutable `curl | bash` convenience
-command is intentionally not the trusted installation path; it executes an
-unreviewed network response before it can verify anything.
+The script detects apt or dnf and installs the matching signature-verified
+package; other x86_64 systems get the portable binary tarball. It downloads the
+latest release, authenticates `SHA256SUMS` with the pinned OdyTTY release key,
+and checks the artifact before installing. It needs `minisign` and `sha256sum`;
+if `minisign` is missing it says so and stops (append ` -s -- --insecure-skip-signature`
+to trust the download channel instead). To review the installer before running
+it, use the [manual verified path](docs/install.md#linux).
 
 Arch users can install `odytty` from the AUR with `paru -S odytty` or
 `yay -S odytty`. Direct `.deb`, `.rpm`, AppImage, binary-tarball, and source
@@ -101,12 +87,12 @@ Use the same channel that installed OdyTTY:
 
 | Installed with | Update |
 | --- | --- |
-| Linux installer | Re-run the installer command above. |
-| Direct `.deb` or `.rpm` | Re-run the installer, or download and install the latest package. OdyTTY does not publish an apt or dnf repository. |
+| Linux installer | Re-run the one-line install command above. |
+| Direct `.deb` or `.rpm` | Re-run the one-line install command, or download and install the latest package. OdyTTY does not publish an apt or dnf repository. |
 | AUR | Run `paru -Syu` or `yay -Syu`; for a manual checkout, run `git pull --ff-only` and `makepkg -si`. |
 | AppImage or tarball | Replace it with the always-latest artifact, verify `SHA256SUMS`, and reuse the previous install location. |
-| Homebrew | Run `brew update && brew upgrade --cask odytty`. |
-| Scoop | Run `scoop update && scoop update odytty`. |
+| Homebrew | Run `brew update`, then `brew upgrade --cask odytty`. |
+| Scoop | Run `scoop update`, then `scoop update odytty` (two commands; older Windows PowerShell rejects `&&`). |
 | Source | Update the source tree, rebuild with `cargo build --release --locked`, and reinstall to the same prefix. |
 
 The [update guide](docs/install.md#updating) provides exact commands for every

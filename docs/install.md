@@ -202,10 +202,21 @@ borderless windows and OS theme detection.
 
 ### Version-pinned installer (recommended)
 
-The trusted path downloads a version-pinned release installer, authenticates
-the release manifest with Minisign, checks the installer against that manifest,
-then runs it. Paste this block to install or update to the latest release;
-no version substitution is needed (installer assets ship with v0.14.0 and later):
+Install or update with one command - the same command does both, in any shell
+(bash, zsh, or fish):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
+```
+
+The script chooses a native `.deb` on apt/dpkg systems, a native `.rpm` on
+dnf/rpm systems, or the portable binary tarball otherwise, and authenticates
+`SHA256SUMS` with the pinned release key before installing. Append
+` -s -- --dry-run` to preview the plan, or ` -s -- --insecure-skip-signature` to
+install without `minisign`.
+
+**Prefer to review the installer before running it?** Download, verify, and run
+it yourself. This is a Bash block (in fish or another shell, run `bash` first):
 
 ```sh
 bash <<'ODYTTY_UPDATE'
@@ -238,9 +249,10 @@ install when no `sudo` is available. To preview the installation, add
 block before pasting it. This downloads and verifies the installer, then prints
 the plan without downloading or installing packages.
 
-The older mutable `curl | bash` form is convenience-only and is not a trusted
-path: it executes a network response before signature verification. Do not use
-it when release-key authentication is required.
+The one-line command above fetches OdyTTY's own installer script over HTTPS; the
+script then authenticates the release manifest with the pinned key before
+installing anything, so the release artifacts are always verified. Piping an
+unauthenticated *binary* straight into a shell is what to avoid.
 
 It is Linux x86_64 only: on macOS it prints the Homebrew command and on Windows
 the Scoop command instead of installing, and other architectures are pointed at
