@@ -190,7 +190,7 @@ else
 fi
 
 # --- verify -----------------------------------------------------------------
-want="$(awk -v f="$artifact" '$2 == f { print $1 }' SHA256SUMS | head -n1)"
+want="$(awk -v f="$artifact" '$2 == f { print $1; exit }' SHA256SUMS)"
 if [ -z "$want" ]; then
     err "no SHA256 entry for $artifact in SHA256SUMS; aborting."
     exit 1
@@ -227,7 +227,12 @@ case "$kind" in
         fi
         ;;
     tarball)
-        dir="$(tar -tzf "$artifact" | head -n1 | cut -d/ -f1)"
+        # Read the whole listing into a variable and take the first path
+        # component with parameter expansion. Piping `tar` into `head` closes the
+        # pipe early, and under `set -o pipefail` the resulting SIGPIPE on `tar`
+        # aborts the installer before anything is installed.
+        dir="$(tar -tzf "$artifact")"
+        dir="${dir%%/*}"
         tar -xzf "$artifact"
         if [ ! -x "$dir/install.sh" ]; then
             err "tarball missing install.sh; aborting."
