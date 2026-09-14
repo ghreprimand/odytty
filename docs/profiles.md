@@ -11,11 +11,10 @@ a profile, every surface that can select one, defaults, optional host- and
 directory-aware switching, and the security boundaries. For the internal design
 contract see the [profiles foundation](v0.14.0-profiles-foundation.md).
 
-Unreleased v0.15.0 development adds `quick_terminal_profile` for the dedicated
-quick window. Profile resolution happens on summon. Quick access defaults off,
-and global shortcut support and native-platform acceptance remain under
-validation. See the [quick-terminal contract](v0.15.0-foundation.md#quick-terminal-role)
-and [runtime settings](runtime-knobs.md) before using a development build.
+Version 0.15.0 adds `quick_terminal_profile` for the dedicated quick window.
+Profile resolution happens on summon; quick access defaults off. See the
+[quick-terminal contract](v0.15.0-foundation.md#quick-terminal-role)
+and [runtime settings](runtime-knobs.md).
 
 ## Contents
 

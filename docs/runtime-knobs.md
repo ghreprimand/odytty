@@ -1,9 +1,8 @@
 # OdyTTY Runtime Knobs
 
-This reference follows the current source tree. The `quick_terminal` setting
-and `quick_terminal_*` family are unreleased v0.15.0 development and are absent
-from published v0.14.0 packages; enabling them does not establish native-platform
-acceptance. See the [development contract](v0.15.0-foundation.md).
+This reference follows the current source tree. The `quick_terminal` setting and
+`quick_terminal_*` family configure the quick terminal added in v0.15.0. See the
+[v0.15.0 contract](v0.15.0-foundation.md).
 
 OdyTTY loads native runtime settings from built-in defaults, then
 `odytty.conf`, then environment variables. Environment variables always win and

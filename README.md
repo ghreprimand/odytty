@@ -171,8 +171,7 @@ sessions.
   searchable Session Navigator with bounded metadata, confirmed close actions,
   a process-lifetime fresh-shell reopen history, and an optional redacted preview.
 - **Configuration without ceremony:** a live settings panel, command palette,
-  font and theme pickers, 145 built-in themes in current unreleased source
-  (144 in published v0.14.0), user themes, a theme builder
+  font and theme pickers, 145 built-in themes, user themes, a theme builder
   with sliders and click-to-edit hex values (including capture of a pane's live
   colors into a new theme),
   backgrounds, transparency, bloom, CRT, and retro effects. Config-file editing
@@ -252,28 +251,26 @@ seam without delaying ordinary startup. See
 [current work](TODO.md) and the
 [full roadmap](docs/full-build-roadmap.md) for later milestones.
 
-Current v0.15.0 development adds the `odyssey-electric-blue` preset through the
-existing cross-platform theme path. It does not change the default theme or any
-effect setting. See the [theme reference](docs/themes.md#electric-blue).
-
-The same unreleased line now carries unit-evidenced quick-terminal lifecycle and
-shortcut adapters; opt-in structural automation on Linux/macOS owner-private
-sockets and a Windows owner-DACL named pipe (busy/unavailable/listener-fault
-contracts, fail-closed Unix quick-terminal toggle discovery, and hostile-client
-suites); confirm-first Unix file-drop insertion, now including native Wayland
-drop delivery through a companion data device that requests Copy only (an
-answered request admits only Copy; an unanswered request, as on Hyprland,
-admits only a source that advertised Copy; OdyTTY never moves or deletes a
-file; an oversized drop refuses the whole gesture; a later Wayland uri-list
-may start fresh; leftover per-file events do not restart a preview), with an
-explicit Windows refusal;
-and keyboard-first window merge/pull with in-window
-numerals. Native Wayland quick-terminal hide/summon has passed on Hyprland,
-retaining tabs and stable identities across surface recreation. Broader device
-acceptance, blocking release CI, packaging, and publication remain open.
-No v0.15.0 release claim. See the
+Version 0.15.0 adds four features and the `odyssey-electric-blue` preset. A
+dedicated quick terminal is summoned by a per-platform global shortcut, retains
+its hidden session, never duplicates on repeated summons, and registers only
+after an ordinary frame; placement on tiling Wayland compositors is
+compositor-controlled. An opt-in, owner-scoped local automation endpoint and an
+`odytty control` CLI list and focus windows, workspaces, tabs, and panes, open
+profiles, create tabs, splits, and workspaces, and rename, without terminal
+input, content reads, or any network listener; Linux and macOS use owner-private
+sockets and Windows uses an owner-DACL named pipe. External file drop inserts
+paths through the confirm-first, shell-quoted paste-safety policy and never
+appends Enter, with native Wayland delivery through a companion data device that
+requests copy only and performs no file operation, and an explicit Windows
+refusal. Keyboard-first window merge and pull move tabs, panes, PTYs, and attach
+handles between same-process windows through numbered in-window targets, closing
+the source only after success. Electric Blue is added without changing the
+default theme or any effect setting. Device acceptance was performed on Linux
+(native Hyprland/Wayland and nested KWin), Windows, and macOS. See the
 [v0.15.0 contracts](docs/v0.15.0-foundation.md),
-[status notes](docs/releases/0.15.0.md), and
+[release notes](docs/releases/0.15.0.md),
+[theme reference](docs/themes.md#electric-blue), and
 [acceptance checklists](docs/acceptance/v0.15.0.md).
 
 The terminal core and visual experience layer are deliberately separate.

@@ -192,8 +192,7 @@ reduced_motion = off
 # Wayland the compositor, not the application, owns global grabs); the result is
 # reported after the first usable frame. The palette toggle is available only
 # when quick_terminal is on.
-# These quick-terminal settings are unreleased v0.15.0 development;
-# published v0.14.0 packages do not provide this feature.
+# These quick-terminal settings were added in v0.15.0.
 # quick_terminal = off
 # Summon accelerator: ctrl/alt/shift/super modifiers plus one key.
 # quick_terminal_shortcut = F12

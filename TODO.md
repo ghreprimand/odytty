@@ -47,8 +47,8 @@ release-image testing, blocking CI, signed artifacts, provenance, and package
 propagation are complete. The isolated published-source release build also
 passed on Linux with Rust 1.97.1; no new MSRV claim is made. Active v0.15.0
 development (quick terminal, local automation API, file drop, and keyboard-first
-window merge) is unit-evidenced on `master` with device acceptance and release
-closure still open; see the roadmap and
+window merge) is complete on `master` with device acceptance recorded on Linux,
+Windows, and macOS; see the roadmap and
 [`docs/releases/0.15.0.md`](docs/releases/0.15.0.md). A checked item is delivered at the current head (or at the historical
 milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
@@ -78,16 +78,18 @@ acceptance document. Packaging and publication complete at the release tag.
 
 - [x] Quick-terminal lifecycle and platform shortcut adapters (hidden-session
       retention, single-instance summons, monitor fallback, post-first-frame
-      registration readiness). Native Wayland hide/summon passed on Hyprland
-      with two quick tabs and stable identities retained across surface recreation.
-      Device confirmation of grabs, fullscreen, multi-monitor, and virtual-desktop
-      behavior remains open.
+      registration readiness). Device acceptance on native Hyprland covered the
+      portal shortcut, fullscreen competitor, active-monitor cycling, workspace
+      switching, display disable/restore, and overlay focus-loss; summon and
+      hide via the toggle were also confirmed on Windows and macOS.
 - [x] Stable tab/workspace creation identities and Navigator action routing
       across pane closure, moves, merge, and restoration.
 - [x] Owner-restricted structural automation protocol and CLI, without input or
       content access, including Unix owner routing, Windows named-pipe transport,
       busy/unavailable/listener-fault contracts, and hostile-client suites.
-      Three-platform and hands-on acceptance remain open.
+      Hands-on acceptance passed on Linux, Windows, and macOS; second-account and
+      second-machine refusal are owner-DACL guarantees not reproducible on the
+      available hardware.
 - [x] Confirm-first native file-drop path insertion on eligible local Unix panes
       through the shipped paste policy; Windows refuses with an explicit platform
       notice. Native Wayland delivery is implemented through a companion
@@ -100,13 +102,13 @@ acceptance document. Packaging and publication complete at the release tag.
       Move-only refuses. No environment-marker gate. X11/macOS/Windows keep
       their existing winit drop events (one path per `DroppedFile`; overflow
       stays refused until cancel or focus-loss). Native Wayland uri-list overflow
-      refuses the whole gesture; a later uri-list may start fresh. Nested-KWin
-      evidence is recorded in docs/acceptance/v0.15.0.md; nested and native
-      Hyprland device acceptance under the admission rule, and additional
-      compositor and OS device acceptance, remain open.
+      refuses the whole gesture; a later uri-list may start fresh. Device
+      acceptance on native Hyprland (with Dolphin), nested KWin, Windows (refusal
+      notice), and macOS (Finder) is recorded in docs/acceptance/v0.15.0.md;
+      acceptance on additional compositors and hardware remains open.
 - [x] Keyboard window merge and pull with stable target identities, in-window
-      numerals, and atomic live-session transfer (unit-evidenced). Hands-on
-      acceptance remains open.
+      numerals, and atomic live-session transfer. Hands-on acceptance passed on
+      Linux, Windows, and macOS.
 - [x] Add the Electric Blue preset (`odyssey-electric-blue`) with blue-black
       surfaces, lavender text, and cyan accents through the shared theme library.
 - [x] Complete independent platform evidence and hands-on acceptance on Linux
@@ -1218,8 +1220,8 @@ feature validates against.
         `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
         in File Manager. See [`docs/keybindings.md`](docs/keybindings.md) for the chord reference.
 - [x] Deliver the current theme-library and configuration UX scope.
-  - [x] Built-in theme library expanded to 145 contrast-validated themes in
-        current unreleased source (144 in published v0.14.0; data-only, ongoing).
+  - [x] Built-in theme library expanded to 145 contrast-validated themes
+        (data-only).
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
         entry.
   - [x] Surface font-load failures in the overlay instead of failing silently.

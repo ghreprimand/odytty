@@ -3,15 +3,14 @@
 Use this guide to understand OdyTTY's terminal behavior, configure the native
 app, and work with tabs, panes, workspaces, remote hosts, and shell integration.
 For installation and a shorter overview, start with the
-[README](../README.md). Unreleased v0.15.0 additions are labelled explicitly;
-they are not included in the published v0.14.0 packages.
+[README](../README.md).
 
 ## Contents
 
 - [Configuring OdyTTY](#configuring-odytty)
 - [Terminal Compatibility](#terminal-compatibility)
   - [Paste Safety](#paste-safety)
-  - [Drop Local File Paths](#drop-local-file-paths-v0150-development)
+  - [Drop Local File Paths](#drop-local-file-paths)
 - [Text, Emoji, And Graphics](#text-emoji-and-graphics)
 - [Tab And Pane Workflow](#tab-and-pane-workflow)
   - [Open, Close, And Switch Tabs](#open-close-and-switch-tabs)
@@ -22,9 +21,9 @@ they are not included in the published v0.14.0 packages.
   - [Restore Workspaces And Open Layouts](#restore-workspaces-and-open-layouts)
   - [Save And Reopen Named Layouts](#save-and-reopen-named-layouts)
   - [Open Local Tools](#open-local-tools)
-  - [Summon A Quick Terminal](#summon-a-quick-terminal-v0150-development)
-  - [Merge Windows From The Keyboard](#merge-windows-from-the-keyboard-v0150-development)
-  - [Control OdyTTY Locally](#control-odytty-locally-v0150-development)
+  - [Summon A Quick Terminal](#summon-a-quick-terminal)
+  - [Merge Windows From The Keyboard](#merge-windows-from-the-keyboard)
+  - [Control OdyTTY Locally](#control-odytty-locally)
 - [Shell Integration](#shell-integration)
 - [Settings And Themes](#settings-and-themes)
 
@@ -195,7 +194,7 @@ The choices have explicit behavior:
 
 Shortcut, command-palette/menu, context-menu, and Linux PRIMARY paste use the
 same policy. PRIMARY has no platform surface on macOS or Windows. Native path
-drops in unreleased v0.15.0 always stage a bounded preview and require explicit
+drops always stage a bounded preview and require explicit
 confirmation, even when bracketed paste is enabled. Confirmation rechecks the
 same pane, mode, focus, Unix PTY foreground group, sole group membership, and
 launch-shell executable; it never appends Enter. Remote and attached panes
@@ -212,9 +211,9 @@ automation protocol exposes no input operation. See the
 Settings, `warn_on_risky_paste` in `odytty.conf`, or
 `ODYTTY_WARN_ON_RISKY_PASTE`; disabling it is an advanced global opt-out.
 
-### Drop Local File Paths (v0.15.0 Development)
+### Drop Local File Paths
 
-Unreleased v0.15.0 handles OS file-drop events as path text, not as open, read,
+OdyTTY handles OS file-drop events as path text, not as open, read,
 upload, or execute. Dropped local paths share the paste-safety confirmation
 path above: bounded preview, explicit **Paste** or **Cancel**, and never an
 appended Enter. **Paste as One Line** is not offered for file-drop batches.
@@ -238,9 +237,10 @@ it inserts quoted path text after confirmation and nothing else, so no branch
 of this rule moves or deletes a file. The full mechanism, the Hyprland
 specifics, and the exact residual are in the
 [v0.15.0 contracts](v0.15.0-foundation.md#drag-action-negotiation-and-the-hyprland-admission-rule).
-X11, macOS, and Windows keep their existing winit drop events. Nested-KWin
-device evidence is recorded in [acceptance/v0.15.0.md](acceptance/v0.15.0.md);
-Hyprland and additional compositor and OS device acceptance remain open. A native Wayland
+X11, macOS, and Windows keep their existing winit drop events. Device evidence
+on native Hyprland, nested KWin, Windows, and macOS is recorded in
+[acceptance/v0.15.0.md](acceptance/v0.15.0.md); acceptance on additional
+compositors and hardware beyond those remains open. A native Wayland
 `text/uri-list` is one bounded collection: more than 128 files or 256 KiB of
 path bytes refuses the whole gesture and does not leave a leftover confirm.
 A later Wayland uri-list may start a fresh transaction after that refusal.
@@ -727,7 +727,7 @@ action through Settings → Input, in the **Key bindings** row, or `keybinds`:
 keybinds = ctrl+alt+p=command-palette
 ```
 
-### Summon A Quick Terminal (v0.15.0 Development)
+### Summon A Quick Terminal
 
 `quick_terminal` is off by default. When on, OdyTTY keeps a dedicated summonable
 window with its own geometry (`quick_terminal_edge`, `quick_terminal_coverage`,
@@ -793,11 +793,12 @@ classified. Select a specific instance with `--endpoint PATH` when several are
 running or classification is uncertain. Windows requires the explicit local pipe path
 `--endpoint \\.\pipe\odytty-control-<pid>` and does not enumerate pipes.
 
-### Merge Windows From The Keyboard (v0.15.0 Development)
+### Merge Windows From The Keyboard
 
 **New Window** (default `Ctrl+Shift+N`, also the context menu) opens another
 ordinary window in the same process so keyboard merge has a reachable target.
-With two or more ordinary windows, the command palette offers
+Closing one window closes only that window; closing the last window exits
+OdyTTY. With two or more ordinary windows, the command palette offers
 **Merge This Window Into...** and **Pull Window Into This One...**. The Session
 Navigator legend adds `i merge window` and `p pull window` when targets exist.
 Candidates show temporary numerals painted inside each window surface, including
@@ -810,7 +811,7 @@ attach handles move with the transfer; the source window closes only after
 success. Escape cancels. See the
 [window-merge contract](v0.15.0-foundation.md).
 
-### Control OdyTTY Locally (v0.15.0 Development)
+### Control OdyTTY Locally
 
 `automation_endpoint` is an opt-in setting, also available as
 `ODYTTY_AUTOMATION_ENDPOINT`. It is off by default; the ordinary startup path
@@ -1265,10 +1266,9 @@ while preserving their saved choices.
 
 ### Electric Blue
 
-Current unreleased v0.15.0 source adds `odyssey-electric-blue`, with a blue-black
-background, lavender text, cyan accents, and distinct ANSI colors. It is absent
-from published v0.14.0 packages. Development builds can select it in the Theme
-Picker or set `theme = odyssey-electric-blue`. See
+OdyTTY includes `odyssey-electric-blue`, with a blue-black background, lavender
+text, cyan accents, and distinct ANSI colors. Select it in the Theme Picker or
+set `theme = odyssey-electric-blue`. See
 [Electric Blue](themes.md#electric-blue) for palette and readability details.
 
 ### Follow The Desktop Theme

@@ -963,19 +963,20 @@ source packaging, not the Rust 1.96 MSRV floor. Per-cell color-resolution
 consolidation and scrollback-search rescan frequency remain deferred efficiency
 work, not completed v0.14.0 changes.
 
-Current v0.15.0 development adds stable tab and workspace identities,
+Version 0.15.0 adds stable tab and workspace identities,
 same-process window ownership and merge routing, quick-terminal settings and
 platform shortcut backends, and an opt-in bounded structural-control endpoint
-with an explicit local CLI. These are unreleased foundations, not completed
-platform or release acceptance. Native Wayland quick-terminal hide releases
+with an explicit local CLI. Device acceptance was performed on Linux, Windows,
+and macOS. Native Wayland quick-terminal hide releases
 presentation objects after focus-loss cleanup and recreates them on summon,
 retaining sessions and stable identities. Placement remains compositor-controlled.
 The endpoint remains off by default and binds
 after the first presented frame; live requests resolve through the existing
 native window owners. Windows uses an owner-DACL local named pipe,
 rejects remote clients at creation, and verifies client and server process-token
-SIDs before protocol I/O. Windows CI and hands-on transport acceptance remain
-open. Native path drops use confirm-first
+SIDs before protocol I/O. Windows CI passes; second-account and second-machine
+refusal are owner-DACL guarantees not reproducible on the available hardware.
+Native path drops use confirm-first
 shell-aware insertion only when an eligible local Unix launch shell still owns
 the PTY foreground group, is its sole process, and has a matching current
 executable. ConPTY provides no equivalent authority, so Windows insertion is
@@ -1119,14 +1120,14 @@ scope rather than silently inheriting deferred work from a prior release.
 
 ### Native UI And Workspaces
 
-- Stable tab and workspace creation identities in current v0.15.0 development;
+- Stable tab and workspace creation identities (v0.15.0);
   Navigator actions resolve the current owner after pane closure, tab movement,
   and same-process window transfer, while restoration creates fresh identities
 
 - Theme system: full 16-color ANSI palette + semantic roles (cursor, selection,
   search highlight, reserved border/inactive) per theme; a curated,
-  contrast-validated 145-theme library in current unreleased source (144 in
-  published v0.14.0), including the v0.15.0 `odyssey-electric-blue` preset,
+  contrast-validated 145-theme library, including the v0.15.0
+  `odyssey-electric-blue` preset,
   plus user `.theme` files through one shared dependency-free parse path (see
   [`docs/themes.md`](docs/themes.md) for the current roster and file format);
   `ODYTTY_THEME` accepts a built-in name, directory-relative name, or file path;

@@ -736,8 +736,8 @@ Three prohibitions apply to every boundary below:
   LF, CRLF, empty lines, tabs, C0/C1/escape bytes, large payloads, cancellation,
   focus changes, alternate screen, bracketed mode, shortcut, palette, context-
   menu, PRIMARY, reserved-source parity, opt-out, and action routing. Independent
-  Linux Wayland/X11, macOS, and Windows acceptance remains a release gate rather
-  than an inferred claim.
+  Linux Wayland/X11, macOS, and Windows acceptance was performed for the release
+  rather than inferred from hosted CI.
 - **Residual risk:** after explicit confirmation, the child interprets the
   bytes according to its own input rules. Confirmation reduces accidental
   execution; it does not make a command safe.
