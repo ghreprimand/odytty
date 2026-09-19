@@ -33,6 +33,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # The Wayland title-bar text backend (crossfont) links FreeType and
+      # Fontconfig through pkg-config on Linux.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev
+
       - name: Resolve iteration budget
         # Route the untrusted dispatch input through env: so it reaches the shell
         # as data in a quoted var, never spliced into the script text.

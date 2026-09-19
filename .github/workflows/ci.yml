@@ -50,6 +50,16 @@ jobs:
         # v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
+      # The Wayland title-bar text backend (crossfont) links FreeType and
+      # Fontconfig through pkg-config on Linux. Release jobs already install
+      # these; the Linux build/test leg needs the same development packages.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev
+
       # Cache only the dependency-download dirs (~/.cargo), NOT `target`.
       # `target` grows without bound across runs, and with `restore-keys`
       # fallback every run restored an ever-larger compiled-artifact cache,

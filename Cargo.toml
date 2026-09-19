@@ -66,7 +66,18 @@ tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 unicode-width = "0.2.2"
 wgpu = "29.0.3"
-winit = "0.30.13"
+# Winit defaults are disabled so the Wayland client-side title bar renders
+# through the crossfont backend (FreeType and Fontconfig) instead of the
+# ab_glyph/ttf-parser pair. Every capability the application uses is listed
+# explicitly: raw-window-handle 0.6, X11, Wayland, runtime-loaded Wayland
+# libraries, and titled Adwaita client-side decorations.
+winit = { version = "0.30.13", default-features = false, features = [
+    "rwh_06",
+    "x11",
+    "wayland",
+    "wayland-dlopen",
+    "wayland-csd-adwaita-crossfont",
+] }
 
 # POSIX-only dependencies. `libc` and `rustix` back the Unix PTY/termios layer
 # (`src/pty/unix.rs`) and the POSIX shared-memory Kitty transport; both are

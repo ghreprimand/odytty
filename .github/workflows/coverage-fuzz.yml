@@ -31,6 +31,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # The Wayland title-bar text backend (crossfont) links FreeType and
+      # Fontconfig through pkg-config on Linux.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev
+
       - name: Install pinned fuzz toolchain
         shell: bash
         run: |

@@ -90,6 +90,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # The Wayland title-bar text backend (crossfont) links FreeType and
+      # Fontconfig through pkg-config on Linux.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev
+
       - name: Install pinned nightly with Miri
         env:
           DYNAMIC_TOOLCHAIN: ${{ needs.pin.outputs.toolchain }}
@@ -128,6 +136,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # The Wayland title-bar text backend (crossfont) links FreeType and
+      # Fontconfig through pkg-config on Linux.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev
+
       - name: Install pinned nightly with standard library source
         env:
           DYNAMIC_TOOLCHAIN: ${{ needs.pin.outputs.toolchain }}
@@ -164,6 +180,14 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+
+      # The Wayland title-bar text backend (crossfont) links FreeType and
+      # Fontconfig through pkg-config on Linux.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev
 
       - name: Install pinned nightly with standard library source
         env:
