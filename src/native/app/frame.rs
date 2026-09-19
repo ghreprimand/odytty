@@ -963,6 +963,9 @@ impl App {
                 // ...and re-arms the bounded surface-recreate budget
                 // (the only place it refills — see `SkipEscalation`).
                 self.skip_escalation.note_presented();
+                // A successful present closes the stale-callback interval and
+                // re-arms both its age and rate-limit state for future work.
+                self.clear_frame_callback_hatch_episode();
             }
             FrameAction::ReconfigureThenRedraw => {
                 self.consecutive_skipped_frames = 0;
@@ -1004,6 +1007,7 @@ impl App {
                 self.pending_surface_reconfigure = false;
                 self.consecutive_skipped_frames = 0;
                 self.skipped_frame_retry_deadline = None;
+                self.clear_frame_callback_hatch_episode();
             }
             FrameAction::RetryAfter(delay) => {
                 self.skip_episode.note_skipped(Instant::now());

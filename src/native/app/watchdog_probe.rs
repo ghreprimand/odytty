@@ -34,8 +34,10 @@ impl App {
         WatchdogAppState {
             focused: self.focused,
             window_minimized: self.window_minimized,
+            window_occluded: self.window_occluded,
             window_present: self.window.is_some(),
             gpu_present: self.gpu.is_some(),
+            wayland_surface: self.is_wayland_client(),
             overlay_open: self.overlay.is_open(),
             context_menu_open: self.overlay.is_context_menu(),
             modal: match self.active_modal() {
@@ -55,10 +57,13 @@ impl App {
             // Gating discriminator for the stall log: is a frame genuinely
             // owed right now? Use the multipane-aware `should_rebuild_frame()`
             // (NOT the bare single-pane `needs_rebuild`, which is still
-            // exported above for the postmortem record) OR a pending
-            // skipped-frame retry. When this is false the watchdog treats
+            // exported above for the postmortem record), a pending
+            // skipped-frame retry, or the owed-frame latch that remains armed
+            // until a present. When this is false the watchdog treats
             // latched-but-unpresented work as idle/background, not a freeze.
-            render_owed: self.should_rebuild_frame() || self.skipped_frame_retry_deadline.is_some(),
+            render_owed: self.frame_owed_since.is_some()
+                || self.should_rebuild_frame()
+                || self.skipped_frame_retry_deadline.is_some(),
         }
     }
 }

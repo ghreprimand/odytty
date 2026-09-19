@@ -173,19 +173,37 @@ pub(in crate::native) struct App {
     ///
     /// - counter advancing, `frames_presented` flat → the windowing system is
     ///   asking us to draw and the render path is not answering. A real stall.
-    /// - counter flat → the windowing system is not asking us to draw at all
-    ///   (output asleep/DPMS-off, surface occluded, redraws throttled to a
-    ///   frame callback the compositor has not returned). Zero frames is the
-    ///   CORRECT steady state there, not a freeze.
+    /// - counter flat → the windowing system is not asking us to draw at all.
+    ///   That is the correct steady state for an asleep or occluded surface;
+    ///   for a focused visible Wayland surface that still owes a frame, the
+    ///   callback hatch treats a long-flat counter as a stuck callback.
     ///
     /// Never reset; the watchdog compares it against its own episode-start
     /// snapshot rather than resetting it here.
     pub(super) redraws_delivered: u64,
+    /// Start of the current interval in which a frame is owed. The Wayland
+    /// callback escape hatch uses this to distinguish ordinary callback jitter
+    /// from a callback that has stopped arriving.
+    pub(super) frame_owed_since: Option<Instant>,
+    /// Delivered-redraw counter captured when [`Self::frame_owed_since`] opens.
+    pub(super) redraws_delivered_at_owed_start: u64,
+    /// Last direct paint made by the Wayland callback escape hatch.
+    pub(super) last_frame_callback_hatch_at: Option<Instant>,
+    /// Headless-test override for the live window + GPU presentation gate.
+    #[cfg(test)]
+    pub(super) frame_callback_hatch_presentation_active_for_test: Option<bool>,
+    /// Headless-test paint sink used instead of entering the GPU path.
+    #[cfg(test)]
+    pub(super) frame_callback_hatch_paints_for_test: u64,
     /// BLACK-SCREEN-ON-RESTORE: whether the window is currently minimized (its
     /// surface reported a 0x0 size via `Resized`). Used to suppress the skipped-
     /// frame retry while minimized — there is nothing to paint, so a retry would
     /// only burn wakeups. Cleared on the next non-zero `Resized` (restore).
     pub(super) window_minimized: bool,
+    /// Last occlusion state reported by the windowing backend. Kept separate
+    /// from minimize because a covered window need not have a zero-sized
+    /// surface, while either state must suppress the Wayland callback hatch.
+    pub(super) window_occluded: bool,
     /// Active divider drag: the tree-order index of the active tab's divider the
     /// pointer grabbed, while a left-drag is in progress (design doc §4.2). Only
     /// ever `Some` inside a multi-pane tab; `None` otherwise, so the single-pane
@@ -644,7 +662,15 @@ impl App {
             pending_surface_reconfigure: false,
             consecutive_skipped_frames: 0,
             redraws_delivered: 0,
+            frame_owed_since: None,
+            redraws_delivered_at_owed_start: 0,
+            last_frame_callback_hatch_at: None,
+            #[cfg(test)]
+            frame_callback_hatch_presentation_active_for_test: None,
+            #[cfg(test)]
+            frame_callback_hatch_paints_for_test: 0,
             window_minimized: false,
+            window_occluded: false,
             divider_drag: None,
             rail_reserved_cols: 0,
             rail_seam_drag: false,

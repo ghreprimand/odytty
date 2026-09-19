@@ -224,6 +224,13 @@ impl App {
             presentation_active
                 .then_some(self.skipped_frame_retry_deadline)
                 .flatten(),
+            // A native Wayland surface with a frame outstanding receives no
+            // RedrawRequested until the compositor answers its frame callback.
+            // Keep the loop asleep on every other backend and whenever the
+            // focused, visible surface does not owe a frame.
+            presentation_active
+                .then(|| self.next_frame_callback_hatch_deadline())
+                .flatten(),
             // §7: wake when a pending multiplexer prefix times out, so the
             // pending state clears promptly even with no further input. `None`
             // (the at-rest case) leaves the min unchanged.
@@ -894,6 +901,12 @@ impl App {
 
         self.poll_config_reload(now);
         self.poll_external_palette_follow(now);
+
+        // A stuck Wayland frame callback prevents request_redraw() from
+        // becoming RedrawRequested. After all ordinary maintenance has had a
+        // chance to mark work owed, the bounded hatch enters the existing paint
+        // path directly. It is an explicit no-op on X11, macOS, and Windows.
+        self.run_frame_callback_hatch(now);
     }
 }
 
@@ -950,6 +963,11 @@ impl App {
                 .create_window(attributes)
                 .map_err(|err| NativeError::WindowCreation(err.to_string()))?,
         );
+        // A newly created native surface starts visible until its backend
+        // reports otherwise; do not carry an old surface's occlusion latch
+        // across a quick-terminal hide/recreate cycle.
+        self.window_occluded = false;
+        self.clear_frame_callback_hatch_episode();
         // v0.15.0 C: this native surface is a fresh incarnation. Advance the
         // window's surface generation NOW, at the actual creation transition, so
         // the host's file-drop surface registry never carries a stale generation

@@ -4,8 +4,9 @@
 //! The v0.7.0 freeze presented as a live event loop that serviced compositor
 //! events mechanically while the render/input path was dead: pending input
 //! and redraws, but no frame ever presented, at 0% CPU. This module detects
-//! exactly that signature and logs the app's state machine so the next
-//! freeze names its latch instead of requiring a live debugger session.
+//! that signature and the distinct focused-Wayland callback-outstanding shape,
+//! logging the app's state machine so the next freeze names its latch instead
+//! of requiring a live debugger session.
 //!
 //! Design: [`WatchdogApp`] wraps the real [`App`] as the winit
 //! [`ApplicationHandler`], noting "work-implying" events (input, IME, redraw
@@ -45,8 +46,11 @@ const POLL_EVERY: Duration = Duration::from_secs(2);
 pub(super) struct WatchdogAppState {
     pub(super) focused: bool,
     pub(super) window_minimized: bool,
+    pub(super) window_occluded: bool,
     pub(super) window_present: bool,
     pub(super) gpu_present: bool,
+    /// Whether the live presentation uses the Wayland backend.
+    pub(super) wayland_surface: bool,
     pub(super) overlay_open: bool,
     pub(super) context_menu_open: bool,
     /// Discriminant of `ActiveModal` (0 = None, 1 = CopyMode,
@@ -83,11 +87,16 @@ pub(super) struct WatchdogShared {
     /// Stall already logged for the current pending episode.
     logged: AtomicBool,
     last_log_ms: AtomicU64,
+    /// Callback-outstanding record already logged for this pending episode.
+    callback_logged: AtomicBool,
+    callback_last_log_ms: AtomicU64,
     // --- mirrored state (last snapshot after a delegated event) ---
     focused: AtomicBool,
     window_minimized: AtomicBool,
+    window_occluded: AtomicBool,
     window_present: AtomicBool,
     gpu_present: AtomicBool,
+    wayland_surface: AtomicBool,
     overlay_open: AtomicBool,
     context_menu_open: AtomicBool,
     modal: AtomicU8,
@@ -96,6 +105,8 @@ pub(super) struct WatchdogShared {
     consecutive_skipped_frames: AtomicU64,
     /// Whether a frame is genuinely owed (gates the stall log; not logged).
     render_owed: AtomicBool,
+    /// Monitor-clock instant when `render_owed` most recently became true.
+    render_owed_since_ms: AtomicU64,
     /// Delivered-`RedrawRequested` counter, mirrored from the app.
     redraws_delivered: AtomicU64,
     /// Value of `redraws_delivered` when the current pending episode opened.
@@ -112,10 +123,14 @@ impl WatchdogShared {
             pending_since_ms: AtomicU64::new(0),
             logged: AtomicBool::new(false),
             last_log_ms: AtomicU64::new(0),
+            callback_logged: AtomicBool::new(false),
+            callback_last_log_ms: AtomicU64::new(0),
             focused: AtomicBool::new(true),
             window_minimized: AtomicBool::new(false),
+            window_occluded: AtomicBool::new(false),
             window_present: AtomicBool::new(false),
             gpu_present: AtomicBool::new(false),
+            wayland_surface: AtomicBool::new(false),
             overlay_open: AtomicBool::new(false),
             context_menu_open: AtomicBool::new(false),
             modal: AtomicU8::new(0),
@@ -123,6 +138,7 @@ impl WatchdogShared {
             frames_presented: AtomicU64::new(0),
             consecutive_skipped_frames: AtomicU64::new(0),
             render_owed: AtomicBool::new(false),
+            render_owed_since_ms: AtomicU64::new(0),
             redraws_delivered: AtomicU64::new(0),
             redraws_at_pending_start: AtomicU64::new(0),
         })
@@ -137,6 +153,7 @@ impl WatchdogShared {
             self.pending_since_ms
                 .store(self.now_ms(), Ordering::Relaxed);
             self.logged.store(false, Ordering::Relaxed);
+            self.callback_logged.store(false, Ordering::Relaxed);
             // Baseline the delivered-redraw counter for this episode. The
             // wrapper calls this BEFORE delegating the event, so a
             // `RedrawRequested` that opens an episode still counts inside it.
@@ -150,20 +167,35 @@ impl WatchdogShared {
     pub(in crate::native) fn note_present(&self) {
         self.pending.store(false, Ordering::Relaxed);
         self.logged.store(false, Ordering::Relaxed);
+        self.callback_logged.store(false, Ordering::Relaxed);
     }
 
     #[cfg(test)]
-    fn set_render_owed(&self, owed: bool) {
-        self.render_owed.store(owed, Ordering::Relaxed);
+    pub(in crate::native) fn set_render_owed(&self, owed: bool) {
+        self.store_render_owed(owed);
+    }
+
+    fn store_render_owed(&self, owed: bool) {
+        let was_owed = self.render_owed.swap(owed, Ordering::Relaxed);
+        if owed && !was_owed {
+            self.render_owed_since_ms
+                .store(self.now_ms(), Ordering::Relaxed);
+        } else if !owed {
+            self.render_owed_since_ms.store(0, Ordering::Relaxed);
+        }
     }
 
     pub(in crate::native) fn store_state(&self, state: &WatchdogAppState) {
         self.focused.store(state.focused, Ordering::Relaxed);
         self.window_minimized
             .store(state.window_minimized, Ordering::Relaxed);
+        self.window_occluded
+            .store(state.window_occluded, Ordering::Relaxed);
         self.window_present
             .store(state.window_present, Ordering::Relaxed);
         self.gpu_present.store(state.gpu_present, Ordering::Relaxed);
+        self.wayland_surface
+            .store(state.wayland_surface, Ordering::Relaxed);
         self.overlay_open
             .store(state.overlay_open, Ordering::Relaxed);
         self.context_menu_open
@@ -177,7 +209,7 @@ impl WatchdogShared {
             u64::from(state.consecutive_skipped_frames),
             Ordering::Relaxed,
         );
-        self.render_owed.store(state.render_owed, Ordering::Relaxed);
+        self.store_render_owed(state.render_owed);
         self.redraws_delivered
             .store(state.redraws_delivered, Ordering::Relaxed);
     }
@@ -186,8 +218,10 @@ impl WatchdogShared {
         WatchdogAppState {
             focused: self.focused.load(Ordering::Relaxed),
             window_minimized: self.window_minimized.load(Ordering::Relaxed),
+            window_occluded: self.window_occluded.load(Ordering::Relaxed),
             window_present: self.window_present.load(Ordering::Relaxed),
             gpu_present: self.gpu_present.load(Ordering::Relaxed),
+            wayland_surface: self.wayland_surface.load(Ordering::Relaxed),
             overlay_open: self.overlay_open.load(Ordering::Relaxed),
             context_menu_open: self.context_menu_open.load(Ordering::Relaxed),
             modal: self.modal.load(Ordering::Relaxed),
@@ -212,14 +246,14 @@ impl WatchdogShared {
     }
 
     #[cfg(test)]
-    fn note_redraw_delivered(&self) {
+    pub(in crate::native) fn note_redraw_delivered(&self) {
         self.redraws_delivered.fetch_add(1, Ordering::Relaxed);
     }
 
     /// One monitor-thread evaluation step at `now_ms`. Returns the stall
     /// record to log, if the stall condition holds and rate limits allow.
     /// Pure decision logic, factored for the tests below.
-    fn evaluate(&self, now_ms: u64) -> Option<String> {
+    pub(in crate::native) fn evaluate(&self, now_ms: u64) -> Option<String> {
         if !self.pending.load(Ordering::Relaxed) {
             return None;
         }
@@ -230,6 +264,45 @@ impl WatchdogShared {
         // owed-but-unpresented frame is the v0.7.0 freeze signature this
         // module exists to catch, so require `render_owed` here.
         if !self.render_owed.load(Ordering::Relaxed) {
+            return None;
+        }
+        // A focused, visible window with an owed frame and no delivered redraw
+        // is the distinct outstanding-Wayland-callback signature. This branch
+        // deliberately precedes and does not alter the classic v0.7.0 gate
+        // below. A parallel rate-limit latch lets a later delivered redraw use
+        // the original record immediately if the render path is also stalled.
+        if self.redraws_this_episode() == 0 {
+            let owed_since = self.render_owed_since_ms.load(Ordering::Relaxed);
+            let owed_for = now_ms.saturating_sub(owed_since);
+            let state = self.snapshot();
+            let stale_after = u64::try_from(
+                crate::native::app::frame_callback_hatch::FRAME_CALLBACK_STALE_AFTER.as_millis(),
+            )
+            .unwrap_or(u64::MAX);
+            let already_logged = self.callback_logged.load(Ordering::Relaxed);
+            let last_log = self.callback_last_log_ms.load(Ordering::Relaxed);
+            if state.focused
+                && !state.window_minimized
+                && !state.window_occluded
+                && state.window_present
+                && state.gpu_present
+                && state.wayland_surface
+                && owed_for >= stale_after
+                && (!already_logged
+                    || now_ms.saturating_sub(last_log)
+                        >= u64::try_from(RELOG_EVERY.as_millis()).unwrap_or(u64::MAX))
+            {
+                self.callback_logged.store(true, Ordering::Relaxed);
+                self.callback_last_log_ms.store(now_ms, Ordering::Relaxed);
+                return Some(format_callback_outstanding_record(owed_for / 1000, &state));
+            }
+        }
+        // Once this episode has been identified as callback-outstanding, keep
+        // its diagnostic class stable even if a later hatch paint increments
+        // the redraw counter. A successful present opens a fresh episode; a
+        // genuine v0.7.0 episode that begins with delivered redraws never sets
+        // this latch and continues through the byte-identical classic path.
+        if self.callback_logged.load(Ordering::Relaxed) {
             return None;
         }
         // Gate: an owed frame the windowing system never ASKED for is not a
@@ -311,6 +384,20 @@ fn format_stall_record(
     )
 }
 
+/// Distinct state-only record for the no-redraw callback-outstanding class.
+fn format_callback_outstanding_record(owed_secs: u64, state: &WatchdogAppState) -> String {
+    format!(
+        "freeze_watchdog: frame owed with compositor callback outstanding for {owed_secs}s; \
+         focused={} minimized={} window_present={} gpu_present={} frames_presented={} \
+         redraws_delivered=0",
+        state.focused,
+        state.window_minimized,
+        state.window_present,
+        state.gpu_present,
+        state.frames_presented,
+    )
+}
+
 fn modal_name(discriminant: u8) -> &'static str {
     match discriminant {
         0 => "none",
@@ -339,8 +426,10 @@ mod tests {
         WatchdogAppState {
             focused: true,
             window_minimized: false,
+            window_occluded: false,
             window_present: true,
             gpu_present: true,
+            wayland_surface: true,
             overlay_open: false,
             context_menu_open: false,
             modal: 0,
@@ -450,8 +539,10 @@ mod tests {
         let state = WatchdogAppState {
             focused: false,
             window_minimized: true,
+            window_occluded: false,
             window_present: true,
             gpu_present: false,
+            wayland_surface: true,
             overlay_open: true,
             context_menu_open: true,
             modal: 2,

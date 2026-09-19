@@ -1667,3 +1667,506 @@ fn reload_seam_leaves_no_residual_render_globals() {
         "the seam must not leave published theme colors behind"
     );
 }
+
+// ---------------------------------------------------------------------------
+// E6.2 Wayland frame-callback escape hatch (freeze-escape-hatch-design.md
+// §3.3/3.4/4.2/6.2). Deterministic, no compositor/device. Tester-owned; these
+// assert the frozen design contract independently of the implementation.
+// ---------------------------------------------------------------------------
+
+use crate::native::app::frame_callback_hatch::{
+    FRAME_CALLBACK_HATCH_INTERVAL, FRAME_CALLBACK_STALE_AFTER, FrameCallbackHatchGates,
+    frame_callback_hatch_deadline, should_run_frame_callback_hatch,
+};
+
+/// All gates satisfied for a stuck focused Wayland surface.
+fn hatch_gates_all_true() -> FrameCallbackHatchGates {
+    FrameCallbackHatchGates {
+        presentation_active: true,
+        render_owed: true,
+        focused: true,
+        minimized: false,
+        occluded: false,
+        wayland: true,
+    }
+}
+
+/// The frozen constants must match the design (2 s stale bound, ~1 Hz ceiling).
+#[test]
+fn frame_callback_hatch_constants_match_frozen_design() {
+    assert_eq!(FRAME_CALLBACK_STALE_AFTER, Duration::from_secs(2));
+    assert_eq!(FRAME_CALLBACK_HATCH_INTERVAL, Duration::from_secs(1));
+}
+
+/// Policy §3.3: with every gate satisfied and the owed frame past the stale
+/// bound, the hatch fires exactly once (no prior hatch this interval).
+#[test]
+fn hatch_fires_when_all_gates_hold_past_stale_bound() {
+    let owed = Instant::now();
+    let now = owed + FRAME_CALLBACK_STALE_AFTER;
+    assert!(should_run_frame_callback_hatch(
+        now,
+        hatch_gates_all_true(),
+        Some(owed),
+        7,    // delivered_at_start
+        7,    // delivered_now (unchanged -> callback not delivering)
+        None  // no prior hatch
+    ));
+}
+
+/// Policy §3.3: each individual gate, negated, must veto the hatch. This is
+/// the gate matrix: one falsified condition at a time against an otherwise
+/// firing state.
+#[test]
+fn hatch_each_negated_gate_vetoes() {
+    let owed = Instant::now();
+    let now = owed + FRAME_CALLBACK_STALE_AFTER + Duration::from_millis(500);
+
+    // Baseline: fires.
+    assert!(should_run_frame_callback_hatch(
+        now,
+        hatch_gates_all_true(),
+        Some(owed),
+        0,
+        0,
+        None
+    ));
+
+    // Unfocused.
+    let mut g = hatch_gates_all_true();
+    g.focused = false;
+    assert!(!should_run_frame_callback_hatch(
+        now,
+        g,
+        Some(owed),
+        0,
+        0,
+        None
+    ));
+
+    // Minimized.
+    let mut g = hatch_gates_all_true();
+    g.minimized = true;
+    assert!(!should_run_frame_callback_hatch(
+        now,
+        g,
+        Some(owed),
+        0,
+        0,
+        None
+    ));
+
+    // Occluded.
+    let mut g = hatch_gates_all_true();
+    g.occluded = true;
+    assert!(!should_run_frame_callback_hatch(
+        now,
+        g,
+        Some(owed),
+        0,
+        0,
+        None
+    ));
+
+    // Not owed (render_owed gate false).
+    let mut g = hatch_gates_all_true();
+    g.render_owed = false;
+    assert!(!should_run_frame_callback_hatch(
+        now,
+        g,
+        Some(owed),
+        0,
+        0,
+        None
+    ));
+
+    // No presentation surface.
+    let mut g = hatch_gates_all_true();
+    g.presentation_active = false;
+    assert!(!should_run_frame_callback_hatch(
+        now,
+        g,
+        Some(owed),
+        0,
+        0,
+        None
+    ));
+
+    // Non-Wayland backend (X11/macOS/Windows no-op).
+    let mut g = hatch_gates_all_true();
+    g.wayland = false;
+    assert!(!should_run_frame_callback_hatch(
+        now,
+        g,
+        Some(owed),
+        0,
+        0,
+        None
+    ));
+
+    // No owed instant recorded.
+    assert!(!should_run_frame_callback_hatch(
+        now,
+        hatch_gates_all_true(),
+        None,
+        0,
+        0,
+        None
+    ));
+
+    // A RedrawRequested WAS delivered during the owed interval: the callback is
+    // alive, so the hatch must stand down (delivered_now advanced).
+    assert!(!should_run_frame_callback_hatch(
+        now,
+        hatch_gates_all_true(),
+        Some(owed),
+        0,
+        1,
+        None
+    ));
+}
+
+/// Policy §3.3: within the stale window (owed < 2 s) the hatch never fires,
+/// even with all gates satisfied.
+#[test]
+fn hatch_holds_off_within_the_stale_window() {
+    let owed = Instant::now();
+    let just_before = owed + FRAME_CALLBACK_STALE_AFTER - Duration::from_millis(1);
+    assert!(!should_run_frame_callback_hatch(
+        just_before,
+        hatch_gates_all_true(),
+        Some(owed),
+        0,
+        0,
+        None
+    ));
+}
+
+/// Policy §3.3 rate limit: at most one hatch paint per
+/// FRAME_CALLBACK_HATCH_INTERVAL. A second attempt within the interval of the
+/// last hatch is vetoed; once the interval elapses it may fire again.
+#[test]
+fn hatch_rate_limited_to_one_per_interval() {
+    let owed = Instant::now();
+    let last_hatch = owed + FRAME_CALLBACK_STALE_AFTER;
+
+    // 0.5 s after the last hatch: still rate-limited.
+    let within = last_hatch + Duration::from_millis(500);
+    assert!(!should_run_frame_callback_hatch(
+        within,
+        hatch_gates_all_true(),
+        Some(owed),
+        0,
+        0,
+        Some(last_hatch)
+    ));
+
+    // Exactly one interval later: allowed again.
+    let after = last_hatch + FRAME_CALLBACK_HATCH_INTERVAL;
+    assert!(should_run_frame_callback_hatch(
+        after,
+        hatch_gates_all_true(),
+        Some(owed),
+        0,
+        0,
+        Some(last_hatch)
+    ));
+}
+
+/// Policy §3.4 wake deadline: while armed and no redraw delivered, the pure
+/// deadline is the stale instant when no prior hatch, and is pushed out by the
+/// rate-limit interval after a hatch. A veto gate or a delivered redraw
+/// removes the deadline entirely (loop may park).
+#[test]
+fn hatch_deadline_tracks_stale_bound_and_rate_limit() {
+    let owed = Instant::now();
+
+    // No prior hatch: next eligible instant is the stale bound.
+    assert_eq!(
+        frame_callback_hatch_deadline(hatch_gates_all_true(), Some(owed), 0, 0, None),
+        Some(owed + FRAME_CALLBACK_STALE_AFTER)
+    );
+
+    // After a hatch, the next eligible instant is one interval past it (when
+    // that is later than the stale bound).
+    let last = owed + FRAME_CALLBACK_STALE_AFTER;
+    assert_eq!(
+        frame_callback_hatch_deadline(hatch_gates_all_true(), Some(owed), 0, 0, Some(last)),
+        Some(last + FRAME_CALLBACK_HATCH_INTERVAL)
+    );
+
+    // Delivered redraw advanced -> not armed -> no deadline.
+    assert_eq!(
+        frame_callback_hatch_deadline(hatch_gates_all_true(), Some(owed), 0, 1, None),
+        None
+    );
+
+    // A veto gate (occluded) -> no deadline.
+    let mut g = hatch_gates_all_true();
+    g.occluded = true;
+    assert_eq!(
+        frame_callback_hatch_deadline(g, Some(owed), 0, 0, None),
+        None
+    );
+}
+
+/// Integration §3.4: an armed, owed Wayland surface contributes its hatch
+/// instant to the wake set, so ControlFlow::Wait re-enters about_to_wait; a
+/// vetoed surface contributes nothing.
+#[test]
+#[cfg(target_os = "linux")]
+fn armed_hatch_enters_the_wake_set() {
+    let Some(mut app) = build_idle_app() else {
+        return;
+    };
+    app.focused = true;
+    app.window_minimized = false;
+    app.window_occluded = false;
+    app.frame_callback_hatch_presentation_active_for_test = Some(true);
+    app.wayland_surface_present_for_test = Some(true);
+    let owed = Instant::now();
+    app.frame_owed_since = Some(owed);
+    app.redraws_delivered_at_owed_start = app.redraws_delivered;
+
+    let hatch_deadline = app.next_frame_callback_hatch_deadline();
+    assert_eq!(
+        hatch_deadline,
+        Some(owed + FRAME_CALLBACK_STALE_AFTER),
+        "armed owed Wayland surface exposes its stale-bound hatch deadline"
+    );
+    let wake = app.next_wake_deadline_for_surface_for_test(true);
+    assert!(
+        wake.is_some(),
+        "the wake set must include the hatch instant"
+    );
+    assert!(
+        wake.unwrap() <= hatch_deadline.unwrap(),
+        "the wake set must not park past the hatch-eligible instant"
+    );
+
+    // Occluding the surface removes the hatch contribution.
+    app.window_occluded = true;
+    assert_eq!(
+        app.next_frame_callback_hatch_deadline(),
+        None,
+        "an occluded surface never schedules a hatch wake"
+    );
+}
+
+/// Time-travel §6.2: driving the real about_to_wait maintenance seam across
+/// advancing instants invokes the hatch paint after the stale bound and not
+/// before, and honors the ~1 Hz rate limit. The cfg(test) presentation
+/// override counts a mocked paint instead of entering the GPU.
+#[test]
+#[cfg(target_os = "linux")]
+fn maintenance_invokes_hatch_after_stale_bound_and_rate_limits() {
+    let Some(mut app) = build_idle_app() else {
+        return;
+    };
+    app.focused = true;
+    app.window_minimized = false;
+    app.window_occluded = false;
+    app.frame_callback_hatch_presentation_active_for_test = Some(true);
+    app.wayland_surface_present_for_test = Some(true);
+    let owed = Instant::now();
+    app.frame_owed_since = Some(owed);
+    app.redraws_delivered_at_owed_start = app.redraws_delivered;
+
+    // Within the stale window: no forced paint.
+    app.run_about_to_wait_maintenance_for_test(owed + Duration::from_millis(1_900));
+    assert_eq!(
+        app.frame_callback_hatch_paints_for_test, 0,
+        "no hatch paint within the 2 s stale window"
+    );
+
+    // At the stale bound: first forced paint.
+    app.run_about_to_wait_maintenance_for_test(owed + Duration::from_millis(2_000));
+    assert_eq!(
+        app.frame_callback_hatch_paints_for_test, 1,
+        "first hatch paint at the stale bound"
+    );
+
+    // Within the rate-limit interval of the first paint: no second paint.
+    app.run_about_to_wait_maintenance_for_test(owed + Duration::from_millis(2_500));
+    assert_eq!(
+        app.frame_callback_hatch_paints_for_test, 1,
+        "rate limit suppresses a second paint within 1 s"
+    );
+
+    // One interval after the first paint: second paint.
+    app.run_about_to_wait_maintenance_for_test(owed + Duration::from_millis(3_000));
+    assert_eq!(
+        app.frame_callback_hatch_paints_for_test, 2,
+        "second hatch paint once the ~1 Hz interval elapses"
+    );
+}
+
+/// Time-travel §6.2 (negative): an unfocused surface never forces a paint
+/// through the maintenance seam no matter how long the frame is owed.
+#[test]
+#[cfg(target_os = "linux")]
+fn maintenance_never_hatches_an_unfocused_surface() {
+    let Some(mut app) = build_idle_app() else {
+        return;
+    };
+    app.focused = false;
+    app.window_minimized = false;
+    app.window_occluded = false;
+    app.frame_callback_hatch_presentation_active_for_test = Some(true);
+    app.wayland_surface_present_for_test = Some(true);
+    let owed = Instant::now();
+    app.frame_owed_since = Some(owed);
+    app.redraws_delivered_at_owed_start = app.redraws_delivered;
+
+    app.run_about_to_wait_maintenance_for_test(owed + Duration::from_secs(30));
+    assert_eq!(
+        app.frame_callback_hatch_paints_for_test, 0,
+        "an unfocused surface keeps today's no-RedrawRequested self-limit"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// E6.2 distinct watchdog record (§4.2/4.3): the callback-outstanding class
+// fires for a focused, owed, zero-episode-redraw Wayland surface; the v0.7.0
+// catch is preserved; the two classes are mutually exclusive per episode.
+// ---------------------------------------------------------------------------
+
+use crate::native::watchdog::{WatchdogAppState, WatchdogShared};
+
+const CALLBACK_RECORD_PREFIX: &str =
+    "freeze_watchdog: frame owed with compositor callback outstanding";
+const CLASSIC_RECORD_PREFIX: &str = "freeze_watchdog: work pending";
+
+/// A focused, present, Wayland state that owes a frame. `redraws_delivered` is
+/// caller-set so the same helper drives both the callback-outstanding (0) and
+/// the classic (>0) episodes.
+fn watchdog_owed_state(redraws_delivered: u64) -> WatchdogAppState {
+    WatchdogAppState {
+        focused: true,
+        window_minimized: false,
+        window_occluded: false,
+        window_present: true,
+        gpu_present: true,
+        wayland_surface: true,
+        overlay_open: false,
+        context_menu_open: false,
+        modal: 0,
+        needs_rebuild: true,
+        frames_presented: 10,
+        consecutive_skipped_frames: 0,
+        redraws_delivered,
+        render_owed: true,
+    }
+}
+
+/// §4.2: focused + owed + zero episode redraws + Wayland + past the stale
+/// bound => the distinct callback-outstanding record, state-only.
+#[test]
+fn watchdog_callback_outstanding_record_fires_for_stuck_wayland_surface() {
+    let shared = WatchdogShared::new();
+    shared.note_activity();
+    shared.store_state(&watchdog_owed_state(0));
+    // Under the stale bound: silent.
+    assert_eq!(shared.evaluate(1_999), None);
+    // Past it: the distinct record.
+    let record = shared
+        .evaluate(3_000)
+        .expect("focused owed Wayland surface with no delivered redraw must log");
+    assert!(
+        record.starts_with(CALLBACK_RECORD_PREFIX),
+        "distinct callback-outstanding class expected, got: {record}"
+    );
+    assert!(
+        record.contains("redraws_delivered=0"),
+        "the callback record names zero deliveries: {record}"
+    );
+    // State-only charset (privacy seam): key=value tokens, no free-form text.
+    let body = record.split_once("; ").expect("prefix; body").1;
+    for token in body.split_whitespace() {
+        let (key, value) = token.split_once('=').expect("key=value tokens only");
+        assert!(
+            key.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+            "unexpected key charset: {key}"
+        );
+        assert!(
+            value
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+            "unexpected value charset: {value}"
+        );
+    }
+}
+
+/// §4.2: the callback-outstanding record must NOT fire when the surface is
+/// unfocused or minimized (those are healthy self-limiting states); with zero
+/// episode redraws the classic path also stays silent, so evaluate is None.
+#[test]
+fn watchdog_callback_record_suppressed_when_unfocused_or_minimized() {
+    let shared = WatchdogShared::new();
+    shared.note_activity();
+    let mut unfocused = watchdog_owed_state(0);
+    unfocused.focused = false;
+    shared.store_state(&unfocused);
+    assert_eq!(
+        shared.evaluate(30_000),
+        None,
+        "an unfocused owed surface is not the callback-outstanding freeze"
+    );
+
+    let shared = WatchdogShared::new();
+    shared.note_activity();
+    let mut minimized = watchdog_owed_state(0);
+    minimized.window_minimized = true;
+    shared.store_state(&minimized);
+    assert_eq!(
+        shared.evaluate(30_000),
+        None,
+        "a minimized owed surface is not the callback-outstanding freeze"
+    );
+}
+
+/// §4.3: the v0.7.0 catch is preserved. An episode that DID receive a redraw
+/// delivery (render path dead, not the callback) still logs the classic
+/// pending record after STALL_AFTER.
+#[test]
+fn watchdog_v070_classic_record_preserved_after_delivered_redraw() {
+    let shared = WatchdogShared::new();
+    shared.note_activity();
+    // Episode opened with a delivered redraw: redraws_this_episode > 0.
+    shared.store_state(&watchdog_owed_state(1));
+    let record = shared
+        .evaluate(10_000)
+        .expect("redraws owed but never presented is the v0.7.0 freeze");
+    assert!(
+        record.starts_with(CLASSIC_RECORD_PREFIX),
+        "classic v0.7.0 record expected, got: {record}"
+    );
+    assert!(
+        !record.starts_with(CALLBACK_RECORD_PREFIX),
+        "must not misclassify a delivered-redraw stall as callback-outstanding"
+    );
+}
+
+/// §4.3: the two record classes are mutually exclusive within one episode.
+/// Once an episode is identified as callback-outstanding, a later forced
+/// (hatch) redraw delivery must NOT also produce the classic record for the
+/// same episode.
+#[test]
+fn watchdog_record_classes_are_mutually_exclusive_per_episode() {
+    let shared = WatchdogShared::new();
+    shared.note_activity();
+    shared.store_state(&watchdog_owed_state(0));
+    let first = shared
+        .evaluate(3_000)
+        .expect("callback-outstanding record for the episode");
+    assert!(first.starts_with(CALLBACK_RECORD_PREFIX));
+
+    // A hatch paint later credits a delivered redraw. The episode class must
+    // stay stable: no classic record for the same (still-latched) episode.
+    shared.note_redraw_delivered();
+    assert_eq!(
+        shared.evaluate(20_000),
+        None,
+        "a latched callback-outstanding episode never also emits the classic record"
+    );
+}

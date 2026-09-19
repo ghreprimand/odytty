@@ -120,6 +120,7 @@ mod detach_switch;
 mod event_loop;
 mod frame;
 mod frame_assembly;
+pub(in crate::native) mod frame_callback_hatch;
 mod graphics_anim;
 mod gutter_ui;
 mod hints_ui;

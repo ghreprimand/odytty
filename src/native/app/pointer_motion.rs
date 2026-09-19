@@ -227,6 +227,7 @@ impl App {
     /// minimized state is actually pending, so this is harmless on Linux/macOS
     /// where un-minimize goes through `Resized`.
     pub(super) fn on_window_occluded(&mut self, occluded: bool) -> bool {
+        self.window_occluded = occluded;
         if !occluded {
             // Wayland workspace return is commonly not a minimize, so restore
             // cannot be relied on to request the redraw that consumes this flag.
