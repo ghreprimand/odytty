@@ -631,9 +631,10 @@ the most deliberate omissions.
   third-party code.
 - **Current default:** system font enumeration reads candidate files to extract
   family metadata, and the configured font is loaded at startup.
-- **Validation and caps:** parsing is memory-safe Rust (`ttf-parser` for
-  metadata, `swash` for shaping and rasterization, `ab_glyph` vector types for
-  loading), and a parse failure returns an error rather than panicking
+- **Validation and caps:** parsing is memory-safe Rust (`skrifa` for
+  metadata and outlines behind an OdyTTY-owned font handle, `swash` for
+  shaping and color glyphs, `ab_glyph_rasterizer` for coverage), and a parse
+  failure returns an error rather than panicking
   (`src/text/face_meta.rs`). Every production whole-font read shares the 256 MiB
   regular-file boundary in `src/font_file.rs`; glyph rasterization output is
   bounded by atlas capacity. A font *collection* is read one face at a time

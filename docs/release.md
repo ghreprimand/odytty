@@ -85,39 +85,27 @@ The release must agree with the current public references:
 | Settings, defaults, and environment variables | [Runtime Knobs](runtime-knobs.md) |
 | Supported install paths and artifact names | [Install Guide](install.md) |
 
-### Bounded `ttf-parser` advisory exception
+### `ttf-parser` advisory exception (closed 2026-09-19)
 
 RustSec classifies `RUSTSEC-2026-0192` as an informational unmaintained-crate
-warning with no patched release. OdyTTY reaches `ttf-parser 0.25.1` directly for
-font metadata and transitively through `owned_ttf_parser` / `ab_glyph`; the
-Wayland decoration path also reaches `ab_glyph` through `sctk-adwaita`. The C
-API is not built or called. Production font files are capped at 256 MiB before
-parsing -- a collection is read one validated face at a time, so the cap applies
-to what is retained rather than to the file that contains it -- parser failures
-skip the candidate or fall back, and glyph/font corpus tests exercise the Rust
-paths used by the application.
+warning with no patched release. From 2026-08-08 to 2026-09-19 OdyTTY carried a
+time-bounded exception (hard expiry 2026-10-15) because `ttf-parser 0.25.1`
+was reached directly for font metadata, transitively through
+`owned_ttf_parser` / `ab_glyph` for glyph outlines, and through
+`sctk-adwaita` for the Wayland client-side title bar.
 
-The upstream repository moved to the HarfBuzz organization and, as of
-2026-08-06, describes itself as maintenance-mode software where correctness,
-panic, and security fixes remain in scope. No post-transfer release exists on
-crates.io yet, so the advisory cannot currently be cleared by a compatible
-upgrade. A direct move to the already-used maintained Fontations components
-would change metadata parsing and requires font-corpus, shaping/rendering,
-MSRV, performance-apparatus, and Linux/macOS/Windows parity evidence before it
-can replace this parser. The advisory is informational, not a disclosed
-vulnerability. The exception therefore expires on **2026-10-15** and is owned
-by the core maintainers. `.github/scripts/rustsec-audit.sh` fails on or after
-that date while the exact advisory remains present; there is no automatic
-extension.
+The exception closed through the third of its recorded removal paths: normal-
+text font metadata, metrics, and outlines moved to `skrifa` behind an
+OdyTTY-owned font handle with coverage rasterization retained on
+`ab_glyph_rasterizer`, and Winit's Wayland decoration text backend moved to
+`crossfont` (FreeType and Fontconfig). Neither `ttf-parser`, `owned_ttf_parser`,
+nor `ab_glyph` appears in the root or fuzz lockfile, and
+`.github/scripts/rustsec-audit.sh` no longer contains a dated exception. A
+dependency change that reintroduces the crate shows the informational warning
+in the audit output again and is treated as a regression.
 
-Before expiry, take the first applicable removal path:
-
-1. upgrade to an upstream release that clears the RustSec scan;
-2. remove the exception if RustSec withdraws the advisory after reassessing the
-   transferred maintenance ownership; or
-3. replace direct metadata use with the maintained `skrifa`/fontations stack and
-   update or replace the remaining `ab_glyph` and window-decoration dependency
-   paths until `cargo tree -i ttf-parser` is empty.
+Linux builds now require `pkg-config`, FreeType, and Fontconfig development
+packages; release packaging already declared the runtime libraries.
 
 Primary references: the
 [RustSec advisory](https://rustsec.org/advisories/RUSTSEC-2026-0192.html) and

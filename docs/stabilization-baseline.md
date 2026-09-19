@@ -418,6 +418,14 @@ cross-platform, and a local Linux run cannot prove either platform builds
 against the new pin; the blocking Windows and macOS jobs remain the authority
 for that.
 
+### Follow-up: `ttf-parser` exception closed, 2026-09-19
+
+The exception described below closed before its expiry. Normal-text font
+parsing moved to `skrifa` and the Wayland decoration backend to `crossfont`, so
+`ttf-parser` left both lockfiles and the dated block was removed from the audit
+script. See [`docs/release.md`](release.md). The entries below remain the
+historical record.
+
 ### Follow-up: `ttf-parser` exception time-bounded, 2026-08-08
 
 The starting-state table above remains historical. The live exception for
