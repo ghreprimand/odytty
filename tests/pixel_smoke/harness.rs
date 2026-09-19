@@ -13,7 +13,7 @@ use odytty::core::{CursorStyle, Snapshot, Terminal};
 use odytty::grid::{self, Vertex};
 use odytty::text;
 
-use ab_glyph::FontVec;
+use odytty::text::FontHandle;
 
 /// Build size for the test atlas. Large enough that decoration rows and glyph
 /// ink are several pixels tall (robust thresholds), small enough to stay fast.
@@ -360,13 +360,13 @@ pub(crate) fn atlas_coverage_rgb(atlas: &GlyphAtlas, x: usize, y: usize) -> [f32
 }
 
 /// Load the system font + a build-size atlas, or `None` to skip the test.
-pub(crate) fn setup() -> Option<(FontVec, GlyphAtlas)> {
+pub(crate) fn setup() -> Option<(FontHandle, GlyphAtlas)> {
     let font = text::load_font().ok()?;
     let atlas = GlyphAtlas::build(&font, PX);
     Some((font, atlas))
 }
 
-pub(crate) fn setup_subpixel() -> Option<(FontVec, GlyphAtlas)> {
+pub(crate) fn setup_subpixel() -> Option<(FontHandle, GlyphAtlas)> {
     let font = text::load_font().ok()?;
     let atlas = GlyphAtlas::build_with_subpixel(&font, PX, SubpixelMode::Rgb);
     Some((font, atlas))
@@ -396,7 +396,7 @@ pub(crate) fn styled_row_snapshot(cols: usize, sgr: &[u8], text: &str) -> Snapsh
 /// immutable composite lookup finds resident slots instead of the fallback box.
 pub(crate) fn ensure_styled_row(
     atlas: &mut GlyphAtlas,
-    font: &FontVec,
+    font: &FontHandle,
     style: FontStyle,
     text: &str,
 ) {
@@ -491,7 +491,7 @@ pub(crate) fn frames_match(a: &Frame, b: &Frame) -> bool {
 /// Resolve a non-ASCII char into the atlas, returning `false` when the font
 /// lacks it (so the caller skips). Detected by comparing the ensured UV against
 /// the fallback box that an unmistakably-absent private-use codepoint yields.
-pub(crate) fn ensure_real_glyph(atlas: &mut GlyphAtlas, font: &FontVec, ch: char) -> bool {
+pub(crate) fn ensure_real_glyph(atlas: &mut GlyphAtlas, font: &FontHandle, ch: char) -> bool {
     let fallback = atlas.uv_rect('\u{E000}'); // private-use: no font ships it
     let got = atlas.ensure(font, ch);
     got.is_some() && got != fallback
@@ -501,7 +501,7 @@ pub(crate) fn ensure_real_glyph(atlas: &mut GlyphAtlas, font: &FontVec, ch: char
 /// to exercise the wide-slot raster path. Returns `None` on hosts without a
 /// CJK/fullwidth-capable font (the common case here), so the caller skips. Width
 /// is decided with the same `unicode-width` rule core uses for cell layout.
-pub(crate) fn find_supported_wide_glyph(atlas: &mut GlyphAtlas, font: &FontVec) -> Option<char> {
+pub(crate) fn find_supported_wide_glyph(atlas: &mut GlyphAtlas, font: &FontHandle) -> Option<char> {
     use unicode_width::UnicodeWidthChar;
     let ranges = [0x4E00u32..=0x4F00, 0x3040..=0x30FF, 0xFF01..=0xFF60];
     ranges

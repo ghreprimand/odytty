@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use ab_glyph::FontVec;
+use crate::text::FontHandle;
 
 use crate::emoji::EmojiRasterizer;
 use crate::ligature::LigatureFonts;
@@ -20,14 +20,14 @@ use crate::text::{self, FontStyle};
 
 #[derive(Debug, Clone)]
 pub(in crate::native) struct StyleFonts {
-    regular: Arc<FontVec>,
-    bold: Arc<FontVec>,
-    italic: Arc<FontVec>,
-    bold_italic: Arc<FontVec>,
+    regular: Arc<FontHandle>,
+    bold: Arc<FontHandle>,
+    italic: Arc<FontHandle>,
+    bold_italic: Arc<FontHandle>,
 }
 
 impl StyleFonts {
-    pub(in crate::native) fn regular(font: FontVec) -> Self {
+    pub(in crate::native) fn regular(font: FontHandle) -> Self {
         let font = Arc::new(font);
         Self {
             regular: font.clone(),
@@ -161,7 +161,7 @@ impl StyleFonts {
         })
     }
 
-    pub(in crate::native) fn font_for(&self, style: FontStyle) -> &FontVec {
+    pub(in crate::native) fn font_for(&self, style: FontStyle) -> &FontHandle {
         match style {
             FontStyle::Regular => &self.regular,
             FontStyle::Bold => &self.bold,
@@ -184,18 +184,18 @@ impl StyleFonts {
         )
     }
 
-    pub(super) fn regular_font(&self) -> &FontVec {
+    pub(super) fn regular_font(&self) -> &FontHandle {
         &self.regular
     }
 }
 
 impl LigatureFonts for StyleFonts {
-    fn ligature_font(&self, style: FontStyle) -> &FontVec {
+    fn ligature_font(&self, style: FontStyle) -> &FontHandle {
         self.font_for(style)
     }
 }
 
-fn load_optional_style_font(path: &std::path::Path) -> Option<FontVec> {
+fn load_optional_style_font(path: &std::path::Path) -> Option<FontHandle> {
     text::load_font_at(path).ok()
 }
 
@@ -229,7 +229,7 @@ pub(super) fn effective_symbol_font_path() -> Option<PathBuf> {
 pub(super) fn resolve_symbol_fallback(
     enabled: bool,
     explicit_path: Option<&Path>,
-) -> Vec<Arc<FontVec>> {
+) -> Vec<Arc<FontHandle>> {
     let inventory = text::FontFileInventory::new(text::font_search_dirs());
     resolve_symbol_fallback_with_inventory(enabled, explicit_path, &inventory)
 }
@@ -238,7 +238,7 @@ pub(super) fn resolve_symbol_fallback_with_inventory(
     enabled: bool,
     explicit_path: Option<&Path>,
     inventory: &text::FontFileInventory,
-) -> Vec<Arc<FontVec>> {
+) -> Vec<Arc<FontHandle>> {
     if !enabled {
         return Vec::new();
     }
@@ -256,7 +256,7 @@ pub(super) fn resolve_symbol_fallback_with_inventory(
 /// same startup-local inventory, while live settings reload continues to use
 /// [`resolve_symbol_fallback`] and therefore observes a fresh host scan.
 pub(super) struct StartupFonts {
-    pub(super) symbol_fallback: Vec<Arc<FontVec>>,
+    pub(super) symbol_fallback: Vec<Arc<FontHandle>>,
     pub(super) emoji_rasterizer: EmojiRasterizer,
     #[cfg(test)]
     inventory_collections: usize,
@@ -307,7 +307,7 @@ fn resolve_startup_fonts_with(
 pub(super) fn install_runtime_symbol_resolver(atlas: &mut text::GlyphAtlas, enabled: bool) {
     #[cfg(all(unix, not(target_os = "macos")))]
     let resolver = if enabled {
-        Some(text::runtime_resolve_symbol_font as fn(char) -> Option<Arc<FontVec>>)
+        Some(text::runtime_resolve_symbol_font as fn(char) -> Option<Arc<FontHandle>>)
     } else {
         None
     };
@@ -329,7 +329,7 @@ pub(super) fn install_runtime_symbol_resolver(atlas: &mut text::GlyphAtlas, enab
 /// path. An empty map resolves to an empty `Vec` (the identity / off path).
 pub(super) fn resolve_symbol_map_fonts(
     map: &crate::text::SymbolMap,
-) -> Vec<(u32, u32, Arc<FontVec>)> {
+) -> Vec<(u32, u32, Arc<FontHandle>)> {
     if map.is_empty() {
         return Vec::new();
     }

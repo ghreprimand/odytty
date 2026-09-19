@@ -57,7 +57,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::sync::Arc;
 
-use ab_glyph::FontVec;
+use crate::text::FontHandle;
 use swash::shape::{Direction, ShapeContext};
 use swash::text::{Codepoint as _, JoiningType, Script};
 use swash::{FontRef, GlyphId};
@@ -182,7 +182,7 @@ impl LatinShapingFeatures {
 
 /// Font access needed by the shaper without coupling it to the native GPU type.
 pub trait LigatureFonts {
-    fn ligature_font(&self, style: FontStyle) -> &FontVec;
+    fn ligature_font(&self, style: FontStyle) -> &FontHandle;
 }
 
 /// One contextual glyph whose atlas slot is anchored to a source-column span.
@@ -425,7 +425,7 @@ impl LigatureShaper {
         run_text: &RunText,
         column_start: usize,
         style: FontStyle,
-        font: &FontVec,
+        font: &FontHandle,
     ) -> Vec<RelativeRun> {
         let Some(font_ref) = FontRef::from_index(font.as_slice(), 0) else {
             return Vec::new();
@@ -736,7 +736,7 @@ fn whole_run_overlay(
     })
 }
 
-fn font_fingerprint(font: &FontVec) -> u64 {
+fn font_fingerprint(font: &FontHandle) -> u64 {
     let mut hasher = DefaultHasher::new();
     font.as_slice().hash(&mut hasher);
     hasher.finish()
@@ -758,10 +758,10 @@ mod tests {
     };
     use crate::text;
 
-    struct Fonts(FontVec);
+    struct Fonts(FontHandle);
 
     impl LigatureFonts for Fonts {
-        fn ligature_font(&self, _style: FontStyle) -> &FontVec {
+        fn ligature_font(&self, _style: FontStyle) -> &FontHandle {
             &self.0
         }
     }
@@ -1121,7 +1121,7 @@ mod tests {
     }
 
     /// Host fonts known to carry Arabic joining lookups. Absence → skip, never fail.
-    fn load_arabic_capable_font() -> Option<(FontVec, &'static str)> {
+    fn load_arabic_capable_font() -> Option<(FontHandle, &'static str)> {
         const CANDIDATES: &[(&str, &str)] = &[
             ("/usr/share/fonts/dejavu/DejaVuSans.ttf", "DejaVu Sans"),
             (
@@ -1144,7 +1144,7 @@ mod tests {
         ];
         for &(path, label) in CANDIDATES {
             if let Ok(bytes) = std::fs::read(path)
-                && let Ok(font) = FontVec::try_from_vec(bytes)
+                && let Ok(font) = FontHandle::try_from_vec(bytes)
             {
                 return Some((font, label));
             }

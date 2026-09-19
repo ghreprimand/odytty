@@ -8,14 +8,14 @@ impl GlyphAtlas {
     ///
     /// `px` is the physical pixel size to rasterize at (caller multiplies the
     /// logical font size by the window scale factor for crisp HiDPI text).
-    pub fn build(font: &FontVec, px: f32) -> Self {
+    pub fn build(font: &FontHandle, px: f32) -> Self {
         Self::build_with_subpixel(font, px, SubpixelMode::Off)
     }
 
     /// Rasterize printable ASCII into a new atlas with the requested coverage
     /// storage. Subpixel modes keep the same atlas dimensions and slot geometry
     /// as grayscale but store RGB stripe coverage in an RGBA8 bitmap.
-    pub fn build_with_subpixel(font: &FontVec, px: f32, subpixel: SubpixelMode) -> Self {
+    pub fn build_with_subpixel(font: &FontHandle, px: f32, subpixel: SubpixelMode) -> Self {
         Self::build_with_options(font, px, subpixel, 1.0)
     }
 
@@ -27,7 +27,7 @@ impl GlyphAtlas {
     /// and the baseline shifts down by the top half. The added rows are
     /// transparent gutter, so default `1.0` produces identical coverage.
     pub fn build_with_options(
-        font: &FontVec,
+        font: &FontHandle,
         px: f32,
         subpixel: SubpixelMode,
         line_height: f32,

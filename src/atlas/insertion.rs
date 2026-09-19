@@ -14,7 +14,7 @@ impl GlyphAtlas {
     /// - A codepoint the font lacks (or one that would exceed [`MAX_ATLAS_SLOTS`])
     ///   resolves to the fallback box and is cached so the decision is made once.
     /// - Spaces and control characters return `None`.
-    pub fn ensure(&mut self, font: &FontVec, ch: char) -> Option<[f32; 4]> {
+    pub fn ensure(&mut self, font: &FontHandle, ch: char) -> Option<[f32; 4]> {
         self.ensure_styled(font, FontStyle::Regular, ch)
     }
 
@@ -29,7 +29,7 @@ impl GlyphAtlas {
     /// the hard slot cap behave exactly as in [`Self::ensure`].
     pub fn ensure_styled(
         &mut self,
-        font: &FontVec,
+        font: &FontHandle,
         style: FontStyle,
         ch: char,
     ) -> Option<[f32; 4]> {
@@ -62,7 +62,7 @@ impl GlyphAtlas {
         // `None` here means either no fallback is set, the codepoint is not a
         // standalone glyph candidate, or the fallback also lacks it -- all of
         // which fall through to the historical hollow-box slot.
-        let mut symbol_font: Option<Arc<FontVec>> = None;
+        let mut symbol_font: Option<Arc<FontHandle>> = None;
         if let Some(ov) = override_arc {
             // SYMMAP: rasterize from the override face directly (no synthetic
             // transform — icon faces are not emboldened/sheared), bypassing the
@@ -104,7 +104,7 @@ impl GlyphAtlas {
             // A fallback glyph renders from the fallback face with no synthetic
             // transform (icons are not emboldened/sheared); otherwise
             // the primary font and the style's synthetic mask apply as usual.
-            let (raster_font, synth): (&FontVec, SynthTransform) = match symbol_font.as_deref() {
+            let (raster_font, synth): (&FontHandle, SynthTransform) = match symbol_font.as_deref() {
                 Some(fb) => (fb, SynthTransform::none()),
                 None => (font, self.synth_for(style)),
             };
@@ -167,8 +167,9 @@ impl GlyphAtlas {
 
     /// Rasterize a contextual OpenType glyph into a source-column-anchored
     /// multi-cell slot. The glyph ID is the shared OpenType index used by swash
-    /// and ab_glyph. Shaped advances are intentionally absent from this API.
-    pub fn ensure_shaped(&mut self, font: &FontVec, key: ShapedGlyphKey) -> Option<GlyphBounds> {
+    /// (shaping) and skrifa (outlines). Shaped advances are intentionally absent
+    /// from this API.
+    pub fn ensure_shaped(&mut self, font: &FontHandle, key: ShapedGlyphKey) -> Option<GlyphBounds> {
         if key.span_cells == 0 || key.anchor_cell >= key.span_cells {
             return None;
         }

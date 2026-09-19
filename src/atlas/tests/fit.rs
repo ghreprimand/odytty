@@ -14,8 +14,8 @@ use std::sync::Arc;
 /// The inked symbol-marker fixture (covers U+2731 / U+25CF with real ink). At
 /// 1000 upm its U+2731 outline is ~0.70 em wide/tall — wider than a typical
 /// ~0.6 em monospace cell, so without a fit pass it overflows and clips.
-fn marker_inked_font() -> FontVec {
-    FontVec::try_from_vec(
+fn marker_inked_font() -> FontHandle {
+    FontHandle::try_from_vec(
         include_bytes!("../../../tests/fixtures/fonts/symbol-markers-inked.ttf").to_vec(),
     )
     .expect("parse inked marker fixture")

@@ -29,7 +29,6 @@ use std::hint::black_box;
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
-use ab_glyph::FontVec;
 use odytty::atlas::GlyphAtlas;
 use odytty::core::{CursorStyle, Terminal};
 use odytty::grid::{
@@ -38,15 +37,16 @@ use odytty::grid::{
 };
 use odytty::ligature::{LigatureFonts, LigatureShaper};
 use odytty::parser::{OdyParser, Params, VtDispatch};
+use odytty::text::FontHandle;
 use odytty::text::{FontStyle, load_font};
 
 const COLS: usize = 80;
 const ROWS: usize = 24;
 
-struct BenchLigatureFont<'a>(&'a FontVec);
+struct BenchLigatureFont<'a>(&'a FontHandle);
 
 impl LigatureFonts for BenchLigatureFont<'_> {
-    fn ligature_font(&self, _style: FontStyle) -> &FontVec {
+    fn ligature_font(&self, _style: FontStyle) -> &FontHandle {
         self.0
     }
 }

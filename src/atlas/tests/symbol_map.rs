@@ -41,8 +41,8 @@ fn symbol_map_font_for_matches_range_and_first_wins() {
         eprintln!("skipping: no system font available");
         return;
     };
-    // FontVec is not Clone; reload distinct instances so Arc identity tells the
-    // two override faces apart.
+    // Reload distinct instances so Arc identity tells the two override faces
+    // apart (each Arc wraps a separately loaded handle).
     let (Some(face_a), Some(face_b), Some(face_c)) = (test_font(), test_font(), test_font()) else {
         eprintln!("skipping: no system font available");
         return;

@@ -63,7 +63,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use ab_glyph::{Font, FontVec, GlyphId, PxScale, ScaleFont, point};
+use crate::text::{GlyphId, PxScale, point};
+
+use crate::text::FontHandle;
 use unicode_width::UnicodeWidthChar;
 
 pub mod fallback;
@@ -581,7 +583,7 @@ fn is_combining_mark(ch: char) -> bool {
 /// Whether the font maps `ch` to a usable glyph. Fallback-eligible codepoints
 /// also require an inked outline so blank placeholder glyphs cannot block the
 /// fallback chain.
-fn font_has_glyph(font: &FontVec, ch: char) -> bool {
+fn font_has_glyph(font: &FontHandle, ch: char) -> bool {
     let id = font.glyph_id(ch);
     if id.0 == 0 {
         return false;
@@ -592,7 +594,7 @@ fn font_has_glyph(font: &FontVec, ch: char) -> bool {
     true
 }
 
-fn font_has_inked_outline(font: &FontVec, id: GlyphId) -> bool {
+fn font_has_inked_outline(font: &FontHandle, id: GlyphId) -> bool {
     font.outline(id).is_some_and(|outline| {
         !outline.curves.is_empty()
             && outline.bounds.min.x != outline.bounds.max.x
@@ -729,7 +731,7 @@ impl GlyphInk {
 /// codepoint the static fallback chain missed, it returns a loaded face that
 /// covers it (or `None`). The native layer wires this to a cached `fc-match`
 /// query; see [`crate::text::runtime_resolve_symbol_font`].
-type RuntimeSymbolResolver = fn(char) -> Option<Arc<FontVec>>;
+type RuntimeSymbolResolver = fn(char) -> Option<Arc<FontHandle>>;
 
 #[derive(Debug, Clone)]
 pub struct GlyphAtlas {
@@ -812,7 +814,7 @@ pub struct GlyphAtlas {
     /// a handle and rasterize without conflicting with the `&mut self` bitmap
     /// borrow. The native layer resolves and sets it after build, mirroring the
     /// synthetic-styles / geometric switches.
-    fallback_chain: Vec<Arc<FontVec>>,
+    fallback_chain: Vec<Arc<FontHandle>>,
     /// SYMMAP: per-codepoint-range override faces (resolved from the user's
     /// `symbol_map` config). Each entry is an inclusive `(start, end, face)`
     /// range; [`Self::symbol_map_font_for`] returns the first range that
@@ -823,7 +825,7 @@ pub struct GlyphAtlas {
     /// lookup clones a handle without conflicting with the `&mut self` bitmap
     /// borrow, exactly like `fallback`. The native layer resolves family names
     /// to faces and installs them after build, rebuilding when the map changes.
-    symbol_map_fonts: Vec<(u32, u32, Arc<FontVec>)>,
+    symbol_map_fonts: Vec<(u32, u32, Arc<FontHandle>)>,
     /// Runtime per-codepoint glyph fallback resolver (RV6 Linux backfill).
     /// Consulted only when a printable spacing codepoint misses the static
     /// [`Self::fallback_chain`] above -- the static chain (bundled Nerd faces,
@@ -845,7 +847,7 @@ pub struct GlyphAtlas {
     /// per-glyph render path more than once per distinct missing codepoint. Empty
     /// by default and untouched unless a resolver is installed and the static
     /// chain misses, so the default path costs nothing.
-    runtime_symbol_cache: HashMap<char, Option<Arc<FontVec>>>,
+    runtime_symbol_cache: HashMap<char, Option<Arc<FontHandle>>>,
 }
 
 #[cfg(test)]

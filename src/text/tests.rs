@@ -7,8 +7,6 @@ use super::*;
 // needs. Naming them here changes no assertion.
 use std::path::{Path, PathBuf};
 
-use ab_glyph::{Font, FontVec};
-
 use crate::core::Color;
 
 #[test]
@@ -313,7 +311,7 @@ fn loaded_system_font_is_monospace() {
         eprintln!("skipping: no system font available");
         return;
     };
-    let font = FontVec::try_from_vec(bytes).expect("parse system font");
+    let font = FontHandle::try_from_vec(bytes).expect("parse system font");
     assert!(is_monospace(&font), "probed default should be monospace");
 }
 
@@ -948,29 +946,18 @@ fn distinct_families_dedup_styles_and_exclude_proportional_only() {
 // so they never list as text families (the "Noto Color Emoji" picker wart).
 #[test]
 fn latin_coverage_accepts_text_font_rejects_emoji() {
-    // Positive: a real monospace text font on this host covers basic Latin.
+    // Positive: a real monospace text font on this host is accepted by the
+    // production read path (Latin coverage is enforced inside read_face_meta).
     if let Some((_, dirs)) = a_real_monospace_family() {
-        let covered = collect_font_files(&dirs).iter().any(|f| {
-            let Ok(data) = std::fs::read(f) else {
-                return false;
-            };
-            ttf_parser::Face::parse(&data, 0)
-                .map(|face| has_basic_latin_coverage(&face))
-                .unwrap_or(false)
-        });
+        let covered = collect_font_files(&dirs)
+            .iter()
+            .any(|f| read_face_meta(f).is_some());
         assert!(covered, "a text mono font must report Latin coverage");
     }
     // Negative: a color-emoji font (if installed) fails coverage AND is
     // therefore absent from read_face_meta / font_families. Skip if absent.
     let emoji = Path::new("/usr/share/fonts/noto/NotoColorEmoji.ttf");
     if emoji.is_file() {
-        let data = std::fs::read(emoji).expect("read emoji font");
-        if let Ok(face) = ttf_parser::Face::parse(&data, 0) {
-            assert!(
-                !has_basic_latin_coverage(&face),
-                "color-emoji font must fail the Latin-coverage probe"
-            );
-        }
         assert!(
             read_face_meta(emoji).is_none(),
             "emoji font must be excluded from family enumeration"
@@ -1326,11 +1313,11 @@ fn font_provides_outline_glyph_accepts_outline_face_and_rejects_absent() {
 
 #[test]
 fn font_provides_outline_glyph_rejects_blank_symbol_markers() {
-    let blank = FontVec::try_from_vec(
+    let blank = FontHandle::try_from_vec(
         include_bytes!("../../tests/fixtures/fonts/symbol-markers-blank.ttf").to_vec(),
     )
     .expect("parse blank marker fixture");
-    let inked = FontVec::try_from_vec(
+    let inked = FontHandle::try_from_vec(
         include_bytes!("../../tests/fixtures/fonts/symbol-markers-inked.ttf").to_vec(),
     )
     .expect("parse inked marker fixture");
@@ -1478,7 +1465,7 @@ fn linux_runtime_backfill_resolves_reported_blank_glyphs() {
         let verified = claimed.iter().find(|(path, index)| {
             std::fs::read(path)
                 .ok()
-                .and_then(|data| ab_glyph::FontVec::try_from_vec_and_index(data, *index).ok())
+                .and_then(|data| FontHandle::from_vec_and_index(data, *index).ok())
                 .is_some_and(|font| font_provides_outline_glyph(&font, ch))
         });
         let Some(provider) = verified else {
@@ -1535,11 +1522,9 @@ fn linux_runtime_backfill_resolves_reported_blank_glyphs() {
 #[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn collection_faces_load_at_the_index_fontconfig_reports() {
-    use ab_glyph::Font;
-
     /// A shape signature: outline bounds of the glyph, which differ between
     /// weights of the same family (Thin and Regular do not share stem widths).
-    fn signature(font: &ab_glyph::FontVec, ch: char) -> Option<(i32, i32, i32, i32)> {
+    fn signature(font: &FontHandle, ch: char) -> Option<(i32, i32, i32, i32)> {
         let outline = font.outline(font.glyph_id(ch))?;
         Some((
             (outline.bounds.min.x * 100.0) as i32,
@@ -1612,7 +1597,7 @@ fn runtime_backfill_shares_one_loaded_face_across_codepoints() {
 
     assert!(
         std::sync::Arc::ptr_eq(&first, &second),
-        "two glyph outcomes from one face must share one parsed FontVec"
+        "two glyph outcomes from one face must share one parsed FontHandle"
     );
 }
 
@@ -1729,4 +1714,98 @@ fn symbol_font_candidates_are_bounded_and_unique() {
         8,
         "one cache miss must not turn into an unbounded number of font parses"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Slice 2b: owned glyph geometry + FontParseError display (independent of
+// atlas/raster paths). These pin the OdyTTY-owned value types and the
+// historical `InvalidFont` parse-error string that TextError::Parse embeds.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn owned_glyph_geometry_constructors_and_rect_metrics() {
+    let id = GlyphId(42);
+    let at_origin = id.with_scale(16.0);
+    assert_eq!(at_origin.id, GlyphId(42));
+    assert_eq!(at_origin.scale, PxScale { x: 16.0, y: 16.0 });
+    assert_eq!(at_origin.position, Point::default());
+
+    let positioned = id.with_scale_and_position(PxScale { x: 10.0, y: 20.0 }, point(3.0, 4.0));
+    assert_eq!(positioned.id, GlyphId(42));
+    assert_eq!(positioned.scale, PxScale { x: 10.0, y: 20.0 });
+    assert_eq!(positioned.position, point(3.0, 4.0));
+
+    // Uniform f32 Into<PxScale> matches the atlas/pen call sites.
+    assert_eq!(PxScale::from(12.0), PxScale { x: 12.0, y: 12.0 });
+
+    let r = Rect {
+        min: point(1.0, 2.0),
+        max: point(5.0, 8.0),
+    };
+    assert_eq!(r.width(), 4.0);
+    assert_eq!(r.height(), 6.0);
+
+    // OutlineCurve variants accept the shared ab_glyph_rasterizer Point without
+    // a cast; constructing an Outline exercises the owned container layout.
+    let outline = Outline {
+        bounds: r,
+        curves: vec![
+            OutlineCurve::Line(point(0.0, 0.0), point(1.0, 1.0)),
+            OutlineCurve::Quad(point(0.0, 0.0), point(0.5, 1.0), point(1.0, 0.0)),
+            OutlineCurve::Cubic(
+                point(0.0, 0.0),
+                point(0.3, 1.0),
+                point(0.7, 1.0),
+                point(1.0, 0.0),
+            ),
+        ],
+    };
+    assert_eq!(outline.curves.len(), 3);
+    assert_eq!(outline.bounds.width(), 4.0);
+}
+
+#[test]
+fn font_parse_error_display_is_the_historical_invalid_font_literal() {
+    assert_eq!(FontParseError.to_string(), "InvalidFont");
+    let wrapped = TextError::Parse {
+        path: "fixture.ttf".into(),
+        source: FontParseError,
+    };
+    assert_eq!(
+        wrapped.to_string(),
+        "failed to parse font fixture.ttf: InvalidFont",
+        "TextError::Parse must keep embedding the InvalidFont Display string"
+    );
+}
+
+#[test]
+fn try_from_vec_rejects_malformed_bytes_with_font_parse_error() {
+    let err = FontHandle::try_from_vec(b"not a font".to_vec())
+        .expect_err("garbage bytes must not parse as a face");
+    assert_eq!(err, FontParseError);
+    assert_eq!(err.to_string(), "InvalidFont");
+}
+
+#[test]
+fn production_font_handle_exposes_owned_glyph_id_and_outline_types() {
+    let font = load_bundled_font().expect("bundled face must parse");
+    let gid = font.glyph_id('A');
+    assert_ne!(gid.0, 0, "bundled Regular must cover Latin A");
+    let outline = font
+        .outline(gid)
+        .expect("bundled Regular must outline Latin A");
+    assert!(
+        outline.bounds.width() > 0.0 && outline.bounds.height() > 0.0,
+        "inked outline bounds must be non-empty"
+    );
+    assert!(
+        !outline.curves.is_empty(),
+        "inked outline must carry at least one curve"
+    );
+    let glyph = gid.with_scale(24.0);
+    let drawn = font
+        .outline_glyph(glyph)
+        .expect("bundled Regular must outline_glyph Latin A");
+    let px = drawn.px_bounds();
+    assert!(px.width() > 0.0 && px.height() > 0.0);
 }

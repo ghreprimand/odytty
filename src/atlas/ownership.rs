@@ -53,7 +53,7 @@ impl GlyphAtlas {
     /// this only governs glyphs rasterized after it is set; the native layer
     /// installs it on a freshly built atlas and reinstalls it after a rebuild,
     /// so the dynamic region never mixes resolved and unresolved fallbacks.
-    pub fn set_fallback_fonts(&mut self, fonts: Vec<Arc<FontVec>>) {
+    pub fn set_fallback_fonts(&mut self, fonts: Vec<Arc<FontHandle>>) {
         self.fallback_chain = fonts;
     }
 
@@ -63,7 +63,7 @@ impl GlyphAtlas {
     /// fallback/geometric switches it only governs glyphs rasterized after it is
     /// set, and the atlas is rebuilt (clearing the dynamic region) when the map
     /// changes, so cached slots never mix faces.
-    pub fn set_symbol_map_fonts(&mut self, fonts: Vec<(u32, u32, Arc<FontVec>)>) {
+    pub fn set_symbol_map_fonts(&mut self, fonts: Vec<(u32, u32, Arc<FontHandle>)>) {
         self.symbol_map_fonts = fonts;
     }
 
@@ -101,7 +101,7 @@ impl GlyphAtlas {
     /// identity / off path). With no rules the `Vec` is empty and the scan is
     /// skipped entirely, so the default costs nothing. First-match-wins matches
     /// `text::SymbolMap` precedence.
-    pub(super) fn symbol_map_font_for(&self, ch: char) -> Option<Arc<FontVec>> {
+    pub(super) fn symbol_map_font_for(&self, ch: char) -> Option<Arc<FontHandle>> {
         if self.symbol_map_fonts.is_empty() {
             return None;
         }
@@ -117,7 +117,7 @@ impl GlyphAtlas {
     /// returns the **first** face that has a glyph for `ch` -- but only when
     /// `ch` is a printable spacing codepoint. A codepoint no chain face provides
     /// (or an empty chain) yields `None`, preserving the hollow-box path.
-    pub(super) fn symbol_fallback(&mut self, ch: char) -> Option<Arc<FontVec>> {
+    pub(super) fn symbol_fallback(&mut self, ch: char) -> Option<Arc<FontHandle>> {
         if !should_attempt_fallback(ch) {
             return None;
         }

@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ab_glyph::FontVec;
+use super::FontHandle;
 
 use super::bundled::{load_font_at, resolve_bundled_symbol_font, resolve_bundled_symbol_fonts};
 use super::discovery::{FontFileInventory, file_stem, font_search_dirs, normalize_family};
@@ -33,7 +33,7 @@ struct RuntimeFontFaceKey {
 
 #[cfg(all(unix, not(target_os = "macos")))]
 static RUNTIME_FONT_FACE_CACHE: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashMap<RuntimeFontFaceKey, std::sync::Weak<FontVec>>>,
+    std::sync::Mutex<std::collections::HashMap<RuntimeFontFaceKey, std::sync::Weak<FontHandle>>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 /// Environment variable naming an explicit symbol / Nerd-font file for the
@@ -100,7 +100,7 @@ const LINUX_SYMBOL_FALLBACK_HINTS: &[&str] = &[
 /// by path. Returns `(source, font)` pairs index-aligned with how the chain is
 /// built. Absent faces are skipped silently.
 #[cfg(all(test, unix, not(target_os = "macos")))]
-pub(super) fn linux_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFontSource, FontVec)> {
+pub(super) fn linux_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFontSource, FontHandle)> {
     let inventory = FontFileInventory::new(dirs.to_vec());
     linux_symbol_fallback_faces_in_inventory(&inventory)
 }
@@ -108,7 +108,7 @@ pub(super) fn linux_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFontSo
 #[cfg(all(unix, not(target_os = "macos")))]
 fn linux_symbol_fallback_faces_in_inventory(
     inventory: &FontFileInventory,
-) -> Vec<(SymbolFontSource, FontVec)> {
+) -> Vec<(SymbolFontSource, FontHandle)> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for hint in LINUX_SYMBOL_FALLBACK_HINTS {
@@ -154,7 +154,9 @@ const WINDOWS_SYMBOL_FALLBACK_HINTS: &[&str] = &["seguisym", "segmdl2", "cambria
 /// the chain is built. Absent faces are skipped silently. Mirrors
 /// [`linux_symbol_fallback_faces`].
 #[cfg(all(test, windows))]
-pub(super) fn windows_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFontSource, FontVec)> {
+pub(super) fn windows_symbol_fallback_faces(
+    dirs: &[PathBuf],
+) -> Vec<(SymbolFontSource, FontHandle)> {
     let inventory = FontFileInventory::new(dirs.to_vec());
     windows_symbol_fallback_faces_in_inventory(&inventory)
 }
@@ -162,7 +164,7 @@ pub(super) fn windows_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFont
 #[cfg(windows)]
 fn windows_symbol_fallback_faces_in_inventory(
     inventory: &FontFileInventory,
-) -> Vec<(SymbolFontSource, FontVec)> {
+) -> Vec<(SymbolFontSource, FontHandle)> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for hint in WINDOWS_SYMBOL_FALLBACK_HINTS {
@@ -195,7 +197,7 @@ fn windows_symbol_fallback_faces_in_inventory(
 ///
 /// The font is only *loaded*; whether it is *used* is the caller's gate (the
 /// native layer reads its enable switch before installing it on the atlas).
-pub fn resolve_symbol_font() -> Option<FontVec> {
+pub fn resolve_symbol_font() -> Option<FontHandle> {
     let explicit = std::env::var_os(SYMBOL_FONT_ENV)
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty());
@@ -236,7 +238,7 @@ impl SymbolFontSource {
 /// from, under the precedence **explicit > bundled > host**.
 ///
 /// This is the single source of truth for symbol-fallback resolution: the
-/// native renderer uses the loaded `FontVec`, and `--show-config` uses the
+/// native renderer uses the loaded `FontHandle`, and `--show-config` uses the
 /// [`SymbolFontSource`] for diagnostics, so the reported source can never drift
 /// from what the renderer actually installs.
 ///
@@ -246,7 +248,7 @@ impl SymbolFontSource {
 pub fn resolve_symbol_font_with_source(
     explicit_path: Option<&Path>,
     dirs: &[PathBuf],
-) -> (SymbolFontSource, Option<FontVec>) {
+) -> (SymbolFontSource, Option<FontHandle>) {
     if let Some(path) = explicit_path {
         match load_font_at(path) {
             Ok(font) => return (SymbolFontSource::Explicit(path.to_path_buf()), Some(font)),
@@ -292,7 +294,7 @@ pub fn resolve_symbol_font_with_source(
 pub fn resolve_symbol_fonts_with_source(
     explicit_path: Option<&Path>,
     dirs: &[PathBuf],
-) -> (Vec<SymbolFontSource>, Vec<FontVec>) {
+) -> (Vec<SymbolFontSource>, Vec<FontHandle>) {
     let inventory = FontFileInventory::new(dirs.to_vec());
     resolve_symbol_fonts_with_inventory(explicit_path, &inventory)
 }
@@ -303,7 +305,7 @@ pub fn resolve_symbol_fonts_with_source(
 pub(crate) fn resolve_symbol_fonts_with_inventory(
     explicit_path: Option<&Path>,
     inventory: &FontFileInventory,
-) -> (Vec<SymbolFontSource>, Vec<FontVec>) {
+) -> (Vec<SymbolFontSource>, Vec<FontHandle>) {
     let mut sources = Vec::new();
     let mut fonts = Vec::new();
 
@@ -404,7 +406,7 @@ pub(crate) fn resolve_symbol_fonts_with_inventory(
 /// a symbol charset is index 54, Regular. Loading face 0 would have rasterized
 /// symbols at Thin weight beside a Regular body font.
 #[cfg(all(unix, not(target_os = "macos")))]
-pub fn runtime_resolve_symbol_font(ch: char) -> Option<std::sync::Arc<FontVec>> {
+pub fn runtime_resolve_symbol_font(ch: char) -> Option<std::sync::Arc<FontHandle>> {
     resolve_symbol_font_from_candidates(ch, symbol_font_candidates(ch))
 }
 
@@ -412,7 +414,7 @@ pub fn runtime_resolve_symbol_font(ch: char) -> Option<std::sync::Arc<FontVec>> 
 fn resolve_symbol_font_from_candidates(
     ch: char,
     candidates: Vec<(PathBuf, u32)>,
-) -> Option<std::sync::Arc<FontVec>> {
+) -> Option<std::sync::Arc<FontHandle>> {
     for (path, face_index) in candidates {
         if !path.is_file() {
             continue;
@@ -429,7 +431,7 @@ fn resolve_symbol_font_from_candidates(
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn cached_runtime_font_face(path: &Path, face_index: u32) -> Option<std::sync::Arc<FontVec>> {
+fn cached_runtime_font_face(path: &Path, face_index: u32) -> Option<std::sync::Arc<FontHandle>> {
     use std::os::unix::fs::MetadataExt;
 
     let metadata = path.metadata().ok()?;
@@ -575,7 +577,7 @@ fn parse_fc_record(line: &str) -> Option<(PathBuf, u32)> {
 
 /// Resolve only the **source** of the symbol-fallback face. Convenience wrapper
 /// over [`resolve_symbol_font_with_source`] for `--show-config`, which needs the
-/// label but not the rasterizable `FontVec`.
+/// label but not the rasterizable `FontHandle`.
 pub fn resolve_symbol_font_source(
     explicit_path: Option<&Path>,
     dirs: &[PathBuf],
@@ -586,7 +588,7 @@ pub fn resolve_symbol_font_source(
 /// Family-search half of [`resolve_symbol_font`], factored out so tests can
 /// pass a hermetic fixture directory. Prefers the dedicated "Symbols Nerd Font"
 /// face (hint index 0) over a general patched "* Nerd Font" face.
-pub fn resolve_symbol_font_in(dirs: &[PathBuf]) -> Option<FontVec> {
+pub fn resolve_symbol_font_in(dirs: &[PathBuf]) -> Option<FontHandle> {
     resolve_symbol_font_path_in(dirs).and_then(|path| load_font_at(&path).ok())
 }
 
@@ -626,7 +628,7 @@ pub(super) fn symbol_font_candidates_for_test(ch: char) -> Vec<(PathBuf, u32)> {
 pub(super) fn resolve_symbol_font_from_candidates_for_test(
     ch: char,
     candidates: Vec<(PathBuf, u32)>,
-) -> Option<std::sync::Arc<FontVec>> {
+) -> Option<std::sync::Arc<FontHandle>> {
     resolve_symbol_font_from_candidates(ch, candidates)
 }
 

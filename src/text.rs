@@ -26,6 +26,8 @@
 //! | [`bundled`] | compiled-in faces, font-file loading, [`TextError`] |
 //! | [`discovery`] | search directories, font-file collection, name normalization |
 //! | [`face_meta`] | font-table metadata and the family inventory built from it |
+//! | [`glyph_geom`] | owned glyph-geometry value types and [`FontParseError`] |
+//! | [`font_handle`] | the owned [`FontHandle`]: skrifa metrics/outlines + ab_glyph_rasterizer coverage |
 //! | [`resolve`] | choosing a face for a requested family or weight |
 //! | [`symbols`] | symbol/Nerd-font fallback order and source labelling |
 //! | [`metrics`] | raster and advance probes on a loaded face |
@@ -33,8 +35,9 @@
 //! | [`symbol_map`] | SYMMAP codepoint-range rules |
 //!
 //! Dependencies run one way: `resolve` reads `discovery` and `face_meta`,
-//! `symbols` reads `discovery`, `bundled` and `metrics`, and `color` and
-//! `symbol_map` depend on neither. Nothing depends on the facade.
+//! `symbols` reads `discovery`, `bundled` and `metrics`, `bundled`/`metrics`
+//! build on `font_handle`, `font_handle` builds on `glyph_geom` (a leaf), and
+//! `color` and `symbol_map` depend on neither. Nothing depends on the facade.
 
 /// The glyph atlas and its cell metrics live in [`crate::atlas`]; re-exported
 /// here so `crate::text::{CellSize, GlyphAtlas}` call sites keep resolving.
@@ -44,6 +47,8 @@ mod bundled;
 mod color;
 mod discovery;
 mod face_meta;
+mod font_handle;
+mod glyph_geom;
 mod metrics;
 mod resolve;
 mod symbol_map;
@@ -53,6 +58,8 @@ pub use bundled::*;
 pub use color::*;
 pub use discovery::*;
 pub use face_meta::*;
+pub use font_handle::*;
+pub use glyph_geom::*;
 pub use metrics::*;
 pub use resolve::*;
 pub use symbol_map::*;

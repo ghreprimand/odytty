@@ -1577,7 +1577,7 @@ dependencies = [
 name = "odytty"
 version = "0.15.0"
 dependencies = [
- "ab_glyph",
+ "ab_glyph_rasterizer",
  "anyhow",
  "arboard",
  "async-io",
@@ -1600,7 +1600,6 @@ dependencies = [
  "tiny-skia",
  "tracing",
  "tracing-subscriber",
- "ttf-parser",
  "unicode-width",
  "wayland-client",
  "wgpu",

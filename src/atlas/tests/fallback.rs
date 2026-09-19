@@ -16,27 +16,27 @@ const NON_SYMBOL_FALLBACK: char = '\u{2200}';
 /// A PUA codepoint the bundled/system test font does *not* map (so it exercises
 /// the missing-glyph path), plus one it *does* — discovered at runtime so the
 /// tests are not pinned to a single host font.
-fn pua_absent(font: &FontVec) -> Option<char> {
+fn pua_absent(font: &FontHandle) -> Option<char> {
     (0xE000u32..=0xF8FF)
         .filter_map(char::from_u32)
         .find(|&ch| !font_has_glyph(font, ch))
 }
 
-fn pua_present(font: &FontVec) -> Option<char> {
+fn pua_present(font: &FontHandle) -> Option<char> {
     (0xE000u32..=0xF8FF)
         .filter_map(char::from_u32)
         .find(|&ch| font_has_glyph(font, ch))
 }
 
-fn marker_blank_font() -> FontVec {
-    FontVec::try_from_vec(
+fn marker_blank_font() -> FontHandle {
+    FontHandle::try_from_vec(
         include_bytes!("../../../tests/fixtures/fonts/symbol-markers-blank.ttf").to_vec(),
     )
     .expect("parse blank marker fixture")
 }
 
-fn marker_inked_font() -> FontVec {
-    FontVec::try_from_vec(
+fn marker_inked_font() -> FontHandle {
+    FontHandle::try_from_vec(
         include_bytes!("../../../tests/fixtures/fonts/symbol-markers-inked.ttf").to_vec(),
     )
     .expect("parse inked marker fixture")
@@ -225,8 +225,8 @@ fn fallback_present_but_lacking_glyph_uses_box() {
         eprintln!("skipping: font covers all of the BMP PUA");
         return;
     };
-    // A second instance of the same font as the "fallback" (FontVec is not
-    // Clone, so reload it): it also lacks `absent`, so the fallback must decline
+    // A second instance of the same font as the "fallback" (reload so Arc
+    // identity is distinct): it also lacks `absent`, so the fallback must decline
     // and the hollow box is used — proving the atlas verifies fallback coverage
     // rather than blindly drawing.
     let Some(fb) = test_font() else {
@@ -375,7 +375,7 @@ mod runtime_resolver {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static POS_CALLS: AtomicUsize = AtomicUsize::new(0);
-    fn pos_resolver(_ch: char) -> Option<Arc<FontVec>> {
+    fn pos_resolver(_ch: char) -> Option<Arc<FontHandle>> {
         POS_CALLS.fetch_add(1, Ordering::SeqCst);
         crate::text::resolve_symbol_font().map(Arc::new)
     }
@@ -386,31 +386,31 @@ mod runtime_resolver {
     // observe another thread's invocations under parallel scheduling. Tests that
     // only need a negative resolver (without counting) use `silent_neg_resolver`.
     static NEG_CALLS: AtomicUsize = AtomicUsize::new(0);
-    fn neg_resolver(_ch: char) -> Option<Arc<FontVec>> {
+    fn neg_resolver(_ch: char) -> Option<Arc<FontHandle>> {
         NEG_CALLS.fetch_add(1, Ordering::SeqCst);
         None
     }
 
     /// A negative resolver that touches no shared counter, so tests that merely
     /// need "resolver returns None" stay isolated from the counting tests.
-    fn silent_neg_resolver(_ch: char) -> Option<Arc<FontVec>> {
+    fn silent_neg_resolver(_ch: char) -> Option<Arc<FontHandle>> {
         None
     }
 
     static HIT_CALLS: AtomicUsize = AtomicUsize::new(0);
-    fn hit_resolver(_ch: char) -> Option<Arc<FontVec>> {
+    fn hit_resolver(_ch: char) -> Option<Arc<FontHandle>> {
         HIT_CALLS.fetch_add(1, Ordering::SeqCst);
         None
     }
 
     static UNIVERSAL_CALLS: AtomicUsize = AtomicUsize::new(0);
-    fn universal_resolver(_ch: char) -> Option<Arc<FontVec>> {
+    fn universal_resolver(_ch: char) -> Option<Arc<FontHandle>> {
         UNIVERSAL_CALLS.fetch_add(1, Ordering::SeqCst);
         Some(Arc::new(marker_inked_font()))
     }
 
     static EXCLUDED_CALLS: AtomicUsize = AtomicUsize::new(0);
-    fn excluded_resolver(_ch: char) -> Option<Arc<FontVec>> {
+    fn excluded_resolver(_ch: char) -> Option<Arc<FontHandle>> {
         EXCLUDED_CALLS.fetch_add(1, Ordering::SeqCst);
         Some(Arc::new(marker_inked_font()))
     }

@@ -31,7 +31,7 @@ bundled-symbols-font = []
 all = { level = "deny", priority = -1 }
 
 [dependencies]
-ab_glyph = "0.2.32"
+ab_glyph_rasterizer = "0.1.10"
 anyhow = "1.0.102"
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 bytemuck = { version = "1.25.0", features = ["derive"] }
@@ -62,11 +62,6 @@ skrifa = "0.42.1"
 swash = "0.2.9"
 thiserror = "2.0.18"
 tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }
-# Read-only access to font name/metadata tables (real family name, OS/2 weight,
-# italic + monospace flags) so font enumeration and family resolution use real
-# metadata rather than guessing from filenames. Already in the tree transitively
-# via ab_glyph (same parser); used here for table reads only, never rasterizing.
-ttf-parser = "0.25.1"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 unicode-width = "0.2.2"

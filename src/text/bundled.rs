@@ -3,12 +3,13 @@
 //!
 //! Owns the compiled-in Victor Mono / JetBrains Mono / Symbols Nerd Font
 //! tables and every path that turns bytes or a filesystem path into a
-//! parsed [`FontVec`]. Startup never depends on host font installation:
+//! parsed [`FontHandle`]. Startup never depends on host font installation:
 //! an unusable override falls back to a bundled face here.
 
 use std::path::{Path, PathBuf};
 
-use ab_glyph::FontVec;
+use super::FontHandle;
+use super::glyph_geom::FontParseError;
 
 use crate::settings::FONT_ENV;
 
@@ -16,7 +17,7 @@ use super::FontStyle;
 use super::discovery::normalize_family;
 
 /// Default bundled body font family. Victor Mono is the out-of-the-box default
-/// (its `.otf`/CFF outlines rasterize cleanly through `ab_glyph`); JetBrains
+/// (its `.otf`/CFF outlines rasterize cleanly through `skrifa`); JetBrains
 /// Mono is also bundled and remains selectable via `font_family`.
 pub const BUNDLED_FONT_FAMILY: &str = "Victor Mono";
 /// Version of the bundled **default** family (Victor Mono).
@@ -290,7 +291,7 @@ pub enum TextError {
     #[error("failed to parse font {path}: {source}")]
     Parse {
         path: String,
-        source: ab_glyph::InvalidFont,
+        source: FontParseError,
     },
     /// The font file could not be read.
     #[error("failed to read font {path}: {source}")]
@@ -316,7 +317,7 @@ pub(super) fn font_candidates() -> Vec<PathBuf> {
 }
 
 /// Load the bundled default font, falling back to host candidates if needed.
-pub fn load_font() -> Result<FontVec, TextError> {
+pub fn load_font() -> Result<FontHandle, TextError> {
     load_font_with_path(None)
 }
 
@@ -331,7 +332,7 @@ pub fn load_font() -> Result<FontVec, TextError> {
 /// `ODYTTY_FONT_FAMILY` to a validated path *before* this point, so by the time
 /// a path reaches here it has usually already been monospace-checked; this
 /// fallback is the final safety net for `ODYTTY_FONT` direct paths.
-pub fn load_font_with_path(font_path: Option<&Path>) -> Result<FontVec, TextError> {
+pub fn load_font_with_path(font_path: Option<&Path>) -> Result<FontHandle, TextError> {
     if let Some(path) = font_path {
         match load_font_at(path) {
             Ok(font) => return Ok(font),
@@ -360,7 +361,7 @@ pub fn load_font_with_path(font_path: Option<&Path>) -> Result<FontVec, TextErro
 /// Takes the file's first face. A collection's first face is not usually the
 /// one a caller means -- see [`load_font_face_at`] -- but every caller of this
 /// function names a specific single-face file.
-pub fn load_font_at(path: &Path) -> Result<FontVec, TextError> {
+pub fn load_font_at(path: &Path) -> Result<FontHandle, TextError> {
     load_font_face_at(path, 0)
 }
 
@@ -371,13 +372,13 @@ pub fn load_font_at(path: &Path) -> Result<FontVec, TextError> {
 /// The extracted face is a standalone single-face font, so the index passed to
 /// the parser is always 0 -- `face_index` selects what to extract, not what to
 /// then look up.
-pub fn load_font_face_at(path: &Path, face_index: u32) -> Result<FontVec, TextError> {
+pub fn load_font_face_at(path: &Path, face_index: u32) -> Result<FontHandle, TextError> {
     let bytes =
         crate::font_file::read_font_face(path, face_index).map_err(|source| TextError::Read {
             path: path.display().to_string(),
             source,
         })?;
-    FontVec::try_from_vec(bytes).map_err(|source| TextError::Parse {
+    FontHandle::try_from_vec(bytes).map_err(|source| TextError::Parse {
         path: path.display().to_string(),
         source,
     })
@@ -405,22 +406,22 @@ pub fn bundled_family_for(query: &str) -> &'static str {
     }
 }
 
-pub fn load_bundled_font() -> Result<FontVec, TextError> {
+pub fn load_bundled_font() -> Result<FontHandle, TextError> {
     load_bundled_face_for(BUNDLED_FONT_FAMILY, "Regular", false).ok_or(TextError::NoFont)
 }
 
-pub fn load_bundled_style(style: FontStyle) -> Result<FontVec, TextError> {
+pub fn load_bundled_style(style: FontStyle) -> Result<FontHandle, TextError> {
     load_bundled_style_for(BUNDLED_FONT_FAMILY, style)
 }
 
-pub fn load_bundled_weight(weight: &str, italic: bool) -> Option<FontVec> {
+pub fn load_bundled_weight(weight: &str, italic: bool) -> Option<FontHandle> {
     load_bundled_weight_for(BUNDLED_FONT_FAMILY, weight, italic)
 }
 
 /// Load a specific style face from a named bundled family. Mirrors
 /// [`load_bundled_style`] but for the explicitly chosen family (Victor Mono or
 /// JetBrains Mono) rather than the default.
-pub fn load_bundled_style_for(family: &str, style: FontStyle) -> Result<FontVec, TextError> {
+pub fn load_bundled_style_for(family: &str, style: FontStyle) -> Result<FontHandle, TextError> {
     let family = bundled_family_for(family);
     match style {
         FontStyle::Regular => load_bundled_face_for(family, "Regular", false),
@@ -434,7 +435,7 @@ pub fn load_bundled_style_for(family: &str, style: FontStyle) -> Result<FontVec,
 /// Resolve a weight (possibly `"regular"`/empty) within a named bundled family.
 /// Falls back to the `Regular` face of that family when the weight is empty or
 /// names the regular/normal variant.
-pub fn load_bundled_weight_for(family: &str, weight: &str, italic: bool) -> Option<FontVec> {
+pub fn load_bundled_weight_for(family: &str, weight: &str, italic: bool) -> Option<FontHandle> {
     let family = bundled_family_for(family);
     let target = normalize_family(weight);
     if target.is_empty() || target == "regular" || target == "normal" {
@@ -450,15 +451,15 @@ pub fn load_bundled_weight_for(family: &str, weight: &str, italic: bool) -> Opti
         .and_then(parse_bundled_face)
 }
 
-fn load_bundled_face_for(family: &str, weight: &str, italic: bool) -> Option<FontVec> {
+fn load_bundled_face_for(family: &str, weight: &str, italic: bool) -> Option<FontHandle> {
     BUNDLED_FACES
         .iter()
         .find(|face| face.family == family && face.weight == weight && face.italic == italic)
         .and_then(parse_bundled_face)
 }
 
-fn parse_bundled_face(face: &BundledFace) -> Option<FontVec> {
-    FontVec::try_from_vec(face.bytes.to_vec())
+fn parse_bundled_face(face: &BundledFace) -> Option<FontHandle> {
+    FontHandle::try_from_vec(face.bytes.to_vec())
         .map_err(|source| TextError::Parse {
             path: format!("bundled {}", face.filename),
             source,
@@ -503,10 +504,10 @@ pub(super) fn bundled_face_bytes(
 /// Load the bundled symbols-only Nerd Font face (v3) when the asset feature is
 /// enabled. Default builds enable it so the RV6 PUA-icon fallback works without
 /// host Nerd Font installation; `--no-default-features` leaves this as `None`.
-pub fn resolve_bundled_symbol_font() -> Option<FontVec> {
+pub fn resolve_bundled_symbol_font() -> Option<FontHandle> {
     #[cfg(feature = "bundled-symbols-font")]
     {
-        FontVec::try_from_vec(BUNDLED_SYMBOL_FONT_BYTES.to_vec())
+        FontHandle::try_from_vec(BUNDLED_SYMBOL_FONT_BYTES.to_vec())
             .map_err(|source| TextError::Parse {
                 path: format!("bundled {}", BUNDLED_SYMBOL_FONT_FILENAME),
                 source,
@@ -523,10 +524,10 @@ pub fn resolve_bundled_symbol_font() -> Option<FontVec> {
 /// Load the bundled **legacy v2** symbols face (Nerd Fonts 2.3.3) when the asset
 /// feature is enabled. Paired with [`resolve_bundled_symbol_font`] (v3) in the
 /// fallback chain so the v2 codepoints v3 relocated still resolve out of the box.
-pub fn resolve_bundled_symbol_font_v2() -> Option<FontVec> {
+pub fn resolve_bundled_symbol_font_v2() -> Option<FontHandle> {
     #[cfg(feature = "bundled-symbols-font")]
     {
-        FontVec::try_from_vec(BUNDLED_SYMBOL_FONT_V2_BYTES.to_vec())
+        FontHandle::try_from_vec(BUNDLED_SYMBOL_FONT_V2_BYTES.to_vec())
             .map_err(|source| TextError::Parse {
                 path: format!("bundled {}", BUNDLED_SYMBOL_FONT_V2_FILENAME),
                 source,
@@ -544,7 +545,7 @@ pub fn resolve_bundled_symbol_font_v2() -> Option<FontVec> {
 /// the current Nerd Fonts layout (and the bulk of modern config icons); v2 fills
 /// only the slots v3 emptied. Empty when the `bundled-symbols-font` feature is
 /// off. Order matters: a codepoint present in both resolves to its v3 rendition.
-pub fn resolve_bundled_symbol_fonts() -> Vec<FontVec> {
+pub fn resolve_bundled_symbol_fonts() -> Vec<FontHandle> {
     let mut fonts = Vec::new();
     if let Some(v3) = resolve_bundled_symbol_font() {
         fonts.push(v3);

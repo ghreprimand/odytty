@@ -13,15 +13,14 @@
 //! returns) when no system font is available, so headless CI without fonts stays
 //! green.
 
-use ab_glyph::FontVec;
 use odytty::atlas::GlyphAtlas;
-use odytty::text;
+use odytty::text::{self, FontHandle};
 
 /// Build pixel size (matches the other pixel-smoke suites' scale band).
 const PX: f32 = 18.0;
 
 /// Load the system font + a geometric-enabled atlas, or `None` to skip.
-fn setup(geometric: bool) -> Option<(FontVec, GlyphAtlas)> {
+fn setup(geometric: bool) -> Option<(FontHandle, GlyphAtlas)> {
     let font = text::load_font().ok()?;
     let mut atlas = GlyphAtlas::build(&font, PX);
     atlas.set_geometric_boxdraw(geometric);
@@ -30,7 +29,13 @@ fn setup(geometric: bool) -> Option<(FontVec, GlyphAtlas)> {
 
 /// Sample the grayscale coverage at cell-relative `(cx, cy)` for `ch`, after
 /// ensuring it is resident. Returns `None` if the glyph could not be resolved.
-fn cell_coverage(atlas: &mut GlyphAtlas, font: &FontVec, ch: char, cx: u32, cy: u32) -> Option<u8> {
+fn cell_coverage(
+    atlas: &mut GlyphAtlas,
+    font: &FontHandle,
+    ch: char,
+    cx: u32,
+    cy: u32,
+) -> Option<u8> {
     atlas.ensure(font, ch)?;
     let quad = atlas.glyph_quad(ch)?;
     // Off-mode atlases store one coverage byte per pixel; the UV's top-left is

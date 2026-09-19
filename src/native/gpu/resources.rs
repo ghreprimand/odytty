@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ab_glyph::FontVec;
+use crate::text::FontHandle;
 use wgpu::util::DeviceExt;
 
 use crate::atlas;
@@ -505,14 +505,14 @@ pub(in crate::native) struct GpuState {
     /// resolved when the effective switch is enabled (order explicit > bundled
     /// v3,v2 > host); empty otherwise. The atlas walks it per glyph so coverage
     /// is the union of all faces. Reinstalled whenever the glyph atlas is rebuilt.
-    pub(super) symbol_fallback: Vec<Arc<FontVec>>,
+    pub(super) symbol_fallback: Vec<Arc<FontHandle>>,
     /// Last-applied SYMMAP override map (raw rules), retained for change
     /// detection: when the live map differs the atlas is rebuilt with freshly
     /// resolved override faces. Empty (the default) keeps the no-override path.
     pub(super) symbol_map: crate::text::SymbolMap,
     /// SYMMAP override faces resolved from `symbol_map`'s family names
     /// (`(start, end, face)` ranges). Reinstalled whenever the atlas is rebuilt.
-    pub(super) symbol_map_fonts: Vec<(u32, u32, Arc<FontVec>)>,
+    pub(super) symbol_map_fonts: Vec<(u32, u32, Arc<FontHandle>)>,
     pub(super) font_path: Option<PathBuf>,
     pub(super) font_family: String,
     /// Last-applied RV7 font-weight variant suffix, retained for change

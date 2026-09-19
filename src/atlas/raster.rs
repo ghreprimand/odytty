@@ -215,7 +215,7 @@ pub(super) struct SlotRegion {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn rasterize_glyph(
-    font: &FontVec,
+    font: &FontHandle,
     pen: Pen,
     ch: char,
     anchor_x: f32,
@@ -245,7 +245,7 @@ pub(super) fn rasterize_glyph(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn rasterize_glyph_id(
-    font: &FontVec,
+    font: &FontHandle,
     pen: Pen,
     glyph_id: GlyphId,
     anchor_x: f32,

@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Raster-policy and metric probes applied to an already-loaded face.
 //!
-//! Both questions here are answered by rasterizing or measuring through
-//! `ab_glyph` rather than by reading metadata, because what matters to the
-//! atlas is what the face will actually draw and advance.
+//! Both questions here are answered by measuring the loaded face's own glyph
+//! outlines and advances rather than by reading metadata, because what matters
+//! to the atlas is what the face will actually draw and advance.
 
-use ab_glyph::{Font, FontVec, PxScale, ScaleFont};
+use super::FontHandle;
+use super::glyph_geom::PxScale;
 
 /// Whether `font` provides a usable **monochrome outline** for `ch`: it has the
 /// codepoint in its cmap (`glyph_id != 0`) and an inked vector outline. This is
 /// the symbol-fallback face filter: color/bitmap-only faces and blank
 /// placeholder outlines both render nothing useful in the coverage atlas, so
 /// they must not block a later fallback face.
-pub fn font_provides_outline_glyph(font: &FontVec, ch: char) -> bool {
+pub fn font_provides_outline_glyph(font: &FontHandle, ch: char) -> bool {
     let id = font.glyph_id(ch);
     id.0 != 0
         && font.outline(id).is_some_and(|outline| {
@@ -27,7 +28,7 @@ pub fn font_provides_outline_glyph(font: &FontVec, ch: char) -> bool {
 /// Compares the horizontal advance of several probe glyphs at a fixed scale; a
 /// proportional font (where, e.g., `i` is narrower than `M`) is rejected. Glyphs
 /// the font lacks are skipped; at least one probe must resolve.
-pub fn is_monospace(font: &FontVec) -> bool {
+pub fn is_monospace(font: &FontHandle) -> bool {
     let scaled = font.as_scaled(PxScale::from(64.0));
     let probe = ['i', 'l', '.', 'M', 'W', 'm', 'x', '@'];
     let mut advance: Option<f32> = None;

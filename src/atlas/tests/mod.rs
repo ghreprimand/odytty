@@ -17,7 +17,7 @@ mod subpixel;
 mod symbol_map;
 mod synthetic;
 
-pub(super) fn test_font() -> Option<FontVec> {
+pub(super) fn test_font() -> Option<FontHandle> {
     load_font().ok()
 }
 
@@ -60,7 +60,7 @@ pub(super) fn subpixel_cell_channels(atlas: &GlyphAtlas, uv: [f32; 4]) -> [u64; 
 
 /// A non-ASCII codepoint the loaded font actually has an outline for, used
 /// to exercise the dynamic region. `None` if none is found (unusual).
-pub(super) fn glyph_bearing_non_ascii(font: &FontVec) -> Option<char> {
+pub(super) fn glyph_bearing_non_ascii(font: &FontHandle) -> Option<char> {
     (0x00A1u32..=0x05FF)
         .filter_map(char::from_u32)
         .find(|&ch| font_has_glyph(font, ch))
@@ -90,7 +90,7 @@ pub(super) fn scan_slot_ink(atlas: &GlyphAtlas, slot: u32) -> Option<(i32, i32, 
 /// A width-2 codepoint the loaded font actually has an outline for. `None`
 /// on hosts without a CJK/fullwidth-capable font (the common case here), so
 /// dependent tests skip rather than fail.
-pub(super) fn wide_glyph_supported(font: &FontVec) -> Option<char> {
+pub(super) fn wide_glyph_supported(font: &FontHandle) -> Option<char> {
     // CJK ideographs, hiragana/katakana, and fullwidth ASCII forms.
     let ranges = [
         0x4E00u32..=0x4F00, // CJK unified

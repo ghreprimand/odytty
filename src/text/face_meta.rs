@@ -3,9 +3,9 @@
 //! from it.
 //!
 //! Family identity comes from the font's `name` table and weight from OS/2,
-//! never from the filename stem. `ttf-parser` is read-only here (the same
-//! parser `ab_glyph` already uses); rasterization still goes through
-//! `ab_glyph`.
+//! never from the filename stem. Table metadata is read through `skrifa`;
+//! glyph outlines and rasterization go through `FontHandle` (skrifa outlines
+//! fed to `ab_glyph_rasterizer`).
 
 use std::path::{Path, PathBuf};
 
@@ -14,13 +14,16 @@ use super::discovery::{collect_font_files, file_stem, font_search_dirs, normaliz
 use super::metrics::is_monospace;
 
 // ---------------------------------------------------------------------------
-// Real font metadata (ttf-parser): family name, weight, italic, monospace.
+// Real font metadata (skrifa): family name, weight, italic, monospace.
 //
 // Family identity is read from the font's `name` table, never guessed from the
-// filename stem — `CascadiaCodeItalic.ttf` has no separator yet its real family
+// filename stem: `CascadiaCodeItalic.ttf` has no separator yet its real family
 // is "Cascadia Code", and the regular face must be chosen by OS/2 weight (400),
-// not by the shortest stem. ttf-parser is read-only here (the same parser
-// ab_glyph already uses); rasterization still goes through ab_glyph.
+// not by the shortest stem. Table metadata goes through skrifa here;
+// glyph outlines and rasterization go through FontHandle (skrifa outlines fed
+// to ab_glyph_rasterizer). The OS/2 and post tables are read
+// as raw integers, applying the standard OpenType defaults and validation
+// (weight/width defaults, italic, fixed-pitch).
 // ---------------------------------------------------------------------------
 
 /// Metadata read from a font file's tables, used to enumerate families and pick
@@ -36,7 +39,8 @@ pub(super) struct FaceMeta {
     /// prefer the normal-width face over width variants (e.g. Inconsolata ships
     /// Expanded/Condensed faces under the same typographic family).
     pub(super) width: u16,
-    /// Italic / oblique flag (head.macStyle / OS/2 fsSelection).
+    /// Italic / oblique flag: OS/2 fsSelection ITALIC, or a non-zero
+    /// post.italicAngle.
     pub(super) italic: bool,
     /// post.isFixedPitch (the font's own monospace claim); a `false` here is not
     /// authoritative — some monospace fonts leave it unset, so the caller falls
@@ -44,58 +48,90 @@ pub(super) struct FaceMeta {
     pub(super) monospaced_flag: bool,
 }
 
-/// OpenType `name` table IDs used for family identity.
-const NAME_ID_FAMILY: u16 = 1;
-const NAME_ID_TYPOGRAPHIC_FAMILY: u16 = 16;
-
 /// Read [`FaceMeta`] for the first face in a font file, or `None` when the file
 /// cannot be read/parsed or carries no usable family name.
 pub(super) fn read_face_meta(path: &Path) -> Option<FaceMeta> {
+    use skrifa::raw::TableProvider;
+
     let data = crate::font_file::read_font_file(path).ok()?;
-    let face = ttf_parser::Face::parse(&data, 0).ok()?;
+    let font = skrifa::FontRef::from_index(&data, 0).ok()?;
     // Exclude emoji / icon / symbol faces from text-family enumeration and
     // family-name resolution: a color-emoji font (e.g. "Noto Color Emoji")
     // can report fixed-pitch and slip past the monospace probe, listing a
     // proportional/color face as a text mono family in the picker. A real text
     // mono font always covers basic Latin; an emoji/icon font never does. This
     // does NOT affect the separate RV6 symbol/PUA-icon fallback path.
-    if !has_basic_latin_coverage(&face) {
+    if !font_has_basic_latin_coverage(&font) {
         return None;
     }
-    let family = real_family_name(&face)?;
+    let family = real_family_name(&font)?;
+
+    // OS/2 usWeightClass / usWidthClass read as raw integers with the standard
+    // OpenType numbering: weight passes through (default 400 without OS/2);
+    // width is validated to 1..=9 else 5 (default 5 without OS/2).
+    let os2 = font.os2().ok();
+    let weight = os2.as_ref().map(|o| o.us_weight_class()).unwrap_or(400);
+    let width = os2
+        .as_ref()
+        .map(|o| {
+            let w = o.us_width_class();
+            if (1..=9).contains(&w) { w } else { 5 }
+        })
+        .unwrap_or(5);
+
+    // Italic == (OS/2 fsSelection ITALIC) OR (post.italicAngle != 0), read from
+    // those two tables.
+    let post = font.post().ok();
+    let os2_italic = os2
+        .as_ref()
+        .map(|o| {
+            o.fs_selection()
+                .contains(skrifa::raw::tables::os2::SelectionFlags::ITALIC)
+        })
+        .unwrap_or(false);
+    let post_italic = post
+        .as_ref()
+        .map(|p| p.italic_angle().to_f64() != 0.0)
+        .unwrap_or(false);
+    let italic = os2_italic || post_italic;
+
+    // Monospaced flag: post.isFixedPitch != 0, else false.
+    let monospaced_flag = post
+        .as_ref()
+        .map(|p| p.is_fixed_pitch() != 0)
+        .unwrap_or(false);
+
     Some(FaceMeta {
         family,
-        weight: face.weight().to_number(),
-        width: face.width().to_number(),
-        italic: face.is_italic(),
-        monospaced_flag: face.is_monospaced(),
+        weight,
+        width,
+        italic,
+        monospaced_flag,
     })
 }
 
 /// Extract the real family name from a parsed face: prefer the Typographic
 /// Family (name ID 16), fall back to the legacy Family (name ID 1). Returns the
-/// first non-empty Unicode-decodable record for each ID. `None` when neither is
+/// first non-empty decodable record for each ID. `None` when neither is
 /// present/decodable.
-fn real_family_name(face: &ttf_parser::Face) -> Option<String> {
-    let mut typographic: Option<String> = None;
-    let mut family: Option<String> = None;
-    for name in face.names() {
-        let slot = match name.name_id {
-            NAME_ID_TYPOGRAPHIC_FAMILY => &mut typographic,
-            NAME_ID_FAMILY => &mut family,
-            _ => continue,
-        };
-        if slot.is_some() {
-            continue;
-        }
-        if let Some(text) = name.to_string() {
-            let trimmed = text.trim();
-            if !trimmed.is_empty() {
-                *slot = Some(trimmed.to_owned());
-            }
+fn real_family_name(font: &skrifa::FontRef) -> Option<String> {
+    use skrifa::string::StringId;
+    first_localized_string(font, StringId::TYPOGRAPHIC_FAMILY_NAME)
+        .or_else(|| first_localized_string(font, StringId::FAMILY_NAME))
+}
+
+/// First non-empty, trimmed localized string for `id`, mirroring the previous
+/// "first decodable non-empty record" selection over the `name` table.
+fn first_localized_string(font: &skrifa::FontRef, id: skrifa::string::StringId) -> Option<String> {
+    use skrifa::MetadataProvider;
+    for entry in font.localized_strings(id) {
+        let text: String = entry.chars().collect();
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_owned());
         }
     }
-    typographic.or(family)
+    None
 }
 
 /// Representative basic-Latin code points a real text font must render. An
@@ -104,13 +140,16 @@ fn real_family_name(face: &ttf_parser::Face) -> Option<String> {
 /// false-excluding a genuine monospace text font.
 const LATIN_COVERAGE_PROBE: [char; 3] = ['A', 'z', '0'];
 
-/// Whether a face covers basic Latin (see [`LATIN_COVERAGE_PROBE`]). Used to
-/// keep color-emoji / icon faces — which can falsely report fixed-pitch — out
-/// of the text-family list and family-name resolution.
-pub(super) fn has_basic_latin_coverage(face: &ttf_parser::Face) -> bool {
+/// Whether a face covers basic Latin (see [`LATIN_COVERAGE_PROBE`]), read via
+/// skrifa's charmap. Used by the production read path to keep color-emoji /
+/// icon faces (which can falsely report fixed-pitch) out of the text-family
+/// list and family-name resolution.
+fn font_has_basic_latin_coverage(font: &skrifa::FontRef) -> bool {
+    use skrifa::MetadataProvider;
+    let charmap = font.charmap();
     LATIN_COVERAGE_PROBE
         .iter()
-        .all(|&c| face.glyph_index(c).is_some())
+        .all(|&c| charmap.map(c).is_some())
 }
 
 /// Whether a font file is monospace: trust the `post.isFixedPitch` flag when

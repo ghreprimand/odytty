@@ -290,7 +290,8 @@ decision, not a trade-off pending revisitation.
 
 | Concern | Crate |
 |---------|-------|
-| Font file parsing and glyph rasterization | `ab_glyph` |
+| Font file parsing and glyph outlines | `skrifa` |
+| Glyph coverage rasterization | `ab_glyph_rasterizer` |
 | GPU API and device management | `wgpu` |
 | Window creation and event loop | `winit` |
 | Clipboard transport | `arboard` |
@@ -1975,7 +1976,8 @@ OdyTTY is a Linux-first Rust application built around these primary crates:
 | --- | --- |
 | `winit` | Windowing |
 | `wgpu` | GPU rendering through Vulkan and other platform backends |
-| `ab_glyph` | Normal-text font rasterization |
+| `skrifa` | Font metadata, metrics, and glyph outlines for normal text |
+| `ab_glyph_rasterizer` | Coverage rasterization of normal-text outlines |
 | `swash` | Emoji discovery, shaping, and color-font probing |
 | `unicode-width` | Terminal cell widths |
 | `arboard` | Clipboard integration |
@@ -1983,7 +1985,9 @@ OdyTTY is a Linux-first Rust application built around these primary crates:
 | `png` | PNG decoding for Kitty `f=100` |
 | `image` | PNG, JPEG, and WebP wallpaper decoding |
 
-Normal text remains on `ab_glyph`; `swash` supplies the emoji and color-font
+Normal text parses fonts and reads outlines through `skrifa` behind an
+OdyTTY-owned font handle and rasterizes coverage with `ab_glyph_rasterizer`;
+`swash` supplies the emoji and color-font
 path plus default programming-ligature shaping. Platform syscall crates are
 split by target:
 `rustix`/`libc` sit under `[target.'cfg(unix)'.dependencies]`, while the
