@@ -1224,7 +1224,7 @@ feature validates against.
         entry.
   - [x] Surface font-load failures in the overlay instead of failing silently.
   - [x] In-app keybinding editor: the settings panel's Keybindings row opens a
-        dedicated editor where all 48 bindable actions are listed; pressing
+        dedicated editor where all bindable actions are listed; pressing
         a row captures a new chord, `Backspace` resets a row to its default,
         `R` resets all bindings, and conflicts prompt before replacing. Changes
         are written to `odytty.conf` via the preservation-first writeback path;

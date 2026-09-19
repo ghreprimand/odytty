@@ -15,8 +15,9 @@
 //! (a decompression bomb: tiny on disk, enormous decoded) can therefore OOM
 //! *during* decode before the post-decode cap ever sees it. The fix is to bound
 //! the decode itself: [`image::Limits`] (max width/height/total allocation) set
-//! on the reader **before** `.decode()`. An image that exceeds the bound is
-//! refused gracefully (`None`) — never a panic, never an unbounded allocation.
+//! on the reader **before** `.decode()`. Reported decode errors return `None`.
+//! Later RGBA conversion and resize allocations are outside this limits object;
+//! it is not a whole-pipeline peak-memory or execution-time bound.
 //!
 //! The bound is deliberately generous (large enough for any real screenshot or
 //! photo a user would open) while still capping pathological inputs:
@@ -36,10 +37,9 @@ use std::path::Path;
 /// 8K-and-beyond screenshots and large photos while refusing a dimension bomb.
 pub(in crate::native) const MAX_IMAGE_DIM: u32 = 12_000;
 
-/// Maximum total decode allocation (FLAG B). 256 MiB bounds the worst-case
-/// intermediate + output buffers; an image needing more is refused before it
-/// can exhaust memory. (The post-decode graphics store still applies its own
-/// 64 MiB cap on what is actually uploaded.)
+/// Decoder allocation budget (FLAG B). Subsequent RGBA conversion and resizing
+/// can allocate additional buffers outside this budget. The post-decode
+/// graphics store separately limits retained image data.
 pub(in crate::native) const MAX_IMAGE_ALLOC_BYTES: u64 = 256 * 1024 * 1024;
 
 /// The single decode bound, applied identically to every decode call.
@@ -51,11 +51,11 @@ fn image_limits() -> image::Limits {
     limits
 }
 
-/// Decode an image **file** to tightly-packed RGBA8 + dimensions, bounded by
-/// [`image_limits`]. Silent + resilient by design: a missing / unreadable /
-/// unidentifiable / undecodable / oversized file returns `None` and never
-/// panics, so a bad path can never crash the renderer. The caller decides
-/// whether to log.
+/// Decode an image **file** to tightly-packed RGBA8 + dimensions. The decoder
+/// receives [`image_limits`]; conversion to RGBA8 occurs afterward. Reported
+/// I/O and decode errors return `None`. File reads have no deadline, and this
+/// helper does not catch dependency panics or allocation failure. The caller
+/// decides whether to log.
 pub(in crate::native) fn decode_image_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
     let mut reader = image::ImageReader::open(path)
         .ok()?
@@ -91,11 +91,14 @@ type FittedRgba = (Vec<u8>, u32, u32, (u32, u32));
 /// contract as [`decode_image_rgba`].
 ///
 /// The ordering is the point: a full-resolution RGBA8 copy of a large source
-/// never exists. For a 3840x2160 source that buffer alone is 33 MB, and the
-/// prior pipeline (decode to RGBA8, then copy, then resample) held three
+/// is avoided when `fit` selects a smaller target. For a 3840x2160 source that
+/// buffer alone is 33 MB. The prior pipeline (decode to RGBA8, then copy, then
+/// resample) held three
 /// full-resolution buffers at once at startup. Resizing the decoder-native
-/// image first bounds the transient by the *decoded* size (24.9 MB for an
-/// opaque RGB8 source), and the RGBA8 conversion happens at target size.
+/// image first avoids that full-size conversion: the opaque RGB8 source uses
+/// 24.9 MB, and RGBA8 conversion happens at target size. Source, resize, and
+/// conversion allocations may overlap; the decoder budget does not cover them
+/// all.
 ///
 /// `fit` receives the source dimensions and returns the target dimensions.
 /// Returning the source dimensions skips the resize. A zero target refuses the

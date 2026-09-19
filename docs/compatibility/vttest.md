@@ -332,16 +332,19 @@ invalid encoding units; the parser resolves the ambiguity once, in favor of
 executing the control, so that how a byte stream is split across reads can
 never change what a sequence means. Anchored at the policy ledger in
 `src/parser/mod.rs` and the module documentation in `src/parser/machine.rs`.
-Reopened if the advertised operating level is raised.
+The original reopening condition was an increase in the advertised operating
+level. Current DA1 reports service class 62 (VT220), so this divergence now
+requires renewed review before any claim of that level's conformance.
 
 **Replies are transmitted in seven-bit control forms only.** The
 select-eight-bit-transmission escape is not implemented, so reports always come
-back in the seven-bit form. The device attributes reply advertises a
-VT100-class terminal with an advanced video option, an operating level at which
-eight-bit control transmission is not required, so this is recorded as an open
-gap rather than a conformance failure against the level actually advertised.
-Reopened together with any change to the advertised level, and before any claim
-of VT200-series or later conformance.
+back in the seven-bit form. The first-run record below justified this gap using
+the then-advertised VT100-class reply. Current DA1 instead reports service class
+62 (VT220; see `src/core/screen/ops.rs`), while eight-bit transmission remains
+unimplemented. The original rationale no longer describes the current build:
+reassess this declared divergence before claiming VT200-series conformance.
+The retained July result describes its original revision and is not a result
+for the current build.
 
 ## What the first run actually showed
 

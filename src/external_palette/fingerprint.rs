@@ -4,16 +4,17 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-/// Fingerprint of palette file contents. Equality means identical bytes.
+/// Length and hash of palette file contents. Equal fingerprints normally
+/// indicate unchanged bytes, but hash collisions are possible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ContentFingerprint {
     pub len: u64,
     pub hash: u64,
 }
 
-/// Hash `bytes` into a [`ContentFingerprint`]. Same-length replacements with
-/// different content always differ; mtime-only touches with identical bytes
-/// produce the same fingerprint.
+/// Hash `bytes` into a [`ContentFingerprint`]. Content changes are detected
+/// probabilistically; mtime-only touches with identical bytes produce the same
+/// fingerprint.
 pub fn fingerprint_bytes(bytes: &[u8]) -> ContentFingerprint {
     let mut hasher = DefaultHasher::new();
     bytes.hash(&mut hasher);

@@ -101,9 +101,11 @@ ODYTTY_MEMORY_REPORT=1 odytty      # sample every 10 seconds
 ODYTTY_MEMORY_REPORT=60 odytty     # sample every 60 seconds
 ```
 
-One line per sample is appended to `odytty-memory-report.log` in the OS temp
-directory. A file rather than stderr, because the Windows build is a
-GUI-subsystem application with no visible stderr.
+One line per sample is appended to `odytty-memory-report.log` in OdyTTY's
+state directory; see the [platform paths](diagnostics.md#where-the-logs-live).
+On Linux this is `$XDG_STATE_HOME/odytty`, falling back to
+`~/.local/state/odytty`. A file rather than stderr is used because the Windows
+build is a GUI-subsystem application with no visible stderr.
 
 Four properties of the record are structural, not incidental:
 
@@ -187,9 +189,12 @@ together:
 | How much of the remainder is driver tax? | host-side | `rss_by_class.driver_library` |
 | Is a regression ours or the stack's? | both | compare the two across the change |
 
-A memory optimization is only demonstrated when the in-process field it targets
-falls **and** the host-side resident total falls with it. A subsystem figure that
-drops while resident stays flat has moved a cost, not removed one.
+A lower subsystem total demonstrates a reduction in the allocations that field
+counts. A reduction in process resident memory requires a separate decrease in
+the host-side resident total. Freed CPU allocations can remain in allocator
+caches, and freed GPU objects need not affect process RSS; neither outcome alone
+proves that the cost moved elsewhere. Report allocation and resident-memory
+changes separately.
 
 ## A worked baseline
 
@@ -677,7 +682,7 @@ when the sample was taken. Drop the samples taken before it settled with
 ```sh
 ODYTTY_MEMORY_REPORT=2 odytty -e sleep 40     # capture at the recorded geometry
 python3 scripts/memory-regression-guard.py \
-    --log "$TMPDIR/odytty-memory-report.log" \
+    --log "${XDG_STATE_HOME:-$HOME/.local/state}/odytty/odytty-memory-report.log" \
     --environment-class workstation-nvidia-wayland \
     --geometry 1600x1000 \
     --skip-first 8

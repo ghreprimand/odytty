@@ -322,8 +322,9 @@ The command palette, connection manager, session replay, and
 theme builder each ship with both a default keybinding and a discoverable menu
 entry (a right-click launcher section, and a Themes-section entry for the theme
 builder), so the in-app surfaces are reachable without hand-editing config. All
-defaults are `Ctrl+Shift`+letter chords that a TUI cannot receive as input, so
-the application input path is unperturbed.
+defaults are `Ctrl+Shift`+letter chords handled locally before terminal input.
+Enhanced keyboard protocols can distinguish these chords; users can rebind
+actions when they conflict with a TUI.
 
 ### Privacy Posture
 
@@ -372,7 +373,7 @@ labels, and visible font-load failure reporting all ship today.
   `BindableAction::ALL` set (currently 49) in that order. See
   [keybindings.md](./keybindings.md) for the
   full keyboard reference.
-- **Planned v0.14.0 — Named profiles.** Reusable local/remote launch contexts
+- **Shipped in v0.14.0 - Named profiles.** Reusable local/remote launch contexts
   spanning command, working directory, bounded environment, appearance, layout,
   and connection references. The ordinary local launch reads cached state;
   WSL, remote, shell, and large-profile discovery never block the first usable
@@ -557,7 +558,7 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   grid (copy, paste, selection/input actions, settings), a tab slot (new, rename,
   close, close others, move to workspace), the empty tab strip, and the workspace
   rail — so each menu offers only what fits where it was invoked.
-- **Shipping in v0.14.0 - One hit-test model for every overlay.** Every overlay,
+- **Shipped in v0.14.0 - One hit-test model for every overlay.** Every overlay,
   dialog, manager, picker, editor, and context menu resolves clicks from the same
   rendered line list the renderer draws, so a control that is visible is
   clickable; per-state rendered-row click tests guard each surface.
@@ -572,11 +573,11 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   offers Paste, reversible Paste as One Line when available, or Cancel.
   Single-line and child-enabled bracketed paste remain unchanged, and OdyTTY
   never tries to judge whether a shell command itself is safe.
-- **Planned v0.15.0 — Quick terminal, local automation, and file drop.** Summon a
+- **Shipped in v0.15.0 - Quick terminal, local automation, and file drop.** Summon a
   dedicated terminal through platform-supported global shortcuts; provide an
   owner-scoped local structural-control API with no network listener; and insert
   dropped local paths with shell-aware quoting and no implicit Enter.
-- **Planned v0.15.0 - Window merge.** `Merge this window into...` and
+- **Shipped in v0.15.0 - Window merge.** `Merge this window into...` and
   `Pull window ... into this one` from the command palette and Session
   Navigator. The picker lists the other windows by tab count, active title, and
   directory, and while it is open every other window paints a large temporary
@@ -625,8 +626,7 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   Tab's chord) opens a fresh workspace whose first shell starts in the active
   pane's working directory. Same honest framing: a fresh shell in the same
   directory, not a process fork. Threads the cwd through the same spawn path New
-  Tab uses, so it is cross-platform (ConPTY honors the working directory). Brings
-  the bindable-action count to 40.
+  Tab uses, so it is cross-platform (ConPTY honors the working directory).
 - **Shipped — Adjustable tab bar height.** The top tab bar's height is
   drag-adjustable the same way the workspace rail's width already is: drag the
   bar's bottom edge to make it taller (up to five text rows, with the labels
@@ -775,7 +775,7 @@ handful of deliberately-deferred niceties.
   row opens it in a new tab or new workspace, binds the current workspace to it,
   or edits/removes it; and an unsaved host can be connected to ad hoc, with an
   offer to save it to the hosts list.
-- **Shipping in v0.14.0: Unified session navigator.** One searchable in-window navigator
+- **Shipped in v0.14.0: Unified session navigator.** One searchable in-window navigator
   (default `Ctrl+Shift+A`) lists live GUI sessions, tabs, panes, and workspaces
   on every platform through `session_navigator::live_entries`, with type-to-filter
   matching and focus, restore, rename, duplicate, move, close, and reopen actions
@@ -801,7 +801,7 @@ handful of deliberately-deferred niceties.
   still-live Unix session hosts reattach, and SSH panes reconnect to fresh
   remote login shells. Named layouts capture the whole session and reopen with
   a replace-or-add prompt.
-- **Planned v0.15.0 - Window merge.** Fold every tab of one window into another
+- **Shipped in v0.15.0 - Window merge.** Fold every tab of one window into another
   from the keyboard, with a numbered picker whose numerals are painted inside
   each candidate window; see Track 6.
 - **Planned v0.16.0 - Multi-window movement and layout.** Tear individual tabs and panes
@@ -945,8 +945,9 @@ ship:
    cross-platform CI, bounded dynamic analysis and fuzzing, package channels,
    documentation, and the time-bounded dependency-advisory review.
 3. **Execute the provisional release sequence above one checkpoint at a time.**
-   Continue with v0.14.0 profiles and navigation after the shipped v0.13.0
-   checkpoint. Do not hold a completed checkpoint for later roadmap work, and
+   Profiles and navigation in v0.14.0 and fast access and local control in
+   v0.15.0 are published; v0.16.0 is the next planned feature checkpoint.
+   Do not hold a completed checkpoint for later roadmap work, and
    do not pull a later feature forward without its platform, security,
    documentation, and evidence gates.
 

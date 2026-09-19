@@ -22,11 +22,11 @@ const ODYTTY_DA2_ROM: usize = 0;
 /// client one fallback path, while a falsely claimed one makes it emit output
 /// this terminal cannot honour.
 ///
-/// * `62` — VT220 service class. 8-bit C1 controls are decoded (CSI `0x9B`,
-///   OSC `0x9D`, DCS `0x90`, APC `0x9F`, ST `0x9C`), and selective erase is
-///   implemented, which is what the class requires. Replies are always emitted
-///   in 7-bit form; S7C1T is the default state of every terminal that
-///   implements the pair, so a client never has to ask for it.
+/// * `62`: reported VT220 service class. Supported control sequences use
+///   7-bit ESC introducers. The parser's C1 policy routes C1 scalars to execute
+///   callbacks rather than treating them as CSI or string introducers; this
+///   reply does not establish support for those 8-bit forms. Replies are also
+///   emitted in 7-bit form.
 /// * `4` — Sixel graphics. `docs/graphics.md` carries the supported-feature
 ///   matrix for the DCS decoder behind this bit.
 /// * `6` — selective erase: DECSCA (`CSI Ps " q`), DECSED (`CSI ? Ps J`),

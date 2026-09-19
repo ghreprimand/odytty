@@ -26,7 +26,7 @@ the install is versioned, owned, removable, and visible to Odyssey-Mon.
   - [Verify build provenance](#verify-build-provenance)
   - [What signing does and does not cover](#what-signing-does-and-does-not-cover)
 - [Linux](#linux)
-  - [Version-pinned installer (recommended)](#version-pinned-installer-recommended)
+  - [Installer and verified manual download](#installer-and-verified-manual-download)
   - [.deb (Debian, Ubuntu, Mint, Pop)](#deb-debian-ubuntu-mint-pop)
   - [.rpm (Fedora, RHEL, openSUSE, best-effort)](#rpm-fedora-rhel-opensuse-best-effort)
   - [Binary tarball (portable prebuilt)](#binary-tarball-portable-prebuilt)
@@ -95,41 +95,40 @@ have checksums but no release-key signature.
 On Debian or Ubuntu, install Minisign and verify a Linux download like this:
 
 ```sh
-sudo apt install minisign
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig
-curl -LO https://raw.githubusercontent.com/ghreprimand/odytty/master/docs/keys/odytty-release.pub
-minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -p odytty-release.pub
-sha256sum -c SHA256SUMS --ignore-missing
+sudo apt install minisign &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-x86_64.AppImage"' SHA256SUMS | sha256sum -c -
 ```
 
 Other Linux distributions can install Minisign through their package manager;
 the verification commands are the same. Substitute the chosen artifact name in
-the first download command. Stop if either Minisign or the checksum command
-fails.
+both the first download command and the `awk` checksum selector. Stop if either
+Minisign or the checksum command fails.
 
 On macOS, install Minisign with Homebrew, then verify the direct app download:
 
 ```sh
-brew install minisign
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-macos-arm64.zip
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig
-curl -LO https://raw.githubusercontent.com/ghreprimand/odytty/master/docs/keys/odytty-release.pub
-minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -p odytty-release.pub
-shasum -a 256 -c SHA256SUMS --ignore-missing
+brew install minisign &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-macos-arm64.zip &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-macos-arm64.zip"' SHA256SUMS | shasum -a 256 -c -
 ```
 
 On Windows, install Minisign with `scoop install minisign` or
 `choco install minisign`, then use PowerShell:
 
 ```powershell
+$ErrorActionPreference = 'Stop'
 Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/odytty-windows-x86_64.zip -OutFile odytty-windows-x86_64.zip
 Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
 Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig -OutFile SHA256SUMS.minisig
-Invoke-WebRequest https://raw.githubusercontent.com/ghreprimand/odytty/master/docs/keys/odytty-release.pub -OutFile odytty-release.pub
-minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -p odytty-release.pub
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev'
+if ($LASTEXITCODE -ne 0) { throw 'Signature verification failed' }
 $match = Select-String -Path SHA256SUMS -Pattern '  odytty-windows-x86_64\.zip$'
 if ($null -eq $match) { throw 'Artifact is missing from SHA256SUMS' }
 $expected = ($match.Line -split '\s+')[0].ToLowerInvariant()
@@ -200,7 +199,7 @@ a slow last resort. Wayland is the primary display target. X11 works through the
 current `winit` and GPU stack, with some window-manager-dependent behavior for
 borderless windows and OS theme detection.
 
-### Version-pinned installer (recommended)
+### Installer and verified manual download
 
 Install or update with one command - the same command does both, in any shell
 (bash, zsh, or fish):
@@ -250,14 +249,23 @@ install when no `sudo` is available. To preview the installation, add
 block before pasting it. This downloads and verifies the installer, then prints
 the plan without downloading or installing packages.
 
-The one-line command above fetches OdyTTY's own installer script over HTTPS; the
-script then authenticates the release manifest with the pinned key before
-installing anything, so the release artifacts are always verified. Piping an
-unauthenticated *binary* straight into a shell is what to avoid.
+The one-line command executes an unauthenticated script fetched from mutable
+`master` over HTTPS. The script's subsequent signature check authenticates the
+release manifest, but cannot authenticate the code already executing. Use the
+manual block above to verify the versioned installer before execution. The
+installer script itself is versioned; it still selects the latest release's
+packages. To install a particular package version, use that release's
+`releases/download/vX.Y.Z/` URLs and matching signed manifest directly.
 
 It is Linux x86_64 only: on macOS it prints the Homebrew command and on Windows
-the Scoop command instead of installing, and other architectures are pointed at
-the AppImage or a source build.
+the Scoop command instead of installing. Other Linux architectures require a
+source build; the AppImage is also x86_64.
+
+The direct-download examples below require `minisign` to be installed. Each
+authenticates the checksum manifest, then checks the exact artifact entry before
+installing. A missing entry fails verification even if other downloaded files
+match the manifest.
+Stop if any command fails.
 
 ### .deb (Debian, Ubuntu, Mint, Pop)
 
@@ -265,9 +273,11 @@ Download the always-latest `.deb` alias and its checksums, verify, and install
 with apt so dependencies resolve:
 
 ```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-amd64.deb
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-amd64.deb &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-amd64.deb"' SHA256SUMS | sha256sum -c - &&
 sudo apt install ./odytty-amd64.deb
 ```
 
@@ -280,9 +290,11 @@ re-running the download-and-install above or the one-line installer.
 Download the always-latest `.rpm` alias, verify, and install with dnf:
 
 ```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.rpm
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.rpm &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-x86_64.rpm"' SHA256SUMS | sha256sum -c - &&
 sudo dnf install ./odytty-x86_64.rpm
 ```
 
@@ -298,11 +310,13 @@ files and a bundled `install.sh`, for systems where a native package does not
 fit. Download, verify, extract, and run the bundled installer:
 
 ```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-linux-x86_64.tar.gz
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
-tar -xzf odytty-linux-x86_64.tar.gz
-cd odytty-*-linux-x86_64
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-linux-x86_64.tar.gz &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-linux-x86_64.tar.gz"' SHA256SUMS | sha256sum -c - &&
+tar -xzf odytty-linux-x86_64.tar.gz &&
+cd odytty-*-linux-x86_64 &&
 ./install.sh
 ```
 
@@ -319,10 +333,12 @@ Download the always-latest AppImage alias and checksum file, verify it, mark it
 executable, and run it:
 
 ```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
-chmod +x odytty-x86_64.AppImage
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-x86_64.AppImage"' SHA256SUMS | sha256sum -c - &&
+chmod +x odytty-x86_64.AppImage &&
 ./odytty-x86_64.AppImage
 ```
 
@@ -408,9 +424,11 @@ bash "odytty-${version}-install.sh"
 cannot discover a new release. Repeat the verified download and install:
 
 ```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-amd64.deb
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-amd64.deb &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-amd64.deb"' SHA256SUMS | sha256sum -c - &&
 sudo apt install ./odytty-amd64.deb
 ```
 
@@ -418,9 +436,11 @@ sudo apt install ./odytty-amd64.deb
 verified download and install:
 
 ```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.rpm
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.rpm &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-x86_64.rpm"' SHA256SUMS | sha256sum -c - &&
 sudo dnf install ./odytty-x86_64.rpm
 ```
 
@@ -444,11 +464,13 @@ into a new directory, and run the bundled installer with the same `PREFIX` used
 originally. Its default remains `~/.local`:
 
 ```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-linux-x86_64.tar.gz
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
-tar -xzf odytty-linux-x86_64.tar.gz
-cd odytty-*-linux-x86_64
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-linux-x86_64.tar.gz &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-linux-x86_64.tar.gz"' SHA256SUMS | sha256sum -c - &&
+tar -xzf odytty-linux-x86_64.tar.gz &&
+cd odytty-*-linux-x86_64 &&
 ./install.sh
 ```
 
@@ -462,9 +484,11 @@ sudo env PREFIX=/usr/local ./install.sh
 restore the executable bit:
 
 ```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-x86_64.AppImage"' SHA256SUMS | sha256sum -c - &&
 chmod +x odytty-x86_64.AppImage
 ```
 
@@ -487,8 +511,8 @@ Developer identity. There is no `.dmg` and no Gatekeeper-approved signature yet.
 
 ### Homebrew (recommended)
 
-The Homebrew tap is the least-friction path; the cask handles Gatekeeper
-approval for you. Install it in two steps:
+The Homebrew tap installs the prebuilt app and performs the disclosed quarantine
+removal described below. Install it in two steps:
 
 1. Add the tap and install the cask:
 
@@ -553,16 +577,19 @@ everything Homebrew manages.
 ### Direct .app zip download
 
 If you download the `.app` zip straight from the GitHub Release instead of
-using Homebrew, macOS tags it with a quarantine attribute (because it arrived
-from the internet and the signature is ad-hoc, not notarized). Verify the
-checksum, unzip, move the app into place, then clear the quarantine flag once:
+using Homebrew, browser downloads normally carry a quarantine attribute and the
+app is not notarized. Install Minisign first (`brew install minisign`), verify
+the signed manifest and checksum, unzip, move the app into place, then clear the
+quarantine flag if present:
 
 ```sh
-curl -L -o odytty-macos-arm64.zip https://github.com/ghreprimand/odytty/releases/latest/download/odytty-macos-arm64.zip
-curl -L -o SHA256SUMS https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-shasum -a 256 -c SHA256SUMS --ignore-missing
-unzip odytty-macos-arm64.zip
-mv OdyTTY.app /Applications/
+curl -fL -o odytty-macos-arm64.zip https://github.com/ghreprimand/odytty/releases/latest/download/odytty-macos-arm64.zip &&
+curl -fL -o SHA256SUMS https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+awk '$2 == "odytty-macos-arm64.zip"' SHA256SUMS | shasum -a 256 -c - &&
+unzip odytty-macos-arm64.zip &&
+mv OdyTTY.app /Applications/ &&
 xattr -dr com.apple.quarantine /Applications/OdyTTY.app
 ```
 
@@ -621,8 +648,8 @@ behind Linux. Bug reports for the Windows build are especially welcome;
 version and a short repro.
 
 The Windows release is an unsigned portable `odytty.exe` inside
-`odytty-windows-x86_64.zip`. There is no installer, and nothing is written
-outside your profile - configuration lives under `%APPDATA%\odytty\`. Scoop is
+`odytty-windows-x86_64.zip`. There is no installer; default configuration lives
+under `%APPDATA%\odytty\`. Explicit exports can use a destination you choose. Scoop is
 the recommended install path because it puts `odytty` on your PATH, adds a
 Start-menu entry, and verifies the download checksum; you can also download the
 zip directly.
@@ -656,19 +683,27 @@ After install:
 
 ### Portable zip
 
-Download the always-latest zip alias and checksum file, verify the hash, and
-run the executable:
+Install Minisign with `scoop install minisign` first. Download the always-latest
+zip alias and signed manifest, authenticate them, and run the executable:
 
 ```powershell
+$ErrorActionPreference = 'Stop'
 Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/odytty-windows-x86_64.zip -OutFile odytty-windows-x86_64.zip
 Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
-Get-FileHash odytty-windows-x86_64.zip -Algorithm SHA256
+Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig -OutFile SHA256SUMS.minisig
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev'
+if ($LASTEXITCODE -ne 0) { throw 'Signature verification failed' }
+$match = Select-String -Path SHA256SUMS -Pattern '  odytty-windows-x86_64\.zip$'
+if ($null -eq $match) { throw 'Artifact is missing from SHA256SUMS' }
+$expected = ($match.Line -split '\s+')[0].ToLowerInvariant()
+$actual = (Get-FileHash odytty-windows-x86_64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw 'SHA-256 mismatch; do not run this download' }
 Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
 .\odytty\odytty.exe
 ```
 
-Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`; they
-must match before you run the binary.
+The block refuses an invalid signature, a missing manifest entry, or a checksum
+mismatch before extraction and execution.
 
 Because OdyTTY is not code-signed yet, the first launch may raise a blue
 "Windows protected your PC" SmartScreen dialog naming an unknown publisher:
@@ -701,8 +736,8 @@ Detached and resumable session hosting, detached SSH, and headless
 `--interactive` mode remain Unix-only. The full Open With application list is
 not available on Windows, and command-palette shell history currently degrades
 to empty. Hostname discovery uses `GetComputerNameExW`. Interactive behavior is
-covered by historical Windows device passes, blocking Windows CI, and a bounded
-post-release smoke check of the v0.10.0 portable package. That evidence does not
+covered by historical Windows device passes, blocking Windows CI, and the
+[v0.15.0 acceptance record](acceptance/v0.15.0.md). That evidence does not
 cover every ConPTY application, IME, GPU, or Windows hardware configuration.
 
 ### Updating
@@ -718,16 +753,19 @@ scoop update odytty
 
 ## Build From Source
 
-From outside a source checkout, download and verify the always-latest release
-archive first:
+From outside a source checkout, install Minisign as described in
+[signed download verification](#verify-a-signed-release-download), then download
+and authenticate the always-latest release archive:
 
 ```sh
-workdir=$(mktemp -d "${TMPDIR:-/tmp}/odytty-install.XXXXXX")
-cd "$workdir"
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty.tar.gz
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-grep " odytty.tar.gz$" SHA256SUMS | sha256sum -c -
-tar -xf odytty.tar.gz
+workdir=$(mktemp -d "${TMPDIR:-/tmp}/odytty-install.XXXXXX") &&
+cd "$workdir" &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/odytty.tar.gz &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS &&
+curl -fLO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig &&
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -P 'RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev' &&
+grep " odytty.tar.gz$" SHA256SUMS | sha256sum -c - &&
+tar -xf odytty.tar.gz &&
 cd odytty-*/
 ```
 

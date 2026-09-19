@@ -44,8 +44,9 @@ Each profile is one hand-editable JSON document under the profiles directory:
 [install guide](install.md) for the per-platform location). The file name stem is
 the profile name; the `.profile.json` suffix is required. A directory scan
 returns at most 256 profiles, reads at most 1 MiB per file, and retains at most
-100 parse warnings; entries beyond those bounds are skipped rather than allowed
-to slow startup.
+100 parse warnings. These bound accepted results and retained diagnostics;
+directory traversal and rejected-file parsing do not currently have an
+aggregate work budget, so a directory with many invalid files can still be slow.
 
 Files are written atomically with owner-private permissions (mode `0600` on
 Unix, owner-restricted on Windows). Launch commands, directories, host aliases,
@@ -58,10 +59,12 @@ widen it. See [Import, export, and migration](#import-export-and-migration).
 ## Schema reference
 
 The current document schema is `schema_version` 1. Within a supported version,
-every schema-owned object preserves unknown keys through a save, so a profile
-that carries fields a future build adds round-trips them intact. The version
-gate is separate from that field preservation: `schema_version` must be a whole
-number that does not exceed the version this build understands. A document
+schema-owned objects retain unknown keys for saving. A current exception is a
+`switch` object containing only unknown fields and no populated known match
+arrays: saving or exporting it fails validation because serialization omits that
+object. Avoid editing such a profile until this round-trip defect is fixed.
+The version gate is separate from field preservation: `schema_version` must be a
+whole number that does not exceed the version this build understands. A document
 declaring a newer `schema_version` is rejected outright rather than partially
 read, and a missing or zero version is rejected as malformed.
 
@@ -294,12 +297,12 @@ carry a name the target platform's process environment cannot represent.
 ## Import, export, and migration
 
 Import and export use the native file dialog. Import validates the document with
-the same parser used for a normal load, so it rejects secrets and over-limit
-fields before writing anything. Export is not a raw byte copy: it re-serializes
-the profile through that same validating parser and writes the result to the
-destination you choose, so an export can never emit secrets or over-limit fields
-even if the on-disk file was edited by hand. The write goes through a private
-exclusive temporary file that is renamed over the destination, so the exported
+the same parser used for a normal load, including field limits, prohibited
+credential-shaped keys, and private-key markers. These checks do not detect
+arbitrary secrets in command arguments or otherwise permitted environment
+values. Export re-serializes and validates the profile before writing it to the
+destination you choose; inspect its contents before sharing it. The write goes
+through a private exclusive temporary file that is renamed over the destination, so the exported
 file is owner-private (`0600` on Unix, owner-restricted on Windows) and a failed
 export leaves any existing destination file byte- and mode-identical.
 

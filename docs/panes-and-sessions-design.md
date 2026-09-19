@@ -939,8 +939,10 @@ project backlog; shipped behavior and remaining work are tracked in
   multiplexers; tmux-matching pane defaults `%`/`"`/arrows/`o`/`x`/`z`/`Space`).
   **Not** a universal scheme — beyond the single configurable prefix, the only
   other new global chords are the direct splits `Ctrl+Shift+E` / `Ctrl+Shift+O`
-  (`Ctrl+Shift+<letter>`, which a TUI cannot receive). The prefix is additive:
-  when no prefix is pending, the PTY byte stream is **byte-identical to today**. Lands as K1 (engine) + K2 (defaults) + K3 (nesting)
+  (`Ctrl+Shift+<letter>`, reserved locally; enhanced keyboard protocols can
+  otherwise represent these chords). Outside these new direct bindings, the
+  prefix is additive: when no prefix is pending, input follows the existing
+  forwarding path. Lands as K1 (engine) + K2 (defaults) + K3 (nesting)
   after the layout core + arena refactor.
 - **Phase 2 seam preserved:** `Session` stays window/GPU-free; arena + plain-data
   tree are serializable for detach/reattach.

@@ -373,8 +373,11 @@ palettes (Solarized in particular sits right at the boundary: ~4.1 light,
 This is a *library-authoring* floor, not a render-time guarantee. Render-time
 contrast enforcement ships on at `min_contrast = 17.0` (range `1.0`–`21.0`) and
 lifts low-contrast text from any app or theme. Set `min_contrast = 1.0` for the
-authored palette values without a render-time lift. The renderer uses the same
-contrast helper (`theme::contrast_ratio`) that validates the library.
+authored palette values without a render-time lift. Library validation uses
+`theme::contrast_ratio`; the renderer uses `color::enforce_min_contrast` and
+`color::wcag_contrast` on linear colors. Both use relative luminance, but the
+render target does not guarantee the final composited contrast; see the
+[accessibility limitations](accessibility.md#minimum-contrast-floor).
 
 ### Attribution and licensing
 

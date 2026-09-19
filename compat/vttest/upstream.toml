@@ -49,9 +49,9 @@ archive_sha256 = "cd6886f9aefe6a3f6c566fa61271a55710901a71849c630bf5376aa984bf77
 # are collidable and a truncated fingerprint cannot be used to make a trust
 # decision.
 signer_fingerprint = "19882D92DDA4C400C22C0D56CC2AF4472167BE03"
-# Signature verification requires an OpenPGP implementation and the signer's
-# public key, neither of which the runner installs or fetches. When the tool is
-# unavailable the runner records the signature as unverified and STOPS. The
+# Signature verification requires an installed OpenPGP implementation. The
+# runner fetches the public key named in [trust] into an isolated keyring. When
+# the tool is unavailable it records the signature as unverified and STOPS. The
 # digest check alone is not treated as sufficient by default, because a digest
 # recorded in the same repository that fetches the archive proves only
 # consistency, not provenance.

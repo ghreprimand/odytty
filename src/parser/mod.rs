@@ -50,7 +50,8 @@
 //!   [`VtDispatch`] survives unchanged as the output contract.
 //! - **Params storage** — inline `[u16; 32]` + `u32` boundary bitmap (no heap,
 //!   no parallel array); see [`params`] module docs.
-//! - **String buffering** — OSC bounded at 128 KiB drop-on-overflow; DCS
+//! - **String buffering**: OSC bounded at 128 KiB, dispatching the retained
+//!   prefix after overflow; DCS
 //!   streaming passthrough (no parser buffer); APC bounded at 1 MiB
 //!   drop-not-truncate (the Kitty graphics landing pad).
 //!
@@ -63,11 +64,12 @@
 //! 2. **Partial-completion no-byte-loss** — a completed UTF-8 scalar consumes
 //!    only the bytes required for that scalar; following valid bytes in the same
 //!    `advance()` chunk are processed normally.
-//! 3. **String caps** — OSC is bounded at 128 KiB, APC at 1 MiB, both
-//!    drop-not-truncate on overflow. DCS remains streaming passthrough with no
-//!    parser buffer.
+//! 3. **String caps**: OSC is bounded at 128 KiB and dispatches its retained
+//!    prefix on termination after overflow. APC is bounded at 1 MiB and drops
+//!    the entire command on overflow. DCS remains streaming passthrough with
+//!    no parser buffer.
 //!
-//! ## APC surfacing (Screen-invisible)
+//! ## APC routing
 //!
 //! OdyParser surfaces APC strings via [`VtDispatch::apc_dispatch`]. `Screen`
 //! consumes it: its impl forwards to `dispatch_apc`, which routes through
@@ -104,8 +106,8 @@ pub use params::{Params, ParamsIter};
 /// the production terminal core and parser fixtures.
 ///
 /// All methods default to no-ops, so an implementor overrides only the actions
-/// it cares about (the terminal core ignores DCS and APC today; those are
-/// wired up in later work).
+/// it cares about. The terminal core uses DCS and APC for supported queries
+/// and graphics protocols.
 pub trait VtDispatch {
     /// Draw a character to the screen.
     fn print(&mut self, _c: char) {}

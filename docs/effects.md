@@ -413,7 +413,7 @@ window translucent so the desktop shows through behind the terminal.
 | `window_opacity` | `ODYTTY_WINDOW_OPACITY` | percent `20`–`100`, step `5` | `80` |
 
 `window_transparency` is **on by default** (translucent at `window_opacity` 80,
-one step from fully opaque); turn it off and the render path is the unchanged
+four five-point steps below fully opaque); turn it off and the render path is the unchanged
 opaque one. When on, only the terminal background and the chrome
 bands scale toward `window_opacity` — text, cursor, and every overlay (menus,
 pickers, settings, prompts) stay fully opaque. Selection has its own strength

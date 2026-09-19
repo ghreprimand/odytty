@@ -300,9 +300,9 @@ pub fn relative_luminance(rgb: LinearRgb) -> f32 {
 /// WCAG contrast ratio between two linear colors, in `1.0..=21.0`.
 ///
 /// `1.0` means equal luminance; `21.0` is black against white. Symmetric. The
-/// luminances are clamped to `[0, 1]` so out-of-gamut intermediates (which the
-/// adjustment search can produce) score the same contrast they would once
-/// clamped for display.
+/// luminances are clamped to `[0, 1]`. This aggregate clamp differs from
+/// clamping each RGB channel for display, so out-of-gamut intermediates can
+/// score differently from their displayed colors.
 pub fn wcag_contrast(a: LinearRgb, b: LinearRgb) -> f32 {
     let la = relative_luminance(a).clamp(0.0, 1.0);
     let lb = relative_luminance(b).clamp(0.0, 1.0);

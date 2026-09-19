@@ -1,8 +1,9 @@
 # Diagnostics, Logging, and Crash Reporting
 
 OdyTTY keeps a small, local diagnostics trail so a misbehaving session can be
-investigated after the fact — without ever recording what you typed or what your
-programs printed. Everything here is a local file or stderr: there is no
+investigated after the fact. Routine diagnostics are designed to exclude typed
+input and program output; panic payloads and error strings need separate review
+before sharing. Everything here is a local file or stderr: there is no
 telemetry, no crash-reporting service, no network egress of any kind. That is a
 deliberate, permanent project stance, not a default you can accidentally flip.
 
@@ -21,8 +22,7 @@ grow, what is and is not captured, and the opt-in trace gates.
 
 ## The privacy floor (read this first)
 
-No terminal content ever reaches any log or crash file. Concretely, none of
-these are written anywhere:
+Routine diagnostics are designed not to record:
 
 - PTY bytes (program output),
 - scrollback,
@@ -30,18 +30,19 @@ these are written anywhere:
 - window/tab titles,
 - the working directory or file paths from your session.
 
-The diagnostics sinks record only *program state*: panic metadata, a freeze
+The diagnostics sinks record *program state*: panic metadata, a freeze
 watchdog's latch snapshot, GPU adapter identity (hardware metadata), and
 bounded application log lines. The privacy boundary is enforced by construction
 and pinned by tests — the watchdog's state record, for example, is built from
 booleans and counters that have no way to hold a string, so terminal text
 cannot flow into it even by mistake.
 
-One deliberate exception, stated for completeness: operating-system **error
-strings** are logged as-is (for example, the message from a failed file open),
-and such an OS message can occasionally embed a filesystem path. This is
-OS-authored error text, not terminal content, and it is intentional — it is what
-makes a logged failure actionable.
+Operating-system **error strings** are logged as-is and can contain filesystem
+paths. The panic hook also records the panic payload verbatim: standard-library
+or dependency panics can include the value that triggered the failure, including
+user-controlled text. The logger does not redact these strings. Review logs for
+private information before sharing them; state-only watchdog records do not
+establish a privacy guarantee for every logging caller or panic payload.
 
 ## Where the logs live
 
@@ -72,18 +73,22 @@ deliberate:
 
 The directory is created lazily, on the first actual log write — a quick
 `odytty --version` or `--show-config` never touches it. If every candidate
-directory is unavailable, resolution falls back to the OS temp directory rather
-than failing, so logging can never take the terminal down.
+environment-based location is unset, resolution uses the temp fallback shown
+above. An I/O failure at a selected location disables that disk sink; it does not
+retry every alternate directory.
 
 ## Size bounds
 
-The logs are bounded by design; they will not grow without limit.
+The application log rotates; the panic and opt-in diagnostic files have different
+retention behavior:
 
-- **`odytty.log` is hard-capped at 2 MiB.** When a write would exceed the cap,
+- **`odytty.log` rotates at a 2 MiB threshold.** When a write would exceed it,
   the current file is rotated to `odytty.log.1` (replacing any prior `.1`) and a
-  fresh `odytty.log` is started. With one predecessor kept, on-disk usage is
-  bounded at roughly **4 MiB total**. An oversized file left by an earlier run
-  rotates before the first new append.
+  fresh `odytty.log` is started. With one predecessor kept, on-disk usage
+  normally stays around **4 MiB total**. A single write larger than the threshold
+  is still written whole, and separate OdyTTY processes do not share rotation
+  accounting, so this is not a strict aggregate cap. An oversized file left by
+  an earlier run rotates before the first new append.
 - **`panic.log` is intentionally uncapped.** It is written only on an actual
   crash-to-abort, and the process exits immediately after a single record (one
   metadata line plus a backtrace), so it does not grow during normal use. This
@@ -93,6 +98,10 @@ The logs are bounded by design; they will not grow without limit.
 Logging is also infallible: every I/O error while writing or rotating is
 swallowed, so a full disk or an unwritable directory degrades to "no log," never
 to a crash.
+
+The reflow and memory diagnostic files append while their opt-in gates are
+enabled and do not rotate. Repeated runs also append to `panic.log`. Remove or
+archive these files when their diagnostic purpose is complete.
 
 ## What is captured
 
@@ -163,7 +172,7 @@ use.
 |---|---|---|---|
 | `ODYTTY_REFLOW_TRACE` | `1` or `true` | `odytty-reflow-trace.log` in the OS temp dir | Permanent passive diagnostic: one geometry/cursor line per terminal resize. |
 | `ODYTTY_KEY_EVENT_DIAGNOSTICS` | `1`, `on`, or `true` | `odytty.log` and stderr | Temporary keyboard/IME route trace for compositor-dependent editing-key issues. |
-| `ODYTTY_MEMORY_REPORT` | `1`/`true` (10 s), or a period in seconds (1-3600) | `odytty-memory-report.log` in the OS temp dir | Permanent passive diagnostic: one memory-attribution line per sample, naming what each subsystem holds. |
+| `ODYTTY_MEMORY_REPORT` | `1`/`true` (10 s), or a period in seconds (1-3600) | `odytty-memory-report.log` in the state directory listed above | Permanent passive diagnostic: one memory-attribution line per sample, naming what each subsystem holds. |
 
 `ODYTTY_REFLOW_TRACE` costs a single atomic load when off and appends one line
 per resize when on; it records geometry and cursor coordinates only, never cell
@@ -220,7 +229,8 @@ diagnostic serves and for the companion host-side capture script.
 
 ## Retrieving logs for a support request
 
-Send `odytty.log` (and `odytty.log.1` if present) from the log directory for
-your platform above. On Windows that is `%LOCALAPPDATA%\odytty`. These files
-contain only the bounded, privacy-preserving diagnostics described here — no
-terminal content — so they are safe to share.
+Review `odytty.log` (and `odytty.log.1` if present) from the log directory for
+your platform above before attaching them to a support request. On Windows that
+is `%LOCALAPPDATA%\odytty`. Redact private paths and any sensitive values in
+error or panic payloads. Review `panic.log` separately when a crash record is
+requested.

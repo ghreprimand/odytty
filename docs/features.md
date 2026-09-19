@@ -709,8 +709,9 @@ create one.
 
 The command palette, connection manager, session replay, theme builder, and
 Manage Sessions each have a discoverable menu entry and a default
-`Ctrl+Shift+<letter>` shortcut. A TUI cannot receive those chords, so PTY input
-is unchanged.
+`Ctrl+Shift+<letter>` shortcut. These local bindings take precedence over
+terminal input, including enhanced keyboard protocols that distinguish those
+chords. Rebind conflicting actions as described in [keybindings.md](keybindings.md).
 
 Launcher actions appear in the content menu, while Settings → Themes includes
 an **Open Theme Builder** entry. The command palette also carries **Create

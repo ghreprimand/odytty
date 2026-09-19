@@ -409,16 +409,17 @@ the reference implementation.
   viewer path.
 - **Validation and caps:** decoding runs under an explicit limits object —
   `MAX_IMAGE_DIM` = 12,000 pixels per axis and `MAX_IMAGE_ALLOC_BYTES` = 256 MiB
-  total decode allocation (`src/native/image_decode.rs`) — applied identically
-  to every decode call through a single helper, so no decode site can be missed.
+  decoder allocation budget for native wallpaper/viewer reads
+  (`src/native/image_decode.rs`). Subsequent RGBA conversion and resize buffers
+  are outside that limits object; it is not a peak-memory cap for the pipeline.
   Format is determined by content sniffing rather than by filename, so a text
   file named with an image extension is classified by its bytes. The post-decode
   graphics store applies its own 64 MiB bound on what is actually uploaded, and
   background images are separately bounded at `MAX_BG_IMAGE_DIM` = 4096
   (`src/native/gpu/image.rs`).
-- **Failure behavior:** a missing, unreadable, unidentifiable, undecodable, or
-  oversized image returns nothing and never panics, so a bad path cannot crash
-  the renderer.
+- **Failure behavior:** reported I/O and decode errors return no image. These
+  limits do not rule out dependency panics, later allocation failure, or a
+  blocked filesystem read.
 - **Diagnostic exposure:** decode failures are logged as a category without
   payload content.
 - **Existing tests:** decode-bound tests in `src/native/image_decode.rs`;
@@ -426,9 +427,11 @@ the reference implementation.
 - **Planned fuzz target:** a coverage-guided decoder target with a retained
   public corpus of malformed encodings, run under bounded memory.
 - **Residual risk:** decoding delegates to a third-party image library. The
-  limits object bounds allocation but does not bound decode *time*; a
-  pathological but in-bounds image can consume CPU. Advisory exposure through
-  the image and font dependency graph is tracked by the dependency audit gate,
+  limits object constrains decoder allocation but does not cover all conversion
+  or resize allocations, and does not bound decode *time*. A pathological image
+  within the dimension limits can still consume substantial memory or CPU.
+  Advisory exposure through the image and font dependency graph is tracked by
+  the dependency audit gate,
   not by this document.
 
 ### B8 — Clipboard channel, paste, and drag-and-drop

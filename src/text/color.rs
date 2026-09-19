@@ -172,8 +172,8 @@ pub fn srgb_to_linear(byte: u8) -> f32 {
 /// Perceptually dim a linear-RGBA color, preserving alpha (RV3).
 ///
 /// This is the render-facing adapter over [`crate::color::dim_perceptual`]:
-/// SGR dim/faint should scale OKLab lightness rather than naively halving each
-/// linear channel, which keeps dimmed text legible and hue-stable. `amount` is
+/// the shared helper scales OKLab lightness and chroma together, equivalent to
+/// uniform scaling in linear RGB. `amount` is
 /// in `[0, 1]`; `0.0` returns the input unchanged (exact identity), so the
 /// default/plain path stays byte-identical until a caller opts in.
 pub fn dim_linear_rgba(color: [f32; 4], amount: f32) -> [f32; 4] {
@@ -208,8 +208,9 @@ pub fn min_contrast() -> f32 {
 ///
 /// This is the render-facing seam over [`crate::color::enforce_min_contrast`]:
 /// the caller passes the final per-cell `fg`/`bg` (after inverse/dim) and gets
-/// back an `fg` whose WCAG contrast against `bg` meets at least the configured
-/// floor, with hue preserved. When the floor is at its passthrough value
+/// back a best-effort adjustment toward the configured contrast target.
+/// Gamut clipping and later rendering operations can change the displayed
+/// contrast. When the target is at its passthrough value
 /// (`1.0`, the default) this returns `fg` unchanged, so the plain path stays
 /// byte-identical until the floor is raised.
 pub fn enforce_contrast_rgba(fg: [f32; 4], bg: [f32; 4]) -> [f32; 4] {
@@ -238,7 +239,8 @@ pub fn enforce_contrast_rgba(fg: [f32; 4], bg: [f32; 4]) -> [f32; 4] {
 /// target used by bloom/CRT. Clamping them only when brightness is enabled
 /// would make the raised setting darker than the identity path. Applied by the
 /// vertex build AFTER [`enforce_contrast_rgba`], so a floor-corrected color is
-/// the lift's input and the ramp cannot undo the floor's direction of correction.
+/// the lift's input. On light backgrounds this later lift can reduce the
+/// contrast achieved by the preceding correction.
 pub fn lift_brightness_rgba(color: [f32; 4], brightness: f32) -> [f32; 4] {
     if brightness <= 1.0 {
         return color;

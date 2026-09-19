@@ -158,9 +158,9 @@ screen curvature are independently configurable via their own settings.
 
 `GlyphAtlas` is a CPU-rasterized glyph coverage atlas. ASCII printables are
 baked at atlas build time; non-ASCII codepoints are rasterized on demand. Each
-glyph slot is one or two cells wide (two cells for wide CJK/emoji). Bearing-
-aware glyph quads let ink overflow the nominal cell bounds for box-drawing joins
-and wide glyphs. The atlas is grow-only: it appends pages of rows when capacity
+ordinary glyph occupies one or two cells (two for wide CJK/emoji); shaped runs
+can span multiple cells. Bearing-aware glyph quads let ink overflow the nominal
+cell bounds for box-drawing joins and wide glyphs. The atlas is grow-only: it appends pages of rows when capacity
 is exhausted.
 
 - Grayscale (`SubpixelMode::Off`): `width * height` bytes of R8 coverage.
@@ -178,7 +178,7 @@ slots at rasterization time when no real bold/italic face is loaded.
 
 `ColorGlyphAtlas` is a separate `Rgba8Unorm` atlas for premultiplied-RGBA
 color emoji bitmaps. Entries are keyed by `(font_id, glyph_or_cluster_id,
-px_size, scale)`, not by Unicode scalar. The color-glyph pipeline uses a
+px_size, scale, width_cells)`, not by Unicode scalar. The color-glyph pipeline uses a
 dedicated WGSL shader (inlined in `gpu/pipelines.rs`) and a premultiplied-alpha
 blend state (`gpu/pipeline_policy.rs`: `blend_state_for_color_glyphs`). The
 shader expands one compact quad instance per glyph, matching the mono cell

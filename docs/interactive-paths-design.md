@@ -378,14 +378,13 @@ is off or the decode fails.
 
 **Decode bound (the security-critical part).** All image-file decoding funnels
 through one module, `src/native/image_decode.rs`, which sets `image::Limits`
-(max 12000 px/axis, 256 MiB allocation) on the reader **before** `.decode()`.
-The terminal graphics store's 64 MiB cap is enforced *after* decode, so it
-cannot stop a decompression bomb (tiny on disk, enormous decoded) from
-exhausting memory mid-decode; the pre-decode limit can, and does. Format is
-confirmed by content sniff (`with_guessed_format`), not the file name. Any
-failure — unreadable, unidentifiable, truncated, garbage, or over-limit —
-returns `None` and the viewer simply does not open. Never panics, never an
-unbounded allocation.
+(max 12000 px/axis, 256 MiB decoder allocation budget) on the reader **before**
+`.decode()`. This limits the decoder before any post-decode storage cap can act.
+It does not cover all later RGBA conversion and resize buffers or impose a time
+limit on decoding or file reads. Format is confirmed by content sniff
+(`with_guessed_format`), not the file name. Reported I/O and decode errors return
+`None`, so the viewer does not open; dependency panics, allocation failure, and
+blocking reads are not made impossible by these limits.
 
 **Rendering (presentation-only).** The decoded RGBA is uploaded into the
 existing `native::image_layer::ImageLayer` via a dedicated overlay entrypoint

@@ -1364,10 +1364,9 @@ impl Screen {
             // and stamp an advisory per-row mark; never touch the grid, never
             // reply. See [`Self::handle_osc133`].
             b"133" => self.handle_osc133(&params[1..]),
-            // OSC 1337 = iTerm2 extension namespace. Only the Button= payload
-            // is modeled (Button Protocol B1, master-gated); everything else
-            // is recognized and consumed with no state. Never touches the
-            // grid, never replies. See [`Self::handle_osc1337`].
+            // OSC 1337 = iTerm2 extension namespace. Routes the master-gated
+            // Button= protocol and supported File= inline-image payloads.
+            // See [`Self::handle_osc1337`].
             b"1337" => self.handle_osc1337(&params[1..]),
             // OSC 777;notify;title;body = rxvt-style notification request.
             b"777" => {
@@ -1599,8 +1598,8 @@ impl Screen {
 /// OdyTTY-owned seam: the [`OdyParser`](crate::parser::OdyParser) drives the core
 /// through this impl. Parameters already arrive as the owned [`Params`], so the
 /// callbacks forward straight to the shared `dispatch_*` logic. DCS/APC
-/// graphics payloads are recognized and handed to the graphics scene as raw
-/// bytes; protocol decoding remains in later graphics work.
+/// graphics payloads are routed through the implemented graphics protocol
+/// handlers before updating the graphics scene.
 impl VtDispatch for Screen {
     fn print(&mut self, c: char) {
         self.dispatch_print(c);

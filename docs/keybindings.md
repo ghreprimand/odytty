@@ -34,14 +34,14 @@ See the [v0.15.0 contract](v0.15.0-foundation.md).
 
 ## How OdyTTY's shortcuts stay out of the shell's way
 
-Every global OdyTTY shortcut is a `Ctrl+Shift+<key>` chord, plus
+Most default OdyTTY shortcuts use `Ctrl+Shift+<key>` chords; others include
 `Ctrl+Shift+Alt+D`, `Ctrl+PageUp/Down`, `Ctrl+Shift+;` / `Ctrl+Shift+'`, and
-`Shift+PageUp/Down`. A TUI program
-cannot receive `Ctrl+Shift+<letter>`
-through a PTY, so binding local actions there means the bytes a shell or
-full-screen application sees are **unchanged** — OdyTTY never steals a keystroke
-your program expects. Two stateful exceptions apply: the pane prefix (default
-`Ctrl+b`) is captured only once a tab has more than one pane, and default-on
+`Shift+PageUp/Down`. Legacy terminal input generally cannot distinguish
+Ctrl+Shift letters from Ctrl letters, but enhanced keyboard protocols can.
+OdyTTY handles its bound shortcuts locally before forwarding terminal input,
+so these bindings can take precedence over chords a TUI wants. Rebind or
+unbind conflicting actions as needed. Two stateful input rules also apply: the
+pane prefix (default `Ctrl+b`) is captured only once a tab has more than one pane, and default-on
 smart `Ctrl+C` copies and clears a live local selection instead of interrupting.
 A full-screen TUI holds no local selection, so its `Ctrl+C` still interrupts.
 See [Panes](#panes-the-tmux-style-prefix).

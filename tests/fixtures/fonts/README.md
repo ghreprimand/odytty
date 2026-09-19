@@ -15,3 +15,15 @@ The v0 COLR fixture exercises two translucent static layers. The v1-only COLR
 fixture exercises a linear gradient, an affine transform, and source-over
 composition. The sbix fixture pins the established bitmap-first source order
 and straight-alpha to premultiplied-RGBA conversion.
+
+## Symbol-marker fixtures
+
+`symbol-markers-blank.ttf` and `symbol-markers-inked.ttf` exercise fallback
+coverage for U+2731 and U+25CF. Both provide character mappings; the blank face
+lacks usable ink, while the inked face supplies outlines. Text and atlas tests
+use the pair to distinguish a character-map hit from a drawable glyph.
+
+The color-emoji generator above does not regenerate these two files. Their
+generator and detailed creation provenance are not retained in this directory;
+preserve them when regenerating the color fixtures. A reproducible generator and
+provenance record should accompany any future replacement.

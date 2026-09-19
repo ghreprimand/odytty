@@ -20,8 +20,8 @@
 //!   the treatment is entirely in the cell-vertex background path.
 //! - **`ActiveModal` input gate (NO).** The treatment captures no keyboard.
 //!
-//! Off-path contract: when the knob is `off` (the default) — and always under
-//! the plain renderer profile — [`App::background_treatment_params`] returns the
+//! Off-path contract: when the knob is `off`, and always under
+//! the plain renderer profile, [`App::background_treatment_params`] returns the
 //! identity ([`grid::BackgroundTreatmentParams::default`], `active() == false`),
 //! the grid apply block is skipped, and [`App::background_overlay_signature`] is
 //! `Inert`, so the rendered frame bytes are identical to before ID3/U5 landed.

@@ -15,7 +15,7 @@
 \e[24;1Houtside-bottom
 
 # Set a region covering rows 5 through 10 inclusive. Setting a region homes the
-# cursor to the region origin, which is easy to miss.
+# cursor to the screen origin, or the region origin when origin mode is enabled.
 \e[5;10r
 \e[5;1Hregion-line-one
 \e[6;1Hregion-line-two

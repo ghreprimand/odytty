@@ -248,8 +248,8 @@ impl PostProcessResources {
     /// Bytes the three post-process render targets occupy, for memory
     /// attribution: the full-resolution offscreen scene target plus the
     /// half-resolution bright and ping bloom targets. These are created on first
-    /// effect use and retained thereafter, so this figure is non-zero for the
-    /// rest of the process once CRT or bloom has been enabled once.
+    /// effect use. The owning renderer releases the post-process state when
+    /// its effects are inactive, so these allocations are not permanent.
     pub(in crate::native) fn gpu_texture_bytes(&self) -> u64 {
         use crate::native::texture_limits::texture_bytes;
         texture_bytes(&self.offscreen)

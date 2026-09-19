@@ -218,8 +218,9 @@ new_output_fade_ms = 250
 
 # Input, selection, and tabs. Tab rename is available from the tab context menu.
 scroll_wheel_lines = 6
-# Lines of scrollback history retained before the oldest are dropped (0 =
-# unlimited; bounds memory so endless output cannot exhaust RAM).
+# Lines of scrollback history retained before the oldest are dropped.
+# A nonzero limit bounds retained line count, not total process memory;
+# 0 disables this limit and can allow memory use to grow without bound.
 scrollback_lines = 10000
 scroll_drag_speed = ramp
 # Continuous pixel-precise scrolling for high-resolution wheels/touchpads
@@ -300,8 +301,9 @@ keybinds =
 # session replay, and theme builder ship with default Ctrl+Shift chords —
 # Ctrl+Shift+P (command-palette), Ctrl+Shift+S (connection-manager),
 # Ctrl+Shift+R (session-replay), Ctrl+Shift+B (theme-builder). These are all
-# Ctrl+Shift+<letter>, which a TUI cannot receive as input, so the PTY input
-# path is unchanged. Prompt navigation uses the Ctrl+Shift+Up / Ctrl+Shift+Down
+# Ctrl+Shift+<letter> chords handled locally before terminal input. Enhanced
+# keyboard protocols can represent them, so rebind any conflicts with a TUI.
+# Prompt navigation uses the Ctrl+Shift+Up / Ctrl+Shift+Down
 # arrow chords (there are no letter fallbacks). Add your own override to rebind
 # any of these, e.g.
 # keybinds = ctrl+alt+p=command-palette;ctrl+shift+p=jump-prompt-prev
@@ -344,10 +346,10 @@ ssh_config_hosts = off
 # Remote shell integration for SSH tabs. Default on. When on, a connection
 # injects OdyTTY's bash OSC 133 integration on the remote so a remote bash
 # session gains the same prompt marks, cwd titles, and input boundaries as a
-# local one. Nothing is persisted on the remote (the injected rcfile
-# self-deletes on first read), and any failure or a non-bash remote shell
-# degrades silently to a plain ssh session. Off globally makes every SSH tab's
-# launch byte-identical to a plain ssh; a per-host "Integration off" line in
+# local one. The temporary rcfile attempts to delete itself when bash reads
+# it; failed startup or tmux reattachment can leave it behind. Missing bash or
+# base64 and some setup failures fall back to the remote login shell. Off
+# globally makes every SSH tab's launch byte-identical to a plain ssh; a per-host "Integration off" line in
 # hosts.conf opts a single host out. A remote tab titles itself user@host when
 # no per-host Title is set. Authentication always stays with the system ssh.
 remote_integration = on
@@ -370,7 +372,7 @@ remote_persist = 10m
 # integrated SSH tab wraps the remote shell in "tmux new-session -A -s odytty",
 # so a dropped-and-reconnected link reattaches the same remote session with its
 # running programs and scrollback intact. Degrades to plain integrated bash when
-# the remote has no tmux, so enabling it never breaks a session. A per-host
+# the remote has no tmux. Failure of an installed tmux can end startup. A per-host
 # "Tmux on"/"Tmux off" line in hosts.conf overrides for a single host. Only takes
 # effect with remote_integration on (the bootstrap is the injection point).
 remote_tmux = off

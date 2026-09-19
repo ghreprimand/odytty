@@ -1,7 +1,7 @@
 # OdyTTY — Accessibility
 
-OdyTTY treats legibility as a hard floor, not a theme setting. This page collects
-the accessibility-oriented controls: the minimum-contrast guarantee,
+OdyTTY provides controls for legibility. This page collects
+the accessibility-oriented controls: the minimum-contrast target,
 color-vision-deficiency adaptation, dimming, motion, and the bell. Everything
 here is local — there is no telemetry, account, or network call involved in any
 of it. For the full config-key table see [`runtime-knobs.md`](runtime-knobs.md);
@@ -9,16 +9,18 @@ for keyboard control see [`keybindings.md`](keybindings.md).
 
 ## Minimum-contrast floor
 
-OdyTTY enforces a minimum text/background contrast at render time, so foreground
-text is never illegibly close to its background — including against background
-images, treatments, and translucent cell backgrounds.
+OdyTTY adjusts text/background contrast at render time against its modeled
+terminal background, including background images and treatments. `min_contrast`
+is a requested target, not a guarantee for every displayed pixel: some targets
+cannot be reached against a given background, and gamut clipping, later visual
+adjustments, and desktop compositing can change the final contrast.
 
 | Key | Env var | Default | Range |
 | --- | --- | --- | --- |
 | `min_contrast` | `ODYTTY_MIN_CONTRAST` | `17.0` | `1.0`–`21.0` |
 
 The value is a WCAG 2.x relative-luminance contrast ratio. The default `17.0` is
-a deliberately strong readability floor; setting `1.0` disables the floor
+a deliberately strong readability target; setting `1.0` disables the adjustment
 entirely (exact passthrough of theme colors). The number shown in the Theme
 Builder uses the same metric as the render floor, so authoring and rendering
 agree on what contrast means. The builder authors against WCAG AA 4.5, while
@@ -27,7 +29,7 @@ ratio shown by the builder.
 
 Note: the `render_quality = plain` fast path turns the floor **off** (it forces
 `min_contrast` to `1.0`). If you want a calmer, effect-free look *and* the
-contrast guarantee, prefer turning off individual effects (below) over switching
+contrast adjustment, prefer turning off individual effects (below) over switching
 to `plain`.
 
 ## Color-vision-deficiency (CVD) modes
@@ -211,13 +213,15 @@ signal, so set `ODYTTY_APPEARANCE=dark|light` to seed it. See
 ## Window transparency and the contrast floor
 
 `window_transparency` (on by default, translucent at `window_opacity` 80) lets the desktop show through the window
-background, but it is designed to leave legibility untouched: only backgrounds
+background. Only backgrounds
 and chrome bands scale toward `window_opacity`, while text, cursor, and every
 overlay stay fully opaque. Selection has an independent `selection_opacity`
 control and defaults to a fully opaque `1.0`; it is never weakened merely by
 lowering `window_opacity`. The minimum-contrast floor is computed
-against the terminal's own background color, not the blended desktop behind it,
-so lowering the opacity never lifts foreground text off its readability floor.
+against the terminal's own modeled background, not the final desktop composite.
+Lowering opacity can reduce effective contrast against the desktop even though
+text remains opaque. Disable `window_transparency` or set `window_opacity = 100`
+when a predictable opaque background is needed.
 See [`effects.md`](effects.md#window-transparency) for the settings.
 
 ## Privacy

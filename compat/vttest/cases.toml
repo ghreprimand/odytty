@@ -222,8 +222,9 @@ encoding units. The parser resolves the ambiguity once, in favor of executing
 the control, so that how a byte stream is split across reads can never change
 what a sequence means."""
 revisit = """
-Reopen if the operating level advertised in the device attributes reply is
-raised, since eight-bit control introduction is expected at the higher levels."""
+Current DA1 reports service class 62 (VT220), so the original reopening
+condition has been reached. Reassess this divergence before claiming
+VT200-series conformance; the parser still accepts seven-bit introducers only."""
 
 [[divergence]]
 id = "no-s8c1t-transmission"
@@ -236,13 +237,13 @@ always returned in the seven-bit form. The suite's eight-bit input check asks
 for the eight-bit form and reports no valid response when it arrives in the
 seven-bit form."""
 rationale = """
-The device attributes reply advertises a VT100-class terminal with an advanced
-video option, an operating level at which eight-bit control transmission is not
-required. Recorded as an open gap rather than a conformance failure against the
-level actually advertised."""
+The initial result used a VT100-class device attributes reply to justify this
+gap. Current DA1 reports service class 62 (VT220), while eight-bit transmission
+is still unimplemented. The original rationale no longer establishes
+conformance to the advertised level; this remains an explicit open gap."""
 revisit = """
-Reopen together with any change to the advertised operating level, and before
-any claim of VT200-series or later conformance."""
+The advertised-level reopening condition has been reached. Reassess the
+divergence before any claim of VT200-series or later conformance."""
 
 # ---------------------------------------------------------------------------
 # Upstream capability areas

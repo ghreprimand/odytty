@@ -48,6 +48,10 @@ manager first (append ` -s -- --insecure-skip-signature` to skip verification
 instead). To review the installer before running it, use the
 [manual verified path](docs/install.md#linux).
 
+The one-line command executes a script from mutable `master` before authenticating
+it. Its artifact verification does not authenticate that initial script; the
+manual path verifies the versioned installer itself before execution.
+
 Arch users can install `odytty` from the AUR with `paru -S odytty` or
 `yay -S odytty`. Direct `.deb`, `.rpm`, AppImage, binary-tarball, and source
 paths are documented in the [Linux install guide](docs/install.md#linux).

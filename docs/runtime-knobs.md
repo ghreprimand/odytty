@@ -920,10 +920,12 @@ over a dimmed backdrop through the existing GPU graphics path; `Esc` (or a click
 away) dismisses it. The viewer is presentation-only: while it is closed the
 frame is byte-identical, and opening it never mutates the live terminal.
 
-The decode is bounded **before** it runs (max 12000 px per axis, 256 MiB
-allocation), so a corrupt or decompression-bomb file is refused gracefully — it
-simply does not open, never crashes or hangs. The image type is confirmed by
-content (magic-byte sniff), not by trusting the file name. It is gated by the
+The reader receives limits **before** decoding (max 12000 px per axis and a
+256 MiB decoder allocation budget). Reported decode errors refuse the image.
+Later RGBA conversion and resizing can allocate outside that decoder budget;
+there is no decode-time or blocking-file-read deadline, so this is not a
+whole-pipeline memory or responsiveness guarantee. The image type is confirmed
+by content (magic-byte sniff), not by trusting the file name. It is gated by the
 master `interactive_paths` setting plus `interactive_paths_image_inline`
 (default `on`): with the master gate on and `interactive_paths_image_inline =
 on`, platform-modifier clicking a resolved `.png`/`.jpg`/`.jpeg`/`.webp` span
@@ -1266,10 +1268,12 @@ cwd titles, and the input boundaries those features need. With
 `remote_integration = on` (the default; `ODYTTY_REMOTE_INTEGRATION=on`), a
 connection injects OdyTTY's bash integration on the remote so a remote bash
 session behaves like a local one. The integration is delivered inline as a
-base64 blob decoded into a temporary rcfile that **self-deletes on first read**
-— nothing is persisted on the remote. Every failure path (no bash, no `base64`,
-undetectable shell) and any non-bash remote shell **degrades silently to a plain
-`ssh` session**, so the connection is never broken.
+base64 blob decoded into a temporary rcfile. Bash attempts to delete that file
+when it reads it; failed startup or tmux reattachment can leave it behind.
+Missing bash or `base64`, and some setup failures, fall back to the remote login
+shell. When bash is available, the bootstrap launches it even if the configured
+remote login shell is different. Cleanup and successful startup are not guaranteed
+for every remote environment.
 
 Turning it off globally, or setting `Integration off` for a single host in
 `hosts.conf`, makes that SSH launch byte-identical to a plain `ssh` invocation.
@@ -1328,8 +1332,9 @@ integrated SSH tab wraps the remote shell in a persistent `tmux` session (`tmux
 new-session -A -s odytty`). A create-or-attach session means a link that drops
 and is reconnected reattaches the same remote session with its running programs
 and scrollback intact, rather than starting fresh. When the remote host has no
-`tmux`, the bootstrap degrades to a plain integrated bash session, so enabling
-this never breaks a connection. A per-host `Tmux on` line in `hosts.conf` opts a
+`tmux`, the bootstrap falls back to a plain integrated bash session. Failure of
+an installed tmux after it is launched can end startup; that path has no plain
+shell fallback. A per-host `Tmux on` line in `hosts.conf` opts a
 single host in (or `Tmux off` opts one out) regardless of the global default.
 
 Persistence rides inside the integration bootstrap, so it only takes effect with

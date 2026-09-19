@@ -315,19 +315,19 @@ pub(super) fn font_candidates() -> Vec<PathBuf> {
     .collect()
 }
 
-/// Load a monospace font from the host's default candidate list.
+/// Load the bundled default font, falling back to host candidates if needed.
 pub fn load_font() -> Result<FontVec, TextError> {
     load_font_with_path(None)
 }
 
-/// Load a monospace font: honor an explicit settings path, else probe known
-/// paths.
+/// Load a monospace font: honor an explicit settings path, then try the bundled
+/// default and the host candidate list.
 ///
 /// **Resilient by design (F1):** a bad explicit `font_path` (missing,
 /// unreadable, or unparseable) must never abort startup. The explicit path is
 /// tried first; on failure a one-line stderr notice is emitted and loading
-/// falls back to probing the host candidate list. Only when nothing at all
-/// loads does this return [`TextError::NoFont`]. The settings layer resolves
+/// falls back to the bundled default, then the host candidate list. Only when
+/// nothing loads does this return [`TextError::NoFont`]. The settings layer resolves
 /// `ODYTTY_FONT_FAMILY` to a validated path *before* this point, so by the time
 /// a path reaches here it has usually already been monospace-checked; this
 /// fallback is the final safety net for `ODYTTY_FONT` direct paths.

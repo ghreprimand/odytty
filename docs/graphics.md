@@ -366,9 +366,10 @@ before a truncation.
 
 **Memory behavior.** Sixel decoding allocates lazily and stays bounded:
 
-- Raster attribute declarations (`"Pan;Pad;Ph;Pv`) are cap-validated immediately
-  but do not allocate the declared canvas — the pixel buffer fills lazily as
-  sixel data is painted.
+- Raster attribute declarations (`"Pan;Pad;Ph;Pv`) currently clamp each declared
+  axis to 10,000 before checking the total pixel cap. An oversized single-axis
+  declaration can therefore be accepted with a smaller extent. Declarations do
+  not allocate the canvas; the pixel buffer fills lazily as sixel data is painted.
 - A header-only stream returns an `Empty` result with zero pixel allocation.
 - Row stride grows geometrically (amortized `O(area)`), so wide images decoded
   column-by-column do not incur `O(N²)` buffer re-layouts.
@@ -592,7 +593,7 @@ COLR v1 Paint graph through Fontations:
 
 **Atlas.** `ColorGlyphAtlas` (`src/emoji/color_atlas.rs`) is a grow-only
 `Rgba8Unorm` atlas keyed by `(font identity, glyph-or-cluster id, physical px
-size, scale)` — not by Unicode scalar — so ZWJ sequences, flags, keycap
+size, scale, width_cells)`, not by Unicode scalar, so ZWJ sequences, flags, keycap
 sequences, and variation-selector variants are each cached by their shaped glyph
 identity regardless of their codepoint count.
 
@@ -611,4 +612,4 @@ Emoji, Apple Color Emoji, stock Windows Segoe UI Emoji, or another parseable
 COLR/CPAL face), `EmojiRasterizer::discover()` returns a rasterizer with no font
 rather than failing. A face or glyph with only SVG-in-OT data takes the
 monochrome coverage path. Emoji cells remain readable. See
-[accessibility.md](accessibility.md) for the related readability guarantees.
+[accessibility.md](accessibility.md) for the related readability controls and limits.

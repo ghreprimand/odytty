@@ -14,7 +14,7 @@
 /// The font identifier is the same query string the family resolver
 /// ([`try_resolve_font_family`]) accepts — either a direct `.ttf`/`.otf` path or
 /// a font-family name. This core layer stores the identifier verbatim and does
-/// not resolve or load it; resolution happens at the (future) glyph call site.
+/// not resolve or load it; resolution happens at the glyph call site.
 ///
 /// Bounds are **inclusive on both ends**: a rule for `0xE000..=0xF8FF` matches
 /// both `0xE000` and `0xF8FF`. Codepoints are stored as `u32` (not `char`) so a

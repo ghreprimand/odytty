@@ -114,9 +114,9 @@ overlay does not persist renames.
 Summoning paths:
 
 - **Chord:** the bindable `session-attach` action, default `Ctrl+Shift+A`. A
-  `Ctrl+Shift+<letter>` chord is used because a TUI running inside the terminal
-  cannot receive it, so the launcher stays reachable without colliding with
-  in-shell input. Rebindable like every other action — see
+  `Ctrl+Shift+<letter>` chord follows the local launcher convention and is
+  handled before terminal input. Enhanced keyboard protocols can represent it,
+  so rebind it if it conflicts with an application; see
   [`keybindings.md`](keybindings.md).
 - **Right-click menu:** a "Manage Sessions" item in the launcher section of the
   context menu (after Command Palette / Session Replay), whose accelerator label

@@ -363,9 +363,8 @@ pub(super) struct ImageLayer {
     /// (placements), which draws inside the scene pass in the scene-target
     /// format (the HDR offscreen format when post is active).
     overlay_pipeline: wgpu::RenderPipeline,
-    /// Opaque backing-quad pipeline (surface format) drawn under the overlay
-    /// fit-rect so terminal text / background image never bleed through behind
-    /// the photo. Shares the overlay bind-group layout + fit-quad geometry.
+    /// Semitransparent scrim pipeline (surface format) drawn across the viewport
+    /// under the viewer image. Shares the overlay bind-group layout.
     backing_pipeline: wgpu::RenderPipeline,
     target_format: wgpu::TextureFormat,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -642,9 +641,9 @@ impl ImageLayer {
 
     /// Draw the C4 viewer overlay, if any, onto the SWAPCHAIN — called from a
     /// dedicated pass opened AFTER the CRT/bloom post pass, so the photo is
-    /// never touched by effects. Draws an opaque backing quad first (so terminal
-    /// text / background image cannot bleed through behind the photo), then the
-    /// image itself, both over the same fit-rect in surface format. A no-op when
+    /// never touched by effects. Draws a full-viewport semitransparent scrim,
+    /// then the image over its fit rectangle in surface format. Transparent
+    /// image pixels reveal the dimmed terminal. A no-op when
     /// no overlay image is set; combined with the gated pass in `render`, the
     /// closed-viewer frame stays byte-identical.
     pub(super) fn draw_overlay<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
