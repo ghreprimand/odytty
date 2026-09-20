@@ -900,12 +900,10 @@ impl App {
     /// Consumed on BOTH sides of the event loop: `next_wake_deadline` sources it
     /// (single-pane gated — that render path is the only consumer that advances
     /// these timers; NF21-1/7 owns the multipane path) so a wake is scheduled,
-    /// and the about-to-wait maintenance pass treats "woken while this is `Some`"
-    /// as "request a frame". The two must move together: three of the frame-paced
-    /// getters return `Instant::now() + FRAME` while in flight, so a `now >=
-    /// deadline` consumer would never fire mid-animation — the maintenance
-    /// predicate is `is_some()`, not the equality, precisely so the frame-paced
-    /// contributors drive a repaint every frame instead of a silent spin.
+    /// and the about-to-wait maintenance pass requests a frame only once the
+    /// soonest stored deadline is due. Frame-paced contributors advance their
+    /// stored deadline during the rebuild; future deadlines remain wake sources
+    /// without generating an immediate redraw event.
     ///
     /// (History: this entry was in the collector until the multi-session refactor
     /// replaced it with a cursor-only fan-out; the five non-cursor contributors

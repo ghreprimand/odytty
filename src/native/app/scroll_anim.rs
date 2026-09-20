@@ -98,6 +98,7 @@ pub(super) fn advance_session_glide(
     if session.glide_target != logical {
         session.glide_active = false;
         session.glide_last_tick = None;
+        session.glide_next_frame = None;
         session.glide_visual = logical as f32;
         session.scroll_frac_offset = 0.0;
         return;
@@ -112,11 +113,13 @@ pub(super) fn advance_session_glide(
     if (next - logical_f).abs() < GLIDE_SETTLE_ROWS {
         session.glide_active = false;
         session.glide_last_tick = None;
+        session.glide_next_frame = None;
         session.glide_visual = logical_f;
         session.scroll_frac_offset = 0.0;
     } else {
         session.glide_visual = next;
         session.scroll_frac_offset = (next - next.floor()) * cell_h;
+        session.glide_next_frame = Some(now + SCROLL_GLIDE_FRAME);
     }
 }
 
@@ -344,6 +347,10 @@ impl App {
             session.glide_active = true;
             session.glide_target = logical;
             session.glide_last_tick = None;
+            // The input path already requested the first frame. Mark that frame
+            // due so maintenance never turns the newly armed glide into a
+            // future-redraw/wake pair before its first rebuild.
+            session.glide_next_frame = Some(Instant::now());
         }
     }
 
@@ -358,6 +365,7 @@ impl App {
                 session.scroll_frac_offset = 0.0;
             }
             session.glide_last_tick = None;
+            session.glide_next_frame = None;
             session.glide_visual = session.viewport.offset() as f32;
         }
     }
@@ -398,7 +406,7 @@ impl App {
         self.sessions
             .get(token)
             .filter(|session| session.glide_active)
-            .map(|_| Instant::now() + SCROLL_GLIDE_FRAME)
+            .and_then(|session| session.glide_next_frame)
     }
 
     /// Frame-paced animation wake while ANY visible pane of a split is mid-glide
@@ -408,8 +416,16 @@ impl App {
     /// per-pane glide advance in `rebuild_multipane`) — the other animation
     /// timers still have no multipane consumer, so they stay single-pane-gated.
     pub(super) fn multipane_glide_deadline(&self) -> Option<Instant> {
-        (!self.sessions.active_is_single_pane() && self.sessions.any_visible_pane_gliding())
-            .then(|| Instant::now() + SCROLL_GLIDE_FRAME)
+        if self.sessions.active_is_single_pane() || !self.sessions.any_visible_pane_gliding() {
+            return None;
+        }
+        self.sessions
+            .active_visible_tokens()
+            .into_iter()
+            .filter_map(|token| self.sessions.get(token))
+            .filter(|session| session.glide_active)
+            .filter_map(|session| session.glide_next_frame)
+            .min()
     }
 }
 
@@ -673,6 +689,28 @@ mod tests {
             0,
             "render snapshots at the follower's floored row, not the logical row"
         );
+    }
+
+    #[test]
+    fn scroll_glide_deadline_is_stable_until_the_glide_advances() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        let sb = seed_scrollback(&app);
+        assert!(sb >= 5);
+        app.settings.scroll_glide = true;
+        let token = app.sessions.active_id();
+        app.scroll_viewport_of(token, 5);
+
+        let armed = app.scroll_glide_deadline();
+        assert!(armed.is_some(), "an active glide schedules its first frame");
+        assert_eq!(app.scroll_glide_deadline(), armed, "reads do not recede");
+
+        let advanced_at = Instant::now() + Duration::from_millis(8);
+        app.update_scroll_glide(advanced_at, 16, 5);
+        let advanced = Some(advanced_at + SCROLL_GLIDE_FRAME);
+        assert_eq!(app.scroll_glide_deadline(), advanced);
+        assert_eq!(app.scroll_glide_deadline(), advanced, "reads stay stable");
     }
 
     #[test]

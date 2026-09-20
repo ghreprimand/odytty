@@ -452,6 +452,7 @@ impl App {
         // rebuild re-baselines (snaps) instead of fading up to a full viewport.
         // No-op when `new_output_fade` is off (the tracker is already empty).
         self.row_fade_starts.clear();
+        self.row_fade_next_frame = None;
 
         // An activation is likewise a viewport-anchor discontinuity. A tab keeps
         // producing output while backgrounded but is not rendered, so its
@@ -799,33 +800,30 @@ impl App {
             }
         }
 
-        // An animation tick (cursor ease/slide, smooth-scroll glide, bell flash,
-        // new-row fade, open-notice / click-hint expiry) rebuilds once so the
-        // frame advances. NF21-2: the predicate is "an animation is in flight",
-        // NOT "now >= deadline". Three of the frame-paced contributors
-        // (new_row_fade / bell embed `Instant::now() + FRAME`), as
-        // does the cursor ease/slide, so `now >= deadline` is essentially never
-        // satisfied mid-flight — the old equality check silently never fired for
-        // them and the animation only stepped when an unrelated wake (a blink
-        // toggle) happened to rebuild. Treating "woken while animating" as
-        // "request a frame" closes that: the collector schedules the wake at the
-        // next frame boundary (`animation_deadline()` = now+FRAME), this repaint
-        // advances the timer in the rebuild, and when it settles
-        // `animation_deadline()` -> `None` ends the loop — bounded, so the
-        // terminal returns to zero-wake idle with no wake and no redraw at rest.
+        // A due animation tick (cursor ease/slide, smooth-scroll glide, bell
+        // flash, new-row fade, open-notice / click-hint expiry) rebuilds once so
+        // the frame advances. Future deadlines stay in `next_wake_deadline`
+        // without requesting a redraw, allowing `WaitUntil` to sleep until the
+        // stored frame boundary. The rebuild advances frame-paced deadlines;
+        // settled animations return `None` and restore zero-wake idle.
         // Gated to the single-pane render path for the same reason the collector
         // source is (that path is the only consumer that advances these timers;
         // multipane advancement is NF21-1/7). The real-instant contributors
         // (open-notice / click-hint) still fire exactly once — the collector
-        // wakes only at their expiry, so `is_some()` sees them due on that one
-        // pass and the rebuild clears them.
-        if self.sessions.active_is_single_pane() && self.animation_deadline().is_some() {
-            self.needs_rebuild = true;
-            if let Some(window) = self.window.as_ref() {
-                window.request_redraw();
+        // wakes only at their expiry, so the due check accepts that one pass and
+        // the rebuild clears them.
+        if self.sessions.active_is_single_pane() {
+            if redraw_schedule::timed_animation_redraw_due(now, self.animation_deadline()) {
+                self.needs_rebuild = true;
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
             }
-        } else if self.multipane_glide_deadline().is_some()
-            || self.focused_cursor_animation_deadline().is_some()
+        } else if redraw_schedule::timed_animation_redraw_due(now, self.multipane_glide_deadline())
+            || redraw_schedule::timed_animation_redraw_due(
+                now,
+                self.focused_cursor_animation_deadline(),
+            )
         {
             // A split with a live per-pane glide or focused cursor animation
             // repaints until its matching consumer settles. Setting the focused

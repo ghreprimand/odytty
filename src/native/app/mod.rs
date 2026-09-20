@@ -172,6 +172,7 @@ mod profile_switch;
 mod prompt_jump;
 mod rail_autohide;
 mod rail_overlay;
+pub(in crate::native) mod redraw_schedule;
 mod replay_ui;
 mod resize_hud;
 mod scroll_anim;

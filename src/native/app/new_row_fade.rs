@@ -78,6 +78,7 @@ impl App {
             || self.viewport.offset() > 0
         {
             self.row_fade_starts.clear();
+            self.row_fade_next_frame = None;
             self.last_scrollback_len_for_fade = scrollback_len;
             return;
         }
@@ -87,6 +88,7 @@ impl App {
         if self.row_fade_starts.len() != rows {
             self.row_fade_starts.clear();
             self.row_fade_starts.resize(rows, None);
+            self.row_fade_next_frame = None;
             self.last_scrollback_len_for_fade = scrollback_len;
             return;
         }
@@ -122,6 +124,9 @@ impl App {
         }
         if any_active {
             self.row_fade_epoch = self.row_fade_epoch.wrapping_add(1);
+            self.row_fade_next_frame = Some(now + FADE_FRAME);
+        } else {
+            self.row_fade_next_frame = None;
         }
     }
 
@@ -133,12 +138,10 @@ impl App {
         if self.settings.reduced_motion || self.row_fade_starts.is_empty() {
             return None;
         }
-        let fade = self.new_output_fade_duration();
-        self.row_fade_starts
-            .iter()
-            .flatten()
-            .map(|&start| (start + fade).min(Instant::now() + FADE_FRAME))
-            .min()
+        let first_start = self.row_fade_starts.iter().flatten().copied().min()?;
+        let settled = first_start + self.new_output_fade_duration();
+        let next_frame = self.row_fade_next_frame.unwrap_or(first_start);
+        Some(settled.min(next_frame))
     }
 
     /// Render-cache fragment. `NewRowFade { epoch }` while any row is mid-fade
@@ -326,6 +329,29 @@ mod tests {
             None,
             "reduced motion exposes no text-ramp multipliers"
         );
+    }
+
+    #[test]
+    fn live_row_fade_deadline_is_stable_until_the_fade_advances() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.new_output_fade = true;
+        app.settings.new_output_fade_ms = 200.0;
+        assert_eq!(app.new_row_fade_deadline(), None, "no fade wake at rest");
+        let start = Instant::now();
+
+        app.update_row_fade(start, 0);
+        app.update_row_fade(start + Duration::from_millis(1), 1);
+        let armed = app.new_row_fade_deadline();
+        assert_eq!(armed, Some(start + Duration::from_millis(1) + FADE_FRAME));
+        assert_eq!(app.new_row_fade_deadline(), armed, "reads do not recede");
+
+        let advanced_at = start + Duration::from_millis(8);
+        app.update_row_fade(advanced_at, 1);
+        let advanced = Some(advanced_at + FADE_FRAME);
+        assert_eq!(app.new_row_fade_deadline(), advanced);
+        assert_eq!(app.new_row_fade_deadline(), advanced, "reads stay stable");
     }
 
     #[test]
@@ -727,11 +753,19 @@ mod tests {
         // Simulate an in-flight fade left on the session being (re)activated.
         let rows = app.grid.rows.max(1);
         app.row_fade_starts = vec![Some(Instant::now()); rows];
+        app.row_fade_next_frame = Some(Instant::now() + FADE_FRAME);
         assert!(app.row_fade_starts.iter().any(Option::is_some));
+        assert!(app.new_row_fade_deadline().is_some());
         app.on_active_session_changed();
         assert!(
             app.row_fade_starts.is_empty(),
             "activation snaps (clears) the fade tracker"
+        );
+        assert_eq!(app.row_fade_next_frame, None);
+        assert_eq!(
+            app.new_row_fade_deadline(),
+            None,
+            "viewport-anchor discontinuity removes the fade wake"
         );
     }
 }

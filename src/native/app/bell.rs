@@ -77,6 +77,7 @@ impl App {
         self.request_bell_attention(window);
         if self.settings.bell.wants_visual() {
             self.bell_flash_start = Some(now);
+            self.bell_flash_next_frame = Some(now);
         }
     }
 
@@ -117,8 +118,10 @@ impl App {
         };
         if now.saturating_duration_since(start) >= FLASH_DURATION {
             self.bell_flash_start = None;
+            self.bell_flash_next_frame = None;
         } else {
             self.bell_flash_epoch = self.bell_flash_epoch.wrapping_add(1);
+            self.bell_flash_next_frame = Some(now + FLASH_FRAME);
         }
     }
 
@@ -126,7 +129,8 @@ impl App {
     /// the off path). Folds into [`App::animation_deadline`].
     pub(super) fn bell_flash_deadline(&self) -> Option<Instant> {
         let start = self.bell_flash_start?;
-        Some((start + FLASH_DURATION).min(Instant::now() + FLASH_FRAME))
+        let next_frame = self.bell_flash_next_frame.unwrap_or(start);
+        Some((start + FLASH_DURATION).min(next_frame))
     }
 
     /// Render-cache fragment: `BellFlash { epoch }` while a flash decays (the
@@ -306,5 +310,29 @@ mod tests {
         let mut out2 = Vec::new();
         app.paint_bell_flash_quad(&ctx_at(&app, after), &mut out2);
         assert!(out2.is_empty(), "settled flash emits nothing");
+    }
+
+    #[test]
+    fn visual_flash_deadline_is_stable_until_the_flash_advances() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.bell = BellMode::Visual;
+        assert_eq!(app.bell_flash_deadline(), None, "no flash wake at rest");
+        let start = Instant::now();
+        app.note_bell(start, None);
+
+        let armed = app.bell_flash_deadline();
+        assert_eq!(armed, Some(start), "the first frame is immediately due");
+        assert_eq!(app.bell_flash_deadline(), armed, "reads do not recede");
+
+        let advanced_at = start + Duration::from_millis(10);
+        app.update_bell_flash(advanced_at);
+        let advanced = Some(advanced_at + FLASH_FRAME);
+        assert_eq!(app.bell_flash_deadline(), advanced);
+        assert_eq!(app.bell_flash_deadline(), advanced, "reads stay stable");
+
+        app.update_bell_flash(start + FLASH_DURATION);
+        assert_eq!(app.bell_flash_deadline(), None, "settled flash parks");
     }
 }

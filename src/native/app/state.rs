@@ -309,6 +309,9 @@ pub(in crate::native) struct App {
     /// bell mode wants a visual flash. `None` when no flash is in flight (the
     /// off / urgent-only path), so the default render path emits no flash quad.
     pub(super) bell_flash_start: Option<Instant>,
+    /// Stable next-frame boundary for an in-flight bell flash. Updated only
+    /// when the flash starts or advances; `None` at rest.
+    pub(super) bell_flash_next_frame: Option<Instant>,
     /// Monotonic epoch bumped once per rebuild while the bell flash is active so
     /// each animation frame reclassifies the render cache (the flash alpha moves
     /// while cell content does not). Constant while no flash is in flight.
@@ -696,6 +699,7 @@ impl App {
             #[cfg(test)]
             last_menu_path_scan_for_test: false,
             bell_flash_start: None,
+            bell_flash_next_frame: None,
             bell_flash_epoch: 0,
             open_notice: None,
             osc52_write: osc52::Osc52WriteState::default(),

@@ -208,6 +208,8 @@ pub(in crate::native) struct Session {
     pub(in crate::native) row_fade_starts: Vec<Option<Instant>>,
     pub(in crate::native) last_scrollback_len_for_fade: usize,
     pub(in crate::native) row_fade_epoch: u64,
+    /// Stable next-frame boundary for active new-row fades; `None` at rest.
+    pub(in crate::native) row_fade_next_frame: Option<Instant>,
     /// Sub-row scroll remainder in rows (SCROLL-FEEL Tier 2), invariant
     /// `(-1.0, 1.0)`; whole rows carry into `viewport`. Drives
     /// [`Self::scroll_frac_offset`]. `0.0` at rest.
@@ -224,6 +226,8 @@ pub(in crate::native) struct Session {
     pub(in crate::native) glide_active: bool,
     pub(in crate::native) glide_target: usize,
     pub(in crate::native) glide_last_tick: Option<Instant>,
+    /// Stable next-frame boundary for an active glide; `None` at rest.
+    pub(in crate::native) glide_next_frame: Option<Instant>,
     /// Remote reconnect anchor (F6-i4). `Some` only for sessions launched through
     /// the `ssh` connect path; `None` for a local shell, so exit classification
     /// and the reconnect prompt never engage for a local session. See
