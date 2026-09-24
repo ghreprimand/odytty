@@ -892,10 +892,11 @@ impl App {
     }
 
     /// Fold every overlay/cursor animation wake source into the soonest
-    /// deadline, or `None` when nothing is animating — cursor blink-fade + slide,
-    /// smooth-scroll glide, bell flash, new-row fade, and the open-notice /
-    /// click-hint auto-expiry. Each contributor returns `None` at rest, so the
-    /// min is `None` and an at-rest terminal schedules zero extra wakes.
+    /// deadline, or `None` when nothing is animating: cursor blink-fade, slide,
+    /// and large-jump follower (hold-gated), smooth-scroll glide, bell flash,
+    /// new-row fade, and the open-notice / click-hint auto-expiry. Each
+    /// contributor returns `None` at rest, so the min is `None` and an at-rest
+    /// terminal schedules zero extra wakes.
     ///
     /// Consumed on BOTH sides of the event loop: `next_wake_deadline` sources it
     /// (single-pane gated — that render path is the only consumer that advances
@@ -912,6 +913,11 @@ impl App {
         [
             self.cursor_blink_fade_deadline(),
             self.cursor_motion_deadline(),
+            // Large-jump cursor follower (moves beyond the slide limit). The
+            // single-pane maintenance pass requests a frame only when this
+            // aggregate is due, so omitting it stalled the follower until an
+            // unrelated redraw. Suppressed under a synchronized-output hold.
+            self.cursor_streak_wake_deadline(),
             self.new_row_fade_deadline(),
             // BELL visual flash — `None` on the off / urgent-only path.
             self.bell_flash_deadline(),

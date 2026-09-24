@@ -300,13 +300,10 @@ impl App {
         if self.settings.reduced_motion {
             return None;
         }
-        let streak = (!self.synchronized_output_hold.is_holding())
-            .then(|| self.cursor_streak_deadline())
-            .flatten();
         [
             self.cursor_ease_deadline,
             self.cursor_slide_deadline,
-            streak,
+            self.cursor_streak_wake_deadline(),
         ]
         .into_iter()
         .flatten()

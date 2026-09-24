@@ -288,10 +288,10 @@ impl App {
                 .then(|| self.transient_hud_deadline())
                 .flatten(),
             // NF21-2: the overlay/scroll/bell/fade animation aggregator
-            // (`animation_deadline()` — smooth-scroll glide, bell flash, new-row
+            // (`animation_deadline()`: smooth-scroll glide, bell flash, new-row
             // fade, open-notice + click-hint auto-expiry, and the cursor
-            // ease/slide it already folds). This entry was dropped when the
-            // multi-session refactor replaced it with the cursor-only fan-out
+            // ease/slide/follower it already folds). This entry was dropped when
+            // the multi-session refactor replaced it with the cursor-only fan-out
             // above, stranding those five with a maintenance CONSUMER but no
             // wake SOURCE — they only advanced when an unrelated wake (a blink
             // toggle) happened to fire, so they froze outright when the cursor
@@ -800,12 +800,13 @@ impl App {
             }
         }
 
-        // A due animation tick (cursor ease/slide, smooth-scroll glide, bell
-        // flash, new-row fade, open-notice / click-hint expiry) rebuilds once so
-        // the frame advances. Future deadlines stay in `next_wake_deadline`
-        // without requesting a redraw, allowing `WaitUntil` to sleep until the
-        // stored frame boundary. The rebuild advances frame-paced deadlines;
-        // settled animations return `None` and restore zero-wake idle.
+        // A due animation tick (cursor ease/slide/large-jump follower,
+        // smooth-scroll glide, bell flash, new-row fade, open-notice /
+        // click-hint expiry) rebuilds once so the frame advances. Future
+        // deadlines stay in `next_wake_deadline` without requesting a redraw,
+        // allowing `WaitUntil` to sleep until the stored frame boundary. The
+        // rebuild advances frame-paced deadlines; settled animations return
+        // `None` and restore zero-wake idle.
         // Gated to the single-pane render path for the same reason the collector
         // source is (that path is the only consumer that advances these timers;
         // multipane advancement is NF21-1/7). The real-instant contributors

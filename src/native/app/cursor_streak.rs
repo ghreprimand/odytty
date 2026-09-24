@@ -711,6 +711,18 @@ impl App {
         self.cursor_streak.deadline()
     }
 
+    /// The follower's next frame as a wake/redraw source: `None` under reduced
+    /// motion and while a synchronized-output hold is active (a held batch must
+    /// not repaint mid-update; the hold's own timeout wakes the loop instead).
+    /// Shared by [`App::animation_deadline`] (single-pane) and
+    /// [`App::focused_cursor_animation_deadline`] (both render paths) so the two
+    /// aggregators cannot disagree about when the follower is due.
+    pub(super) fn cursor_streak_wake_deadline(&self) -> Option<Instant> {
+        (!self.settings.reduced_motion && !self.synchronized_output_hold.is_holding())
+            .then(|| self.cursor_streak_deadline())
+            .flatten()
+    }
+
     pub(super) fn cursor_streak_epoch(&self) -> u64 {
         self.cursor_streak.epoch()
     }

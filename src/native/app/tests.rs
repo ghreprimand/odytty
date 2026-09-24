@@ -1037,6 +1037,186 @@ fn bell_flash_while_unfocused_schedules_a_wake_and_advances() {
     );
 }
 
+/// Headless single-pane app with only the large-jump cursor follower enabled
+/// (motion + trail; easing/glow off so no other cursor timer shares the wake)
+/// and focused, at the expressive strength.
+fn follower_only_app() -> Option<App> {
+    let mut app = build_idle_app()?;
+    app.focused = true;
+    app.settings.cursor_motion = true;
+    app.settings.cursor_trail = true;
+    app.settings.cursor_easing = false;
+    app.settings.cursor_glow = false;
+    app.settings.reduced_motion = false;
+    app.settings.cursor_trail_strength = crate::settings::CursorTrailStrength::Expressive;
+    Some(app)
+}
+
+fn follower_cell() -> CellSize {
+    CellSize {
+        width: 8,
+        height: 16,
+        baseline: 0,
+    }
+}
+
+fn follower_snapshot(app: &App, column: usize) -> Snapshot {
+    Snapshot {
+        dimensions: app.grid,
+        cursor: Position { row: 0, column },
+        cursor_visible: true,
+        colors: crate::core::DynamicColors::default(),
+        cells: vec![crate::core::Cell::default(); app.grid.columns * app.grid.rows],
+    }
+}
+
+/// The cursor half of the single-pane rebuild (`frame.rs`), in production
+/// order: slide, then the large-jump follower.
+fn rebuild_single_pane_cursor(app: &mut App, now: Instant, column: usize) {
+    let snapshot = follower_snapshot(app, column);
+    app.update_cursor_motion(now, &snapshot, follower_cell());
+    app.update_cursor_streak(
+        now,
+        &snapshot,
+        crate::core::CursorStyle::Block,
+        follower_cell(),
+    );
+}
+
+/// Arm a follower with a jump longer than the slide limit (Home/End on a long
+/// line, or the return to the prompt after output) and return its first
+/// frame deadline.
+fn start_large_jump_follower(app: &mut App, t0: Instant) -> Instant {
+    rebuild_single_pane_cursor(app, t0, 0);
+    let started = t0 + Duration::from_millis(1);
+    rebuild_single_pane_cursor(app, started, 60);
+    assert!(
+        app.cursor_streak_active(),
+        "a 60-cell jump starts the follower"
+    );
+    app.cursor_streak_deadline()
+        .expect("an active follower schedules its next frame")
+}
+
+/// CURSOR-FOLLOWER-STALL regression: in a single-pane window a due follower
+/// frame must request a rebuild. The single-pane maintenance due check read
+/// only `animation_deadline()`, which omitted the follower, so the loop woke at
+/// the follower deadline, requested no frame, and kept re-waking on that past
+/// instant until an unrelated redraw (the blink edge) advanced the follower;
+/// the dt clamp and settle cap then snapped it, which read as a glide that
+/// pauses partway and then arrives.
+#[test]
+fn single_pane_due_cursor_follower_requests_a_frame() {
+    let Some(mut app) = follower_only_app() else {
+        return;
+    };
+    assert!(app.sessions.active_is_single_pane());
+    let t0 = Instant::now();
+    let due = start_large_jump_follower(&mut app, t0);
+    assert_eq!(
+        app.next_wake_deadline_for_surface_for_test(true),
+        Some(due),
+        "the follower frame is the scheduled wake"
+    );
+
+    app.needs_rebuild = false;
+    app.run_about_to_wait_maintenance_for_test(due);
+    assert!(
+        app.needs_rebuild,
+        "a due follower frame requests a single-pane rebuild"
+    );
+
+    // The rebuild advances the follower and replaces its deadline, so no
+    // past-instant wake survives (WaitUntil(past) would spin).
+    rebuild_single_pane_cursor(&mut app, due, 60);
+    app.needs_rebuild = false;
+    match app.next_wake_deadline_for_surface_for_test(true) {
+        None => {}
+        Some(next) => assert!(next > due, "no past-instant wake survives the rebuild"),
+    }
+}
+
+/// Driven only by its own wakes at the frame cadence (no blink edge or other
+/// unrelated redraw), a large-jump follower advances every frame and settles
+/// within the strength's settle bound, then returns to zero wake.
+#[test]
+fn single_pane_cursor_follower_settles_on_its_own_wakes() {
+    let Some(mut app) = follower_only_app() else {
+        return;
+    };
+    let t0 = Instant::now();
+    let first = start_large_jump_follower(&mut app, t0);
+    let retargeted_at = t0 + Duration::from_millis(1);
+    let settle = super::cursor_trail::cursor_trail_profile(app.settings.cursor_trail_strength)
+        .follower_max_settle;
+
+    let mut now = first;
+    let mut frames = 0usize;
+    while app.cursor_streak_active() {
+        assert!(
+            frames < 64,
+            "the follower settles in a bounded number of frames"
+        );
+        app.needs_rebuild = false;
+        app.run_about_to_wait_maintenance_for_test(now);
+        assert!(
+            app.needs_rebuild,
+            "frame {frames}: a due follower frame requests a rebuild"
+        );
+        rebuild_single_pane_cursor(&mut app, now, 60);
+        frames += 1;
+        if let Some(next) = app.cursor_streak_deadline() {
+            assert_eq!(
+                next.saturating_duration_since(now),
+                Duration::from_millis(16),
+                "the follower advances at the frame cadence"
+            );
+            now = next;
+        }
+    }
+    assert!(frames > 1, "the glide spans several frames, not one snap");
+    assert!(
+        now.saturating_duration_since(retargeted_at) <= settle + Duration::from_millis(16),
+        "settled within the settle bound plus one frame"
+    );
+    app.focused = false;
+    assert_eq!(
+        app.animation_deadline(),
+        None,
+        "a settled follower leaves no animation wake"
+    );
+}
+
+/// A synchronized-output hold still suppresses the follower's frame request:
+/// the held batch must not repaint mid-update. Only the hold's own timeout
+/// remains a wake.
+#[test]
+fn synchronized_output_hold_suppresses_single_pane_follower_frame() {
+    let Some(mut app) = follower_only_app() else {
+        return;
+    };
+    let t0 = Instant::now();
+    let due = start_large_jump_follower(&mut app, t0);
+    app.arm_active_sync_hold_for_test(t0);
+    assert_eq!(
+        app.animation_deadline(),
+        None,
+        "a held follower contributes no animation deadline"
+    );
+    assert_eq!(app.focused_cursor_animation_deadline(), None);
+
+    app.needs_rebuild = false;
+    app.run_about_to_wait_maintenance_for_test(due);
+    assert!(
+        !app.needs_rebuild,
+        "a synchronized-output hold suppresses the follower frame"
+    );
+    match app.next_wake_deadline_for_surface_for_test(true) {
+        None => {}
+        Some(next) => assert!(next > due, "a held follower strands no past wake"),
+    }
+}
+
 /// Reveal-zone regression (#1, padding-aware trigger): the trigger band is
 /// measured from the window edge inward by `pad + reveal_px`, so a pointer
 /// resting `reveal_px` into the *visible content* (just past the padding
