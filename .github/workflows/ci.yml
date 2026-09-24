@@ -46,8 +46,17 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
+      # Transient runner checkout failures (for example exit 128 on
+      # macOS runners) would otherwise fail the whole job. The first
+      # attempt continues on error and the retry step reruns it in-job.
+      # The same pair is used for every checkout in ci.yml and release.yml.
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       # The Wayland title-bar text backend (crossfont) links FreeType and
@@ -233,6 +242,16 @@ jobs:
     steps:
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # This job only reads source text; it never pushes. Leaving the
+          # checkout token out of .git/config keeps it away from the scripts
+          # this job runs.
+          persist-credentials: false
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           # This job only reads source text; it never pushes. Leaving the
@@ -297,6 +316,11 @@ jobs:
     steps:
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: shellcheck

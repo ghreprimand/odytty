@@ -28,6 +28,13 @@ jobs:
     steps:
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -79,6 +86,13 @@ jobs:
     steps:
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -138,6 +152,13 @@ jobs:
     steps:
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -203,6 +224,13 @@ jobs:
     steps:
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -271,6 +299,13 @@ jobs:
     steps:
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -343,6 +378,13 @@ jobs:
     steps:
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -416,6 +458,13 @@ jobs:
     steps:
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -497,6 +546,13 @@ jobs:
     steps:
       - name: Checkout
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -544,6 +600,13 @@ jobs:
     steps:
       - name: Checkout release source
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout release source (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
@@ -745,6 +808,14 @@ jobs:
     steps:
       - name: Checkout master
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Checkout master (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: master
@@ -849,6 +920,15 @@ jobs:
     steps:
       - name: Checkout master
         # v4.2.2
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: master
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout master (retry)
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: master
