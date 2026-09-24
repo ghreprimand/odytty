@@ -12,6 +12,7 @@ For installation and a shorter overview, start with the
   - [Paste Safety](#paste-safety)
   - [Drop Local File Paths](#drop-local-file-paths)
 - [Text, Emoji, And Graphics](#text-emoji-and-graphics)
+  - [How Text Is Drawn](#how-text-is-drawn)
 - [Tab And Pane Workflow](#tab-and-pane-workflow)
   - [Open, Close, And Switch Tabs](#open-close-and-switch-tabs)
   - [Adjust The Tab Bar](#adjust-the-tab-bar)
@@ -354,6 +355,43 @@ line weight when a different visual density is preferred.
 Text colors are composed in linear light, with an sRGB surface preferred for
 correct antialiased edges. `text_gamma` controls coverage weight independently,
 and optional subpixel antialiasing uses dual-source blending on capable GPUs.
+
+### How Text Is Drawn
+
+Ordinary terminal text follows the same path on Linux, macOS, and Windows:
+
+1. **Choose a font.** The bundled Victor Mono, JetBrains Mono, and Nerd Font
+   symbol faces are built into the binary. System families and fallback faces
+   come from the platform font directories. On Linux, a character missing from
+   every loaded face is looked up through Fontconfig (`fc-match` and `fc-list`)
+   and the result is checked for real coverage before use; macOS and Windows
+   use a fixed list of system symbol faces.
+2. **Read the font.** Font files are parsed with `skrifa`, part of the
+   maintained Fontations Rust font stack, behind a small OdyTTY-owned font
+   handle. It supplies family and style names, metrics, character coverage,
+   and glyph outlines, and it rejects malformed files without panicking.
+3. **Rasterize.** Outlines are converted to grayscale coverage by
+   `ab_glyph_rasterizer`, with synthetic bold or italic and stem darkening
+   applied, then cached once per glyph and size in a GPU atlas.
+4. **Compose.** The GPU applies the `text_gamma` coverage weight and blends the
+   coverage with the text color in linear light, optionally with subpixel
+   antialiasing.
+
+Box drawing, blocks, Braille, Powerline separators, and legacy-computing cells
+skip steps 2 and 3 and use OdyTTY's procedural cell coverage. Programming
+ligatures are shaped with `swash`, and color emoji use `swash`, Fontations, and
+a separate color atlas (see [Render Color Emoji](#render-color-emoji)).
+
+The window title bar is separate from terminal text. macOS and Windows draw it
+natively, and X11 window managers and most Wayland compositors draw their own.
+When a Wayland compositor asks the application to draw its own title bar, the
+title text is rendered through the system FreeType and Fontconfig libraries
+(`crossfont`), so Linux builds link those two libraries.
+
+Version 0.15.5 moved font reading from `ttf-parser` and `ab_glyph` to `skrifa`
+while keeping the same rasterizer. On the sampled bundled faces, sizes, and
+positions, the new path produced identical glyph pixels, and controlled
+before/after window captures were byte-identical.
 
 ### Render Color Emoji
 

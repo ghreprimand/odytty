@@ -168,24 +168,22 @@ Build requirements:
 
 ```text
 rust 1.96 or newer, including cargo
+Linux only: pkg-config plus the FreeType and Fontconfig development files
 ```
 
-The release runner also prepares Linux development packages used by its wider
-packaging and smoke environment. They are not link-time requirements for the
-Rust build itself; the reference PKGBUILD therefore needs only `cargo` in
-`makedepends`.
-
-The font stack is pure-Rust (`ab_glyph`, `swash`, `ttf-parser` for
-metadata-only reads), so there is **no** build/link dependency on `freetype2`.
-`fontconfig` is a **runtime-only** dependency: OdyTTY shells out to `fc-match`
-to backfill symbol glyphs from the host font set. It is not needed to build or
-link the binary, only at run time on systems that rely on that backfill.
-The packaged runtime dependency lists (`.deb`, `.rpm`, AUR) still name
-`freetype2` deliberately: the shipped binary links only libc, libm, and
-libgcc_s (verified with `readelf -d` on a release build), but the `fc-match`
-tooling it executes is built on FreeType, so the entry records that indirect
-requirement and keeps the three lists identical. It is not a link-time
-dependency and its removal would change nothing about the binary.
+Normal terminal text is parsed with the pure-Rust `skrifa` crate and rasterized
+with `ab_glyph_rasterizer`, so it needs no system font library. On Linux, the
+Wayland client-side title-bar text backend (`crossfont`) links the system
+FreeType and Fontconfig libraries: a Linux release binary lists
+`libfreetype.so.6` and `libfontconfig.so.1` as shared-library dependencies next
+to libc, libm, and libgcc_s, and the build finds them through `pkg-config`.
+OdyTTY also runs the Fontconfig `fc-match` and `fc-list` tools to backfill
+symbol glyphs from the host font set. The `.deb`, `.rpm`, and AUR runtime
+dependency lists therefore name `fontconfig` and `freetype2` (or their
+distribution equivalents). On Arch, `pkgconf` comes from `base-devel` and the
+headers ship in the runtime packages, so the reference PKGBUILD needs only
+`cargo` in `makedepends`. macOS and Windows builds have no extra system
+dependencies.
 
 Distribution build systems that forbid network access should vendor Rust crates
 before the build step:
