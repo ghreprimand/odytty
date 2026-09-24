@@ -773,6 +773,17 @@ On macOS, use
 `grep " odytty.tar.gz$" SHA256SUMS | shasum -a 256 -c -` for the verification
 line.
 
+On Linux, the Wayland title-bar text backend links FreeType and Fontconfig
+through `pkg-config`, so install their development packages first:
+
+```sh
+sudo apt install pkg-config libfontconfig1-dev libfreetype6-dev   # Debian/Ubuntu
+sudo dnf install pkgconf-pkg-config fontconfig-devel freetype-devel   # Fedora
+sudo pacman -S --needed pkgconf fontconfig freetype2   # Arch
+```
+
+macOS and Windows need no extra packages.
+
 Build the release binary:
 
 ```sh

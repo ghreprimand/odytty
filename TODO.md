@@ -1,6 +1,6 @@
 # OdyTTY — TODO
 
-Published release: **v0.15.0**.
+Published release: **v0.15.5**.
 
 The milestones below distinguish published work, active development, explicit
 deferrals, and unmet evidence. Release corrections are listed in the
@@ -43,11 +43,13 @@ unperformed because maintainer hardware was unavailable. Version 0.14.0
 Session Navigator) is published. Profile and navigator acceptance,
 release-image testing, blocking CI, signed artifacts, provenance, and package
 propagation are complete. The isolated published-source release build also
-passed on Linux with Rust 1.97.1; no new MSRV claim is made. Active v0.15.0
-development (quick terminal, local automation API, file drop, and keyboard-first
+passed on Linux with Rust 1.97.1; no new MSRV claim is made. The v0.15.0
+scope (quick terminal, local automation API, file drop, and keyboard-first
 window merge) is complete on `master` with device acceptance recorded on Linux,
 Windows, and macOS; see the roadmap and
-[`docs/releases/0.15.0.md`](docs/releases/0.15.0.md). A checked item is delivered at the current head (or at the historical
+[`docs/releases/0.15.0.md`](docs/releases/0.15.0.md). Version 0.15.5 is the
+font-maintenance and Wayland reliability patch recorded below; see
+[`docs/releases/0.15.5.md`](docs/releases/0.15.5.md). A checked item is delivered at the current head (or at the historical
 milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as
@@ -57,6 +59,35 @@ recorded milestone before implementation.
 ## Release preparation
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
+
+## v0.15.5: Font Stack Maintenance and Wayland Reliability (published)
+
+Status notes: [`docs/releases/0.15.5.md`](docs/releases/0.15.5.md).
+
+Blocking Linux, macOS, and Windows CI passed on each change. Artifact, checksum,
+signature, and package-channel verification follow the tag and are recorded in
+the devlog.
+
+- [x] Move normal-text font metadata, metrics, and outlines to `skrifa` behind
+      an OdyTTY-owned font handle, keeping the existing coverage rasterizer.
+      Sampled glyph coverage and controlled Wayland/Xwayland screenshots are
+      unchanged.
+- [x] Draw client-side Wayland title-bar text through crossfont and remove
+      `ttf-parser`, `owned_ttf_parser`, and `ab_glyph` from both lockfiles;
+      close the dated RustSec exception.
+- [x] Recover a focused Wayland window from a lost frame callback with bounded
+      direct repaints and a distinct watchdog record.
+- [x] Stop timed animations from busy-waking a focused idle Wayland window.
+- [x] Device acceptance: Linux Wayland/Xwayland rendering, Weston client-side
+      title bar, display-scale moves, plain render quality, and discrete-GPU
+      sibling close; macOS and Windows text, style, emoji, symbol, wrap, and
+      font-size checks. Cold startup, the exact-geometry memory guard, scripted
+      mixed-width typing and selection, and macOS/Windows scale moves are
+      recorded as not measured.
+- [ ] Deferred to a later release: Windows long wrapped PowerShell prompt input
+      offset and the Ctrl+Shift+N character leak (both also present in v0.15.0).
+- [ ] Deferred to a later release: automatic CJK font discovery for default
+      fonts.
 
 ## v0.15.0: Quick Access, Local Control, File Drop, and Window Merge (published)
 

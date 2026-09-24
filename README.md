@@ -1,6 +1,6 @@
 # OdyTTY
 
-Published release: **v0.15.0**.
+Published release: **v0.15.5**.
 
 Current development work is tracked in [TODO.md](TODO.md). Release evidence
 and historical corrections are listed in the [release index](docs/releases/README.md).
@@ -176,7 +176,12 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.15.0 is published, adding a
+OdyTTY is a broad pre-1.0 terminal. Version 0.15.5 is published. It is a
+maintenance and reliability patch over v0.15.0: normal-text font parsing moves to
+the maintained Fontations `skrifa` library with unchanged sampled rendering, and
+two Wayland fixes cover repaint recovery after a lost frame callback and a
+focused-idle CPU loop; see the
+[v0.15.5 release notes](docs/releases/0.15.5.md). Version 0.15.0 added a
 dedicated quick terminal, an owner-scoped local automation endpoint and control
 CLI, confirm-first external file drop, keyboard-first window merging, and the
 Electric Blue theme, while preserving the existing terminal-input and
@@ -187,9 +192,11 @@ launch profiles, external palette following, and unified Session Navigator; the
 [named profiles guide](docs/profiles.md) covers profiles, and the release index
 above records every published version.
 
-The v0.15.0 work does not optimize rendering, terminal storage, GPU allocation,
-or presentation timing, so it carries forward rather than relabels the v0.12.0
-performance evidence.
+Neither v0.15.0 nor v0.15.5 optimizes rendering throughput, terminal storage,
+GPU allocation, or presentation timing, so both carry forward rather than relabel
+the v0.12.0 performance evidence. The v0.15.5 font change was compared before and
+after on one Linux workstation (benchmark rows, warm startup, and idle memory)
+without a new cross-terminal comparison.
 
 That preregistered v0.12.0 W6 run records 89.0 MB current and 130.7 MB peak
 memory on the benchmark environment, down 68.9 and 60.1 percent respectively

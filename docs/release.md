@@ -65,8 +65,8 @@ Run `python3 scripts/release-notes.py --version X.Y.Z --check` before tagging.
 Also run `python3 scripts/documentation-guard.py --release-version X.Y.Z`.
 This checks publication markers and the target TODO milestone; it does not
 verify the evidence behind completion claims. Follow the
-[documentation maintenance policy](documentation-policy.md) for candidate and
-post-publication status. The notes check rejects a missing, mismatched, or
+[documentation maintenance policy](documentation-policy.md) for publication
+status. The notes check rejects a missing, mismatched, or
 unreleased summary. CI checks the
 current package version; the source producer and publication workflow enforce
 the same requirement for the release version.
@@ -303,10 +303,13 @@ newest-first relative link to `DEVLOG.md` in the same commit.
 
 Before the version commit, reconcile README, SPEC, TODO, release notes, feature
 guides, known gaps, installer/package documentation, and the website handoff.
-Keep candidate status distinct from verified publication; leave only explicitly
-separated post-publication checks open. Run both documentation and notes guards.
-After publication, record the actual artifact/channel outcomes and update all
-published-version markers together. Never move an existing tag to repair prose.
+The version commit is the commit that receives the tag, so it sets the
+`Published release` markers, the `(published)` TODO section, any shipped roadmap
+checkpoint, and the release devlog heading together; see the
+[documentation maintenance policy](documentation-policy.md#publication-status).
+Run both documentation and notes guards. After publication, record the actual
+artifact and channel outcomes in the devlog. Never move an existing tag to repair
+prose.
 
 Commit these changes together and push `master`. Wait for the complete CI
 workflow on that exact commit to pass: the Linux, macOS, and Windows matrix jobs
@@ -402,6 +405,13 @@ the source and packaged Linux binaries report `odytty 0.13.0`. Public Scoop,
 Homebrew cask/formula, and AUR metadata all carry v0.13.0 and the matching
 published hashes. Native macOS and Windows on-device runtime checks remain
 **not performed** for the hardware reason above.
+
+Version 0.15.5 changes font parsing and two Wayland presentation paths. Its
+before/after evidence is limited to one Linux workstation: the frozen benchmark
+rows, warm startup readiness, and paired idle memory were preserved, and focused
+idle CPU on Wayland dropped from about one core to zero at rest. Cold startup, the
+exact-geometry memory regression guard, and a new cross-terminal comparison are
+**not run**; the v0.12.0 results remain the applicable comparative evidence.
 
 ### 3. Push The Release Tag
 

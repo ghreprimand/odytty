@@ -9,19 +9,20 @@ links corrections to old documentation.
 ## Publication status
 
 The release index, README, SPEC, and TODO each carry one
-`Published release: **vX.Y.Z**.` line. Update these together only after
-publication is verified. A release candidate uses a separate
-`Release candidate: **vX.Y.Z**.` line in all four documents; this does not claim
-that the candidate has already been published.
+`Published release: **vX.Y.Z**.` line. The version commit that receives the tag
+updates these together, so the tagged source already describes its own version
+as published: the target TODO section uses `(published)`, any roadmap checkpoint
+for the version reads as shipped, and the current devlog archive carries the
+`## YYYY-MM-DD -- Release vX.Y.Z -- Summary` entry. The target TODO section lists
+completed feature and acceptance work accurately; deferred work remains
+explicitly labelled `Deferred` and cannot conceal a required release feature.
 
-Before tagging, the target TODO section uses `(release candidate)` and lists
-completed feature and pre-publication acceptance work accurately. Outstanding
-artifact and channel checks belong under `### Post-publication checks`. Deferred
-work remains explicitly labelled `Deferred` and cannot conceal a required
-release feature. After publication, update the candidate section to `(published)`,
-record the actual artifact/channel results, update the published markers, and
-remove the candidate markers in a follow-up documentation change. Do not invent
-a pass to close a checkbox.
+Artifact, signature, checksum, and package-channel verification happens after
+the tag and is recorded in the devlog; it does not reopen the published
+markers. If a release job fails, fix forward without moving the tag. The
+documentation guard still accepts a separate `Release candidate: **vX.Y.Z**.`
+line for an untagged candidate; that line does not claim publication. Do not
+invent a pass to close a checkbox.
 
 Run these offline checks when changing release-status documentation:
 

@@ -44,6 +44,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.15.5" date="2026-09-24">
+      <description>
+        <p>This release moves normal-text font metadata, metrics, and outlines to the maintained Fontations skrifa library behind an OdyTTY-owned font handle, keeping the existing glyph rasterizer, and draws client-side Wayland title-bar text through the system FreeType and Fontconfig libraries. The unmaintained ttf-parser crate no longer appears in the dependency graph. Sampled glyph output and controlled screenshots are unchanged.</p>
+        <p>Two Wayland reliability fixes are included: a focused window whose compositor stops returning frame callbacks now recovers with bounded direct repaints and a named watchdog record, and timed animations no longer keep a focused idle window busy-waking the event loop.</p>
+      </description>
+    </release>
     <release version="0.15.0" date="2026-09-13">
       <description>
         <p>This release adds a dedicated quick terminal summoned by a global shortcut, with platform-specific registration, hidden-session retention, single-instance summons, and actionable notices for denied or conflicting shortcuts. An opt-in, owner-scoped local automation endpoint and a small control CLI list and focus windows, workspaces, tabs, and panes, open profiles, create tabs, splits, and workspaces, and rename, without sending terminal input or reading terminal content, and without any network listener.</p>
