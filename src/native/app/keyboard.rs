@@ -717,6 +717,7 @@ impl App {
             return;
         };
 
+        self.commit_context_menu_scroll();
         let outcome = self.overlay.handle_input(input);
         self.apply_overlay_outcome_with_policy(outcome, event_type == KeyEventType::Repeat);
         self.request_selection_redraw();

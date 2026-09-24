@@ -328,7 +328,7 @@ pub(super) fn apply_image_view_caption(snapshot: &mut Snapshot, overlay: &Overla
 /// title row. Item text starts at `left + 2` (border + one pad column), matching
 /// the centered panels' body inset.
 pub(super) fn apply_context_menu(snapshot: &mut Snapshot, overlay: &OverlayUi, rect: OverlayRect) {
-    use crate::native::context_menu_ui::ContextMenuRow;
+    use crate::native::context_menu_ui::{ContextMenuRow, ContextMenuUi};
 
     fill_rect(
         snapshot,
@@ -402,7 +402,7 @@ pub(super) fn apply_context_menu(snapshot: &mut Snapshot, overlay: &OverlayUi, r
     // visible window and a ▼ on the bottom border when rows are hidden below.
     // Painting onto the border (not a body row) keeps the body window full, so
     // the fits-on-screen case draws neither and stays byte-identical.
-    let arrow_col = rect.left + rect.width / 2;
+    let arrow_col = ContextMenuUi::overflow_arrow_column(&rect);
     if scroll > 0 {
         write_text(snapshot, rect.top, arrow_col, 1, "▲", border_attrs());
     }

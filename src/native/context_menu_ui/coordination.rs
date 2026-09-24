@@ -29,6 +29,8 @@ impl Default for ContextMenuUi {
             accelerators: std::array::from_fn(|_| None),
             reserved_cols_left: 0,
             reserved_cols_right: 0,
+            wheel_remainder: 0.0,
+            scroll_anchor: 0,
         }
     }
 }
@@ -120,6 +122,7 @@ impl ContextMenuUi {
         // (RAIL-REVALIDATE), so a stale name never leaks across surfaces.
         self.workspace_slot_name = None;
         self.focused = 0;
+        self.reset_scroll_input();
         // Rail clearance is opt-in per open: the App re-applies it via
         // `set_rail_clearance` only for a rail-anchored menu under auto-hide.
         // Reset here so a stale reserve never leaks into an unrelated menu.
@@ -164,6 +167,7 @@ impl ContextMenuUi {
         self.navigator_detached_available = false;
         self.workspace_slot_name = None;
         self.focused = 0;
+        self.reset_scroll_input();
         // The connection-row menu spawns over the full-screen manager (the rail
         // is hidden while that overlay is open), so it needs no rail clearance.
         self.reserved_cols_left = 0;
@@ -204,6 +208,7 @@ impl ContextMenuUi {
         self.navigator_detached_available = detached_available;
         self.workspace_slot_name = None;
         self.focused = 0;
+        self.reset_scroll_input();
         // The navigator menu spawns over the full-screen navigator overlay (the
         // rail is hidden while that overlay is open), so it needs no rail
         // clearance.

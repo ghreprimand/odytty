@@ -19,6 +19,7 @@ use crate::native::theme_picker::ThemePickerOutcome;
 use crate::native::workspace_picker::WorkspacePickerOutcome;
 use crate::selection::CellPoint;
 use crate::settings::KeyChord;
+use winit::event::MouseScrollDelta;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
 use super::contracts::{OverlayInput, OverlayMode, OverlayOutcome, OverlayPointer, PointerButton};
@@ -111,6 +112,15 @@ impl OverlayUi {
                     // Click-away = Esc; routes through the per-mode close path so
                     // the theme picker/builder restore their original theme.
                     return self.handle_input(OverlayInput::Close);
+                }
+                // Context-menu overflow marks sit on the top and bottom border.
+                // A left press on a drawn mark scrolls the menu window one row
+                // toward the hidden rows (focus that leaves the window clamps
+                // into it); unmarked border cells stay inert below.
+                if self.mode == OverlayMode::ContextMenu
+                    && self.context_menu.handle_arrow_press(cell, &rect, button)
+                {
+                    return OverlayOutcome::Consumed;
                 }
                 let Some(row_in_body) = cell.row.checked_sub(rect.body_top) else {
                     if self.settings_title_back_hit(cell, rect)
@@ -432,6 +442,8 @@ impl OverlayUi {
                     OverlayMode::ContextMenu => {
                         // Hover-to-focus (D-IN2-6): move focus to the item under
                         // the pointer; off-item (border) hovers leave it as is.
+                        // The hovered item is visible, so the sticky window
+                        // never moves on hover.
                         let row_in_body = cell.row.checked_sub(rect.body_top);
                         self.context_menu
                             .handle_hover(row_in_body, rect.body_height);
@@ -529,13 +541,18 @@ impl OverlayUi {
                     OverlayMode::ProfilePicker => self.profile_picker.scroll_lines(lines),
                     OverlayMode::ProfileManager => self.profile_manager.scroll_lines(lines),
                     OverlayMode::ContextMenu => {
-                        // Wheel moves the focused item (and thus the focus-
-                        // derived scroll window), mirroring the picker overlays.
-                        self.context_menu.handle_input(if lines < 0 {
-                            OverlayInput::Up
-                        } else {
-                            OverlayInput::Down
-                        });
+                        // The App routes real wheel events for this menu through
+                        // `context_menu_wheel` (own remainder, pointer focus).
+                        // Direct callers get the same model as one notch: the
+                        // window scrolls one row, never the x3 `wheel_lines`
+                        // magnitude. `lines < 0` is toward earlier rows.
+                        let y = if lines < 0 { 1.0 } else { -1.0 };
+                        self.context_menu.handle_wheel(
+                            MouseScrollDelta::LineDelta(0.0, y),
+                            1,
+                            rect.body_height,
+                            None,
+                        );
                     }
                     // Onboarding, the close/attach dialogs, and the image viewer
                     // are static, non-scrolling cards: the wheel has nothing to
@@ -556,6 +573,38 @@ impl OverlayUi {
                 }
                 OverlayOutcome::Consumed
             }
+        }
+    }
+
+    /// Feed a raw wheel delta to an open context menu (see
+    /// [`crate::native::context_menu_ui::ContextMenuUi::handle_wheel`]). The
+    /// wheel scrolls the menu window; `pointer` is the pointer cell at the time
+    /// of the event, and focus follows the item under it when it is on a
+    /// visible body row. Returns the number of rows the window moved; a no-op
+    /// when the context menu is not open.
+    pub(in crate::native) fn context_menu_wheel(
+        &mut self,
+        delta: MouseScrollDelta,
+        cell_height: u32,
+        pointer: Option<CellPoint>,
+        rect: OverlayRect,
+    ) -> usize {
+        if !self.is_context_menu() {
+            return 0;
+        }
+        let pointer_row = pointer
+            .filter(|cell| rect.contains(*cell))
+            .and_then(|cell| cell.row.checked_sub(rect.body_top))
+            .filter(|row| *row < rect.body_height);
+        self.context_menu
+            .handle_wheel(delta, cell_height, rect.body_height, pointer_row)
+    }
+
+    /// Commit the context menu's displayed window before a keyboard focus move
+    /// (keyboard input carries no geometry). A no-op for other overlays.
+    pub(in crate::native) fn commit_context_menu_scroll(&mut self, body_height: usize) {
+        if self.is_context_menu() {
+            self.context_menu.commit_scroll(body_height);
         }
     }
 

@@ -203,7 +203,7 @@ fn wheel_delta_notches(delta: MouseScrollDelta, cell_height: u32) -> f64 {
 /// remainder in one direction would partially cancel a fresh scroll the other
 /// way — and the carry could oscillate without ever settling. A zero delta
 /// leaves the carry untouched (no phantom motion).
-fn carry_add(accum: f64, delta: f64) -> f64 {
+pub(super) fn carry_add(accum: f64, delta: f64) -> f64 {
     if accum != 0.0 && delta != 0.0 && accum.signum() != delta.signum() {
         delta
     } else {

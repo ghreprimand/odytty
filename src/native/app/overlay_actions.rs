@@ -1080,10 +1080,50 @@ impl App {
         self.request_selection_redraw();
     }
 
+    /// Commit the open context menu's displayed window before a keyboard focus
+    /// move, so keys start from the window on screen (sticky scroll). A no-op
+    /// for every other overlay.
+    pub(in crate::native) fn commit_context_menu_scroll(&mut self) {
+        if !self.overlay.is_context_menu() {
+            return;
+        }
+        let (win_cols, win_rows) = self.overlay_grid_dims();
+        if let Some(rect) = overlay_rect(&self.overlay, win_cols, win_rows) {
+            self.overlay.commit_context_menu_scroll(rect.body_height);
+        }
+    }
+
     /// Translate a winit wheel event over an open overlay into an
     /// [`OverlayPointer::Wheel`] free-scroll of the panel list (UX4-P1).
     pub(in crate::native) fn handle_overlay_pointer_wheel(&mut self, delta: MouseScrollDelta) {
         let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
+        // Context menu: the wheel scrolls the menu window one row per row of
+        // travel, with its own pixel remainder, and focus follows the item
+        // under the pointer (see `ContextMenuUi::handle_wheel`). On macOS the raw delta bypasses the
+        // shared overlay damper, so a damper retune cannot change this menu and
+        // this remainder cannot change settings/pickers. Elsewhere the shared
+        // `coalesce_scroll` notch is passed as a `LineDelta`: one notch = one
+        // row. The x3 `wheel_lines` magnitude is deliberately NOT applied to
+        // this menu on any OS (one notch = one row); do not restore it.
+        if self.overlay.is_context_menu() {
+            let pointer = self.overlay_pointer_cell();
+            let delta = if cfg!(target_os = "macos") {
+                delta
+            } else {
+                let Some(notch) = self.wheel_accum.coalesce_scroll(delta, cell_height) else {
+                    return;
+                };
+                notch
+            };
+            let (win_cols, win_rows) = self.overlay_grid_dims();
+            let Some(rect) = overlay_rect(&self.overlay, win_cols, win_rows) else {
+                return;
+            };
+            self.overlay
+                .context_menu_wheel(delta, cell_height, pointer, rect);
+            self.request_selection_redraw();
+            return;
+        }
         // P1-8: macOS trackpad / Magic-Mouse inertial scroll arrives as a
         // `PixelDelta` burst with a decaying momentum tail that winit does not
         // phase-tag, so the shared cell-height coalescer would fire many list

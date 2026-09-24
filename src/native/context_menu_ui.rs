@@ -449,6 +449,16 @@ pub(super) struct ContextMenuUi {
     /// the pre-clearance layout.
     reserved_cols_left: usize,
     reserved_cols_right: usize,
+    /// Signed pixel remainder toward the next wheel row (macOS `PixelDelta`
+    /// path). One row is subtracted per emitted step, so a fast flick moves
+    /// several rows and a slow tail can still finish the next row. Cleared on
+    /// open and by any discrete `LineDelta` notch.
+    wheel_remainder: f64,
+    /// First visible body row as last committed by a handler that knew the
+    /// body height (see [`Self::scroll_offset`]). The window stays here until
+    /// focus leaves it or an overflow mark / the wheel scrolls it. Reset to 0
+    /// on open.
+    scroll_anchor: usize,
 }
 
 #[cfg(test)]

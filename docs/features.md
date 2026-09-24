@@ -564,6 +564,13 @@ Local Tab for a host-bound workspace, Duplicate Tab, Rename Tab, Close Tab,
 Close Other Tabs, **Connect to Host…**, **Replace with Host…**, optional **Move
 to Workspace…**, and New Window.
 
+When a menu is taller than the window, the arrow marks on its top and bottom
+border show that more items are hidden; clicking a mark scrolls the menu one
+row. The mouse wheel and trackpad also scroll the menu by whole rows (a
+trackpad keeps partial travel toward the next row), and the highlight follows
+the item under the pointer. The visible rows stay put while the pointer or the
+arrow keys move within them, and move only when the highlight would leave them.
+
 **Connect to Host…** opens a saved host in a new tab immediately after the
 clicked tab without changing the clicked shell. **Replace with Host…** replaces
 the clicked tab and asks for confirmation when that tab still has a program

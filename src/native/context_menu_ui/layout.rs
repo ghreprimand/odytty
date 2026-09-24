@@ -411,10 +411,12 @@ impl ContextMenuUi {
 
     /// The first body row to render, given the box-clamped `body_height`. When
     /// every row fits (`body_height >= body_row_count`) this is always `0` — the
-    /// normal case, byte-identical to the pre-scroll layout. Otherwise it is the
-    /// smallest offset that keeps the focused item inside the
-    /// `[offset, offset + body_height)` window, clamped so the last row is
-    /// reachable and the window never scrolls past the final body row.
+    /// normal case, byte-identical to the pre-scroll layout. Otherwise the
+    /// window is sticky: it stays at the committed scroll anchor and moves only
+    /// as far as needed to keep the focused item inside the
+    /// `[offset, offset + body_height)` window, clamped so the window never
+    /// scrolls past the final body row. Focus moving inside the window (hover,
+    /// or Up from the bottom row) therefore never drags the window.
     pub(in crate::native) fn scroll_offset(&self, body_height: usize) -> usize {
         let total = self.body_row_count();
         if body_height == 0 || total <= body_height {
@@ -422,7 +424,9 @@ impl ContextMenuUi {
         }
         let max_scroll = total - body_height;
         let focused_row = self.focused_body_row();
-        let desired = focused_row.saturating_sub(body_height - 1);
-        desired.min(max_scroll)
+        let lowest = focused_row.saturating_sub(body_height - 1);
+        self.scroll_anchor
+            .clamp(lowest, focused_row)
+            .min(max_scroll)
     }
 }
