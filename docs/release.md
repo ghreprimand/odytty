@@ -413,6 +413,18 @@ idle CPU on Wayland dropped from about one core to zero at rest. Cold startup, t
 exact-geometry memory regression guard, and a new cross-terminal comparison are
 **not run**; the v0.12.0 results remain the applicable comparative evidence.
 
+Tag `v0.15.5` points to commit `9b184b1da74bb97c8fe1b3c845bba7c5d00237fe`.
+Exact-commit CI run `35949393763` passed on Ubuntu, macOS, and Windows, and
+release run `35950242757` passed every producer, the same-commit CI check,
+publication, and the Scoop, Homebrew, and AUR jobs. A post-publish check
+downloaded all 17 assets, verified the Minisign signature and every checksum,
+compared all seven alias/pinned pairs byte-for-byte, verified the AppImage,
+Linux tarball, Windows, and macOS attestations against the release workflow
+and tag commit, confirmed the AppImage and tarball binaries report
+`odytty 0.15.5`, and built the pinned source archive with the locked graph.
+The Scoop manifest, Homebrew cask and formula, and AUR package carry v0.15.5
+with the published hashes.
+
 ### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful

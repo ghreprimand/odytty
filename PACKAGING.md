@@ -174,9 +174,12 @@ Linux only: pkg-config plus the FreeType and Fontconfig development files
 Normal terminal text is parsed with the pure-Rust `skrifa` crate and rasterized
 with `ab_glyph_rasterizer`, so it needs no system font library. On Linux, the
 Wayland client-side title-bar text backend (`crossfont`) links the system
-FreeType and Fontconfig libraries: a Linux release binary lists
-`libfreetype.so.6` and `libfontconfig.so.1` as shared-library dependencies next
-to libc, libm, and libgcc_s, and the build finds them through `pkg-config`.
+FreeType and Fontconfig libraries, and the build finds them through
+`pkg-config`. The published v0.15.5 Linux binary records `libfontconfig.so.1`
+as a direct shared-library dependency next to libc, libm, and libgcc_s, and
+resolves its FreeType symbols through Fontconfig's own FreeType dependency; a
+local toolchain may also record `libfreetype.so.6` directly. Either way, both
+libraries must be present at run time.
 OdyTTY also runs the Fontconfig `fc-match` and `fc-list` tools to backfill
 symbol glyphs from the host font set. The `.deb`, `.rpm`, and AUR runtime
 dependency lists therefore name `fontconfig` and `freetype2` (or their

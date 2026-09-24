@@ -189,8 +189,8 @@ harness = false
 # Linux x86_64 release binary as a slim alternative to the portable AppImage.
 # The release CI builds on ubuntu-22.04, so the glibc floor is 2.35; `$auto`
 # expands (via dpkg-shlibdeps) to the exact ldd-linked runtime deps with their
-# version floors (libc6, libgcc-s1, libm, and the FreeType and Fontconfig
-# libraries linked by the Wayland title-bar text backend). The Vulkan and
+# version floors (libc6, libgcc-s1, libm, and the Fontconfig library linked by
+# the Wayland title-bar text backend, which also uses FreeType through it). The Vulkan and
 # xkbcommon libraries are dlopen'd at runtime by winit/wgpu (they never appear
 # in `ldd`), so the runtime set is declared explicitly here, mirroring the AUR
 # runtime set mapped to Debian package names. libwayland-client0 is intentionally omitted: winit dlopens it
