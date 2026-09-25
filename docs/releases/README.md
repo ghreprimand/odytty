@@ -1,12 +1,13 @@
 # Release notes
 
-Published release: **v0.15.5**.
+Published release: **v0.15.6**.
 
 A short guide to what each OdyTTY release adds or improves for everyday use.
 For the detailed development history, see the [devlog](../../DEVLOG.md).
 
 | Release | Highlights |
 | --- | --- |
+| [v0.15.6](0.15.6.md) | Long cursor moves glide without pausing again, and overflowing right-click menus scroll predictably. |
 | [v0.15.5](0.15.5.md) | Maintained font parsing with unchanged text rendering, Wayland repaint recovery, and an idle CPU fix. |
 | [v0.15.0](0.15.0.md) | A dedicated quick terminal, owner-scoped local automation and control CLI, confirm-first external file drop, keyboard-first window merge, and the Electric Blue theme. |
 | [v0.14.0](0.14.0.md) | Named profiles, external palette following, Session Navigator, and targeted hardening. |

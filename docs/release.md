@@ -425,6 +425,14 @@ and tag commit, confirmed the AppImage and tarball binaries report
 The Scoop manifest, Homebrew cask and formula, and AUR package carry v0.15.5
 with the published hashes.
 
+Version 0.15.6 changes cursor-animation frame scheduling and context-menu
+scrolling only. It makes no rendering-throughput, startup, or memory claim, and
+the v0.12.0 results remain the applicable comparative evidence. Its regression
+tests show that a due large-jump follower requests a single-pane frame, that the
+follower then settles on those wakes within its settle bound, and that a settled
+follower leaves no animation wake. They do not measure idle CPU; the v0.15.5
+idle-CPU result is not re-measured here.
+
 ### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful

@@ -1,6 +1,6 @@
 # OdyTTY
 
-Published release: **v0.15.5**.
+Published release: **v0.15.6**.
 
 Current development work is tracked in [TODO.md](TODO.md). Release evidence
 and historical corrections are listed in the [release index](docs/releases/README.md).
@@ -176,7 +176,10 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.15.5 is published. It is a
+OdyTTY is a broad pre-1.0 terminal. Version 0.15.6 is published. It fixes a
+v0.15.5 regression in which long cursor moves paused partway through their
+glide, and makes overflowing right-click menus scroll predictably; see the
+[v0.15.6 release notes](docs/releases/0.15.6.md). Version 0.15.5 is a
 maintenance and reliability patch over v0.15.0: normal-text font parsing moves to
 the maintained Fontations `skrifa` library with unchanged sampled rendering, and
 two Wayland fixes cover repaint recovery after a lost frame callback and a
@@ -192,9 +195,9 @@ launch profiles, external palette following, and unified Session Navigator; the
 [named profiles guide](docs/profiles.md) covers profiles, and the release index
 above records every published version.
 
-Neither v0.15.0 nor v0.15.5 optimizes rendering throughput, terminal storage,
-GPU allocation, or presentation timing, so both carry forward rather than relabel
-the v0.12.0 performance evidence. The v0.15.5 font change was compared before and
+Neither v0.15.0, v0.15.5, nor v0.15.6 optimizes rendering throughput, terminal
+storage, GPU allocation, or presentation timing, so they carry forward rather
+than relabel the v0.12.0 performance evidence. The v0.15.5 font change was compared before and
 after on one Linux workstation (benchmark rows, warm startup, and idle memory)
 without a new cross-terminal comparison.
 

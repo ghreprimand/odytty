@@ -1,6 +1,6 @@
 # OdyTTY — TODO
 
-Published release: **v0.15.5**.
+Published release: **v0.15.6**.
 
 The milestones below distinguish published work, active development, explicit
 deferrals, and unmet evidence. Release corrections are listed in the
@@ -49,7 +49,9 @@ window merge) is complete on `master` with device acceptance recorded on Linux,
 Windows, and macOS; see the roadmap and
 [`docs/releases/0.15.0.md`](docs/releases/0.15.0.md). Version 0.15.5 is the
 font-maintenance and Wayland reliability patch recorded below; see
-[`docs/releases/0.15.5.md`](docs/releases/0.15.5.md). A checked item is delivered at the current head (or at the historical
+[`docs/releases/0.15.5.md`](docs/releases/0.15.5.md). Version 0.15.6 fixes its
+cursor-glide regression; see
+[`docs/releases/0.15.6.md`](docs/releases/0.15.6.md). A checked item is delivered at the current head (or at the historical
 milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as
@@ -59,6 +61,27 @@ recorded milestone before implementation.
 ## Release preparation
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
+
+## v0.15.6: Cursor Glide Regression and Menu Scrolling (published)
+
+Status notes: [`docs/releases/0.15.6.md`](docs/releases/0.15.6.md).
+
+Blocking Linux, macOS, and Windows CI passed on each change. Artifact, checksum,
+signature, and package-channel verification follow the tag and are recorded in
+the devlog.
+
+- [x] Request frames for the large-jump cursor follower in windows without
+      splits, so jumps longer than six cells glide without pausing (a v0.15.5
+      regression on every platform), with regression tests that fail before
+      the fix.
+- [x] Give overflowing right-click menus their own scroll position: clickable
+      overflow arrows, wheel and trackpad scrolling of the rows, and no list
+      jumps from hover or in-view arrow-key movement.
+- [x] Retry a failed CI and release checkout once within the job.
+- [x] Device acceptance: long-move cursor glide on Linux Wayland and macOS;
+      menu scrolling, including slow trackpad scrolling, on macOS. Linux menu
+      scrolling and all Windows behavior are covered by tests and CI only, and
+      idle CPU is not re-measured.
 
 ## v0.15.5: Font Stack Maintenance and Wayland Reliability (published)
 

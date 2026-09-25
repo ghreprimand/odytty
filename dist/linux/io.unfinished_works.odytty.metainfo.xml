@@ -44,6 +44,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.15.6" date="2026-09-24">
+      <description>
+        <p>This release fixes a v0.15.5 regression in which a cursor jump of more than six cells, such as Home or End on a long command line, paused partway through its glide before snapping to its destination. The large-jump cursor follower now requests its own animation frames in windows without splits.</p>
+        <p>Right-click menus taller than the window now keep their own scroll position: the overflow arrows scroll one row when clicked, the mouse wheel and trackpad scroll the menu by whole rows with the highlight staying on the row under the pointer, and hovering or moving the highlight with the arrow keys inside the visible rows does not move the list.</p>
+      </description>
+    </release>
     <release version="0.15.5" date="2026-09-24">
       <description>
         <p>This release moves normal-text font metadata, metrics, and outlines to the maintained Fontations skrifa library behind an OdyTTY-owned font handle, keeping the existing glyph rasterizer, and draws client-side Wayland title-bar text through the system FreeType and Fontconfig libraries. The unmaintained ttf-parser crate no longer appears in the dependency graph. Sampled glyph output and controlled screenshots are unchanged.</p>
