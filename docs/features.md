@@ -565,8 +565,8 @@ Close Other Tabs, **Connect to Host…**, **Replace with Host…**, optional **M
 to Workspace…**, and New Window.
 
 When a menu is taller than the window, the arrow marks on its top and bottom
-border show that more items are hidden; the marks are indicators and do not
-respond to clicks. The mouse wheel and trackpad also scroll the menu by whole rows (a
+border show that more items are hidden; clicking a mark scrolls the menu one
+row. The mouse wheel and trackpad also scroll the menu by whole rows (a
 trackpad keeps partial travel toward the next row), and the highlight follows
 the item under the pointer. The visible rows stay put while the pointer or the
 arrow keys move within them, and move only when the highlight would leave them.

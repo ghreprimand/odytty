@@ -298,8 +298,9 @@ pub(super) enum ContextMenuRow {
     Separator,
 }
 
-/// Render-cache signature for the menu: the raw spawn cell, the focused row, and
-/// the per-item enabled state (which drives the dim/normal attrs). The clamp to
+/// Render-cache signature for the menu: the raw spawn cell, the focused row, the
+/// committed scroll anchor, and the per-item enabled state (which drives the
+/// dim/normal attrs). The clamp to
 /// the grid is deterministic from `spawn` + grid size, so the raw spawn fully
 /// describes the render at a given grid size. `Default` (closed, nothing
 /// focused, all disabled) backs the test fixtures' closed-overlay signatures.
@@ -361,12 +362,18 @@ pub(super) struct ContextMenuSignature {
     /// Attach item's enabled state, so an available-vs-unavailable detached row
     /// repaints.
     pub(super) navigator_detached_available: bool,
+    /// Committed scroll anchor (first visible body row). The displayed window
+    /// is derived from this plus `focused` at a given grid, so an overflow-mark
+    /// press or a wheel step that scrolls without moving focus still changes
+    /// the key; without it the frame cache retained the pre-scroll frame and
+    /// the scroll never reached the screen.
+    pub(super) scroll_anchor: usize,
 }
 
 /// The right-click context menu state. Holds the spawn cell, the focused item,
-/// and the snapshot of which items are enabled. No stored scroll state: when the
-/// window is too short to show every row, the visible window is derived purely
-/// from the focused item and the box-clamped body height (see
+/// and the snapshot of which items are enabled. When the window is too short to
+/// show every row, the visible window is derived from the committed scroll
+/// anchor, the focused item, and the box-clamped body height (see
 /// [`ContextMenuUi::scroll_offset`]), so it stays unit-testable without a GPU.
 #[derive(Debug, Clone)]
 pub(super) struct ContextMenuUi {

@@ -50,6 +50,7 @@ impl ContextMenuUi {
             connection_is_odytty: self.connection_is_odytty(),
             navigator_target_kind: self.navigator_target_kind(),
             navigator_detached_available: self.navigator_detached_available,
+            scroll_anchor: self.scroll_anchor,
         }
     }
 }

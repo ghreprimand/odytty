@@ -383,3 +383,105 @@ fn app_line_notch_moves_context_menu_window_by_one_row() {
     assert!(app.context_menu_open_for_test());
     assert_ne!(focus(&app), 0, "wheel leaves focus on a visible menu item");
 }
+
+/// Open the App menu, then hover the pointer onto body row
+/// `body_row` (0-based, below the top border) through the production move
+/// route, so focus sits on a visible item mid-window as it does after a real
+/// pointer has travelled to the bottom overflow mark. Returns the hovered body
+/// row.
+fn hover_body_row(app: &mut App, body_row: usize) -> usize {
+    let rect = app.overlay_rect_for_test().expect("context menu open");
+    let (columns, rows) = app.grid_dims_for_test();
+    let rendered = app.render_overlay_rows_for_test(columns, rows);
+    // Step down from `body_row` to the first item row (separators are never
+    // focused, so hovering one would leave focus where it was).
+    let row = (body_row..rect.body_height)
+        .find(|row| !rendered[rect.body_top + row].contains('\u{2500}'))
+        .expect("an item row below the requested row");
+    app.set_pointer_cell_for_test(rect.body_top + row, rect.body_left);
+    app.handle_overlay_pointer_move();
+    row
+}
+
+/// LIVE-REPAINT regression: a press on the bottom overflow mark scrolls the
+/// window while the focused item stays visible. The overlay render signature
+/// is the frame cache key, so if it does not change the retained frame is
+/// presented and the scroll never reaches the screen (no ▲, apparently dead
+/// arrow). The rendered rows prove the model scrolled; the signature must too.
+#[test]
+fn arrow_scroll_with_unchanged_focus_changes_the_render_signature() {
+    let mut app = app_with_context_menu();
+    let rect = app.overlay_rect_for_test().expect("context menu open");
+    let _ = hover_body_row(&mut app, rect.body_height / 2);
+    let focus_before = focus(&app);
+    let signature_before = app.overlay_signature_for_test();
+    let rows_before = {
+        let (c, r) = app.grid_dims_for_test();
+        app.render_overlay_rows_for_test(c, r)
+    };
+
+    let bottom = rect.top + rect.height - 1;
+    app.set_pointer_cell_for_test(
+        bottom,
+        crate::native::context_menu_ui::ContextMenuUi::overflow_arrow_column(&rect),
+    );
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+
+    let rows_after = {
+        let (c, r) = app.grid_dims_for_test();
+        app.render_overlay_rows_for_test(c, r)
+    };
+    assert_ne!(rows_before, rows_after, "the model scrolled one row");
+    assert_eq!(
+        focus(&app),
+        focus_before,
+        "focus stayed on the visible item"
+    );
+    assert_ne!(
+        app.overlay_signature_for_test(),
+        signature_before,
+        "a scroll-only change must change the render signature so the frame repaints"
+    );
+}
+
+/// LIVE-REPAINT regression, wheel half: a notch that scrolls the window while
+/// the pointer is off the menu's item rows leaves focus unchanged;
+/// the frame must still repaint. Stalls in live use were scroll steps whose
+/// focus did not move (pointer on the border, a separator, or outside).
+#[test]
+fn wheel_scroll_with_unchanged_focus_changes_the_render_signature() {
+    let mut app = app_with_context_menu();
+    let rect = app.overlay_rect_for_test().expect("context menu open");
+    let hovered = hover_body_row(&mut app, rect.body_height / 2);
+    // Park the pointer just right of the menu on the same row: off the menu,
+    // so the post-scroll focus-follow leaves focus alone while it stays
+    // visible (as after the pointer drifts off the box mid-scroll).
+    let (columns, _) = app.grid_dims_for_test();
+    assert!(rect.left + rect.width < columns, "room right of the menu");
+    app.set_pointer_cell_for_test(rect.body_top + hovered, rect.left + rect.width);
+    let focus_before = focus(&app);
+    let signature_before = app.overlay_signature_for_test();
+    let rows_before = {
+        let (c, r) = app.grid_dims_for_test();
+        app.render_overlay_rows_for_test(c, r)
+    };
+
+    app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
+
+    let rows_after = {
+        let (c, r) = app.grid_dims_for_test();
+        app.render_overlay_rows_for_test(c, r)
+    };
+    assert_ne!(rows_before, rows_after, "the model scrolled one row");
+    assert_eq!(
+        focus(&app),
+        focus_before,
+        "focus stayed on the visible item"
+    );
+    assert_ne!(
+        app.overlay_signature_for_test(),
+        signature_before,
+        "a scroll-only change must change the render signature so the frame repaints"
+    );
+}
