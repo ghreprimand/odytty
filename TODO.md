@@ -74,16 +74,16 @@ the devlog.
       splits, so jumps longer than six cells glide without pausing (a v0.15.5
       regression on every platform), with regression tests that fail before
       the fix.
-- [x] Give overflowing right-click menus their own scroll position: wheel and
-      trackpad scrolling of the rows, and no list jumps from hover or in-view
-      arrow-key movement.
+- [x] Give overflowing right-click menus their own scroll position: clickable
+      overflow arrows, wheel and trackpad scrolling of the rows, a repaint on
+      every scroll step, and no list jumps from hover or in-view arrow-key
+      movement.
 - [x] Retry a failed CI and release checkout once within the job.
 - [x] Device acceptance: long-move cursor glide on Linux Wayland and macOS;
-      menu wheel and trackpad scrolling on Linux and macOS. Windows behavior
-      is covered by tests and CI only, and idle CPU is not re-measured.
-- [ ] Deferred to a later release: clicking an overflowing menu's border arrow
-      marks does not scroll it (the marks are indicators only), and menu wheel
-      and trackpad scrolling can still pause briefly.
+      menu arrow clicks and uninterrupted menu scrolling on Linux Wayland;
+      menu wheel and trackpad scrolling on macOS before the final repaint fix.
+      macOS arrow clicks and all Windows behavior are covered by tests and CI
+      only, and idle CPU is not re-measured.
 
 ## v0.15.5: Font Stack Maintenance and Wayland Reliability (published)
 

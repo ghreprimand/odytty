@@ -178,7 +178,7 @@ workflows, settings, and platform-specific behavior.
 
 OdyTTY is a broad pre-1.0 terminal. Version 0.15.6 is published. It fixes a
 v0.15.5 regression in which long cursor moves paused partway through their
-glide, and makes overflowing right-click menus scroll more predictably; see the
+glide, and makes overflowing right-click menus scroll predictably; see the
 [v0.15.6 release notes](docs/releases/0.15.6.md). Version 0.15.5 is a
 maintenance and reliability patch over v0.15.0: normal-text font parsing moves to
 the maintained Fontations `skrifa` library with unchanged sampled rendering, and
