@@ -770,7 +770,9 @@ Rules:
   in the state directory (`workspaces.json`).
 - **One window owns the autosave.** When several odytty windows are open only
   the first (primary) instance writes the snapshot and restores it, so a second
-  window never clobbers the first window's saved layout.
+  window never clobbers the first window's saved layout. Merging the owning
+  window into another window of the same process passes ownership to the
+  surviving window, which then saves the merged layout.
 
 ### Clickable URLs (`interactive_urls`)
 

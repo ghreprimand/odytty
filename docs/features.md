@@ -854,7 +854,8 @@ cancel (`Merge picker: press 1 in the other window, Esc cancels`), so the open
 picker is visible even when the candidate windows are stacked behind it. The quick
 terminal is never a merge origin or candidate. Tabs, panes, PTYs, profiles, and
 attach handles move with the transfer; the source window closes only after
-success. Escape cancels. See the
+success. When the source window owns the saved workspace layout, the surviving
+window takes over that role and saves the merged layout. Escape cancels. See the
 [window-merge contract](v0.15.0-foundation.md).
 
 ### Control OdyTTY Locally

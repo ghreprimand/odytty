@@ -210,6 +210,9 @@ pub(in crate::native) fn owner_index_for_user_event(
 ///    changes owners.
 /// 3. **Commit**: move whole workspaces and their sessions into `target`; the
 ///    source arena is left empty.
+/// 4. **Persistence ownership**: when `source` was the primary (shape
+///    autosave/exit-save owner), `target` adopts that role and arms one save of
+///    the merged shape; see [`App::adopt_autosave_ownership_from`].
 ///
 /// It never respawns, detaches, replays bytes, or reparents a surface, and it
 /// never shuts a session down: the moved sessions are live in `target` when this
@@ -239,6 +242,12 @@ pub(in crate::native) fn execute_window_merge(
     let committed = target
         .workspace_set_mut()
         .commit_merge_from(source.workspace_set_mut(), plan)?;
+
+    // Phase 4: the survivor now holds every merged workspace, so it inherits
+    // shape-persistence ownership when the retiring source was the primary.
+    // Runs before the caller retires the source; both merge directions reach
+    // this point with `source` = the retiring window.
+    target.adopt_autosave_ownership_from(source, std::time::Instant::now());
 
     Ok(committed)
 }

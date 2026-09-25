@@ -174,6 +174,130 @@ fn selecting_a_candidate_merges_this_into_it_and_retires_the_source() {
 }
 
 #[test]
+fn merging_the_primary_window_into_a_sibling_preserves_autosave_ownership() {
+    use std::time::{Duration, Instant};
+
+    let mut primary = headless();
+    primary.set_primary_instance_for_test(true);
+    let mut sibling = headless();
+    sibling.set_primary_instance_for_test(false);
+    sibling
+        .workspace_set_mut()
+        .rekey_sole_session_for_test(SessionToken(500));
+    let sibling_id = sibling.process_window_id();
+    let mut host = host_of(vec![primary, sibling]);
+
+    let start = Instant::now();
+    host.windows[0].run_shape_autosave(start);
+    host.windows[1].run_shape_autosave(start);
+
+    host.open_picker(0, MergeDirection::MergeThisInto);
+    host.handle_picker_key(PickerKey::Select(1));
+
+    assert_eq!(host.windows.len(), 1, "the source primary is retired");
+    assert_eq!(
+        host.windows[0].process_window_id(),
+        sibling_id,
+        "the selected sibling survives"
+    );
+
+    // Prime the surviving App's fingerprint, mutate its merged shape, then
+    // give the autosave debounce enough time to flush.
+    host.windows[0].run_shape_autosave(start + Duration::from_secs(1));
+    host.windows[0]
+        .workspace_set_mut()
+        .rename_workspace(0, "post-merge".to_owned());
+    host.windows[0].run_shape_autosave(start + Duration::from_secs(2));
+    host.windows[0].run_shape_autosave(start + Duration::from_secs(4));
+
+    let survivor_is_primary = host.windows[0].autosave_is_primary;
+    let survivor_writes = host.windows[0].autosave_saves_for_test();
+    assert!(
+        survivor_is_primary && survivor_writes == 1,
+        "primary ownership must follow the merged state: survivor primary={survivor_is_primary}, autosave writes={survivor_writes}"
+    );
+}
+
+#[test]
+fn pulling_the_primary_window_into_a_sibling_transfers_autosave_ownership() {
+    use std::time::{Duration, Instant};
+
+    // The origin is an ordinary sibling; the pulled (retired) window is the
+    // primary. Ownership must follow the merged state into the origin.
+    let mut origin = headless();
+    origin.set_primary_instance_for_test(false);
+    let mut primary = headless();
+    primary.set_primary_instance_for_test(true);
+    primary
+        .workspace_set_mut()
+        .rekey_sole_session_for_test(SessionToken(500));
+    let origin_id = origin.process_window_id();
+    let mut host = host_of(vec![origin, primary]);
+    let start = Instant::now();
+    host.windows[1].run_shape_autosave(start);
+
+    host.open_picker(0, MergeDirection::PullIntoThis);
+    host.handle_picker_key(PickerKey::Select(1));
+
+    assert_eq!(host.windows.len(), 1, "the pulled primary is retired");
+    let survivor = &mut host.windows[0];
+    assert_eq!(survivor.process_window_id(), origin_id);
+    assert!(
+        survivor.autosave_is_primary,
+        "the origin inherits ownership"
+    );
+    assert!(
+        survivor.autosave_pending_for_test(),
+        "the merged shape is queued for one save without a further mutation"
+    );
+    survivor.run_shape_autosave(start + Duration::from_secs(10));
+    assert_eq!(
+        survivor.autosave_saves_for_test(),
+        1,
+        "exactly one save of the merged shape"
+    );
+    survivor.run_shape_autosave(start + Duration::from_secs(20));
+    assert_eq!(
+        survivor.autosave_saves_for_test(),
+        1,
+        "no repeat write while the merged shape is unchanged"
+    );
+}
+
+#[test]
+fn merging_a_sibling_into_the_primary_keeps_ownership_and_saves_the_merged_shape() {
+    use std::time::{Duration, Instant};
+
+    let mut sibling = headless();
+    sibling.set_primary_instance_for_test(false);
+    let mut primary = headless();
+    primary.set_primary_instance_for_test(true);
+    primary
+        .workspace_set_mut()
+        .rekey_sole_session_for_test(SessionToken(500));
+    let primary_id = primary.process_window_id();
+    let mut host = host_of(vec![sibling, primary]);
+    let start = Instant::now();
+    // Establish the primary's pre-merge baseline (no write).
+    host.windows[1].run_shape_autosave(start);
+    assert_eq!(host.windows[1].autosave_saves_for_test(), 0);
+
+    host.open_picker(0, MergeDirection::MergeThisInto);
+    host.handle_picker_key(PickerKey::Select(1));
+
+    assert_eq!(host.windows.len(), 1, "the sibling source is retired");
+    let survivor = &mut host.windows[0];
+    assert_eq!(survivor.process_window_id(), primary_id);
+    assert!(survivor.autosave_is_primary, "the primary keeps ownership");
+    assert_eq!(survivor.workspace_set().workspace_count(), 2);
+    // The appended workspace changes the fingerprint: the ordinary check arms
+    // and later flushes exactly one save of the merged shape.
+    survivor.run_shape_autosave(start + Duration::from_secs(1));
+    survivor.run_shape_autosave(start + Duration::from_secs(10));
+    assert_eq!(survivor.autosave_saves_for_test(), 1);
+}
+
+#[test]
 fn pull_into_this_moves_the_selected_window_into_the_origin() {
     let origin = headless();
     let mut other = headless();

@@ -635,6 +635,35 @@ impl App {
         self.autosave_is_primary = primary;
     }
 
+    /// Same-process window merge: when the window being retired (`source`)
+    /// owns shape persistence, move that ownership to the surviving window
+    /// (`self`), which now holds every merged workspace. Without the transfer
+    /// the survivor stays non-primary and neither the debounced autosave nor
+    /// the clean-exit save writes anything for the rest of the process.
+    ///
+    /// The survivor takes the merged arena's current fingerprint as its
+    /// baseline and arms one debounced write, so the first save after the
+    /// merge captures the merged shape (the survivor's workspaces followed by
+    /// the appended ones) rather than waiting for an unrelated mutation or
+    /// exit. The source's pending write is dropped: it described a shape that
+    /// no longer exists. A non-primary source changes nothing; a primary
+    /// survivor keeps its ownership and its ordinary fingerprint check arms the
+    /// write for the appended workspaces.
+    pub(in crate::native) fn adopt_autosave_ownership_from(
+        &mut self,
+        source: &mut App,
+        now: Instant,
+    ) {
+        if !source.autosave_is_primary {
+            return;
+        }
+        source.autosave_is_primary = false;
+        source.autosave_deadline = None;
+        self.autosave_is_primary = true;
+        self.autosave_fingerprint = Some(self.sessions.structural_fingerprint());
+        self.autosave_deadline = Some(now + SHAPE_AUTOSAVE_DEBOUNCE);
+    }
+
     /// SECONDARY-INSTANCE-NOTICE: a second concurrent window cannot own session
     /// restore or autosave — a live primary holds the instance lock — and that
     /// suppression is otherwise silent, which reads as "restore didn't work"
