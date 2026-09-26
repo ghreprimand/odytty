@@ -21,11 +21,25 @@ impl App {
 
     /// Shift is the local-selection escape hatch while a TUI has enabled mouse
     /// reporting, matching the common xterm-family terminal convention.
+    /// A read-only pane reports nothing, so the pointer falls back to local
+    /// selection there and copy stays available inside a mouse-reporting TUI.
     pub(super) fn should_report_mouse_to_pty(&self) -> bool {
-        self.mouse_reporting_enabled() && !self.modifiers.shift
+        self.mouse_reporting_enabled() && !self.modifiers.shift && self.active_pane_accepts_input()
     }
 
+    /// The user-input PTY write seam for pointer, palette, prefix, and
+    /// selection-edit paths. Bytes for a read-only pane are dropped here
+    /// (`pane_accepts_input`), so a new caller is gated by default.
     pub(super) fn write_pty_bytes(&self, bytes: &[u8]) {
+        if !self.active_pane_accepts_input() {
+            return;
+        }
+        self.write_pty_protocol_bytes(bytes);
+    }
+
+    /// Ungated write for terminal-state replies that are not user input (focus
+    /// reports). Never route typed or pointer input through this.
+    fn write_pty_protocol_bytes(&self, bytes: &[u8]) {
         if let Ok(mut writer) = self.writer.lock() {
             let _ = writer.write_all(bytes);
             let _ = writer.flush();
@@ -51,6 +65,9 @@ impl App {
         let Some(bytes) = bytes else {
             return false;
         };
+        if !self.active_pane_accepts_input() {
+            return false;
+        }
 
         self.return_to_live();
         self.write_pty_bytes(&bytes);
@@ -136,7 +153,9 @@ impl App {
             return;
         };
 
-        self.write_pty_bytes(&bytes);
+        // Focus reports are terminal state, not typed input: a read-only pane
+        // still receives them.
+        self.write_pty_protocol_bytes(&bytes);
         #[cfg(test)]
         self.focus_reports_for_test.push((session, focused));
     }

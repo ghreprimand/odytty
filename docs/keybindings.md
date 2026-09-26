@@ -402,6 +402,10 @@ These tokens are accepted on the right-hand side of `chord=action`:
   `theme-builder`, `command-palette`, `session-replay`, `connection-manager`,
   `session-attach`.
 - **Clipboard and copy:** `copy`, `paste`, `copy-mode`, `hints`, `clear-input`.
+- **Pane input:** `toggle-read-only` (no default chord; also in the command
+  palette and the terminal right-click menu). A read-only pane accepts no
+  typed, pasted, dropped, or mouse-reported input; copy, search, and scrollback
+  keep working.
 - **Scroll and prompt:** `scroll-up`, `scroll-down`, `jump-prompt-prev`,
   `jump-prompt-next`.
 - **Tabs and windows:** `new-tab`, `new-window`, `next-tab`, `prev-tab`,

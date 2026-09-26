@@ -55,6 +55,7 @@ fn inert_composite() -> OverlayCompositeSignature {
         armed_path: OverlayFragment::Inert,
         buttons: OverlayFragment::Inert,
         merge_numeral: OverlayFragment::Inert,
+        read_only: OverlayFragment::Inert,
     }
 }
 

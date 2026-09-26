@@ -129,6 +129,11 @@ impl OverlayUi {
         self.context_menu.set_command_actions_enabled(enabled);
     }
 
+    /// Record the focused pane's read-only state on an open content menu.
+    pub(in crate::native) fn set_context_menu_pane_read_only(&mut self, read_only: bool) {
+        self.context_menu.set_pane_read_only(read_only);
+    }
+
     /// Open the connection-row context menu (ODP-2C) at `spawn` for the row at
     /// filtered index `row_index`, snapshotting `host` so the menu can gate
     /// Edit/Remove (OdyTTY-owned only) and route each of the five actions. This
@@ -1004,6 +1009,9 @@ impl OverlayUi {
                         OverlayOutcome::ContextMenuExportCommandOutput
                     }
                     ContextMenuItem::NewTab => OverlayOutcome::ContextMenuNewTab,
+                    ContextMenuItem::MakePaneReadOnly | ContextMenuItem::MakePaneWritable => {
+                        OverlayOutcome::ContextMenuToggleReadOnly
+                    }
                     ContextMenuItem::NewTabWithProfile => {
                         OverlayOutcome::ContextMenuNewTabWithProfile
                     }

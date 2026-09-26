@@ -62,6 +62,18 @@ recorded milestone before implementation.
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
 
+## v0.16.0: Pane And Window Workflows
+
+Development on `master`; not released. Items check off when their code is on
+`master` with blocking Linux, macOS, and Windows CI.
+
+- [ ] Read-only panes: a per-pane input-disabled mode with a persistent
+      `READ-ONLY` label. It is toggled from the palette or the context menu,
+      or bound to a chord (none by default). It blocks key, IME, paste,
+      drop, and mouse-report input, and it is persisted in workspace and
+      layout state.
+- [ ] Device acceptance for read-only panes on Linux, macOS, and Windows.
+
 ## v0.15.6: Cursor Glide Regression and Menu Scrolling (published)
 
 Status notes: [`docs/releases/0.15.6.md`](docs/releases/0.15.6.md).

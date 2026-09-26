@@ -90,7 +90,7 @@ impl App {
                 Some(token),
             ) => {
                 self.focus_session_from_navigator(token);
-                self.handle_new_local_tab();
+                self.handle_duplicate_tab();
             }
             (NavigatorAction::Move(NavigatorTarget::Workspace(_)), Some(token)) => {
                 if let Some((workspace, _)) = self.sessions.locate_token(token) {

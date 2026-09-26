@@ -1814,6 +1814,7 @@ pub(super) fn bindable_action_name(action: BindableAction) -> &'static str {
         BindableAction::CopyMode => "copy-mode",
         BindableAction::Hints => "hints",
         BindableAction::ClearInput => "clear-input",
+        BindableAction::ToggleReadOnly => "toggle-read-only",
         BindableAction::CommandPalette => "command-palette",
         BindableAction::SessionReplay => "session-replay",
         BindableAction::ConnectionManager => "connection-manager",

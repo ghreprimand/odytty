@@ -142,6 +142,10 @@ impl App {
             self.cancel_pending_text_paste();
             return;
         }
+        if self.refuse_input_if_read_only() {
+            self.cancel_pending_text_paste();
+            return;
+        }
         let shell = match self.file_drop_shell() {
             Ok(shell) => shell,
             Err(error) => {

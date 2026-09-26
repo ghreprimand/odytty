@@ -245,6 +245,10 @@ pub(super) enum OverlayFragment {
     /// paints while its picker is open, keyed by the candidate count. `Inert`
     /// at rest.
     MergeOrigin { candidates: u8 },
+    /// The focused pane's persistent `READ-ONLY` label. `Inert` for a writable
+    /// pane (the default), so the cache decision is unchanged there; toggling
+    /// the flag flips the fragment and repaints the label on or off.
+    ReadOnly,
 }
 
 /// Folds the NEW overlay contributors' fragments into one hashable cache key.
@@ -282,6 +286,8 @@ pub(super) struct OverlayCompositeSignature {
     /// targeting this window), so the composite stays constant on the default
     /// path; carries the numeral while a picker is open so the badge repaints.
     pub(super) merge_numeral: OverlayFragment,
+    /// Read-only pane label. `Inert` for a writable pane.
+    pub(super) read_only: OverlayFragment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

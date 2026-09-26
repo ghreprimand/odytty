@@ -248,6 +248,13 @@ impl ContextMenuUi {
             .filter(|item| {
                 !matches!(item, ContextMenuItem::UnbindWorkspace) || self.bound_workspace
             })
+            // Read-only pair: exactly one row shows, keyed to the focused pane.
+            .filter(|item| {
+                !matches!(item, ContextMenuItem::MakePaneReadOnly) || !self.pane_read_only
+            })
+            .filter(|item| {
+                !matches!(item, ContextMenuItem::MakePaneWritable) || self.pane_read_only
+            })
             // ODP-5: hide Copy/Cut/Delete entirely with no selection (cleaner
             // than rendering them dim); Paste/Select All stay the always-present
             // editing anchors.

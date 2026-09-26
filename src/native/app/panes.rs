@@ -939,6 +939,7 @@ impl App {
                 session.attention.completed,
                 session.attention.failed,
             );
+            super::read_only::paint_read_only_label(&mut pane.snapshot, session.read_only);
         }
 
         // Build every pane's status gutter in that pane's own scrollback and

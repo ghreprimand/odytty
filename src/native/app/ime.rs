@@ -130,7 +130,7 @@ impl App {
     /// input: snap to the live tail, then write the UTF-8 bytes through the
     /// active PTY writer.
     fn write_ime_text_to_pty(&mut self, text: &str) {
-        if text.is_empty() {
+        if text.is_empty() || !self.active_pane_accepts_input() {
             return;
         }
         self.return_to_live();

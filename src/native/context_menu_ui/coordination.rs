@@ -17,6 +17,7 @@ impl Default for ContextMenuUi {
             multi_tab: false,
             multi_workspace: false,
             bound_workspace: false,
+            pane_read_only: false,
             workspace_count: 0,
             surface: ContextMenuSurface::Content,
             path_target: None,
@@ -106,6 +107,7 @@ impl ContextMenuUi {
         self.multi_tab = multi_tab;
         self.multi_workspace = multi_workspace;
         self.bound_workspace = bound_workspace;
+        self.pane_read_only = false;
         // RAIL-REORDER: reset to 0 on every open; the App sets the real count
         // via `set_workspace_count` only for a rail-slot menu.
         self.workspace_count = 0;
@@ -159,6 +161,7 @@ impl ContextMenuUi {
         self.multi_tab = false;
         self.multi_workspace = false;
         self.bound_workspace = false;
+        self.pane_read_only = false;
         self.workspace_count = 0;
         self.surface = ContextMenuSurface::ConnectionRow(row_index);
         self.path_target = None;
@@ -200,6 +203,7 @@ impl ContextMenuUi {
         self.multi_tab = false;
         self.multi_workspace = false;
         self.bound_workspace = false;
+        self.pane_read_only = false;
         self.workspace_count = 0;
         self.surface = ContextMenuSurface::NavigatorRow;
         self.path_target = None;
@@ -251,6 +255,12 @@ impl ContextMenuUi {
 
     pub(in crate::native) fn set_command_actions_enabled(&mut self, enabled: bool) {
         self.command_actions_enabled = enabled;
+    }
+
+    /// Record whether the focused pane is read-only for a content-surface menu,
+    /// so exactly one of Make Pane Read-Only / Make Pane Writable shows.
+    pub(in crate::native) fn set_pane_read_only(&mut self, read_only: bool) {
+        self.pane_read_only = read_only;
     }
 
     /// The saved host snapshotted for a `ConnectionRow` menu (ODP-2C), if any.
@@ -340,6 +350,7 @@ impl ContextMenuUi {
             ContextMenuItem::SplitColumns => true,
             ContextMenuItem::SplitRows => true,
             ContextMenuItem::ClosePane => true,
+            ContextMenuItem::MakePaneReadOnly | ContextMenuItem::MakePaneWritable => true,
             ContextMenuItem::Settings => true,
             ContextMenuItem::KeyboardShortcuts => true,
             ContextMenuItem::ConnectionManager => true,

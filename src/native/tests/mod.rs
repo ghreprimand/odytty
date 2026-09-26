@@ -225,6 +225,8 @@ mod profile_auto_switch;
 mod profile_cwd_precedence;
 mod profile_launch_startup;
 mod profile_manager_ui;
+mod read_only_label;
+mod read_only_pane;
 mod replay_isolation;
 mod restore_theme;
 mod scrollbar;

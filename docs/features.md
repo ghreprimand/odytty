@@ -17,6 +17,7 @@ For installation and a shorter overview, start with the
   - [Open, Close, And Switch Tabs](#open-close-and-switch-tabs)
   - [Adjust The Tab Bar](#adjust-the-tab-bar)
   - [Split A Tab Into Panes](#split-a-tab-into-panes)
+  - [Make A Pane Read-Only](#make-a-pane-read-only)
   - [Organize Workspaces And The Rail](#organize-workspaces-and-the-rail)
   - [Close Workspaces And Handle Shell Exit](#close-workspaces-and-handle-shell-exit)
   - [Restore Workspaces And Open Layouts](#restore-workspaces-and-open-layouts)
@@ -578,6 +579,36 @@ running.
 
 Right-clicking the empty tab strip offers New Tab, New Workspace, Open Layout,
 Command Palette, and Settings.
+
+### Make A Pane Read-Only
+
+Available in the v0.16.0 development tree; not included in v0.15.6.
+
+| Task | Direct path |
+| --- | --- |
+| Stop input to the focused pane | **Make Pane Read-Only** in the terminal menu, or **Toggle Read-Only Pane** in the command palette |
+| Allow input again | **Make Pane Writable**, or the same palette entry |
+| Bind a chord | `keybinds = <chord>=toggle-read-only` (no default chord) |
+
+A read-only pane shows a `READ-ONLY` label at its top-right corner for as long
+as the mode is on. Narrow panes show `RO`. While it is on, nothing typed or
+pasted reaches that pane's shell or program. This covers key presses, repeats,
+and releases (including Windows Win32-input and Kitty release events), IME
+commits, clipboard and middle-click paste, the paste confirmation, remote image
+paste, dropped file paths, click-to-position, button clicks, and mouse reports
+to a mouse-aware program. Mouse clicks and drags select text locally instead.
+Copy, search, scrollback, selection, resize, and focus reports keep working. A
+paste or drop on a read-only pane shows a short notice. Turning the mode on
+cancels a pending paste or drop confirmation for that pane. Input blocked while
+the pane was read-only is discarded, not replayed.
+
+The mode belongs to the pane. Other panes, tabs, and windows are unaffected.
+Workspace restore and named layouts keep it, so a restored pane shows the label
+before the first key. Older state files load as writable. Duplicate Tab and
+Duplicate Workspace start fresh shells that keep the source pane's read-only
+mode; New Tab, New Local Tab, and splits open writable. Local automation
+cannot send text to any pane, so it has nothing to bypass. Behavior is the same
+on Linux (Wayland and X11), macOS, and Windows.
 
 ### Organize Workspaces And The Rail
 
@@ -1267,7 +1298,7 @@ The `keybinds` setting and `ODYTTY_KEYBINDS` override local actions:
 
 | Scope | Actions |
 | --- | --- |
-| Global | `search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `select-command-output`, `select-command-with-prompt`, `copy-command-output`, `copy-command-with-prompt`, `search-command-output`, `jump-failed-command-prev`, `jump-failed-command-next`, `export-command-output`, `copy-mode`, `hints`, `clear-input`, `command-palette`, `session-replay`, `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab` |
+| Global | `search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `select-command-output`, `select-command-with-prompt`, `copy-command-output`, `copy-command-with-prompt`, `search-command-output`, `jump-failed-command-prev`, `jump-failed-command-next`, `export-command-output`, `copy-mode`, `hints`, `clear-input`, `toggle-read-only`, `command-palette`, `session-replay`, `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab` |
 | Workspace | `new-workspace`, `duplicate-workspace`, `close-workspace`, `rename-workspace`, `next-workspace`, `prev-workspace`, and `workspace-picker` |
 | Pane | `split-columns`, `split-rows`, `focus-pane-left`, `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`, `close-pane`, `zoom-pane`, and `equalize-panes` |
 

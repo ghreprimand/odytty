@@ -148,6 +148,11 @@ pub(crate) enum PaneShape {
         /// Named launch profile that opened this local pane, or `None`.
         /// Tolerated-absent on pre-v0.14 snapshots.
         launch_profile: Option<String>,
+        /// Whether the pane was read-only (input disabled). Serialized only
+        /// when `true`, so a writable pane's JSON is unchanged; a missing key
+        /// or a non-boolean value loads as `false` (writable), which keeps
+        /// older snapshots and hand edits restoring as ordinary panes.
+        read_only: bool,
     },
     Split {
         axis: SplitAxisShape,
@@ -183,15 +188,19 @@ impl PaneShape {
                 session_host_id,
                 remote_host,
                 launch_profile,
-            } => Json::obj([(
-                "leaf",
-                Json::obj([
+                read_only,
+            } => {
+                let mut leaf = Json::obj([
                     ("cwd", opt_str(cwd)),
                     ("session_host_id", opt_str(session_host_id)),
                     ("remote_host", opt_str(remote_host)),
                     ("launch_profile", opt_str(launch_profile)),
-                ]),
-            )]),
+                ]);
+                if *read_only && let Json::Obj(entries) = &mut leaf {
+                    entries.push(("read_only".to_owned(), Json::Bool(true)));
+                }
+                Json::obj([("leaf", leaf)])
+            }
             PaneShape::Split {
                 axis,
                 ratio,
@@ -216,6 +225,7 @@ impl PaneShape {
                 session_host_id: leaf.get("session_host_id").and_then(Json::as_owned_str),
                 remote_host: leaf.get("remote_host").and_then(Json::as_owned_str),
                 launch_profile: leaf.get("launch_profile").and_then(Json::as_owned_str),
+                read_only: matches!(leaf.get("read_only"), Some(Json::Bool(true))),
             })
         } else if let Some(split) = value.get("split") {
             let axis = split

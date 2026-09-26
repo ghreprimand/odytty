@@ -109,6 +109,9 @@ pub(in crate::native) enum OverlayOutcome {
     ContextMenuJumpFailedCommandPrev,
     ContextMenuJumpFailedCommandNext,
     ContextMenuExportCommandOutput,
+    /// Toggle the focused pane's read-only mode (Make Pane Read-Only / Make
+    /// Pane Writable). The menu has closed itself.
+    ContextMenuToggleReadOnly,
     ContextMenuNewTab,
     /// Open a local shell in a new tab from a bound-workspace tab menu (F6-W5
     /// escape hatch). The overlay has closed itself; the App dispatches this to

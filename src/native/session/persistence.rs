@@ -176,6 +176,7 @@ impl WorkspaceSet {
                 session_host_id: self.pane_session_host_id(*token),
                 remote_host: self.pane_remote_destination(*token),
                 launch_profile: self.pane_launch_profile(*token),
+                read_only: self.get(*token).is_some_and(|session| session.read_only),
             },
             PaneNode::Split {
                 axis,
@@ -479,79 +480,35 @@ impl WorkspaceSet {
         build: &mut SnapshotBuild,
         leaves: &mut Vec<SessionToken>,
     ) -> Option<PaneNode> {
-        use crate::native::persistence::{PaneShape, resolve_cwd};
+        use crate::native::persistence::PaneShape;
         match shape {
             PaneShape::Leaf {
                 cwd,
                 session_host_id,
                 remote_host,
                 launch_profile,
+                read_only,
             } => {
-                // 8h: a pane that was attached to a detached session-host tries to
-                // reattach first. A live host reattaches (full scrollback); a dead
-                // id, an already-reattached id, or any non-Unix build falls through
-                // to a fresh shell at the captured cwd — silently, per the design.
-                if let Some(id) = session_host_id.as_deref() {
-                    build.reattach_attempted += 1;
-                    let attach_batch_deadline = build.attach_deadline.unwrap_or_else(Instant::now);
-                    if let Some(token) = self.reattach_restored_session(id, attach_batch_deadline) {
-                        build.reattached += 1;
-                        build.spawned.push(token);
-                        leaves.push(token);
-                        return Some(PaneNode::leaf(token));
-                    }
+                let node = self.rebuild_leaf(
+                    cwd.as_deref(),
+                    session_host_id.as_deref(),
+                    remote_host.as_deref(),
+                    launch_profile.as_ref(),
+                    home,
+                    spawn_leaf,
+                    spawn_remote,
+                    build,
+                    leaves,
+                )?;
+                // The input-disabled flag rides the pane whichever way its
+                // session came back (reattached, remote, or a fresh shell).
+                if *read_only
+                    && let PaneNode::Leaf(token) = &node
+                    && let Some(session) = self.get_mut(*token)
+                {
+                    session.read_only = true;
                 }
-                // RESTORE-REMOTE: a pane captured from an `ssh` connection
-                // respawns through the connect path — a fresh remote login shell,
-                // never a re-run of any captured command (8i). An unresolvable
-                // host (no saved profile and not a parseable destination) yields
-                // `None` and falls through to a local shell, counted for the
-                // notice. The remote shell lands at its own default directory; the
-                // captured (remote) cwd is not chdir'd locally in v1.
-                if let Some(host) = remote_host.as_deref() {
-                    if let Some(token) = spawn_remote(self, host) {
-                        build.spawned.push(token);
-                        leaves.push(token);
-                        return Some(PaneNode::leaf(token));
-                    }
-                    build.remote_fallback += 1;
-                }
-                let resolved = resolve_cwd(cwd.as_deref(), home);
-                if resolved.stale {
-                    build.stale_cwd += 1;
-                }
-                let leaf = RestoredLocalLeaf {
-                    cwd: resolved.path.clone(),
-                    launch_profile: launch_profile.clone(),
-                };
-                // A captured directory that still exists but denies the spawn
-                // (EACCES on a mode-000 dir, or a remote cwd like `/root` that
-                // exists locally but refuses `chdir`) must not abort the whole
-                // restore. Retry once at home before giving up (counted stale);
-                // abort only if home also fails or there is no home to try.
-                let token = match spawn_leaf(self, leaf.clone()) {
-                    Some(token) => token,
-                    None => {
-                        let home_path = home.map(Path::to_path_buf);
-                        if leaf.cwd == home_path {
-                            return None;
-                        }
-                        let token = spawn_leaf(
-                            self,
-                            RestoredLocalLeaf {
-                                cwd: home_path,
-                                launch_profile: leaf.launch_profile,
-                            },
-                        )?;
-                        if !resolved.stale {
-                            build.stale_cwd += 1;
-                        }
-                        token
-                    }
-                };
-                build.spawned.push(token);
-                leaves.push(token);
-                Some(PaneNode::leaf(token))
+                Some(node)
             }
             PaneShape::Split {
                 axis,
@@ -573,6 +530,91 @@ impl WorkspaceSet {
         }
     }
 
+    /// Rebuild one [`PaneShape::Leaf`](crate::native::persistence::PaneShape):
+    /// reattach a live session-host, reconnect a remote host, or spawn a fresh
+    /// local shell at the resolved cwd (home fallback). Records the token in
+    /// `leaves` and returns the leaf node, or `None` if the spawn fails.
+    #[allow(clippy::too_many_arguments)]
+    fn rebuild_leaf(
+        &mut self,
+        cwd: Option<&str>,
+        session_host_id: Option<&str>,
+        remote_host: Option<&str>,
+        launch_profile: Option<&String>,
+        home: Option<&Path>,
+        spawn_leaf: &mut impl FnMut(&mut Self, RestoredLocalLeaf) -> Option<SessionToken>,
+        spawn_remote: &mut impl FnMut(&mut Self, &str) -> Option<SessionToken>,
+        build: &mut SnapshotBuild,
+        leaves: &mut Vec<SessionToken>,
+    ) -> Option<PaneNode> {
+        use crate::native::persistence::resolve_cwd;
+        // 8h: a pane that was attached to a detached session-host tries to
+        // reattach first. A live host reattaches (full scrollback); a dead
+        // id, an already-reattached id, or any non-Unix build falls through
+        // to a fresh shell at the captured cwd - silently, per the design.
+        if let Some(id) = session_host_id {
+            build.reattach_attempted += 1;
+            let attach_batch_deadline = build.attach_deadline.unwrap_or_else(Instant::now);
+            if let Some(token) = self.reattach_restored_session(id, attach_batch_deadline) {
+                build.reattached += 1;
+                build.spawned.push(token);
+                leaves.push(token);
+                return Some(PaneNode::leaf(token));
+            }
+        }
+        // RESTORE-REMOTE: a pane captured from an `ssh` connection
+        // respawns through the connect path - a fresh remote login shell,
+        // never a re-run of any captured command (8i). An unresolvable
+        // host (no saved profile and not a parseable destination) yields
+        // `None` and falls through to a local shell, counted for the
+        // notice. The remote shell lands at its own default directory; the
+        // captured (remote) cwd is not chdir'd locally in v1.
+        if let Some(host) = remote_host {
+            if let Some(token) = spawn_remote(self, host) {
+                build.spawned.push(token);
+                leaves.push(token);
+                return Some(PaneNode::leaf(token));
+            }
+            build.remote_fallback += 1;
+        }
+        let resolved = resolve_cwd(cwd, home);
+        if resolved.stale {
+            build.stale_cwd += 1;
+        }
+        let leaf = RestoredLocalLeaf {
+            cwd: resolved.path.clone(),
+            launch_profile: launch_profile.cloned(),
+        };
+        // A captured directory that still exists but denies the spawn
+        // (EACCES on a mode-000 dir, or a remote cwd like `/root` that
+        // exists locally but refuses `chdir`) must not abort the whole
+        // restore. Retry once at home before giving up (counted stale);
+        // abort only if home also fails or there is no home to try.
+        let token = match spawn_leaf(self, leaf.clone()) {
+            Some(token) => token,
+            None => {
+                let home_path = home.map(Path::to_path_buf);
+                if leaf.cwd == home_path {
+                    return None;
+                }
+                let token = spawn_leaf(
+                    self,
+                    RestoredLocalLeaf {
+                        cwd: home_path,
+                        launch_profile: leaf.launch_profile,
+                    },
+                )?;
+                if !resolved.stale {
+                    build.stale_cwd += 1;
+                }
+                token
+            }
+        };
+        build.spawned.push(token);
+        leaves.push(token);
+        Some(PaneNode::leaf(token))
+    }
+
     /// Remove a session from the arena and reap its shell + pump thread. Used by
     /// restore to drop the launch session(s) once the saved shape is in place.
     fn discard_session(&mut self, token: SessionToken) {
@@ -582,9 +624,9 @@ impl WorkspaceSet {
     }
 
     /// A cheap, lock-free hash of the workspace/tab/pane STRUCTURE — names, tab
-    /// titles/order/count, split axes + ratios, focused-pane position, and the
-    /// active workspace/tab indices. Deliberately excludes per-pane cwd so it
-    /// never locks a terminal and never churns on an OSC 7 cwd update; the
+    /// titles/order/count, split axes + ratios, focused-pane position, per-pane
+    /// read-only flags, and the active workspace/tab indices. Excludes per-pane
+    /// cwd so it never locks a terminal or churns on an OSC 7 cwd update; the
     /// debounced autosave uses it to detect shape mutations without capturing
     /// the full snapshot every maintenance pass (WP2 sub-ODP 8c).
     pub(in crate::native) fn structural_fingerprint(&self) -> u64 {
@@ -605,6 +647,13 @@ impl WorkspaceSet {
                     .unwrap_or(0)
                     .hash(&mut hasher);
                 hash_pane_shape(&tab.layout, &mut hasher);
+                // The per-pane read-only flag is persisted state, so toggling
+                // it must re-arm the debounced autosave like a shape change.
+                for token in &leaves {
+                    self.get(*token)
+                        .is_some_and(|session| session.read_only)
+                        .hash(&mut hasher);
+                }
             }
         }
         hasher.finish()

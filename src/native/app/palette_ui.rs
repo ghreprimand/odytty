@@ -222,6 +222,7 @@ impl App {
                 self.return_to_live();
                 self.write_pty_bytes(&[0x01, 0x0b]);
             }
+            PaletteAction::ToggleReadOnly => self.toggle_active_pane_read_only(),
             PaletteAction::NewTab => self.handle_new_tab(),
             PaletteAction::CloseTab => {
                 let _ = self.close_active_tab();

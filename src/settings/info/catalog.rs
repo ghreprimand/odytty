@@ -1354,6 +1354,7 @@ impl Settings {
                     "copy-mode",
                     "hints",
                     "clear-input",
+                    "toggle-read-only",
                     "command-palette",
                     "connection-manager",
                     "session-replay",

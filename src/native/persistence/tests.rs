@@ -12,6 +12,7 @@ fn leaf(cwd: Option<&str>) -> PaneShape {
         session_host_id: None,
         remote_host: None,
         launch_profile: None,
+        read_only: false,
     }
 }
 
@@ -573,6 +574,7 @@ fn pane_session_host_id_round_trips_and_is_forward_compatible() {
                     session_host_id: Some("odytty-4f2a".to_owned()),
                     remote_host: None,
                     launch_profile: None,
+                    read_only: false,
                 },
             }],
         }],
@@ -620,6 +622,7 @@ fn pane_launch_profile_round_trips_and_is_forward_compatible() {
                     session_host_id: None,
                     remote_host: None,
                     launch_profile: Some("dev".to_owned()),
+                    read_only: false,
                 },
             }],
         }],
@@ -663,6 +666,7 @@ fn pane_remote_host_round_trips_and_is_forward_compatible() {
                     session_host_id: None,
                     remote_host: Some("prod".to_owned()),
                     launch_profile: None,
+                    read_only: false,
                 },
             }],
         }],
@@ -1255,4 +1259,78 @@ fn sensitive_state_reader_enforces_the_limit_during_the_read() {
     assert!(error.to_string().contains("8-byte load budget"));
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn snapshot_with(layout: PaneShape) -> ShapeSnapshot {
+    ShapeSnapshot {
+        version: SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: vec![WorkspaceShape {
+            name: "w".to_owned(),
+            default_profile: None,
+            launch_profile: None,
+            active_tab: 0,
+            tabs: vec![TabShape {
+                title: None,
+                focused_leaf: 0,
+                layout,
+            }],
+        }],
+    }
+}
+
+/// The read-only flag serializes only when set, so a writable pane's JSON is
+/// byte-identical to earlier versions, and it round-trips when set.
+#[test]
+fn read_only_leaf_round_trips_and_writable_leaf_omits_the_key() {
+    let writable = snapshot_with(PaneShape::Leaf {
+        cwd: None,
+        session_host_id: None,
+        remote_host: None,
+        launch_profile: None,
+        read_only: false,
+    });
+    let text = writable.to_json_pretty();
+    assert!(
+        !text.contains("read_only"),
+        "writable panes keep the old schema"
+    );
+    assert_eq!(
+        ShapeSnapshot::from_json_str(&text).expect("parse"),
+        writable
+    );
+
+    let locked = snapshot_with(PaneShape::Leaf {
+        cwd: None,
+        session_host_id: None,
+        remote_host: None,
+        launch_profile: None,
+        read_only: true,
+    });
+    let text = locked.to_json_pretty();
+    assert!(text.contains("\"read_only\": true"));
+    assert_eq!(ShapeSnapshot::from_json_str(&text).expect("parse"), locked);
+}
+
+/// Older snapshots (no key) and hand edits with a non-boolean value load as
+/// writable rather than failing restore.
+#[test]
+fn missing_or_malformed_read_only_loads_writable() {
+    for leaf in [
+        r#"{"cwd": null}"#,
+        r#"{"cwd": null, "read_only": "yes"}"#,
+        r#"{"cwd": null, "read_only": 1}"#,
+        r#"{"cwd": null, "read_only": false}"#,
+        r#"{"cwd": null, "read_only": true, "future_field": 7}"#,
+    ] {
+        let text = format!(
+            r#"{{"version": 1, "active_workspace": 0, "workspaces": [{{"name": "w", "active_tab": 0, "tabs": [{{"title": null, "focused_leaf": 0, "layout": {{"leaf": {leaf}}}}}]}}]}}"#
+        );
+        let parsed = ShapeSnapshot::from_json_str(&text).expect("parse");
+        let expected = leaf.contains("\"read_only\": true");
+        match &parsed.workspaces[0].tabs[0].layout {
+            PaneShape::Leaf { read_only, .. } => assert_eq!(*read_only, expected, "{leaf}"),
+            other => panic!("expected a leaf, got {other:?}"),
+        }
+    }
 }

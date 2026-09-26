@@ -60,7 +60,8 @@ impl App {
         // Win32 clipboard read does not block indefinitely, so this is a
         // no-behavior-change simplification there (the item is always enabled and
         // the action still no-ops on empty).
-        let paste_enabled = true;
+        // A read-only pane accepts no paste, so the row shows disabled there.
+        let paste_enabled = self.active_pane_accepts_input();
         // Part C: each item's *effective* keybind, derived from the live
         // `KeyBindings` (reverse action→chord lookup) so it reflects user
         // rebinds. Items with no bound chord get `None` (rendered blank). Reuses
@@ -134,9 +135,9 @@ impl App {
         self.overlay.open_context_menu_with_prompt_editing_hint(
             spawn,
             copy_enabled,
-            editable_selection.is_some(),
+            editable_selection.is_some() && paste_enabled,
             paste_enabled,
-            editable_selection.is_some(),
+            editable_selection.is_some() && paste_enabled,
             prompt_editing_hint,
             rename_target,
             multi_pane,
@@ -150,6 +151,8 @@ impl App {
         if matches!(surface, ContextMenuSurface::Content) {
             self.overlay
                 .set_context_menu_command_actions_enabled(command_handle.is_some());
+            self.overlay
+                .set_context_menu_pane_read_only(self.active_pane_read_only());
         }
         // MENU-DEBOUNCE: stamp the open instant so a stale queued press flushed
         // into the just-opened menu is swallowed rather than activating an item
@@ -354,6 +357,10 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_context_menu_delete();
             }
+            OverlayOutcome::ContextMenuToggleReadOnly => {
+                self.flush_pending_overlay_settings();
+                self.toggle_active_pane_read_only();
+            }
             OverlayOutcome::ContextMenuSelectAll => {
                 self.flush_pending_overlay_settings();
                 self.handle_select_all();
@@ -431,7 +438,7 @@ impl App {
             // a fresh shell in the active pane's directory (not a process fork).
             OverlayOutcome::ContextMenuDuplicateTab => {
                 self.flush_pending_overlay_settings();
-                self.handle_new_local_tab();
+                self.handle_duplicate_tab();
             }
             // New Window: same-process sibling request (Ctrl+Shift+N uses the
             // same seam). The process host drains it into an in-process App.

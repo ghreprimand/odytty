@@ -119,6 +119,7 @@ fn append_from_snapshot_appends_without_clobbering() {
                     session_host_id: None,
                     remote_host: None,
                     launch_profile: None,
+                    read_only: false,
                 },
             }],
         }],
@@ -234,6 +235,7 @@ fn append_from_snapshot_appends_all_workspaces_of_a_multi_workspace_layout() {
             session_host_id: None,
             remote_host: None,
             launch_profile: None,
+            read_only: false,
         },
     };
     let ws = |name: &str| crate::native::persistence::WorkspaceShape {
@@ -333,6 +335,7 @@ fn append_consumes_a_pristine_workspace_on_open() {
             session_host_id: None,
             remote_host: None,
             launch_profile: None,
+            read_only: false,
         },
     };
     let ws = |name: &str| crate::native::persistence::WorkspaceShape {
@@ -391,6 +394,7 @@ fn append_does_not_consume_a_single_but_renamed_workspace() {
                     session_host_id: None,
                     remote_host: None,
                     launch_profile: None,
+                    read_only: false,
                 },
             }],
         }],
@@ -435,6 +439,7 @@ fn replace_via_restore_leaves_no_survivors() {
             session_host_id: None,
             remote_host: None,
             launch_profile: None,
+            read_only: false,
         },
     };
     let ws = |name: &str| crate::native::persistence::WorkspaceShape {
@@ -492,6 +497,7 @@ fn reattach_counts_attempt_and_falls_back_to_fresh_when_host_is_dead() {
                     session_host_id: Some("odytty-nonexistent-host".to_owned()),
                     remote_host: None,
                     launch_profile: None,
+                    read_only: false,
                 },
             }],
         }],
@@ -592,12 +598,14 @@ fn restore_lands_stale_and_unknown_cwds_at_home() {
                         session_host_id: None,
                         remote_host: None,
                         launch_profile: None,
+                        read_only: false,
                     }),
                     second: Box::new(PaneShape::Leaf {
                         cwd: None,
                         session_host_id: None,
                         remote_host: None,
                         launch_profile: None,
+                        read_only: false,
                     }),
                 },
             }],
@@ -639,6 +647,7 @@ fn restore_aborts_cleanly_when_a_leaf_fails_to_spawn() {
         session_host_id: None,
         remote_host: None,
         launch_profile: None,
+        read_only: false,
     };
     let snapshot = ShapeSnapshot {
         version: crate::native::persistence::SNAPSHOT_VERSION,
@@ -703,6 +712,7 @@ fn out_of_range_indices_in_a_snapshot_clamp_never_panic() {
         session_host_id: None,
         remote_host: None,
         launch_profile: None,
+        read_only: false,
     };
     let snapshot = ShapeSnapshot {
         version: crate::native::persistence::SNAPSHOT_VERSION,
@@ -825,6 +835,7 @@ fn absurd_ratios_and_deep_nesting_restore_without_panicking() {
         session_host_id: None,
         remote_host: None,
         launch_profile: None,
+        read_only: false,
     };
     // A right-leaning split spine 40 deep, each level carrying a
     // pathological ratio. 40 added leaves + the original = 41 leaves.
@@ -897,6 +908,7 @@ fn restore_reconnects_remote_leaves_and_keeps_local_leaves_local() {
                         session_host_id: None,
                         remote_host: None,
                         launch_profile: None,
+                        read_only: false,
                     }),
                     second: Box::new(PaneShape::Leaf {
                         // A remote pane captured the REMOTE cwd; it must not be
@@ -905,6 +917,7 @@ fn restore_reconnects_remote_leaves_and_keeps_local_leaves_local() {
                         session_host_id: None,
                         remote_host: Some("prod".to_owned()),
                         launch_profile: None,
+                        read_only: false,
                     }),
                 },
             }],
@@ -962,6 +975,7 @@ fn restore_falls_back_to_local_when_remote_host_unresolvable() {
                     session_host_id: None,
                     remote_host: Some("gone.example.invalid".to_owned()),
                     launch_profile: None,
+                    read_only: false,
                 },
             }],
         }],
@@ -1020,6 +1034,7 @@ fn restore_retries_at_home_when_spawn_fails_at_an_existing_cwd() {
                     session_host_id: None,
                     remote_host: None,
                     launch_profile: None,
+                    read_only: false,
                 },
             }],
         }],
@@ -1095,4 +1110,80 @@ fn structural_fingerprint_tracks_shape_changes() {
         after_tab,
         "renaming a workspace changes the fingerprint"
     );
+}
+
+/// A read-only toggle is persisted state, so it must move the autosave
+/// fingerprint, and toggling back restores the original value.
+#[test]
+fn structural_fingerprint_tracks_the_read_only_flag() {
+    let mut set = WorkspaceSet::new(build_session(), None);
+    let base = set.structural_fingerprint();
+    set.get_mut(SessionToken(0)).expect("launch pane").read_only = true;
+    assert_ne!(set.structural_fingerprint(), base);
+    set.get_mut(SessionToken(0)).expect("launch pane").read_only = false;
+    assert_eq!(set.structural_fingerprint(), base);
+}
+
+/// A read-only leaf rebuilds as a read-only pane (label and input gate follow
+/// the session flag); a writable sibling stays writable.
+#[test]
+fn restore_rebuilds_read_only_leaves_read_only() {
+    use crate::native::persistence::{
+        PaneShape, SNAPSHOT_VERSION, ShapeSnapshot, SplitAxisShape, TabShape, WorkspaceShape,
+    };
+    let leaf = |read_only| PaneShape::Leaf {
+        cwd: None,
+        session_host_id: None,
+        remote_host: None,
+        launch_profile: None,
+        read_only,
+    };
+    let layout = ShapeSnapshot {
+        version: SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: vec![WorkspaceShape {
+            name: "locked".to_owned(),
+            default_profile: None,
+            launch_profile: None,
+            active_tab: 0,
+            tabs: vec![TabShape {
+                title: None,
+                focused_leaf: 0,
+                layout: PaneShape::Split {
+                    axis: SplitAxisShape::Columns,
+                    ratio: 0.5,
+                    first: Box::new(leaf(true)),
+                    second: Box::new(leaf(false)),
+                },
+            }],
+        }],
+    };
+    let mut set = WorkspaceSet::new(build_session(), None);
+    let report = set.append_from_snapshot_headless_for_test(&layout, None);
+    assert!(matches!(report, RestoreReport::Restored { panes: 2, .. }));
+    let captured = set.capture_shape();
+    let restored = captured
+        .workspaces
+        .iter()
+        .find(|ws| ws.name == "locked")
+        .expect("appended workspace");
+    match &restored.tabs[0].layout {
+        PaneShape::Split { first, second, .. } => {
+            assert!(matches!(
+                **first,
+                PaneShape::Leaf {
+                    read_only: true,
+                    ..
+                }
+            ));
+            assert!(matches!(
+                **second,
+                PaneShape::Leaf {
+                    read_only: false,
+                    ..
+                }
+            ));
+        }
+        other => panic!("expected the split to survive, got {other:?}"),
+    }
 }

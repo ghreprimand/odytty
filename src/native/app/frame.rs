@@ -562,6 +562,10 @@ impl App {
                     attention.completed,
                     attention.failed,
                 );
+                super::read_only::paint_read_only_label(
+                    &mut snapshot,
+                    self.active_pane_read_only(),
+                );
                 // UX-A (Phase 11): the Ctrl+hover armed underline on the
                 // hovered path span, then the transient bottom-left
                 // "Ctrl+click to open" hint. Both no-op (byte-identical)
@@ -689,6 +693,7 @@ impl App {
                             // default path; keyed by the numeral while a picker
                             // targets this window so the badge repaints.
                             merge_numeral: self.merge_numeral_overlay_signature(),
+                            read_only: self.read_only_overlay_signature(),
                         },
                         // F4-P3: fold the revealed rail overlay's
                         // visibility + geometry + visual state so a pure

@@ -41,6 +41,9 @@ pub enum BindableAction {
     Hints,
     /// Clear the current shell input line with the configured PTY action.
     ClearInput,
+    /// Toggle the focused pane's read-only (input-disabled) mode. No default
+    /// chord: a chord would take a key from the shell on writable panes.
+    ToggleReadOnly,
     /// Open the in-window command palette.
     CommandPalette,
     /// Open the output-replay overlay.
@@ -100,7 +103,7 @@ impl BindableAction {
     ///
     /// This is the single source of truth used by the editor and coverage
     /// guards, so additions must remain exhaustive.
-    pub const ALL: [Self; 49] = [
+    pub const ALL: [Self; 50] = [
         Self::Search,
         Self::SettingsPanel,
         Self::ThemePicker,
@@ -122,6 +125,7 @@ impl BindableAction {
         Self::CopyMode,
         Self::Hints,
         Self::ClearInput,
+        Self::ToggleReadOnly,
         Self::CommandPalette,
         Self::ConnectionManager,
         Self::SessionReplay,
@@ -187,6 +191,7 @@ impl BindableAction {
             "copymode" | "selectmode" => Some(Self::CopyMode),
             "hints" | "hint" | "quickselect" | "patternselect" => Some(Self::Hints),
             "clearinput" | "clearline" | "killline" | "clear" => Some(Self::ClearInput),
+            "togglereadonly" | "readonly" | "readonlypane" => Some(Self::ToggleReadOnly),
             "commandpalette" | "palette" | "cmdpalette" | "fuzzypalette" => {
                 Some(Self::CommandPalette)
             }

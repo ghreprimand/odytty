@@ -10,6 +10,9 @@ use super::*;
 
 impl App {
     pub(super) fn route_paste_text(&mut self, source: PasteSource, text: String) {
+        if self.refuse_input_if_read_only() {
+            return;
+        }
         let bracketed = self
             .terminal
             .lock()
@@ -101,7 +104,8 @@ impl App {
         // Confirmation authority is tied to the exact pane and the child mode
         // observed when the modal opened. A switch or a newly-enabled bracketed
         // mode makes the prompt stale and writes nothing.
-        if self.sessions.active_id() != pending.session {
+        if self.sessions.active_id() != pending.session || !self.pane_accepts_input(pending.session)
+        {
             return;
         }
         let same_mode = self

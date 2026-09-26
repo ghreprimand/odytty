@@ -285,6 +285,7 @@ fn capture_shape_records_workspaces_tabs_panes_and_cwd() {
                     session_host_id: None,
                     remote_host: None,
                     launch_profile: None,
+                    read_only: false,
                 }
             );
             assert!(matches!(**second, PaneShape::Leaf { .. }));

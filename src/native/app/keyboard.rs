@@ -298,6 +298,10 @@ impl App {
                     self.write_pty_bytes(&[0x01, 0x0b]);
                     return;
                 }
+                Some(BindableAction::ToggleReadOnly) => {
+                    self.toggle_active_pane_read_only();
+                    return;
+                }
                 Some(BindableAction::NewTab) => {
                     self.handle_new_tab();
                     return;
@@ -324,8 +328,9 @@ impl App {
                     // Duplicate = a fresh local shell in the active pane's cwd (F1
                     // cwd inheritance), NOT a process fork: scrollback and the
                     // running program are not copied. Routes through the same
-                    // cwd-aware local-tab spawn as New Local Tab.
-                    self.handle_new_local_tab();
+                    // cwd-aware local-tab spawn as New Local Tab, and keeps the
+                    // source pane's read-only mode.
+                    self.handle_duplicate_tab();
                     return;
                 }
                 Some(BindableAction::NewWorkspace) => {
@@ -414,6 +419,7 @@ impl App {
             // word-delete chords (Ctrl+W, Alt+Backspace) still reach the shell.
             // Press-only via the enclosing guard.
             if is_selection_delete_key(&logical)
+                && self.active_pane_accepts_input()
                 && !mods.ctrl
                 && !mods.alt
                 && !self.super_key
@@ -492,6 +498,11 @@ impl App {
 
         key_event_diagnostics::log_backspace_encoding(&logical, &bytes);
         if bytes.is_empty() {
+            return;
+        }
+        // Read-only pane: the encoded bytes (presses, repeats, and Win32/Kitty
+        // releases alike) are dropped, and the viewport stays where it is.
+        if !self.active_pane_accepts_input() {
             return;
         }
         // Any keystroke that reaches the shell snaps the viewport back to live,
@@ -841,7 +852,7 @@ impl App {
         let Some(target) = self.sessions.active_remote_upload_target() else {
             return;
         };
-        if !self.settings.remote_image_paste.is_enabled() {
+        if !self.settings.remote_image_paste.is_enabled() || self.refuse_input_if_read_only() {
             return;
         }
         let Some(image) = self.clipboard.read_image_png() else {
@@ -912,6 +923,9 @@ impl App {
         let Some(pending) = self.pending_image_paste.take() else {
             return;
         };
+        if !self.pane_accepts_input(pending.session) {
+            return;
+        }
         #[cfg(test)]
         {
             self.last_image_upload = Some((pending.session, pending.png.len()));

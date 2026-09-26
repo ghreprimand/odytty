@@ -265,6 +265,14 @@ pub(in crate::native) struct Session {
     /// on top at each sweep. Re-resolved on restore from `launch_profile`, so it
     /// need not be persisted separately.
     pub(in crate::native) profile_theme: Option<crate::theme::Theme>,
+    /// Read-only (input-disabled) pane flag. While set, no user input (keys,
+    /// IME commits, paste, file-drop text, image-paste uploads, or mouse
+    /// reports) reaches this pane's PTY; copy, search, scroll, selection,
+    /// resize, and focus reports stay available. Every input write site asks
+    /// `App::pane_accepts_input`, the single policy helper. Persisted per leaf
+    /// in the workspace shape (older snapshots load writable) and painted as a
+    /// `READ-ONLY` label in the pane. Default `false`.
+    pub(in crate::native) read_only: bool,
 }
 
 /// One tab in the strip. It owns a layout tree of panes (a binary

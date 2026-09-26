@@ -515,6 +515,7 @@ impl Session {
             remote_destination: None,
             launch_profile: None,
             profile_theme: None,
+            read_only: false,
         }
     }
 

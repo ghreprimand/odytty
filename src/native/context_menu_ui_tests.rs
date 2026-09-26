@@ -252,14 +252,15 @@ fn focus_cycles_with_wrap() {
     assert_eq!(m.focused, 0);
     m.handle_input(OverlayInput::Up);
     // Wraps from 0 to the last *visible* item (Detach & switch). With a
-    // selection the single-pane content menu shows 26 items: Copy/Cut/Paste/
+    // selection the single-pane content menu shows 27 items: Copy/Cut/Paste/
     // Delete/Select All, New Tab/New Tab with Profile/New Window/Close Tab
-    // (Rename Tab dropped), the two splits, New/New with Profile/Rename/Close
+    // (Rename Tab dropped), the two splits + Make Pane Read-Only, New/New
+    // with Profile/Rename/Close
     // Workspace + Bind to Host (unbound) + Save as Layout + Save Workspace as
     // Layout + Open Layout, Settings, and the six launcher items (Close Pane
     // hidden single-pane).
     assert_eq!(m.focused, m.item_count() - 1);
-    assert_eq!(m.item_count(), 26);
+    assert_eq!(m.item_count(), 27);
     m.handle_input(OverlayInput::Down);
     assert_eq!(m.focused, 0);
     m.handle_input(OverlayInput::Down);
@@ -371,12 +372,12 @@ fn split_items_always_activate() {
 #[test]
 fn settings_always_activates() {
     let mut m = menu(false, false);
-    // With no selection Settings sits at body row 20 (2 editing anchors +
-    // sep + 4 tab actions + sep + 2 splits + sep + 9 workspace (incl. both
-    // profile rows + Bind to Host + Save as Layout + Save Workspace as Layout
-    // + Open Layout) + sep = 20).
+    // With no selection Settings sits at body row 21 (2 editing anchors +
+    // sep + 4 tab actions + sep + 2 splits + Make Pane Read-Only + sep + 9
+    // workspace (incl. both profile rows + Bind to Host + Save as Layout +
+    // Save Workspace as Layout + Open Layout) + sep = 21).
     assert_eq!(
-        m.handle_press(20, m.body_row_count(), PointerButton::Left),
+        m.handle_press(21, m.body_row_count(), PointerButton::Left),
         ContextMenuOutcome::Activate(ContextMenuItem::Settings)
     );
 }
@@ -385,15 +386,15 @@ fn settings_always_activates() {
 fn single_pane_menu_hides_close_pane() {
     // Single-pane, no selection: Close Pane is absent; Copy/Cut/Delete are
     // hidden (no selection) and Rename Tab is dropped, so the content menu is
-    // 23 items / 28 body rows - Paste/Select All · New Tab/New Tab with
-    // Profile/New Window/Close Tab · the two splits · New/New with Profile/
+    // 24 items / 29 body rows - Paste/Select All · New Tab/New Tab with
+    // Profile/New Window/Close Tab · the two splits + Make Pane Read-Only · New/New with Profile/
     // Rename/Close Workspace + Bind to Host (unbound) + Save as Layout +
     // Save Workspace as Layout + Open Layout · Settings · the six launcher
     // items.
     let m = menu(false, false);
-    assert_eq!(m.item_count(), 23);
+    assert_eq!(m.item_count(), 24);
     let rows = m.rows();
-    assert_eq!(rows.len(), 28);
+    assert_eq!(rows.len(), 29);
     assert!(
         !rows.iter().any(|r| matches!(
             r,
@@ -408,48 +409,49 @@ fn single_pane_menu_hides_close_pane() {
     assert_eq!(rows[4], item("New Tab with Profile\u{2026}", false, true));
     assert_eq!(rows[5], item("New Window", false, true));
     assert_eq!(rows[6], item("Close Tab", false, true));
-    assert_eq!(rows[11], item("New Workspace", false, true));
+    assert_eq!(rows[10], item("Make Pane Read-Only", false, true));
+    assert_eq!(rows[12], item("New Workspace", false, true));
     assert_eq!(
-        rows[12],
+        rows[13],
         item("New Workspace with Profile\u{2026}", false, true)
     );
-    assert_eq!(rows[13], item("Rename Workspace", false, true));
-    assert_eq!(rows[14], item("Close Workspace", false, true));
+    assert_eq!(rows[14], item("Rename Workspace", false, true));
+    assert_eq!(rows[15], item("Close Workspace", false, true));
     assert_eq!(
-        rows[15],
+        rows[16],
         item("Bind to Host\u{2026}", false, true),
         "an unbound workspace shows Bind to Host in the workspace section"
     );
-    assert_eq!(rows[16], item("Save as Layout\u{2026}", false, true));
+    assert_eq!(rows[17], item("Save as Layout\u{2026}", false, true));
     assert_eq!(
-        rows[17],
+        rows[18],
         item("Save Workspace as Layout\u{2026}", false, true)
     );
-    assert_eq!(rows[18], item("Open Layout\u{2026}", false, true));
-    assert_eq!(rows[19], ContextMenuRow::Separator);
+    assert_eq!(rows[19], item("Open Layout\u{2026}", false, true));
+    assert_eq!(rows[20], ContextMenuRow::Separator);
     assert_eq!(
-        rows[20],
+        rows[21],
         item("Settings", false, true),
-        "Settings sits at body row 20 (no selection, workspace + bind + layout)"
+        "Settings sits at body row 21 (no selection, workspace + bind + layout)"
     );
-    assert_eq!(rows[21], ContextMenuRow::Separator);
-    assert_eq!(rows[22], item("Keyboard Shortcuts", false, true));
-    assert_eq!(rows[23], item("Connection Manager", false, true));
-    assert_eq!(rows[24], item("Command Palette", false, true));
-    assert_eq!(rows[25], item("Session Replay", false, true));
-    assert_eq!(rows[26], item("Manage Sessions", false, true));
-    assert_eq!(rows[27], item("Detach & switch", false, true));
+    assert_eq!(rows[22], ContextMenuRow::Separator);
+    assert_eq!(rows[23], item("Keyboard Shortcuts", false, true));
+    assert_eq!(rows[24], item("Connection Manager", false, true));
+    assert_eq!(rows[25], item("Command Palette", false, true));
+    assert_eq!(rows[26], item("Session Replay", false, true));
+    assert_eq!(rows[27], item("Manage Sessions", false, true));
+    assert_eq!(rows[28], item("Detach & switch", false, true));
 }
 
 #[test]
 fn no_path_menu_hides_the_file_section() {
     // C3: with no resolved path under the click, the four file items are
-    // absent and the layout is the 28-row single-pane content menu (no
+    // absent and the layout is the 29-row single-pane content menu (no
     // selection). This is the no-file-section guarantee.
     let m = menu(false, false);
-    assert_eq!(m.item_count(), 23);
+    assert_eq!(m.item_count(), 24);
     let rows = m.rows();
-    assert_eq!(rows.len(), 28);
+    assert_eq!(rows.len(), 29);
     for label in ["Open", "Copy Path", "Copy File", "Reveal in File Manager"] {
         assert!(
             !rows.iter().any(|r| matches!(
@@ -789,17 +791,17 @@ fn multi_pane_menu_shows_close_pane_in_the_split_section() {
     // Multi-pane: Close Pane appears after Split Down in the split/pane
     // section; the workspace section, Settings, and the v0.3.1 launcher
     // section follow below.
-    // Multi-pane, no selection: 24 items / 29 body rows. Paste/Select All ·
+    // Multi-pane, no selection: 25 items / 30 body rows. Paste/Select All ·
     // New Tab/New Tab with Profile/New Window/Close Tab · Split Right/Split
-    // Down/Close Pane · New/New with Profile/Rename/Close Workspace + Bind to
+    // Down/Close Pane/Make Pane Read-Only · New/New with Profile/Rename/Close Workspace + Bind to
     // Host + Save as Layout + Save Workspace as Layout + Open Layout ·
     // Settings · six launchers.
     let m = multipane_menu();
-    assert_eq!(m.item_count(), 24);
+    assert_eq!(m.item_count(), 25);
     let rows = m.rows();
     assert_eq!(
         rows.len(),
-        29,
+        30,
         "one more row than the single-pane content menu"
     );
     assert_eq!(rows[8], item("Split Right", false, true));
@@ -809,34 +811,35 @@ fn multi_pane_menu_shows_close_pane_in_the_split_section() {
         item("Close Pane", false, true),
         "Close Pane sits at body row 10, alongside the splits"
     );
-    assert_eq!(rows[11], ContextMenuRow::Separator);
-    assert_eq!(rows[12], item("New Workspace", false, true));
+    assert_eq!(rows[11], item("Make Pane Read-Only", false, true));
+    assert_eq!(rows[12], ContextMenuRow::Separator);
+    assert_eq!(rows[13], item("New Workspace", false, true));
     assert_eq!(
-        rows[13],
+        rows[14],
         item("New Workspace with Profile\u{2026}", false, true)
     );
-    assert_eq!(rows[14], item("Rename Workspace", false, true));
-    assert_eq!(rows[15], item("Close Workspace", false, true));
-    assert_eq!(rows[16], item("Bind to Host\u{2026}", false, true));
-    assert_eq!(rows[17], item("Save as Layout\u{2026}", false, true));
+    assert_eq!(rows[15], item("Rename Workspace", false, true));
+    assert_eq!(rows[16], item("Close Workspace", false, true));
+    assert_eq!(rows[17], item("Bind to Host\u{2026}", false, true));
+    assert_eq!(rows[18], item("Save as Layout\u{2026}", false, true));
     assert_eq!(
-        rows[18],
+        rows[19],
         item("Save Workspace as Layout\u{2026}", false, true)
     );
-    assert_eq!(rows[19], item("Open Layout\u{2026}", false, true));
-    assert_eq!(rows[20], ContextMenuRow::Separator);
+    assert_eq!(rows[20], item("Open Layout\u{2026}", false, true));
+    assert_eq!(rows[21], ContextMenuRow::Separator);
     assert_eq!(
-        rows[21],
+        rows[22],
         item("Settings", false, true),
-        "Settings sits at body row 21 in the multi-pane content menu"
+        "Settings sits at body row 22 in the multi-pane content menu"
     );
-    assert_eq!(rows[22], ContextMenuRow::Separator);
-    assert_eq!(rows[23], item("Keyboard Shortcuts", false, true));
-    assert_eq!(rows[24], item("Connection Manager", false, true));
-    assert_eq!(rows[25], item("Command Palette", false, true));
-    assert_eq!(rows[26], item("Session Replay", false, true));
-    assert_eq!(rows[27], item("Manage Sessions", false, true));
-    assert_eq!(rows[28], item("Detach & switch", false, true));
+    assert_eq!(rows[23], ContextMenuRow::Separator);
+    assert_eq!(rows[24], item("Keyboard Shortcuts", false, true));
+    assert_eq!(rows[25], item("Connection Manager", false, true));
+    assert_eq!(rows[26], item("Command Palette", false, true));
+    assert_eq!(rows[27], item("Session Replay", false, true));
+    assert_eq!(rows[28], item("Manage Sessions", false, true));
+    assert_eq!(rows[29], item("Detach & switch", false, true));
 }
 
 #[test]
@@ -852,13 +855,13 @@ fn multi_pane_close_pane_activates_on_press() {
 #[test]
 fn multi_pane_focus_wraps_through_all_items() {
     // Up from item 0 wraps to the last visible item (Detach & switch, index
-    // 23), proving Close Pane is in the focus cycle only when multi-pane and
+    // 24), proving Close Pane is in the focus cycle only when multi-pane and
     // the workspace + launcher items extend the cycle.
     let mut m = multipane_menu();
     assert_eq!(m.focused, 0);
     m.handle_input(OverlayInput::Up);
-    assert_eq!(m.focused, 23);
-    assert_eq!(m.item_count(), 24);
+    assert_eq!(m.focused, 24);
+    assert_eq!(m.item_count(), 25);
 }
 
 #[test]
@@ -892,11 +895,11 @@ fn hover_skips_separator() {
         m.handle_hover(Some(sep), m.body_row_count());
         assert_eq!(m.focused, 2, "separator hover is inert");
     }
-    // Hovering Settings (body row 23, item index 19 in the with-selection
-    // reference — the workspace section + Bind + Save/Save Workspace/Open
-    // Layout rows now sit above Settings) focuses it.
-    m.handle_hover(Some(23), m.body_row_count());
-    assert_eq!(m.focused, 19, "hover Settings focuses it");
+    // Hovering Settings (body row 24, item index 20 in the with-selection
+    // reference - Make Pane Read-Only, the workspace section + Bind +
+    // Save/Save Workspace/Open Layout rows now sit above Settings) focuses it.
+    m.handle_hover(Some(24), m.body_row_count());
+    assert_eq!(m.focused, 20, "hover Settings focuses it");
 }
 
 #[test]
@@ -1053,25 +1056,26 @@ fn rows_report_label_focus_enabled() {
     assert_eq!(rows[10], ContextMenuRow::Separator);
     assert_eq!(rows[11], item("Split Right", false, true));
     assert_eq!(rows[12], item("Split Down", false, true));
-    assert_eq!(rows[13], ContextMenuRow::Separator);
+    assert_eq!(rows[13], item("Make Pane Read-Only", false, true));
+    assert_eq!(rows[14], ContextMenuRow::Separator);
     // Workspace section sits between Split and Settings; an unbound
     // workspace shows Bind to Host as its last row (ODP-6B).
-    assert_eq!(rows[14], item("New Workspace", false, true));
+    assert_eq!(rows[15], item("New Workspace", false, true));
     assert_eq!(
-        rows[15],
+        rows[16],
         item("New Workspace with Profile\u{2026}", false, true)
     );
-    assert_eq!(rows[16], item("Rename Workspace", false, true));
-    assert_eq!(rows[17], item("Close Workspace", false, true));
-    assert_eq!(rows[18], item("Bind to Host\u{2026}", false, true));
-    assert_eq!(rows[19], item("Save as Layout\u{2026}", false, true));
+    assert_eq!(rows[17], item("Rename Workspace", false, true));
+    assert_eq!(rows[18], item("Close Workspace", false, true));
+    assert_eq!(rows[19], item("Bind to Host\u{2026}", false, true));
+    assert_eq!(rows[20], item("Save as Layout\u{2026}", false, true));
     assert_eq!(
-        rows[20],
+        rows[21],
         item("Save Workspace as Layout\u{2026}", false, true)
     );
-    assert_eq!(rows[21], item("Open Layout\u{2026}", false, true));
-    assert_eq!(rows[22], ContextMenuRow::Separator);
-    assert_eq!(rows[23], item("Settings", false, true));
+    assert_eq!(rows[22], item("Open Layout\u{2026}", false, true));
+    assert_eq!(rows[23], ContextMenuRow::Separator);
+    assert_eq!(rows[24], item("Settings", false, true));
 }
 
 #[test]
@@ -1681,24 +1685,25 @@ fn body_row_mapping_is_consistent() {
     assert_eq!(body_row_to_item(8), Some(7));
     assert_eq!(item_to_body_row(8), 9);
     assert_eq!(body_row_to_item(9), Some(8));
-    // Split actions (9-10) shift past the first two separators.
+    // Pane actions (9-11: the two splits + Make Pane Read-Only) shift past
+    // the first two separators.
     assert_eq!(item_to_body_row(9), 11);
     assert_eq!(body_row_to_item(11), Some(9));
-    assert_eq!(item_to_body_row(10), 12);
-    assert_eq!(body_row_to_item(12), Some(10));
-    // Workspace actions (11-18: New / New with Profile / Rename / Close +
+    assert_eq!(item_to_body_row(11), 13);
+    assert_eq!(body_row_to_item(13), Some(11));
+    // Workspace actions (12-19: New / New with Profile / Rename / Close +
     // Bind to Host + Save as Layout + Save Workspace as Layout + Open Layout)
     // shift past the first three separators.
-    assert_eq!(item_to_body_row(11), 14);
-    assert_eq!(body_row_to_item(14), Some(11));
-    assert_eq!(item_to_body_row(18), 21);
-    assert_eq!(body_row_to_item(21), Some(18));
-    // Settings (19) shifts past the first four separators.
-    assert_eq!(item_to_body_row(19), 23);
-    assert_eq!(body_row_to_item(23), Some(19));
-    // A launcher item (20) shifts past all five separators.
-    assert_eq!(item_to_body_row(20), 25);
-    assert_eq!(body_row_to_item(25), Some(20));
+    assert_eq!(item_to_body_row(12), 15);
+    assert_eq!(body_row_to_item(15), Some(12));
+    assert_eq!(item_to_body_row(19), 22);
+    assert_eq!(body_row_to_item(22), Some(19));
+    // Settings (20) shifts past the first four separators.
+    assert_eq!(item_to_body_row(20), 24);
+    assert_eq!(body_row_to_item(24), Some(20));
+    // A launcher item (21) shifts past all five separators.
+    assert_eq!(item_to_body_row(21), 26);
+    assert_eq!(body_row_to_item(26), Some(21));
 }
 
 // ── ODP-2C connection-row surface composition ──────────────────────────

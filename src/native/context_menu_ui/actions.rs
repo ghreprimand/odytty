@@ -48,6 +48,14 @@ pub(in crate::native) enum ContextMenuItem {
     /// `Ctrl-b x` prefix / palette `close-pane`. Hidden in a single-pane tab
     /// (there is no pane to close short of closing the whole tab).
     ClosePane,
+    /// Turn the focused pane read-only (input disabled). Content surface only,
+    /// shown while the pane is writable; the pair's other half is
+    /// [`Self::MakePaneWritable`]. Bindable through
+    /// [`BindableAction::ToggleReadOnly`], which has no default chord.
+    MakePaneReadOnly,
+    /// Turn a read-only focused pane writable again. Content surface only,
+    /// shown while the pane is read-only.
+    MakePaneWritable,
     /// Open the settings panel (always enabled, D-IN2-SETTINGS).
     Settings,
     /// Open the key-remap editor overlay directly (F3). Always enabled; same
@@ -256,6 +264,8 @@ impl ContextMenuItem {
         Self::SplitColumns,
         Self::SplitRows,
         Self::ClosePane,
+        Self::MakePaneReadOnly,
+        Self::MakePaneWritable,
         // Workspace section: on the content surface these render after the split
         // section and before Settings (their ALL position drives that order),
         // giving a distinct workspace group between panes and Settings.
@@ -356,7 +366,11 @@ impl ContextMenuItem {
             // section() completeness — section_of gives them their own group).
             | Self::ConnectToHost
             | Self::ReplaceTabWithHost => 1,
-            Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
+            Self::SplitColumns
+            | Self::SplitRows
+            | Self::ClosePane
+            | Self::MakePaneReadOnly
+            | Self::MakePaneWritable => 2,
             Self::NewWorkspace
             | Self::NewWorkspaceWithProfile
             | Self::DuplicateWorkspace
@@ -457,6 +471,8 @@ impl ContextMenuItem {
             Self::SplitColumns => "Split Right",
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
+            Self::MakePaneReadOnly => "Make Pane Read-Only",
+            Self::MakePaneWritable => "Make Pane Writable",
             Self::Settings => "Settings",
             Self::KeyboardShortcuts => "Keyboard Shortcuts",
             Self::ConnectionManager => "Connection Manager",
@@ -502,6 +518,9 @@ impl ContextMenuItem {
             Self::CommandPalette => Some(BindableAction::CommandPalette),
             Self::SessionReplay => Some(BindableAction::SessionReplay),
             Self::SessionAttach => Some(BindableAction::SessionAttach),
+            Self::MakePaneReadOnly | Self::MakePaneWritable => {
+                Some(BindableAction::ToggleReadOnly)
+            }
             // Close Pane has no chord in the flat global table — it resolves only
             // on the multiplexer prefix (`Ctrl-b x`), which the flat
             // `chord_for_action` lookup cannot represent. The App fills its

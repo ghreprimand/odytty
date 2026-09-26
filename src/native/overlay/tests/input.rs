@@ -962,9 +962,9 @@ fn context_menu_close_pane_emits_close_pane_outcome_only_multi_pane() {
         OverlayOutcome::ContextMenuClosePane
     );
 
-    // Single-pane: Close Pane is hidden, so item index 11 is New Workspace
-    // (the first workspace-section item) — the Close Pane outcome is
-    // unreachable.
+    // Single-pane: Close Pane is hidden, so item index 11 is Make Pane
+    // Read-Only and index 12 is New Workspace (the first workspace-section
+    // item) - the Close Pane outcome is unreachable.
     overlay.open_context_menu(
         CellPoint { row: 0, column: 0 },
         true,
@@ -976,7 +976,7 @@ fn context_menu_close_pane_emits_close_pane_outcome_only_multi_pane() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..11 {
+    for _ in 0..12 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1006,8 +1006,8 @@ fn content_menu_workspace_actions_target_the_active_workspace() {
         overlay
     };
     // Single-pane with selection: New/Rename/Close Workspace are visible
-    // indices 11/13/14 (right after the two splits at 9/10 and the profile
-    // row at 12).
+    // indices 12/14/15 (right after the two splits at 9/10, Make Pane
+    // Read-Only at 11, and the profile row at 13).
     let step_to = |idx: usize| {
         let mut overlay = open();
         for _ in 0..idx {
@@ -1015,21 +1015,22 @@ fn content_menu_workspace_actions_target_the_active_workspace() {
         }
         overlay.handle_input(OverlayInput::Activate)
     };
-    assert_eq!(step_to(11), OverlayOutcome::ContextMenuNewWorkspace);
+    assert_eq!(step_to(11), OverlayOutcome::ContextMenuToggleReadOnly);
+    assert_eq!(step_to(12), OverlayOutcome::ContextMenuNewWorkspace);
     assert_eq!(
-        step_to(13),
+        step_to(14),
         OverlayOutcome::ContextMenuRenameActiveWorkspace
     );
-    assert_eq!(step_to(14), OverlayOutcome::ContextMenuCloseActiveWorkspace);
-    // ODP-6B: an unbound workspace shows Bind to Host at index 15, which
+    assert_eq!(step_to(15), OverlayOutcome::ContextMenuCloseActiveWorkspace);
+    // ODP-6B: an unbound workspace shows Bind to Host at index 16, which
     // lifts to the "open the shared host picker" outcome.
-    assert_eq!(step_to(15), OverlayOutcome::ContextMenuBindWorkspace);
+    assert_eq!(step_to(16), OverlayOutcome::ContextMenuBindWorkspace);
 }
 
 #[test]
 fn content_menu_bound_workspace_offers_unbind() {
     // ODP-6B: when the active workspace is bound, the workspace section's
-    // conditional row is Unbind (index 15), lifting to the direct-unbind
+    // conditional row is Unbind (index 16), lifting to the direct-unbind
     // outcome (no host picker needed).
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
@@ -1048,7 +1049,7 @@ fn content_menu_bound_workspace_offers_unbind() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..15 {
+    for _ in 0..16 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1205,8 +1206,8 @@ fn rail_empty_menu_save_all_layout_emits_whole_app_outcome() {
 fn content_menu_save_as_layout_targets_the_active_workspace() {
     // LAYOUT-SURFACE: Save Workspace as Layout on the content surface (no slot
     // target) lifts to the active-workspace save outcome. With a selection the
-    // workspace section is New(11) New with Profile(12) Rename(13) Close(14)
-    // Bind(15) SaveAll(16) SaveWorkspace(17) Open(18).
+    // workspace section is New(12) New with Profile(13) Rename(14) Close(15)
+    // Bind(16) SaveAll(17) SaveWorkspace(18) Open(19).
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
         CellPoint { row: 0, column: 0 },
@@ -1224,7 +1225,7 @@ fn content_menu_save_as_layout_targets_the_active_workspace() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..17 {
+    for _ in 0..18 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1236,7 +1237,7 @@ fn content_menu_save_as_layout_targets_the_active_workspace() {
 #[test]
 fn content_menu_save_all_layout_emits_whole_app_outcome() {
     // SAVE-ALL-LAYOUT: the whole-app Save as Layout on the content surface
-    // (index 16, right after Bind) lifts to the surface-independent whole-app
+    // (index 17, right after Bind) lifts to the surface-independent whole-app
     // save outcome, ahead of the single-workspace Save Workspace as Layout.
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
@@ -1255,7 +1256,7 @@ fn content_menu_save_all_layout_emits_whole_app_outcome() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..16 {
+    for _ in 0..17 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1336,11 +1337,12 @@ fn context_menu_without_path_has_no_file_outcomes() {
         None,
         std::array::from_fn(|_| None),
     );
-    // 26 visible items single-pane with a selection (F7 dropped the Rename
-    // Tab row; the workspace section adds New/New with Profile/Rename/Close +
-    // Bind to Host + Save as Layout + Save Workspace as Layout + Open Layout);
-    // Manage Sessions is index 24 (Detach & switch is last at 25).
-    for _ in 0..24 {
+    // 27 visible items single-pane with a selection (F7 dropped the Rename
+    // Tab row; the pane section adds Make Pane Read-Only; the workspace
+    // section adds New/New with Profile/Rename/Close + Bind to Host + Save as
+    // Layout + Save Workspace as Layout + Open Layout); Manage Sessions is
+    // index 25 (Detach & switch is last at 26).
+    for _ in 0..25 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1353,9 +1355,10 @@ fn context_menu_without_path_has_no_file_outcomes() {
 #[test]
 fn context_menu_keyboard_shortcuts_opens_key_bindings() {
     // F3: the "Keyboard Shortcuts" launcher item (first after Settings,
-    // visible index 20 single-pane with a selection - the workspace section
-    // plus both profile rows + Bind to Host + Save as Layout + Save Workspace
-    // as Layout + Open Layout shift the launcher block down by nine) activates
+    // visible index 21 single-pane with a selection - Make Pane Read-Only,
+    // the workspace section plus both profile rows + Bind to Host + Save as
+    // Layout + Save Workspace as Layout + Open Layout shift the launcher block
+    // down by ten) activates
     // the key-remap editor via the same OpenKeyBindings outcome the settings
     // "keybinds" row emits.
     let mut overlay = OverlayUi::default();
@@ -1370,7 +1373,7 @@ fn context_menu_keyboard_shortcuts_opens_key_bindings() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..20 {
+    for _ in 0..21 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(

@@ -730,11 +730,23 @@ impl App {
     /// ConPTY honors it and drive-letter OSC 7 cwds are already normalized.
     pub(super) fn handle_duplicate_workspace(&mut self) {
         self.finish_divider_drag();
+        let source = self.sessions.active_id();
         // D-1: validate the tracked cwd (stat + home fallback) before it seeds
         // the duplicated workspace's shell spawn.
         let cwd = self.validated_spawn_cwd();
         let result = self.sessions.new_workspace_in(self.grid, cwd);
         self.finish_duplicate_workspace_spawn(result);
+        self.carry_read_only_to_duplicate(source);
+    }
+
+    /// Duplicate Tab from every entry point (chord, tab menu, navigator): the
+    /// same cwd-aware fresh local shell as New Local Tab, which additionally
+    /// inherits the source pane's read-only mode. New Local Tab itself always
+    /// opens writable.
+    pub(super) fn handle_duplicate_tab(&mut self) {
+        let source = self.sessions.active_id();
+        self.handle_new_local_tab();
+        self.carry_read_only_to_duplicate(source);
     }
 
     pub(super) fn finish_duplicate_workspace_spawn(

@@ -1119,6 +1119,16 @@ scope rather than silently inheriting deferred work from a prior release.
 
 ### Native UI And Workspaces
 
+- Read-only panes (v0.16.0): a per-pane input-disabled flag, toggled from
+  the command palette, the terminal context menu, or the unbound
+  `toggle-read-only` action. One policy helper (`pane_accepts_input`) gates
+  every user-input PTY write: keys (including Win32 and Kitty releases), IME,
+  every paste source and its confirmation, remote image paste, file-drop
+  text, pointer edits, and mouse reports. Focus reports, terminal replies,
+  resize, copy, search, and scrollback stay available. The flag is persisted
+  per leaf in the workspace shape. It is written only when set, and a missing
+  or non-boolean value loads writable. A persistent `READ-ONLY` label is
+  painted in the pane and is keyed into the frame cache.
 - Stable tab and workspace creation identities (v0.15.0);
   Navigator actions resolve the current owner after pane closure, tab movement,
   and same-process window transfer, while restoration creates fresh identities

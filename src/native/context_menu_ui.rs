@@ -93,7 +93,7 @@ use crate::settings::BindableAction;
 /// `ALL` so every pre-existing accelerator-array index stays stable, and they
 /// never touch the content menu's separator geometry (that surface filters them
 /// out and they compose their own tight sections).
-pub(super) const CONTEXT_MENU_ITEMS: usize = 63;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 65;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -113,10 +113,10 @@ pub(super) const CONTEXT_MENU_SEPARATOR_ROW: usize = 5;
 pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 10;
 
 /// Body row index of the third visual separator (with-selection reference),
-/// between the split actions and the workspace section (New / Rename / Close
-/// Workspace).
+/// between the pane section (the two splits plus Make Pane Read-Only) and the
+/// workspace section (New / Rename / Close Workspace).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 13;
+pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 14;
 
 /// Body row index of the fourth visual separator (with-selection reference),
 /// between the workspace section and Settings. The unbound reference shows the
@@ -124,23 +124,24 @@ pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 13;
 /// Workspace as Layout, and Open Layout, so the section is eight items long
 /// (v0.14 profile rows plus LAYOUT-SURFACE + SAVE-ALL-LAYOUT).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 22;
+pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 23;
 
 /// Body row index of the fifth visual separator (with-selection reference),
 /// between Settings and the launcher section (Connection Manager / Command
 /// Palette / Session Replay).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 24;
+pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 25;
 
 /// Total body rows in the **with-selection** single-pane content reference:
-/// twenty-six visible items plus five separator lines (Close Pane hidden;
+/// twenty-seven visible items plus five separator lines (Close Pane hidden;
+/// the pane section carries Make Pane Read-Only;
 /// Rename Tab dropped from the content menu; the workspace section adds New /
 /// New with Profile / Rename / Close Workspace, the conditional Bind-to-Host
 /// row, the whole-app Save as Layout, Save Workspace as Layout, Open Layout, and
 /// one separator). Production uses [`ContextMenuUi::body_row_count`] for the
 /// live count.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 31;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 32;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -217,21 +218,21 @@ impl ContextMenuSurface {
 /// Map a selectable item index to its body row, accounting for the five
 /// separators. With-selection single-pane reference: items 0–4 (editing) sit at
 /// body rows 0–4; items 5–8 (tab actions: New Tab / New Tab with Profile / New
-/// Window / Close Tab) sit at body rows 6–9; items 9–10 (splits) sit at body
-/// rows 11–12; items 11–18 (workspace section) sit at body rows 14–21; Settings
-/// (index 19) sits at body row 23; the launcher items 20–25 sit at body rows
-/// 25–30.
+/// Window / Close Tab) sit at body rows 6–9; items 9–11 (splits + Make Pane
+/// Read-Only) sit at body rows 11–13; items 12–19 (workspace section) sit at
+/// body rows 15–22; Settings (index 20) sits at body row 24; the launcher items
+/// 21–26 sit at body rows 26–31.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    // With-selection reference: five separators at body rows 5, 10, 13, 22, 24,
-    // so the launcher section (items 20+) shifts by five, Settings (item 19) by
-    // four, the workspace section (items 11-18) by three, the splits (items 9-10)
-    // by two, and the tab actions (items 5-8) by one.
-    if item_index >= 20 {
+    // With-selection reference: five separators at body rows 5, 10, 14, 23, 25,
+    // so the launcher section (items 21+) shifts by five, Settings (item 20) by
+    // four, the workspace section (items 12-19) by three, the pane section
+    // (items 9-11) by two, and the tab actions (items 5-8) by one.
+    if item_index >= 21 {
         item_index + 5
-    } else if item_index >= 19 {
+    } else if item_index >= 20 {
         item_index + 4
-    } else if item_index >= 11 {
+    } else if item_index >= 12 {
         item_index + 3
     } else if item_index >= 9 {
         item_index + 2
@@ -330,6 +331,9 @@ pub(super) struct ContextMenuSignature {
     /// `New Local Tab` escape row's visibility on the tab surface, so a
     /// bind/unbind must repaint the menu.
     pub(super) bound_workspace: bool,
+    /// Whether the focused pane is read-only: selects the Make Read-Only /
+    /// Make Writable row, so a toggle must repaint the menu.
+    pub(super) pane_read_only: bool,
     /// The total workspace count at open time (RAIL-REORDER): drives the Move
     /// Up/Down items' visibility on a `WorkspaceSlot` menu (a slot can move down
     /// only when it is not last), so a workspace-count change must repaint.
@@ -401,6 +405,10 @@ pub(super) struct ContextMenuUi {
     /// Whether the active workspace is bound to a host (F6-W5). Drives the
     /// `New Local Tab` escape row on the tab surface.
     bound_workspace: bool,
+    /// Whether the focused pane is read-only, applied by the App right after a
+    /// content-surface open via [`Self::set_pane_read_only`]. Selects which half
+    /// of the Make Read-Only / Make Writable pair shows. Reset on every open.
+    pane_read_only: bool,
     /// The total workspace count, snapshotted at open time (RAIL-REORDER). On a
     /// `WorkspaceSlot(idx)` menu it decides whether the clicked slot can move
     /// down (`idx + 1 < workspace_count`); `move up` keys off `idx > 0`. The App
