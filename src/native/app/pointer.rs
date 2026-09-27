@@ -1032,6 +1032,9 @@ impl App {
     }
 
     fn handle_primary_paste(&mut self) {
+        if self.refuse_input_if_read_only() {
+            return;
+        }
         let Some(text) = self.clipboard.read_primary_text() else {
             return;
         };
@@ -1194,6 +1197,9 @@ impl App {
     }
 
     pub(super) fn handle_context_menu_cut(&mut self) {
+        if self.refuse_input_if_read_only() {
+            return;
+        }
         let Some(selection) = self.editable_input_selection_for_context_menu() else {
             return;
         };
@@ -1226,6 +1232,9 @@ impl App {
     /// not on editable input, or without shell integration all behave exactly as
     /// before.
     pub(super) fn try_delete_selected_editable_input(&mut self) -> bool {
+        if self.selection.range().is_some() && self.refuse_input_if_read_only() {
+            return true;
+        }
         match self.selection_delete_outcome() {
             SelectionDeleteOutcome::Synthesize(selection) => {
                 self.delete_editable_input_selection(selection);
@@ -1260,6 +1269,9 @@ impl App {
     }
 
     fn delete_editable_input_selection(&mut self, selection: EditableInputSelection) {
+        if self.refuse_input_if_read_only() {
+            return;
+        }
         self.return_to_live();
         self.write_pty_bytes(&selection.edit_bytes);
         self.selection.clear();

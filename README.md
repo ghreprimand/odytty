@@ -4,8 +4,10 @@ Published release: **v0.15.6**.
 
 Current development work is tracked in [TODO.md](TODO.md). The v0.16.0
 development tree adds [read-only panes](docs/features.md#make-a-pane-read-only);
-this feature is not included in v0.15.6. Release evidence and historical
-corrections are listed in the [release index](docs/releases/README.md).
+this feature is not included in v0.15.6. The development palette also refuses
+control-bearing history and directory entries instead of sending hidden input.
+Release evidence and historical corrections are listed in the
+[release index](docs/releases/README.md).
 
 [Website](https://odytty.unfinished-works.com) |
 [Latest release](https://github.com/ghreprimand/odytty/releases/latest) |

@@ -1128,7 +1128,10 @@ scope rather than silently inheriting deferred work from a prior release.
   resize, copy, search, and scrollback stay available. The flag is persisted
   per leaf in the workspace shape. It is written only when set, and a missing
   or non-boolean value loads writable. A persistent `READ-ONLY` label is
-  painted in the pane and is keyed into the frame cache.
+  painted in the pane and is keyed into the frame cache. Refused input is
+  checked before viewport/selection effects or clipboard access, including
+  clipboard and primary-selection paste, prefix passthrough, clear-input
+  actions, context-menu cut, click-to-position, and selected-input deletion.
 - Stable tab and workspace creation identities (v0.15.0);
   Navigator actions resolve the current owner after pane closure, tab movement,
   and same-process window transfer, while restoration creates fresh identities
@@ -1525,7 +1528,12 @@ scope rather than silently inheriting deferred work from a prior release.
   keyboard-driven fuzzy picker over local actions, bounded shell history, and
   recent OSC 7 directories. Accepting a history or directory row types that
   text into the active pane without appending a newline; accepting an action
-  dispatches the local action after the overlay closes.
+  dispatches the local action after the overlay closes. Control-bearing
+  direct-type entries are refused before any PTY or viewport mutation and
+  keep the palette open with a notice. Labels show control characters as
+  visible escapes; backslashes stay literal, so ordinary paths render
+  unchanged. The same eligibility policy guards overlay activation and the
+  final App input path.
 
 - Output replay overlay: opt-in per-session output recording (`session_replay`,
   off by default) keeps a bounded in-memory ring of recent screen frames —

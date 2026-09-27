@@ -350,3 +350,5 @@ fn event_loop_dependent_tests_all_execute_in_one_process() {
          returned early in a single process; one shared loop must serve all of them or none"
     );
 }
+
+mod audit_input_safety;

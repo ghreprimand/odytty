@@ -796,6 +796,11 @@ impl App {
                 );
                 self.spawn_open_or_notice(&argv);
             }
+            OverlayOutcome::PaletteControlTextRefused => {
+                self.raise_neutral_notice(
+                    crate::native::palette_overlay::CONTROL_TEXT_NOTICE.to_owned(),
+                );
+            }
             OverlayOutcome::PaletteTypeText(text) => {
                 self.flush_pending_overlay_settings();
                 self.handle_palette_type_text(text);

@@ -129,7 +129,7 @@ impl App {
                         // its own prefix (K3 nested-multiplexer story). Return to
                         // live first, like any keystroke that reaches the shell.
                         let bytes = self.prefix_engine.passthrough_bytes();
-                        if !bytes.is_empty() {
+                        if !bytes.is_empty() && !self.refuse_input_if_read_only() {
                             self.return_to_live();
                             self.write_pty_bytes(&bytes);
                         }
@@ -289,6 +289,9 @@ impl App {
                     }
                 }
                 Some(BindableAction::ClearInput) => {
+                    if self.refuse_input_if_read_only() {
+                        return;
+                    }
                     // IN1: clear the current shell input line. Sends a
                     // readline-style "move to start, kill to end" sequence
                     // (Ctrl+A, Ctrl+K) so the whole line is cleared regardless

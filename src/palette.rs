@@ -17,6 +17,12 @@
 
 use crate::fuzzy::{Score, score};
 
+/// Direct palette text is typed without submitting a command. Control bytes
+/// are never eligible, even when the child enables bracketed paste.
+pub fn literal_text_is_safe_to_type(text: &str) -> bool {
+    !text.chars().any(char::is_control)
+}
+
 /// Default maximum number of ranked rows retained by the model.
 pub const DEFAULT_PALETTE_MAX_RESULTS: usize = 50;
 

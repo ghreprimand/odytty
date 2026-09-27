@@ -600,7 +600,11 @@ to a mouse-aware program. Mouse clicks and drags select text locally instead.
 Copy, search, scrollback, selection, resize, and focus reports keep working. A
 paste or drop on a read-only pane shows a short notice. Turning the mode on
 cancels a pending paste or drop confirmation for that pane. Input blocked while
-the pane was read-only is discarded, not replayed.
+the pane was read-only is discarded, not replayed. Refused input does not
+move the scrollback viewport, clear the selection, or read the clipboard.
+This also applies to clipboard and middle-click primary paste, Clear Input, a
+doubled multiplexer prefix, palette text, context-menu Cut, click-to-position
+in the prompt, and deleting selected prompt input.
 
 The mode belongs to the pane. Other panes, tabs, and windows are unaffected.
 Workspace restore and named layouts keep it, so a restored pane shows the label
@@ -1086,7 +1090,13 @@ a corrupted command line.
 The command palette fuzzy-filters local actions, bounded read-only shell
 history, and recent OSC 7 directories. A history or directory choice types its
 text into the active pane without pressing Enter; an action runs after the
-overlay closes.
+overlay closes. In the v0.16.0 development tree, history and directory entries
+containing a control character are refused: the palette stays open with a
+notice, and no bytes are sent. There is no confirm-and-send exception.
+Labels show control characters as visible escapes (`\n`, `\r`, `\t`, or
+`\xHH`) instead of hiding them. Backslashes display literally, so a Windows
+path such as `C:\Users\example` reads unchanged, and ordinary entries retain
+their exact input bytes.
 
 Use an environment override for one session:
 

@@ -405,7 +405,9 @@ These tokens are accepted on the right-hand side of `chord=action`:
 - **Pane input:** `toggle-read-only` (no default chord; also in the command
   palette and the terminal right-click menu). A read-only pane accepts no
   typed, pasted, dropped, or mouse-reported input; copy, search, and scrollback
-  keep working.
+  keep working. Refused Clear Input, paste (clipboard or primary selection),
+  and prefix passthrough leave the viewport and selection unchanged; refused
+  paste does not read the clipboard.
 - **Scroll and prompt:** `scroll-up`, `scroll-down`, `jump-prompt-prev`,
   `jump-prompt-next`.
 - **Tabs and windows:** `new-tab`, `new-window`, `next-tab`, `prev-tab`,

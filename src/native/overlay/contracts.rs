@@ -345,8 +345,11 @@ pub(in crate::native) enum OverlayOutcome {
     /// the file ITSELF with `open -R`. Boxed to keep this short-lived enum small.
     ContextMenuRevealPath(Box<crate::paths::Resolved>),
     /// Type text accepted from the command palette into the active pane's PTY.
-    /// The App writes the exact bytes with no trailing newline.
+    /// The App rechecks eligibility and writes control-free bytes without
+    /// appending a newline.
     PaletteTypeText(String),
+    /// Refuse control-bearing direct text without closing the palette.
+    PaletteControlTextRefused,
     /// Run a local terminal action accepted from the command palette.
     PaletteAction(String),
     /// Connect to a host accepted from the connection-manager overlay (Phase 4).

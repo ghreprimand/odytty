@@ -21,6 +21,9 @@ impl App {
     /// reachable. Clipboard failures are deliberately non-fatal: a terminal
     /// should keep running even when the compositor denies clipboard access.
     pub(super) fn handle_paste_shortcut(&mut self) {
+        if self.refuse_input_if_read_only() {
+            return;
+        }
         // Every clipboard text paste enters the shared pre-encoding policy.
         if let Some(text) = self.clipboard.read_text() {
             self.route_paste_text(PasteSource::Clipboard, text);

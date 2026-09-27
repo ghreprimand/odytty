@@ -460,6 +460,9 @@ impl App {
         if bytes.is_empty() {
             return false;
         }
+        if self.refuse_input_if_read_only() {
+            return true;
+        }
         // T5: the positioning burst goes to the host through the exact keystroke
         // writer, after snapping to the live tail like any typed input.
         self.return_to_live();

@@ -73,6 +73,11 @@ Development on `master`; not released. Items check off when their code is on
       drop, and mouse-report input, and it is persisted in workspace and
       layout state.
 - [ ] Device acceptance for read-only panes on Linux, macOS, and Windows.
+- [ ] Reject control-bearing palette text and show its controls as visible
+      label escapes (backslashes stay literal); preserve viewport/selection
+      and skip clipboard access when read-only input is refused, including
+      primary paste, prefix passthrough, Clear Input, context-menu Cut,
+      click-to-position, and selected-input deletion.
 
 ## v0.15.6: Cursor Glide Regression and Menu Scrolling (published)
 

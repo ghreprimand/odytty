@@ -4,7 +4,8 @@
 //! The overlay is presentation state only: it owns a query, ranked row list,
 //! and recent-directory cache, but it never writes to the PTY and never mutates
 //! the terminal model. Accepting a row returns an outcome for the App to run
-//! after the overlay closes.
+//! after the overlay closes. Control-bearing literal rows remain open and
+//! return a refusal outcome instead of input.
 
 use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
@@ -22,6 +23,9 @@ use super::overlay::OverlayInput;
 
 const MAX_RESULTS: usize = 40;
 
+pub(in crate::native) const CONTROL_TEXT_NOTICE: &str =
+    "Not typed: the entry contains a control character.";
+
 #[derive(Debug, Clone)]
 pub(super) struct PaletteOverlay {
     model: PaletteModel,
@@ -35,6 +39,7 @@ pub(super) enum PaletteOverlayOutcome {
     Consumed,
     Close,
     TypeText(String),
+    RefusedControlText,
     Action(String),
 }
 
@@ -163,7 +168,11 @@ impl PaletteOverlay {
             OverlayInput::Activate => match self.model.selected_selection() {
                 Some(PaletteSelection::Action { id }) => PaletteOverlayOutcome::Action(id),
                 Some(PaletteSelection::TypeText { text, .. }) => {
-                    PaletteOverlayOutcome::TypeText(text)
+                    if crate::palette::literal_text_is_safe_to_type(&text) {
+                        PaletteOverlayOutcome::TypeText(text)
+                    } else {
+                        PaletteOverlayOutcome::RefusedControlText
+                    }
                 }
                 None => PaletteOverlayOutcome::Consumed,
             },
@@ -626,11 +635,26 @@ fn results_fingerprint(model: &PaletteModel, scroll_offset: usize) -> u64 {
     hasher.finish()
 }
 
+/// Show control characters as visible escapes so a hidden newline or escape
+/// sequence is disclosed. Backslashes stay literal: ordinary labels such as
+/// Windows paths render unchanged, and control-bearing rows are refused on
+/// activation regardless of how their label reads.
 fn sanitize_label(label: &str) -> String {
-    label
-        .chars()
-        .filter(|ch| !ch.is_control())
-        .collect::<String>()
+    use std::fmt::Write;
+
+    let mut escaped = String::new();
+    for ch in label.chars() {
+        match ch {
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            ch if ch.is_control() => {
+                let _ = write!(escaped, "\\x{:02X}", u32::from(ch));
+            }
+            ch => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 fn truncate_for_width(text: &str, max_chars: usize) -> String {
@@ -661,6 +685,19 @@ mod tests {
                 PaletteOverlayOutcome::Consumed
             );
         }
+    }
+
+    #[test]
+    fn labels_keep_backslashes_literal_and_escape_controls() {
+        assert_eq!(
+            sanitize_label(r"C:\Users\example\projects"),
+            r"C:\Users\example\projects"
+        );
+        assert_eq!(sanitize_label(r"\\server\share"), r"\\server\share");
+        assert_eq!(
+            sanitize_label("run\necho\r\tx\u{1b}[31m"),
+            r"run\necho\r\tx\x1B[31m"
+        );
     }
 
     fn command_history(count: usize) -> Vec<String> {

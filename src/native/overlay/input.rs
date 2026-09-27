@@ -915,6 +915,7 @@ impl OverlayUi {
         match self.command_palette.handle_input(input) {
             PaletteOverlayOutcome::Consumed => OverlayOutcome::Consumed,
             PaletteOverlayOutcome::Close => OverlayOutcome::Close,
+            PaletteOverlayOutcome::RefusedControlText => OverlayOutcome::PaletteControlTextRefused,
             PaletteOverlayOutcome::TypeText(text) => {
                 self.close();
                 OverlayOutcome::PaletteTypeText(text)

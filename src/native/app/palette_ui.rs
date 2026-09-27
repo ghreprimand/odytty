@@ -62,7 +62,14 @@ impl App {
     }
 
     pub(super) fn handle_palette_type_text(&mut self, text: String) {
-        if text.is_empty() {
+        if text.is_empty() || self.refuse_input_if_read_only() {
+            return;
+        }
+        // Recheck at the write boundary even for callers outside the overlay.
+        if !crate::palette::literal_text_is_safe_to_type(&text) {
+            self.raise_neutral_notice(
+                crate::native::palette_overlay::CONTROL_TEXT_NOTICE.to_owned(),
+            );
             return;
         }
         self.return_to_live();
@@ -219,8 +226,10 @@ impl App {
                 let _ = self.activate_hints();
             }
             PaletteAction::ClearInput => {
-                self.return_to_live();
-                self.write_pty_bytes(&[0x01, 0x0b]);
+                if !self.refuse_input_if_read_only() {
+                    self.return_to_live();
+                    self.write_pty_bytes(&[0x01, 0x0b]);
+                }
             }
             PaletteAction::ToggleReadOnly => self.toggle_active_pane_read_only(),
             PaletteAction::NewTab => self.handle_new_tab(),
