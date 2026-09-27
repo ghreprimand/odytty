@@ -78,6 +78,13 @@ Development on `master`; not released. Items check off when their code is on
       and skip clipboard access when read-only input is refused, including
       primary paste, prefix passthrough, Clear Input, context-menu Cut,
       click-to-position, and selected-input deletion.
+- [ ] Wayland window stall prevention: on NVIDIA's proprietary Vulkan driver
+      under Wayland, present with `Mailbox` when offered instead of `Fifo`,
+      whose commit-timing requests could hold a window's commits for hours
+      after it returned from a hidden workspace. Windows, macOS, X11, and other
+      Wayland drivers keep `Fifo`.
+- [ ] Device acceptance for the Wayland stall prevention on Linux
+      NVIDIA/Hyprland.
 
 ## v0.15.6: Cursor Glide Regression and Menu Scrolling (published)
 

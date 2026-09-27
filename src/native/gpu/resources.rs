@@ -45,6 +45,7 @@ use super::pipelines::{
     create_cursor_streak_pipeline,
 };
 use super::post::{self, BloomOptions, CrtOptions, PostProcessOptions, PostProcessResources};
+use super::present_mode::{select_present_mode, window_is_wayland};
 use super::scene::{
     background_vertex_count, ensure_snapshot_glyphs, masked_synthetic, vertex_bytes_len,
 };
@@ -735,14 +736,35 @@ impl GpuState {
             size.height,
             device.limits().max_texture_dimension_2d,
         );
+        // Fifo everywhere except Wayland on NVIDIA's proprietary Vulkan
+        // driver, where Mailbox avoids a driver-issued far-future commit
+        // timestamp that can hold the window's commits (see present_mode.rs).
+        let present_mode = select_present_mode(
+            &caps.present_modes,
+            window_is_wayland(&window),
+            adapter_info.backend,
+            adapter_info.vendor,
+            &adapter_info.driver,
+        );
+        if present_mode == wgpu::PresentMode::Fifo {
+            tracing::info!(
+                "odytty: present mode {present_mode:?} (offered {:?})",
+                caps.present_modes
+            );
+        } else {
+            // WARN (the log's default floor) because a non-default mode must
+            // be diagnosable from the log alone.
+            tracing::warn!(
+                "odytty: present mode {present_mode:?} (offered {:?})",
+                caps.present_modes
+            );
+        }
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: surface_width,
             height: surface_height,
-            // Fifo (vsync) is universally supported and avoids tearing; the
-            // present mode can become a setting once frames carry real content.
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode,
             alpha_mode: select_alpha_mode(&caps.alpha_modes),
             view_formats: vec![],
             desired_maximum_frame_latency: 2,

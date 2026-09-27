@@ -225,13 +225,33 @@ Underline color is taken from the cell's
 this is resolved in the vertex builder, not in the shader.
 
 **GPU shader pipeline** (`src/native/gpu.rs` facade over
-`src/native/gpu/{frame,resources,pipelines,pipeline_policy,scene,post}.rs`).
+`src/native/gpu/{frame,resources,pipelines,pipeline_policy,present_mode,scene,post}.rs`).
 The `wgpu` render pass lives in `gpu/frame.rs`; resource/surface/clear state
 in `gpu/resources.rs`; pipeline descriptors and the inlined color-glyph WGSL
 in `gpu/pipelines.rs`; text coverage correction (gamma uniform) and the
 optional dual-source-blending policy for subpixel AA in `gpu/pipeline_policy.rs`;
 scene and color-glyph segment rebuilding in `gpu/scene.rs`; post-processing in
 `gpu/post.rs`.
+
+**Present mode** (`gpu/present_mode.rs`). The swapchain uses `Fifo` on every
+platform and driver except a Wayland surface on NVIDIA's proprietary Vulkan
+driver, which uses `Mailbox` when the surface offers it. That driver's `Fifo`
+paces presents through the compositor's `wp_commit_timing_v1` protocol. After
+a window returned from a hidden workspace, the driver was observed to put a
+presentation target several seconds ahead on the wire, and a stalled window's
+compositor-held target was about 3.5 hours ahead. A compositor that honors the
+target (Hyprland does, unclamped) holds every later commit of the surface
+until then, so the window stops updating. Under `Mailbox` the driver issues no
+commit-timing or FIFO-barrier requests. Recreating the swapchain cannot
+release such a hold, because the held commits belong to the `wl_surface`.
+Frame pacing is unchanged: redraws are on demand, and winit withholds
+`RedrawRequested` on Wayland until the frame callback requested before each
+present arrives, so `Mailbox` adds no free-running render loop. A recreated
+surface keeps the chosen mode only when it still offers it and otherwise falls
+back to `Fifo`. Windows, macOS, Linux X11, and every other Wayland driver
+(including Mesa's NVK on NVIDIA hardware) keep `Fifo` with no behavior change.
+The startup log names the chosen and offered modes (at warning level when the
+mode is not `Fifo`).
 
 **DCS query surface** (`src/core/screen/query.rs`). XTGETTCAP (`DCS +q`)
 and DECRQSS (`DCS $q`) capture ride the same parser hook/put/unhook seam used

@@ -5,8 +5,11 @@ Published release: **v0.15.6**.
 Current development work is tracked in [TODO.md](TODO.md). The v0.16.0
 development tree adds [read-only panes](docs/features.md#make-a-pane-read-only);
 this feature is not included in v0.15.6. The development palette also refuses
-control-bearing history and directory entries instead of sending hidden input.
-Release evidence and historical corrections are listed in the
+control-bearing history and directory entries instead of sending hidden input,
+and on Wayland with NVIDIA's proprietary driver the development tree presents
+with `Mailbox` instead of `Fifo` to prevent windows that stop updating after
+returning from a hidden workspace. Release evidence and historical corrections
+are listed in the
 [release index](docs/releases/README.md).
 
 [Website](https://odytty.unfinished-works.com) |
