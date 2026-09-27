@@ -437,6 +437,16 @@ pointer and wheel paths and require the menu's render signature to change on
 every scroll step. Neither set measures idle CPU; the v0.15.5 idle-CPU result is
 not re-measured here.
 
+Version 0.15.7 changes the swapchain present mode on Wayland and window-merge
+autosave ownership only, and is cut from a `release/0.15.7` branch of v0.15.6.
+It makes no rendering-throughput, startup, idle-CPU, or memory claim, and the
+v0.12.0 results remain the applicable comparative evidence. Its present-mode evidence is one Linux
+Hyprland/NVIDIA workstation: a protocol trace with no commit-timing requests
+under `Mailbox`, and about two hours of the previously stalling workload on a
+hidden workspace without a stall. AMD, Intel, and NVK Wayland drivers are
+untested on device. Unit tests cover the mode selection rules and both merge
+directions.
+
 ### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful

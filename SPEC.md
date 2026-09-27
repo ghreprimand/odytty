@@ -1,6 +1,6 @@
 # OdyTTY — Spec
 
-Published release: **v0.15.6**.
+Published release: **v0.15.7**.
 
 Current development work is tracked in [TODO.md](TODO.md). Release evidence
 and historical corrections are listed in the [release index](docs/releases/README.md).

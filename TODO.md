@@ -1,6 +1,6 @@
 # OdyTTY — TODO
 
-Published release: **v0.15.6**.
+Published release: **v0.15.7**.
 
 The milestones below distinguish published work, active development, explicit
 deferrals, and unmet evidence. Release corrections are listed in the
@@ -51,7 +51,10 @@ Windows, and macOS; see the roadmap and
 font-maintenance and Wayland reliability patch recorded below; see
 [`docs/releases/0.15.5.md`](docs/releases/0.15.5.md). Version 0.15.6 fixes its
 cursor-glide regression; see
-[`docs/releases/0.15.6.md`](docs/releases/0.15.6.md). A checked item is delivered at the current head (or at the historical
+[`docs/releases/0.15.6.md`](docs/releases/0.15.6.md). Version 0.15.7 prevents
+Wayland window stalls after a hidden workspace and keeps workspace autosave
+after a primary-window merge; see
+[`docs/releases/0.15.7.md`](docs/releases/0.15.7.md). A checked item is delivered at the current head (or at the historical
 milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as
@@ -78,14 +81,29 @@ Development on `master`; not released. Items check off when their code is on
       and skip clipboard access when read-only input is refused, including
       primary paste, prefix passthrough, Clear Input, context-menu Cut,
       click-to-position, and selected-input deletion.
-- [ ] Wayland window stall prevention: on every Wayland surface, present with
-      `Mailbox` when offered instead of `Fifo`, whose driver-issued
-      commit-timing requests could hold a window's commits for hours after it
-      returned from a hidden workspace (observed on NVIDIA's proprietary
-      driver; not reproduced on Mesa drivers, and AMD, Intel, and NVK were not
-      tested on device). Windows, macOS, and X11 keep `Fifo`.
-- [ ] Device acceptance for the Wayland stall prevention on Linux
-      NVIDIA/Hyprland.
+
+## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
+
+Status notes: [`docs/releases/0.15.7.md`](docs/releases/0.15.7.md).
+
+Built from a `release/0.15.7` branch of v0.15.6 rather than from `master`, so
+no v0.16.0 development work is included. Blocking Linux, macOS, and Windows
+CI passed on the tagged commit. Artifact, checksum, signature, and
+package-channel verification follow the tag and are recorded in the devlog.
+
+- [x] Present with `Mailbox` instead of `Fifo` on every Wayland surface that
+      offers it, so driver-issued commit-timing requests can no longer hold a
+      window's commits for hours after it returns from a hidden workspace.
+      Windows, macOS, and X11 keep `Fifo`.
+- [x] Hand workspace autosave ownership to the surviving window when the
+      primary window is merged into another window or pulled into one, with
+      tests for both directions.
+- [x] Device evidence on Linux NVIDIA/Hyprland: a protocol trace showing no
+      commit-timing requests under `Mailbox`, the startup log naming `Mailbox`,
+      and about two hours of the workload that previously stalled on a hidden
+      workspace without a stall. AMD, Intel, and NVK on Wayland are untested
+      on device; macOS, Windows, and X11 behavior is unchanged and covered by
+      tests and CI only.
 
 ## v0.15.6: Cursor Glide Regression and Menu Scrolling (published)
 

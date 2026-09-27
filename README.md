@@ -1,14 +1,12 @@
 # OdyTTY
 
-Published release: **v0.15.6**.
+Published release: **v0.15.7**.
 
 Current development work is tracked in [TODO.md](TODO.md). The v0.16.0
 development tree adds [read-only panes](docs/features.md#make-a-pane-read-only);
-this feature is not included in v0.15.6. The development palette also refuses
-control-bearing history and directory entries instead of sending hidden input,
-and on Wayland the development tree presents with `Mailbox` instead of `Fifo`
-when offered, to prevent windows that stop updating after returning from a
-hidden workspace. Release evidence and historical corrections are listed in the
+this feature is not included in v0.15.7. The development palette also refuses
+control-bearing history and directory entries instead of sending hidden input.
+Release evidence and historical corrections are listed in the
 [release index](docs/releases/README.md).
 
 [Website](https://odytty.unfinished-works.com) |
@@ -182,7 +180,11 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.15.6 is published. It fixes a
+OdyTTY is a broad pre-1.0 terminal. Version 0.15.7 is published. It prevents
+Wayland windows from stopping updating after returning from a hidden workspace,
+and keeps workspace autosave working after the primary window is merged into
+another window; see the
+[v0.15.7 release notes](docs/releases/0.15.7.md). Version 0.15.6 fixes a
 v0.15.5 regression in which long cursor moves paused partway through their
 glide, and makes overflowing right-click menus scroll predictably; see the
 [v0.15.6 release notes](docs/releases/0.15.6.md). Version 0.15.5 is a
@@ -201,9 +203,10 @@ launch profiles, external palette following, and unified Session Navigator; the
 [named profiles guide](docs/profiles.md) covers profiles, and the release index
 above records every published version.
 
-Neither v0.15.0, v0.15.5, nor v0.15.6 optimizes rendering throughput, terminal
-storage, GPU allocation, or presentation timing, so they carry forward rather
-than relabel the v0.12.0 performance evidence. The v0.15.5 font change was compared before and
+None of v0.15.0, v0.15.5, v0.15.6, or v0.15.7 optimizes rendering throughput,
+terminal storage, GPU allocation, or presentation timing (the v0.15.7
+present-mode change prevents a stall and is not a speed change), so they carry
+forward rather than relabel the v0.12.0 performance evidence. The v0.15.5 font change was compared before and
 after on one Linux workstation (benchmark rows, warm startup, and idle memory)
 without a new cross-terminal comparison.
 
