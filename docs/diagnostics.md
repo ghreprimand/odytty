@@ -137,8 +137,8 @@ archive these files when their diagnostic purpose is complete.
 - **Present mode.** At startup OdyTTY records the swapchain present mode it
   chose and the modes the surface offered. The line is informational for the
   default `Fifo` and logged at warning level (so it reaches `odytty.log` by
-  default) when a different mode was chosen, which currently happens only on
-  Wayland with NVIDIA's proprietary Vulkan driver.
+  default) when a different mode was chosen, which happens on Wayland when the
+  surface offers `Mailbox`.
 - **Build provenance.** The About panel and its **Copy diagnostics** block show
   the commit embedded at build time. OdyTTY resolves it from a validated
   `ODYTTY_BUILD_SHA` supplied by an official or package build, then from the

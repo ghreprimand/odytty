@@ -736,16 +736,10 @@ impl GpuState {
             size.height,
             device.limits().max_texture_dimension_2d,
         );
-        // Fifo everywhere except Wayland on NVIDIA's proprietary Vulkan
-        // driver, where Mailbox avoids a driver-issued far-future commit
-        // timestamp that can hold the window's commits (see present_mode.rs).
-        let present_mode = select_present_mode(
-            &caps.present_modes,
-            window_is_wayland(&window),
-            adapter_info.backend,
-            adapter_info.vendor,
-            &adapter_info.driver,
-        );
+        // Mailbox on Wayland when offered, where a driver's Fifo can send
+        // far-future commit timestamps that hold the window's commits; Fifo
+        // everywhere else (see present_mode.rs).
+        let present_mode = select_present_mode(&caps.present_modes, window_is_wayland(&window));
         if present_mode == wgpu::PresentMode::Fifo {
             tracing::info!(
                 "odytty: present mode {present_mode:?} (offered {:?})",

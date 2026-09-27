@@ -233,25 +233,31 @@ optional dual-source-blending policy for subpixel AA in `gpu/pipeline_policy.rs`
 scene and color-glyph segment rebuilding in `gpu/scene.rs`; post-processing in
 `gpu/post.rs`.
 
-**Present mode** (`gpu/present_mode.rs`). The swapchain uses `Fifo` on every
-platform and driver except a Wayland surface on NVIDIA's proprietary Vulkan
-driver, which uses `Mailbox` when the surface offers it. That driver's `Fifo`
-paces presents through the compositor's `wp_commit_timing_v1` protocol. After
-a window returned from a hidden workspace, the driver was observed to put a
-presentation target several seconds ahead on the wire, and a stalled window's
-compositor-held target was about 3.5 hours ahead. A compositor that honors the
-target (Hyprland does, unclamped) holds every later commit of the surface
-until then, so the window stops updating. Under `Mailbox` the driver issues no
-commit-timing or FIFO-barrier requests. Recreating the swapchain cannot
-release such a hold, because the held commits belong to the `wl_surface`.
-Frame pacing is unchanged: redraws are on demand, and winit withholds
+**Present mode** (`gpu/present_mode.rs`). A Wayland surface uses `Mailbox`
+when the surface offers it; Windows, macOS, Linux X11, and a Wayland surface
+without `Mailbox` use `Fifo`. On Wayland, NVIDIA's proprietary Vulkan driver
+paces `Fifo` presents through the compositor's `wp_commit_timing_v1` and
+`wp_fifo_v1` protocols. After a window returned from a hidden workspace, that
+driver was observed to put a presentation target several seconds ahead on the
+wire, and a stalled window's compositor-held target was about 3.5 hours ahead.
+A compositor that honors the target (Hyprland does, unclamped) holds every
+later commit of the surface until then, so the window stops updating. Under
+`Mailbox` that driver issues no commit-timing or FIFO-barrier requests.
+Recreating the swapchain cannot release such a hold, because the held commits
+belong to the `wl_surface`. Mesa's Wayland WSI uses the FIFO protocol for
+Vulkan `Fifo` and, since Mesa 24.3.2, sends commit-timing requests only for
+presents that carry a presentation time; the far-future targets have not been
+reproduced on Mesa drivers. The rule is uniform because frame pacing does not
+depend on the present mode: redraws are on demand, and winit withholds
 `RedrawRequested` on Wayland until the frame callback requested before each
-present arrives, so `Mailbox` adds no free-running render loop. A recreated
-surface keeps the chosen mode only when it still offers it and otherwise falls
-back to `Fifo`. Windows, macOS, Linux X11, and every other Wayland driver
-(including Mesa's NVK on NVIDIA hardware) keep `Fifo` with no behavior change.
-The startup log names the chosen and offered modes (at warning level when the
-mode is not `Fifo`).
+present arrives, so the extra throttle of `Fifo` is redundant on Wayland and
+`Mailbox` adds no free-running render loop. Frame-callback pacing without
+driver vsync is common practice for Wayland clients. The GL backend offers only
+`Fifo` outside Windows and keeps it. A recreated surface keeps the chosen mode
+only when it still offers it and otherwise falls back to `Fifo`. Device
+validation covers NVIDIA's proprietary driver on Hyprland only; AMD, Intel, and
+NVK were not tested on device. The startup log names the chosen and offered
+modes (at warning level when the mode is not `Fifo`).
 
 **DCS query surface** (`src/core/screen/query.rs`). XTGETTCAP (`DCS +q`)
 and DECRQSS (`DCS $q`) capture ride the same parser hook/put/unhook seam used

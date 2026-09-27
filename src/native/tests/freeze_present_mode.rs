@@ -1,88 +1,42 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Present-mode policy regressions for the NVIDIA Wayland freeze mitigation.
+//! Present-mode policy regressions for Wayland surfaces.
 
-use crate::native::gpu::present_mode::select_present_mode;
+use crate::native::gpu::present_mode::{revalidate_present_mode, select_present_mode};
 use std::fs;
 use std::path::{Path, PathBuf};
-use wgpu::{Backend, PresentMode};
+use wgpu::PresentMode;
 
-const NVIDIA_VENDOR_ID: u32 = 0x10DE;
-
-fn select(
-    offered: &[PresentMode],
-    wayland: bool,
-    backend: Backend,
-    vendor: u32,
-    driver: &str,
-) -> PresentMode {
-    select_present_mode(offered, wayland, backend, vendor, driver)
+fn select(offered: &[PresentMode], wayland: bool) -> PresentMode {
+    select_present_mode(offered, wayland)
 }
 
 #[test]
-fn nvidia_wayland_uses_mailbox_when_offered() {
+fn wayland_uses_mailbox_when_offered() {
     assert_eq!(
-        select(
-            &[PresentMode::Fifo, PresentMode::Mailbox],
-            true,
-            Backend::Vulkan,
-            NVIDIA_VENDOR_ID,
-            "NVIDIA",
-        ),
+        select(&[PresentMode::Fifo, PresentMode::Mailbox], true),
         PresentMode::Mailbox,
     );
 }
 
 #[test]
-fn nvidia_wayland_falls_back_to_fifo_without_mailbox() {
+fn wayland_falls_back_to_fifo_without_mailbox() {
     assert_eq!(
-        select(
-            &[PresentMode::Fifo, PresentMode::Immediate],
-            true,
-            Backend::Vulkan,
-            NVIDIA_VENDOR_ID,
-            "NVIDIA",
-        ),
+        select(&[PresentMode::Fifo, PresentMode::Immediate], true),
         PresentMode::Fifo,
     );
 }
 
 #[test]
-fn non_nvidia_wayland_keeps_fifo() {
-    for (vendor, driver) in [(0x1002, "AMD RADV"), (NVIDIA_VENDOR_ID, "NVK")] {
-        assert_eq!(
-            select(
-                &[PresentMode::Mailbox, PresentMode::Fifo],
-                true,
-                Backend::Vulkan,
-                vendor,
-                driver,
-            ),
-            PresentMode::Fifo,
-            "Wayland adapter {vendor:#06x} / {driver} keeps FIFO",
-        );
-    }
-}
-
-#[test]
-fn nvidia_x11_keeps_fifo() {
+fn non_wayland_keeps_fifo_when_mailbox_is_offered() {
     assert_eq!(
-        select(
-            &[PresentMode::Mailbox, PresentMode::Fifo],
-            false,
-            Backend::Vulkan,
-            NVIDIA_VENDOR_ID,
-            "NVIDIA",
-        ),
+        select(&[PresentMode::Mailbox, PresentMode::Fifo], false),
         PresentMode::Fifo,
     );
 }
 
 #[test]
-fn empty_offered_modes_fall_back_to_fifo() {
-    assert_eq!(
-        select(&[], true, Backend::Vulkan, NVIDIA_VENDOR_ID, "NVIDIA"),
-        PresentMode::Fifo,
-    );
+fn empty_wayland_offers_fall_back_to_fifo() {
+    assert_eq!(select(&[], true), PresentMode::Fifo);
 }
 
 #[test]
@@ -92,11 +46,23 @@ fn offered_mode_order_does_not_change_the_choice() {
         [PresentMode::Fifo, PresentMode::Mailbox],
     ];
     for modes in offered {
-        assert_eq!(
-            select(&modes, true, Backend::Vulkan, NVIDIA_VENDOR_ID, "NVIDIA"),
-            PresentMode::Mailbox,
-        );
+        assert_eq!(select(&modes, true), PresentMode::Mailbox);
     }
+}
+
+#[test]
+fn revalidation_keeps_mailbox_when_offered_and_falls_back_when_removed() {
+    assert_eq!(
+        revalidate_present_mode(
+            PresentMode::Mailbox,
+            &[PresentMode::Fifo, PresentMode::Mailbox]
+        ),
+        PresentMode::Mailbox,
+    );
+    assert_eq!(
+        revalidate_present_mode(PresentMode::Mailbox, &[PresentMode::Fifo]),
+        PresentMode::Fifo,
+    );
 }
 
 #[test]
