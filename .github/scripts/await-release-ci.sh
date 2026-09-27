@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Bounded waiter around the fail-closed release gate (verify-release-ci.sh).
 #
-# WHY THIS EXISTS: CI runs on pushes to master; the release workflow runs on a
-# tag push. Pushing master and its tag back to back starts both at once, so the
-# gate can evaluate while the same-commit CI run is still in progress and refuse
-# a commit that goes green a few minutes later. That is a scheduling race, not a
+# WHY THIS EXISTS: CI runs on pushes to master and release/** branches; the
+# release workflow runs on a tag push. Pushing the branch and its tag back to
+# back starts both at once, so the gate can evaluate while the same-commit CI
+# run is still in progress and refuse a commit that goes green a few minutes
+# later. That is a scheduling race, not a
 # quality signal, and it blocked the v0.9.7 publish with every artifact already
 # built. This waiter re-asks the same question until CI actually finishes.
 #
