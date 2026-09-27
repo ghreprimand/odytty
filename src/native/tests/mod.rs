@@ -203,6 +203,7 @@ mod cvd_wiring;
 #[cfg(unix)]
 mod file_drop_app;
 mod font_save;
+mod freeze_present_mode;
 mod gpu_render;
 mod graphics_anim;
 mod grid_scale;

@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use crate::native::options::NativeError;
 
+use super::present_mode::revalidate_present_mode;
 use super::resources::GpuState;
 
 impl GpuState {
@@ -69,14 +70,16 @@ impl GpuState {
     /// on the same window. A window carries at most one such chain, and a
     /// second configure against a live one is a hard error, not a warning:
     ///
-    /// - Wayland: configuring at `PresentMode::Fifo` takes a `wp_fifo_v1` for
-    ///   the `wl_surface`. Taking a second one raises the compositor-side
-    ///   protocol error `surface already has a fifo`, which is FATAL to the
-    ///   whole Wayland connection — every window of the process vanishes at
-    ///   once, with no panic and no core dump. The wgpu-side symptom logged
-    ///   just before that is `In Surface::configure: Invalid surface`, after
-    ///   which the app holds an unconfigured surface and the next acquire
-    ///   panics with `Surface is not configured for presentation`.
+    /// - Wayland: a driver that uses the compositor's FIFO protocol (NVIDIA's
+    ///   proprietary Vulkan driver does under `Fifo`, and may bind it for any
+    ///   mode) takes a `wp_fifo_v1` for the `wl_surface` at configure. Taking
+    ///   a second one raises the compositor-side protocol error `surface
+    ///   already has a fifo`, which is FATAL to the whole Wayland connection:
+    ///   every window of the process vanishes at once, with no panic and no
+    ///   core dump. The wgpu-side symptom logged just before that is
+    ///   `In Surface::configure: Invalid surface`, after which the app holds
+    ///   an unconfigured surface and the next acquire panics with
+    ///   `Surface is not configured for presentation`.
     /// - DX12/Metal have the same one-chain-per-window shape, so retiring the
     ///   old surface first is the portable order, not a Wayland special case.
     ///
@@ -96,6 +99,10 @@ impl GpuState {
                 self.config.format
             )));
         }
+        // The present mode was chosen against the previous surface; keep it
+        // only if the replacement still offers it (Fifo is always offered).
+        self.config.present_mode =
+            revalidate_present_mode(self.config.present_mode, &caps.present_modes);
         if !caps.alpha_modes.contains(&self.config.alpha_mode) {
             self.config.alpha_mode = caps
                 .alpha_modes

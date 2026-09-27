@@ -33,6 +33,7 @@ pub(super) mod post;
 mod frame;
 mod pipeline_policy;
 mod pipelines;
+pub(super) mod present_mode;
 mod recovery;
 mod resources;
 mod scene;

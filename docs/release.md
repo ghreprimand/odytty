@@ -27,7 +27,7 @@ OdyTTY uses GitHub-hosted runners for these workflows:
 
 | Workflow | Trigger | Result |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | Pushes and pull requests to `master` | Formats, builds, lints, and tests on Ubuntu, macOS, and Windows; enforces the production-file guard and checks shipped shell scripts and release-gate fixtures; publishes no artifacts |
+| `.github/workflows/ci.yml` | Pushes and pull requests to `master`, and pushes to `release/**` patch branches | Formats, builds, lints, and tests on Ubuntu, macOS, and Windows; enforces the production-file guard and checks shipped shell scripts and release-gate fixtures; publishes no artifacts |
 | `.github/workflows/release.yml` | `vX.Y.Z` tags or manual validation | Builds all seven release artifact types; tag runs also publish the release and update package channels |
 | `.github/workflows/rustsec-audit.yml` | Pull requests touching the release or fuzz-workspace manifests and lockfiles, or the audit script or workflow; a weekly schedule; and manual dispatch | Runs `cargo audit` against both locked dependency graphs; the `release` job runs the same audit before publishing; publishes no artifacts |
 | `.github/workflows/deep-fuzz.yml` | Weekly schedule or manual dispatch | Runs the ignored parser/protocol and graphics fuzz tiers at 40,000 iterations and retains logs for 14 days |
@@ -52,7 +52,9 @@ automatic retry for the known runner PTY-teardown deadlock. A genuine test
 failure still fails the job.
 
 Release publishing never runs for fork pull requests. A normal release lands
-the version commit on `master`, waits for a completed successful CI workflow
+the version commit on `master` (or, for a
+[patch release branch](#patch-release-from-a-release-branch), on
+`release/X.Y.Z`), waits for a completed successful CI workflow
 whose `head_sha` is that exact commit, and only then pushes the release tag.
 The tag workflow re-checks the same exact-SHA result and fails closed if it is
 missing, queued, in progress, cancelled, failed, or from another commit.
@@ -435,6 +437,16 @@ pointer and wheel paths and require the menu's render signature to change on
 every scroll step. Neither set measures idle CPU; the v0.15.5 idle-CPU result is
 not re-measured here.
 
+Version 0.15.7 changes the swapchain present mode on Wayland and window-merge
+autosave ownership only, and is cut from a `release/0.15.7` branch of v0.15.6.
+It makes no rendering-throughput, startup, idle-CPU, or memory claim, and the
+v0.12.0 results remain the applicable comparative evidence. Its present-mode evidence is one Linux
+Hyprland/NVIDIA workstation: a protocol trace with no commit-timing requests
+under `Mailbox`, and about two hours of the previously stalling workload on a
+hidden workspace without a stall. AMD, Intel, and NVK Wayland drivers are
+untested on device. Unit tests cover the mode selection rules and both merge
+directions.
+
 ### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful
@@ -488,6 +500,37 @@ read `unknown` or `unavailable`.
 
 Also confirm the release title, tag, `Cargo.toml` version, and metainfo release
 entry all use `X.Y.Z`.
+
+### Patch Release From A Release Branch
+
+When `master` carries unreleased work that must not ship, a patch release is
+cut from a release branch instead:
+
+1. Create `release/X.Y.Z` from the previous release tag, or from a later
+   `master` commit whose changes since that tag are only publication records
+   and fixes intended for the patch. Bring in the remaining fixes with their
+   tests, and keep branch documentation limited to what the branch ships.
+2. Make the version commit on the branch as described in step 1 and run the
+   local release checks from step 2 on the branch tree.
+3. Push the branch with `git push origin release/X.Y.Z`. GitHub reads push
+   triggers from the pushed commit, so the branch must carry the `release/**`
+   trigger in `ci.yml`. Wait for the complete CI run on that exact commit, then
+   tag it as described in step 3.
+4. The `scoop`, `homebrew`, and `aur` jobs check out `master`, not the tag.
+   They stamp `master`'s `bucket/odytty.json`, `dist/homebrew` recipes, and
+   `dist/aur/PKGBUILD` with the tag version and the published hashes. Before
+   tagging, run `git diff release/X.Y.Z origin/master -- bucket dist/homebrew
+   dist/aur` and confirm that `master` has not changed dependencies, build
+   commands, or install steps the branch source does not match.
+5. Tag only a version above every published version. The channel jobs skip
+   only an equal version, and the GitHub Release becomes the latest release,
+   so an older series would downgrade the channels and the
+   `releases/latest/download` aliases.
+6. After publication, fetch `master` (the `scoop` job commits there) and land
+   the release notes, release index row, AppStream entry, publication markers,
+   `(published)` TODO section, and badged devlog entry on `master`, so the
+   website, which reads `master`, records the release. The branch is not
+   merged into `master`.
 
 ## Release Workflow Jobs
 
