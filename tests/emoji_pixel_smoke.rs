@@ -123,7 +123,11 @@ fn composite_color_glyphs(
     atlas: &ColorGlyphAtlas,
     vertices: &[ColorGlyphVertex],
 ) {
-    for quad in vertices.chunks_exact(grid::INSTANCES_PER_QUAD) {
+    for quad in vertices
+        .as_chunks::<{ grid::INSTANCES_PER_QUAD }>()
+        .0
+        .iter()
+    {
         let x0 = quad[0].pos[0] as usize;
         let y0 = quad[0].pos[1] as usize;
         let x1 = quad[0].end_pos[0] as usize;

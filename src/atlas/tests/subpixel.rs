@@ -105,7 +105,9 @@ fn channel_imbalance(data: &[u8], x: usize) -> u8 {
 }
 
 fn rgb_sum(data: &[u8]) -> u64 {
-    data.chunks_exact(4)
+    data.as_chunks::<4>()
+        .0
+        .iter()
         .map(|px| px[0] as u64 + px[1] as u64 + px[2] as u64)
         .sum()
 }

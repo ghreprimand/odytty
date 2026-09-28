@@ -301,20 +301,24 @@ fn synthetic_colr_v0_emoji_rasterizes_premultiplied_rgba_into_color_atlas() {
     assert_eq!(runs, 1, "COLR v0 fixture should enter the color path");
     assert!(atlas.take_dirty(), "COLR v0 insert should dirty the atlas");
     assert!(
-        atlas.data.chunks_exact(4).any(|px| px[3] > 0),
+        atlas.data.as_chunks::<4>().0.iter().any(|px| px[3] > 0),
         "COLR v0 layers should rasterize visible pixels"
     );
     assert!(
         atlas
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|px| (1..255).contains(&px[3])),
         "fixture should retain partial alpha for the premultiplication check"
     );
     assert!(
         atlas
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .all(|px| px[0] <= px[3] && px[1] <= px[3] && px[2] <= px[3]),
         "COLR v0 atlas pixels must be premultiplied"
     );
@@ -389,7 +393,9 @@ fn synthetic_colr_v1_gradient_transform_and_composite_rasterize_into_color_atlas
     assert!(atlas.take_dirty(), "COLR v1 insert should dirty the atlas");
     let pixels: Vec<_> = atlas
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[3] > 0)
         .collect();
     assert!(
@@ -426,11 +432,13 @@ fn synthetic_sbix_bitmap_path_keeps_historical_pixel_bytes() {
     assert_eq!(runs, 1, "sbix fixture should stay on the color path");
     let pixel = atlas
         .data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .find(|px| px[3] > 0)
         .expect("sbix fixture should rasterize visible pixels");
     assert_eq!(
-        pixel,
+        *pixel,
         [15, 100, 151, 160],
         "bitmap-first routing and straight-to-premultiplied conversion changed"
     );
@@ -457,13 +465,15 @@ fn host_noto_color_emoji_rasterizes_fire_into_premultiplied_atlas() {
     assert_eq!(runs[0].column, 0);
     assert!(atlas.take_dirty(), "real bitmap insert should dirty atlas");
     assert!(
-        atlas.data.chunks_exact(4).any(|px| px[3] > 0),
+        atlas.data.as_chunks::<4>().0.iter().any(|px| px[3] > 0),
         "rendered emoji should write non-transparent pixels"
     );
     assert!(
         atlas
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .all(|px| px[0] <= px[3] && px[1] <= px[3] && px[2] <= px[3]),
         "atlas stores premultiplied source pixels"
     );

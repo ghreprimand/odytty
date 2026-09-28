@@ -86,7 +86,7 @@ pub(crate) fn composite(
 
     // Each record is one compact quad instance (pos/end_pos + uv/end_uv);
     // the vertex shader expands corners on the GPU path.
-    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
+    for quad in verts.as_chunks::<{ grid::INSTANCES_PER_QUAD }>().0.iter() {
         composite_quad(&mut frame, atlas, quad);
     }
     frame
@@ -128,7 +128,7 @@ pub(crate) fn composite_focus_dim(
     );
     grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
 
-    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
+    for quad in verts.as_chunks::<{ grid::INSTANCES_PER_QUAD }>().0.iter() {
         composite_quad(&mut frame, atlas, quad);
     }
     frame
@@ -181,7 +181,7 @@ pub(crate) fn composite_with_padding(
         grid::CursorRenderParams::default(),
     );
 
-    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
+    for quad in verts.as_chunks::<{ grid::INSTANCES_PER_QUAD }>().0.iter() {
         composite_quad(&mut frame, atlas, quad);
     }
     frame
@@ -216,7 +216,7 @@ pub(crate) fn composite_background_treatment(
     grid::build_cell_vertices_with_focus_dim_into(&mut verts, snapshot, atlas, &[], 0.0, treatment);
     grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
 
-    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
+    for quad in verts.as_chunks::<{ grid::INSTANCES_PER_QUAD }>().0.iter() {
         composite_quad(&mut frame, atlas, quad);
     }
     frame
@@ -271,7 +271,7 @@ pub(crate) fn composite_background_image(
     );
     grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
 
-    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
+    for quad in verts.as_chunks::<{ grid::INSTANCES_PER_QUAD }>().0.iter() {
         composite_quad(&mut frame, atlas, quad);
     }
     frame

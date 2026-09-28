@@ -462,7 +462,7 @@ impl Decoder {
         // palette register 0.
         if self.background == SixelBackground::Opaque {
             let bg = self.palette.first().copied().unwrap_or([0, 0, 0]);
-            for px in out.chunks_exact_mut(4) {
+            for px in out.as_chunks_mut::<4>().0.iter_mut() {
                 if px[3] == 0 {
                     px[0] = bg[0];
                     px[1] = bg[1];

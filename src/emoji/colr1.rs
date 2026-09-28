@@ -59,7 +59,9 @@ pub(super) fn render(font_data: &[u8], glyph_id: u16, width: u32, height: u32) -
     let pixmap = painter.layers.pop()?.pixmap;
     pixmap
         .data()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .any(|pixel| pixel[3] != 0)
         .then(|| pixmap.take())
 }

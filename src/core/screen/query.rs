@@ -235,7 +235,7 @@ fn decode_ascii_hex(hex: &[u8]) -> Option<Vec<u8>> {
     }
 
     let mut decoded = Vec::with_capacity(hex.len() / 2);
-    for pair in hex.chunks_exact(2) {
+    for pair in hex.as_chunks::<2>().0.iter() {
         let high = hex_value(pair[0])?;
         let low = hex_value(pair[1])?;
         decoded.push((high << 4) | low);

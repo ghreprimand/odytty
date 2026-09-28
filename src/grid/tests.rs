@@ -1164,7 +1164,12 @@ fn unfocused_block_cursor_is_a_four_quad_hollow_outline() {
         [0.0, 0.0, 1.0, cell_h],
         [cell_w - 1.0, 0.0, cell_w, cell_h],
     ];
-    for (quad, expected_rect) in verts.chunks_exact(INSTANCES_PER_QUAD).zip(expected) {
+    for (quad, expected_rect) in verts
+        .as_chunks::<INSTANCES_PER_QUAD>()
+        .0
+        .iter()
+        .zip(expected)
+    {
         let left = quad[0].pos[0];
         let top = quad[0].pos[1];
         let right = quad[0].end_pos[0];
@@ -3643,12 +3648,16 @@ fn brightness_vertices(
 fn composite_first_glyph_pixels(verts: &[Vertex], atlas: &GlyphAtlas) -> Vec<[f32; 3]> {
     assert_eq!(atlas.subpixel_mode(), crate::atlas::SubpixelMode::Off);
     let background = verts
-        .chunks_exact(INSTANCES_PER_QUAD)
+        .as_chunks::<INSTANCES_PER_QUAD>()
+        .0
+        .iter()
         .find(|quad| quad[0].is_glyph == 0.0)
         .expect("cell background quad")[0]
         .color;
     let glyph = verts
-        .chunks_exact(INSTANCES_PER_QUAD)
+        .as_chunks::<INSTANCES_PER_QUAD>()
+        .0
+        .iter()
         .find(|quad| quad[0].is_glyph == 1.0)
         .expect("glyph quad");
     let color = glyph[0].color;

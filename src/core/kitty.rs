@@ -1202,7 +1202,7 @@ fn rgba_from_payload(
             }
             let capacity = pixels.checked_mul(4).ok_or(KittyError::PayloadTooLarge)?;
             let mut rgba = Vec::with_capacity(capacity);
-            for rgb in decoded.chunks_exact(3) {
+            for rgb in decoded.as_chunks::<3>().0.iter() {
                 rgba.extend_from_slice(rgb);
                 rgba.push(255);
             }
@@ -1306,7 +1306,7 @@ fn png_frame_to_rgba(color_type: png::ColorType, bytes: &[u8]) -> Result<Vec<u8>
         png::ColorType::Rgba => Ok(bytes.to_vec()),
         png::ColorType::Rgb => {
             let mut rgba = Vec::with_capacity(bytes.len() / 3 * 4);
-            for rgb in bytes.chunks_exact(3) {
+            for rgb in bytes.as_chunks::<3>().0.iter() {
                 rgba.extend_from_slice(rgb);
                 rgba.push(255);
             }
@@ -1322,7 +1322,7 @@ fn png_frame_to_rgba(color_type: png::ColorType, bytes: &[u8]) -> Result<Vec<u8>
             .collect()),
         png::ColorType::GrayscaleAlpha => {
             let mut rgba = Vec::with_capacity(bytes.len() / 2 * 4);
-            for gray_alpha in bytes.chunks_exact(2) {
+            for gray_alpha in bytes.as_chunks::<2>().0.iter() {
                 let gray = gray_alpha[0];
                 rgba.extend_from_slice(&[gray, gray, gray, gray_alpha[1]]);
             }

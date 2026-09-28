@@ -682,7 +682,7 @@ fn compute_scrim(
 fn worst_case_luminances(rgba: &[u8]) -> (f32, f32) {
     let mut max = 0.0f32;
     let mut min = 1.0f32;
-    for px in rgba.chunks_exact(4) {
+    for px in rgba.as_chunks::<4>().0.iter() {
         let l = relative_luminance([
             text::srgb_to_linear(px[0]),
             text::srgb_to_linear(px[1]),
@@ -1167,7 +1167,7 @@ mod tests {
         let reduced = crate::native::texture_limits::resample_rgba8(source, 64, 64, 8, 8)
             .expect("valid RGBA");
         assert_eq!(reduced.len(), 8 * 8 * 4);
-        for px in reduced.chunks_exact(4) {
+        for px in reduced.as_chunks::<4>().0.iter() {
             assert!(
                 (100..=155).contains(&px[0]),
                 "an averaged 1px checkerboard must land near mid-grey, got {}",
@@ -1196,7 +1196,7 @@ mod tests {
         // filtering returns convex combinations of these texels and relative
         // luminance is linear in linear-light RGB, so no sampled pixel can
         // exceed the brightest texel either.
-        for px in resampled.chunks_exact(4) {
+        for px in resampled.as_chunks::<4>().0.iter() {
             let l = relative_luminance([
                 text::srgb_to_linear(px[0]),
                 text::srgb_to_linear(px[1]),

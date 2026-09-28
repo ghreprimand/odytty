@@ -149,7 +149,7 @@ fn decode_utf16le(bytes: &[u8]) -> String {
         return String::new();
     }
     let mut code_units = Vec::with_capacity(payload.len() / 2);
-    for chunk in payload.chunks_exact(2) {
+    for chunk in payload.as_chunks::<2>().0.iter() {
         code_units.push(u16::from_le_bytes([chunk[0], chunk[1]]));
     }
     String::from_utf16_lossy(&code_units)

@@ -800,7 +800,7 @@ fn viewer_image_survives_post_effects() {
     // whole fit-rect must be that gray with NO scanline modulation.
     let gray = vec![128u8; (8 * 6 * 4) as usize];
     let mut gray_rgba = gray.clone();
-    for px in gray_rgba.chunks_exact_mut(4) {
+    for px in gray_rgba.as_chunks_mut::<4>().0.iter_mut() {
         px[3] = 255; // opaque
     }
     let with_overlay = render_overlay_frame(&device, &queue, Some((&gray_rgba, 8, 6)));
@@ -849,7 +849,7 @@ fn viewer_scrim_dims_whole_viewport() {
     // frame). The lightbox scrim must dim the WHOLE viewport — including the
     // surround far from the fit-rect — while the image stays crisp on top.
     let mut img = vec![0u8; (8 * 6 * 4) as usize];
-    for px in img.chunks_exact_mut(4) {
+    for px in img.as_chunks_mut::<4>().0.iter_mut() {
         px[0] = 255; // red
         px[3] = 255; // opaque
     }
@@ -905,7 +905,7 @@ fn cleared_viewer_frame_is_byte_identical() {
 
     let gray = vec![200u8; (8 * 6 * 4) as usize];
     let mut gray_rgba = gray.clone();
-    for px in gray_rgba.chunks_exact_mut(4) {
+    for px in gray_rgba.as_chunks_mut::<4>().0.iter_mut() {
         px[3] = 255;
     }
     let baseline = render_overlay_frame(&device, &queue, None);
@@ -1369,7 +1369,13 @@ fn readback(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u8> {
 
 fn assert_bounded_rgb_delta(left: &[u8], right: &[u8], max_delta: u8, label: &str) {
     assert_eq!(left.len(), right.len(), "{label}: lengths differ");
-    for (px, (a, b)) in left.chunks_exact(4).zip(right.chunks_exact(4)).enumerate() {
+    for (px, (a, b)) in left
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(right.as_chunks::<4>().0.iter())
+        .enumerate()
+    {
         for channel in 0..3 {
             let delta = a[channel].abs_diff(b[channel]);
             assert!(

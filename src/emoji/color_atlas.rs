@@ -256,7 +256,7 @@ fn max_slot_width(cell: CellSize) -> u32 {
 }
 
 fn validate_premultiplied(rgba: &[u8]) -> Result<(), ColorGlyphAtlasError> {
-    for (i, px) in rgba.chunks_exact(4).enumerate() {
+    for (i, px) in rgba.as_chunks::<4>().0.iter().enumerate() {
         let alpha = px[3];
         if px[0] > alpha || px[1] > alpha || px[2] > alpha {
             return Err(ColorGlyphAtlasError::NotPremultiplied(i * 4));

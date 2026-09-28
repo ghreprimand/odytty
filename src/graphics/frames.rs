@@ -745,7 +745,12 @@ fn blit(
             dst.copy_from_slice(src);
             continue;
         }
-        for (destination, source) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+        for (destination, source) in dst
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(src.as_chunks::<4>().0.iter())
+        {
             alpha_blend(destination, source);
         }
     }

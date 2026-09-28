@@ -14,7 +14,7 @@ fn img(payload: &[u8]) -> Result<SixelImage, SixelError> {
 
 /// Assert that every pixel in the image has alpha = 255 (fully opaque).
 fn assert_opaque(img: &SixelImage) {
-    for (i, pixel) in img.rgba.chunks_exact(4).enumerate() {
+    for (i, pixel) in img.rgba.as_chunks::<4>().0.iter().enumerate() {
         assert_eq!(
             pixel[3], 255,
             "pixel {i} should be opaque, got alpha={}",
