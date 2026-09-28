@@ -342,6 +342,10 @@ impl App {
         // viewer overlay closes, so the closed-viewer frame is
         // byte-identical to the no-viewer path.
         self.sync_image_overlay();
+        // Output may have rewritten the text under a stationary pointer:
+        // re-resolve the hover targets so the decoration and a later click
+        // follow the current content, not the text that was hovered.
+        self.refresh_hover_after_content_change();
         // Rebuild geometry at most once per redraw, no matter how many
         // pump wakes coalesced into this frame. Snapshot under the lock,
         // then drop it before touching the GPU.

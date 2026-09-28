@@ -136,8 +136,10 @@ impl App {
     /// can install a distinctive theme (e.g. via OSC 10/11) before asserting the
     /// overlay picked it up.
     #[cfg(test)]
+    /// Also runs the hover refresh the next redraw performs after output.
     pub(in crate::native) fn advance_primary_terminal_for_test(&mut self, bytes: &[u8]) {
         crate::native::lock_recover(&self.terminal).advance(bytes);
+        self.refresh_hover_after_content_change();
     }
 
     /// Test seam (v0.14 A3): drive the live profile auto-switch poll headlessly.

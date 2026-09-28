@@ -458,6 +458,7 @@ impl Session {
             selection: AbsoluteSelectionState::default(),
             pointer_cell: None,
             hover_path_probe_key: None,
+            hover_content_revision: None,
             pointer_px: None,
             #[cfg(test)]
             test_cell: None,

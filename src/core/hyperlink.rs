@@ -107,6 +107,18 @@ impl HyperlinkTable {
         Some(id)
     }
 
+    /// The highest id this table has issued (zero when none).
+    pub(in crate::core) fn issued_high_water(&self) -> u32 {
+        self.next_id
+    }
+
+    /// Never issue an id at or below `id` until the counter wraps, so ids that
+    /// may still be referenced from outside this table (a restored snapshot's
+    /// cells, a host's cached hover target) cannot be reused for a new link.
+    pub(in crate::core) fn reserve_through(&mut self, id: u32) {
+        self.next_id = self.next_id.max(id);
+    }
+
     pub(in crate::core) fn get(&self, id: LinkId) -> Option<&Hyperlink> {
         self.entries.get(&id)
     }

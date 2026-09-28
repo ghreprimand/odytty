@@ -57,6 +57,33 @@ impl App {
         }
     }
 
+    /// Re-resolve every hover target (OSC 8 link, bare URL, path) against the
+    /// current content. Used before a click acts on them and after output, so
+    /// text that changed under a stationary pointer never leaves a stale target.
+    /// Each update is a no-op without a change, and the path probe stays
+    /// memoized on the hovered row's text and cwd.
+    pub(super) fn refresh_hover_targets(&mut self) {
+        self.update_hover_hyperlink();
+        self.update_hover_path();
+        self.update_hover_url();
+    }
+
+    /// Frame hook: when the terminal's render revision moved since the hover
+    /// targets were last resolved and a pointer rests on the grid, re-resolve
+    /// them. One terminal lock to read the revision; nothing else runs while
+    /// the content is unchanged or no pointer is over the grid.
+    pub(super) fn refresh_hover_after_content_change(&mut self) {
+        if self.pointer_cell.is_none() {
+            return;
+        }
+        let revision = crate::native::lock_recover(&self.terminal).render_revision();
+        if self.hover_content_revision == Some(revision) {
+            return;
+        }
+        self.hover_content_revision = Some(revision);
+        self.refresh_hover_targets();
+    }
+
     pub(super) fn update_hover_hyperlink(&mut self) {
         let hovered = self
             .pointer_cell
@@ -123,21 +150,35 @@ impl App {
         // pointer that has not left the same cell (and over unchanged content)
         // is wasted work and, on an autofs/stale-NFS path, a repeatable UI-thread
         // wedge. Skip the whole probe when the pointer cell, the scrollback
-        // viewport offset, and the front-trim epoch are all unchanged since the
-        // last probe. Scroll or a front-trim moves the row under the pointer and
-        // invalidates the memo, so a genuinely different span is never missed.
-        let probe_key = self.pointer_cell.map(|cell| {
+        // viewport offset, the front-trim epoch, and the hovered row's text and
+        // cwd are all unchanged since the last probe. Scroll or a front-trim
+        // moves the row under the pointer and new text rewrites it, so either
+        // invalidates the memo and a genuinely different span is never missed.
+        // The key also digests the hovered row's text and the OSC 7 cwd, so
+        // output that rewrites the row (or a directory change) under a
+        // stationary pointer re-resolves, while output elsewhere does not.
+        let row = self
+            .pointer_cell
+            .and_then(|point| self.hovered_row_text_and_cwd(point).map(|row| (point, row)));
+        let probe_key = row.as_ref().map(|(cell, (line, _, cwd))| {
+            use std::hash::{Hash, Hasher};
+            let mut digest = std::collections::hash_map::DefaultHasher::new();
+            line.hash(&mut digest);
+            cwd.hash(&mut digest);
             (
-                cell,
+                *cell,
                 self.viewport.offset(),
                 self.last_scrollback_trim_epoch,
+                digest.finish(),
             )
         });
         if probe_key.is_some() && probe_key == self.hover_path_probe_key {
             return;
         }
         self.hover_path_probe_key = probe_key;
-        let (resolved, cells) = match self.resolved_hovered_path_with_cells() {
+        let (resolved, cells) = match row.and_then(|(point, (line, column, cwd))| {
+            self.resolve_path_in_row(point, &line, column, cwd.as_deref())
+        }) {
             Some((resolved, cells)) => (Some(resolved), Some(cells)),
             None => (None, None),
         };
@@ -260,6 +301,17 @@ impl App {
     ) -> Option<(crate::paths::Resolved, super::click_hint::HoverPathCells)> {
         let point = self.pointer_cell?;
         let (line, column, cwd) = self.hovered_row_text_and_cwd(point)?;
+        self.resolve_path_in_row(point, &line, column, cwd.as_deref())
+    }
+
+    /// Resolve the path span at `column` of the already-read row `line`.
+    fn resolve_path_in_row(
+        &self,
+        point: CellPoint,
+        line: &str,
+        column: usize,
+        cwd: Option<&str>,
+    ) -> Option<(crate::paths::Resolved, super::click_hint::HoverPathCells)> {
         // Map the pointer's cell column to a byte offset in the row string. Paths
         // are ASCII/narrow, so one char per cell column keeps the column and char
         // indices aligned.
@@ -275,9 +327,8 @@ impl App {
         // over `notes.txt`) while prose runs that name no real file stay inert.
         // The single hovered token is always among the candidates, so a spaceless
         // filename resolves byte-identically to the previous single-span path.
-        for span in crate::paths::detect_path_candidates_at(&line, target, options) {
-            let Some(resolved) =
-                self.classify_hovered_path(&span, cwd.as_deref(), self.home_dir.as_deref())
+        for span in crate::paths::detect_path_candidates_at(line, target, options) {
+            let Some(resolved) = self.classify_hovered_path(&span, cwd, self.home_dir.as_deref())
             else {
                 continue;
             };

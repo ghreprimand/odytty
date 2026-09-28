@@ -613,6 +613,17 @@ impl App {
                 self.modifiers,
                 self.super_key,
                 super::platform_opener::OpenerOs::host(),
+            ) {
+                // Resolve the targets against the content under the pointer
+                // now: output since the last pointer motion or frame may
+                // have replaced the text, and a click must never open the
+                // old target.
+                self.refresh_hover_targets();
+            }
+            if open_modifier_held(
+                self.modifiers,
+                self.super_key,
+                super::platform_opener::OpenerOs::host(),
             ) && (self.hovered_hyperlink.is_some()
                 || self.hovered_path.is_some()
                 || self.hovered_url.is_some())

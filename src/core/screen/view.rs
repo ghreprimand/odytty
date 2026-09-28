@@ -413,6 +413,21 @@ impl Screen {
         if envelope.terminal.basic_modes.alternate_screen {
             restored.primary_screen = Some(blank_stored_primary(restored.dimensions));
         }
+        // Restored cells carry no link ids (see `restore_detached_cell`), but
+        // the numbers the snapshot held, and any this screen issued before,
+        // may still be cached outside the terminal; new links never reuse them.
+        let snapshot_high_water = envelope
+            .terminal
+            .scrollback_rows
+            .iter()
+            .chain(&envelope.terminal.visible_rows)
+            .flat_map(|row| &row.cells)
+            .filter_map(|cell| cell.attrs.hyperlink)
+            .max()
+            .unwrap_or(0);
+        restored
+            .hyperlinks
+            .reserve_through(snapshot_high_water.max(self.hyperlinks.issued_high_water()));
         restored.mark_dirty();
 
         *self = restored;

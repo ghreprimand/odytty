@@ -1704,6 +1704,27 @@ fn restore_validate_terminal_state(
         .ok_or(SnapshotEnvelopeError::CellCapExceeded)?;
     Ok(())
 }
+/// Detach a restored cell from interned state the envelope does not carry.
+///
+/// The snapshot holds cells but neither the OSC 8 hyperlink table nor the
+/// graphics scene, and the restored screen starts both empty. A retained link
+/// id or Kitty Unicode placeholder would otherwise resolve against whatever
+/// later output interns under the same id: an old link could open a new URL,
+/// and old placeholder cells could show a new image transmitted with the same
+/// protocol id. Links therefore become plain text (visible but inert), and a
+/// placeholder cell becomes a blank that keeps its attributes, so the text of
+/// the restored screen is otherwise unchanged.
+fn restore_detached_cell(mut cell: Cell) -> Cell {
+    cell.attrs.hyperlink = None;
+    if cell.ch == placeholder::PLACEHOLDER_CHAR {
+        let mut blank = Cell::new(' ', cell.attrs);
+        blank.protected = cell.protected;
+        blank.wide_continuation = cell.wide_continuation;
+        return blank;
+    }
+    cell
+}
+
 fn restore_lines_from_snapshot_rows(
     rows: &[SnapshotRow],
     columns: usize,
@@ -1717,7 +1738,11 @@ fn restore_lines_from_snapshot_rows(
             });
         }
         restored.push(Line {
-            cells: row.cells.iter().map(|cell| cell.to_cell()).collect(),
+            cells: row
+                .cells
+                .iter()
+                .map(|cell| restore_detached_cell(cell.to_cell()))
+                .collect(),
             wrapped: row.wrapped,
             prompt_mark: None,
             // Buttons are session-local interned state; a restored snapshot

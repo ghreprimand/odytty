@@ -1518,7 +1518,13 @@ scope rather than silently inheriting deferred work from a prior release.
   versions, sends a current `SnapshotEnvelope` on every attach, streams
   output/invalidation frames, and reaps the child process. Snapshot format v3
   retains G0/G1 designation and SO/SI selection; v1 and v2 remain readable and
-  restore the power-on ASCII character-set state. Runtime-dir
+  restore the power-on ASCII character-set state. The envelope carries cells
+  but not the OSC 8 link table, the button table, or the graphics scene, so a
+  restored screen drops those references instead of letting later output
+  reuse them: link ids are cleared (the text stays, inert), Kitty Unicode
+  placeholder cells become blanks that keep their attributes, and the fresh
+  link table never issues an id that the snapshot or the replaced screen
+  used. Runtime-dir
   resolution: an explicitly-set `XDG_RUNTIME_DIR` always wins on Unix
   (Linux uses its standard `/run/user/<uid>`, byte-identical). On macOS, which
   has no `XDG_RUNTIME_DIR`, the host falls back to the per-user Darwin temp

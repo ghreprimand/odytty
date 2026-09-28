@@ -355,3 +355,4 @@ fn event_loop_dependent_tests_all_execute_in_one_process() {
 }
 
 mod audit_input_safety;
+mod audit_restore_references;

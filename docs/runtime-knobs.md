@@ -791,7 +791,10 @@ not opened, and `javascript:` and friends never open), and the URL is passed as
 a direct argv vector to the platform opener with **no shell interpolation**.
 Detection is local-only and scans only the hovered row of the focused pane; an
 explicit OSC 8 hyperlink under the pointer always wins, so a cell is never
-double-decorated. Set `interactive_urls = off` (or `ODYTTY_INTERACTIVE_URLS=off`)
+double-decorated. The URL, OSC 8 link, and path under the pointer are
+re-resolved after output changes the screen and again when a modifier+click
+acts, so text that changes under a stationary pointer never opens the target
+that was there before. Set `interactive_urls = off` (or `ODYTTY_INTERACTIVE_URLS=off`)
 to disable it — the off path never scans, so the hover frame is byte-identical.
 
 Keyboard alternative, regardless of this setting: `Ctrl+Shift+L` (the `hints`
