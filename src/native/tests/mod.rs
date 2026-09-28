@@ -230,6 +230,8 @@ mod read_only_label;
 mod read_only_pane;
 mod replay_isolation;
 mod restore_theme;
+mod scrollback_export;
+mod scrollback_export_app;
 mod scrollbar;
 mod selection_copy_span;
 mod selection_extend;

@@ -1508,6 +1508,71 @@ fn projection_shape_tracks_width_and_mutation() {
     assert!(sb.prompt_mark_rows(W).is_empty());
 }
 
+#[test]
+fn physical_range_matches_full_projection_across_wrapped_and_width_boundaries() {
+    let mut long_wrapped_line = Vec::new();
+    for _ in 0..80 {
+        long_wrapped_line.push(wrapped_full('q'));
+    }
+    long_wrapped_line.push(content("tail"));
+
+    let corpora = accessor_equivalence_corpora()
+        .into_iter()
+        .chain([long_wrapped_line]);
+    for (corpus_index, rows) in corpora.enumerate() {
+        let store = Scrollback::from_physical(&rows);
+        for width in [1, 3, W, 11] {
+            let full = store.physical_all(width);
+            let sizes = [0, 1, 3, 17, full.len().saturating_add(2)];
+            for start in 0..=full.len().saturating_add(1) {
+                for count in sizes {
+                    let end = start.saturating_add(count).min(full.len());
+                    assert_eq!(
+                        store.physical_range(width, start, count),
+                        full[start.min(full.len())..end],
+                        "corpus {corpus_index}, width {width}, range {start}..{end}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn physical_range_preserves_prompt_marks_and_hyperlinks_when_cutting_a_wrapped_line() {
+    let mut attrs = Attrs::default();
+    attrs.hyperlink = Some(crate::core::LinkId::new(
+        std::num::NonZeroU32::new(7).expect("nonzero hyperlink id"),
+    ));
+    let mut marked = Line::unwrapped(
+        "abcdefghijklmnopqrst"
+            .chars()
+            .map(|ch| Cell::new(ch, attrs))
+            .collect(),
+    );
+    marked.prompt_mark = Some(PromptKind::PromptStart);
+    let store = Scrollback::from_physical(&[marked]);
+    let full = store.physical_all(4);
+
+    assert!(full.len() >= 4, "fixture spans multiple projected rows");
+    assert_eq!(full[0].prompt_mark, Some(PromptKind::PromptStart));
+    assert!(full[1..].iter().all(|line| line.prompt_mark.is_none()));
+    assert!(full.iter().all(|line| {
+        line.cells
+            .iter()
+            .all(|cell| cell.attrs.hyperlink == attrs.hyperlink)
+    }));
+
+    for start in 0..full.len() {
+        let end = (start + 2).min(full.len());
+        assert_eq!(
+            store.physical_range(4, start, 2),
+            full[start..end],
+            "cut through marked/link-bearing wrapped line at row {start}"
+        );
+    }
+}
+
 /// Reclaiming capacity on a finalized line must not change any observable
 /// projection output — it is a storage change, not a content change.
 #[test]

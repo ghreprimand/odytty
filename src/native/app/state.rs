@@ -105,6 +105,10 @@ pub(in crate::native) struct App {
     /// command text is projected after the dialog returns and its generation is
     /// revalidated.
     pub(super) pending_command_exports: HashMap<u64, command_output::PendingCommandExport>,
+    /// In-flight scrollback save dialogs, keyed from the same request-id
+    /// counter. The export is captured when the action runs, so the pending
+    /// entry holds the bounded (32 MiB) file contents.
+    pub(super) pending_scrollback_exports: HashMap<u64, scrollback_export::PendingScrollbackExport>,
     pub(super) next_command_export_id: u64,
     /// Opaque command authority captured when the content context menu opens.
     pub(super) context_command_handle: Option<(SessionToken, crate::core::CommandRangeHandle)>,
@@ -649,6 +653,7 @@ impl App {
             settings_reloader,
             pending_overlay_settings: None,
             pending_command_exports: HashMap::new(),
+            pending_scrollback_exports: HashMap::new(),
             next_command_export_id: 1,
             context_command_handle: None,
             themed_ui_roles,

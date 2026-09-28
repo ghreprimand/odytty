@@ -38,6 +38,7 @@ use super::snapshot_envelope::{
 use super::types::*;
 
 mod charset;
+mod export_rows;
 mod ops;
 mod osc;
 mod query;
@@ -46,6 +47,7 @@ mod state;
 mod terminal;
 mod view;
 
+pub use export_rows::ExportChunk;
 pub use terminal::Terminal;
 
 use osc::*;

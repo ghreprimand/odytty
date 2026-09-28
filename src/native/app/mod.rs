@@ -177,6 +177,7 @@ pub(in crate::native) mod redraw_schedule;
 mod replay_ui;
 mod resize_hud;
 mod scroll_anim;
+mod scrollback_export;
 mod selection_input;
 mod session_attach_ui;
 mod session_navigator_ui;

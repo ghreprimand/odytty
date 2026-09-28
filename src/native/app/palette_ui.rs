@@ -202,6 +202,11 @@ impl App {
                 self.jump_failed_command(crate::core::CommandDirection::Next);
             }
             PaletteAction::ExportCommandOutput => self.begin_command_output_export(),
+            PaletteAction::ExportScrollbackText => self.begin_scrollback_export(
+                crate::native::scrollback_export::ScrollbackFormat::PlainText,
+            ),
+            PaletteAction::ExportScrollbackHtml => self
+                .begin_scrollback_export(crate::native::scrollback_export::ScrollbackFormat::Html),
             PaletteAction::NotifyCommandFinished => self.notify_when_current_command_finishes(),
             PaletteAction::MonitorPaneActivity => {
                 self.arm_pane_monitor(crate::native::notifications::PaneMonitorKind::Activity)

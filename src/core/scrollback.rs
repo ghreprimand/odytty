@@ -537,6 +537,40 @@ impl Scrollback {
         rows
     }
 
+    /// Up to `n` physical rows at `width` starting at absolute row `start`,
+    /// oldest first.
+    ///
+    /// Projects only the logical lines that cover the requested rows, starting
+    /// from the one containing `start` (found by binary search), so walking
+    /// the whole store in consecutive ranges costs `O(store)` in total rather
+    /// than the `O(store^2)` of repeated tail projections. Returns fewer than
+    /// `n` rows only at the end of the store.
+    pub(in crate::core) fn physical_range(
+        &self,
+        width: usize,
+        start: usize,
+        n: usize,
+    ) -> Vec<Line> {
+        if n == 0 {
+            return Vec::new();
+        }
+        self.ensure_cache(width);
+        let Some((line_index, first_row)) = self.cache.borrow().locate(start) else {
+            return Vec::new();
+        };
+        let skip = start - first_row;
+        let mut rows = Vec::new();
+        for line in self.lines.range(line_index..) {
+            project_line_into(line.view(), width, line.open, true, &mut rows);
+            if rows.len() >= skip + n {
+                break;
+            }
+        }
+        rows.drain(0..skip.min(rows.len()));
+        rows.truncate(n);
+        rows
+    }
+
     /// The single physical row at absolute index `row` at `width`, or `None`
     /// when the index is past the end.
     ///

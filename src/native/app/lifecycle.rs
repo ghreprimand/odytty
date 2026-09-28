@@ -598,7 +598,14 @@ impl App {
                 request_id,
                 selection,
             } => {
-                self.finish_command_export_dialog(request_id, selection);
+                if let Some(selection) = self.finish_scrollback_export_dialog(request_id, selection)
+                {
+                    self.finish_command_export_dialog(request_id, selection);
+                }
+                false
+            }
+            UserEvent::ScrollbackExportFinished { session, result } => {
+                self.finish_scrollback_export_write(session, result);
                 false
             }
             UserEvent::CommandExportFinished { session, result } => {

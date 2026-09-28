@@ -94,7 +94,7 @@ pub use prompt_marks::{
     verified_command_for_rows, verified_command_handle_for_rows, verified_command_handles,
     verified_command_ranges, viewport_offset_for_row,
 };
-pub use screen::{Screen, SnapshotButton, Terminal, VisibleRow};
+pub use screen::{ExportChunk, Screen, SnapshotButton, Terminal, VisibleRow};
 pub use search::{
     AbsolutePoint, SearchMatch, SearchOptions, SearchRow, find_next, find_prev, search_rows,
 };

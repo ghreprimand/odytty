@@ -81,6 +81,12 @@ Development on `master`; not released. Items check off when their code is on
       and skip clipboard access when read-only input is refused, including
       primary paste, prefix passthrough, Clear Input, context-menu Cut,
       click-to-position, and selected-input deletion.
+- [ ] Scrollback export as plain text and sanitized self-contained HTML
+      from the command palette. It shares the command-output writer, cap, and
+      native dialog, uses `[image]` placeholders, carries no private
+      metadata, and turns only `http` and `https` targets into links.
+- [ ] Device acceptance for scrollback export (text and HTML, opened in a
+      browser) on Linux, macOS, and Windows.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

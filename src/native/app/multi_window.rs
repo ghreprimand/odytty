@@ -231,6 +231,7 @@ impl App {
     /// the dialog). The owner routes `CommandExportDestination` by this.
     pub(in crate::native) fn has_pending_command_export(&self, request_id: u64) -> bool {
         self.pending_command_exports.contains_key(&request_id)
+            || self.pending_scrollback_exports.contains_key(&request_id)
     }
 
     /// Capture a request to open a same-process sibling window, inheriting the

@@ -43,11 +43,21 @@ pub(super) async fn choose_open_path(
 /// unwinding a dialog worker. This remains outside the async function because
 /// catching across an `.await` boundary is not stable in `std`.
 pub(super) fn choose_save_path_blocking() -> SaveDialogSelection {
+    choose_save_path_blocking_for("command-output.txt", "Plain text", &["txt"])
+}
+
+/// [`choose_save_path_blocking`] with an application-owned neutral filename
+/// and filter (scrollback export offers `.txt` and `.html`).
+pub(super) fn choose_save_path_blocking_for(
+    suggested_filename: &str,
+    filter_label: &str,
+    extensions: &[&str],
+) -> SaveDialogSelection {
     std::panic::catch_unwind(|| {
         pollster::block_on(choose_save_path(
-            "command-output.txt",
-            "Plain text",
-            &["txt"],
+            suggested_filename,
+            filter_label,
+            extensions,
         ))
     })
     .unwrap_or(SaveDialogSelection::Unavailable)

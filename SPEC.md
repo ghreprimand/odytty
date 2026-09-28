@@ -1158,6 +1158,21 @@ scope rather than silently inheriting deferred work from a prior release.
   checked before viewport/selection effects or clipboard access, including
   clipboard and primary-selection paste, prefix passthrough, clear-input
   actions, context-menu cut, click-to-position, and selected-input deletion.
+- Scrollback export (v0.16.0): two palette actions save the focused pane's
+  scrollback plus screen as plain text or as sanitized, self-contained HTML.
+  The document is built from cells only: logical lines with soft wraps joined,
+  `[image]` for image anchors, and no cwd, host, title, or environment.
+  Writing reuses the command-output save dialog adapter, request routing,
+  32 MiB cap, and private atomic writer. The capture walks the buffer front to
+  back in bounded chunks (`Screen::export_chunk`), projecting each scrollback
+  row once, so its cost is linear in the buffer. Each line is encoded as it
+  closes and the output never passes the cap; an over-cap export is refused
+  whole, and a second export while a dialog is open is refused before capture.
+  The capture runs on the UI thread under the terminal lock, so a capture that
+  reaches the cap pauses the window briefly. The HTML carries a CSP that blocks
+  scripts and fetches, and a bounded palette- and class-based style. It
+  contains no active content, and only `http` and `https` OSC 8 targets with
+  a host and no credentials become links.
 - Stable tab and workspace creation identities (v0.15.0);
   Navigator actions resolve the current owner after pane closure, tab movement,
   and same-process window transfer, while restoration creates fresh identities

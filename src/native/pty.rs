@@ -40,6 +40,12 @@ pub(super) enum UserEvent {
         session: SessionToken,
         result: Result<(), super::command_export::CommandExportError>,
     },
+    /// A scrollback export write finished (same writer and error type as
+    /// command-output export; the notice wording differs).
+    ScrollbackExportFinished {
+        session: SessionToken,
+        result: Result<(), super::command_export::CommandExportError>,
+    },
     /// v0.15.0 A: a registered global shortcut fired (from the platform
     /// hotkey backend's own thread). Not session-scoped: the host toggles the
     /// one dedicated quick terminal. Carried through the event loop so the
@@ -112,7 +118,8 @@ impl UserEvent {
             UserEvent::Redraw { session }
             | UserEvent::ShellExited { session }
             | UserEvent::ImageUploaded { session, .. }
-            | UserEvent::CommandExportFinished { session, .. } => Some(*session),
+            | UserEvent::CommandExportFinished { session, .. }
+            | UserEvent::ScrollbackExportFinished { session, .. } => Some(*session),
             UserEvent::CommandExportDestination { .. }
             | UserEvent::QuickTerminalSummon
             | UserEvent::AutomationWake

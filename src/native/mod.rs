@@ -97,6 +97,7 @@ mod render_helpers;
 mod replay_overlay;
 mod resize;
 mod save_dialog;
+mod scrollback_export;
 mod search_ui;
 mod session;
 mod session_attach_overlay;

@@ -390,8 +390,9 @@ impl App {
             );
             return;
         }
-        if !self.pending_command_exports.is_empty() {
-            self.raise_open_notice("A command-output save dialog is already open.".to_owned());
+        // One native save dialog at a time, shared with scrollback export.
+        if !self.pending_command_exports.is_empty() || !self.pending_scrollback_exports.is_empty() {
+            self.raise_open_notice("A save dialog is already open.".to_owned());
             return;
         }
         let Some(proxy) = self.sessions.event_proxy() else {

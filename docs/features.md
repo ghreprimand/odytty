@@ -18,6 +18,7 @@ For installation and a shorter overview, start with the
   - [Adjust The Tab Bar](#adjust-the-tab-bar)
   - [Split A Tab Into Panes](#split-a-tab-into-panes)
   - [Make A Pane Read-Only](#make-a-pane-read-only)
+  - [Export Scrollback](#export-scrollback)
   - [Organize Workspaces And The Rail](#organize-workspaces-and-the-rail)
   - [Close Workspaces And Handle Shell Exit](#close-workspaces-and-handle-shell-exit)
   - [Restore Workspaces And Open Layouts](#restore-workspaces-and-open-layouts)
@@ -613,6 +614,41 @@ Duplicate Workspace start fresh shells that keep the source pane's read-only
 mode; New Tab, New Local Tab, and splits open writable. Local automation
 cannot send text to any pane, so it has nothing to bypass. Behavior is the same
 on Linux (Wayland and X11), macOS, and Windows.
+
+### Export Scrollback
+
+The command palette offers **Export Scrollback As Text** and **Export Scrollback
+As HTML**. Each saves the focused pane's scrollback followed by its current
+screen through the native save dialog. The content is captured when the action
+runs.
+
+- **Text** is UTF-8 with `\n` line endings, one line per logical line: soft
+  wraps are joined and trailing blanks are trimmed.
+- **HTML** is one self-contained file. It has a single style block and a
+  Content-Security-Policy that blocks scripts and network fetches. Text is
+  escaped, and colors and bold, dim, italic, underline, and strikethrough are
+  kept. There are no scripts, event handlers, frames, embedded objects, images,
+  external stylesheets, or fonts. OSC 8 links become clickable only for `http`
+  and `https` URLs that have a host and no embedded user name or password.
+  Every other link, including `file:` and `javascript:`, stays plain text. Plain
+  text never includes link targets.
+
+Inline images (Kitty, iTerm2, sixel, and Kitty Unicode placeholders) appear as
+a single `[image]` line. Image data is never embedded. Neither format includes
+the working directory, host, user, profile, window title, or environment.
+
+Exports share the command-output export limits and writer. A file over 32 MiB
+is refused whole, never truncated, before the dialog opens; the file is encoded
+line by line and stops as soon as it would pass the limit. The suggested file
+name is neutral (`scrollback.txt` or `scrollback.html`), and only one save
+dialog is open at a time: a second export is refused before any capture. The
+file is written privately and atomically on a background thread, and a symlink
+at the destination is refused. Cancelling writes nothing. Linux uses the XDG
+portal on Wayland and X11; macOS and Windows use their native dialogs.
+
+The capture takes one consistent snapshot while the window waits. Its cost
+grows linearly with the scrollback, so a very long scrollback pauses the window
+briefly while it is captured.
 
 ### Organize Workspaces And The Rail
 
