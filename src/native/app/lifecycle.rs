@@ -329,6 +329,9 @@ impl App {
             // at rest (nothing pending), so the idle wake set is unchanged; when
             // a shape mutation is pending this fires the one write ~1.5s later.
             self.autosave_deadline,
+            // Cwd-only crash checkpoint: armed only after a pane's cwd changed
+            // since the last snapshot, so `None` at rest.
+            self.cwd_checkpoint_deadline,
             // Memory-attribution sampler. `None` whenever `ODYTTY_MEMORY_REPORT`
             // is unset, which is every ordinary run — so the idle wake set is
             // unchanged and the diagnostic cannot alter the idle behavior it

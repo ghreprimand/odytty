@@ -175,7 +175,7 @@ impl OutboundShared {
     }
 
     /// Enqueue a copy of `bytes`, applying the byte-cap drop-oldest policy. Never
-    /// blocks on the fd — only the briefly-held queue lock is taken. Returns
+    /// blocks on the fd; only the briefly-held queue lock is taken. Returns
     /// `false` when the queue is already closed (the fd failed or the session
     /// is tearing down), so the producer can report a failed write instead of
     /// a delivery.

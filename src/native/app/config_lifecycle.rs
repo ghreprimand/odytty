@@ -8,6 +8,15 @@
 
 use super::*;
 
+/// A profile rename or delete that every window must apply to its workspace
+/// bindings. The originating window applies it at once and queues it; the
+/// window host hands it to each sibling window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::native) enum ProfileBindingChange {
+    Renamed { old: String, new: String },
+    Deleted { name: String },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SettingsApplySource {
     ConfigReload,
@@ -123,11 +132,23 @@ impl App {
     }
 
     pub(super) fn save_overlay_settings(&mut self, changes: &[crate::settings::SettingEdit]) {
+        match self.write_overlay_settings(changes) {
+            Ok(changed) => self.overlay.save_succeeded(changed),
+            Err(error) => self.overlay.save_failed(error),
+        }
+    }
+
+    /// Write `changes` to odytty.conf and apply them live, returning the number
+    /// of changed keys or the failure text. Does not notify the overlay, so a
+    /// caller composing its own result message (the profile manager) reports
+    /// the real outcome instead of a later unconditional success line.
+    fn write_overlay_settings(
+        &mut self,
+        changes: &[crate::settings::SettingEdit],
+    ) -> Result<usize, String> {
         self.flush_pending_overlay_settings();
         let Some(path) = self.settings_reloader.config_path() else {
-            self.overlay
-                .save_failed("could not resolve odytty.conf path".to_owned());
-            return;
+            return Err("could not resolve odytty.conf path".to_owned());
         };
         match write_settings_changes_to_path(path, changes) {
             Ok(result) => {
@@ -143,10 +164,20 @@ impl App {
                     let reloaded = Settings::from_env();
                     self.apply_overlay_settings(reloaded);
                 }
-                self.overlay.save_succeeded(result.changed);
+                Ok(result.changed)
             }
-            Err(error) => self.overlay.save_failed(error.to_string()),
+            Err(error) => Err(error.to_string()),
         }
+    }
+
+    /// Point odytty.conf's `default_launch_profile` at `value` (empty unsets).
+    fn write_default_launch_profile(&mut self, value: &str) -> Result<usize, String> {
+        use crate::settings::{DEFAULT_LAUNCH_PROFILE_ENV, SettingEdit};
+        self.write_overlay_settings(&[SettingEdit {
+            key: "default_launch_profile",
+            env: DEFAULT_LAUNCH_PROFILE_ENV,
+            value: value.to_owned(),
+        }])
     }
 
     pub(super) fn save_overlay_profile(
@@ -170,49 +201,109 @@ impl App {
             self.overlay.save_failed(error.to_string());
             return;
         }
+        let mut problems = Vec::new();
         if let Some(old_name) = replace.as_deref()
             && old_name != profile.name
-            && let Ok(old_path) = crate::profiles::profile_path_in_dir(&dir, old_name)
         {
-            let _ = crate::profiles::delete_profile_file(&old_path);
-            // A rename must carry the global default and any workspace-scoped
-            // override forward, so the binding follows the new name instead of
-            // silently pointing at a now-missing profile.
-            if self.settings.default_launch_profile.as_deref() == Some(old_name) {
-                use crate::settings::{DEFAULT_LAUNCH_PROFILE_ENV, SettingEdit};
-                self.save_overlay_settings(&[SettingEdit {
-                    key: "default_launch_profile",
-                    env: DEFAULT_LAUNCH_PROFILE_ENV,
-                    value: profile.name.clone(),
-                }]);
-            }
-            if self.sessions.rename_launch_profile(old_name, &profile.name) {
-                self.write_shape_snapshot();
+            // Order matters for coherence: move the global default first, and
+            // only once nothing on disk names the old profile retire its file
+            // and carry workspace bindings forward. A failed default write
+            // keeps the old file and bindings, so no binding ever names a
+            // profile that no longer exists.
+            let default_moved = if self.settings.default_launch_profile.as_deref() == Some(old_name)
+            {
+                match self.write_default_launch_profile(&profile.name) {
+                    Ok(_) => true,
+                    Err(error) => {
+                        problems.push(format!(
+                            "the global default still names {old_name} ({error}), so {old_name} was kept"
+                        ));
+                        false
+                    }
+                }
+            } else {
+                true
+            };
+            if default_moved {
+                let removed = match crate::profiles::profile_path_in_dir(&dir, old_name) {
+                    Ok(old_path) => {
+                        crate::profiles::delete_profile_file(&old_path).map_err(|e| e.to_string())
+                    }
+                    Err(error) => Err(error.to_string()),
+                };
+                if let Err(error) = removed {
+                    problems.push(format!(
+                        "the old profile {old_name} could not be removed ({error})"
+                    ));
+                }
+                // A rename carries every workspace-scoped override forward, so
+                // the binding follows the new name. When the old file could not
+                // be removed both files exist, so the retarget stays coherent.
+                self.apply_profile_binding_change(ProfileBindingChange::Renamed {
+                    old: old_name.to_owned(),
+                    new: profile.name.clone(),
+                });
             }
         }
-        let catalog = crate::profiles::load_catalog_from_dir(&dir);
-        self.overlay
-            .open_profile_manager(catalog, self.settings.default_launch_profile.as_deref());
-        self.overlay
-            .set_profile_manager_message(format!("Saved profile {}", profile.name));
-        self.request_selection_redraw();
+        let message = if problems.is_empty() {
+            format!("Saved profile {}", profile.name)
+        } else {
+            format!(
+                "Profile {} was written, but {}",
+                profile.name,
+                problems.join("; ")
+            )
+        };
+        self.reopen_profile_manager(&dir, message);
+    }
+
+    /// Apply a profile rename or delete to this window's workspace bindings,
+    /// persist them when this window owns the snapshot, and queue the change
+    /// for every sibling window (the profile catalog is shared on disk, so no
+    /// window may keep a binding to a name that no longer exists).
+    fn apply_profile_binding_change(&mut self, change: ProfileBindingChange) {
+        self.apply_sibling_profile_binding_change(&change);
+        self.profile_binding_changes.push(change);
+    }
+
+    /// Apply a profile rename or delete made in another window to this
+    /// window's workspace bindings, persisting them when this window owns the
+    /// snapshot. Never re-queues the change.
+    pub(in crate::native) fn apply_sibling_profile_binding_change(
+        &mut self,
+        change: &ProfileBindingChange,
+    ) {
+        let changed = match change {
+            ProfileBindingChange::Renamed { old, new } => {
+                self.sessions.rename_launch_profile(old, new)
+            }
+            ProfileBindingChange::Deleted { name } => {
+                self.sessions.clear_launch_profile_named(name)
+            }
+        };
+        if changed {
+            self.write_shape_snapshot();
+        }
+    }
+
+    /// Drain the profile binding changes this window made, for the window host
+    /// to apply to its siblings.
+    pub(in crate::native) fn take_profile_binding_changes(&mut self) -> Vec<ProfileBindingChange> {
+        std::mem::take(&mut self.profile_binding_changes)
     }
 
     pub(super) fn set_global_default_launch_profile(&mut self, name: &str) {
-        use crate::settings::{DEFAULT_LAUNCH_PROFILE_ENV, SettingEdit};
-        let edit = SettingEdit {
-            key: "default_launch_profile",
-            env: DEFAULT_LAUNCH_PROFILE_ENV,
-            value: name.to_owned(),
-        };
-        self.save_overlay_settings(&[edit]);
+        let result = self.write_default_launch_profile(name);
         if let Some(dir) = crate::profiles::profiles_dir_path() {
             let catalog = crate::profiles::load_catalog_from_dir(&dir);
             self.overlay
                 .open_profile_manager(catalog, self.settings.default_launch_profile.as_deref());
         }
-        self.overlay
-            .set_profile_manager_message(format!("{name} is now the global default profile"));
+        let message = match result {
+            Ok(_) => format!("{name} is now the global default profile"),
+            Err(error) => format!("Could not make {name} the global default: {error}"),
+        };
+        self.overlay.set_profile_manager_message(message);
         self.request_selection_redraw();
     }
 
@@ -229,38 +320,55 @@ impl App {
                 return;
             }
         };
+        // Clear the global default before removing the file (an empty value
+        // unsets the key, so New Tab falls back to System Default instead of
+        // dead-ending on a missing profile). If that write fails the profile
+        // is kept, so the default never names a profile that is gone.
+        let default_cleared = if self.settings.default_launch_profile.as_deref() == Some(name) {
+            match self.write_default_launch_profile("") {
+                Ok(_) => true,
+                Err(error) => {
+                    self.reopen_profile_manager(
+                        &dir,
+                        format!(
+                            "Profile {name} was kept: the global default could not be cleared ({error})"
+                        ),
+                    );
+                    return;
+                }
+            }
+        } else {
+            false
+        };
         if let Err(error) = crate::profiles::delete_profile_file(&path) {
-            self.overlay.save_failed(error.to_string());
+            let message = if default_cleared {
+                format!(
+                    "The global default is now System Default, but profile {name} could not be removed ({error})"
+                )
+            } else {
+                format!("Could not delete profile {name} ({error})")
+            };
+            self.reopen_profile_manager(&dir, message);
             return;
         }
-        // If the deleted profile was the global default, clear the key in
-        // odytty.conf so a subsequent New Tab does not resolve a now-missing
-        // default and dead-end (the "spawn pty command" symptom). An empty value
-        // unsets the key, so the next reload yields None and New Tab spawns a
-        // plain System Default tab.
-        let cleared_global_default = self.settings.default_launch_profile.as_deref() == Some(name);
-        if cleared_global_default {
-            use crate::settings::{DEFAULT_LAUNCH_PROFILE_ENV, SettingEdit};
-            self.save_overlay_settings(&[SettingEdit {
-                key: "default_launch_profile",
-                env: DEFAULT_LAUNCH_PROFILE_ENV,
-                value: String::new(),
-            }]);
-        }
         // A workspace-scoped launch-profile override naming the deleted profile
-        // must not outlive it either; clear it across every workspace and persist
-        // the shape so the binding is gone on restart.
-        if self.sessions.clear_launch_profile_named(name) {
-            self.write_shape_snapshot();
-        }
-        let catalog = crate::profiles::load_catalog_from_dir(&dir);
-        self.overlay
-            .open_profile_manager(catalog, self.settings.default_launch_profile.as_deref());
-        let message = if cleared_global_default {
+        // must not outlive it either; clear it across every workspace of every
+        // window and persist the shape so the binding is gone on restart.
+        self.apply_profile_binding_change(ProfileBindingChange::Deleted {
+            name: name.to_owned(),
+        });
+        let message = if default_cleared {
             format!("Deleted profile {name}; the global default is now System Default")
         } else {
             format!("Deleted profile {name}")
         };
+        self.reopen_profile_manager(&dir, message);
+    }
+
+    fn reopen_profile_manager(&mut self, dir: &std::path::Path, message: String) {
+        let catalog = crate::profiles::load_catalog_from_dir(dir);
+        self.overlay
+            .open_profile_manager(catalog, self.settings.default_launch_profile.as_deref());
         self.overlay.set_profile_manager_message(message);
         self.request_selection_redraw();
     }
@@ -843,6 +951,37 @@ impl App {
             self.autosave_deadline = None;
             self.write_shape_snapshot();
         }
+        self.run_cwd_checkpoint(now);
+    }
+
+    /// Cwd-only crash checkpoint. The structural fingerprint deliberately
+    /// ignores cwd so an OSC 7 update never triggers a shape write, which left
+    /// a crash restoring the cwd of the last structural save. A cwd change now
+    /// arms one checkpoint write after [`CWD_CHECKPOINT_SETTLE`], and never
+    /// sooner than [`CWD_CHECKPOINT_MIN_INTERVAL`] after the previous one, so a
+    /// burst of cwd reports costs at most one write per interval. A structural
+    /// write captures the cwds too and satisfies a pending checkpoint.
+    fn run_cwd_checkpoint(&mut self, now: Instant) {
+        let fingerprint = self.sessions.cwd_fingerprint();
+        let Some(saved) = self.saved_cwd_fingerprint else {
+            self.saved_cwd_fingerprint = Some(fingerprint);
+            return;
+        };
+        if fingerprint == saved {
+            self.cwd_checkpoint_deadline = None;
+            return;
+        }
+        let deadline = *self.cwd_checkpoint_deadline.get_or_insert_with(|| {
+            let settled = now + CWD_CHECKPOINT_SETTLE;
+            self.last_cwd_checkpoint.map_or(settled, |last| {
+                settled.max(last + CWD_CHECKPOINT_MIN_INTERVAL)
+            })
+        });
+        if now >= deadline {
+            self.cwd_checkpoint_deadline = None;
+            self.last_cwd_checkpoint = Some(now);
+            self.write_shape_snapshot();
+        }
     }
 
     /// WP2 sub-ODP 8c: unconditional shape save on a clean exit (primary only).
@@ -860,6 +999,16 @@ impl App {
     /// disk write is replaced by a counter bump so the debounce-coalescing tests
     /// can assert exactly-once behavior without touching the filesystem.
     pub(super) fn write_shape_snapshot(&mut self) {
+        // Ownership is enforced here, not only by the callers: every path that
+        // persists the shared snapshot (autosave, exit, profile binding edits)
+        // goes through this writer, and only the primary window owns it.
+        if !self.autosave_is_primary {
+            return;
+        }
+        // Every snapshot captures the current cwds, so it also satisfies any
+        // pending cwd-only checkpoint.
+        self.saved_cwd_fingerprint = Some(self.sessions.cwd_fingerprint());
+        self.cwd_checkpoint_deadline = None;
         #[cfg(test)]
         {
             self.autosave_saves += 1;

@@ -95,6 +95,12 @@ Development on `master`; not released. Items check off when their code is on
       delivery; the session host keeps one over-cap frame whole and logs its
       overflow; OSC 52 read replies over the 64 KiB OSC 52 limit are refused
       whole.
+- [ ] Profile and workspace persistence is honest and owned: failed profile
+      and default writes report the real outcome, and rename/delete move the
+      global default before retiring the file; only the primary window
+      writes the workspace snapshot, enforced in the writer; profile renames
+      and deletes update every window's bindings; cwd-only changes are
+      checkpointed after 5 s and at most once a minute.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

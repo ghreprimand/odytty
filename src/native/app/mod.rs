@@ -246,6 +246,10 @@ pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(1
 /// to a single write when the drag settles, short enough that a crash loses at
 /// most a couple of seconds of shape change.
 const SHAPE_AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(1500);
+/// Quiet period after a cwd-only change before its crash checkpoint is written.
+const CWD_CHECKPOINT_SETTLE: Duration = Duration::from_secs(5);
+/// Minimum spacing between cwd-only checkpoint writes (the write budget).
+const CWD_CHECKPOINT_MIN_INTERVAL: Duration = Duration::from_secs(60);
 
 /// A press landing on the context menu within this window of it opening is
 /// treated as a stale queued click and swallowed (see `context_menu_opened_at`).

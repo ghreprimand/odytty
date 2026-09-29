@@ -6,6 +6,8 @@ use crate::automation::dispatch;
 use crate::automation::protocol::{Request, VERSION};
 use crate::native::session::SessionToken;
 use crate::native::test_support::headless_app_for_test;
+use crate::profiles::{LaunchProfile, profiles_dir_path, write_profile_file};
+use std::path::Path;
 
 /// A host over headless windows with a factory that spawns nothing, so the
 /// cross-window orchestration (picker, merge, sibling counts) can be driven
@@ -47,6 +49,178 @@ pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
 
 pub(in crate::native::app) fn headless() -> App {
     headless_app_for_test().0
+}
+
+fn with_profile_test_root<R>(f: impl FnOnce(&Path) -> R) -> R {
+    use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+
+    let _guard = crate::test_lock::test_env_lock();
+    let base = std::env::temp_dir().join(format!(
+        "odytty-multiwindow-profile-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&base).expect("create synthetic profile root");
+    let previous = [
+        ("HOME", std::env::var_os("HOME")),
+        ("XDG_CONFIG_HOME", std::env::var_os("XDG_CONFIG_HOME")),
+        ("APPDATA", std::env::var_os("APPDATA")),
+    ];
+    // SAFETY: the process-wide test environment lock is held and all values
+    // are restored even if the fixture assertion unwinds.
+    unsafe {
+        std::env::set_var("HOME", &base);
+        std::env::set_var("XDG_CONFIG_HOME", &base);
+        std::env::set_var("APPDATA", &base);
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| f(&base)));
+    unsafe {
+        for (key, value) in previous {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(base);
+    match result {
+        Ok(value) => value,
+        Err(payload) => resume_unwind(payload),
+    }
+}
+
+fn bind_workspace_profile(app: &mut App, profile: &str) {
+    app.workspace_set_mut().workspaces[0].launch_profile = Some(profile.to_owned());
+}
+
+#[test]
+fn profile_rename_updates_bindings_in_every_live_window() {
+    with_profile_test_root(|_| {
+        let profiles_dir = profiles_dir_path().expect("synthetic profile directory");
+        std::fs::create_dir_all(&profiles_dir).expect("create profile directory");
+        let old = LaunchProfile::new("audit-shared-old").expect("old profile");
+        write_profile_file(&profiles_dir.join("audit-shared-old.profile.json"), &old)
+            .expect("write old profile");
+
+        let mut primary = headless();
+        let mut sibling = headless();
+        primary.set_primary_instance_for_test(true);
+        sibling.set_primary_instance_for_test(false);
+        bind_workspace_profile(&mut primary, "audit-shared-old");
+        bind_workspace_profile(&mut sibling, "audit-shared-old");
+        let mut host = host_of(vec![primary, sibling]);
+        let renamed = LaunchProfile::new("audit-shared-new").expect("renamed profile");
+        let primary_writes = host.windows[0].autosave_saves_for_test();
+        let sibling_writes = host.windows[1].autosave_saves_for_test();
+
+        host.windows[1].save_overlay_profile_for_test(renamed, Some("audit-shared-old".to_owned()));
+        host.service_profile_binding_changes();
+
+        assert_eq!(
+            host.windows[0]
+                .workspace_set()
+                .active_workspace_launch_profile(),
+            Some("audit-shared-new"),
+            "the primary receives a rename made in its sibling"
+        );
+        assert_eq!(
+            host.windows[1]
+                .workspace_set()
+                .active_workspace_launch_profile(),
+            Some("audit-shared-new"),
+            "sibling windows must not retain the old binding"
+        );
+        assert_eq!(
+            host.windows[0].autosave_saves_for_test(),
+            primary_writes + 1,
+            "the primary persists propagated binding changes"
+        );
+        assert_eq!(
+            host.windows[1].autosave_saves_for_test(),
+            sibling_writes,
+            "a non-primary editor never writes the shared snapshot"
+        );
+    });
+}
+
+#[test]
+fn profile_delete_clears_bindings_in_every_live_window() {
+    with_profile_test_root(|_| {
+        let profiles_dir = profiles_dir_path().expect("synthetic profile directory");
+        std::fs::create_dir_all(&profiles_dir).expect("create profile directory");
+        let doomed = LaunchProfile::new("audit-shared-delete").expect("profile");
+        write_profile_file(
+            &profiles_dir.join("audit-shared-delete.profile.json"),
+            &doomed,
+        )
+        .expect("write profile");
+
+        let mut primary = headless();
+        let mut sibling = headless();
+        primary.set_primary_instance_for_test(true);
+        sibling.set_primary_instance_for_test(false);
+        bind_workspace_profile(&mut primary, "audit-shared-delete");
+        bind_workspace_profile(&mut sibling, "audit-shared-delete");
+        let mut host = host_of(vec![primary, sibling]);
+        let primary_writes = host.windows[0].autosave_saves_for_test();
+        let sibling_writes = host.windows[1].autosave_saves_for_test();
+
+        host.windows[1].delete_overlay_profile_for_test("audit-shared-delete");
+        host.service_profile_binding_changes();
+
+        assert_eq!(
+            host.windows[0]
+                .workspace_set()
+                .active_workspace_launch_profile(),
+            None,
+            "the initiating window clears the deleted binding"
+        );
+        assert_eq!(
+            host.windows[1]
+                .workspace_set()
+                .active_workspace_launch_profile(),
+            None,
+            "sibling windows must not retain the deleted binding"
+        );
+        assert_eq!(
+            host.windows[0].autosave_saves_for_test(),
+            primary_writes + 1,
+            "the primary persists propagated binding changes"
+        );
+        assert_eq!(
+            host.windows[1].autosave_saves_for_test(),
+            sibling_writes,
+            "a non-primary editor never writes the shared snapshot"
+        );
+    });
+}
+
+#[test]
+fn profile_edit_without_matching_bindings_does_not_write_the_snapshot() {
+    with_profile_test_root(|_| {
+        let profiles_dir = profiles_dir_path().expect("synthetic profile directory");
+        std::fs::create_dir_all(&profiles_dir).expect("create profile directory");
+        let old = LaunchProfile::new("audit-unbound-old").expect("old profile");
+        write_profile_file(&profiles_dir.join("audit-unbound-old.profile.json"), &old)
+            .expect("write old profile");
+
+        let mut primary = headless();
+        let mut sibling = headless();
+        primary.set_primary_instance_for_test(true);
+        sibling.set_primary_instance_for_test(false);
+        let mut host = host_of(vec![primary, sibling]);
+
+        let renamed = LaunchProfile::new("audit-unbound-new").expect("renamed profile");
+        host.windows[1]
+            .save_overlay_profile_for_test(renamed, Some("audit-unbound-old".to_owned()));
+        host.service_profile_binding_changes();
+
+        assert_eq!(host.windows[0].autosave_saves_for_test(), 0);
+        assert_eq!(host.windows[1].autosave_saves_for_test(), 0);
+    });
 }
 
 #[cfg(target_os = "linux")]

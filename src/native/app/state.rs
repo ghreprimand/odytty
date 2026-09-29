@@ -519,6 +519,9 @@ pub(in crate::native) struct App {
     /// lock) autosaves or restores; a second concurrent window sets this `false`
     /// and never writes `workspaces.json`. Set once at startup.
     pub(super) autosave_is_primary: bool,
+    /// Profile renames/deletes made in this window that the window host has
+    /// not yet applied to sibling windows' workspace bindings.
+    pub(super) profile_binding_changes: Vec<config_lifecycle::ProfileBindingChange>,
     /// Debounced-autosave deadline: `Some(t)` once a shape mutation is pending a
     /// write at `t`; re-armed on each further mutation so a burst coalesces into
     /// one write, cleared when the write fires. `None` at rest.
@@ -528,6 +531,15 @@ pub(in crate::native) struct App {
     /// shape does not trigger an immediate redundant write). A change from this
     /// value arms [`Self::autosave_deadline`].
     pub(super) autosave_fingerprint: Option<u64>,
+    /// Cwd-only crash checkpoint (see `run_shape_autosave`): the per-pane cwd
+    /// fingerprint the last snapshot write captured, `None` until the first
+    /// primary maintenance pass sets the baseline.
+    pub(super) saved_cwd_fingerprint: Option<u64>,
+    /// When a cwd-only change is due to be checkpointed. `None` at rest, so
+    /// the idle wake set is unchanged.
+    pub(super) cwd_checkpoint_deadline: Option<Instant>,
+    /// When the last cwd-only checkpoint was written, for the write budget.
+    pub(super) last_cwd_checkpoint: Option<Instant>,
     /// Test-only count of shape writes emitted, so the debounce-coalescing tests
     /// can assert exactly-once without touching the filesystem.
     #[cfg(test)]
@@ -766,8 +778,12 @@ impl App {
                 .and_then(|home| home.into_os_string().into_string().ok()),
             image_overlay: None,
             autosave_is_primary: false,
+            profile_binding_changes: Vec::new(),
             autosave_deadline: None,
             autosave_fingerprint: None,
+            saved_cwd_fingerprint: None,
+            cwd_checkpoint_deadline: None,
+            last_cwd_checkpoint: None,
             #[cfg(test)]
             autosave_saves: 0,
             startup_error: None,

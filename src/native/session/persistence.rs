@@ -623,6 +623,30 @@ impl WorkspaceSet {
         }
     }
 
+    /// A hash of every pane's advisory cwd in layout order, the part of the
+    /// snapshot [`Self::structural_fingerprint`] leaves out. Locks each pane's
+    /// terminal briefly, like the per-pass notification sweep; never touches
+    /// the filesystem.
+    pub(in crate::native) fn cwd_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for ws in &self.workspaces {
+            for tab in &ws.tabs {
+                for token in tab.layout.leaves() {
+                    let Some(session) = self.sessions.get(&token) else {
+                        None::<&str>.hash(&mut hasher);
+                        continue;
+                    };
+                    match session.terminal.lock() {
+                        Ok(terminal) => terminal.current_working_directory().hash(&mut hasher),
+                        Err(_) => None::<&str>.hash(&mut hasher),
+                    }
+                }
+            }
+        }
+        hasher.finish()
+    }
+
     /// A cheap, lock-free hash of the workspace/tab/pane STRUCTURE — names, tab
     /// titles/order/count, split axes + ratios, focused-pane position, per-pane
     /// read-only flags, and the active workspace/tab indices. Excludes per-pane

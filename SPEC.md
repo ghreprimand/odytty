@@ -1275,7 +1275,14 @@ scope rather than silently inheriting deferred work from a prior release.
   running, so a restore can never replay a command. Restore fires only for the
   primary instance (elected via a state-dir lock file) on a bare `odytty`
   launch; any CLI argument suppresses it, and a fresh shell is always spawned
-  per pane. Named layouts persist the same shape under a chosen name.
+  per pane. Only the primary window writes the snapshot; the ownership check
+  sits in the snapshot writer itself, so no path (autosave, exit, or a profile
+  edit) can let another window replace it. Structural changes save after a
+  1.5 s debounce. A cwd-only change is checkpointed after 5 s of quiet and at
+  most once a minute, so a crash restores recent working directories without
+  a write per directory change. A profile rename or delete in any window
+  updates the workspace bindings of every open window. Named layouts persist
+  the same shape under a chosen name.
 
   Opening a
   layout onto a window that already holds real state prompts for how it lands —

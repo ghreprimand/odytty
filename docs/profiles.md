@@ -190,8 +190,12 @@ import, export, and delete.
 
 Deleting or renaming the global default clears or rewrites the saved
 `default_launch_profile`, and any workspace-scoped override naming that profile is
-cleared or rewritten to match. Unknown future keys survive edit and save through
-the schema round-trip.
+cleared or rewritten to match in every open window. The saved default is updated
+first: if that write fails, the old profile file and every binding are kept and
+the manager names the failure, so no default or binding is left naming a profile
+that no longer exists. If the default moves but the old file cannot be removed,
+the manager reports the leftover file. Unknown future keys survive edit and save
+through the schema round-trip.
 
 ## Default profiles
 

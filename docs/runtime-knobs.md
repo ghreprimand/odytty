@@ -773,6 +773,13 @@ Rules:
   window never clobbers the first window's saved layout. Merging the owning
   window into another window of the same process passes ownership to the
   surviving window, which then saves the merged layout.
+- **Working directories are checkpointed.** A change in a pane's working
+  directory alone is saved after 5 seconds of quiet and at most once a minute,
+  so a crash or power loss restores recent directories without writing the
+  file on every `cd`.
+- **Profile edits reach every window.** Renaming or deleting a named profile
+  updates workspace bindings in all open windows, and the owning window saves
+  the result.
 
 ### Clickable URLs (`interactive_urls`)
 

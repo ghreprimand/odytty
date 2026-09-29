@@ -2458,6 +2458,19 @@ impl App {
         self.autosave_deadline.is_some()
     }
 
+    /// Test seam (F20): when the pending cwd-only crash checkpoint is due,
+    /// `None` when none is armed.
+    #[cfg(test)]
+    pub(in crate::native) fn cwd_checkpoint_deadline_for_test(&self) -> Option<Instant> {
+        self.cwd_checkpoint_deadline
+    }
+
+    /// Test seam (F20): drive one autosave maintenance pass at `now`.
+    #[cfg(test)]
+    pub(in crate::native) fn run_shape_autosave_for_test(&mut self, now: Instant) {
+        self.run_shape_autosave(now);
+    }
+
     /// Test seam (NF21-6): run one arena-wide bell + prompt-marks drain and
     /// return `(focused_bell, background_bell, focused_prompt_changed)` — so a
     /// test can assert routing without a real window (urgency is a no-op

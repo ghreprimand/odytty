@@ -564,6 +564,8 @@ impl MultiWindowHost {
         match resolve_window_close(self.windows.len(), idx) {
             WindowCloseAction::ExitProcess => event_loop.exit(),
             WindowCloseAction::RemoveWindow(i) => {
+                // Deliver a profile edit made just before the close first.
+                self.service_profile_binding_changes();
                 if i < self.windows.len() {
                     // A genuine window close reaps its own sessions (kills +
                     // joins the PTYs). This is NOT the merge-retirement path,
@@ -597,6 +599,22 @@ impl MultiWindowHost {
             app.on_resumed(event_loop);
             Some(app)
         });
+    }
+
+    /// Hand each window's profile renames/deletes to every other window, so a
+    /// sibling never keeps a workspace binding to a name that no longer exists.
+    /// The primary window persists the updated bindings; others stay in memory.
+    fn service_profile_binding_changes(&mut self) {
+        for origin in 0..self.windows.len() {
+            let changes = self.windows[origin].take_profile_binding_changes();
+            for change in &changes {
+                for (idx, app) in self.windows.iter_mut().enumerate() {
+                    if idx != origin {
+                        app.apply_sibling_profile_binding_change(change);
+                    }
+                }
+            }
+        }
     }
 
     /// Drain pending merge-picker requests and open the picker for the first
@@ -1659,6 +1677,7 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         // Service cross-window requests (may add or remove windows).
         self.service_new_windows(event_loop);
         self.service_merge_requests();
+        self.service_profile_binding_changes();
         self.service_quick_toggle(event_loop);
         self.sync_sibling_counts();
 
