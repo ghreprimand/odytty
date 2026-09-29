@@ -681,10 +681,12 @@ fn kitty_same_placement_id_replaces_previous() {
 
 #[test]
 fn kitty_distinct_placement_ids_coexist_for_one_image() {
+    // Transmit once, then place twice: retransmitting under the same id
+    // would replace the image and delete its placements.
     let mut t = Terminal::new(20, 4);
     t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,i=7,p=1", &rgba_2x1()));
     t.advance(b"\x1b[3;1H");
-    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,i=7,p=2", &rgba_2x1()));
+    t.advance(b"\x1b_Ga=p,i=7,p=2\x1b\\");
 
     assert_eq!(t.visible_graphics(0).len(), 2, "distinct p= coexist");
 }
@@ -742,7 +744,7 @@ fn kitty_delete_by_image_id_with_placement_id_targets_protocol_id() {
     let mut t = Terminal::new(20, 6);
     t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,i=5,p=10", &rgba_2x1()));
     t.advance(b"\x1b[3;1H");
-    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,i=5,p=20", &rgba_2x1()));
+    t.advance(b"\x1b_Ga=p,i=5,p=20\x1b\\");
     assert_eq!(t.visible_graphics(0).len(), 2);
 
     // Delete only placement p=10 of image i=5.

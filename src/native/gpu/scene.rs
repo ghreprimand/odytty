@@ -835,12 +835,19 @@ impl GpuState {
 
     /// Resident image textures with the generation each was uploaded from, for
     /// the upload collector's staleness check (animation frame flips).
-    pub(in crate::native) fn cached_image_generations(&self) -> BTreeMap<StoredImageId, u64> {
-        self.image_layer.cached_generations()
+    ///
+    /// `namespace` is the session token of the terminal about to render; see
+    /// `ImageLayer::cached_generations`.
+    pub(in crate::native) fn cached_image_generations(
+        &self,
+        namespace: u64,
+    ) -> BTreeMap<StoredImageId, u64> {
+        self.image_layer.cached_generations(namespace)
     }
 
     pub(in crate::native) fn update_image_layer(
         &mut self,
+        namespace: u64,
         placements: &[VisiblePlacement],
         uploads: &[ImageUpload],
         row_offset: usize,
@@ -856,6 +863,7 @@ impl GpuState {
             &self.device,
             &self.queue,
             &self.viewport_buf,
+            namespace,
             placements,
             uploads,
             self.atlas.cell,

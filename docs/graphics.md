@@ -76,8 +76,16 @@ rejected with an explicit error response; incomplete state is cleared.
 - **`s=`/`v=`** — source pixel width / height. Both are required for raw
   `f=24` and `f=32` payloads; omitting either returns `missing-dimensions`.
   They are optional for PNG, where a supplied mismatch is rejected.
-- **`i=`** — image id assigned by the application. If omitted, one is
-  auto-assigned.
+- **`i=`** - image id assigned by the application. If omitted, one is
+  auto-assigned. Transmitting again under an id that is already stored
+  replaces that image: the old pixels and all of its placements, including
+  Unicode placeholder (virtual) placements, are deleted, and the new image is
+  not shown until a placement is created for it (`a=T`, `a=p`, or `U=1`). The
+  replaced bytes leave the quota before the new image is counted, so a
+  replacement never evicts an unrelated image to make room. A retransmission
+  that fails validation leaves the old image and its placements in place. An
+  image transmitted with only an `I=` number never replaces another, and `a=q`
+  never stores or replaces anything.
 - **`p=`** — placement id. A single image may have several named placements at
   once; re-using the same `(i=, p=)` in the active screen buffer replaces the
   previous placement rather than adding a second one. Placements without a `p=`

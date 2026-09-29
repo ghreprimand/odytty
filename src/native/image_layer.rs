@@ -60,6 +60,21 @@ pub(super) struct CacheSyncPlan {
     pub(super) upload: Vec<StoredImageId>,
 }
 
+/// The single-pane resident map as seen by the session `namespace` about to
+/// render: the real map when the cache was filled for that session, otherwise
+/// empty. Pure so the ownership rule is testable without a GPU device.
+pub(super) fn single_pane_resident_for(
+    owner: Option<u64>,
+    namespace: u64,
+    resident: BTreeMap<StoredImageId, u64>,
+) -> BTreeMap<StoredImageId, u64> {
+    if owner == Some(namespace) {
+        resident
+    } else {
+        BTreeMap::new()
+    }
+}
+
 pub(super) fn visible_image_ids(placements: &[VisiblePlacement]) -> BTreeSet<StoredImageId> {
     placements
         .iter()
@@ -376,6 +391,15 @@ pub(super) struct ImageLayer {
     /// is `Filtering`, so a linear sampler is layout-compatible.
     overlay_sampler: wgpu::Sampler,
     textures: HashMap<StoredImageId, CachedImage>,
+    /// Session-token namespace the single-pane `textures` were uploaded for.
+    /// `StoredImageId` and generation counters are per terminal, so two
+    /// sessions' first images share `(id 1, generation 1)`. Keying the
+    /// single-pane cache by id alone would let a tab switch draw the previous
+    /// session's texture for the new session's image, so the cache belongs to
+    /// one namespace at a time and is dropped whole when another session
+    /// renders through it. The multipane cache below keys on the namespace
+    /// directly instead.
+    textures_namespace: Option<u64>,
     vertex_buf: wgpu::Buffer,
     vertex_capacity_bytes: u64,
     vertices: Vec<ImageVertex>,
@@ -502,6 +526,7 @@ impl ImageLayer {
             sampler,
             overlay_sampler,
             textures: HashMap::new(),
+            textures_namespace: None,
             vertex_buf,
             vertex_capacity_bytes,
             vertices: Vec::new(),
@@ -680,11 +705,19 @@ impl ImageLayer {
     /// Resident single-pane textures with the image generation each was uploaded
     /// from. Callers compare against the store's current generation so a
     /// re-published animation frame re-uploads and a still image does not.
-    pub(super) fn cached_generations(&self) -> BTreeMap<StoredImageId, u64> {
-        self.textures
-            .iter()
-            .map(|(id, cached)| (*id, cached.generation))
-            .collect()
+    ///
+    /// `namespace` is the session token about to render. Textures resident for
+    /// any other session are reported as absent, so that session's images are
+    /// fetched and uploaded rather than matched against a foreign texture.
+    pub(super) fn cached_generations(&self, namespace: u64) -> BTreeMap<StoredImageId, u64> {
+        single_pane_resident_for(
+            self.textures_namespace,
+            namespace,
+            self.textures
+                .iter()
+                .map(|(id, cached)| (*id, cached.generation))
+                .collect(),
+        )
     }
 
     /// The multipane equivalent of [`Self::cached_generations`], keyed by the
@@ -816,6 +849,7 @@ impl ImageLayer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         viewport_buf: &wgpu::Buffer,
+        namespace: u64,
         placements: &[VisiblePlacement],
         uploads: &[ImageUpload],
         cell: CellSize,
@@ -830,7 +864,13 @@ impl ImageLayer {
         // but MUST NOT draw over a single-pane tab.
         self.pane_draws.clear();
         self.pane_vertices.clear();
-        let cached = self.cached_generations();
+        if self.textures_namespace != Some(namespace) {
+            // Another session owns the resident textures: none of them can be
+            // reused for this session's ids, so release them all.
+            self.textures.clear();
+            self.textures_namespace = Some(namespace);
+        }
+        let cached = self.cached_generations(namespace);
         let plan = cache_sync_plan(&cached, placements, uploads);
         for id in plan.evict {
             self.textures.remove(&id);

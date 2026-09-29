@@ -79,6 +79,10 @@ pub enum ImageStoreError {
 pub struct ImageInsert {
     pub id: StoredImageId,
     pub evicted: Vec<StoredImageId>,
+    /// Records removed because the new image carries the same caller-supplied
+    /// protocol id. The graphics protocol defines retransmission under an
+    /// existing id as replacement: the old image and all its placements go.
+    pub replaced: Vec<StoredImageId>,
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +118,19 @@ impl ImageStore {
             lru: VecDeque::new(),
             animated: BTreeSet::new(),
         }
+    }
+
+    /// Continue this store's id and generation counters past `previous`.
+    ///
+    /// A terminal that rebuilds its screen (session snapshot restore) gets a
+    /// fresh store whose counters would restart at one. Renderer texture
+    /// caches key on `(StoredImageId, generation)`, so a restarted counter
+    /// could hand a new image the exact key of a texture still resident from
+    /// the old store and suppress its upload. Carrying the counters forward
+    /// keeps every key issued by one terminal unique for its lifetime.
+    pub fn continue_counters_from(&mut self, previous: &ImageStore) {
+        self.next_id = self.next_id.max(previous.next_id);
+        self.next_generation = self.next_generation.max(previous.next_generation);
     }
 
     pub fn limits(&self) -> ImageStoreLimits {
@@ -252,6 +269,17 @@ impl ImageStore {
             (existing, _) => existing,
         };
 
+        // Same-id retransmission replaces the previous image. Every fallible
+        // check above has already passed, so a rejected transmission leaves
+        // the old image in place; removing before inserting also frees its
+        // bytes first, so replacement never evicts an unrelated image to make
+        // room for bytes that are about to be released anyway. An allocated
+        // id is free by construction and cannot match.
+        let replaced = match protocol_id {
+            Some(protocol_id) => self.remove_protocol_id(protocol_id),
+            None => Vec::new(),
+        };
+
         let id = StoredImageId(self.next_id);
         self.next_id += 1;
         let generation = self.next_generation;
@@ -274,7 +302,25 @@ impl ImageStore {
 
         let mut evicted = Vec::new();
         self.evict_to_limits(&mut evicted);
-        Ok(ImageInsert { id, evicted })
+        Ok(ImageInsert {
+            id,
+            evicted,
+            replaced,
+        })
+    }
+
+    /// Remove every stored image carrying `protocol_id`, returning their ids.
+    fn remove_protocol_id(&mut self, protocol_id: u32) -> Vec<StoredImageId> {
+        let matching: Vec<StoredImageId> = self
+            .images
+            .values()
+            .filter(|image| image.protocol_id == Some(protocol_id))
+            .map(|image| image.id)
+            .collect();
+        for id in &matching {
+            self.remove(*id);
+        }
+        matching
     }
 
     pub fn touch(&mut self, id: StoredImageId) -> bool {

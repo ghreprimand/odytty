@@ -381,10 +381,13 @@ impl App {
                 let Some(cell) = self.gpu.as_ref().map(GpuState::cell) else {
                     return true;
                 };
+                // The single-pane texture cache is scoped to the session
+                // that filled it; a different session sees it as empty.
+                let image_namespace = self.sessions.active_id().0;
                 let cached_image_ids = self
                     .gpu
                     .as_ref()
-                    .map(GpuState::cached_image_generations)
+                    .map(|gpu| gpu.cached_image_generations(image_namespace))
                     .unwrap_or_default();
                 let (
                     mut snapshot,
@@ -826,6 +829,7 @@ impl App {
                     match update {
                         GeometryUpdate::Full => {
                             gpu.update_image_layer(
+                                image_namespace,
                                 &visible_graphics,
                                 &image_uploads,
                                 tab_bar_row_offset,

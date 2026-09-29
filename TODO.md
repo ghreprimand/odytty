@@ -101,6 +101,12 @@ Development on `master`; not released. Items check off when their code is on
       writes the workspace snapshot, enforced in the writer; profile renames
       and deletes update every window's bindings; cwd-only changes are
       checkpointed after 5 s and at most once a minute.
+- [ ] Inline image identity is exact: the single-pane texture cache is
+      scoped to one session, so equal image ids in two sessions never share a
+      texture; snapshot restore continues image id and generation counters;
+      Kitty retransmission under an existing `i=` replaces the image and
+      deletes its placements, freeing its quota first and leaving the old
+      image intact when the new data is rejected.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

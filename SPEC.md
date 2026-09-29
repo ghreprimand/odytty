@@ -365,6 +365,12 @@ path: each pane collects its own visible placements (namespaced by session so
 two panes' independent image id spaces never collide) and draws them relative to
 the pane's origin, clipped by a per-pane scissor rect that bounds both axes so a
 placement cannot bleed across a vertical or horizontal divider into a neighbour.
+The single-pane texture cache belongs to one session at a time: when a
+different session renders through it (a tab switch, or a split collapsing to
+one pane) the resident textures are released and that session's images upload
+fresh, so equal image ids in two sessions never share a texture. A session
+restored from a snapshot continues its image id and generation counters rather
+than restarting them.
 Text, cursor, selection focus, search highlighting, dividers, resize, smooth
 scroll, and Kitty/Sixel images all work in splits.
 
@@ -394,7 +400,10 @@ animation wake. Animation commands address an image by either `i=` image id or
 both in one command is rejected. Payloads may be zlib-compressed (`o=z`) in any
 format, on any transport, with inflation bounded by the image store's
 decoded-byte budget and truncated streams refused. `I=` addressing on display
-(`a=p`) and delete (`d=n`/`d=N`) commands remains unsupported.
+(`a=p`) and delete (`d=n`/`d=N`) commands remains unsupported. Retransmitting
+under an `i=` id that is already stored replaces the image and deletes all of
+its placements, real and virtual, as the protocol requires; a retransmission
+that fails validation leaves the old image in place.
 
 **Sixel.** The complete DCS `q` data language is supported: raster attributes,
 RGB and HLS color introducers, repeat introducer, VT340 16-color default

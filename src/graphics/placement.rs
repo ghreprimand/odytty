@@ -219,6 +219,15 @@ impl ImageScene {
         }
     }
 
+    /// Continue image and placement counters past `previous`, so a scene
+    /// rebuilt on snapshot restore never reissues an id or generation the old
+    /// scene handed out (see [`ImageStore::continue_counters_from`]).
+    pub fn continue_counters_from(&mut self, previous: &ImageScene) {
+        self.store.continue_counters_from(&previous.store);
+        self.next_placement_id = self.next_placement_id.max(previous.next_placement_id);
+        self.next_generation = self.next_generation.max(previous.next_generation);
+    }
+
     pub fn store(&self) -> &ImageStore {
         &self.store
     }
@@ -253,6 +262,9 @@ impl ImageScene {
             self.store
                 .insert_rgba_numbered(protocol_id, protocol_number, width, height, rgba)?;
         self.remove_placements_for_images(&inserted.evicted);
+        // Same-id replacement drops the old image's placements, real and
+        // virtual, through the same path as eviction.
+        self.remove_placements_for_images(&inserted.replaced);
         Ok(inserted)
     }
 

@@ -34,6 +34,8 @@ mod frames_tests;
 #[cfg(test)]
 mod placement_tests;
 #[cfg(test)]
+mod replace_tests;
+#[cfg(test)]
 mod sixel_tests;
 #[cfg(test)]
 mod store_tests;

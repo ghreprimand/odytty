@@ -428,6 +428,11 @@ impl Screen {
         restored
             .hyperlinks
             .reserve_through(snapshot_high_water.max(self.hyperlinks.issued_high_water()));
+        // Sibling of the link reservation above for images: the restored
+        // screen starts an empty image scene, and its counters continue past
+        // this screen's so no image id/generation pair is ever reissued to a
+        // renderer cache that may still hold the old texture.
+        restored.graphics.continue_counters_from(&self.graphics);
         restored.mark_dirty();
 
         *self = restored;
