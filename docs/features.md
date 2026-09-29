@@ -256,9 +256,14 @@ preview. See
 A bracketed paste is queued as one transaction containing the opening marker,
 sanitized text, and closing marker, so unrelated input cannot split the frame.
 A bracketed paste whose complete framed payload exceeds
-`MAX_BRACKETED_PASTE_BYTES` = 32 MiB is refused whole. Plain, non-bracketed
-paste has no comparable whole-payload rejection and remains deliberately
-chunked. With child bracketed-paste mode off, original multiline or
+`MAX_BRACKETED_PASTE_BYTES` = 8 MiB is refused whole, before it is encoded,
+with a failure notice. The limit equals the attached-session input frame
+limit, so local and attached sessions accept the same pastes. Plain,
+non-bracketed paste has no comparable whole-payload rejection and remains
+deliberately chunked. Input that is lost after it was written (the outbound
+queue overflowing behind a stalled program, or an attached session dropping a
+frame while its host is not reading) raises an "Input lost" notice with the
+byte count, and the log records `pty_write_overflow` or `pty_input_dropped`. With child bracketed-paste mode off, original multiline or
 control-bearing text is held behind a bounded escaped preview before PTY
 writing. The dialog reports original line and byte counts and offers Paste,
 reversible Paste as One Line when available, or Cancel. Safe single-line and

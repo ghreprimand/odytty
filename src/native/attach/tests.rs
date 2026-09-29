@@ -736,11 +736,12 @@ fn attached_input_writer_forwards_to_socket() {
 }
 
 /// The C-4 send timeout must degrade to a DROPPED frame, not a dead session:
-/// `AttachInputWriter::write` returns `Ok` on a ZERO-progress
-/// `WouldBlock`/`TimedOut` so the dedicated writer loop never tears down its
-/// queue over a transient stall, and input flows again once the host drains.
-/// A surfaced error here would mark the outbound queue closed permanently and
-/// silently discard every later keystroke while the session stays displayed.
+/// `AttachInputWriter::write` returns a dropped-input error on a
+/// ZERO-progress `WouldBlock`/`TimedOut`, which the dedicated writer loop
+/// counts and surfaces without tearing down its queue, so input flows again
+/// once the host drains. A fatal error here would mark the outbound queue
+/// closed permanently and discard every later keystroke while the session
+/// stays displayed; an `Ok` would report the dropped frame as delivered.
 /// Zero progress means nothing of the frame reached the wire, so the stream
 /// stays framing-clean and dropping is safe (a PARTIAL write is the fatal
 /// desync path, tested separately below).
@@ -783,9 +784,20 @@ fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
     };
 
     // With the buffer full, the frame write accepts nothing and times out at
-    // zero progress. The write must report success (frame dropped) instead of
-    // surfacing the timeout.
-    assert_eq!(writer.write(b"ls\n").expect("timeout must not be fatal"), 3);
+    // zero progress. The write reports the frame as dropped input (never as
+    // delivered), which the outbound writer loop counts without closing.
+    let dropped = writer
+        .write(b"ls\n")
+        .expect_err("a dropped frame is not reported as delivered");
+    assert_eq!(
+        crate::native::pty_writer::dropped_input_reason(&dropped),
+        Some(crate::native::pty_writer::DroppedInputReason::SendTimeout),
+        "the timeout is a counted drop, not a fatal error: {dropped}"
+    );
+    assert!(
+        !client.lock().expect("client").poisoned,
+        "a zero-progress drop leaves the stream framing-clean"
+    );
 
     // Host un-wedges: drain everything buffered (the junk fill; nothing of
     // the dropped frame is on the wire).
@@ -806,6 +818,60 @@ fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
     let mut frame = [0u8; 8];
     std::io::Read::read_exact(&mut reader, &mut frame).expect("read recovered frame");
     assert_eq!(&frame, &[101, 0, 0, 0, 3, b'l', b's', b'\n']);
+}
+
+#[test]
+fn poisoned_attach_client_does_not_report_input_as_delivered() {
+    let (ours, _peer) = UnixStream::pair().expect("socketpair");
+    let client = Arc::new(Mutex::new(AttachClient {
+        stream: ours,
+        detached: true,
+        poisoned: false,
+    }));
+    let poison = Arc::clone(&client);
+    let _ = std::thread::spawn(move || {
+        let _guard = poison.lock().expect("initial client lock");
+        panic!("synthetic mutex poison");
+    })
+    .join();
+
+    let mut writer = AttachInputWriter { client };
+    assert!(
+        writer.write(b"synthetic-keystroke").is_err(),
+        "a poisoned attach client must not return a successful byte count"
+    );
+}
+
+#[test]
+fn oversized_input_rejection_does_not_poison_the_next_keystroke() {
+    use crate::session_host::protocol::MAX_CLIENT_INPUT_LEN;
+
+    let (ours, mut peer) = UnixStream::pair().expect("socketpair");
+    let mut client = AttachClient {
+        stream: ours,
+        detached: true,
+        poisoned: false,
+    };
+    let oversized = vec![b'x'; MAX_CLIENT_INPUT_LEN + 1];
+
+    let error = client
+        .send_input(&oversized)
+        .expect_err("oversized frame is rejected before transport");
+    assert!(
+        matches!(
+            error.downcast_ref::<ProtocolError>(),
+            Some(ProtocolError::FrameTooLarge { .. })
+        ),
+        "expected the local frame-size rejection, got {error:#}"
+    );
+
+    client
+        .send_input(b"k")
+        .expect("preflight rejection must leave the stream usable");
+    assert_eq!(
+        read_client_frame(&mut peer).expect("read following key frame"),
+        ClientFrame::Input(b"k".to_vec())
+    );
 }
 
 /// A send timeout AFTER partial progress is a desynced stream, not a

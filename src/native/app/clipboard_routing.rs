@@ -66,6 +66,7 @@ impl App {
         // discarded request is never applied on switch-back.
         let focused = self.sessions.active_id();
         let mut writes = Vec::new();
+        let mut refused_read_len = None;
         let live_sessions: Vec<_> = self.sessions.iter().map(|session| session.id).collect();
         for session in self.sessions.iter() {
             let is_focused = session.id == focused;
@@ -118,11 +119,15 @@ impl App {
                         else {
                             continue;
                         };
+                        // Clipboard text over the OSC 52 limit is refused
+                        // whole: no reply is queued and the user is told.
                         let host_output = session
                             .terminal
                             .lock()
                             .map(|mut terminal| {
-                                terminal.answer_clipboard_read(selection, &text);
+                                if !terminal.answer_clipboard_read(selection, &text) {
+                                    refused_read_len = Some(text.len());
+                                }
                                 terminal.take_host_output()
                             })
                             .unwrap_or_default();
@@ -135,6 +140,17 @@ impl App {
                     }
                 }
             }
+        }
+        if let Some(len) = refused_read_len {
+            tracing::warn!(
+                "OSC 52 clipboard read refused: {len} bytes exceeds the {} byte limit",
+                crate::core::OSC52_CLIPBOARD_MAX_BYTES,
+            );
+            self.raise_open_notice(format!(
+                "Clipboard read refused: {} exceeds the {} OSC 52 limit",
+                super::format_byte_size(len),
+                super::format_byte_size(crate::core::OSC52_CLIPBOARD_MAX_BYTES),
+            ));
         }
         self.prune_osc52_session_state(&live_sessions);
         let now = Instant::now();

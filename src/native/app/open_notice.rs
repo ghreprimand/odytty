@@ -20,6 +20,10 @@
 //!   when `open_notice` is `None`, so a no-error / feature-off frame is
 //!   unchanged from before this surface existed.
 
+/// Failure notice for typed or committed input the session writer refused.
+pub(in crate::native) const INPUT_NOT_DELIVERED_NOTICE: &str =
+    "Input not delivered: the session is not accepting input";
+
 use std::time::{Duration, Instant};
 
 use crate::core::{Attrs, Cell, Color, Snapshot};
@@ -92,6 +96,26 @@ impl App {
             tone: NoticeTone::Neutral,
         });
         self.request_selection_redraw();
+    }
+
+    /// Show a failure notice when input written to one of this window's
+    /// sessions was lost after the write returned (an outbound queue overflow
+    /// or an attached session dropping a frame). The count comes from the
+    /// session writers; one relaxed load when nothing is pending.
+    pub(in crate::native) fn raise_input_not_delivered_notice(&mut self) {
+        self.raise_open_notice(INPUT_NOT_DELIVERED_NOTICE.to_owned());
+    }
+
+    pub(in crate::native) fn surface_input_loss(&mut self) {
+        let sessions = &self.sessions;
+        let lost = crate::native::pty_writer::take_input_loss(|token| sessions.owns_session(token));
+        if lost == 0 {
+            return;
+        }
+        self.raise_open_notice(format!(
+            "Input lost: {} was not delivered to the session",
+            super::format_byte_size(usize::try_from(lost).unwrap_or(usize::MAX)),
+        ));
     }
 
     /// Clear the notice once it has outlived [`NOTICE_DURATION`]. Called from the

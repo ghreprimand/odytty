@@ -511,13 +511,20 @@ impl App {
         // Any keystroke that reaches the shell snaps the viewport back to live,
         // so typing always returns to the prompt at the bottom.
         self.return_to_live();
-        if let Ok(mut writer) = self.writer.lock() {
+        let delivered = if let Ok(mut writer) = self.writer.lock() {
             let write_ok = writer.write_all(&bytes).is_ok();
             let flush_ok = writer.flush().is_ok();
             key_event_diagnostics::log_backspace_write(&logical, write_ok, flush_ok);
+            write_ok && flush_ok
         } else {
             key_event_diagnostics::log_backspace_writer_lock_failed(&logical);
+            false
+        };
+        if !delivered {
+            self.raise_input_not_delivered_notice();
+            return;
         }
+        self.surface_input_loss();
     }
 
     pub(super) fn handle_held_exit_key(&mut self, event_type: KeyEventType) -> bool {

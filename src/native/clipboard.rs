@@ -463,38 +463,59 @@ pub(super) fn read_clipboard_selection(
 
 /// Hard size ceiling for one bracketed paste (start marker + sanitized body +
 /// end marker). A bracketed paste travels as a single indivisible write so its
-/// framing can never tear (see [`encode_paste_chunks`]); this cap bounds the
-/// memory that single write may pin and keeps it comfortably under the 64 MiB
-/// attach-protocol frame limit, where an oversized frame would tear the session
-/// down. A paste over the cap is refused whole — delivering a truncated body
-/// would silently corrupt the pasted content.
-const MAX_BRACKETED_PASTE_BYTES: usize = 32 * 1024 * 1024;
+/// framing can never tear (see [`encode_paste_chunks`]). The ceiling equals the
+/// attach protocol's client input limit, so the one policy holds for local and
+/// attached sessions alike: a paste the UI accepts always fits one attached
+/// input frame, and the host queue delivers that newest frame whole. A paste
+/// over the cap is refused whole, since delivering a truncated body would
+/// silently corrupt the pasted content.
+pub(in crate::native) const MAX_BRACKETED_PASTE_BYTES: usize =
+    crate::session_host::protocol::MAX_CLIENT_INPUT_LEN;
+
+/// Why a paste was not delivered.
+#[derive(Debug)]
+pub(in crate::native) enum PasteError {
+    /// Refused before encoding: the framed bracketed paste would exceed
+    /// [`MAX_BRACKETED_PASTE_BYTES`]. Nothing was written.
+    TooLarge { len: usize, max: usize },
+    /// The session writer failed (closed or lost input).
+    Write(io::Error),
+}
+
+/// Upper bound of the framed bracketed-paste length for `text`, computed with
+/// checked arithmetic before any copy. Sanitizing only removes bytes, so the
+/// encoded paste is never longer than this. `None` on overflow.
+fn bracketed_paste_upper_bound(text: &str) -> Option<usize> {
+    text.len()
+        .checked_add(BRACKETED_PASTE_START.len())?
+        .checked_add(BRACKETED_PASTE_END.len())
+}
 
 pub(super) fn write_paste_text(
     terminal: &Arc<Mutex<Terminal>>,
     writer: &PtyWriter,
     text: &str,
-) -> std::io::Result<()> {
+) -> Result<(), PasteError> {
     let bracketed_paste = terminal
         .lock()
         .map(|terminal| terminal.bracketed_paste_enabled())
         .unwrap_or(false);
-    let chunks = encode_paste_chunks(text, bracketed_paste, PASTE_CHUNK_SIZE);
-    if bracketed_paste
-        && let Some(paste) = chunks.first()
-        && paste.len() > MAX_BRACKETED_PASTE_BYTES
-    {
-        tracing::warn!(
-            "bracketed paste refused: {} bytes exceeds the {} byte limit",
-            paste.len(),
-            MAX_BRACKETED_PASTE_BYTES,
-        );
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "bracketed paste exceeds the size limit",
-        ));
+    // The size check runs on the source text BEFORE encoding, so an oversized
+    // clipboard payload is never duplicated just to be refused.
+    if bracketed_paste {
+        let len = bracketed_paste_upper_bound(text).unwrap_or(usize::MAX);
+        if len > MAX_BRACKETED_PASTE_BYTES {
+            tracing::warn!(
+                "bracketed paste refused: {len} bytes exceeds the {MAX_BRACKETED_PASTE_BYTES} byte limit",
+            );
+            return Err(PasteError::TooLarge {
+                len,
+                max: MAX_BRACKETED_PASTE_BYTES,
+            });
+        }
     }
-    write_chunks_blocking(writer, &chunks)
+    let chunks = encode_paste_chunks(text, bracketed_paste, PASTE_CHUNK_SIZE);
+    write_chunks_blocking(writer, &chunks).map_err(PasteError::Write)
 }
 
 pub(super) fn encode_paste_chunks(

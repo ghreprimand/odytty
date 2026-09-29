@@ -134,10 +134,17 @@ impl App {
             return;
         }
         self.return_to_live();
-        if let Ok(mut writer) = self.writer.lock() {
-            let _ = writer.write_all(text.as_bytes());
-            let _ = writer.flush();
+        let delivered = self.writer.lock().is_ok_and(|mut writer| {
+            writer
+                .write_all(text.as_bytes())
+                .and_then(|()| writer.flush())
+                .is_ok()
+        });
+        if !delivered {
+            self.raise_input_not_delivered_notice();
+            return;
         }
+        self.surface_input_loss();
     }
 
     /// Best-effort placement of the IME candidate window at the terminal cursor.

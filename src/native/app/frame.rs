@@ -411,6 +411,8 @@ impl App {
                     // Expire the transient native status banner once it
                     // has outlived its lifetime; no-op when absent.
                     self.update_open_notice(now);
+                    // Surface input lost after its write returned.
+                    self.surface_input_loss();
                     // UX-A (Phase 11): expire the click hint + drop a
                     // stale unpaired mis-click. No-op on the idle path.
                     self.update_click_hint(now);

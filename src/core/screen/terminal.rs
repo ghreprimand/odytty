@@ -134,8 +134,10 @@ impl Terminal {
         self.screen.scrollback_trim_epoch()
     }
 
-    pub fn answer_clipboard_read(&mut self, selection: ClipboardSelection, text: &str) {
-        self.screen.answer_clipboard_read(selection, text);
+    /// Queue an OSC 52 read reply; see [`Screen::answer_clipboard_read`] for
+    /// the size limit. Returns whether a reply was queued.
+    pub fn answer_clipboard_read(&mut self, selection: ClipboardSelection, text: &str) -> bool {
+        self.screen.answer_clipboard_read(selection, text)
     }
 
     pub fn set_base_colors(

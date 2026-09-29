@@ -47,7 +47,7 @@ use super::bindings::{
     map_winit_mouse_button, motion_report_button, normalize_winit_editing_key,
     prefix_chord_from_winit, wheel_report_button,
 };
-use super::clipboard::{NativeClipboard, read_clipboard_selection, write_paste_text};
+use super::clipboard::{NativeClipboard, PasteError, read_clipboard_selection, write_paste_text};
 use super::cvd_theme::CvdThemeCache;
 use super::gpu::{
     BloomOptions, ChromePinGeom, CrtOptions, FrameOutcome, GpuState, PanelFrameQuads, RailOverlay,

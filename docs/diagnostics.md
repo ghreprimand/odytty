@@ -139,6 +139,15 @@ archive these files when their diagnostic purpose is complete.
   default `Fifo` and logged at warning level (so it reaches `odytty.log` by
   default) when a different mode was chosen, which happens on Wayland when the
   surface offers `Mailbox`.
+- **Input delivery.** Each session writer reports lost input as counters and
+  a numeric session id only, never the bytes: `pty_write_stall` for a write in
+  flight over three seconds, `pty_write_overflow` when the bounded outbound
+  queue dropped its oldest input behind a stalled program, and
+  `pty_input_dropped` when an attached session dropped a frame (the host was
+  not reading, or the frame exceeded the protocol limit). The window also shows
+  an "Input lost" notice with the byte count. The detached session host logs
+  its own queue overflow with a discarded byte count, at most once every five
+  seconds with no count lost between warnings.
 - **Build provenance.** The About panel and its **Copy diagnostics** block show
   the commit embedded at build time. OdyTTY resolves it from a validated
   `ODYTTY_BUILD_SHA` supplied by an official or package build, then from the

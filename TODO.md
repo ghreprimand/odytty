@@ -87,6 +87,14 @@ Development on `master`; not released. Items check off when their code is on
       metadata, and turns only `http` and `https` targets into links.
 - [ ] Device acceptance for scrollback export (text and HTML, opened in a
       browser) on Linux, macOS, and Windows.
+- [ ] Input delivery is bounded and never silent: bracketed paste is capped at
+      the 8 MiB attach input limit and checked before encoding; an oversized
+      attached input is refused without disabling later typing; dropped or
+      overflowed input raises an "Input lost" notice and a log count; a
+      poisoned attach client or closed queue reports failure instead of
+      delivery; the session host keeps one over-cap frame whole and logs its
+      overflow; OSC 52 read replies over the 64 KiB OSC 52 limit are refused
+      whole.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

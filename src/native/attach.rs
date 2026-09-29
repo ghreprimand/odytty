@@ -44,14 +44,15 @@ use winit::event_loop::EventLoopProxy;
 
 use crate::core::{SnapshotEnvelope, SnapshotEnvelopeCaps, Terminal};
 use crate::session_host::protocol::{
-    ClientFrame, ClientHello, HostFrame, HostFrameReader, ProtocolError, read_host_frame,
-    read_host_hello, write_client_frame, write_client_hello,
+    ClientFrame, ClientHello, HostFrame, HostFrameReader, MAX_CLIENT_INPUT_LEN, ProtocolError,
+    read_host_frame, read_host_hello, write_client_frame, write_client_hello, write_client_input,
 };
 use crate::session_host::{
     SocketReadDeadline, existing_runtime_dir, session_socket_path, validate_socket_parent,
 };
 
 use super::pty::{PtyWriter, UserEvent};
+use super::pty_writer::{DroppedInputReason, dropped_input_error};
 use super::session::SessionToken;
 
 /// Per-read timeout while waiting for the initial snapshot, so the deadline loop
@@ -206,8 +207,18 @@ impl AttachClient {
             return Ok(());
         }
         self.guard_not_poisoned()?;
-        let result = write_client_frame(&mut self.stream, &ClientFrame::Input(bytes.to_vec()))
-            .context("write session-host input frame");
+        // Preflight: an input over the protocol limit is refused before any
+        // copy or wire byte. Nothing was written, so the stream stays
+        // framing-clean and the client is NOT poisoned; the next keystroke
+        // still flows.
+        if bytes.len() > MAX_CLIENT_INPUT_LEN {
+            return Err(anyhow::Error::new(ProtocolError::FrameTooLarge {
+                len: bytes.len(),
+                max: MAX_CLIENT_INPUT_LEN,
+            }));
+        }
+        let result =
+            write_client_input(&mut self.stream, bytes).context("write session-host input frame");
         self.note_write_result(&result);
         result
     }
@@ -285,31 +296,42 @@ pub(super) struct AttachInputWriter {
 
 impl Write for AttachInputWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if let Ok(mut client) = self.client.lock()
-            && let Err(error) = client.send_input(buf)
-        {
-            if is_transient_send_timeout(&error) {
-                // C-4 degradation: the host is wedged and the send buffer
-                // is full, with NOTHING of this frame on the wire (a
-                // partial write surfaces as `TruncatedWrite`, which is not
-                // transient — see below). Drop THIS frame and report
-                // success so the dedicated writer loop stays alive —
-                // surfacing the error would make `run_writer` close the
-                // queue permanently, turning a transient stall into a
-                // session whose input is silently discarded forever. Input
-                // to a wedged shell is moot; when the host resumes, later
-                // frames flow again.
-                return Ok(buf.len());
-            }
-            // Real fd errors (BrokenPipe, ConnectionReset, ...) stay
-            // fatal: the link is gone and teardown is correct. So does
-            // `ProtocolError::TruncatedWrite`: a send timeout AFTER a
-            // partial kernel write leaves a truncated frame on the wire,
-            // the stream is permanently desynced, and continuing to write
-            // would feed the host parser garbage.
-            return Err(io::Error::other(error));
+        // A poisoned client mutex means a thread panicked mid-send: the
+        // stream state is unknown, so this is a real failure, never a
+        // reported delivery.
+        let mut client = self
+            .client
+            .lock()
+            .map_err(|_| io::Error::other("session-host client lock poisoned"))?;
+        let Err(error) = client.send_input(buf) else {
+            return Ok(buf.len());
+        };
+        if is_transient_send_timeout(&error) {
+            // C-4 degradation: the host is wedged and the send buffer is
+            // full, with NOTHING of this frame on the wire (a partial write
+            // surfaces as `TruncatedWrite`, which is not transient - see
+            // below). The frame is dropped, and that is reported as a
+            // dropped-input error rather than a delivery: the outbound
+            // writer loop counts and surfaces the loss but keeps running,
+            // so a transient stall never turns into a session whose input
+            // is discarded forever. When the host resumes, later frames flow.
+            return Err(dropped_input_error(DroppedInputReason::SendTimeout));
         }
-        Ok(buf.len())
+        if matches!(
+            error.downcast_ref::<ProtocolError>(),
+            Some(ProtocolError::FrameTooLarge { .. })
+        ) {
+            // Preflight refusal: nothing reached the wire and the client is
+            // not poisoned, so the stream stays usable for later input.
+            return Err(dropped_input_error(DroppedInputReason::TooLarge));
+        }
+        // Real fd errors (BrokenPipe, ConnectionReset, ...) stay fatal: the
+        // link is gone and teardown is correct. So does
+        // `ProtocolError::TruncatedWrite`: a send timeout AFTER a partial
+        // kernel write leaves a truncated frame on the wire, the stream is
+        // permanently desynced, and continuing to write would feed the host
+        // parser garbage.
+        Err(io::Error::other(error))
     }
 
     fn flush(&mut self) -> io::Result<()> {

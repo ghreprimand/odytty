@@ -99,7 +99,8 @@ Notes that trip people up:
   `Ctrl+Shift+1` to allow once, `Ctrl+Shift+S` to allow for the current PTY
   session, `Ctrl+Shift+D` to deny for that session, and `Esc` to cancel.
 - Bracketed paste queues its markers and sanitized text as one transaction and
-  refuses input larger than 32 MiB. Plain paste remains deliberately chunked.
+  refuses input larger than 8 MiB with a notice. Plain paste remains
+  deliberately chunked.
 - With bracketed paste disabled, original text containing CR/LF or a control
   character other than Tab opens the bounded risky-paste preview before any
   bytes are written. Enter/P pastes the original text, O chooses reversible

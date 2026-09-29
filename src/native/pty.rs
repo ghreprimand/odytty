@@ -152,9 +152,9 @@ pub(super) type PtyWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 pub(super) const PASTE_CHUNK_SIZE: usize = 16 * 1024;
 
 pub(super) fn write_chunks_blocking(writer: &PtyWriter, chunks: &[Vec<u8>]) -> std::io::Result<()> {
+    // A poisoned writer lock is a failed write, never a reported delivery.
     let Ok(mut writer) = writer.lock() else {
-        eprintln!("odytty: pty writer unavailable");
-        return Ok(());
+        return Err(std::io::Error::other("pty writer lock poisoned"));
     };
 
     for chunk in chunks {

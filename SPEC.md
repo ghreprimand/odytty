@@ -547,7 +547,11 @@ clipboard contents lets a remote program exfiltrate local data. With the
 default `osc52_read = off`, the core queues no request and sends no reply.
 
 Only an explicit `osc52_read = on` / `ODYTTY_OSC52_READ=on` opt-in lets native
-clipboard reads produce an OSC 52 reply.
+clipboard reads produce an OSC 52 reply. The reply is bounded by the same
+64 KiB `OSC52_CLIPBOARD_MAX_BYTES` limit that caps inbound OSC 52 writes:
+clipboard text over the limit is refused whole, with no reply sent (a
+truncated reply would hand the requester corrupted contents), and a failure
+notice names the size.
 
 ### Private State And Diagnostic Files
 
@@ -782,8 +786,12 @@ paste is emitted as one write-queue transaction: `ESC[200~`, the sanitized
 payload, and `ESC[201~`. Embedded end markers are stripped so a paste cannot
 self-terminate early, and a bracketed paste whose complete framed payload
 (start marker plus sanitized body plus end marker) exceeds
-`MAX_BRACKETED_PASTE_BYTES` = 32 MiB is refused whole. Plain paste has no
-comparable whole-payload rejection and remains deliberately chunked. Because
+`MAX_BRACKETED_PASTE_BYTES` = 8 MiB is refused whole, before the payload is
+encoded or copied. The limit equals the attach protocol's client input limit,
+so one policy holds for local and attached sessions: an accepted paste always
+fits one attached input frame. A refused or undelivered paste raises a
+failure notice. Plain paste has no comparable whole-payload rejection and
+remains deliberately chunked. Because
 the correct cursor-key bytes and a single
 paste envelope reach the PTY, Up/Down
 navigation inside a pasted multiline buffer is owned by readline/zle/PSReadLine/
@@ -1064,7 +1072,7 @@ scope rather than silently inheriting deferred work from a prior release.
 - Refined selection: double-click word, triple-click line, drag-scroll,
   scrollback-aware anchors
 
-- Clipboard hardening: atomic bracketed paste with a 32 MiB ceiling, chunked
+- Clipboard hardening: atomic bracketed paste with an 8 MiB ceiling, chunked
   plain paste, PRIMARY selection, consent-gated OSC 52 write support, and
   default-deny OSC 52 read policy
 

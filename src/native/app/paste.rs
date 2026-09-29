@@ -20,13 +20,13 @@ impl App {
             .unwrap_or(false);
         if bracketed || !self.settings.warn_on_risky_paste {
             self.return_to_live();
-            let _ = write_paste_text(&self.terminal, &self.writer, &text);
+            self.deliver_paste_text(&text);
             return;
         }
         let assessment = assess(&text);
         if !assessment.risky {
             self.return_to_live();
-            let _ = write_paste_text(&self.terminal, &self.writer, &text);
+            self.deliver_paste_text(&text);
             return;
         }
 
@@ -133,7 +133,27 @@ impl App {
         };
         let _source = pending.source;
         self.return_to_live();
-        let _ = write_paste_text(&self.terminal, &self.writer, &text);
+        self.deliver_paste_text(&text);
+    }
+
+    /// Encode and write one paste through the shared encoder, and show a
+    /// failure notice when it is refused or not delivered, so a paste never
+    /// vanishes silently.
+    fn deliver_paste_text(&mut self, text: &str) {
+        match write_paste_text(&self.terminal, &self.writer, text) {
+            Ok(()) => self.surface_input_loss(),
+            Err(PasteError::TooLarge { len, max }) => self.raise_open_notice(format!(
+                "Paste refused: {} exceeds the {} bracketed paste limit",
+                format_byte_size(len),
+                format_byte_size(max),
+            )),
+            Err(PasteError::Write(error)) => {
+                tracing::warn!("paste not delivered: {error}");
+                self.raise_open_notice(
+                    "Paste not delivered: the session is not accepting input".to_owned(),
+                );
+            }
+        }
     }
 
     /// File paths use the same transient confirmation and encoder authority.

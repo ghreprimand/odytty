@@ -243,7 +243,15 @@ impl Screen {
         self.notification_events.push_back(notification);
     }
 
-    pub fn answer_clipboard_read(&mut self, selection: ClipboardSelection, text: &str) {
+    /// Queue an OSC 52 read reply carrying `text`. The reply is bounded by the
+    /// same [`OSC52_CLIPBOARD_MAX_BYTES`] limit that caps inbound OSC 52
+    /// writes: clipboard text over the limit is refused whole, with no reply
+    /// queued, because a truncated reply would hand the requester corrupted
+    /// clipboard contents. Returns whether a reply was queued.
+    pub fn answer_clipboard_read(&mut self, selection: ClipboardSelection, text: &str) -> bool {
+        if text.len() > OSC52_CLIPBOARD_MAX_BYTES {
+            return false;
+        }
         self.host_output.extend_from_slice(b"\x1b]52;");
         self.host_output
             .extend_from_slice(osc52_selection_bytes(selection));
@@ -251,6 +259,7 @@ impl Screen {
         self.host_output
             .extend_from_slice(encode_base64_bytes(text.as_bytes()).as_bytes());
         self.host_output.extend_from_slice(b"\x1b\\");
+        true
     }
 
     /// DECSDM (private mode 80): when `true`, sixel images anchor at the cursor

@@ -7,6 +7,42 @@ use crate::native::layout::SplitAxis;
 use crate::native::overlay::{OverlayInput, OverlayOutcome, OverlayUi};
 use crate::native::session::{HeadlessSession, Session, SessionToken, WorkspaceSet};
 use std::io::Write;
+use std::path::Path;
+
+#[cfg(unix)]
+struct BlockingHostWriter {
+    started: std::sync::mpsc::Sender<()>,
+    block: Arc<(Mutex<bool>, std::sync::Condvar)>,
+}
+
+#[cfg(unix)]
+impl Write for BlockingHostWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let _ = self.started.send(());
+        let (lock, ready) = &*self.block;
+        let mut released = lock.lock().expect("host-writer test latch");
+        while !*released {
+            released = ready.wait(released).expect("host-writer test latch");
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+struct ReleaseHostWriterOnDrop(Arc<(Mutex<bool>, std::sync::Condvar)>);
+
+#[cfg(unix)]
+impl Drop for ReleaseHostWriterOnDrop {
+    fn drop(&mut self) {
+        let (lock, ready) = &*self.0;
+        *lock.lock().expect("host-writer test latch") = true;
+        ready.notify_all();
+    }
+}
 
 #[derive(Clone, Default)]
 struct RecordingWriter(Arc<Mutex<Vec<u8>>>);
@@ -24,6 +60,18 @@ impl Write for RecordingWriter {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+struct FailingWriter;
+
+impl Write for FailingWriter {
+    fn write(&mut self, _bytes: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("synthetic writer failure"))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(std::io::Error::other("synthetic writer failure"))
     }
 }
 
@@ -343,4 +391,211 @@ fn read_only_clipboard_paste_is_refused_before_clipboard_read() {
         "do not access clipboard for refused input"
     );
     assert!(recorded(&bytes).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn hosted_pty_queue_does_not_silently_discard_attached_paste_bytes() {
+    use crate::session_host::HostPtyWriter;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let (started_tx, started_rx) = mpsc::channel();
+    let block = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let _release = ReleaseHostWriterOnDrop(Arc::clone(&block));
+    let writer = HostPtyWriter::spawn(Box::new(BlockingHostWriter {
+        started: started_tx,
+        block,
+    }))
+    .expect("spawn bounded host writer");
+
+    writer.write(b"prime the blocked PTY write");
+    started_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("writer thread enters its blocked write");
+    let paste = vec![b'p'; 6 * 1024 * 1024];
+    writer.write(&paste);
+
+    assert_eq!(
+        writer.dropped_bytes(),
+        0,
+        "accepted attached paste bytes must not be discarded silently"
+    );
+}
+
+#[test]
+fn bracketed_paste_limit_is_checked_before_payload_encoding() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source = std::fs::read_to_string(manifest.join("src/native/clipboard.rs"))
+        .expect("read paste encoder source");
+    let start = source
+        .find("pub(super) fn write_paste_text(")
+        .expect("write_paste_text declaration");
+    let end = source[start..]
+        .find("pub(super) fn encode_paste_chunks(")
+        .map(|offset| start + offset)
+        .expect("encode_paste_chunks declaration");
+    let body = &source[start..end];
+    let limit_check = body
+        .find("MAX_BRACKETED_PASTE_BYTES")
+        .expect("bracketed paste size limit");
+    let encoding = body
+        .find("encode_paste_chunks(")
+        .expect("bracketed paste encoder call");
+
+    assert!(
+        limit_check < encoding,
+        "the paste cap must be checked before allocating the encoded payload"
+    );
+}
+
+#[test]
+fn bracketed_paste_cap_matches_attach_frame_and_refuses_before_writing() {
+    use crate::native::clipboard::encode_paste_chunks;
+    use crate::native::clipboard::{MAX_BRACKETED_PASTE_BYTES, PasteError, write_paste_text};
+    use crate::native::pty::PASTE_CHUNK_SIZE;
+    use crate::session_host::protocol::MAX_CLIENT_INPUT_LEN;
+
+    const { assert!(MAX_BRACKETED_PASTE_BYTES <= MAX_CLIENT_INPUT_LEN) };
+
+    let body = "x".repeat(MAX_BRACKETED_PASTE_BYTES - 12);
+    let chunks = encode_paste_chunks(&body, true, PASTE_CHUNK_SIZE);
+
+    assert_eq!(chunks.len(), 1, "bracketed paste framing stays atomic");
+    assert!(chunks[0].len() <= MAX_CLIENT_INPUT_LEN);
+
+    let (terminal, writer, bytes) = bracketed_paste_sink();
+    write_paste_text(&terminal, &writer, &body).expect("paste at the limit is delivered");
+    assert_eq!(recorded(&bytes).len(), chunks[0].len());
+
+    let over_limit = "x".repeat(MAX_BRACKETED_PASTE_BYTES - 11);
+    let (terminal, writer, bytes) = bracketed_paste_sink();
+    assert!(matches!(
+        write_paste_text(&terminal, &writer, &over_limit),
+        Err(PasteError::TooLarge { .. })
+    ));
+    assert!(
+        recorded(&bytes).is_empty(),
+        "refusal writes no prefix or body"
+    );
+}
+
+#[test]
+fn app_surfaces_bracketed_paste_refusal_without_writing() {
+    use crate::native::clipboard::MAX_BRACKETED_PASTE_BYTES;
+
+    let (mut app, terminal, bytes) = input_app();
+    terminal.lock().expect("terminal").advance(b"\x1b[?2004h");
+    let clipboard = "x".repeat(MAX_BRACKETED_PASTE_BYTES - 11);
+    app.enable_osc52_read_for_test(&clipboard);
+
+    app.handle_paste_shortcut_for_test();
+
+    assert!(recorded(&bytes).is_empty(), "refused paste writes no bytes");
+    assert!(
+        app.open_notice_message_for_test()
+            .as_deref()
+            .is_some_and(|notice| notice.starts_with("Paste refused:"))
+    );
+}
+
+#[test]
+fn app_surfaces_writer_failure_for_keyboard_input() {
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(FailingWriter)));
+    let (mut app, _terminal) = headless_app_with_writer(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        Settings::default(),
+        writer,
+    );
+
+    app.drive_char_with_mods_for_test('k', false, false);
+
+    assert!(
+        app.open_notice_message_for_test()
+            .as_deref()
+            .is_some_and(|notice| notice.starts_with("Input not delivered"))
+    );
+}
+
+#[test]
+fn app_surfaces_oversized_osc52_read_refusal_without_reply() {
+    use crate::core::OSC52_CLIPBOARD_MAX_BYTES;
+
+    let (mut app, _terminal, bytes) = input_app();
+    let clipboard = "x".repeat(OSC52_CLIPBOARD_MAX_BYTES + 1);
+    app.enable_osc52_read_for_test(&clipboard);
+    app.set_window_focus_for_test(true);
+    app.advance_primary_terminal_for_test(b"\x1b]52;c;?\x07");
+
+    app.drain_clipboard_requests_for_test();
+
+    assert!(
+        recorded(&bytes).is_empty(),
+        "refused read queues no host reply"
+    );
+    assert!(
+        app.open_notice_message_for_test()
+            .as_deref()
+            .is_some_and(|notice| notice.starts_with("Clipboard read refused:"))
+    );
+}
+
+type PasteSink = (Arc<Mutex<Terminal>>, PtyWriter, Arc<Mutex<Vec<u8>>>);
+
+fn bracketed_paste_sink() -> PasteSink {
+    let terminal = Arc::new(Mutex::new(Terminal::new(80, 24)));
+    terminal.lock().expect("terminal").advance(b"\x1b[?2004h");
+    let recorder = RecordingWriter::default();
+    let bytes = Arc::clone(&recorder.0);
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+    (terminal, writer, bytes)
+}
+
+#[test]
+fn osc52_reply_obeys_inbound_cap_and_refuses_oversize_whole() {
+    use crate::core::{ClipboardSelection, OSC52_CLIPBOARD_MAX_BYTES};
+
+    let mut terminal = Terminal::new(80, 24);
+    let at_limit = "x".repeat(OSC52_CLIPBOARD_MAX_BYTES);
+    assert!(terminal.answer_clipboard_read(ClipboardSelection::Clipboard, &at_limit));
+    assert_eq!(
+        terminal.take_host_output(),
+        format!("\x1b]52;c;{}\x1b\\", base64_for_test(at_limit.as_bytes())).as_bytes(),
+        "reply at the cap decodes to the entire clipboard"
+    );
+
+    for oversized in [
+        "x".repeat(OSC52_CLIPBOARD_MAX_BYTES + 1),
+        "x".repeat(256 * 1024),
+    ] {
+        assert!(!terminal.answer_clipboard_read(ClipboardSelection::Clipboard, &oversized));
+        assert!(
+            terminal.take_host_output().is_empty(),
+            "oversized OSC 52 read is refused whole without a reply"
+        );
+    }
+}
+
+fn base64_for_test(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::new();
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        let second = *chunk.get(1).unwrap_or(&0);
+        let third = *chunk.get(2).unwrap_or(&0);
+        encoded.push(TABLE[(first >> 2) as usize] as char);
+        encoded.push(TABLE[(((first & 0x03) << 4) | (second >> 4)) as usize] as char);
+        encoded.push(if chunk.len() > 1 {
+            TABLE[(((second & 0x0f) << 2) | (third >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        encoded.push(if chunk.len() > 2 {
+            TABLE[(third & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+    }
+    encoded
 }

@@ -70,7 +70,58 @@ struct OutboundQueue {
     closed: bool,
     /// Bytes discarded by drop-oldest since the monitor last reported them.
     dropped_bytes: u64,
+    /// Bytes of whole chunks the sink refused as dropped input (an attached
+    /// session's send timeout or oversized frame) since the monitor last
+    /// reported them.
+    refused_bytes: u64,
 }
+
+/// Why a sink dropped one input chunk without failing the stream. Returned
+/// inside an [`io::Error`] (see [`dropped_input_error`]) so the writer loop can
+/// tell a counted, recoverable loss from a dead fd.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) enum DroppedInputReason {
+    /// Zero-progress send timeout: nothing of the frame reached the wire.
+    SendTimeout,
+    /// Refused before any wire byte because it exceeds the frame limit.
+    TooLarge,
+}
+
+#[derive(Debug)]
+struct DroppedInput(DroppedInputReason);
+
+impl std::fmt::Display for DroppedInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            DroppedInputReason::SendTimeout => f.write_str("input dropped: send timed out"),
+            DroppedInputReason::TooLarge => f.write_str("input dropped: over the frame limit"),
+        }
+    }
+}
+
+impl std::error::Error for DroppedInput {}
+
+/// The error a sink returns for a chunk it dropped while staying usable. The
+/// writer loop counts the chunk as lost input and keeps running instead of
+/// closing the queue.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) fn dropped_input_error(reason: DroppedInputReason) -> io::Error {
+    io::Error::other(DroppedInput(reason))
+}
+
+/// The reason carried by a [`dropped_input_error`], or `None` for any other
+/// error (which stays fatal to the writer loop).
+pub(super) fn dropped_input_reason(error: &io::Error) -> Option<DroppedInputReason> {
+    error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<DroppedInput>())
+        .map(|dropped| dropped.0)
+}
+
+/// Set whenever any session records lost input the UI has not yet shown, so
+/// the per-frame check is one relaxed load while nothing is pending.
+static INPUT_LOSS_PENDING: AtomicBool = AtomicBool::new(false);
 
 /// Shared state between the producing threads (via [`OutboundShim`]), the
 /// dedicated writer thread, and the stall monitor.
@@ -85,6 +136,10 @@ struct OutboundShared {
     write_started_ms: AtomicU64,
     /// A stall has already been logged for the current in-flight write.
     stall_logged: AtomicBool,
+    /// Input bytes lost (overflow or sink refusal) that the UI has not yet
+    /// surfaced. Separate from the monitor's log counters so each consumer
+    /// reports every loss exactly once.
+    unreported_loss: AtomicU64,
 }
 
 impl OutboundShared {
@@ -102,10 +157,12 @@ impl OutboundShared {
                 queued_bytes: 0,
                 closed: false,
                 dropped_bytes: 0,
+                refused_bytes: 0,
             }),
             ready: Condvar::new(),
             write_started_ms: AtomicU64::new(0),
             stall_logged: AtomicBool::new(false),
+            unreported_loss: AtomicU64::new(0),
         }
     }
 
@@ -118,21 +175,47 @@ impl OutboundShared {
     }
 
     /// Enqueue a copy of `bytes`, applying the byte-cap drop-oldest policy. Never
-    /// blocks on the fd — only the briefly-held queue lock is taken.
-    fn enqueue(&self, bytes: &[u8]) {
+    /// blocks on the fd — only the briefly-held queue lock is taken. Returns
+    /// `false` when the queue is already closed (the fd failed or the session
+    /// is tearing down), so the producer can report a failed write instead of
+    /// a delivery.
+    fn enqueue(&self, bytes: &[u8]) -> bool {
         if bytes.is_empty() {
-            return;
+            return true;
         }
-        {
+        let dropped = {
             let mut queue = self.lock_queue();
             if queue.closed {
-                return;
+                return false;
             }
             queue.chunks.push_back(bytes.to_vec());
             queue.queued_bytes += bytes.len();
+            let before = queue.dropped_bytes;
             drop_oldest_over_cap(&mut queue, self.byte_cap);
-        }
+            queue.dropped_bytes.saturating_sub(before)
+        };
+        self.note_lost_input(dropped);
         self.ready.notify_one();
+        true
+    }
+
+    /// Record `bytes` of lost input for the UI notice.
+    fn note_lost_input(&self, bytes: u64) {
+        if bytes == 0 {
+            return;
+        }
+        self.unreported_loss.fetch_add(bytes, Ordering::Relaxed);
+        INPUT_LOSS_PENDING.store(true, Ordering::Release);
+    }
+
+    /// Count one chunk the sink refused as dropped input.
+    fn note_refused_chunk(&self, len: usize) {
+        let len = u64::try_from(len).unwrap_or(u64::MAX);
+        {
+            let mut queue = self.lock_queue();
+            queue.refused_bytes = queue.refused_bytes.saturating_add(len);
+        }
+        self.note_lost_input(len);
     }
 
     /// Signal the writer thread to drain and exit. Non-blocking: it never joins.
@@ -176,6 +259,21 @@ impl OutboundShared {
             self.session.0,
         ))
     }
+
+    /// A sink-refusal record (attached send timeout or oversized frame),
+    /// consuming the accrued counter. `None` when nothing was refused.
+    fn refused_record(&self) -> Option<String> {
+        let mut queue = self.lock_queue();
+        if queue.refused_bytes == 0 {
+            return None;
+        }
+        let refused = queue.refused_bytes;
+        queue.refused_bytes = 0;
+        Some(format!(
+            "pty_input_dropped session={} dropped_bytes={refused}",
+            self.session.0,
+        ))
+    }
 }
 
 /// Drop whole chunks from the FRONT until the queue is within `byte_cap`, but
@@ -214,8 +312,14 @@ struct OutboundShim {
 
 impl Write for OutboundShim {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.shared.enqueue(buf);
-        Ok(buf.len())
+        if self.shared.enqueue(buf) {
+            Ok(buf.len())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "session input is closed",
+            ))
+        }
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -267,6 +371,15 @@ fn run_writer(shared: Arc<OutboundShared>, mut fd: Box<dyn Write + Send>) {
         shared.stall_logged.store(false, Ordering::Relaxed);
         let result = fd.write_all(&chunk).and_then(|()| fd.flush());
         shared.write_started_ms.store(0, Ordering::Relaxed);
+        if let Err(error) = &result
+            && dropped_input_reason(error).is_some()
+        {
+            // The sink dropped this whole chunk but stays usable (an attached
+            // session's zero-progress timeout or preflight size refusal):
+            // count and surface the loss, then keep draining.
+            shared.note_refused_chunk(chunk.len());
+            continue;
+        }
         if result.is_err() {
             // The fd is gone (child reaped / link torn down). Mark closed so
             // further enqueues are discarded, then stop and release the fd.
@@ -336,6 +449,38 @@ fn register(shared: &Arc<OutboundShared>) {
     }
 }
 
+/// Take the input loss recorded for sessions `owns` accepts that the UI has not shown yet,
+/// in bytes. One relaxed load when nothing is pending anywhere. Another
+/// window's pending loss is left in place for that window to take.
+pub(super) fn take_input_loss(owns: impl Fn(SessionToken) -> bool) -> u64 {
+    if !INPUT_LOSS_PENDING.load(Ordering::Acquire) {
+        return 0;
+    }
+    let Some(registry) = REGISTRY.get() else {
+        return 0;
+    };
+    let live: Vec<Arc<OutboundShared>> = {
+        let guard = registry.lock().unwrap_or_else(PoisonError::into_inner);
+        guard.entries.iter().filter_map(Weak::upgrade).collect()
+    };
+    // Clear before scanning: a loss recorded concurrently re-sets the flag
+    // after its counter is bumped, so it is never missed.
+    INPUT_LOSS_PENDING.store(false, Ordering::Release);
+    let mut taken = 0u64;
+    let mut remaining = false;
+    for shared in live {
+        if owns(shared.session) {
+            taken = taken.saturating_add(shared.unreported_loss.swap(0, Ordering::Relaxed));
+        } else if shared.unreported_loss.load(Ordering::Relaxed) > 0 {
+            remaining = true;
+        }
+    }
+    if remaining {
+        INPUT_LOSS_PENDING.store(true, Ordering::Release);
+    }
+    taken
+}
+
 fn spawn_monitor(registry: &'static Mutex<Registry>) -> std::io::Result<()> {
     crate::spawn_util::spawn_named("odytty-pty-write-monitor", move || {
         loop {
@@ -350,6 +495,9 @@ fn spawn_monitor(registry: &'static Mutex<Registry>) -> std::io::Result<()> {
                     tracing::warn!("{record}");
                 }
                 if let Some(record) = shared.overflow_record() {
+                    tracing::warn!("{record}");
+                }
+                if let Some(record) = shared.refused_record() {
                     tracing::warn!("{record}");
                 }
             }
@@ -771,5 +919,108 @@ mod tests {
             &*written.lock().unwrap_or_else(PoisonError::into_inner),
             b"onetwo",
         );
+    }
+
+    /// A sink that drops chunks starting with `drop` as counted input loss and
+    /// records every other chunk.
+    struct DroppingSink {
+        written: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Write for DroppingSink {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if buf.starts_with(b"drop") {
+                return Err(dropped_input_error(DroppedInputReason::SendTimeout));
+            }
+            self.written
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_dropped_input_chunk_is_counted_and_the_writer_keeps_running() {
+        let shared = Arc::new(OutboundShared::new(SessionToken(6)));
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let thread_shared = shared.clone();
+        let fd = DroppingSink {
+            written: written.clone(),
+        };
+        let handle = std::thread::spawn(move || run_writer(thread_shared, Box::new(fd)));
+
+        assert!(shared.enqueue(b"before"));
+        assert!(shared.enqueue(b"drop-this-frame"));
+        assert!(shared.enqueue(b"after"));
+        shared.close();
+        handle.join().expect("writer thread joins");
+
+        assert_eq!(
+            &*written.lock().unwrap_or_else(PoisonError::into_inner),
+            b"beforeafter",
+            "input after a dropped frame still flows"
+        );
+        assert_eq!(
+            shared.refused_record().as_deref(),
+            Some("pty_input_dropped session=6 dropped_bytes=15")
+        );
+        assert!(shared.refused_record().is_none(), "reported once");
+        assert_eq!(shared.unreported_loss.load(Ordering::Relaxed), 15);
+    }
+
+    #[test]
+    fn other_sink_errors_still_close_the_queue() {
+        let error = io::Error::new(io::ErrorKind::BrokenPipe, "gone");
+        assert_eq!(dropped_input_reason(&error), None);
+        assert_eq!(
+            dropped_input_reason(&dropped_input_error(DroppedInputReason::TooLarge)),
+            Some(DroppedInputReason::TooLarge)
+        );
+    }
+
+    #[test]
+    fn a_write_to_a_closed_queue_fails_instead_of_reporting_delivery() {
+        let shared = Arc::new(OutboundShared::new(SessionToken(8)));
+        shared.close();
+        let mut shim = OutboundShim {
+            shared: shared.clone(),
+        };
+        let error = shim
+            .write(b"typed")
+            .expect_err("closed queue refuses input");
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+        assert!(shim.write(b"").is_ok(), "empty writes stay no-ops");
+    }
+
+    #[test]
+    fn overflow_loss_is_taken_once_for_the_owning_session_only() {
+        // A distinct token range keeps other tests' registered sessions out.
+        let owned = SessionToken(0x0dd0_0000_0001);
+        let other = SessionToken(0x0dd0_0000_0002);
+        let mine = Arc::new(OutboundShared::with_cap(owned, 4));
+        let theirs = Arc::new(OutboundShared::with_cap(other, 4));
+        register(&mine);
+        register(&theirs);
+
+        // No writer thread drains these queues, so the cap forces drop-oldest.
+        assert!(mine.enqueue(b"aaaa"));
+        assert!(mine.enqueue(b"bb"));
+        assert!(theirs.enqueue(b"cccc"));
+        assert!(theirs.enqueue(b"d"));
+
+        assert_eq!(take_input_loss(|token| token == owned), 4);
+        assert_eq!(take_input_loss(|token| token == owned), 0, "taken once");
+        assert_eq!(
+            take_input_loss(|token| token == other),
+            4,
+            "another window's loss stays pending for that window"
+        );
+        mine.close();
+        theirs.close();
     }
 }

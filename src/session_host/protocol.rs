@@ -371,10 +371,7 @@ pub fn write_client_frame(
     frame: &ClientFrame,
 ) -> Result<(), ProtocolError> {
     match frame {
-        ClientFrame::Input(bytes) => {
-            validate_client_frame_len(101, bytes.len())?;
-            write_frame(writer, 101, bytes)
-        }
+        ClientFrame::Input(bytes) => write_client_input(writer, bytes),
         ClientFrame::Resize { columns, rows } => {
             let mut payload = Vec::with_capacity(8);
             payload.extend_from_slice(&columns.to_be_bytes());
@@ -384,6 +381,15 @@ pub fn write_client_frame(
         ClientFrame::Detach => write_frame(writer, 103, &[]),
         ClientFrame::Shutdown => write_frame(writer, 104, &[]),
     }
+}
+
+/// Write one `Input` frame straight from a borrowed payload. The length is
+/// validated against [`MAX_CLIENT_INPUT_LEN`] before any buffer is built or any
+/// byte reaches the wire, so an oversized input is refused without allocation
+/// and leaves the stream framing-clean.
+pub fn write_client_input(writer: &mut impl Write, bytes: &[u8]) -> Result<(), ProtocolError> {
+    validate_client_frame_len(101, bytes.len())?;
+    write_frame(writer, 101, bytes)
 }
 
 pub fn read_client_frame(reader: &mut impl Read) -> Result<ClientFrame, ProtocolError> {

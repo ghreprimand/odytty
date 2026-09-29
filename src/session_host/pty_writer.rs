@@ -21,11 +21,15 @@
 //! dropped rather than blocking the producer — a wedged slave must not propagate
 //! backpressure into the host loop. Dropping input corrupts an already-wedged
 //! stream, but keeping the host responsive (still able to accept a detach or a
-//! kill) is the higher priority.
+//! kill) is the higher priority. The newest chunk is never dropped, so one
+//! accepted input frame (at most the protocol's client input limit) is always
+//! delivered whole, matching the native writer's policy. Every discarded byte
+//! is counted and reported in a rate-limited host log warning.
 
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
 /// Maximum bytes buffered before drop-oldest engages. Generous enough that a
 /// legitimate large paste into a healthy shell drains far faster than it fills;
@@ -40,7 +44,15 @@ struct Queue {
     closed: bool,
     /// Bytes discarded by drop-oldest over this writer's lifetime.
     dropped_bytes: u64,
+    /// Discarded bytes not yet reported in the host log.
+    unlogged_dropped_bytes: u64,
+    /// When the last overflow warning was logged, for rate limiting.
+    last_overflow_log: Option<Instant>,
 }
+
+/// Minimum spacing between host overflow warnings. Each warning carries every
+/// byte discarded since the previous one, so rate limiting loses no count.
+const OVERFLOW_LOG_INTERVAL: Duration = Duration::from_secs(5);
 
 struct Shared {
     byte_cap: usize,
@@ -59,25 +71,50 @@ impl Shared {
         if bytes.is_empty() {
             return;
         }
-        {
+        let report = {
             let mut queue = self.lock();
             if queue.closed {
                 return;
             }
             queue.chunks.push_back(bytes.to_vec());
             queue.queued_bytes += bytes.len();
-            while queue.queued_bytes > self.byte_cap {
-                match queue.chunks.pop_front() {
-                    Some(dropped) => {
-                        queue.queued_bytes -= dropped.len();
-                        queue.dropped_bytes += dropped.len() as u64;
-                    }
-                    None => break,
+            // Never drop the newest chunk: a single frame larger than the cap
+            // is still delivered whole rather than discarded outright.
+            while queue.queued_bytes > self.byte_cap && queue.chunks.len() > 1 {
+                if let Some(dropped) = queue.chunks.pop_front() {
+                    queue.queued_bytes -= dropped.len();
+                    let dropped = u64::try_from(dropped.len()).unwrap_or(u64::MAX);
+                    queue.dropped_bytes = queue.dropped_bytes.saturating_add(dropped);
+                    queue.unlogged_dropped_bytes =
+                        queue.unlogged_dropped_bytes.saturating_add(dropped);
                 }
             }
+            take_overflow_report(&mut queue, Instant::now())
+        };
+        if let Some(dropped) = report {
+            tracing::warn!(
+                "session-host: PTY input queue overflow discarded {dropped} bytes of input \
+                 while the foreground process was not reading"
+            );
         }
         self.ready.notify_one();
     }
+}
+
+/// The unreported discarded byte count when an overflow warning is due, and
+/// mark it reported. `None` when nothing is pending or the last warning was
+/// too recent (the count carries into the next warning).
+fn take_overflow_report(queue: &mut Queue, now: Instant) -> Option<u64> {
+    if queue.unlogged_dropped_bytes == 0 {
+        return None;
+    }
+    if let Some(last) = queue.last_overflow_log
+        && now.saturating_duration_since(last) < OVERFLOW_LOG_INTERVAL
+    {
+        return None;
+    }
+    queue.last_overflow_log = Some(now);
+    Some(std::mem::take(&mut queue.unlogged_dropped_bytes))
 }
 
 /// Handle held by the host loop. Producers call [`Self::write`] to enqueue; the
@@ -104,6 +141,8 @@ impl HostPtyWriter {
                 queued_bytes: 0,
                 closed: false,
                 dropped_bytes: 0,
+                unlogged_dropped_bytes: 0,
+                last_overflow_log: None,
             }),
             ready: Condvar::new(),
         });
@@ -186,7 +225,6 @@ mod tests {
     use super::*;
     use std::io;
     use std::sync::mpsc;
-    use std::time::{Duration, Instant};
 
     /// A writer whose `write` blocks forever on the first call, modelling a slave
     /// that has stopped reading its input queue.
@@ -281,5 +319,62 @@ mod tests {
             cvar.notify_all();
         }
         drop(pty);
+    }
+
+    #[test]
+    fn a_sole_chunk_over_the_cap_is_delivered_whole() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let block = Arc::new((Mutex::new(false), Condvar::new()));
+        let writer = WedgedWriter {
+            started: started_tx,
+            block: Arc::clone(&block),
+        };
+        let pty = HostPtyWriter::spawn_with_cap(Box::new(writer), 4096).expect("spawn writer");
+        pty.write(b"prime the wedge");
+        started_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("writer thread should reach the blocking fd write");
+
+        // One accepted input frame larger than the cap is kept, not discarded.
+        pty.write(&vec![b'p'; 3 * 4096]);
+        assert_eq!(pty.dropped_bytes(), 0);
+        // A newer chunk displaces it as the oldest over-cap chunk.
+        pty.write(b"k");
+        assert_eq!(pty.dropped_bytes(), 3 * 4096);
+
+        {
+            let (lock, cvar) = &*block;
+            *lock.lock().unwrap() = true;
+            cvar.notify_all();
+        }
+        drop(pty);
+    }
+
+    #[test]
+    fn overflow_reports_are_rate_limited_without_losing_the_count() {
+        let mut queue = Queue {
+            chunks: VecDeque::new(),
+            queued_bytes: 0,
+            closed: false,
+            dropped_bytes: 0,
+            unlogged_dropped_bytes: 0,
+            last_overflow_log: None,
+        };
+        let start = Instant::now();
+        assert_eq!(take_overflow_report(&mut queue, start), None);
+        queue.unlogged_dropped_bytes = 10;
+        assert_eq!(take_overflow_report(&mut queue, start), Some(10));
+        queue.unlogged_dropped_bytes = 5;
+        assert_eq!(
+            take_overflow_report(&mut queue, start + Duration::from_secs(1)),
+            None,
+            "a second warning inside the interval is deferred"
+        );
+        queue.unlogged_dropped_bytes += 7;
+        assert_eq!(
+            take_overflow_report(&mut queue, start + OVERFLOW_LOG_INTERVAL),
+            Some(12),
+            "the deferred count carries into the next warning"
+        );
     }
 }
