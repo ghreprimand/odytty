@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Named launch profiles: schema, local storage, precedence, and migration.
 
+#[cfg(test)]
+mod catalog_bounds_tests;
+mod catalog_cache;
 mod discovery;
 mod json;
 mod launch;
@@ -11,6 +14,7 @@ mod schema;
 mod store;
 mod switch;
 
+pub use catalog_cache::catalog_parse_count_for_test;
 pub use switch::{
     ProfileSwitchReason, ProfileSwitchSuggestion, normalize_directory_pattern,
     normalize_host_pattern, suggest_profile_switch,

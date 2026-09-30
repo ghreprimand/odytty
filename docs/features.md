@@ -796,7 +796,8 @@ Reusing a layout name prompts to replace the existing layout, choose another
 name, or cancel.
 
 Open **Open Layout** from the command palette, or **Open Layout…** from the
-empty rail, empty tab strip, or content menu. When the current window already
+empty rail, empty tab strip, or content menu. The list checks at most 1,024
+entries of the layouts folder; when the folder holds more, the picker says so. When the current window already
 contains real state, choose how to apply it:
 
 | Choice | Result |

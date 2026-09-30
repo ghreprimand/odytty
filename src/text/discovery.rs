@@ -125,32 +125,113 @@ pub(super) fn file_stem(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// Bounded recursive collection of font files under `dirs`. Depth and total file
-/// count are capped so a pathological tree cannot stall startup.
+/// Bounds on one font-directory scan.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct FontScanLimits {
+    /// Maximum directory depth below each font root.
+    pub(super) depth: usize,
+    /// Maximum font files collected.
+    pub(super) files: usize,
+    /// Maximum directory entries examined across the whole scan, fonts or not.
+    pub(super) entries: usize,
+    /// Maximum directories read across the whole scan.
+    pub(super) dirs: usize,
+}
+
+impl FontScanLimits {
+    pub(super) const DEFAULT: Self = Self {
+        depth: 6,
+        files: 20_000,
+        entries: 100_000,
+        dirs: 10_000,
+    };
+}
+
+/// Bounded recursive collection of font files under `dirs`. See
+/// [`collect_font_files_bounded`].
 pub(super) fn collect_font_files(dirs: &[PathBuf]) -> Vec<PathBuf> {
-    const MAX_DEPTH: usize = 6;
-    const MAX_FILES: usize = 20_000;
-    let mut out = Vec::new();
+    collect_font_files_bounded(dirs, FontScanLimits::DEFAULT).files
+}
+
+/// Font files found by a bounded scan, and whether a bound stopped it early.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct FontScan {
+    pub(super) files: Vec<PathBuf>,
+    pub(super) truncated: bool,
+}
+
+/// Collect font files under `dirs`, bounded in depth, in files kept, in
+/// entries examined of any kind, and in directories read (see
+/// [`FontScanLimits::DEFAULT`]), so a large tree of non-font files cannot
+/// stall startup or font selection. A scan that hits a bound logs one warning with
+/// the counts (no paths) and reports `truncated`.
+///
+/// A symlink counts when it points at a regular font file, the same rule an
+/// explicit font path follows; symlinks to directories are not followed, so a
+/// link cannot loop the scan or pull in a tree outside the roots. Each
+/// directory's entries are visited in name order and the last root is read
+/// first (per-user directories come after the system ones), so a bounded scan
+/// keeps the same files from run to run.
+pub(super) fn collect_font_files_bounded(dirs: &[PathBuf], limits: FontScanLimits) -> FontScan {
+    let mut scan = FontScan::default();
+    let mut examined = 0usize;
+    let mut dirs_read = 0usize;
     let mut stack: Vec<(PathBuf, usize)> = dirs.iter().map(|d| (d.clone(), 0)).collect();
-    while let Some((dir, depth)) = stack.pop() {
-        if depth > MAX_DEPTH || out.len() >= MAX_FILES {
+    'dirs: while let Some((dir, depth)) = stack.pop() {
+        if depth > limits.depth {
             continue;
         }
+        if dirs_read >= limits.dirs {
+            scan.truncated = true;
+            break;
+        }
+        dirs_read += 1;
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
-        for entry in entries.flatten() {
+        let mut listed = Vec::new();
+        for entry in entries {
+            if examined >= limits.entries {
+                scan.truncated = true;
+                break;
+            }
+            examined += 1;
+            if let Ok(entry) = entry {
+                listed.push(entry);
+            }
+        }
+        listed.sort_by_key(std::fs::DirEntry::file_name);
+        let mut subdirs = Vec::new();
+        for entry in listed {
             let path = entry.path();
             let Ok(ft) = entry.file_type() else { continue };
             if ft.is_dir() {
-                stack.push((path, depth + 1));
-            } else if ft.is_file() && has_font_ext(&path) {
-                out.push(path);
-                if out.len() >= MAX_FILES {
-                    break;
+                subdirs.push((path, depth + 1));
+            } else if has_font_ext(&path)
+                && (ft.is_file()
+                    || (ft.is_symlink()
+                        && std::fs::metadata(&path).is_ok_and(|meta| meta.is_file())))
+            {
+                if scan.files.len() >= limits.files {
+                    scan.truncated = true;
+                    break 'dirs;
                 }
+                scan.files.push(path);
             }
         }
+        // Pushed in reverse so the stack pops them in name order.
+        stack.extend(subdirs.into_iter().rev());
+        if scan.truncated {
+            break;
+        }
     }
-    out
+    if scan.truncated {
+        tracing::warn!(
+            files = scan.files.len(),
+            examined,
+            dirs_read,
+            "font discovery stopped at its scan bound; some fonts may be missing"
+        );
+    }
+    scan
 }

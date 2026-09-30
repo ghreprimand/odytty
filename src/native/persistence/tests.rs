@@ -826,7 +826,7 @@ fn layout_save_list_load_delete_round_trip() {
             "direct layout JSON is owner-private"
         );
     }
-    assert_eq!(list_layout_names_in(&dir), vec!["dev".to_owned()]);
+    assert_eq!(list_layout_names_in(&dir).names, vec!["dev".to_owned()]);
 
     match load_layout_in(&dir, "dev") {
         LoadOutcome::Loaded(loaded) => assert_eq!(loaded, layout),
@@ -834,7 +834,10 @@ fn layout_save_list_load_delete_round_trip() {
     }
 
     delete_layout_in(&dir, "dev").expect("delete");
-    assert!(list_layout_names_in(&dir).is_empty(), "layout removed");
+    assert!(
+        list_layout_names_in(&dir).names.is_empty(),
+        "layout removed"
+    );
     assert!(matches!(load_layout_in(&dir, "dev"), LoadOutcome::Absent));
     // Deleting a missing layout is a success no-op.
     delete_layout_in(&dir, "dev").expect("idempotent delete");
@@ -1333,4 +1336,30 @@ fn missing_or_malformed_read_only_loads_writable() {
             other => panic!("expected a leaf, got {other:?}"),
         }
     }
+}
+
+#[test]
+fn layout_listing_examines_a_bounded_number_of_entries() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir =
+        std::env::temp_dir().join(format!("odytty-layout-scan-{}-{nanos}", std::process::id()));
+    let layout = sample_snapshot();
+    save_layout_in(&dir, "dev", &layout).expect("save");
+    let small = list_layout_names_in(&dir);
+    assert_eq!(small.names, vec!["dev".to_owned()]);
+    assert!(!small.truncated);
+
+    for index in 0..MAX_LAYOUT_DIR_SCAN_ENTRIES {
+        std::fs::write(dir.join(format!("note{index:04}.txt")), b"x").expect("write other file");
+    }
+    let large = list_layout_names_in(&dir);
+    assert!(
+        large.truncated,
+        "a directory past the bound reports truncation"
+    );
+    assert!(large.names.len() <= 1);
+    let _ = std::fs::remove_dir_all(dir);
 }

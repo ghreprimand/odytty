@@ -10,10 +10,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::settings::config_base_dir_from_env;
 use crate::settings::fs_read;
 
+use super::catalog_cache;
 use super::limits::*;
-use super::schema::{
-    LaunchProfile, ProfileError, profile_file_name, profile_name_from_path, validate_profile_name,
-};
+use super::schema::{LaunchProfile, ProfileError, profile_file_name, validate_profile_name};
 
 /// Test-only counter of [`load_catalog_from_dir`] calls. Default launch must
 /// leave this at zero; the Profile Manager increments it only when opened.
@@ -93,8 +92,33 @@ pub fn profiles_dir_path() -> Option<PathBuf> {
 /// Load every regular `*.profile.json` file in `dir` without leaving the local
 /// filesystem. Missing directories yield an empty catalog; malformed files warn
 /// and are skipped so one bad profile cannot block startup.
+///
+/// The scan examines at most [`MAX_PROFILE_DIR_SCAN_ENTRIES`] directory
+/// entries and keeps at most [`MAX_PROFILE_ENTRIES`] profiles, each with a
+/// warning when it truncates. Files load in name order. When the listing
+/// matches the previous load's exactly, that parsed catalog is reused (see
+/// [`super::catalog_cache`]).
 pub fn load_catalog_from_dir(dir: &Path) -> ProfileCatalog {
     CATALOG_LOAD_COUNT.fetch_add(1, Ordering::Relaxed);
+    let listing = match catalog_cache::list_profile_dir(dir) {
+        Ok(listing) => listing,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return ProfileCatalog::default();
+        }
+        Err(error) => {
+            return ProfileCatalog {
+                warnings: vec![format!(
+                    "could not read profiles directory {}: {error}",
+                    dir.display()
+                )],
+                ..ProfileCatalog::default()
+            };
+        }
+    };
+    if let Some(catalog) = catalog_cache::cached(dir, &listing) {
+        return catalog;
+    }
+
     let mut catalog = ProfileCatalog::default();
     let mut suppressed = 0usize;
     let mut warn = |message: String| {
@@ -105,19 +129,14 @@ pub fn load_catalog_from_dir(dir: &Path) -> ProfileCatalog {
         }
     };
 
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return catalog,
-        Err(error) => {
-            warn(format!(
-                "could not read profiles directory {}: {error}",
-                dir.display()
-            ));
-            return catalog;
-        }
-    };
-
-    for entry in entries.flatten() {
+    if listing.truncated {
+        warn(format!(
+            "profiles directory {} has more than {MAX_PROFILE_DIR_SCAN_ENTRIES} entries; \
+             only the first {MAX_PROFILE_DIR_SCAN_ENTRIES} were examined",
+            dir.display()
+        ));
+    }
+    for candidate in &listing.candidates {
         if catalog.profiles.len() >= MAX_PROFILE_ENTRIES {
             warn(format!(
                 "profiles directory {} exceeds {MAX_PROFILE_ENTRIES} entries; remaining files skipped",
@@ -125,14 +144,8 @@ pub fn load_catalog_from_dir(dir: &Path) -> ProfileCatalog {
             ));
             break;
         }
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let Some(name) = profile_name_from_path(&path) else {
-            continue;
-        };
-        match read_profile_file(&path, Some(name.as_str())) {
+        let path = &candidate.path;
+        match read_profile_file(path, Some(candidate.name.as_str())) {
             Ok(profile) => {
                 if let Some(existing) = catalog.profiles.insert(profile.name.clone(), profile) {
                     warn(format!(
@@ -151,6 +164,7 @@ pub fn load_catalog_from_dir(dir: &Path) -> ProfileCatalog {
             .warnings
             .push(format!("{suppressed} further profile warnings suppressed"));
     }
+    catalog_cache::store(dir, listing, &catalog);
     catalog
 }
 

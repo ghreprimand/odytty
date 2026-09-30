@@ -264,9 +264,15 @@ impl App {
     /// saved layout names. Opens even with no saved layouts (the picker then
     /// shows an explanatory line) so the feature is discoverable from the menu.
     pub(super) fn open_saved_layout_picker(&mut self) {
-        let names = persistence::list_layout_names();
+        let listing = persistence::list_layouts();
         self.reset_pointer_state_for_overlay();
-        self.overlay.open_layout_picker(names);
+        self.overlay.open_layout_picker(listing.names);
+        if listing.truncated {
+            self.raise_neutral_notice(format!(
+                "Only the first {} entries of the layouts folder were checked.",
+                persistence::MAX_LAYOUT_DIR_SCAN_ENTRIES
+            ));
+        }
         self.request_selection_redraw();
     }
 }

@@ -523,9 +523,10 @@ fn prepared_layouts_dir() -> io::Result<PathBuf> {
 
 /// Repair only the known JSON files directly inside `layouts`.  Deliberately do
 /// not recurse: unknown files, socket objects, and nested directories are not
-/// OdyTTY persistence data and remain untouched.
+/// OdyTTY persistence data and remain untouched. Like the listing, it examines
+/// at most [`MAX_LAYOUT_DIR_SCAN_ENTRIES`] entries.
 fn repair_direct_layout_files(dir: &Path) -> io::Result<()> {
-    for entry in std::fs::read_dir(dir)? {
+    for entry in std::fs::read_dir(dir)?.take(MAX_LAYOUT_DIR_SCAN_ENTRIES) {
         let entry = entry?;
         let path = entry.path();
         if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
@@ -635,17 +636,38 @@ pub(crate) fn layout_exists(name: &str) -> bool {
         .is_some_and(|dir| layout_exists_in(&dir, name))
 }
 
+/// Maximum directory entries examined when listing saved layouts, counting
+/// every entry, so a layouts directory full of other files cannot make opening
+/// the palette or the layout picker unbounded.
+pub(crate) const MAX_LAYOUT_DIR_SCAN_ENTRIES: usize = 1024;
+
+/// Saved layout names plus whether the listing stopped at
+/// [`MAX_LAYOUT_DIR_SCAN_ENTRIES`].
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct LayoutListing {
+    pub(crate) names: Vec<String>,
+    pub(crate) truncated: bool,
+}
+
 /// The sorted `*.json` file stems under `dir` (WP3 core). A missing directory is
-/// an empty list, never an error; non-`*.json` files are ignored.
-fn list_layout_names_in(dir: &Path) -> Vec<String> {
-    let mut names = Vec::new();
+/// an empty list, never an error; non-`*.json` files are ignored. At most
+/// [`MAX_LAYOUT_DIR_SCAN_ENTRIES`] entries are examined.
+fn list_layout_names_in(dir: &Path) -> LayoutListing {
+    let mut listing = LayoutListing::default();
     if crate::state_dir::validate_private_dir(dir).is_err() {
-        return names;
+        return listing;
     }
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return names;
+        return listing;
     };
-    for entry in entries.flatten() {
+    for (examined, entry) in entries.enumerate() {
+        if examined >= MAX_LAYOUT_DIR_SCAN_ENTRIES {
+            listing.truncated = true;
+            break;
+        }
+        let Ok(entry) = entry else {
+            continue;
+        };
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
@@ -654,15 +676,20 @@ fn list_layout_names_in(dir: &Path) -> Vec<String> {
             continue;
         }
         if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-            names.push(stem.to_owned());
+            listing.names.push(stem.to_owned());
         }
     }
-    names.sort();
-    names
+    listing.names.sort();
+    listing
 }
 
 /// The names of all saved layouts, sorted (WP3). Empty when nothing is saved.
 pub(crate) fn list_layout_names() -> Vec<String> {
+    list_layouts().names
+}
+
+/// [`list_layout_names`] plus whether the directory listing was truncated.
+pub(crate) fn list_layouts() -> LayoutListing {
     prepared_layouts_dir()
         .map(|dir| list_layout_names_in(&dir))
         .unwrap_or_default()

@@ -1902,7 +1902,11 @@ equivalents, all behind `#[cfg]`:
 - **Host font discovery** scans `%WINDIR%\Fonts` (machine) and
   `%LOCALAPPDATA%\Microsoft\Windows\Fonts` (per-user) in addition to the always-
   present bundled fonts, so host families (Consolas, Cascadia Code, …) are
-  selectable.
+  selectable. The scan is the same bounded walk on every platform: depth 6,
+  20,000 font files, 100,000 directory entries examined, and 10,000
+  directories read, with each directory's entries visited in name order. A
+  symlink counts when it points at a regular font file; directory symlinks are
+  not followed. A scan that stops at a bound logs one warning with the counts.
 
 - **Clickable paths** recognize Windows path shapes — drive-letter absolute
   (`C:\…`, `C:/…`), UNC (`\\server\share`), and backslash separators — with a
@@ -2258,8 +2262,8 @@ identity predicate (normalized filename or family must contain `notocoloremoji`)
 so generic fontconfig substitution fonts are rejected. If fontconfig is
 unavailable or returns a non-matching result, a bounded directory scan covers
 the standard Linux directories, the macOS system/user font directories, or the
-Windows machine/per-user font directories at maximum depth 6 and a 20 000-file
-cap, matching only Noto Color Emoji or Apple Color Emoji by normalized filename
+Windows machine/per-user font directories through the shared font scan
+described under host font discovery, matching only Noto Color Emoji or Apple Color Emoji by normalized filename
 stem. The Windows scan therefore finds no supported stock color face.
 
 When no Noto Color Emoji is found, the module returns `None` and

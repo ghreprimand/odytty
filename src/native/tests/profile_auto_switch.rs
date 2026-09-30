@@ -194,3 +194,67 @@ fn live_poll_remote_pane_uses_ssh_host_not_osc7_cwd() {
 
     let _ = fs::remove_dir_all(home);
 }
+
+#[test]
+fn repeated_identical_cwd_reports_parse_the_catalog_once() {
+    // Shells report the working directory at every prompt. With auto-switch
+    // on, each report used to read and parse every profile file again; an
+    // unchanged profile directory now reuses the parsed catalog.
+    let home = temp_config_home("repeat");
+    let profiles_dir = fixture_profiles_dir(&home);
+    write_switch_profile(
+        &profiles_dir,
+        "work",
+        ProfileSwitchRules {
+            match_hosts: Vec::new(),
+            match_directories: vec!["/work/project".to_owned()],
+            preserved: Default::default(),
+        },
+    );
+
+    with_home(&home, || {
+        let mut app = app_with_auto_switch();
+        let parses = crate::profiles::catalog_parse_count_for_test();
+        for _ in 0..20 {
+            app.advance_primary_terminal_for_test(&osc7_local("/work/project/src"));
+            app.poll_profile_auto_switch_for_test();
+        }
+        assert_eq!(
+            app.active_launch_profile_for_test().as_deref(),
+            Some("work")
+        );
+        assert!(
+            crate::profiles::catalog_parse_count_for_test() <= parses + 1,
+            "twenty identical reports must not reparse an unchanged catalog"
+        );
+
+        // Editing the profile is still picked up by the next report.
+        write_switch_profile(
+            &profiles_dir,
+            "work",
+            ProfileSwitchRules {
+                match_hosts: Vec::new(),
+                match_directories: vec!["/elsewhere".to_owned()],
+                preserved: Default::default(),
+            },
+        );
+        write_switch_profile(
+            &profiles_dir,
+            "other",
+            ProfileSwitchRules {
+                match_hosts: Vec::new(),
+                match_directories: vec!["/work/project".to_owned()],
+                preserved: Default::default(),
+            },
+        );
+        app.advance_primary_terminal_for_test(&osc7_local("/work/project/src"));
+        app.poll_profile_auto_switch_for_test();
+        assert_eq!(
+            app.active_launch_profile_for_test().as_deref(),
+            Some("other"),
+            "a changed catalog is reloaded and applied"
+        );
+    });
+
+    let _ = fs::remove_dir_all(home);
+}

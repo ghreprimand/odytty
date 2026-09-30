@@ -124,6 +124,14 @@ Development on `master`; not released. Items check off when their code is on
       commands run only in their plain form, so private forms such as
       `CSI ? Pm s` and `CSI > Ps A` are ignored; an OSC or DCS string
       cancelled by CAN or SUB is discarded without effect.
+- [ ] Discovery work is bounded: the profile catalog examines at most 1,024
+      entries of any kind and reuses the parsed catalog while the profile
+      file stamps are unchanged (Windows stamps miss ACL-only changes; see
+      docs/profiles.md), so per-prompt working-directory reports no longer
+      reparse it; the saved-layout list examines at most 1,024 entries; font
+      discovery bounds entries examined and directories read, visits entries
+      in name order, and includes symlinks to regular font files without
+      following directory symlinks. Each truncation is reported.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

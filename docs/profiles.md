@@ -43,10 +43,19 @@ Each profile is one hand-editable JSON document under the profiles directory:
 `<config-dir>` is the same base OdyTTY uses for `odytty.conf` (see the
 [install guide](install.md) for the per-platform location). The file name stem is
 the profile name; the `.profile.json` suffix is required. A directory scan
-returns at most 256 profiles, reads at most 1 MiB per file, and retains at most
-100 parse warnings. These bound accepted results and retained diagnostics;
-directory traversal and rejected-file parsing do not currently have an
-aggregate work budget, so a directory with many invalid files can still be slow.
+examines at most 1,024 directory entries of any kind (other files, folders,
+and malformed profiles all count), returns at most 256 profiles, reads at most
+1 MiB per file, and retains at most 100 parse warnings. Profile files load in
+name order. A scan that stops at either limit adds a warning, which the Profile
+Manager shows. OdyTTY keeps the last parsed catalog and reuses it while every
+profile file's name, size, and modification time are unchanged, together with
+its inode, change time, and mode on Unix, or its creation time and file
+attributes on Windows. On Unix any write, rename, removal, replacement, or
+permission change reloads the catalog. On Windows a write, rename, removal,
+size change, new creation time, or attribute change (read-only, hidden)
+reloads it; an ACL-only change, or a same-size replacement that keeps the
+modification and creation times (NTFS file-name tunneling can carry the
+creation time over), is not seen until a later detected change or a restart.
 
 Files are written atomically with owner-private permissions (mode `0600` on
 Unix, owner-restricted on Windows). Launch commands, directories, host aliases,
@@ -272,6 +281,9 @@ Automatic switching is off by default. Enable it with `profile_auto_switch = on`
 in `odytty.conf`, or the `ODYTTY_PROFILE_AUTO_SWITCH` environment variable. When
 on, OdyTTY evaluates a profile's `switch.match_hosts` and
 `switch.match_directories` rules as the focused pane's working directory changes.
+Shells report the working directory at every prompt; while the profile
+directory is unchanged, each report costs one bounded directory listing and
+reuses the parsed catalog.
 
 - Host patterns support exact names, `*`, and `*suffix` suffix wildcards (for
   example `*.example`).

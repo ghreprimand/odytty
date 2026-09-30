@@ -39,3 +39,10 @@ pub const MAX_PROFILE_SWITCH_HOSTS: usize = 16;
 
 /// Maximum directory match rules stored on one profile.
 pub const MAX_PROFILE_SWITCH_DIRECTORIES: usize = 16;
+
+/// Maximum directory entries examined while loading the profile catalog,
+/// counting every entry (other files, directories, malformed profiles), so a
+/// directory full of irrelevant or broken entries cannot make a load
+/// unbounded. Four times [`MAX_PROFILE_ENTRIES`] leaves room for a normal
+/// directory's backups and editor files.
+pub const MAX_PROFILE_DIR_SCAN_ENTRIES: usize = 4 * MAX_PROFILE_ENTRIES;
