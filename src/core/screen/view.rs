@@ -1042,6 +1042,17 @@ impl Screen {
     /// see [`super::search`] for the coordinate convention and limitations).
     /// Matches are returned in reading order, sorted ascending by `start`.
     pub fn search(&self, query: &str, options: SearchOptions) -> Vec<SearchMatch> {
+        self.search_scoped(query, options, None)
+    }
+
+    /// [`Self::search`] limited to `scope`, which is applied while matches are
+    /// counted against the match budget (see [`search_rows_scoped`]).
+    pub fn search_scoped(
+        &self,
+        query: &str,
+        options: SearchOptions,
+        scope: Option<SearchScope>,
+    ) -> Vec<SearchMatch> {
         // One of the two consumers that genuinely needs every physical row.
         // Materialized transiently and dropped when the search returns, rather
         // than retained: a full-buffer search is user-initiated, so paying for
@@ -1055,7 +1066,7 @@ impl Screen {
                 wrapped: line.wrapped,
             })
             .collect();
-        search_rows(&rows, query, options)
+        search_rows_scoped(&rows, query, options, scope)
     }
 
     /// The visible viewport's physical rows at scrollback `offset_rows`, as owned

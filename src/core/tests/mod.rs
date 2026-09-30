@@ -7,6 +7,7 @@
 use super::*;
 
 mod bell;
+mod cancel_and_private_forms;
 mod cell_equivalence;
 mod chars_unicode;
 mod combining_side_table;

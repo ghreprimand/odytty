@@ -254,3 +254,23 @@ fn gutter_on_emits_a_bar_for_a_finished_command() {
         "bar is a thin sliver"
     );
 }
+
+#[test]
+fn command_scoped_search_finds_matches_after_the_global_match_budget() {
+    // More matching cells precede the command than one search may return. The
+    // scope applies before the budget is counted, so the command's own match
+    // is still found.
+    let filler_rows = crate::core::MAX_SEARCH_MATCHES / COLS + 20;
+    let mut stream = Vec::new();
+    for _ in 0..filler_rows {
+        stream.extend_from_slice("q".repeat(COLS).as_bytes());
+        stream.extend_from_slice(b"\r\n");
+    }
+    stream.extend_from_slice(b"\x1b]133;A\x07$ run\r\n\x1b]133;C\x07late q\r\n\x1b]133;D;0\x07");
+    let Some(mut app) = build_app(Settings::default(), &stream) else {
+        return;
+    };
+    app.search_command_output_for_test();
+    app.drive_scoped_command_search_for_test("q");
+    assert_eq!(app.command_search_match_count_for_test(), 1);
+}

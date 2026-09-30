@@ -36,6 +36,7 @@ enum ParserEvent {
     Hook(Vec<Vec<u16>>, Vec<u8>, bool, char),
     Put(u8),
     Unhook,
+    CancelHook,
     Apc(Vec<u8>),
 }
 
@@ -93,6 +94,10 @@ impl VtDispatch for ParserRecorder {
 
     fn unhook(&mut self) {
         self.events.push(ParserEvent::Unhook);
+    }
+
+    fn cancel_hook(&mut self) {
+        self.events.push(ParserEvent::CancelHook);
     }
 
     fn apc_dispatch(&mut self, data: &[u8]) {

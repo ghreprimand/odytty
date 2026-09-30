@@ -118,6 +118,12 @@ Development on `master`; not released. Items check off when their code is on
       FIFOs and devices without blocking; `xdg-mime`, `fc-match`, `fc-list`,
       and `wsl.exe` run with a deadline and output cap; runtime glyph fallback
       resolves on a worker and redraws when ready.
+- [ ] Terminal control semantics are exact: Search Command Output applies
+      its range before the 10,000-match limit, and one long wrapped line
+      stops at that limit; CSI cursor, editing, margin, and save/restore
+      commands run only in their plain form, so private forms such as
+      `CSI ? Pm s` and `CSI > Ps A` are ignored; an OSC or DCS string
+      cancelled by CAN or SUB is discarded without effect.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

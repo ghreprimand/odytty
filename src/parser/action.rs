@@ -15,10 +15,11 @@
 //! `csi_dispatch`, `esc_dispatch`, OSC start/put/end, DCS hook/put/unhook, APC
 //! string). The vocabulary differs from the inline-callback designs that wire
 //! the sink directly into the state machine: we keep the machine sink-agnostic
-//! and the adapter thin. The compound variants ([`Action::DcsUnhookExecute`],
-//! [`Action::OscEndExecute`]) encode the canonical "two-effect" transitions —
-//! DCS/OSC terminated by a control byte that still itself executes — as one
-//! action so `step` returns exactly one [`Action`] per byte.
+//! and the adapter thin. The compound variants ([`Action::DcsCancelExecute`],
+//! [`Action::OscCancelExecute`]) encode the canonical "two-effect" transitions
+//! (a DCS/OSC string cancelled by CAN or SUB, which is discarded while the
+//! cancel byte itself still executes) as one action so `step` returns exactly
+//! one [`Action`] per byte.
 //!
 //! Layer 1 (the [`super::segmenter`]) does not emit actions: Ground-state
 //! printable text and C1-via-UTF-8 executes go directly to the driver's
@@ -48,9 +49,10 @@ pub(crate) enum Action {
     DcsPut(u8),
     /// DCS terminated cleanly → [`super::VtDispatch::unhook`].
     DcsUnhook,
-    /// DCS terminated by a cancel byte (CAN/SUB) inside passthrough: unhook,
-    /// then execute the cancel byte itself.
-    DcsUnhookExecute(u8),
+    /// DCS cancelled by CAN/SUB inside passthrough: the driver calls
+    /// [`super::VtDispatch::cancel_hook`] so the handler discards the string
+    /// (no command runs), then executes the cancel byte itself.
+    DcsCancelExecute(u8),
     /// OSC payload byte (driver appends to its OSC buffer).
     OscPut(u8),
     /// OSC `;` separator: driver snapshots the current buffer position as the
@@ -60,9 +62,9 @@ pub(crate) enum Action {
     /// [`super::VtDispatch::osc_dispatch`]. `bell` distinguishes BEL (`0x07`)
     /// from ST (`ESC \` or `0x9C`).
     OscEnd { bell: bool },
-    /// OSC terminated by a cancel byte: dispatch then execute the cancel byte.
-    /// `bell` is always `false` here (CAN/SUB are not BEL).
-    OscEndExecute { bell: bool, byte: u8 },
+    /// OSC cancelled by CAN/SUB: the driver discards the buffered string
+    /// without dispatching it, then executes the cancel byte itself.
+    OscCancelExecute(u8),
     /// APC payload byte (driver appends to its APC buffer, dropping past cap).
     ApcPut(u8),
     /// APC terminated; driver flushes the buffer via

@@ -365,8 +365,10 @@ const GOLDEN_20X6: &[(&str, u64)] = &[
     ("c1_8bit_st_9c", 0x5c1071fc00a33a0a),
     ("c1_nel_via_utf8", 0xeb1eb6caa213ea73),
     ("c1_all_via_utf8", 0x4f693af9bda968bc),
-    ("can_in_osc", 0x241a07d257b49458),
-    ("sub_in_osc", 0x241a07d257b49458),
+    // CAN/SUB discard the cancelled OSC (no title), so these match the other
+    // cancelled strings: only `TAIL` reaches the screen.
+    ("can_in_osc", 0x01ae555bdb01728a),
+    ("sub_in_osc", 0x01ae555bdb01728a),
     ("can_in_dcs", 0x01ae555bdb01728a),
     ("sub_in_dcs", 0x01ae555bdb01728a),
     ("can_in_apc", 0x01ae555bdb01728a),
@@ -475,8 +477,9 @@ const GOLDEN_4X3: &[(&str, u64)] = &[
     ("c1_8bit_st_9c", 0x1f230f3c45846c68),
     ("c1_nel_via_utf8", 0xc55a113490bc037b),
     ("c1_all_via_utf8", 0xe76fa3b3bea28cac),
-    ("can_in_osc", 0xcdbbd33034bbed8c),
-    ("sub_in_osc", 0xcdbbd33034bbed8c),
+    // CAN/SUB discard the cancelled OSC; see the 20x6 table.
+    ("can_in_osc", 0x5e6431483660798e),
+    ("sub_in_osc", 0x5e6431483660798e),
     ("can_in_dcs", 0x5e6431483660798e),
     ("sub_in_dcs", 0x5e6431483660798e),
     ("can_in_apc", 0x5e6431483660798e),
@@ -539,6 +542,35 @@ fn oracle_corpus_narrow_grid_forces_wrap_and_scrollback() {
     // A 4x3 grid forces wrapping + scrollback, exercising the projection path.
     for (label, input) in corpus() {
         assert_parity(&format!("narrow:{label}"), 4, 3, input);
+    }
+}
+
+#[test]
+fn cancelled_strings_leave_the_same_screen_as_their_trailing_text() {
+    // A string cancelled by CAN or SUB has no effect of its own: the screen is
+    // exactly what the text after it produces. A terminated string, by
+    // contrast, still applies (the OSC sets the title).
+    for cols_rows in [(20, 6), (4, 3)] {
+        let (cols, rows) = cols_rows;
+        let plain = screen_fingerprint(&run_ody(cols, rows, &[b"TAIL"]));
+        for input in [
+            &b"\x1b]0;hi\x18TAIL"[..],
+            b"\x1b]0;hi\x1aTAIL",
+            b"\x1bPq#0;2;100;0;0#0~~\x18TAIL",
+            b"\x1bPq#0;2;100;0;0#0~~\x1aTAIL",
+            b"\x1bP$qm\x18TAIL",
+            b"\x1bP+q544e\x1aTAIL",
+        ] {
+            let screen = run_ody(cols, rows, &[input]);
+            assert_eq!(
+                screen_fingerprint(&screen),
+                plain,
+                "{:?} at {cols}x{rows}",
+                String::from_utf8_lossy(input)
+            );
+        }
+        let terminated = run_ody(cols, rows, &[b"\x1b]0;hi\x1b\\TAIL"]);
+        assert_eq!(terminated.title(), Some("hi"));
     }
 }
 

@@ -62,16 +62,10 @@ fn osc_bel_ends_with_bell_true() {
 }
 
 #[test]
-fn osc_cancel_emits_end_then_execute() {
+fn osc_cancel_emits_cancel_then_execute() {
     let mut m = Machine::new();
     m.state = State::OscString;
-    assert_eq!(
-        m.step(0x18),
-        Action::OscEndExecute {
-            bell: false,
-            byte: 0x18
-        }
-    );
+    assert_eq!(m.step(0x18), Action::OscCancelExecute(0x18));
     assert_eq!(m.state, State::Ground);
 }
 

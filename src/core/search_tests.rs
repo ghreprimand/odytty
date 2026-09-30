@@ -298,3 +298,86 @@ fn matches_are_sorted_ascending_by_start() {
             < (matches[1].start.row, matches[1].start.column)
     );
 }
+
+#[test]
+fn scope_after_more_than_the_match_budget_still_finds_its_matches() {
+    // Every row before the scope matches, more than the budget allows; the
+    // scope's own match must still be reported.
+    let cell_rows: Vec<Vec<Cell>> = (0..(MAX_SEARCH_MATCHES + 5))
+        .map(|index| {
+            row(if index == MAX_SEARCH_MATCHES + 2 {
+                "xz"
+            } else {
+                "x"
+            })
+        })
+        .collect();
+    let rows: Vec<SearchRow<'_>> = cell_rows.iter().map(|c| srow(c, false)).collect();
+    let scope = SearchScope {
+        start: at(MAX_SEARCH_MATCHES + 1, 0),
+        end: at(MAX_SEARCH_MATCHES + 3, 9),
+    };
+    let found = search_rows_scoped(&rows, "x", SearchOptions::case_sensitive(), Some(scope));
+    assert_eq!(
+        found.iter().map(|m| m.start.row).collect::<Vec<_>>(),
+        vec![
+            MAX_SEARCH_MATCHES + 1,
+            MAX_SEARCH_MATCHES + 2,
+            MAX_SEARCH_MATCHES + 3
+        ]
+    );
+    // Unscoped, the same query stops at the budget.
+    let all = search_rows(&rows, "x", SearchOptions::case_sensitive());
+    assert_eq!(all.len(), MAX_SEARCH_MATCHES);
+    assert_eq!(all.last().unwrap().start.row, MAX_SEARCH_MATCHES - 1);
+}
+
+#[test]
+fn scope_excludes_matches_that_cross_its_edges() {
+    let first = row("abab");
+    let second = row("abab");
+    let rows = vec![srow(&first, true), srow(&second, false)];
+    // The scope covers row 0 column 2 through row 1 column 1: only the "ab"
+    // at row 0 column 2 and the one at row 1 column 0 lie wholly inside.
+    let scope = SearchScope {
+        start: at(0, 2),
+        end: at(1, 1),
+    };
+    let found = search_rows_scoped(&rows, "ab", SearchOptions::case_sensitive(), Some(scope));
+    assert_eq!(
+        found.iter().map(|m| (m.start, m.end)).collect::<Vec<_>>(),
+        vec![(at(0, 2), at(0, 3)), (at(1, 0), at(1, 1))]
+    );
+    // A match straddling the scope start is excluded.
+    let scope = SearchScope {
+        start: at(0, 3),
+        end: at(1, 3),
+    };
+    let found = search_rows_scoped(&rows, "ba", SearchOptions::case_sensitive(), Some(scope));
+    assert_eq!(
+        found.iter().map(|m| m.start).collect::<Vec<_>>(),
+        vec![at(0, 3), at(1, 1)]
+    );
+}
+
+#[test]
+fn one_long_wrapped_line_stops_at_the_match_budget() {
+    // A single logical line soft-wrapped across many rows with more matches
+    // than the budget returns exactly the budget, in reading order.
+    let width = 100;
+    let row_count = MAX_SEARCH_MATCHES / width + 5;
+    let cell_rows: Vec<Vec<Cell>> = (0..row_count).map(|_| row(&"x".repeat(width))).collect();
+    let rows: Vec<SearchRow<'_>> = cell_rows
+        .iter()
+        .enumerate()
+        .map(|(index, cells)| srow(cells, index + 1 < row_count))
+        .collect();
+    let found = search_rows(&rows, "x", SearchOptions::case_sensitive());
+    assert_eq!(found.len(), MAX_SEARCH_MATCHES);
+    assert_eq!(found[0].start, at(0, 0));
+    let last = found.last().unwrap().start;
+    assert_eq!(last, at((MAX_SEARCH_MATCHES - 1) / width, width - 1));
+    assert!(found.windows(2).all(|pair| {
+        (pair[0].start.row, pair[0].start.column) < (pair[1].start.row, pair[1].start.column)
+    }));
+}

@@ -403,6 +403,16 @@ impl Terminal {
         self.screen.search(query, options)
     }
 
+    /// [`Self::search`] limited to `scope`. See [`Screen::search_scoped`].
+    pub fn search_scoped(
+        &self,
+        query: &str,
+        options: SearchOptions,
+        scope: Option<SearchScope>,
+    ) -> Vec<SearchMatch> {
+        self.screen.search_scoped(query, options, scope)
+    }
+
     /// The visible viewport's physical rows (with `wrapped` flags) at scrollback
     /// `offset_rows`, for the hint / quick-select scanner. See
     /// [`Screen::visible_search_rows`] for the window and coordinate convention.

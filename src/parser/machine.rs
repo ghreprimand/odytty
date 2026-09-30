@@ -610,7 +610,7 @@ impl Machine {
             // ---------------- DcsPassthrough ----------------
             (S::DcsPassthrough, C::Cancel) => {
                 self.state = S::Ground;
-                Action::DcsUnhookExecute(byte)
+                Action::DcsCancelExecute(byte)
             }
             (S::DcsPassthrough, C::Esc) => {
                 self.reset_seq();
@@ -645,7 +645,7 @@ impl Machine {
             }
             (S::OscString, C::Cancel) => {
                 self.state = S::Ground;
-                Action::OscEndExecute { bell: false, byte }
+                Action::OscCancelExecute(byte)
             }
             (S::OscString, C::Esc) => {
                 self.reset_seq();

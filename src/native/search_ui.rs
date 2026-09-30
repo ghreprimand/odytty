@@ -139,13 +139,12 @@ impl SearchUi {
             self.refreshed_generation = Some(generation);
             return;
         }
-        self.matches = terminal.search(&self.query, self.options);
-        if let Some((start, end, _)) = self.scope {
-            self.matches.retain(|found| {
-                (found.start.row, found.start.column) >= (start.row, start.column)
-                    && (found.end.row, found.end.column) <= (end.row, end.column)
-            });
-        }
+        // The scope applies inside the core search, before the match budget is
+        // counted, so matches ahead of the scope cannot use it up.
+        let scope = self
+            .scope
+            .map(|(start, end, _)| crate::core::SearchScope { start, end });
+        self.matches = terminal.search_scoped(&self.query, self.options, scope);
         self.current = previous
             .filter(|current| self.matches.iter().any(|m| m == current))
             .or_else(|| self.matches.first().copied());

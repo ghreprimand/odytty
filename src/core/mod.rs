@@ -98,7 +98,8 @@ pub use screen::{
     ExportChunk, OSC52_CLIPBOARD_MAX_BYTES, Screen, SnapshotButton, Terminal, VisibleRow,
 };
 pub use search::{
-    AbsolutePoint, SearchMatch, SearchOptions, SearchRow, find_next, find_prev, search_rows,
+    AbsolutePoint, MAX_SEARCH_MATCHES, SearchMatch, SearchOptions, SearchRow, SearchScope,
+    find_next, find_prev, search_rows, search_rows_scoped,
 };
 pub use snapshot_envelope::{
     SNAPSHOT_FORMAT_VERSION, SNAPSHOT_MAGIC, SNAPSHOT_PROTOCOL_VERSION, SnapshotAttrs,

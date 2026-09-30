@@ -203,13 +203,31 @@ and `Cargo.lock`; the owned parser is the sole production parser.
 - **Driver** (`src/parser/driver.rs`). Stitches Layer 1 and Layer 2, buffers
   OSC (128 KiB cap) and APC (1 MiB cap, drop-not-truncate), and adapts the
   action stream to the `VtDispatch` sink. DCS payloads pass through as a
-  streaming hook/put/unhook sequence without buffering in the parser.
+  streaming hook/put/unhook sequence without buffering in the parser. CAN or
+  SUB inside an OSC, DCS, or APC string cancels it: the buffered OSC or APC
+  is dropped undispatched, a DCS ends with `cancel_hook` instead of `unhook`
+  so its handler discards the capture (no Sixel placed, no DECRQSS or
+  XTGETTCAP reply), and the cancel byte then executes. A string ended by ST,
+  BEL, or ESC dispatches as before.
 
 **Terminal state machine** (`src/core/`). Screen grid (primary + alternate),
 lazy scrollback with logical-line storage, scroll regions, resize/reflow, all
 VT sequence semantics. The `Screen` type implements `VtDispatch` and is the
 parser's sole sink. The core module never imports windowing, GPU, or rendering
 code.
+
+CSI commands dispatch only in the forms they are implemented for. Cursor
+movement (CUU through CHA, CUP/HVP, VPA), editing (ICH, DCH, ECH, IL, DL, ED,
+EL, REP, SU, SD), TBC, DECSTBM, SGR, window reports, and SCOSC/SCORC run only
+with no private marker (`?`, `>`, `<`, `=`) and no intermediate byte. Other
+forms with the same final byte are distinct commands (xterm's XTSAVE
+`CSI ? Pm s` and XTRESTORE `CSI ? Pm r`, the `CSI Ps SP @`/`CSI Ps SP A`
+column shifts) and are ignored unless implemented separately.
+
+Scrollback search (`src/core/search.rs`) returns at most 10,000 matches in
+reading order and stops scanning when the limit is reached, including inside
+one long soft-wrapped line. A scoped search (Search Command Output) applies its
+range while matching, so matches before the range never use up the limit.
 
 **Renderer geometry** (`src/grid.rs`). Builds the CPU vertex buffer consumed by
 the GPU pipeline: background quads, per-glyph quads with bearing-aware ink

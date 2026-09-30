@@ -36,6 +36,7 @@ enum Action {
     },
     Put(u8),
     Unhook,
+    CancelHook,
     Apc(Vec<u8>),
 }
 
@@ -87,6 +88,9 @@ impl VtDispatch for Recorder {
     }
     fn unhook(&mut self) {
         self.0.push(Action::Unhook);
+    }
+    fn cancel_hook(&mut self) {
+        self.0.push(Action::CancelHook);
     }
     fn apc_dispatch(&mut self, data: &[u8]) {
         self.0.push(Action::Apc(data.to_vec()));
@@ -299,6 +303,50 @@ fn semicolon_rich_osc8_hyperlink_payload_survives_intact() {
         .collect::<Vec<_>>()
         .join(";");
     assert_eq!(rejoined, payload, "the URI tail is not truncated");
+}
+
+#[test]
+fn cancelled_dcs_ends_with_cancel_hook_then_executes_the_cancel_byte() {
+    for cancel in [0x18_u8, 0x1a] {
+        let mut bytes = b"\x1bPqab".to_vec();
+        bytes.push(cancel);
+        bytes.push(b'Z');
+        assert_eq!(
+            drive(&bytes),
+            vec![
+                Action::Hook {
+                    params: vec![vec![0]],
+                    intermediates: vec![],
+                    ignore: false,
+                    action: 'q',
+                },
+                Action::Put(b'a'),
+                Action::Put(b'b'),
+                Action::CancelHook,
+                Action::Execute(cancel),
+                Action::Print('Z'),
+            ]
+        );
+    }
+}
+
+#[test]
+fn cancelled_osc_is_not_dispatched_and_leaves_no_residue() {
+    for cancel in [0x18_u8, 0x1a] {
+        let mut bytes = b"\x1b]0;stale".to_vec();
+        bytes.push(cancel);
+        bytes.extend_from_slice(b"\x1b]2;fresh\x07");
+        assert_eq!(
+            drive(&bytes),
+            vec![
+                Action::Execute(cancel),
+                Action::Osc {
+                    params: vec![b"2".to_vec(), b"fresh".to_vec()],
+                    bell: true,
+                },
+            ]
+        );
+    }
 }
 
 #[test]

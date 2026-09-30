@@ -30,7 +30,7 @@ use super::prompt_marks::{self, PromptKind};
 use super::reflow::resize_buffer_rows;
 use super::reflow_trace::{ResizeTrace, trace_resize};
 use super::scrollback::{ResizeOptions, Scrollback, resize_lazy_with_options};
-use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
+use super::search::{SearchMatch, SearchOptions, SearchRow, SearchScope, search_rows_scoped};
 use super::snapshot_envelope::{
     SnapshotBasicModes, SnapshotEnvelope, SnapshotEnvelopeError, SnapshotLayoutState,
     SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion, SnapshotTerminalState,
@@ -1395,15 +1395,26 @@ impl Screen {
             return;
         }
 
+        // Cursor movement, editing, and the save/restore/margin commands exist
+        // only in their plain form, with no private marker (`?`, `>`, `<`, `=`)
+        // and no intermediate byte. Other forms ending in the same final byte
+        // are different commands this terminal does not implement (xterm's
+        // `CSI ? Pm s` / `CSI ? Pm r` save and restore private modes, and
+        // `CSI Ps SP @` / `CSI Ps SP A` shift columns), so they are ignored
+        // rather than run as the plain command: `CSI ? 25 s` must not
+        // overwrite the saved cursor, and `CSI > 2 A` must not move it.
+        let plain = intermediates.is_empty();
         match action {
-            'A' => self.move_up(param_or_one(params, 0)),
-            'B' => self.move_down(param_or_one(params, 0)),
-            'C' => self.move_right(param_or_one(params, 0)),
-            'D' => self.move_left(param_or_one(params, 0)),
-            'E' => self.move_next_line(param_or_one(params, 0)),
-            'F' => self.move_previous_line(param_or_one(params, 0)),
-            'G' => self.move_to(self.cursor.row + 1, param_or_one(params, 0)),
-            'H' | 'f' => self.move_to_origin(param_or_one(params, 0), param_or_one(params, 1)),
+            'A' if plain => self.move_up(param_or_one(params, 0)),
+            'B' if plain => self.move_down(param_or_one(params, 0)),
+            'C' if plain => self.move_right(param_or_one(params, 0)),
+            'D' if plain => self.move_left(param_or_one(params, 0)),
+            'E' if plain => self.move_next_line(param_or_one(params, 0)),
+            'F' if plain => self.move_previous_line(param_or_one(params, 0)),
+            'G' if plain => self.move_to(self.cursor.row + 1, param_or_one(params, 0)),
+            'H' | 'f' if plain => {
+                self.move_to_origin(param_or_one(params, 0), param_or_one(params, 1))
+            }
             // SU/SD are the unprefixed forms only. A private-parameter or
             // `>`-prefixed sequence ending in `S`/`T` is a different command
             // entirely, and treating it as a scroll destroys screen content in
@@ -1422,22 +1433,22 @@ impl Screen {
             // Unhandled here means no reply, which is the correct answer for a
             // query this terminal does not implement: a client that gets no
             // XTSMGRAPHICS response falls back to its own defaults.
-            'S' if intermediates.is_empty() => self.scroll_region_up(param_or_one(params, 0)),
-            'T' if intermediates.is_empty() => self.scroll_region_down(param_or_one(params, 0)),
-            '@' => self.insert_chars(param_or_one(params, 0)),
-            'b' => self.repeat_char(param_or_one(params, 0)),
+            'S' if plain => self.scroll_region_up(param_or_one(params, 0)),
+            'T' if plain => self.scroll_region_down(param_or_one(params, 0)),
+            '@' if plain => self.insert_chars(param_or_one(params, 0)),
+            'b' if plain => self.repeat_char(param_or_one(params, 0)),
             'J' if intermediates == b"?" => self.selective_erase_display(param_or(params, 0, 0)),
-            'J' if intermediates.is_empty() => self.erase_display(param_or(params, 0, 0)),
+            'J' if plain => self.erase_display(param_or(params, 0, 0)),
             'K' if intermediates == b"?" => self.selective_erase_line(param_or(params, 0, 0)),
-            'K' if intermediates.is_empty() => self.erase_line(param_or(params, 0, 0)),
-            'L' => self.insert_lines(param_or_one(params, 0)),
-            'M' => self.delete_lines(param_or_one(params, 0)),
-            'P' => self.delete_chars(param_or_one(params, 0)),
-            'X' => self.erase_chars(param_or_one(params, 0)),
+            'K' if plain => self.erase_line(param_or(params, 0, 0)),
+            'L' if plain => self.insert_lines(param_or_one(params, 0)),
+            'M' if plain => self.delete_lines(param_or_one(params, 0)),
+            'P' if plain => self.delete_chars(param_or_one(params, 0)),
+            'X' if plain => self.erase_chars(param_or_one(params, 0)),
             'c' => self.device_attributes(params, intermediates),
             'n' => self.device_status_report(params, intermediates),
-            'd' => self.move_to_origin(param_or_one(params, 0), self.cursor.column + 1),
-            'g' => self.clear_tab_stop(param_or(params, 0, 0)),
+            'd' if plain => self.move_to_origin(param_or_one(params, 0), self.cursor.column + 1),
+            'g' if plain => self.clear_tab_stop(param_or(params, 0, 0)),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             // SGR is `CSI Ps … m` with no private-parameter prefix. `CSI > Ps ; Ps m`
             // is XTMODKEYS (set modifyOtherKeys), `CSI ? Ps m` is XTQMODKEYS
@@ -1448,7 +1459,7 @@ impl Screen {
             // Private/intermediate `m` forms are never rendition changes: the
             // XTMODKEYS/XTQMODKEYS arms below own `>`/`?`, everything else is
             // ignored.
-            'm' if intermediates.is_empty() => self.apply_sgr(params),
+            'm' if plain => self.apply_sgr(params),
             'm' if intermediates == b">" => self.xtmodkeys_set(params),
             'm' if intermediates == b"?" => self.xtqmodkeys_report(params),
             'p' if intermediates == b"$" || intermediates == b"?$" => {
@@ -1459,15 +1470,15 @@ impl Screen {
             'q' if intermediates == b"\"" => self.set_char_protection(param_or(params, 0, 0)),
             'q' if intermediates == b" " => self.set_cursor_style(param_or(params, 0, 0)),
             'r' if intermediates == b"$" => self.change_rect_attrs(params),
-            'r' => self.set_scroll_region(params),
-            's' => self.save_cursor(),
-            't' if intermediates.is_empty() => self.window_ops_report(params),
+            'r' if plain => self.set_scroll_region(params),
+            's' if plain => self.save_cursor(),
+            't' if plain => self.window_ops_report(params),
             't' if intermediates == b"$" => self.reverse_rect_attrs(params),
             'u' if intermediates == b"?" => self.kitty_keyboard_query(params, intermediates),
             'u' if intermediates == b">" => self.kitty_keyboard_push(params, intermediates),
             'u' if intermediates == b"<" => self.kitty_keyboard_pop(params, intermediates),
             'u' if intermediates == b"=" => self.kitty_keyboard_set(params, intermediates),
-            'u' => self.restore_cursor(),
+            'u' if plain => self.restore_cursor(),
             'v' if intermediates == b"$" => self.copy_rect(params),
             'x' if intermediates == b"*" => self.set_rect_attr_extent(param_or(params, 0, 0)),
             'x' if intermediates == b"$" => self.fill_rect(params),
@@ -1633,6 +1644,13 @@ impl VtDispatch for Screen {
 
     fn unhook(&mut self) {
         self.dispatch_dcs_unhook();
+    }
+
+    fn cancel_hook(&mut self) {
+        // CAN/SUB abandon the string: drop the capture so no Sixel is placed
+        // and no DECRQSS/XTGETTCAP reply is sent.
+        self.dcs_query = None;
+        self.dcs_capture = None;
     }
 
     fn apc_dispatch(&mut self, data: &[u8]) {

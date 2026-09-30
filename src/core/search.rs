@@ -115,6 +115,22 @@ fn fold_char(ch: char) -> char {
     ch.to_lowercase().next().unwrap_or(ch)
 }
 
+/// An inclusive absolute cell range a search is limited to: only matches that
+/// start at or after `start` and end at or before `end` are returned (the
+/// command-output scope of the search overlay).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchScope {
+    pub start: AbsolutePoint,
+    pub end: AbsolutePoint,
+}
+
+impl SearchScope {
+    fn contains(&self, found: &SearchMatch) -> bool {
+        (found.start.row, found.start.column) >= (self.start.row, self.start.column)
+            && (found.end.row, found.end.column) <= (self.end.row, self.end.column)
+    }
+}
+
 /// Search the combined buffer `rows` for `query`, returning every
 /// non-overlapping match in reading order (top-to-bottom, left-to-right). The
 /// result is sorted ascending by `start`, which [`find_next`]/[`find_prev`] rely
@@ -123,6 +139,19 @@ pub fn search_rows(
     rows: &[SearchRow<'_>],
     query: &str,
     options: SearchOptions,
+) -> Vec<SearchMatch> {
+    search_rows_scoped(rows, query, options, None)
+}
+
+/// [`search_rows`] limited to `scope`. The scope and the
+/// [`MAX_SEARCH_MATCHES`] budget both apply while matches are found, so a
+/// scope that follows more than the budget of earlier matches still reports
+/// its own, and one very long logical line cannot overshoot the budget.
+pub fn search_rows_scoped(
+    rows: &[SearchRow<'_>],
+    query: &str,
+    options: SearchOptions,
+    scope: Option<SearchScope>,
 ) -> Vec<SearchMatch> {
     let mut matches = Vec::new();
     if query.is_empty() {
@@ -136,6 +165,10 @@ pub fn search_rows(
 
     let mut units: Vec<Unit> = Vec::new();
     let mut scratch = SearchScratch::default();
+    let mut sink = MatchSink {
+        scope,
+        out: &mut matches,
+    };
 
     for (abs_row, row) in rows.iter().enumerate() {
         let cells = row.cells;
@@ -159,21 +192,25 @@ pub fn search_rows(
         }
 
         if !row.wrapped {
-            flush_line(
-                &units,
-                &query_chars,
-                options.case_sensitive,
-                &mut scratch,
-                &mut matches,
-            );
+            // A logical line that ends above the scope holds no match inside it.
+            if scope.is_none_or(|scope| abs_row >= scope.start.row) {
+                flush_line(
+                    &units,
+                    &query_chars,
+                    options.case_sensitive,
+                    &mut scratch,
+                    &mut sink,
+                );
+            }
             units.clear();
             // Bounded work: a broadly-matching query (a single space, a common
             // letter) against a large scrollback would otherwise allocate one
             // match per occurrence with no ceiling, synchronously on the UI
-            // thread. Stop once the cap is reached; navigation never needs more
-            // than a bounded window of matches.
-            if matches.len() >= MAX_SEARCH_MATCHES {
-                matches.truncate(MAX_SEARCH_MATCHES);
+            // thread. Stop once the budget is spent; navigation never needs
+            // more than a bounded window of matches. A logical line that ends
+            // past the scope cannot hold a match inside it, and neither can
+            // any later line.
+            if sink.full() || scope.is_some_and(|scope| abs_row >= scope.end.row) {
                 return matches;
             }
         }
@@ -185,12 +222,33 @@ pub fn search_rows(
             &query_chars,
             options.case_sensitive,
             &mut scratch,
-            &mut matches,
+            &mut sink,
         );
-        matches.truncate(MAX_SEARCH_MATCHES);
     }
 
     matches
+}
+
+/// Collects matches that fall inside the optional scope, up to
+/// [`MAX_SEARCH_MATCHES`].
+struct MatchSink<'a> {
+    scope: Option<SearchScope>,
+    out: &'a mut Vec<SearchMatch>,
+}
+
+impl MatchSink<'_> {
+    fn full(&self) -> bool {
+        self.out.len() >= MAX_SEARCH_MATCHES
+    }
+
+    /// Record `found` when it is in scope. Returns `false` once the budget is
+    /// spent, so the caller stops scanning.
+    fn push(&mut self, found: SearchMatch) -> bool {
+        if self.scope.is_none_or(|scope| scope.contains(&found)) {
+            self.out.push(found);
+        }
+        !self.full()
+    }
 }
 
 /// Upper bound on matches a single search returns. A broadly-matching query
@@ -205,7 +263,7 @@ fn flush_line(
     query_chars: &[char],
     case_sensitive: bool,
     scratch: &mut SearchScratch,
-    out: &mut Vec<SearchMatch>,
+    out: &mut MatchSink<'_>,
 ) {
     // Trim trailing blank cells (row padding); interior blanks are preserved.
     let mut keep = units.len();
@@ -240,7 +298,7 @@ fn flush_line(
         if scratch.folded[i..i + qlen] == *query_chars {
             let start_unit = &units[scratch.owners[i]];
             let end_unit = &units[scratch.owners[i + qlen - 1]];
-            out.push(SearchMatch {
+            let found = SearchMatch {
                 start: AbsolutePoint {
                     row: start_unit.row,
                     column: start_unit.start_col,
@@ -249,7 +307,10 @@ fn flush_line(
                     row: end_unit.row,
                     column: end_unit.end_col,
                 },
-            });
+            };
+            if !out.push(found) {
+                return;
+            }
             i += qlen; // non-overlapping
         } else {
             i += 1;

@@ -34,6 +34,7 @@ enum Event {
     },
     Put(u8),
     Unhook,
+    CancelHook,
     Apc(Vec<u8>),
 }
 
@@ -90,6 +91,10 @@ impl VtDispatch for Recorder {
 
     fn unhook(&mut self) {
         self.events.push(Event::Unhook);
+    }
+
+    fn cancel_hook(&mut self) {
+        self.events.push(Event::CancelHook);
     }
 
     fn apc_dispatch(&mut self, data: &[u8]) {

@@ -148,6 +148,13 @@ pub trait VtDispatch {
     /// The active Device Control String terminated.
     fn unhook(&mut self) {}
 
+    /// The active Device Control String was cancelled by CAN or SUB. The
+    /// handler selected by [`Self::hook`] must discard what it collected
+    /// without acting on it; the cancel byte then arrives through
+    /// [`Self::execute`]. The default does nothing, which suits dispatchers
+    /// that keep no DCS state.
+    fn cancel_hook(&mut self) {}
+
     /// An Application Program Command (`ESC _ … ST`) payload was received.
     ///
     /// The terminal core consumes it: `Screen`'s impl forwards to `dispatch_apc`

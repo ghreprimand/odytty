@@ -127,7 +127,8 @@ impl OdyParser {
                 }
                 i += 1;
                 // Only the APC cancel path leaves stale data behind — every
-                // OSC exit and every ApcEnd dispatches+clears in `apply`. So
+                // OSC exit (dispatched or cancelled) and every ApcEnd clears
+                // its buffer in `apply`. So
                 // the per-byte cleanup is one boolean check.
                 if was_apc && self.machine.state != State::ApcString {
                     self.apc_raw.clear();
@@ -161,8 +162,8 @@ impl OdyParser {
             ),
             Action::DcsPut(byte) => sink.put(byte),
             Action::DcsUnhook => sink.unhook(),
-            Action::DcsUnhookExecute(byte) => {
-                sink.unhook();
+            Action::DcsCancelExecute(byte) => {
+                sink.cancel_hook();
                 sink.execute(byte);
             }
             Action::OscPut(byte) => self.osc_put(byte),
@@ -170,8 +171,8 @@ impl OdyParser {
             Action::OscEnd { bell } => {
                 self.osc_dispatch_now(sink, bell);
             }
-            Action::OscEndExecute { bell, byte } => {
-                self.osc_dispatch_now(sink, bell);
+            Action::OscCancelExecute(byte) => {
+                self.osc_discard();
                 sink.execute(byte);
             }
             Action::ApcPut(byte) => self.apc_put(byte),
@@ -186,8 +187,9 @@ impl OdyParser {
     }
 
     // The advance loop above handles APC-cancel buffer cleanup inline; every
-    // OSC exit dispatches+clears via `osc_dispatch_now` (OscEnd / OscEndExecute
-    // actions), so no separate OSC transition handler is needed.
+    // OSC exit clears its buffer, via `osc_dispatch_now` (OscEnd) or
+    // `osc_discard` (OscCancelExecute), so no separate OSC transition handler
+    // is needed.
 
     // ----- OSC helpers -----
 
@@ -256,6 +258,13 @@ impl OdyParser {
             *slot = &self.osc_raw[start..end];
         }
         sink.osc_dispatch(&slices[..count], bell);
+        self.osc_raw.clear();
+        self.osc_num_params = 0;
+    }
+
+    /// Drop a cancelled OSC string: CAN/SUB abandon the command, so none of
+    /// its parameters reach the sink.
+    fn osc_discard(&mut self) {
         self.osc_raw.clear();
         self.osc_num_params = 0;
     }
