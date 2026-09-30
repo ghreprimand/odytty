@@ -885,15 +885,20 @@ impl App {
             // Manage Sessions: the kill was confirmed. Terminate the host and
             // reopen the manager so the now-dead row disappears. A stale/missing
             // socket is treated as already-gone by `kill_session` (Ok), so a
-            // double-kill or a race with idle-timeout never panics. The dialog
-            // already closed itself before emitting this.
+            // double-kill or a race with idle-timeout stays quiet; a host that
+            // is alive but does not answer is reported and stays listed. The
+            // dialog already closed itself before emitting this.
             OverlayOutcome::KillSessionConfirmed(id) => {
                 self.flush_pending_overlay_settings();
                 // Killing a detached session goes through the Unix-only
                 // session-host registry; on Windows there are no detached
                 // sessions, so this is a no-op (the overlay still refreshes).
                 #[cfg(unix)]
-                let _ = crate::session_host::kill_session(None, &id);
+                if crate::session_host::kill_session(None, &id).is_err() {
+                    self.raise_open_notice(
+                        "The session did not respond and is still running".to_owned(),
+                    );
+                }
                 #[cfg(not(unix))]
                 let _ = &id;
                 self.open_session_attach_overlay();

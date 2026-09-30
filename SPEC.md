@@ -1742,9 +1742,14 @@ scope rather than silently inheriting deferred work from a prior release.
   opening a second copy, and otherwise a New-tab / Replace-current dialog
   chooses placement (Replace attaches the new session, then cleanly detaches the
   old hosted tab so it stays reattachable). Right-clicking a row requests a kill
-  with a "Terminate session" confirm; on confirm OdyTTY kills the host (a stale
-  socket is treated as already-gone) and reopens the manager so the dead row
-  disappears. On Windows live local and integrated SSH rows remain available;
+  with a "Terminate session" confirm; on confirm OdyTTY kills the host (a
+  missing or stale socket is treated as already-gone) and reopens the manager
+  so the dead row disappears. A host that is alive but does not answer within
+  the two-second handshake deadline stays listed and raises a "did not respond"
+  notice. Listing detached sessions never attaches or waits: each socket gets
+  one nonblocking, handshake-free connect probe, a host that does not take it
+  is listed as `unresponsive`, and a registry that cannot be read raises a
+  notice instead of showing no detached sessions. On Windows live local and integrated SSH rows remain available;
   detached attachment and preview stay unavailable until a Windows detached
   session-host surface exists.
 

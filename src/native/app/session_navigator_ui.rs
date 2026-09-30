@@ -26,11 +26,14 @@ impl App {
             self.close_search(true);
         }
         let mut entries = live_entries(&self.sessions, self.settings.navigator_preview);
+        // Listing is nonblocking (one handshake-free connect probe per
+        // socket), so it stays on the opening path. A registry failure is
+        // shown instead of reading as "no detached sessions".
         #[cfg(unix)]
-        append_detached(
-            &mut entries,
-            crate::session_host::list_live_sessions(None).unwrap_or_default(),
-        );
+        match crate::session_host::list_live_sessions(None) {
+            Ok(detached) => append_detached(&mut entries, detached),
+            Err(_) => self.raise_open_notice("Detached sessions could not be listed".to_owned()),
+        }
         #[cfg(not(unix))]
         let _ = &mut entries;
         self.reset_pointer_state_for_overlay();

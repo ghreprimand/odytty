@@ -146,17 +146,25 @@ impl AttachClient {
         deadline: Duration,
     ) -> Result<(Self, AttachReader, Terminal)> {
         validate_socket_parent(socket_path)?;
-        let mut stream = UnixStream::connect(socket_path)
+        // One deadline covers connect, hello write, and hello read. The connect
+        // is nonblocking (see `session_host::connect`): a full listen backlog
+        // must not block before any deadline applies.
+        let hello_end = Instant::now() + deadline;
+        let mut stream = crate::session_host::connect::connect_within(socket_path, deadline)
             .with_context(|| format!("connect session-host {}", socket_path.display()))?;
-        write_client_hello(&mut stream, &ClientHello::current(session_id))
-            .context("write session-host client hello")?;
+        crate::session_host::connect::bound_hello_write(&stream, hello_end, || {
+            let mut writer = &stream;
+            write_client_hello(&mut writer, &ClientHello::current(session_id))
+        })
+        .context("bound session-host client hello")?
+        .context("write session-host client hello")?;
         // C-2: bound the hello read by the attach budget. `connect` succeeds
         // against a wedged host via the listen backlog even though the host never
         // `accept()`s, so an unbounded read here freezes the MAIN THREAD forever
         // (session manager, kill-session, and launch restore all attach on it).
         // Scope the deadline reader so its borrow ends before the snapshot read.
         {
-            let mut guarded = SocketReadDeadline::new(&stream, Instant::now() + deadline);
+            let mut guarded = SocketReadDeadline::new(&stream, hello_end);
             read_host_hello(&mut guarded)
         }
         .context("read session-host hello")?

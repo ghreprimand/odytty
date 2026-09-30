@@ -203,7 +203,7 @@ pub fn bind_listener(socket_path: &Path, lock_path: &Path) -> Result<(UnixListen
 }
 
 pub fn cleanup_stale_socket(socket_path: &Path) -> Result<()> {
-    match UnixStream::connect(socket_path) {
+    match super::connect::connect_within(socket_path, Duration::ZERO) {
         Ok(_) => bail!(
             "session-host socket already has a live peer: {}",
             socket_path.display()

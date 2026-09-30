@@ -1127,8 +1127,13 @@ odytty attach --diagnostic ID
 
 `new --detached` starts a local session-host process and prints `id=...`. `list`
 prints one tab-separated row per live session: its title or id, pane count,
-humanized age, and a trailing id in parentheses when the title differs. It
-never prints scrollback or command output. `attach [ID]` reattaches a detached
+humanized age, and a trailing id in parentheses when the title differs. A
+session whose host exists but does not take a connection (for example, a host
+that stopped accepting clients) is still listed, with a final `unresponsive`
+field. Listing never attaches: it makes one nonblocking connect per socket and
+closes it without a handshake, so it neither waits on a stuck host nor makes a
+host encode a snapshot, and it examines at most 4096 runtime-directory entries.
+It never prints scrollback or command output. `attach [ID]` reattaches a detached
 session in a live native window; without an id it attaches the sole live session
 or lists the choices. The window opens its normal initial local session, adds
 the hosted session as a focused tab repainted from the host snapshot, and

@@ -1297,9 +1297,12 @@ alongside workspaces, tabs, and panes (see
 [v0.14.0-session-navigator.md](v0.14.0-session-navigator.md)). Choosing an
 already-open session switches to its tab; another session prompts for **New
 tab** or **Replace**. Stale or errored registry entries show
-`session unavailable` and cannot be attached.
+`session unavailable` and cannot be attached. A host that exists but does not
+take a connection is listed as `unresponsive`; opening the navigator never
+waits on it.
 
-Press `X` on a detached session to kill it after confirmation. **Detach &
+Press `X` on a detached session to kill it after confirmation. A host that does
+not answer is reported with a notice and stays listed. **Detach &
 switch** gives the focused pane's working directory to a fresh managed session.
 
 Right-clicking a navigator row opens a context menu with only the actions that

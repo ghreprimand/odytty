@@ -36,16 +36,24 @@ impl SessionHostClient {
         hello_deadline: Duration,
     ) -> Result<Self> {
         validate_socket_parent(socket_path)?;
-        let mut stream = UnixStream::connect(socket_path)
+        // One deadline covers connect, hello write, and hello read. The connect
+        // is nonblocking: a wedged host with a full listen backlog would
+        // otherwise block the calling thread before any deadline applied.
+        let hello_end = Instant::now() + hello_deadline;
+        let stream = super::connect::connect_within(socket_path, hello_deadline)
             .with_context(|| format!("connect session-host {}", socket_path.display()))?;
-        write_client_hello(&mut stream, &ClientHello::current(session_id))
-            .context("write session-host client hello")?;
+        super::connect::bound_hello_write(&stream, hello_end, || {
+            let mut writer = &stream;
+            write_client_hello(&mut writer, &ClientHello::current(session_id))
+        })
+        .context("bound session-host client hello")?
+        .context("write session-host client hello")?;
         // C-2: bound the hello read. `connect` succeeds against a wedged host via
         // the listen backlog even though the host never `accept()`s, so an
         // unbounded read here would freeze the calling thread forever. Scope the
         // deadline reader so the borrow ends before the stream is stored.
         {
-            let mut guarded = SocketReadDeadline::new(&stream, Instant::now() + hello_deadline);
+            let mut guarded = SocketReadDeadline::new(&stream, hello_end);
             read_host_hello(&mut guarded)
         }
         .context("read session-host hello")?

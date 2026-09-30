@@ -260,13 +260,20 @@ fn format_listed_session(session: &ListedSession) -> String {
         format!("{} panes", session.pane_count)
     };
     let age = humanize_age_ms(session.age_ms);
-    if session.name == session.id {
+    let row = if session.name == session.id {
         format!("{label}\t{pane_label}\t{age}")
     } else {
         format!(
             "{label}\t{pane_label}\t{age}\t({})",
             display_field_value(&session.id)
         )
+    };
+    // Running rows keep their established shape; any other state (a host
+    // that exists but did not take the listing probe) is named at the end.
+    if session.state == "running" {
+        row
+    } else {
+        format!("{row}\t{}", session.state)
     }
 }
 

@@ -129,6 +129,49 @@ fn read_session_metadata_text(path: &Path) -> io::Result<String> {
     })
 }
 
+/// Directory entries examined per listing. The runtime directory is private
+/// to the user, but a runaway producer must still not turn one Navigator open
+/// into an unbounded walk.
+pub(super) const MAX_REGISTRY_ENTRIES_EXAMINED: usize = 4096;
+
+/// How a session socket answered a liveness probe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SocketLiveness {
+    /// A host accepted the connection.
+    Listening,
+    /// No host is listening: the socket is missing or stale.
+    Absent,
+    /// A host may exist but did not take the connection (for example a full
+    /// listen backlog), or the probe failed for another reason.
+    Unresponsive,
+}
+
+/// Probe a session socket without a handshake. The probe makes one
+/// nonblocking connect attempt and closes it at once: no hello is sent, so the
+/// host never captures or encodes a snapshot for a listing, and a wedged host
+/// cannot make the caller wait.
+pub(super) fn probe_socket(socket_path: &Path) -> SocketLiveness {
+    match super::connect::connect_within(socket_path, Duration::ZERO) {
+        Ok(_) => SocketLiveness::Listening,
+        Err(error) if is_absent_socket_error(&error) => SocketLiveness::Absent,
+        Err(_) => SocketLiveness::Unresponsive,
+    }
+}
+
+/// Connect errors that mean no host is serving the socket.
+fn is_absent_socket_error(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::NotFound
+        || matches!(
+            error.raw_os_error(),
+            Some(libc::ECONNREFUSED | libc::ENOENT)
+        )
+}
+
+/// List detached sessions. Each socket is classified with [`probe_socket`];
+/// stale sockets are skipped, and a host that exists but does not take the
+/// connection is listed as `unresponsive` rather than hidden. Listing never
+/// attaches, never waits on a host, and examines at most
+/// [`MAX_REGISTRY_ENTRIES_EXAMINED`] directory entries.
 pub fn list_live_sessions(runtime_base: Option<&Path>) -> Result<Vec<ListedSession>> {
     let Some(runtime_dir) = existing_runtime_dir(runtime_base)? else {
         return Ok(Vec::new());
@@ -137,6 +180,7 @@ pub fn list_live_sessions(runtime_base: Option<&Path>) -> Result<Vec<ListedSessi
     let mut sessions = Vec::new();
     for entry in fs::read_dir(&runtime_dir)
         .with_context(|| format!("read session runtime dir {}", runtime_dir.display()))?
+        .take(MAX_REGISTRY_ENTRIES_EXAMINED)
     {
         // Per-entry failures skip THAT entry: one unreadable dirent, invalid
         // socket path, or corrupt metadata file must not abort the whole
@@ -154,11 +198,11 @@ pub fn list_live_sessions(runtime_base: Option<&Path>) -> Result<Vec<ListedSessi
         let Ok(socket_path) = session_socket_path(&runtime_dir, id) else {
             continue;
         };
-        let Ok(mut client) = SessionHostClient::connect(&socket_path, id) else {
-            continue;
+        let state = match probe_socket(&socket_path) {
+            SocketLiveness::Listening => "running",
+            SocketLiveness::Unresponsive => "unresponsive",
+            SocketLiveness::Absent => continue,
         };
-        let _ = client.read_frame(Duration::from_millis(200));
-        let _ = client.detach();
         // A live session with unreadable metadata still lists, using the
         // id-derived fallbacks below, rather than failing the whole listing.
         let metadata = read_session_metadata(&runtime_dir, id).unwrap_or(None);
@@ -172,7 +216,7 @@ pub fn list_live_sessions(runtime_base: Option<&Path>) -> Result<Vec<ListedSessi
                 .as_ref()
                 .map(|metadata| metadata.name.clone())
                 .unwrap_or_else(|| id.to_owned()),
-            state: "running",
+            state,
             age_ms: now.saturating_sub(created_unix_ms),
             pane_count: metadata
                 .as_ref()
@@ -188,9 +232,15 @@ pub fn list_live_sessions(runtime_base: Option<&Path>) -> Result<Vec<ListedSessi
 /// Terminate a detached session by id: resolve its socket, connect, and send a
 /// [`ClientFrame::Shutdown`](super::protocol::ClientFrame::Shutdown). The host
 /// SIGHUPs its shell, exits, and unlinks the socket, so the session leaves the
-/// registry. Idempotent-ish: a missing runtime dir or a dead/absent socket means
-/// the session is already gone, which is success, not an error — so a double-kill
-/// or a race with idle-timeout never surfaces a failure. `runtime_base` is `None`
+/// registry.
+///
+/// Only a session that is provably gone counts as success without a shutdown:
+/// a missing runtime directory, or a socket that is missing or refuses the
+/// connection (no host listening), so a double-kill or a race with idle
+/// timeout stays quiet. Every other failure is returned: a host that does not
+/// answer its hello, rejects the handshake, or cannot take the connection is
+/// still alive and still listed, and the caller must say so. The connect and
+/// hello are bounded by the client's hello deadline. `runtime_base` is `None`
 /// in production (derived from `XDG_RUNTIME_DIR`); tests pass an explicit base.
 pub fn kill_session(runtime_base: Option<&Path>, id: &str) -> Result<()> {
     let Some(runtime_dir) = existing_runtime_dir(runtime_base)? else {
@@ -199,21 +249,30 @@ pub fn kill_session(runtime_base: Option<&Path>, id: &str) -> Result<()> {
     let socket_path = session_socket_path(&runtime_dir, id)?;
     let mut client = match SessionHostClient::connect(&socket_path, id) {
         Ok(client) => client,
-        // A dead or absent socket = the session is already gone. The host
-        // unlinks its socket on exit, so connect failing here is the expected
-        // "already reaped" outcome, not an error.
-        Err(_) => return Ok(()),
+        Err(error) if session_already_gone(&error) => return Ok(()),
+        Err(error) => return Err(error.context(format!("end session {id}"))),
     };
-    // Drain the post-handshake snapshot frame before sending Shutdown, exactly
-    // like `list_live_sessions`. The host writes the snapshot right after the
-    // hello; if we dropped the connection before reading it, that write would
-    // race a `BrokenPipe` and make the host exit through its error path instead
-    // of the clean Shutdown teardown. Reading one frame synchronizes past the
-    // snapshot write so the host always tears down cleanly and unlinks its
-    // socket. A read error is non-fatal — we still send the kill.
+    // Drain the post-handshake snapshot frame before sending Shutdown. The host
+    // writes the snapshot right after the hello; if we dropped the connection
+    // before reading it, that write would race a `BrokenPipe` and make the host
+    // exit through its error path instead of the clean Shutdown teardown.
+    // Reading one frame synchronizes past the snapshot write so the host always
+    // tears down cleanly and unlinks its socket. A read error is non-fatal; the
+    // kill is still sent.
     let _ = client.read_frame(Duration::from_millis(200));
-    client.shutdown()?;
+    client
+        .shutdown()
+        .with_context(|| format!("end session {id}"))?;
     Ok(())
+}
+
+/// Whether a connect failure means the session no longer exists: the root
+/// cause is the socket connect itself reporting no listener.
+fn session_already_gone(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<io::Error>())
+        .any(is_absent_socket_error)
 }
 
 fn socket_created_unix_ms(path: &Path) -> Result<u128> {

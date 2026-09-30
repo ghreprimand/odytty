@@ -224,7 +224,7 @@ pub struct SpawnedHost {
 
 pub fn spawn_host_on_demand(config: &HostConfig) -> Result<SpawnedHost> {
     let paths = config.runtime_paths()?;
-    if UnixStream::connect(&paths.socket).is_ok() {
+    if super::connect::connect_within(&paths.socket, Duration::ZERO).is_ok() {
         bail!("session-host is already running for {}", config.session_id);
     }
     validate_scrollback_bound(config.snapshot_limits)?;
@@ -1016,7 +1016,7 @@ fn spawn_client_reader(
 fn wait_for_socket(socket_path: &std::path::Path, timeout: Duration) -> Result<()> {
     let deadline = Instant::now() + timeout;
     loop {
-        match UnixStream::connect(socket_path) {
+        match super::connect::connect_within(socket_path, Duration::ZERO) {
             Ok(_) => return Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound && Instant::now() < deadline => {
                 thread::sleep(HOST_LOOP_SLEEP);
