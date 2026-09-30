@@ -244,6 +244,26 @@ impl AttachClient {
         result
     }
 
+    /// Retry a resize from the idle maintenance path without ever blocking
+    /// the calling (main) thread. The frame is sent with `MSG_DONTWAIT`: a full
+    /// send buffer (the host still stalled) returns `WouldBlock` with nothing
+    /// written, which stays a transient failure the caller retries later. The
+    /// zero-progress versus partial-progress contract is unchanged: a send that
+    /// wrote part of the frame is a `TruncatedWrite` and poisons the client.
+    pub(super) fn try_resize_now(&mut self, columns: u32, rows: u32) -> Result<()> {
+        if columns == 0 || rows == 0 {
+            bail!("session-host resize dimensions must be nonzero");
+        }
+        self.guard_not_poisoned()?;
+        let result = write_client_frame(
+            &mut NonBlockingSend(&self.stream),
+            &ClientFrame::Resize { columns, rows },
+        )
+        .context("write session-host resize frame");
+        self.note_write_result(&result);
+        result
+    }
+
     /// Reject a write onto a stream already desynced by a prior partial write.
     fn guard_not_poisoned(&self) -> Result<()> {
         if self.poisoned {
@@ -287,6 +307,49 @@ impl Drop for AttachClient {
     fn drop(&mut self) {
         // Window close without an explicit detach still leaves the host alive.
         let _ = self.detach();
+    }
+}
+
+/// A [`Write`] over the attach socket that never waits: each write is one
+/// `send` with `MSG_DONTWAIT`, so a full send buffer returns `WouldBlock`
+/// instead of parking the caller for the socket's send timeout. The flag
+/// applies to this call only, so the pump reader and the input writer sharing
+/// the socket keep their blocking semantics.
+struct NonBlockingSend<'a>(&'a UnixStream);
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const NONBLOCKING_SEND_FLAGS: libc::c_int = libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL;
+// SIGPIPE is ignored process-wide by the Rust runtime on these targets, so a
+// closed peer surfaces as `EPIPE` without the Linux-only `MSG_NOSIGNAL`.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const NONBLOCKING_SEND_FLAGS: libc::c_int = libc::MSG_DONTWAIT;
+
+impl Write for NonBlockingSend<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        use std::os::fd::AsRawFd;
+        loop {
+            // SAFETY: a valid socket fd and a readable buffer of `buf.len()`
+            // bytes that outlives the call.
+            let sent = unsafe {
+                libc::send(
+                    self.0.as_raw_fd(),
+                    buf.as_ptr().cast(),
+                    buf.len(),
+                    NONBLOCKING_SEND_FLAGS,
+                )
+            };
+            if let Ok(sent) = usize::try_from(sent) {
+                return Ok(sent);
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 

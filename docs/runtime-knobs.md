@@ -1401,10 +1401,19 @@ engages on a remote *integrated* tab; a local tab or an integration-off plain-ss
 tab pastes exactly as before. Images larger than 10 MiB (PNG-encoded) are refused
 with a one-line notice rather than uploaded.
 
+Uploads are bounded: at most two run at once (a third paste reports that
+earlier uploads are still running), the `ssh` command uses
+`ConnectTimeout=10`, and an upload still running after 120 seconds, or whose
+tab closes, is stopped with a one-line notice (nothing is shown for a closed
+tab). A stopped or failed upload may leave a partial remote file, so its path
+is cleaned up like a completed one.
+
 Uploaded files are cleaned up **best-effort** when the tab closes (an `rm -f`
-over the same connection). If the link has already dropped, cleanup cannot run
-and the file persists in the remote `/tmp` until the remote's own temp-file
-reaper removes it — OdyTTY never promises guaranteed remote deletion. **Windows:**
+over the same connection, stopped after 15 seconds). An upload that completes
+after its tab closed removes its own file the same way. If the link has
+already dropped, cleanup cannot run and the file persists in the remote `/tmp`
+until the remote's own temp-file reaper removes it; OdyTTY never promises
+guaranteed remote deletion. **Windows:**
 the upload uses the bundled `ssh.exe` the same way (no `ControlMaster` reuse, as
 OpenSSH for Windows has none), so each upload does its own connect; the clipboard
 image is read through the platform clipboard backend. A Windows *remote* is out

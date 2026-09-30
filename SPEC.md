@@ -1580,7 +1580,18 @@ scope rather than silently inheriting deferred work from a prior release.
   Because `AF_UNIX` socket paths are bounded
   (`sun_path` is 104 bytes on macOS, 108 on Linux), the host rejects a runtime
   base that would overflow the limit with a clear error rather than an opaque
-  `bind()` failure. Client detach or
+  `bind()` failure. Attach admission never blocks the host loop: at most
+  eight connections are accepted per loop pass, each client hello is read
+  without blocking under a two-second deadline, at most eight handshakes wait
+  at once (a further connection is rejected with a message), and every frame
+  the host writes (hello, snapshot, output) must finish within two seconds or
+  the client is evicted, whether the deadline passes before any byte or
+  mid-frame, so a silent, dribbling, or slow-reading connection cannot delay
+  PTY output, input, or shutdown for attached clients. Frames a client sends
+  to the host keep the client writer's policy: a zero-progress timeout drops
+  that frame and keeps the stream, and a partial write tears it down. A resize
+  frame that fails to send is retried from idle maintenance with a backoff
+  from 250 ms to 5 s, without blocking the window. Client detach or
   socket close removes only that client; the hosted PTY and bounded terminal
   model continue until the child exits or the detached idle timeout kills and
   reaps it. Public CLI commands now cover `odytty new --detached`,
@@ -1688,7 +1699,11 @@ scope rather than silently inheriting deferred work from a prior release.
   typed into the shell, so no stray command runs. The name uses operating-system
   cryptographic randomness and the POSIX remote create uses noclobber, so an
   existing path or symlink fails rather than being reused. A size cap and
-  best-effort cleanup apply, and reconnected/restored remote tabs support it. A workspace can be bound
+  best-effort cleanup apply. At most two uploads run at once; the upload `ssh`
+  uses a 10-second connect timeout and is stopped after 120 seconds or when
+  its tab closes. An upload that finishes after its tab closed removes its
+  own remote file. Reconnected and restored remote tabs support image paste.
+  A workspace can be bound
   to a saved host so **New Tab** connects there, with a **New Local Tab**
   escape.
 

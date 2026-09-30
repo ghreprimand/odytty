@@ -948,14 +948,24 @@ impl App {
                 );
                 return;
             };
-            if let Err(error) = image_paste::spawn_upload_worker(job, pending.png) {
-                // Thread exhaustion: the worker could not start, so the confirmed
-                // paste is dropped. Surface it in the pane rather than losing it
-                // silently (LOW-02).
-                tracing::warn!("image upload worker spawn failed: {error}");
-                self.write_active_banner(
-                    "\r\n\x1b[1;31m image upload failed \x1b[0m too many threads; try again\r\n",
-                );
+            match image_paste::spawn_upload_worker(job, pending.png) {
+                Ok(()) => {}
+                Err(image_paste::UploadStartError::Busy) => {
+                    // Earlier uploads are still running (possibly over a stalled
+                    // link); refuse visibly rather than piling up workers.
+                    self.write_active_banner(
+                        "\r\n\x1b[1;31m image upload failed \x1b[0m earlier uploads are still running; try again\r\n",
+                    );
+                }
+                Err(image_paste::UploadStartError::Spawn(error)) => {
+                    // Thread exhaustion: the worker could not start, so the
+                    // confirmed paste is dropped. Surface it in the pane rather
+                    // than losing it silently (LOW-02).
+                    tracing::warn!("image upload worker spawn failed: {error}");
+                    self.write_active_banner(
+                        "\r\n\x1b[1;31m image upload failed \x1b[0m too many threads; try again\r\n",
+                    );
+                }
             }
         }
     }

@@ -132,6 +132,14 @@ Development on `master`; not released. Items check off when their code is on
       discovery bounds entries examined and directories read, visits entries
       in name order, and includes symlinks to regular font files without
       following directory symlinks. Each truncation is reported.
+- [ ] Transport lifecycles are bounded: the session host reads each attach
+      hello without blocking under a deadline, accepts at most eight
+      connections per pass with at most eight pending handshakes, and gives
+      every frame a two-second whole-frame deadline; remote image uploads
+      run at most two at a time, stop at 120 seconds or when their tab
+      closes, and clean up their own remote file after a close; a failed
+      backend resize is retried with a bounded backoff while the window is
+      idle.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

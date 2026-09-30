@@ -1425,3 +1425,61 @@ fn detach_truncated_write_poisons_client_against_further_writes() {
     );
     drop(theirs);
 }
+
+/// Idle resize retry: a resize sent while the host is still stalled (send
+/// buffer full) returns at once as a transient failure without poisoning the
+/// client, and a retry after the host drains delivers exactly one frame.
+#[test]
+fn nonblocking_resize_retry_never_waits_and_recovers_after_the_host_drains() {
+    let (ours, theirs) = UnixStream::pair().expect("socketpair");
+    ours.set_nonblocking(true).expect("fill without blocking");
+    let filler = [0u8; 4096];
+    let mut filled = 0usize;
+    // Large writes first, then single bytes, so no room is left even for a
+    // 13-byte resize frame (macOS and Linux account buffer space differently).
+    for size in [filler.len(), 1] {
+        loop {
+            match std::io::Write::write(&mut &ours, &filler[..size]) {
+                Ok(written) => filled += written,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("fill: {error}"),
+            }
+        }
+    }
+    ours.set_nonblocking(false).expect("blocking again");
+    ours.set_write_timeout(Some(ATTACH_WRITE_TIMEOUT))
+        .expect("write timeout");
+    let mut client = AttachClient {
+        stream: ours,
+        detached: true,
+        poisoned: false,
+    };
+
+    let start = Instant::now();
+    let error = client
+        .try_resize_now(100, 30)
+        .expect_err("a full send buffer refuses the retry");
+    assert!(start.elapsed() < Duration::from_millis(200), "never waits");
+    assert!(is_transient_send_timeout(&error), "{error:#}");
+    assert!(!client.poisoned, "nothing reached the wire");
+
+    // The host drains its backlog; the retry now delivers one whole frame.
+    theirs
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("read timeout");
+    let mut drained = 0usize;
+    let mut buffer = [0u8; 4096];
+    while drained < filled {
+        let want = (filled - drained).min(buffer.len());
+        drained += std::io::Read::read(&mut &theirs, &mut buffer[..want]).expect("drain");
+    }
+    client.try_resize_now(100, 30).expect("retry succeeds");
+    let mut reader = &theirs;
+    assert!(matches!(
+        read_client_frame(&mut reader).expect("frame"),
+        ClientFrame::Resize {
+            columns: 100,
+            rows: 30
+        }
+    ));
+}

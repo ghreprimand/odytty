@@ -21,7 +21,9 @@ mod lifecycle;
 mod model;
 mod persistence;
 mod presentation;
+mod resize_retry;
 mod transport;
+pub(super) mod upload_lifecycle;
 mod window_merge;
 
 #[cfg(test)]

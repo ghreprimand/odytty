@@ -13,25 +13,55 @@
 //! path to the local clipboard so it can be pasted as an argument. On failure a
 //! one-line notice is written into the pane. Either way a redraw is woken so
 //! the result renders.
+//!
+//! The lifecycle is bounded (see `session::upload_lifecycle`): at most
+//! `MAX_CONCURRENT_UPLOADS` uploads run at once, the `ssh` child is killed
+//! and reaped at [`UPLOAD_DEADLINE`] or as soon as the tab closes, and a
+//! worker that finishes after its tab closed removes its own remote file.
 
 use std::process::{Command, Stdio};
 
 use super::super::pty::UserEvent;
 use super::super::session::RemoteUploadJob;
+use super::super::session::upload_lifecycle::{
+    BoundedExit, UPLOAD_DEADLINE, UPLOAD_SLOTS, UploadSettlement, run_bounded, settle_upload,
+    spawn_remote_cleanup,
+};
 use crate::native::lock_recover;
+
+/// Why a confirmed paste did not start a worker.
+pub(super) enum UploadStartError {
+    /// `MAX_CONCURRENT_UPLOADS` uploads are already running.
+    Busy,
+    /// The worker thread could not be created.
+    Spawn(std::io::Error),
+}
 
 /// Hand a confirmed image paste to a background upload worker. Fire-and-forget:
 /// the worker owns every handle in `job`, so the caller returns immediately.
 ///
-/// Returns the thread-spawn result: under thread exhaustion the worker cannot
-/// be created, and the confirmed paste would otherwise be lost with no sign.
-/// The caller surfaces a visible failure notice in that case (LOW-02).
-pub(super) fn spawn_upload_worker(job: RemoteUploadJob, png: Vec<u8>) -> std::io::Result<()> {
-    crate::spawn_util::spawn_named("odytty-image-upload", move || run_upload(job, png))?;
+/// Returns why no worker started: every upload slot is busy, or under thread
+/// exhaustion the worker cannot be created. The confirmed paste would
+/// otherwise be lost with no sign, so the caller surfaces a visible notice in
+/// either case (LOW-02).
+pub(super) fn spawn_upload_worker(
+    job: RemoteUploadJob,
+    png: Vec<u8>,
+) -> Result<(), UploadStartError> {
+    let slot = UPLOAD_SLOTS.try_acquire().ok_or(UploadStartError::Busy)?;
+    crate::spawn_util::spawn_named("odytty-image-upload", move || {
+        let _slot = slot;
+        run_upload(job, png);
+    })
+    .map_err(UploadStartError::Spawn)?;
     Ok(())
 }
 
 fn run_upload(job: RemoteUploadJob, png: Vec<u8>) {
+    if lock_recover(&job.uploaded).is_closed() {
+        // The tab closed before the worker started; nothing was sent.
+        return;
+    }
     let remote_path = match crate::ssh_connect::remote_upload_target() {
         Ok(path) => path,
         Err(error) => {
@@ -39,14 +69,22 @@ fn run_upload(job: RemoteUploadJob, png: Vec<u8>) {
             return;
         }
     };
-    match perform_upload(&job, &png, &remote_path) {
-        Ok(()) => {
-            // Register the path for best-effort cleanup on tab close, then hand
-            // the completion to the main thread: it posts an in-pane notice and
-            // copies the path to the local clipboard. Nothing is typed into the
-            // shell. Clipboard I/O is main-thread/UI-bound on some platforms, so
-            // it must not run on this worker.
-            lock_recover(&job.uploaded).push(remote_path.clone());
+    let outcome = perform_upload(&job, &png, &remote_path);
+    let settlement = settle_upload(&job.uploaded, remote_path.clone(), outcome, |paths| {
+        spawn_remote_cleanup(
+            &job.destination,
+            job.port,
+            job.control_dir.as_deref(),
+            &paths,
+        );
+    });
+    match settlement {
+        UploadSettlement::Delivered => {
+            // The path is recorded for cleanup on tab close. Hand the completion
+            // to the main thread: it posts an in-pane notice and copies the path
+            // to the local clipboard. Nothing is typed into the shell.
+            // Clipboard I/O is main-thread/UI-bound on some platforms, so it
+            // must not run on this worker.
             if let Some(proxy) = job.proxy.as_ref() {
                 let _ = proxy.send_event(UserEvent::ImageUploaded {
                     session: job.session,
@@ -54,7 +92,8 @@ fn run_upload(job: RemoteUploadJob, png: Vec<u8>) {
                 });
             }
         }
-        Err(reason) => report_upload_failure(&job, reason),
+        UploadSettlement::Failed(reason) => report_upload_failure(&job, reason),
+        UploadSettlement::TabClosed => {}
     }
 }
 
@@ -139,15 +178,21 @@ fn stream_upload(
     // C13: the upload streams over console `ssh.exe` for seconds; suppress its
     // console window on the GUI-subsystem binary (no-op on non-Windows).
     super::win_spawn::apply_no_console_window(&mut command);
-    let status = command
-        .status()
-        .map_err(|err| format!("ssh spawn: {err}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(match status.code() {
+    let child = command.spawn().map_err(|err| format!("ssh spawn: {err}"))?;
+    // Bounded wait: killed and reaped at the deadline or when the tab closes.
+    match run_bounded(child, UPLOAD_DEADLINE, || {
+        lock_recover(&job.uploaded).is_closed()
+    }) {
+        BoundedExit::Exited(status) if status.success() => Ok(()),
+        BoundedExit::Exited(status) => Err(match status.code() {
             Some(code) => format!("ssh exited {code}"),
             None => "ssh terminated by signal".to_owned(),
-        })
+        }),
+        BoundedExit::TimedOut => Err(format!(
+            "no response within {} s; the transfer was stopped",
+            UPLOAD_DEADLINE.as_secs()
+        )),
+        BoundedExit::Cancelled => Err("the tab closed during the upload".to_owned()),
+        BoundedExit::WaitFailed(error) => Err(format!("ssh wait failed: {error}")),
     }
 }

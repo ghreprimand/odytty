@@ -229,6 +229,7 @@ mod profile_manager_ui;
 mod read_only_label;
 mod read_only_pane;
 mod replay_isolation;
+mod resize_retry_app;
 mod restore_theme;
 mod scrollback_export;
 mod scrollback_export_app;

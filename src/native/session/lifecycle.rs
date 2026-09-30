@@ -101,62 +101,31 @@ pub(super) fn held_exit_banner(code: Option<i32>) -> String {
 
 impl Session {
     /// Fire a best-effort remote cleanup for any images this session uploaded
-    /// during its life (F6-i7). Runs the `rm -f` over a detached `ssh` (reusing
-    /// the live `ControlMaster` when available) and never waits on it, so tab
-    /// close stays instant. Best-effort by nature: if the link already dropped
-    /// the command cannot run and the remote's own `/tmp` reaper removes the
-    /// file. Compiled to a no-op under `cfg(test)` so closing a synthetic remote
-    /// tab never spawns a real `ssh`.
+    /// during its life (F6-i7). Closing the upload ledger also hands cleanup
+    /// ownership to any upload still in flight: when it finishes it removes
+    /// its own remote file. The `rm -f` runs over a detached `ssh` (reusing
+    /// the live `ControlMaster` when available) with a bounded lifetime, so
+    /// tab close stays instant. Best-effort by nature: if the link already
+    /// dropped the command cannot run and the remote's own `/tmp` reaper
+    /// removes the file. Compiled to a no-op under `cfg(test)` so closing a
+    /// synthetic remote tab never spawns a real `ssh`.
     fn fire_upload_cleanup(&self) {
         let Some(upload) = self.upload.as_ref() else {
             return;
         };
-        let paths = std::mem::take(&mut *crate::native::lock_recover(&upload.uploaded_handle()));
+        let paths = crate::native::lock_recover(&upload.uploaded_handle()).close();
         // Under `cfg(test)` the paths are simply drained (no real `ssh`); the
         // discard keeps the binding used without a trailing no-op return.
         #[cfg(test)]
         let _ = paths;
         #[cfg(not(test))]
-        if !paths.is_empty()
-            && let Some(command) = crate::ssh_connect::remote_cleanup_command(
+        if !paths.is_empty() {
+            super::upload_lifecycle::spawn_remote_cleanup(
                 upload.destination(),
                 upload.port(),
                 upload.control_dir(),
                 &paths,
-            )
-        {
-            let (program, args) = command.into_program_args();
-            let mut cleanup = std::process::Command::new(program);
-            cleanup
-                .args(args)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null());
-            // Fourth console-child spawn site: suppress the Windows console-window
-            // flash on tab close for a remote session that uploaded images. No-op
-            // off Windows. Mirrors the opener/ssh-probe/ssh-upload sites.
-            crate::native::app::win_spawn::apply_no_console_window(&mut cleanup);
-            match cleanup.spawn() {
-                Ok(child) => {
-                    // Hand the child to the shared detached reaper: it blocks in
-                    // `Child::wait` until the cleanup `ssh` exits (Dropping the
-                    // `Child` never waits, so on Unix every cleanup otherwise
-                    // left a ZOMBIE until the whole app exited, one per closed
-                    // remote tab that uploaded images). The reaper is never
-                    // joined here (close stays instant), never delays process
-                    // exit, and degrades to drop-without-wait if the reaper
-                    // thread cannot be created. On Windows there is no zombie
-                    // concept, but the reaper is harmless and keeps one behavior
-                    // on both platforms.
-                    crate::spawn_util::spawn_child_reaper("odytty-upload-cleanup-reaper", child);
-                }
-                Err(error) => {
-                    // Best-effort by design, but a failed spawn is at least
-                    // visible now instead of silently discarded; the remote's
-                    // own /tmp reaper still bounds the leak.
-                    tracing::warn!("remote upload cleanup spawn failed: {error}");
-                }
-            }
+            );
         }
     }
 

@@ -341,6 +341,10 @@ impl App {
             // Explicit silence monitors are the only pane monitor that needs a
             // wake without new terminal output. Absent unless armed.
             self.sessions.next_monitor_deadline(),
+            // A backend resize that failed is retried with a bounded backoff.
+            // Session correctness, so not gated on presentation. `None` unless
+            // a resize failed and is still pending.
+            self.sessions.next_backend_resize_retry(),
         ]
         .into_iter()
         .flatten()
@@ -681,6 +685,9 @@ impl App {
         // (non-stale) timer state. Idempotent and cheap. Paired with the
         // active-only deadline sources in `next_wake_deadline`.
         self.sessions.park_background_timers();
+        // Resend a failed backend resize once its retry is due, so a host
+        // whose stream recovered learns the size without a geometry event.
+        self.sessions.retry_backend_resizes(now);
 
         self.poll_profile_auto_switch();
 

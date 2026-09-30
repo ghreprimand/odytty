@@ -21,9 +21,10 @@ use crate::pty::PtySession;
 
 use super::pty_writer::HostPtyWriter;
 
+use super::handshake::{DeadlineWriter, HandshakeProgress, PendingHandshake, reject_nonblocking};
 use super::protocol::{
-    ClientFrame, ClientFramePoll, ClientFrameReader, HostFrame, versions_compatible,
-    write_host_frame, write_host_hello,
+    ClientFrame, ClientFramePoll, ClientFrameReader, ClientHello, HostFrame, HostHello,
+    ProtocolError, versions_compatible, write_host_frame, write_host_hello,
 };
 use super::socket::{RuntimePaths, bind_listener, runtime_paths, validate_socket_parent};
 
@@ -58,6 +59,17 @@ const MAX_CLIENT_EVENTS_PER_TICK: usize = CLIENT_EVENT_QUEUE_CAP;
 const CHILD_EXIT_DRAIN_GRACE: Duration = Duration::from_secs(2);
 const ATTACH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const ATTACH_WRITE_TIMEOUT: Duration = Duration::from_millis(500);
+/// Absolute bound on writing one host frame (hello, snapshot, output, exit).
+/// The per-write timeout above only bounds a write that makes no progress; a
+/// peer reading slowly could otherwise stretch a multi-megabyte snapshot over
+/// many successful writes while the whole host loop waits.
+const FRAME_SEND_DEADLINE: Duration = Duration::from_secs(2);
+/// Connections accepted per loop turn. The rest stay in the listen backlog
+/// until the next turn, after PTY output and client input have been served.
+const MAX_ACCEPTS_PER_TICK: usize = 8;
+/// Connections whose hello is still arriving. A connection beyond this is
+/// rejected with a visible message rather than tracked.
+const MAX_PENDING_HANDSHAKES: usize = DEFAULT_MAX_CLIENTS;
 /// Poll granularity for the post-handshake per-client reader. The reader wakes
 /// this often to check whether an in-flight frame has stalled; between whole
 /// frames a timeout is ignored, so an attached-but-idle client (a user simply
@@ -332,6 +344,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
 
     let (client_tx, client_rx) = mpsc::sync_channel(CLIENT_EVENT_QUEUE_CAP);
     let mut clients = Vec::new();
+    let mut pending: Vec<PendingHandshake> = Vec::new();
     let mut next_client_id = 1;
     let mut session_alive = true;
     let mut exit_code = None;
@@ -343,14 +356,15 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
     let mut child_gone_since: Option<Instant> = None;
 
     loop {
-        accept_pending_clients(
-            &listener,
+        accept_pending_clients(&listener, &mut pending)?;
+        advance_handshakes(
+            &mut pending,
             &mut clients,
             &mut next_client_id,
             &client_tx,
             &terminal,
             &config,
-        )?;
+        );
 
         drain_pty_events(
             &pty_rx,
@@ -449,26 +463,63 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
     }
 }
 
+/// Accept at most [`MAX_ACCEPTS_PER_TICK`] connections without reading from
+/// any of them. Each becomes a [`PendingHandshake`] whose hello is read by
+/// [`advance_handshakes`] without blocking, so a peer that connects and never
+/// finishes its hello cannot hold the loop (audit C6 still applies: a failure
+/// concerns only that one connection).
 fn accept_pending_clients(
     listener: &std::os::unix::net::UnixListener,
+    pending: &mut Vec<PendingHandshake>,
+) -> Result<()> {
+    for _ in 0..MAX_ACCEPTS_PER_TICK {
+        match listener.accept() {
+            Ok((stream, _addr)) => {
+                if pending.len() >= MAX_PENDING_HANDSHAKES {
+                    reject_nonblocking(&stream, "session-host attach queue is full");
+                    continue;
+                }
+                // A socket that cannot be made non-blocking is dropped; on
+                // macOS a peer that already closed can refuse socket options.
+                if let Ok(handshake) =
+                    PendingHandshake::new(stream, Instant::now() + ATTACH_HANDSHAKE_TIMEOUT)
+                {
+                    pending.push(handshake);
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) => return Err(error).context("accept session-host client"),
+        }
+    }
+    Ok(())
+}
+
+/// Advance every pending handshake by whatever bytes have arrived. A complete
+/// hello is admitted (or rejected) at once; a failed or expired one is
+/// rejected and dropped. Liveness probes that connect and close immediately
+/// (`wait_for_socket`, `spawn_host_on_demand`, stale-socket cleanup) fail here
+/// harmlessly.
+fn advance_handshakes(
+    pending: &mut Vec<PendingHandshake>,
     clients: &mut Vec<ClientConnection>,
     next_client_id: &mut u64,
     client_tx: &SyncSender<ClientEvent>,
     terminal: &Terminal,
     config: &HostConfig,
-) -> Result<()> {
-    loop {
-        match listener.accept() {
-            Ok((mut stream, _addr)) => {
-                // Per-connection failures (audit C6): every error out of
-                // `handle_attach` — a hello/snapshot write to a peer that died
-                // mid-handshake (BrokenPipe), a rejection write, a bounded write
-                // timing out, an fd clone failing — concerns ONLY this one
-                // connection. Propagating it (the previous `?`) tore down the
-                // whole host and killed the session for every attached client;
-                // log and drop the single connection instead, and keep serving.
+) {
+    let now = Instant::now();
+    let mut index = 0;
+    while index < pending.len() {
+        match pending[index].poll(now) {
+            HandshakeProgress::Pending => index += 1,
+            HandshakeProgress::Failed(message) => pending.swap_remove(index).reject(&message),
+            HandshakeProgress::Hello(hello) => {
+                let Ok(mut stream) = pending.swap_remove(index).into_stream() else {
+                    continue;
+                };
                 if let Err(error) = handle_attach(
                     &mut stream,
+                    &hello,
                     clients,
                     next_client_id,
                     client_tx,
@@ -478,123 +529,64 @@ fn accept_pending_clients(
                     tracing::warn!("session-host: dropping client after attach failure: {error:#}");
                 }
             }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-            Err(error) => return Err(error).context("accept session-host client"),
         }
     }
 }
 
-/// A [`Read`] adapter that enforces a single wall-clock deadline across an
-/// entire multi-read handshake. Before each underlying read it shrinks the
-/// socket's `SO_RCVTIMEO` to the remaining budget, so a peer that dribbles bytes
-/// to keep resetting the per-read timeout still hits a hard total cap; once the
-/// deadline passes, reads fail immediately.
-struct HandshakeDeadlineReader<'a> {
-    stream: &'a UnixStream,
-    deadline: Instant,
+/// Write one host frame under [`FRAME_SEND_DEADLINE`].
+fn write_frame_bounded(stream: &UnixStream, frame: &HostFrame) -> Result<(), ProtocolError> {
+    write_host_frame(
+        &mut DeadlineWriter::new(stream, FRAME_SEND_DEADLINE, ATTACH_WRITE_TIMEOUT),
+        frame,
+    )
 }
 
-impl Read for HandshakeDeadlineReader<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let now = Instant::now();
-        if now >= self.deadline {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "session-host attach handshake exceeded its total deadline",
-            ));
-        }
-        // Bound this read by the remaining total budget. Best-effort: on a dead
-        // peer macOS can reject `SO_RCVTIMEO` with `EINVAL`, in which case the
-        // read simply keeps the previously-set per-recv timeout.
-        let _ = self.stream.set_read_timeout(Some(self.deadline - now));
-        let mut source = self.stream;
-        source.read(buf)
-    }
+/// Write one host hello under [`FRAME_SEND_DEADLINE`].
+fn write_hello_bounded(stream: &UnixStream, hello: &HostHello) -> Result<(), ProtocolError> {
+    write_host_hello(
+        &mut DeadlineWriter::new(stream, FRAME_SEND_DEADLINE, ATTACH_WRITE_TIMEOUT),
+        hello,
+    )
 }
 
+/// Admit a connection whose hello has arrived: check the client cap, session
+/// id, and versions, then send the accepted hello and the snapshot, each
+/// bounded by [`FRAME_SEND_DEADLINE`].
 fn handle_attach(
     stream: &mut UnixStream,
+    hello: &ClientHello,
     clients: &mut Vec<ClientConnection>,
     next_client_id: &mut u64,
     client_tx: &SyncSender<ClientEvent>,
     terminal: &Terminal,
     config: &HostConfig,
 ) -> Result<()> {
-    // Configure the just-accepted connection for a bounded-blocking handshake.
-    //
-    // The listener is nonblocking (set in `bind_listener` so the run loop can poll
-    // `accept()`). On macOS/BSD an accept()ed connection INHERITS the listener's
-    // `O_NONBLOCK`; on Linux it does not. We clear it and apply bounded
-    // read/write deadlines so the handshake has the same blocking-with-deadline
-    // semantics on both platforms.
-    //
-    // CRUCIAL macOS/BSD divergence (the bug this guards): a connection whose peer
-    // has ALREADY closed by the time we accept it rejects `SO_RCVTIMEO` /
-    // `SO_SNDTIMEO` (i.e. `set_read_timeout` / `set_write_timeout`) with `EINVAL`
-    // on macOS, whereas the identical setsockopt SUCCEEDS on Linux. Such dead-peer
-    // connections are routine here: `wait_for_socket`, `spawn_host_on_demand`, and
-    // `cleanup_stale_socket` all `connect()` a liveness probe and drop it
-    // immediately, and that probe is frequently first in the accept backlog ahead
-    // of the real client. A probe carries no hello and is useless, so a setup
-    // failure must drop ONLY this one connection and let the accept loop keep
-    // serving. Propagating it (the previous `?`) tore down the entire host thread,
-    // so the next — real — client read EOF mid-hello ("failed to fill whole
-    // buffer"). On Linux these calls never fail, so this guard is unreachable
-    // there → byte-identical.
-    if stream.set_nonblocking(false).is_err()
-        || stream
-            .set_read_timeout(Some(ATTACH_HANDSHAKE_TIMEOUT))
-            .is_err()
-        || stream
-            .set_write_timeout(Some(ATTACH_WRITE_TIMEOUT))
-            .is_err()
+    // The stream is blocking again (see `PendingHandshake::into_stream`). On
+    // macOS/BSD a connection whose peer already closed rejects `SO_SNDTIMEO`
+    // with `EINVAL` where Linux accepts it; such a connection is useless, so
+    // only it is dropped and the host keeps serving.
+    if stream
+        .set_write_timeout(Some(ATTACH_WRITE_TIMEOUT))
+        .is_err()
     {
         return Ok(());
     }
 
-    // Guard the whole hello read with a single wall-clock deadline. The
-    // per-recv `SO_RCVTIMEO` above bounds one `read`, but `read_exact` restarts
-    // it on every partial read, so a peer returning one byte per timeout could
-    // otherwise keep the handshake — which runs inline in the single host loop —
-    // alive forever, freezing broadcast, input, and shutdown for every attached
-    // client. The deadline caps the total handshake regardless of drip rate.
-    let handshake_deadline = Instant::now() + ATTACH_HANDSHAKE_TIMEOUT;
-    let hello_result = {
-        let mut guarded = HandshakeDeadlineReader {
-            stream,
-            deadline: handshake_deadline,
-        };
-        super::protocol::read_client_hello(&mut guarded)
-    };
-    let hello = match hello_result {
-        Ok(hello) => hello,
-        Err(error) => {
-            let _ = write_host_hello(
-                stream,
-                &super::protocol::HostHello::rejected(format!("invalid hello: {error}")),
-            );
-            return Ok(());
-        }
-    };
-
     if clients.len() >= config.max_clients {
-        write_host_hello(
+        write_hello_bounded(
             stream,
-            &super::protocol::HostHello::rejected("session-host client cap reached"),
+            &HostHello::rejected("session-host client cap reached"),
         )?;
         return Ok(());
     }
     if hello.session_id != config.session_id {
-        write_host_hello(
-            stream,
-            &super::protocol::HostHello::rejected("session id mismatch"),
-        )?;
+        write_hello_bounded(stream, &HostHello::rejected("session id mismatch"))?;
         return Ok(());
     }
-    if !versions_compatible(&hello) {
-        write_host_hello(
+    if !versions_compatible(hello) {
+        write_hello_bounded(
             stream,
-            &super::protocol::HostHello::rejected(format!(
+            &HostHello::rejected(format!(
                 "incompatible protocol versions: host={} snapshot_format={} snapshot_protocol={}, expected host={} snapshot_format={} snapshot_protocol={}",
                 hello.host_protocol_version,
                 hello.snapshot_format_version,
@@ -607,26 +599,14 @@ fn handle_attach(
         return Ok(());
     }
 
-    write_host_hello(stream, &super::protocol::HostHello::accepted())?;
+    write_hello_bounded(stream, &HostHello::accepted())?;
     // Encoding is fallible for externally constructed envelopes with fields
     // exceeding their wire widths; a capture-derived envelope is structurally
     // bounded, so this only propagates on a genuine invariant break.
     let envelope = SnapshotEnvelope::from_terminal(terminal, config.snapshot_limits)
         .encode()
         .context("encode session snapshot")?;
-    write_host_frame(stream, &HostFrame::Snapshot(envelope))?;
-
-    // Handshake done. Drop the read deadline now: the per-client reader thread
-    // below reads through a `try_clone`d fd that SHARES this socket's
-    // `SO_RCVTIMEO`, so if we left the 2s handshake read-timeout in place the
-    // reader would surface a spurious timeout error every 2s and the host would
-    // detach an attached-but-quiet client (a user who simply is not typing). With
-    // it cleared the reader blocks cleanly until the next frame or a clean EOF.
-    // The bounded WRITE timeout is deliberately retained so a wedged client can
-    // never stall the host's broadcast loop. On a live socket this clear succeeds
-    // on macOS and Linux alike; if it ever did not, the reader simply keeps the
-    // old bounded behavior, so it is best-effort.
-    let _ = stream.set_read_timeout(None);
+    write_frame_bounded(stream, &HostFrame::Snapshot(envelope))?;
 
     let id = *next_client_id;
     *next_client_id += 1;
@@ -902,7 +882,7 @@ fn latest_resize_in(batch: &[ClientEvent], clients: &[ClientConnection]) -> Opti
 
 fn broadcast(clients: &mut Vec<ClientConnection>, frame: &HostFrame) {
     clients.retain_mut(|client| {
-        if write_host_frame(&mut client.stream, frame).is_ok() {
+        if write_frame_bounded(&client.stream, frame).is_ok() {
             return true;
         }
         // A failed write evicts the client, but dropping the write-side clone
@@ -1188,7 +1168,7 @@ enum ClientEvent {
 
 #[cfg(test)]
 mod hardening_tests {
-    use super::super::protocol::{HOST_PROTOCOL_MAGIC, read_client_hello};
+    use super::super::protocol::HOST_PROTOCOL_MAGIC;
     use super::*;
     use std::io::Write;
     use std::os::unix::net::UnixStream;
@@ -1478,37 +1458,66 @@ mod hardening_tests {
 
     #[test]
     fn slow_handshake_hello_is_abandoned_at_the_total_deadline() {
-        let (client, server) = UnixStream::pair().expect("socketpair");
-        server
-            .set_read_timeout(Some(ATTACH_HANDSHAKE_TIMEOUT))
-            .expect("set handshake recv timeout");
-
-        // Send only part of the protocol magic, then stall well past the
-        // deadline while keeping the connection open (so this tests the deadline,
-        // not a clean EOF).
-        let writer = thread::spawn(move || {
-            let mut client = client;
-            let _ = client.write_all(&HOST_PROTOCOL_MAGIC[..2]);
-            let _ = client.flush();
-            thread::sleep(Duration::from_millis(500));
-            drop(client);
-        });
-
+        let (mut client, server) = UnixStream::pair().expect("socketpair");
+        // Part of the magic, then silence with the connection kept open, so
+        // this exercises the deadline rather than a clean EOF.
+        client
+            .write_all(&HOST_PROTOCOL_MAGIC[..2])
+            .expect("partial magic");
         let deadline = Instant::now() + Duration::from_millis(120);
-        let mut guarded = HandshakeDeadlineReader {
-            stream: &server,
-            deadline,
-        };
-        let start = Instant::now();
-        let result = read_client_hello(&mut guarded);
-        let elapsed = start.elapsed();
+        let mut pending = PendingHandshake::new(server, deadline).expect("pending");
 
-        assert!(result.is_err(), "a stalled hello must be abandoned");
+        let start = Instant::now();
+        assert!(matches!(
+            pending.poll(Instant::now()),
+            HandshakeProgress::Pending
+        ));
         assert!(
-            elapsed < Duration::from_millis(400),
-            "handshake must give up near its deadline, not block for the full stall: {elapsed:?}"
+            start.elapsed() < Duration::from_millis(50),
+            "a poll never waits for more bytes"
         );
-        writer.join().expect("writer thread");
+        match pending.poll(deadline) {
+            HandshakeProgress::Failed(message) => assert!(message.contains("deadline")),
+            other => panic!("expected the deadline to fail the handshake, got {other:?}"),
+        }
+        drop(client);
+    }
+
+    #[test]
+    fn accepts_are_bounded_per_turn_and_excess_handshakes_are_rejected() {
+        let dir = crate::test_dirs::fresh_socket_dir("oac");
+        let path = dir.join("a.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).expect("bind");
+        listener.set_nonblocking(true).expect("nonblocking");
+        let peers: Vec<UnixStream> = (0..MAX_PENDING_HANDSHAKES + MAX_ACCEPTS_PER_TICK)
+            .map(|_| UnixStream::connect(&path).expect("connect"))
+            .collect();
+        let mut pending = Vec::new();
+
+        accept_pending_clients(&listener, &mut pending).expect("first turn");
+        assert_eq!(
+            pending.len(),
+            MAX_ACCEPTS_PER_TICK,
+            "one turn accepts a bounded batch"
+        );
+        accept_pending_clients(&listener, &mut pending).expect("second turn");
+        assert_eq!(
+            pending.len(),
+            MAX_PENDING_HANDSHAKES,
+            "pending handshakes are capped"
+        );
+
+        // Every connection past the cap was told why instead of hanging.
+        let mut rejected = 0;
+        for mut peer in peers.into_iter().skip(MAX_PENDING_HANDSHAKES) {
+            peer.set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("timeout");
+            let hello = super::super::protocol::read_host_hello(&mut peer).expect("hello");
+            assert!(hello.into_result().is_err());
+            rejected += 1;
+        }
+        assert_eq!(rejected, MAX_ACCEPTS_PER_TICK);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ---- F19: post-handshake reader timeout ----

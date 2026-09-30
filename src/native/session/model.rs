@@ -60,6 +60,8 @@ pub(in crate::native) struct Session {
     /// carrying this bit (or a newly changed geometry), then clears it after the
     /// backend accepts the final dimensions.
     pub(super) pty_resize_dirty: bool,
+    /// Idle retry schedule for a backend resize that failed.
+    pub(super) resize_retry: super::resize_retry::ResizeRetry,
     /// The host session-id string this session was attached by (Phase 14), or
     /// `None` for a locally-spawned PTY. Drives attach dedup: selecting a
     /// session already open in a tab switches to it instead of appending a

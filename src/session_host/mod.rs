@@ -14,6 +14,8 @@ mod client;
 #[cfg(unix)]
 pub(crate) mod connect;
 #[cfg(unix)]
+mod handshake;
+#[cfg(unix)]
 mod host;
 pub mod protocol;
 #[cfg(unix)]
@@ -54,6 +56,8 @@ pub use socket::{
     session_metadata_path, session_socket_path, validate_runtime_dir, validate_socket_parent,
 };
 
+#[cfg(all(test, unix))]
+mod admission_tests;
 #[cfg(all(test, unix))]
 mod liveness_tests;
 #[cfg(all(test, unix))]

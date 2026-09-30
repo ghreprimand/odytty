@@ -1287,7 +1287,9 @@ local clipboard, and does not type it into the shell.
 
 Paste the copied path with `Ctrl+Shift+V` where it belongs as a command
 argument. Uploaded files are cleaned up best-effort when the tab closes, and
-the path works for reconnected and restored remote tabs.
+the path works for reconnected and restored remote tabs. At most two uploads
+run at once, and an upload that stalls for 120 seconds or whose tab closes is
+stopped; its remote file is still cleaned up.
 
 ### Manage Detached Sessions
 

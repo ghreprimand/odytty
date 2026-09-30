@@ -30,6 +30,7 @@ use winit::platform::x11::EventLoopBuilderExtX11;
 mod lifecycle;
 mod persistence;
 mod presentation;
+mod resize_retry;
 mod stable_identity;
 mod transport;
 mod window_merge;

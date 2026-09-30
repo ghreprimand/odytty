@@ -15,6 +15,8 @@ use super::SNAPSHOT_DEADLINE;
 use super::model::{Session, SessionToken, Tab, WorkspaceSet};
 #[cfg(unix)]
 use super::persistence::per_connection_attach_budget;
+use super::resize_retry::ResizeRetry;
+use super::upload_lifecycle::UploadLedger;
 use crate::connection_hosts::ConnectionHost;
 use crate::core::{Snapshot, Terminal};
 use crate::native::app::{CursorBlinkState, SynchronizedOutputHold};
@@ -107,6 +109,8 @@ pub(in crate::native) enum SessionSource {
 pub(in crate::native) struct HeadlessSession {
     dimensions: Mutex<crate::core::Dimensions>,
     resize_calls: std::sync::atomic::AtomicUsize,
+    /// Backend resizes still to refuse, for failed-resize retry tests.
+    resize_failures: std::sync::atomic::AtomicUsize,
     cell_metrics: Mutex<Option<crate::core::CellMetrics>>,
     foreground_job: Mutex<ForegroundJob>,
 }
@@ -117,6 +121,7 @@ impl HeadlessSession {
         Self {
             dimensions: Mutex::new(dimensions),
             resize_calls: std::sync::atomic::AtomicUsize::new(0),
+            resize_failures: std::sync::atomic::AtomicUsize::new(0),
             cell_metrics: Mutex::new(None),
             foreground_job: Mutex::new(ForegroundJob::Unknown),
         }
@@ -130,6 +135,29 @@ impl HeadlessSession {
         }
         self.resize_calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Refuse the next `count` backend resizes, as a stalled transport would.
+    pub(in crate::native) fn fail_next_resizes(&self, count: usize) {
+        self.resize_failures
+            .store(count, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// [`Self::record_resize`] unless a refusal is pending; `false` when the
+    /// resize was refused and nothing was recorded.
+    pub(in crate::native) fn try_record_resize(&self, dimensions: crate::core::Dimensions) -> bool {
+        let refused = self
+            .resize_failures
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |pending| pending.checked_sub(1),
+            )
+            .is_ok();
+        if !refused {
+            self.record_resize(dimensions);
+        }
+        !refused
     }
 
     pub(in crate::native) fn record_cell_metrics(&self, metrics: crate::core::CellMetrics) {
@@ -209,10 +237,11 @@ pub(in crate::native) struct RemoteUpload {
     port: Option<u16>,
     #[cfg_attr(test, allow(dead_code))]
     control_dir: Option<std::path::PathBuf>,
-    /// Remote temp paths uploaded during this tab's life. Shared with the async
-    /// upload worker (it appends a path on a successful upload) and drained on
-    /// close to fire best-effort remote cleanup.
-    uploaded: Arc<Mutex<Vec<String>>>,
+    /// Remote temp paths this tab's uploads may have created, and whether the
+    /// tab has closed. Shared with the async upload workers: a worker records
+    /// its path, or removes the file itself once the tab has closed. Close
+    /// takes the recorded paths for best-effort remote cleanup.
+    uploaded: Arc<Mutex<UploadLedger>>,
 }
 
 impl RemoteUpload {
@@ -225,7 +254,7 @@ impl RemoteUpload {
             destination,
             port,
             control_dir,
-            uploaded: Arc::new(Mutex::new(Vec::new())),
+            uploaded: Arc::new(Mutex::new(UploadLedger::default())),
         }
     }
 
@@ -243,9 +272,9 @@ impl RemoteUpload {
         self.control_dir.as_deref()
     }
 
-    /// A clonable handle to the uploaded-paths list, handed to the async upload
-    /// worker so it can record a remote path once the transfer succeeds.
-    pub(in crate::native) fn uploaded_handle(&self) -> Arc<Mutex<Vec<String>>> {
+    /// A clonable handle to the upload ledger, handed to each async upload
+    /// worker so it can record its remote path or clean it up after close.
+    pub(in crate::native) fn uploaded_handle(&self) -> Arc<Mutex<UploadLedger>> {
         self.uploaded.clone()
     }
 }
@@ -263,7 +292,7 @@ pub(in crate::native) struct RemoteUploadJob {
     pub(in crate::native) destination: String,
     pub(in crate::native) port: Option<u16>,
     pub(in crate::native) control_dir: Option<std::path::PathBuf>,
-    pub(in crate::native) uploaded: Arc<Mutex<Vec<String>>>,
+    pub(in crate::native) uploaded: Arc<Mutex<UploadLedger>>,
     pub(in crate::native) terminal: Arc<Mutex<Terminal>>,
     pub(in crate::native) proxy: Option<EventLoopProxy<UserEvent>>,
 }
@@ -441,6 +470,7 @@ impl Session {
             writer,
             source,
             pty_resize_dirty: false,
+            resize_retry: ResizeRetry::default(),
             attached_session_id: None,
             pump_thread,
             recorder,
@@ -775,6 +805,12 @@ impl WorkspaceSet {
                     SessionSource::Headless { .. } => geometry_changed,
                 };
                 session.pty_resize_dirty |= backend_geometry_changed;
+                // A live drag holds the backend resize on purpose; the release
+                // flushes the final size, so an earlier failed attempt's retry
+                // must not push an intermediate size meanwhile.
+                if pty_policy == PtyResizePolicy::Never && backend_geometry_changed {
+                    session.resize_retry.clear();
+                }
                 // Route the kernel-side resize to whichever source backs the
                 // session. A local PTY still refreshes its pixel metrics even
                 // when the cell grid is unchanged. An attached session has no
@@ -812,12 +848,17 @@ impl WorkspaceSet {
                         SessionSource::Headless { session } => {
                             session
                                 .record_cell_metrics(crate::core::CellMetrics::new(cell_w, cell_h));
-                            session.record_resize(crate::core::Dimensions::new(cols, rows));
-                            true
+                            session.try_record_resize(crate::core::Dimensions::new(cols, rows))
                         }
                     };
                     if resize_succeeded {
                         session.pty_resize_dirty = false;
+                        session.resize_retry.clear();
+                    } else {
+                        // Retried from idle maintenance with a bounded backoff
+                        // (see `resize_retry`), not only on the next geometry
+                        // event.
+                        session.resize_retry.failed(std::time::Instant::now());
                     }
                 }
             }

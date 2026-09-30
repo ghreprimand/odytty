@@ -529,7 +529,14 @@ the most deliberate omissions.
   directory is effective-UID-owned, non-symlink, and mode `0700`. Reachability
   probes use `BatchMode=yes` so no authentication prompt can be triggered by a
   probe, with probe error output bounded at `PROBE_STDERR_CAP` = 8 KiB
-  (`src/native/app/connection_probe.rs`).
+  (`src/native/app/connection_probe.rs`). Remote image-paste uploads and their
+  cleanup are one-shot `ssh` commands with `ConnectTimeout=10`; each child is
+  killed and reaped at its deadline (120 s for an upload, 15 s for cleanup) or
+  when its tab closes, at most two uploads run at once, and an upload that
+  settles after its tab closed removes its own remote file
+  (`src/native/session/upload_lifecycle.rs`). No `BatchMode` is added there:
+  without a multiplexed master, an upload may still authenticate through the
+  user's askpass or agent.
 - **Failure behavior:** over-cap files are truncated at the entry level rather
   than partially parsed into malformed entries; unparseable lines are skipped.
 - **Diagnostic exposure:** host aliases and user names are personal data.
@@ -571,11 +578,22 @@ the most deliberate omissions.
   header before payload allocation, a fixed 16-event queue, and the same bounded
   per-pass processing rule. An attached peer therefore cannot create an
   unbounded event backlog or monopolize the loop with a continuous frame stream.
-  The writer contract distinguishes a
-  zero-progress send timeout (drop the frame, keep the stream) from a
-  partial-progress timeout (the stream is desynchronized and tears down
-  visibly), so a stalled peer cannot silently desynchronize the protocol
-  (`src/session_host/protocol.rs`). Cell and row wire sizes are fixed and
+  Admission is bounded the same way: at most eight connections are accepted
+  per pass, a hello is read without blocking under a two-second deadline and
+  consumes only its own bytes, at most eight handshakes are pending (a further
+  connection receives a rejected hello), and every host frame has a two-second
+  whole-frame deadline written in 64 KiB chunks, so a connection that never
+  sends its hello, dribbles it, or reads a snapshot slowly cannot hold the
+  loop (`src/session_host/handshake.rs`).
+  The two directions follow different write policies. For host-to-client
+  frames, a deadline hit before any byte is a plain timeout and one hit
+  mid-frame is a `TruncatedWrite`, and the host evicts the client in both
+  cases: a client that accepts nothing would otherwise stall every later
+  broadcast to the other attached clients. For client-to-host frames, the
+  writer contract distinguishes a zero-progress send timeout (drop the frame,
+  keep the stream) from a partial-progress timeout (`TruncatedWrite`: the
+  stream is desynchronized and tears down visibly), so a stalled host cannot
+  silently desynchronize the protocol (`src/session_host/protocol.rs`). Cell and row wire sizes are fixed and
   bounded (`src/core/snapshot_envelope.rs`).
 - **Failure behavior:** ownership or type validation failure aborts rather than
   proceeding. A corrupt metadata file causes that one session to list with
@@ -584,6 +602,9 @@ the most deliberate omissions.
   paths in error context include the runtime directory.
 - **Existing tests:** `src/session_host/tests.rs`, including deterministic
   stalling-writer tests that pin the progress-versus-teardown distinction;
+  `src/session_host/admission_tests.rs` measures PTY output, attach, and
+  shutdown latency against silent, dribbling, and slow-reading connections, and
+  `src/session_host/handshake.rs` pins the handshake and frame-deadline rules;
   `src/session_host/host.rs` asserts the PTY queue capacity and per-pass fairness
   budget, the client-event queue and fairness budget, and the client protocol's
   input-frame boundary; `src/native/persistence/tests.rs` asserts the exact

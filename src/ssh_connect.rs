@@ -375,6 +375,9 @@ fn random_hex_token_with(
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
+/// Connect timeout for one-shot upload and cleanup commands.
+const REMOTE_EXEC_CONNECT_TIMEOUT: &str = "ConnectTimeout=10";
+
 /// Build the argv that uploads a pasted image to a remote temp path (F6-i7).
 ///
 /// The upload runs the system `ssh` binary — the same credential-delegating
@@ -382,7 +385,7 @@ fn random_hex_token_with(
 /// that creates the file `0600` (`umask 077`) and streams the bytes from the
 /// upload process's stdin:
 ///
-/// - `ssh [-o ControlPath=…] [-p PORT] -- DEST "umask 077; set -C; cat > '<remote>'"`
+/// - `ssh -o ConnectTimeout=10 [-o ControlPath=…] [-p PORT] -- DEST "umask 077; set -C; cat > '<remote>'"`
 ///
 /// The caller wires the local PNG file to the child's stdin. `cat` (rather than
 /// `scp`) reuses the exact ssh option shape (and `ControlMaster` socket) of the
@@ -439,15 +442,21 @@ pub fn remote_cleanup_command(
 }
 
 /// Shared argv assembly for a one-shot remote command over the connect path's
-/// ssh transport: optional `ControlPath` reuse (Unix only), optional port, then
-/// `-- DEST <remote-command>`. No `-t` (these are non-interactive one-shots).
+/// ssh transport: a bounded `ConnectTimeout`, optional `ControlPath` reuse
+/// (Unix only), optional port, then `-- DEST <remote-command>`. No `-t` (these
+/// are non-interactive one-shots). The connect timeout bounds only the TCP
+/// connect of a fresh connection; the caller also bounds the whole process
+/// lifetime, because a stalled multiplexed channel never reaches it.
 fn build_remote_exec_args(
     destination: &str,
     port: Option<u16>,
     control_dir: Option<&std::path::Path>,
     remote_command: String,
 ) -> Vec<OsString> {
-    let mut args = Vec::new();
+    let mut args = vec![
+        OsString::from("-o"),
+        OsString::from(REMOTE_EXEC_CONNECT_TIMEOUT),
+    ];
     // Multiplex over the live master when one is available; compiled out on
     // Windows (OpenSSH there has no socket multiplexing), mirroring the connect
     // builder so a Windows client never emits a control option.
@@ -1120,6 +1129,11 @@ mod tests {
         );
         // A one-shot, not an interactive shell: no PTY-forcing `-t`.
         assert!(!args.iter().any(|a| a == "-t"));
+        // A fresh connection gives up on an unreachable host.
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "-o" && pair[1] == "ConnectTimeout=10")
+        );
     }
 
     #[test]
@@ -1133,7 +1147,7 @@ mod tests {
         let joined = argv(&command).join(" ");
         assert!(!joined.contains("ControlPath"));
         assert!(joined.contains("umask 077; set -C; cat > '/tmp/odytty-paste-x.png'"));
-        assert!(joined.starts_with("ssh -- host.example.invalid"));
+        assert!(joined.starts_with("ssh -o ConnectTimeout=10 -- host.example.invalid"));
     }
 
     #[test]

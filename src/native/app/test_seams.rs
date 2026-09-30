@@ -2068,6 +2068,15 @@ impl App {
         self.run_about_to_wait_maintenance(now);
     }
 
+    /// Test seam (failed-resize retry): the window's session set, so a test
+    /// can drive a backend resize and inspect the retry schedule.
+    #[cfg(test)]
+    pub(in crate::native) fn sessions_mut_for_test(
+        &mut self,
+    ) -> &mut crate::native::session::WorkspaceSet {
+        &mut self.sessions
+    }
+
     /// Test seam (KB-REMAP R2): whether the remap modal is armed to capture a
     /// raw chord — the predicate the production key path gates its bypass on.
     #[cfg(test)]
