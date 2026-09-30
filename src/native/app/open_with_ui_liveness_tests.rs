@@ -16,10 +16,7 @@ struct TestDir(PathBuf);
 
 impl TestDir {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("odw{}", std::process::id()));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir(&path).expect("create synthetic test directory");
-        Self(path)
+        Self(crate::test_dirs::fresh_temp_dir("odw"))
     }
 }
 

@@ -7,23 +7,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 const CHILD_ENV: &str = "ODYTTY_UI_LIVENESS_CHILD";
 
 struct TestDir(PathBuf);
 
 impl TestDir {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "odl{}{}",
-            std::process::id(),
-            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).expect("create synthetic test directory");
-        Self(path)
+        Self(crate::test_dirs::fresh_temp_dir("odl"))
     }
 
     fn path(&self) -> &Path {

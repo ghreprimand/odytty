@@ -4,13 +4,10 @@
 use std::fs;
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use super::protocol::{HostHello, read_client_hello, write_host_hello};
 use super::{kill_session, list_live_sessions, prepare_runtime_dir, session_socket_path};
-
-static NEXT_RUNTIME: AtomicU64 = AtomicU64::new(0);
 
 struct TestRuntime {
     base: PathBuf,
@@ -19,12 +16,7 @@ struct TestRuntime {
 
 impl TestRuntime {
     fn new() -> Self {
-        let base = std::env::temp_dir().join(format!(
-            "olv{}{}",
-            std::process::id(),
-            NEXT_RUNTIME.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&base).expect("create synthetic runtime base");
+        let base = crate::test_dirs::fresh_socket_dir("olv");
         let dir = prepare_runtime_dir(&base).expect("prepare private runtime directory");
         Self { base, dir }
     }
@@ -86,21 +78,27 @@ fn navigator_liveness_probe_sends_no_attach_hello_or_snapshot_request() {
             let _ = tx.send(None);
             return;
         };
+        // Watch for 120 ms without socket timeouts: macOS rejects
+        // SO_RCVTIMEO with EINVAL on an accepted connection whose peer has
+        // already closed, which is exactly what a handshake-free probe does.
+        // End of stream or silence both mean the probe sent nothing.
         stream
-            .set_read_timeout(Some(Duration::from_millis(120)))
-            .expect("bounded fake host read");
+            .set_nonblocking(true)
+            .expect("nonblocking fake host read");
+        let watch_end = Instant::now() + Duration::from_millis(120);
         let mut bytes = [0_u8; 1];
-        let observed = match std::io::Read::read(stream, &mut bytes) {
-            Ok(count) => Some(count),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
-                Some(0)
+        let observed = loop {
+            match std::io::Read::read(stream, &mut bytes) {
+                Ok(count) => break Some(count),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= watch_end {
+                        break Some(0);
+                    }
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                Err(_) => break None,
             }
-            Err(_) => None,
         };
         let _ = tx.send(observed);
     });

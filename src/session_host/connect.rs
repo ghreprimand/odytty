@@ -167,22 +167,15 @@ mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;
 
+    /// A socket path in a fresh directory under the short `/tmp` base, so the
+    /// path fits macOS's 103-byte socket limit whatever `TMPDIR` is.
     fn temp_socket(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "odytty-connect-{tag}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        dir.join("s.sock")
+        crate::test_dirs::fresh_socket_dir(&format!("oc{tag}")).join("s.sock")
     }
 
     #[test]
     fn connects_to_a_listening_socket_and_returns_blocking_stream() {
-        let path = temp_socket("ok");
+        let path = temp_socket("k");
         let _listener = UnixListener::bind(&path).expect("bind");
         let stream = connect_within(&path, Duration::from_millis(200)).expect("connect");
         assert!(stream.write_timeout().expect("timeout").is_none());
@@ -197,7 +190,7 @@ mod tests {
 
     #[test]
     fn missing_socket_keeps_not_found() {
-        let path = temp_socket("missing");
+        let path = temp_socket("m");
         let error = connect_within(&path, Duration::ZERO).expect_err("no socket");
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -205,7 +198,7 @@ mod tests {
 
     #[test]
     fn stale_socket_keeps_connection_refused() {
-        let path = temp_socket("stale");
+        let path = temp_socket("s");
         drop(UnixListener::bind(&path).expect("bind"));
         let error = connect_within(&path, Duration::ZERO).expect_err("stale");
         assert_eq!(error.raw_os_error(), Some(libc::ECONNREFUSED));

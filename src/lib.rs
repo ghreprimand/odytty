@@ -43,6 +43,8 @@ pub mod spawn_util;
 pub mod ssh_config;
 pub mod ssh_connect;
 pub(crate) mod state_dir;
+#[cfg(test)]
+pub(crate) mod test_dirs;
 pub mod text;
 pub mod theme;
 pub mod theme_author;
