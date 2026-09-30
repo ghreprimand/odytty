@@ -433,6 +433,20 @@ pub(in crate::native) struct WorkspaceSet {
     /// Whether newly spawned local default shells should receive OdyTTY's OSC
     /// 133 integration wrapper. Existing sessions are not modified.
     pub(super) shell_integration_enabled: bool,
+    /// Whether the owning window has applied a surface-derived grid yet.
+    /// Until then a local spawn only knows the placeholder grid, so it is
+    /// held (see `crate::pty::spawn_held`) and released by
+    /// [`Self::start_held_launches`].
+    pub(super) launch_geometry_settled: bool,
+    /// Whether a held launch may still be waiting for release. The seed
+    /// session of a window is spawned held, so this starts `true`. It stays
+    /// set after the first surface grid while a held pane's backend resize
+    /// has not yet succeeded.
+    pub(super) held_launches_pending: bool,
+    /// Whether the owning window exists and has armed the held-launch
+    /// fallback (see [`Self::arm_held_launch_fallback`]); a pane spawned held
+    /// after that is armed at spawn.
+    pub(super) held_fallback_armed: bool,
 }
 
 impl Deref for WorkspaceSet {
@@ -476,6 +490,9 @@ impl WorkspaceSet {
             recording_enabled: false,
             local_hostname: None,
             shell_integration_enabled: false,
+            launch_geometry_settled: false,
+            held_launches_pending: true,
+            held_fallback_armed: false,
         }
     }
 

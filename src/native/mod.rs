@@ -218,22 +218,27 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // can be applied to the model first. The spawn has no dependency on
     // `terminal`, so this ordering is safe; the reader/writer/pump wiring stays
     // below as before.
-    let session = if let Some(command) = &options.command {
-        PtySession::spawn_exec(
-            options.initial_grid,
-            command.program.clone(),
-            command.args.clone(),
-            options.working_directory.clone(),
-        )
-    } else if let Some(plan) = startup_plan.as_ref() {
-        crate::profiles::spawn_local_plan(options.initial_grid, plan)
-    } else {
-        PtySession::spawn_default_shell_in_with_settings(
-            options.initial_grid,
-            options.working_directory.clone(),
-            &settings,
-        )
-    }
+    // `initial_grid` is a placeholder until the window measures its real
+    // grid, so the child is held until that first resize (Windows only; see
+    // `crate::pty::spawn_held`).
+    let session = crate::pty::spawn_held(|| {
+        if let Some(command) = &options.command {
+            PtySession::spawn_exec(
+                options.initial_grid,
+                command.program.clone(),
+                command.args.clone(),
+                options.working_directory.clone(),
+            )
+        } else if let Some(plan) = startup_plan.as_ref() {
+            crate::profiles::spawn_local_plan(options.initial_grid, plan)
+        } else {
+            PtySession::spawn_default_shell_in_with_settings(
+                options.initial_grid,
+                options.working_directory.clone(),
+                &settings,
+            )
+        }
+    })
     .map_err(|err| NativeError::Pty(err.to_string()))?;
     // Defer resize cursor placement to the shell when the backend repaints
     // absolutely (ConPTY on Windows). Funneled through the same helper as the
@@ -560,14 +565,16 @@ fn build_sibling_app(
     seed_initial_working_directory(&mut model, options.working_directory.as_deref());
     seed_launch_session_model(&mut model, settings);
 
-    let spawned = match plan.as_ref() {
+    // Held until the new window's first surface-derived resize, like the
+    // primary window's launch session.
+    let spawned = crate::pty::spawn_held(|| match plan.as_ref() {
         Some(plan) => crate::profiles::spawn_local_plan(options.initial_grid, plan),
         None => PtySession::spawn_default_shell_in_with_settings(
             options.initial_grid,
             options.working_directory.clone(),
             settings,
         ),
-    };
+    });
     let session = match spawned {
         Ok(session) => session,
         Err(err) => {

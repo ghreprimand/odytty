@@ -866,6 +866,86 @@ impl WorkspaceSet {
         any_geometry_changed
     }
 
+    /// Record that the owning window has applied a surface-derived grid and
+    /// let held local children start (see `crate::pty::spawn_held`).
+    ///
+    /// A held child starts only once its backend holds the model's size: the
+    /// grid pass that precedes this call resized it successfully, or no
+    /// resize was needed because the model still matches the spawn size. A
+    /// pane whose backend resize failed stays `pty_resize_dirty` and stays
+    /// held; [`Self::retry_backend_resizes`] releases it when a retry
+    /// succeeds. Starting it at the stale size would let the shell draw its
+    /// prompt before the retried resize lands, the defect the hold exists to
+    /// prevent. Cheap once nothing is held: later spawns are not held.
+    pub(in crate::native) fn start_held_launches(&mut self) {
+        self.launch_geometry_settled = true;
+        self.release_held_launches();
+    }
+
+    /// Start every held local child whose backend resize is not pending, and
+    /// keep `held_launches_pending` set while any child is still held.
+    pub(super) fn release_held_launches(&mut self) {
+        if !self.launch_geometry_settled || !self.held_launches_pending {
+            return;
+        }
+        let mut still_held = false;
+        for session in self.sessions.values() {
+            if let SessionSource::Local { pty } = &session.source
+                && let Ok(pty) = pty.lock()
+            {
+                if session.pty_resize_dirty {
+                    still_held |= pty.start_is_held();
+                } else {
+                    pty.start_held();
+                }
+            }
+        }
+        self.held_launches_pending = still_held;
+    }
+
+    /// Arm the bounded fallback of every held local child (see
+    /// `PtySession::arm_held_start_fallback`). Called once the owning window
+    /// and its renderer exist, so ordinary startup never counts toward the
+    /// limit; panes spawned held after this are armed at spawn.
+    pub(in crate::native) fn arm_held_launch_fallback(&mut self) {
+        self.held_fallback_armed = true;
+        if !self.held_launches_pending {
+            return;
+        }
+        for session in self.sessions.values() {
+            if let SessionSource::Local { pty } = &session.source
+                && let Ok(pty) = pty.lock()
+            {
+                pty.arm_held_start_fallback();
+            }
+        }
+    }
+
+    /// Spawn a local child for this window. Before the window's first
+    /// surface-derived grid, the grid the spawn sees is still derived from
+    /// the placeholder, so the child is held until [`Self::start_held_launches`]
+    /// (Windows only; see `crate::pty::spawn_held`).
+    pub(super) fn spawn_local_for_window<E>(
+        &mut self,
+        spawn: impl FnOnce() -> Result<PtySession, E>,
+    ) -> Result<PtySession, E> {
+        if self.launch_geometry_settled {
+            return spawn();
+        }
+        let session = crate::pty::spawn_held(spawn)?;
+        self.held_launches_pending = true;
+        if self.held_fallback_armed {
+            session.arm_held_start_fallback();
+        }
+        Ok(session)
+    }
+
+    /// Whether a surface-derived grid has released this window's launches.
+    #[cfg(test)]
+    pub(in crate::native) fn launch_geometry_settled(&self) -> bool {
+        self.launch_geometry_settled
+    }
+
     /// C18: push new per-cell pixel metrics to every pane WITHOUT a column
     /// reflow or a PTY resize. A DPI scale change can alter the cell's
     /// physical-pixel size while the grid still floors to the same cols/rows,
@@ -1073,7 +1153,11 @@ impl WorkspaceSet {
         let session_id = self.mint_session_token().ok_or_else(|| {
             std::io::Error::other("session token range exhausted for this window")
         })?;
-        let session = spawn(grid).map_err(std::io::Error::other)?;
+        // Before the window's first surface-derived grid (a restored layout
+        // at startup), the child is held (see `spawn_local_for_window`).
+        let session = self
+            .spawn_local_for_window(|| spawn(grid))
+            .map_err(std::io::Error::other)?;
         let reader = session.try_clone_reader().map_err(std::io::Error::other)?;
         let writer: PtyWriter = Arc::new(Mutex::new(crate::native::pty_writer::writer_shim(
             session.take_writer().map_err(std::io::Error::other)?,
@@ -1495,7 +1579,11 @@ impl WorkspaceSet {
         let terminal = session.terminal.clone();
         let recorder = session.recorder.clone();
         let grid = crate::native::lock_recover(&terminal).screen().dimensions();
-        let Ok(spawned) = PtySession::spawn_exec(grid, program, args, None) else {
+        // A reconnect before the first surface grid is held like any other
+        // early spawn.
+        let Ok(spawned) =
+            self.spawn_local_for_window(|| PtySession::spawn_exec(grid, program, args, None))
+        else {
             return false;
         };
         let Ok(reader) = spawned.try_clone_reader() else {

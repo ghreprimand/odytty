@@ -140,6 +140,21 @@ Development on `master`; not released. Items check off when their code is on
       closes, and clean up their own remote file after a close; a failed
       backend resize is retried with a bounded backoff while the window is
       idle.
+- [ ] Windows first command lands at the prompt: a window's first shells
+      (the launch session, a restored layout, a new window) are held
+      suspended until the window's real grid reaches ConPTY, so a released
+      PSReadLine starts at that grid and does not echo the first command at
+      the old wrapped column; a shell whose first resize failed waits for the
+      retried resize, and once the window exists a held shell that no
+      successful resize releases starts after five seconds as a degraded
+      backstop. That start does not cancel a pending resize retry, so a later
+      successful retry can still resize a shell the backstop already started
+      (and misplace its first command); the retry stays because dropping it
+      can leave the model size and the pseudoconsole size different
+      indefinitely. Unix spawns are unchanged.
+- [ ] Device acceptance on Windows: a long wrapped PowerShell prompt at
+      startup and in a new window places the first typed command directly
+      after the prompt.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

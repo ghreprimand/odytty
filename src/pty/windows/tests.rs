@@ -543,3 +543,133 @@ fn pcon_teardown_flag_defaults_false_and_latches() {
     pcon.request_teardown();
     assert!(pcon.is_teardown_requested());
 }
+
+#[test]
+fn spawn_held_scopes_the_hold_to_its_closure() {
+    let dims = Dimensions {
+        rows: 24,
+        columns: 80,
+    };
+    assert!(!crate::pty::hold_start_requested());
+    let held = crate::pty::spawn_held(|| {
+        assert!(crate::pty::hold_start_requested());
+        PtySession::spawn_shell_command(dims, "exit 0")
+    })
+    .expect("held spawn");
+    assert!(
+        !crate::pty::hold_start_requested(),
+        "restored after the closure"
+    );
+    assert!(held.start_is_held());
+    let ordinary = PtySession::spawn_shell_command(dims, "exit 0").expect("ordinary spawn");
+    assert!(!ordinary.start_is_held(), "an ordinary spawn runs at once");
+    held.start_held();
+    assert!(!held.start_is_held());
+    held.start_held();
+}
+
+#[test]
+fn killing_a_held_child_ends_it_without_starting_it() {
+    let mut session = crate::pty::spawn_held(|| {
+        PtySession::spawn_shell_command(
+            Dimensions {
+                rows: 24,
+                columns: 80,
+            },
+            "ping -n 30 127.0.0.1",
+        )
+    })
+    .expect("held spawn");
+    assert!(session.start_is_held());
+    let start = Instant::now();
+    session.kill().expect("kill held child");
+    let _ = session.wait().expect("reap held child");
+    assert!(start.elapsed() < Duration::from_secs(5), "kill never waits");
+}
+
+/// A held child that no resize releases starts after the armed limit, and
+/// only once armed: an unarmed held child is not started by the waiter.
+#[test]
+fn a_held_child_starts_on_its_own_only_after_the_fallback_is_armed() {
+    let dims = Dimensions {
+        rows: 24,
+        columns: 80,
+    };
+    let armed = crate::pty::spawn_held(|| PtySession::spawn_shell_command(dims, "exit 0"))
+        .expect("held spawn");
+    let mut unarmed =
+        crate::pty::spawn_held(|| PtySession::spawn_shell_command(dims, "ping -n 30 127.0.0.1"))
+            .expect("held spawn");
+    assert!(!armed.held_start_fallback_is_armed());
+
+    armed.arm_held_start_fallback_after(Duration::from_millis(100));
+    assert!(armed.held_start_fallback_is_armed());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while armed.start_is_held() {
+        assert!(
+            Instant::now() < deadline,
+            "the armed fallback never released it"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = armed
+        .read_to_end()
+        .expect("the released child runs to its exit");
+
+    // Well past the armed sibling's limit, the unarmed child is still held.
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(unarmed.start_is_held(), "an unarmed child is never started");
+    unarmed.kill().expect("kill held child");
+    let _ = unarmed.wait().expect("reap held child");
+}
+
+/// A successful release publishes the start time; a second release is a no-op.
+#[test]
+fn releasing_a_held_child_records_when_it_started() {
+    let dims = Dimensions {
+        rows: 24,
+        columns: 80,
+    };
+    let session = crate::pty::spawn_held(|| PtySession::spawn_shell_command(dims, "exit 0"))
+        .expect("held spawn");
+    let held = session.held.as_ref().expect("held start").clone();
+    assert_eq!(held.outcome(), StartOutcome::NotStarted);
+    let before = Instant::now();
+    assert!(held.release().expect("resume"));
+    assert!(matches!(held.outcome(), StartOutcome::Started(at) if at >= before));
+    assert!(!held.release().expect("second release"), "single winner");
+    let _ = session.read_to_end().expect("child exits");
+}
+
+/// The startup-failure window counts from the resume of a held child, so an
+/// immediate failure after a long hold is still reported; a failed resume
+/// reports itself rather than the termination that followed.
+#[test]
+fn startup_reports_measure_a_held_child_from_its_resume() {
+    let long_ago = Instant::now()
+        .checked_sub(Duration::from_secs(10))
+        .expect("monotonic clock far enough from its origin");
+    let failure = Some(0xC000_0142);
+
+    let resumed_now = StartOutcome::Started(Instant::now());
+    assert!(startup_report(&resumed_now, long_ago, failure, false).is_some());
+    assert!(startup_report(&resumed_now, long_ago, failure, true).is_none());
+    assert!(startup_report(&resumed_now, long_ago, Some(0), false).is_none());
+
+    let resumed_long_ago = StartOutcome::Started(long_ago);
+    assert!(startup_report(&resumed_long_ago, long_ago, failure, false).is_none());
+
+    assert!(startup_report(&StartOutcome::NotStarted, long_ago, failure, false).is_none());
+    assert!(startup_report(&StartOutcome::NotStarted, Instant::now(), failure, false).is_some());
+
+    let failed = StartOutcome::ResumeFailed("Access is denied.".to_owned());
+    let line = startup_report(&failed, long_ago, Some(KILL_EXIT_CODE), false)
+        .expect("a failed resume is reported");
+    assert!(line.contains("could not be started"), "{line:?}");
+    assert!(line.contains("Access is denied."), "{line:?}");
+    assert!(startup_report(&failed, long_ago, None, false).is_some());
+    assert!(
+        startup_report(&failed, long_ago, Some(KILL_EXIT_CODE), true).is_none(),
+        "a close during the failed start is not reported"
+    );
+}

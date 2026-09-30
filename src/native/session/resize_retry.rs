@@ -15,6 +15,8 @@
 //! first on macOS/BSD), so a still-stalled host costs one or two syscalls. A
 //! live divider drag suppresses backend resizes on purpose and cancels any
 //! pending retry; the drag release flushes the final size as before.
+//! A launch held for its first real resize (`crate::pty::spawn_held`) whose
+//! resize failed starts only when a retry here succeeds.
 
 use std::time::{Duration, Instant};
 
@@ -110,6 +112,9 @@ impl WorkspaceSet {
                 session.resize_retry.failed(now);
             }
         }
+        // A held launch whose first resize failed starts only now that its
+        // backend has the model's size.
+        self.release_held_launches();
     }
 }
 

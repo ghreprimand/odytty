@@ -138,6 +138,9 @@ impl App {
             PANE_DIVIDER_PX,
             padding.as_f32(),
         );
+        // Every pane's backend now has its surface-derived size, so shells
+        // held at spawn may start (Windows ConPTY; a no-op elsewhere).
+        self.sessions.start_held_launches();
         grid_changed || panes_changed
     }
 
@@ -1064,6 +1067,10 @@ impl App {
         self.needs_rebuild = true;
         window.request_redraw();
         self.window = Some(window);
+        // The window and renderer exist, so ordinary startup is over: from
+        // here a held launch that no successful resize releases (a window
+        // that stays minimized) may start on the bounded fallback.
+        self.sessions.arm_held_launch_fallback();
 
         // OS-THEME: seed the OS appearance from the window (Wayland delivers a
         // value here; X11 returns `None`) or the `ODYTTY_APPEARANCE` env

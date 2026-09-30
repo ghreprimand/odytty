@@ -418,6 +418,18 @@ impl PtySession {
         self.resize_calls.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// No-op: a POSIX child is never held (see [`crate::pty::spawn_held`]).
+    /// Present so the native layer releases held launches without `cfg`.
+    pub fn start_held(&self) {}
+
+    /// No-op: a POSIX child is never held, so there is no fallback to arm.
+    pub fn arm_held_start_fallback(&self) {}
+
+    /// Always `false`: a POSIX child runs as soon as it is spawned.
+    pub fn start_is_held(&self) -> bool {
+        false
+    }
+
     /// Whether the shell on this backend authoritatively repaints with ABSOLUTE
     /// cursor positioning on every resize. False for a POSIX PTY: resize raises
     /// `SIGWINCH`, which Linux/macOS shells service with a RELATIVE repaint the

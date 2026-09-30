@@ -64,6 +64,13 @@ impl App {
         self.resize_grid_with_padding(cell, padding, width_px, height_px)
     }
 
+    /// Apply one surface configure through the production (undebounced)
+    /// grid path, including its minimized-surface guard.
+    #[cfg(test)]
+    pub(in crate::native) fn apply_grid_resize_for_test(&mut self, resize: PendingResize) {
+        self.apply_grid_resize(resize);
+    }
+
     /// Drive the same debounced model-resize path used by window resize events.
     #[cfg(test)]
     pub(in crate::native) fn record_pending_resize_for_test(

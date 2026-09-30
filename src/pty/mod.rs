@@ -18,6 +18,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(any(windows, test))]
+mod held_gate;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
@@ -35,6 +37,57 @@ pub use windows::PtySession;
 #[cfg(unix)]
 #[allow(unused_imports)]
 pub(crate) use unix::open_pty_pair;
+
+thread_local! {
+    /// Set only for the duration of a [`spawn_held`] closure on this thread.
+    static HOLD_START: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `spawn` so that any [`PtySession`] it creates on this thread holds its
+/// child until [`PtySession::start_held`] (or a bounded fallback) releases it.
+///
+/// A window spawns its first shells before it knows its real grid, sizing
+/// them from the 80x24 placeholder that also sizes the initial window request.
+/// The grid the renderer derives moments later almost always differs, so the
+/// shell sees a resize shortly after it starts.
+///
+/// - **Windows:** the ConPTY child is created suspended and resumed only after
+///   the first surface-derived resize reaches the pseudoconsole, so a
+///   released shell starts at that grid. PSReadLine keeps the pre-resize
+///   width for its own cursor arithmetic when a resize lands after it has
+///   drawn the prompt, and then places the first typed command at the old
+///   column; holding the start removes that window entirely. A child whose
+///   first resize failed stays held until a retried resize succeeds. Once the
+///   window exists and has armed the fallback
+///   ([`PtySession::arm_held_start_fallback`]), a child that no successful
+///   resize has released (a window that stays minimized) starts after
+///   `HELD_START_LIMIT` (5 s) at its current size. That fallback is a
+///   backstop and does not deliver the window's grid.
+/// - **Unix:** no hold. POSIX shells repaint on `SIGWINCH` and no harm from
+///   the placeholder size is known there, so spawns inside this closure start
+///   immediately, exactly as outside it.
+pub fn spawn_held<T>(spawn: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            HOLD_START.with(|hold| hold.set(self.0));
+        }
+    }
+    let _restore = Restore(HOLD_START.with(|hold| hold.replace(true)));
+    spawn()
+}
+
+/// Whether the current spawn runs inside [`spawn_held`].
+#[cfg(windows)]
+fn hold_start_requested() -> bool {
+    HOLD_START.with(std::cell::Cell::get)
+}
+
+/// Upper bound, counted from when the window arms the fallback, on how long
+/// a held child waits for a successful resize before it starts at whatever
+/// size the pseudoconsole has.
+#[cfg(windows)]
+pub const HELD_START_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Whether a foreground job — a process group on the controlling terminal other
 /// than the spawned shell itself — is currently running.

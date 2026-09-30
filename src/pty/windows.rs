@@ -53,7 +53,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 
 use windows::Win32::Foundation::{
-    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, WAIT_FAILED, WAIT_TIMEOUT,
+    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, WAIT_FAILED, WAIT_OBJECT_0,
+    WAIT_TIMEOUT,
 };
 use windows::Win32::System::Console::{
     COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
@@ -75,12 +76,15 @@ use windows::Win32::System::Threading::{
     EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, GetExitCodeProcess, INFINITE,
     InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
     PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
-    STARTUPINFOEXW, STARTUPINFOW, TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
+    STARTUPINFOEXW, STARTUPINFOW, TerminateProcess, UpdateProcThreadAttribute,
+    WaitForMultipleObjects, WaitForSingleObject,
 };
 use windows::core::{PCWSTR, PWSTR};
 
+use super::held_gate::StartOutcome;
 use super::{CommandBuilder, ForegroundJob};
 use crate::core::Dimensions;
+use held::{HeldStart, create_manual_reset_event, startup_report};
 
 /// `GetExitCodeProcess` reports a still-running process with the sentinel exit
 /// code `STILL_ACTIVE` (259). Compared as a raw `u32` per the ConPTY reference,
@@ -137,6 +141,10 @@ pub struct PtySession {
     /// healthy path and for normal (clean or late) exits. See
     /// [`PtySession::pending_diagnostic_slot`].
     pending_diagnostic: Arc<Mutex<Option<String>>>,
+    /// The suspended child of a held spawn ([`crate::pty::spawn_held`]),
+    /// waiting for [`Self::start_held`] or the waiter's fallback. `None` for
+    /// an ordinary spawn, whose child runs as soon as it is created.
+    held: Option<Arc<HeldStart>>,
     /// Test-only counter of kernel `resize` calls (`ResizePseudoConsole`). Lets
     /// a headless test assert the divider-drag coalescing fires ONE resize at
     /// drag-end instead of one per pointer-move. Not built outside tests.
@@ -389,8 +397,24 @@ impl PtySession {
             //    escape the job. Best-effort: on failure the session degrades
             //    to the old root-only `TerminateProcess` teardown.
             let job = create_kill_on_close_job();
+            // A held spawn stays suspended past job assignment until its first
+            // real resize (see `crate::pty::spawn_held`), with or without a job.
+            // Its fallback event is created first: without one the child could
+            // not be released by the fallback, so it runs at once instead.
+            let held_event = if crate::pty::hold_start_requested() {
+                match create_manual_reset_event() {
+                    Ok(event) => Some(event),
+                    Err(error) => {
+                        tracing::warn!(%error, "could not create a held-start event; starting the child at once");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            let hold = held_event.is_some();
             let mut creation_flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT;
-            if job.is_some() {
+            if job.is_some() || hold {
                 creation_flags |= CREATE_SUSPENDED;
             }
 
@@ -418,11 +442,13 @@ impl PtySession {
             //    to root-only kill — but the child MUST still be resumed, and a
             //    resume failure is fatal (a permanently-frozen shell is a hung
             //    blank pane; terminate it and surface the spawn error instead).
+            //    A held spawn is the exception: it stays suspended here and is
+            //    resumed later by `start_held` or the armed fallback.
             let suspended = job.is_some();
             let job = job.filter(|job| {
                 AssignProcessToJobObject(HANDLE(job.as_raw_handle()), process_info.hProcess).is_ok()
             });
-            if suspended && ResumeThread(process_info.hThread) == u32::MAX {
+            if !hold && suspended && ResumeThread(process_info.hThread) == u32::MAX {
                 let resume_err = io::Error::last_os_error();
                 let _ = TerminateProcess(process_info.hProcess, KILL_EXIT_CODE);
                 let _ = CloseHandle(process_info.hThread);
@@ -432,9 +458,18 @@ impl PtySession {
                 return Err(resume_err).context("ResumeThread after job assignment");
             }
 
-            // 9. Keep the process handle; the thread handle and attribute list
-            //    are no longer needed. (`_attr_guard` deletes the list on drop.)
-            let _ = CloseHandle(process_info.hThread);
+            // 9. Keep the process handle. The thread handle is kept only by a
+            //    held spawn, to resume it later; the attribute list is no
+            //    longer needed. (`_attr_guard` deletes the list on drop.)
+            let held = if let Some(event) = held_event {
+                Some(Arc::new(HeldStart::new(
+                    OwnedHandle::from_raw_handle(process_info.hThread.0 as RawHandle),
+                    event,
+                )))
+            } else {
+                let _ = CloseHandle(process_info.hThread);
+                None
+            };
             let process = OwnedHandle::from_raw_handle(process_info.hProcess.0 as RawHandle);
 
             // Spawn succeeded: transfer pseudoconsole ownership into `Self` so
@@ -462,6 +497,7 @@ impl PtySession {
                 &process,
                 Arc::clone(&pcon),
                 Arc::clone(&pending_diagnostic),
+                held.clone(),
             ) {
                 Ok(waiter) => Some(waiter),
                 Err(error) => {
@@ -483,6 +519,7 @@ impl PtySession {
                 output_read,
                 waiter,
                 pending_diagnostic,
+                held,
                 #[cfg(test)]
                 resize_calls: AtomicUsize::new(0),
             })
@@ -510,6 +547,59 @@ impl PtySession {
     #[cfg(test)]
     pub fn resize_call_count(&self) -> usize {
         self.resize_calls.load(Ordering::Relaxed)
+    }
+
+    /// Let a held child (see [`crate::pty::spawn_held`]) start running.
+    /// Idempotent, and a no-op for an ordinary spawn. The native layer calls
+    /// this after the first surface-derived resize has reached the
+    /// pseudoconsole, so the shell starts at the window's real grid. A child
+    /// that cannot be resumed would be a permanently blank pane, so it is
+    /// terminated instead and the pane reports the exit.
+    pub fn start_held(&self) {
+        let Some(held) = &self.held else {
+            return;
+        };
+        if let Err(error) = held.release() {
+            tracing::error!(%error, "could not resume a held ConPTY child; terminating it");
+            // SAFETY: `self.process` is a live, owned process handle.
+            unsafe {
+                let _ = TerminateProcess(self.process_handle(), KILL_EXIT_CODE);
+            }
+        }
+    }
+
+    /// Arm the bounded fallback of a held child: if no successful resize
+    /// releases it within [`crate::pty::HELD_START_LIMIT`] from now, the
+    /// child-waiter starts it at whatever size the pseudoconsole has. The
+    /// native layer arms it once the window and its renderer exist, so
+    /// ordinary startup (event loop, window, and GPU bring-up) never counts
+    /// toward the limit. An unarmed held child waits for [`Self::start_held`]
+    /// or a kill. Idempotent, and a no-op for an ordinary or released spawn.
+    pub fn arm_held_start_fallback(&self) {
+        if let Some(held) = &self.held {
+            held.arm(crate::pty::HELD_START_LIMIT);
+        }
+    }
+
+    /// Test-only: arm the fallback with a short limit.
+    #[cfg(test)]
+    pub fn arm_held_start_fallback_after(&self, limit: Duration) {
+        if let Some(held) = &self.held {
+            held.arm(limit);
+        }
+    }
+
+    /// Whether this session's child is still held (not yet resumed).
+    pub fn start_is_held(&self) -> bool {
+        self.held.as_ref().is_some_and(|held| held.is_held())
+    }
+
+    /// Test-only: whether the held child's fallback has been armed.
+    #[cfg(test)]
+    pub fn held_start_fallback_is_armed(&self) -> bool {
+        self.held
+            .as_ref()
+            .is_some_and(|held| held.fallback().is_some())
     }
 
     /// Whether the shell on this backend authoritatively repaints with ABSOLUTE
@@ -858,7 +948,8 @@ fn should_report_startup_failure(code: u32, elapsed: Duration, teardown_requeste
 /// zero-CPU `WaitForSingleObject(.., INFINITE)` — NOT a poll/sleep loop — that
 /// wakes exactly once when the child exits. On wake it:
 ///   1. reads the child's exit code and, if it exited *abnormally and within*
-///      [`STARTUP_FAILURE_WINDOW`] of spawn, records a startup-failure line into
+///      [`STARTUP_FAILURE_WINDOW`] of the moment it began running (its spawn,
+///      or its resume for a held child), records a startup-failure line into
 ///      `diagnostic` and echoes it to stderr (this folds the former synchronous
 ///      250 ms `diagnose_immediate_exit` spawn-path wait into the wait that
 ///      already exists — no startup tax); then
@@ -866,6 +957,12 @@ fn should_report_startup_failure(code: u32, elapsed: Duration, teardown_requeste
 ///      the pump's blocked output reader observe EOF; the app then tears the
 ///      session down through its single existing `ShellExited` path, and the
 ///      pump writes any recorded diagnostic into the pane on that EOF.
+///
+/// A held child ([`crate::pty::spawn_held`]) is waited on together with its
+/// fallback event first: the waiter parks until the child exits (a kill) or
+/// the event fires (the fallback was armed, or the child was released). Once
+/// armed, a still-held child is started after the armed limit. An unarmed
+/// held child is never started by this thread.
 ///
 /// The thread then exits and its duplicated handle closes. Errors when the
 /// process handle cannot be duplicated or the thread cannot spawn (resource
@@ -876,19 +973,62 @@ fn spawn_child_waiter(
     process: &OwnedHandle,
     pcon: Arc<PconShared>,
     diagnostic: Arc<Mutex<Option<String>>>,
+    held: Option<Arc<HeldStart>>,
 ) -> Result<JoinHandle<()>> {
     let dup =
         duplicate_owned_handle(process).context("duplicate process handle for child waiter")?;
     crate::spawn_util::spawn_named("odytty-conpty-waiter", move || {
-        let started = Instant::now();
+        let spawned = Instant::now();
         let handle = HANDLE(dup.as_raw_handle());
+        // A held child that no resize ever releases (a window that stays
+        // minimized, say) still starts after a bounded wait once the window
+        // has armed the fallback, at whatever size the pseudoconsole has by
+        // then. That start is a backstop, not delivery of the window's grid.
+        // A kill while held ends either wait early.
+        if let Some(held) = &held {
+            let handles = [handle, held.event()];
+            // SAFETY: both handles are live and owned for the wait: `dup` is
+            // moved into this closure, and the event is owned by `held`.
+            let woke = unsafe { WaitForMultipleObjects(&handles, false, INFINITE) };
+            let armed_limit = if woke.0 == WAIT_OBJECT_0.0 + 1 && held.is_held() {
+                held.fallback()
+            } else {
+                None
+            };
+            let timed_out = armed_limit.is_some_and(|limit| {
+                let limit = u32::try_from(limit.as_millis()).unwrap_or(u32::MAX);
+                // SAFETY: as above.
+                let status = unsafe { WaitForSingleObject(handle, limit) };
+                status == WAIT_TIMEOUT
+            });
+            if timed_out {
+                match held.release() {
+                    Ok(true) => tracing::warn!(
+                        "no successful resize released a held ConPTY child; starting it at its current size"
+                    ),
+                    Ok(false) => {}
+                    Err(error) => {
+                        tracing::error!(%error, "could not resume a held ConPTY child; terminating it");
+                        // SAFETY: live owned process handle (duplicated with
+                        // the same access as the original).
+                        unsafe {
+                            let _ = TerminateProcess(handle, KILL_EXIT_CODE);
+                        }
+                    }
+                }
+            }
+        }
         // SAFETY: `dup` is a live owned process handle for the wait's whole
         // duration (it is moved into this closure and dropped only after).
         // `INFINITE` parks the thread at zero CPU until the child exits.
         let _ = unsafe { WaitForSingleObject(handle, INFINITE) };
         // The child has signalled exit; read its code and decide whether it
-        // was an immediate startup failure worth surfacing.
-        let elapsed = started.elapsed();
+        // was an immediate startup failure worth surfacing. A held child's
+        // outcome is sampled only after its release published it (see
+        // `crate::pty::held_gate`).
+        let outcome = held
+            .as_ref()
+            .map_or(StartOutcome::NotStarted, |held| held.outcome());
         let mut code: u32 = 0;
         // SAFETY: live owned process handle; the child has exited.
         let got_code = unsafe { GetExitCodeProcess(handle, &mut code) }.is_ok();
@@ -898,8 +1038,8 @@ fn spawn_child_waiter(
         // session teardown behind console I/O.
         let teardown_requested = pcon.is_teardown_requested();
         pcon.close_once();
-        if got_code && should_report_startup_failure(code, elapsed, teardown_requested) {
-            let line = describe_immediate_exit(code);
+        let exit_code = got_code.then_some(code);
+        if let Some(line) = startup_report(&outcome, spawned, exit_code, teardown_requested) {
             // stderr (routed to the launching console via AttachConsole) is
             // the durable channel; the pane copy is best-effort (the tab may
             // close before a frame draws). Non-panicking write: a failed
@@ -1452,5 +1592,6 @@ fn ascii_lower_u16(unit: u16) -> u16 {
     }
 }
 
+mod held;
 #[cfg(test)]
 mod tests;

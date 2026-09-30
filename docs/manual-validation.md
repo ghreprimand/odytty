@@ -368,6 +368,7 @@ containment from a single successful close.
 | W-START-02 | ConPTY spawn and exit | A default ConPTY session starts the selected shell, accepts input, resizes, reports shell exit, and reaches output EOF without a hang. |  |  |
 | W-START-03 | Window close and child tree | Closing the native window exits promptly. A synthetic child tree exits when Job containment is active; any surviving descendant is `FAIL`, and the Job-assignment limitation is retained in the evidence. |  |  |
 | W-START-04 | Shell exit | `exit` and end-of-file follow the configured pane, tab, workspace, and application close policy without a hang or loss of surviving sessions. |  |  |
+| W-START-05 | First command at a wrapped prompt | With a PowerShell prompt long enough to wrap, the first command typed at startup, in a `Ctrl+Shift+N` window, and in a context-menu New Window echoes directly after the prompt. Record the time from window appearance to the first prompt. |  |  |
 | W-SHELL-01 | PowerShell 7 | When installed, `pwsh.exe` accepts Unicode input, preserves native exit status, runs full-screen programs, and restores the prompt after exit. |  |  |
 | W-SHELL-02 | Windows PowerShell 5.1 | Windows PowerShell accepts Unicode input, preserves native exit status, runs console programs, and restores the prompt after exit. |  |  |
 | W-SHELL-03 | Command Prompt | `cmd.exe` accepts input, expands its ordinary environment, runs console programs, and restores the prompt after exit. |  |  |

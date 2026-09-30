@@ -171,7 +171,8 @@ code; `portable-pty` and `crossterm` are gone from the dependency tree.
   pseudoconsole handle is owned by an RAII guard so it cannot leak.
 
 The `PtySession` surface (`spawn_default_shell{,_in}`, `spawn_shell_command`,
-`spawn_exec`, `spawn_command`, `resize`, `try_clone_reader`, `take_writer`,
+`spawn_exec`, `spawn_command`, `resize`, `start_held` (a no-op on Unix; see
+Windows Held First Launch), `try_clone_reader`, `take_writer`,
 `foreground_job`, `try_wait`, `wait`, `kill`, `read_to_end`) is identical across
 backends; reader/writer are erased to `Box<dyn Read + Send>` / `Box<dyn Write +
 Send>` so the PTY pump and all native consumers are platform-agnostic. The
@@ -1977,6 +1978,43 @@ the local ConPTY path, not `session_host`.
 Every successful ConPTY spawn starts a child-process waiter on a duplicated
 process handle. A natural child exit closes the pseudoconsole, wakes the output
 reader through EOF, and lets the tab follow the normal session teardown path.
+
+### Windows Held First Launch
+
+A window spawns its first shells before it has measured its real grid, at the
+80x24 placeholder that also sizes the initial window request. Those spawns (the
+launch session, `-e` commands, a launch profile, every pane of a layout restored
+at startup, a reconnect before the first grid, and a new window's first session)
+run inside `pty::spawn_held`: the ConPTY child is created suspended and resumed
+only after the window's first surface-derived grid has reached its
+pseudoconsole (`WorkspaceSet::start_held_launches`, called from the surface
+grid path). A child starts only once its backend holds the model's size: its
+resize in that pass succeeded, or none was needed. A child whose resize failed
+stays held until the bounded resize retry succeeds, which releases it. A
+released shell therefore starts at the window's grid. PSReadLine otherwise
+keeps the pre-resize width for its own cursor arithmetic when the resize lands
+after it has drawn the prompt, and echoes the first typed command at the old
+wrapped column.
+
+The fallback is armed when the window and its renderer exist, so ordinary
+startup never counts toward it. After that, a held child that no successful
+resize releases (a window that stays minimized, or a resize that keeps failing)
+starts after five seconds at its current size and logs a warning; this is a
+backstop, not delivery of the window's grid. The five-second start does not
+cancel a pending backend resize: a later successful retry can still resize a
+shell the backstop already started, and if that shell has drawn its prompt the
+first-command offset can still appear, so the backstop does not prevent the
+defect. The retry stays because dropping it can leave the model size and the
+pseudoconsole size different indefinitely. A held child that is closed is
+terminated without running. The startup-failure window counts from a
+successful resume, whose outcome is published under the same lock as the
+resume, so a shell that fails at once after a long hold is still reported; a
+failed resume is reported as such. Spawns after the first surface grid (new tabs, splits,
+reconnects) are not held. The session host is exempt (its sizes come from the
+attaching client, not the placeholder), as are the Unix-only interactive
+frontend and the fixed-grid `--dump-command` one-shot. Unix spawns are never held:
+POSIX shells repaint on `SIGWINCH`, and the placeholder causes no known defect
+there.
 
 ## Post-Process Pipeline Architecture
 

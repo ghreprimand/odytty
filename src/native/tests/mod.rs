@@ -207,6 +207,7 @@ mod freeze_present_mode;
 mod gpu_render;
 mod graphics_anim;
 mod grid_scale;
+mod held_launch;
 mod image_paste;
 mod input_keys;
 mod input_latch_lifecycle;

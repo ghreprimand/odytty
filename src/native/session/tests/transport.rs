@@ -56,6 +56,161 @@ fn spawned_local_pane_wires_shell_owns_cursor_from_backend() {
     assert!(sessions.close(SessionToken(0)));
 }
 
+/// A pane spawned before the window's first surface grid (a restored layout
+/// at startup) is held with the seed session and released with it; a pane
+/// spawned afterwards starts at once.
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "winit EventLoop cannot be built off the main thread on macOS"
+)]
+#[test]
+fn panes_spawned_before_the_first_surface_grid_start_with_it() {
+    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+        return;
+    };
+    sessions.held_launches_pending = false;
+    let early = sessions
+        .spawn(Dimensions::new(20, 8), None)
+        .expect("spawn before the surface grid");
+    assert!(sessions.held_launches_pending, "an early spawn is held");
+    #[cfg(windows)]
+    assert!(local_pty_is_held(&sessions, early));
+
+    sessions.start_held_launches();
+    assert!(sessions.launch_geometry_settled());
+    assert!(!sessions.held_launches_pending);
+    #[cfg(windows)]
+    assert!(
+        !local_pty_is_held(&sessions, early),
+        "released with the window"
+    );
+
+    let later = sessions
+        .spawn(Dimensions::new(20, 8), None)
+        .expect("spawn after the surface grid");
+    assert!(!sessions.held_launches_pending, "a later spawn is not held");
+    #[cfg(windows)]
+    assert!(!local_pty_is_held(&sessions, later));
+
+    assert!(!sessions.close(later));
+    assert!(!sessions.close(early));
+    assert!(sessions.close(SessionToken(0)));
+}
+
+/// A held pane whose backend resize failed stays held through the first
+/// surface grid, and a later successful retry releases it: starting it at
+/// the stale size would let the shell draw before the retried resize lands.
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "winit EventLoop cannot be built off the main thread on macOS"
+)]
+#[test]
+fn a_held_pane_with_a_failed_resize_starts_only_after_a_successful_retry() {
+    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+        return;
+    };
+    let early = sessions
+        .spawn(Dimensions::new(20, 8), None)
+        .expect("spawn before the surface grid");
+    let failed_at = std::time::Instant::now();
+    {
+        let session = sessions.sessions.get_mut(&early).expect("early pane");
+        session.pty_resize_dirty = true;
+        session.resize_retry.failed(failed_at);
+    }
+
+    sessions.start_held_launches();
+    assert!(sessions.launch_geometry_settled());
+    #[cfg(windows)]
+    {
+        assert!(
+            local_pty_is_held(&sessions, early),
+            "a dirty pane stays held"
+        );
+        assert!(
+            !local_pty_is_held(&sessions, SessionToken(0)),
+            "a clean pane starts"
+        );
+        assert!(sessions.held_launches_pending);
+    }
+
+    let due = sessions
+        .next_backend_resize_retry()
+        .expect("retry scheduled");
+    sessions.retry_backend_resizes(due);
+    assert!(
+        !sessions.sessions[&early].pty_resize_dirty,
+        "retry succeeded"
+    );
+    assert!(!sessions.held_launches_pending);
+    #[cfg(windows)]
+    assert!(
+        !local_pty_is_held(&sessions, early),
+        "released by the retry"
+    );
+
+    assert!(!sessions.close(early));
+    assert!(sessions.close(SessionToken(0)));
+}
+
+/// The fallback is armed only when the window exists: panes held before
+/// that are armed then, and a pane held afterwards is armed at spawn.
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "winit EventLoop cannot be built off the main thread on macOS"
+)]
+#[test]
+fn held_launch_fallback_is_armed_by_the_window_not_at_spawn() {
+    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+        return;
+    };
+    let before = sessions
+        .spawn(Dimensions::new(20, 8), None)
+        .expect("spawn before the window");
+    assert!(!sessions.held_fallback_armed);
+    #[cfg(windows)]
+    assert!(!local_pty_fallback_armed(&sessions, before));
+
+    sessions.arm_held_launch_fallback();
+    assert!(sessions.held_fallback_armed);
+    #[cfg(windows)]
+    assert!(local_pty_fallback_armed(&sessions, before));
+
+    let after = sessions
+        .spawn(Dimensions::new(20, 8), None)
+        .expect("spawn after the window, before its grid");
+    assert!(sessions.held_launches_pending);
+    #[cfg(windows)]
+    {
+        assert!(local_pty_is_held(&sessions, after));
+        assert!(local_pty_fallback_armed(&sessions, after));
+    }
+
+    assert!(!sessions.close(after));
+    assert!(!sessions.close(before));
+    assert!(sessions.close(SessionToken(0)));
+}
+
+#[cfg(windows)]
+fn local_pty_is_held(sessions: &WorkspaceSet, token: SessionToken) -> bool {
+    sessions.sessions[&token]
+        .local_pty()
+        .expect("local pane")
+        .lock()
+        .expect("pty lock")
+        .start_is_held()
+}
+
+#[cfg(windows)]
+fn local_pty_fallback_armed(sessions: &WorkspaceSet, token: SessionToken) -> bool {
+    sessions.sessions[&token]
+        .local_pty()
+        .expect("local pane")
+        .lock()
+        .expect("pty lock")
+        .held_start_fallback_is_armed()
+}
+
 #[cfg_attr(
     target_os = "macos",
     ignore = "winit EventLoop cannot be built off the main thread on macOS"
