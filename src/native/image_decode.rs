@@ -51,16 +51,24 @@ fn image_limits() -> image::Limits {
     limits
 }
 
+/// Open an image file for decoding. Only a regular file is opened, and on
+/// Unix the open never blocks, so a FIFO or device named like an image cannot
+/// freeze the window (hover open, image viewer, background image).
+fn open_image_reader(path: &Path) -> Option<image::ImageReader<std::io::BufReader<std::fs::File>>> {
+    let file = crate::bounded_io::open_regular(path).ok()?;
+    image::ImageReader::new(std::io::BufReader::new(file))
+        .with_guessed_format()
+        .ok()
+}
+
 /// Decode an image **file** to tightly-packed RGBA8 + dimensions. The decoder
 /// receives [`image_limits`]; conversion to RGBA8 occurs afterward. Reported
-/// I/O and decode errors return `None`. File reads have no deadline, and this
+/// I/O and decode errors return `None`, as does a path that is not a regular
+/// file. Reads of a regular file have no deadline, and this
 /// helper does not catch dependency panics or allocation failure. The caller
 /// decides whether to log.
 pub(in crate::native) fn decode_image_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
-    let mut reader = image::ImageReader::open(path)
-        .ok()?
-        .with_guessed_format()
-        .ok()?;
+    let mut reader = open_image_reader(path)?;
     reader.limits(image_limits());
     let image = reader.decode().ok()?.into_rgba8();
     let (width, height) = image.dimensions();
@@ -107,10 +115,7 @@ pub(in crate::native) fn decode_image_rgba_fit(
     path: &Path,
     fit: impl FnOnce(u32, u32) -> (u32, u32),
 ) -> Option<FittedRgba> {
-    let mut reader = image::ImageReader::open(path)
-        .ok()?
-        .with_guessed_format()
-        .ok()?;
+    let mut reader = open_image_reader(path)?;
     reader.limits(image_limits());
     finish_fit(reader.decode().ok()?, fit)
 }

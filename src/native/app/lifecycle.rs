@@ -630,6 +630,8 @@ impl App {
             // The process host owns the single automation endpoint and consumes
             // this event before routing. A window never dispatches it directly.
             UserEvent::AutomationWake => false,
+            // Consumed by the process host, which rebuilds every window.
+            UserEvent::GlyphFallbackResolved => false,
             // v0.15.0 A: the deferred registration outcome is consumed by the
             // process host (`MultiWindowHost::user_event`) before routing, so a
             // window never sees it. Defensive no-op to keep the match exhaustive.
@@ -643,6 +645,15 @@ impl App {
             | UserEvent::WaylandFileDropUnavailable
             | UserEvent::WaylandFileDropFailed => false,
         }
+    }
+
+    /// The runtime glyph-fallback worker has answers for codepoints this
+    /// window drew as pending fallback boxes. Terminal content is unchanged,
+    /// so drop the render signature and rebuild: the atlas asks again and
+    /// rasterizes the resolved faces.
+    pub(super) fn rebuild_for_resolved_glyph_fallback(&mut self) {
+        self.last_render_signature = None;
+        self.request_selection_redraw();
     }
 
     pub(super) fn run_about_to_wait_maintenance(&mut self, now: Instant) {

@@ -117,9 +117,9 @@ impl GlyphAtlas {
     /// returns the **first** face that has a glyph for `ch` -- but only when
     /// `ch` is a printable spacing codepoint. A codepoint no chain face provides
     /// (or an empty chain) yields `None`, preserving the hollow-box path.
-    pub(super) fn symbol_fallback(&mut self, ch: char) -> Option<Arc<FontHandle>> {
+    pub(super) fn symbol_fallback(&mut self, ch: char) -> SymbolFallback {
         if !should_attempt_fallback(ch) {
-            return None;
+            return SymbolFallback::Settled(None);
         }
         // Static chain first: bundled Nerd faces, host face, and (macOS) the
         // system tail. A codepoint covered here takes the exact same path as
@@ -128,19 +128,25 @@ impl GlyphAtlas {
         // state off-Linux) this is the whole function, identical to the
         // pre-feature behavior including the empty-chain case.
         if let Some(fb) = self.fallback_chain.iter().find(|fb| font_has_glyph(fb, ch)) {
-            return Some(Arc::clone(fb));
+            return SymbolFallback::Settled(Some(Arc::clone(fb)));
         }
-        // Static chain missed. Consult the runtime resolver (Linux fc-match)
-        // exactly once per codepoint, caching the result -- including a negative
-        // result -- so the subprocess never runs on the hot path more than once
-        // per distinct missing codepoint.
-        let resolver = self.runtime_symbol_resolver?;
+        // Static chain missed. Consult the runtime resolver (Linux fontconfig),
+        // caching its final answer -- including a negative one -- per codepoint.
+        // A pending answer is not cached: the resolver works off the render
+        // path, and the next rebuild asks again.
+        let Some(resolver) = self.runtime_symbol_resolver else {
+            return SymbolFallback::Settled(None);
+        };
         if let Some(cached) = self.runtime_symbol_cache.get(&ch) {
-            return cached.clone();
+            return SymbolFallback::Settled(cached.clone());
         }
-        let resolved = resolver(ch);
-        self.runtime_symbol_cache.insert(ch, resolved.clone());
-        resolved
+        match resolver(ch) {
+            RuntimeSymbol::Ready(resolved) => {
+                self.runtime_symbol_cache.insert(ch, resolved.clone());
+                SymbolFallback::Settled(resolved)
+            }
+            RuntimeSymbol::Pending => SymbolFallback::Pending,
+        }
     }
 
     /// The [`SynthTransform`] to apply when rasterizing `style`. Returns the

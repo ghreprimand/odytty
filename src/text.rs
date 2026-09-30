@@ -41,7 +41,7 @@
 
 /// The glyph atlas and its cell metrics live in [`crate::atlas`]; re-exported
 /// here so `crate::text::{CellSize, GlyphAtlas}` call sites keep resolving.
-pub use crate::atlas::{CellSize, FontStyle, GlyphAtlas, SubpixelMode};
+pub use crate::atlas::{CellSize, FontStyle, GlyphAtlas, RuntimeSymbol, SubpixelMode};
 
 mod bundled;
 mod color;
@@ -51,6 +51,8 @@ mod font_handle;
 mod glyph_geom;
 mod metrics;
 mod resolve;
+#[cfg(all(unix, not(target_os = "macos")))]
+mod runtime_fallback;
 mod symbol_map;
 mod symbols;
 
@@ -62,6 +64,8 @@ pub use font_handle::*;
 pub use glyph_geom::*;
 pub use metrics::*;
 pub use resolve::*;
+#[cfg(all(unix, not(target_os = "macos")))]
+pub use runtime_fallback::set_runtime_symbol_waker;
 pub use symbol_map::*;
 pub use symbols::*;
 

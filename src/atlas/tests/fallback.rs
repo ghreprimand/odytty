@@ -372,12 +372,13 @@ fn empty_chain_keeps_the_hollow_box() {
 /// parallel-safe.
 mod runtime_resolver {
     use super::*;
+    use crate::atlas::RuntimeSymbol;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static POS_CALLS: AtomicUsize = AtomicUsize::new(0);
-    fn pos_resolver(_ch: char) -> Option<Arc<FontHandle>> {
+    fn pos_resolver(_ch: char) -> RuntimeSymbol {
         POS_CALLS.fetch_add(1, Ordering::SeqCst);
-        crate::text::resolve_symbol_font().map(Arc::new)
+        RuntimeSymbol::Ready(crate::text::resolve_symbol_font().map(Arc::new))
     }
 
     // `NEG_CALLS` / `neg_resolver` are owned exclusively by
@@ -386,33 +387,33 @@ mod runtime_resolver {
     // observe another thread's invocations under parallel scheduling. Tests that
     // only need a negative resolver (without counting) use `silent_neg_resolver`.
     static NEG_CALLS: AtomicUsize = AtomicUsize::new(0);
-    fn neg_resolver(_ch: char) -> Option<Arc<FontHandle>> {
+    fn neg_resolver(_ch: char) -> RuntimeSymbol {
         NEG_CALLS.fetch_add(1, Ordering::SeqCst);
-        None
+        RuntimeSymbol::Ready(None)
     }
 
     /// A negative resolver that touches no shared counter, so tests that merely
     /// need "resolver returns None" stay isolated from the counting tests.
-    fn silent_neg_resolver(_ch: char) -> Option<Arc<FontHandle>> {
-        None
+    fn silent_neg_resolver(_ch: char) -> RuntimeSymbol {
+        RuntimeSymbol::Ready(None)
     }
 
     static HIT_CALLS: AtomicUsize = AtomicUsize::new(0);
-    fn hit_resolver(_ch: char) -> Option<Arc<FontHandle>> {
+    fn hit_resolver(_ch: char) -> RuntimeSymbol {
         HIT_CALLS.fetch_add(1, Ordering::SeqCst);
-        None
+        RuntimeSymbol::Ready(None)
     }
 
     static UNIVERSAL_CALLS: AtomicUsize = AtomicUsize::new(0);
-    fn universal_resolver(_ch: char) -> Option<Arc<FontHandle>> {
+    fn universal_resolver(_ch: char) -> RuntimeSymbol {
         UNIVERSAL_CALLS.fetch_add(1, Ordering::SeqCst);
-        Some(Arc::new(marker_inked_font()))
+        RuntimeSymbol::Ready(Some(Arc::new(marker_inked_font())))
     }
 
     static EXCLUDED_CALLS: AtomicUsize = AtomicUsize::new(0);
-    fn excluded_resolver(_ch: char) -> Option<Arc<FontHandle>> {
+    fn excluded_resolver(_ch: char) -> RuntimeSymbol {
         EXCLUDED_CALLS.fetch_add(1, Ordering::SeqCst);
-        Some(Arc::new(marker_inked_font()))
+        RuntimeSymbol::Ready(Some(Arc::new(marker_inked_font())))
     }
 
     /// Static chain misses -> resolver resolves the glyph; a second lookup of the

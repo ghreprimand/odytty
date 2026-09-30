@@ -19,7 +19,7 @@
 #[cfg(all(unix, not(target_os = "macos")))]
 use std::path::{Path, PathBuf};
 #[cfg(all(unix, not(target_os = "macos")))]
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use crate::desktop::DesktopApp;
 // The freedesktop MIME/desktop enumeration is Linux-only; on macOS the dispatch
@@ -92,16 +92,25 @@ impl MimeProbe for PlatformMimeProbe {
     }
 }
 
+/// Longest the Open With picker waits for `xdg-mime`.
+#[cfg(all(unix, not(target_os = "macos")))]
+const XDG_MIME_DEADLINE: std::time::Duration = std::time::Duration::from_secs(1);
+/// A MIME type is one short line; anything past this is not an answer.
+#[cfg(all(unix, not(target_os = "macos")))]
+const XDG_MIME_MAX_OUTPUT: usize = 4096;
+
 /// The Linux `xdg-mime query filetype <abs>` spawn (captured output, argv-only,
 /// read-only). Factored out so the OS dispatch above stays a thin match.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn xdg_mime_query(abs: &str) -> Option<String> {
-    let output = Command::new("xdg-mime")
-        .args(["query", "filetype", abs])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
+    // Bounded: a stalled or flooding helper yields no platform answer after
+    // the deadline, and the built-in sniff decides instead.
+    let output = crate::bounded_io::run_bounded(
+        Command::new("xdg-mime").args(["query", "filetype", abs]),
+        XDG_MIME_DEADLINE,
+        XDG_MIME_MAX_OUTPUT,
+    )
+    .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -182,7 +191,9 @@ impl DesktopEnv for FsDesktopEnv {
 
     fn read_file(&self, path: &Path) -> Option<String> {
         use std::io::Read;
-        let file = std::fs::File::open(path).ok()?;
+        // Only regular files, opened without blocking: a FIFO planted at a
+        // `mimeapps.list` or `.desktop` path must not freeze the picker.
+        let file = crate::bounded_io::open_regular(path).ok()?;
         let mut buf = String::new();
         // Bounded read: a hostile/huge file is truncated rather than slurped.
         file.take(MAX_DESKTOP_FILE_BYTES)
@@ -293,3 +304,7 @@ mod tests {
         path
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "open_with_ui_liveness_tests.rs"]
+mod liveness_tests;

@@ -479,12 +479,24 @@ fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
     None
 }
 
+/// Longest startup waits for the color-emoji `fc-match` query.
+#[cfg(all(unix, not(target_os = "macos")))]
+const EMOJI_FONTCONFIG_DEADLINE: std::time::Duration = std::time::Duration::from_secs(1);
+/// The answer is three short lines.
+#[cfg(all(unix, not(target_os = "macos")))]
+const EMOJI_FONTCONFIG_MAX_OUTPUT: usize = 16 * 1024;
+
 #[cfg(all(unix, not(target_os = "macos")))]
 fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
-    let output = Command::new("fc-match")
-        .args(["-f", "%{file}\n%{family}\n%{index}", NOTO_COLOR_EMOJI])
-        .output()
-        .ok()?;
+    // Bounded: this runs while the first window's fonts are prepared, so a
+    // stalled or flooding `fc-match` must fall through to the inventory scan
+    // instead of delaying the first terminal.
+    let output = crate::bounded_io::run_bounded(
+        Command::new("fc-match").args(["-f", "%{file}\n%{family}\n%{index}", NOTO_COLOR_EMOJI]),
+        EMOJI_FONTCONFIG_DEADLINE,
+        EMOJI_FONTCONFIG_MAX_OUTPUT,
+    )
+    .ok()?;
     if !output.status.success() {
         return None;
     }

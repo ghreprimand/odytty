@@ -149,7 +149,9 @@ fn already_matches(path: &Path, contents: &str) -> std::io::Result<bool> {
         return Ok(false);
     }
 
-    let Ok(file) = fs::File::open(path) else {
+    // Nonblocking regular-file open (shared gate) closes the window between
+    // the type check above and this open.
+    let Ok(file) = crate::bounded_io::open_regular(path) else {
         return Ok(false);
     };
     let mut existing = Vec::with_capacity(contents.len());

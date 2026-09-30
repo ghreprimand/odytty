@@ -681,7 +681,15 @@ from a bound that was applied to one path and missed on a sibling.
   operations while its twins were missed; their closures route the sibling
   paths through shared bounded readers.
 - **Residual risk:** unbounded *time* is less well covered than unbounded
-  memory. Several boundaries cap allocation without capping work.
+  memory. Several boundaries cap allocation without capping work. Waits on
+  external objects are bounded on interaction and render paths: files named by
+  shell history, desktop entries, images, ssh config, and settings are opened
+  through one regular-file gate (`src/bounded_io.rs`) that refuses FIFOs and
+  devices without blocking; helper programs (`xdg-mime`, `fc-match`, `fc-list`,
+  `wsl.exe`) run with a deadline and an output cap; runtime glyph lookup runs on
+  a worker thread; and detached-session listing and kill use a nonblocking
+  connect with a deadline. Decoding a large regular image file remains bounded
+  CPU work on the opening thread.
 
 ## Planned workflow boundaries
 

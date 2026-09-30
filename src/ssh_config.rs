@@ -8,7 +8,6 @@
 //! Key material directives such as `IdentityFile` are ignored.
 
 use std::collections::HashSet;
-use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
@@ -175,7 +174,9 @@ fn read_bounded_prefix(path: &Path, max_bytes: u64) -> Option<Vec<u8>> {
     if max_bytes == 0 {
         return None;
     }
-    let file = File::open(path).ok()?;
+    // Regular files only, opened without blocking: a FIFO at an ssh config or
+    // include path must not freeze the caller.
+    let file = crate::bounded_io::open_regular(path).ok()?;
     let mut bytes = Vec::with_capacity(max_bytes.min(8192) as usize);
     file.take(max_bytes).read_to_end(&mut bytes).ok()?;
     Some(bytes)

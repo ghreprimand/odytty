@@ -405,9 +405,58 @@ pub(crate) fn resolve_symbol_fonts_with_inventory(
 /// Iosevka's 162-face collection is Iosevka Thin, while fontconfig's answer for
 /// a symbol charset is index 54, Regular. Loading face 0 would have rasterized
 /// symbols at Thin weight beside a Regular body font.
+///
+/// # Off the render path
+///
+/// The atlas calls this while preparing a frame, so it never runs fontconfig
+/// itself: [`super::runtime_fallback`] queues the codepoint for a worker
+/// thread and answers [`RuntimeSymbol::Pending`](crate::atlas::RuntimeSymbol)
+/// until the worker has a result, then wakes the windows to rebuild.
 #[cfg(all(unix, not(target_os = "macos")))]
-pub fn runtime_resolve_symbol_font(ch: char) -> Option<std::sync::Arc<FontHandle>> {
-    resolve_symbol_font_from_candidates(ch, symbol_font_candidates(ch))
+pub fn runtime_resolve_symbol_font(ch: char) -> crate::atlas::RuntimeSymbol {
+    super::runtime_fallback::request(ch)
+}
+
+/// The blocking resolution the worker thread runs for one codepoint. Each
+/// fontconfig helper is bounded in time and output; a stalled or flooding
+/// helper reports [`FontconfigStalled`] instead of an answer.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(super) fn resolve_symbol_font_blocking(
+    ch: char,
+) -> Result<Option<std::sync::Arc<FontHandle>>, FontconfigStalled> {
+    Ok(resolve_symbol_font_from_candidates(
+        ch,
+        symbol_font_candidates(ch)?,
+    ))
+}
+
+/// A fontconfig helper exceeded its deadline or output cap.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct FontconfigStalled;
+
+/// Longest one `fc-match`/`fc-list` query may run.
+#[cfg(all(unix, not(target_os = "macos")))]
+const FONTCONFIG_HELPER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
+/// Output cap for one query; each record is one short `path<TAB>index` line.
+#[cfg(all(unix, not(target_os = "macos")))]
+const FONTCONFIG_HELPER_MAX_OUTPUT: usize = 1024 * 1024;
+
+/// Run one bounded fontconfig query. `Ok(None)` means the helper ran but had
+/// no usable answer (missing, failed, or not UTF-8), which is an ordinary
+/// negative; a deadline or output-cap breach is [`FontconfigStalled`].
+#[cfg(all(unix, not(target_os = "macos")))]
+fn run_fontconfig(program: &str, args: &[&str]) -> Result<Option<String>, FontconfigStalled> {
+    use crate::bounded_io::{BoundedRunError, run_bounded};
+    match run_bounded(
+        std::process::Command::new(program).args(args),
+        FONTCONFIG_HELPER_DEADLINE,
+        FONTCONFIG_HELPER_MAX_OUTPUT,
+    ) {
+        Ok(output) if output.status.success() => Ok(String::from_utf8(output.stdout).ok()),
+        Ok(_) | Err(BoundedRunError::Spawn | BoundedRunError::Io) => Ok(None),
+        Err(BoundedRunError::TimedOut | BoundedRunError::OutputTooLarge) => Err(FontconfigStalled),
+    }
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -478,22 +527,17 @@ fn cached_runtime_font_face(path: &Path, face_index: u32) -> Option<std::sync::A
 /// so parsing it means guessing at a delimiter. Asking for the fields directly
 /// removes the guess instead of hardening it.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn symbol_font_candidates(ch: char) -> Vec<(PathBuf, u32)> {
+fn symbol_font_candidates(ch: char) -> Result<Vec<(PathBuf, u32)>, FontconfigStalled> {
     let charset = format!(":charset={:x}", ch as u32);
     let mut found: Vec<(PathBuf, u32)> = Vec::new();
 
-    if let Ok(output) = std::process::Command::new("fc-match")
-        .args(["-f", FC_RECORD_FORMAT, &charset])
-        .output()
-        && output.status.success()
-        && let Ok(text) = String::from_utf8(output.stdout)
-    {
+    if let Some(text) = run_fontconfig("fc-match", &["-f", FC_RECORD_FORMAT, &charset])? {
         found.extend(text.lines().filter_map(parse_fc_record));
     }
 
-    found.extend(fc_list_covering(ch));
+    found.extend(fc_list_covering(ch)?);
 
-    bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES)
+    Ok(bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES))
 }
 
 /// Faces fontconfig reports as actually *covering* `ch`, in `fc-list` order.
@@ -507,18 +551,13 @@ fn symbol_font_candidates(ch: char) -> Vec<(PathBuf, u32)> {
 /// host preferences; this listing exists so a caller can ask which candidates
 /// carry a real coverage claim.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn fc_list_covering(ch: char) -> Vec<(PathBuf, u32)> {
+fn fc_list_covering(ch: char) -> Result<Vec<(PathBuf, u32)>, FontconfigStalled> {
     let charset = format!(":charset={:x}", ch as u32);
     let mut found: Vec<(PathBuf, u32)> = Vec::new();
-    if let Ok(output) = std::process::Command::new("fc-list")
-        .args(["-f", FC_RECORD_FORMAT_NL, &charset])
-        .output()
-        && output.status.success()
-        && let Ok(text) = String::from_utf8(output.stdout)
-    {
+    if let Some(text) = run_fontconfig("fc-list", &["-f", FC_RECORD_FORMAT_NL, &charset])? {
         found.extend(text.lines().filter_map(parse_fc_record));
     }
-    bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES)
+    Ok(bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES))
 }
 
 /// fontconfig format string for one `path<TAB>index` record.
@@ -621,7 +660,7 @@ fn resolve_symbol_font_path_in_inventory(inventory: &FontFileInventory) -> Optio
 /// "this host has a provider and we failed to use it".
 #[cfg(all(test, unix, not(target_os = "macos")))]
 pub(super) fn symbol_font_candidates_for_test(ch: char) -> Vec<(PathBuf, u32)> {
-    symbol_font_candidates(ch)
+    symbol_font_candidates(ch).unwrap_or_default()
 }
 
 #[cfg(all(test, unix, not(target_os = "macos")))]
@@ -653,5 +692,5 @@ pub(super) fn bounded_unique_for_test(
 /// covers the codepoint.
 #[cfg(all(test, unix, not(target_os = "macos")))]
 pub(super) fn fc_list_covering_for_test(ch: char) -> Vec<(PathBuf, u32)> {
-    fc_list_covering(ch)
+    fc_list_covering(ch).unwrap_or_default()
 }

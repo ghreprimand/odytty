@@ -307,7 +307,7 @@ fn resolve_startup_fonts_with(
 pub(super) fn install_runtime_symbol_resolver(atlas: &mut text::GlyphAtlas, enabled: bool) {
     #[cfg(all(unix, not(target_os = "macos")))]
     let resolver = if enabled {
-        Some(text::runtime_resolve_symbol_font as fn(char) -> Option<Arc<FontHandle>>)
+        Some(text::runtime_resolve_symbol_font as crate::atlas::RuntimeSymbolResolver)
     } else {
         None
     };

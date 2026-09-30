@@ -371,6 +371,7 @@ Ordinary terminal text follows the same path on Linux, macOS, and Windows:
    symbol faces are built into the binary. System families and fallback faces
    come from the platform font directories. On Linux, a character missing from
    every loaded face is looked up through Fontconfig (`fc-match` and `fc-list`)
+   on a background worker, showing a placeholder box until the answer arrives,
    and the result is checked for real coverage before use; macOS and Windows
    use a fixed list of system symbol faces.
 2. **Read the font.** Font files are parsed with `skrifa`, part of the

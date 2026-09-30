@@ -373,6 +373,17 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // before configure so the first registration can use it.
     host.set_quick_summon_proxy(event_loop.create_proxy());
     host.set_automation_proxy(event_loop.create_proxy());
+    // Runtime glyph fallback resolves on a worker thread; it wakes the loop so
+    // every window rebuilds with the resolved faces.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let proxy = std::sync::Mutex::new(event_loop.create_proxy());
+        crate::text::set_runtime_symbol_waker(move || {
+            if let Ok(proxy) = proxy.lock() {
+                let _ = proxy.send_event(UserEvent::GlyphFallbackResolved);
+            }
+        });
+    }
     // v0.15.0 C: give the host a proxy the native Wayland file-drop listener
     // uses to deliver drops from its own thread. The listener itself is started
     // after readiness (never on the startup path) and only on the Wayland

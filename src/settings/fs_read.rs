@@ -13,7 +13,6 @@
 //! `std::fs` metadata, so nothing here assumes Unix metadata types or path
 //! syntax.
 
-use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
@@ -61,7 +60,10 @@ pub(crate) fn read_capped_at(path: &Path, max_bytes: u64) -> io::Result<String> 
         ));
     }
 
-    let file = File::open(path)?;
+    // Open through the shared regular-file gate as well: it re-checks the
+    // opened handle and, on Unix, never blocks in `open`, so a path swapped to
+    // a FIFO after the stat above is refused instead of waiting for a writer.
+    let file = crate::bounded_io::open_regular(path)?;
     // Read at most one byte past the ceiling so an over-limit file is detected
     // without materializing its full contents.
     let mut buf = Vec::new();
@@ -106,6 +108,7 @@ pub(super) fn note_suppressed(sink: &mut Vec<String>, suppressed: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
     use std::io::Write;
 
     fn temp_path(name: &str) -> std::path::PathBuf {

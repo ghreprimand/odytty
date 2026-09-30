@@ -6,6 +6,7 @@
 pub mod app;
 pub mod atlas;
 pub mod automation;
+pub(crate) mod bounded_io;
 pub mod boxdraw;
 pub mod color;
 pub mod connection_hosts;

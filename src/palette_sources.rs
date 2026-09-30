@@ -7,7 +7,6 @@
 //! transmits them. Tests use synthetic temp-file fixtures only.
 
 use std::collections::{HashSet, VecDeque};
-use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
@@ -304,7 +303,9 @@ where
 }
 
 fn read_tail(path: &Path, max_bytes: u64) -> Option<Vec<u8>> {
-    let mut file = File::open(path).ok()?;
+    // A FIFO or device at a history path must not block the palette opening:
+    // only a regular file is opened, and the open itself never waits.
+    let mut file = crate::bounded_io::open_regular(path).ok()?;
     let len = file.metadata().ok()?.len();
     let read_len = len.min(max_bytes);
     let start = len.saturating_sub(read_len);

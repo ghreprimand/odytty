@@ -1583,6 +1583,13 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
             self.refresh();
             return;
         }
+        if matches!(event, UserEvent::GlyphFallbackResolved) {
+            for app in &mut self.windows {
+                app.rebuild_for_resolved_glyph_fallback();
+            }
+            self.refresh();
+            return;
+        }
         if matches!(event, UserEvent::AutomationWake) {
             self.dispatch_automation();
             // Winit calls `about_to_wait` after this event batch; that pass

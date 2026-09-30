@@ -70,13 +70,17 @@ impl GlyphAtlas {
             symbol_font = Some(ov);
         } else if !geometric && !font_has_glyph(font, ch) {
             match self.symbol_fallback(ch) {
-                Some(fb) => symbol_font = Some(fb),
-                None => {
+                SymbolFallback::Settled(Some(fb)) => symbol_font = Some(fb),
+                SymbolFallback::Settled(None) => {
                     // Font lacks the glyph and no fallback applies: cache the
                     // fallback decision, draw nothing new.
                     self.dynamic.insert((style, ch), FALLBACK_SLOT);
                     return Some(self.slot_uv(FALLBACK_SLOT));
                 }
+                // A runtime answer is still being resolved off the render
+                // path: draw the fallback box this frame without caching it,
+                // so a later rebuild picks up the resolved face.
+                SymbolFallback::Pending => return Some(self.slot_uv(FALLBACK_SLOT)),
             }
         }
         // Geometric glyphs are always single-cell (box/block/Powerline).

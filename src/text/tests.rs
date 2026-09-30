@@ -1481,7 +1481,10 @@ fn linux_runtime_backfill_resolves_reported_blank_glyphs() {
             continue;
         };
         assert!(
-            super::runtime_resolve_symbol_font(ch).is_some(),
+            super::symbols::resolve_symbol_font_blocking(ch)
+                .ok()
+                .flatten()
+                .is_some(),
             "{provider:?} verifiably provides an outline glyph for U+{:04X} {ch:?}, so the \
              runtime backfill must resolve it. This is the failure the size ceiling used to \
              cause: a 377 MiB collection was the only provider and was rejected whole \
@@ -1554,7 +1557,9 @@ fn collection_faces_load_at_the_index_fontconfig_reports() {
                 // distinguish them. Not a failure -- just not evidence.
                 continue;
             }
-            let resolved = super::runtime_resolve_symbol_font(ch)
+            let resolved = super::symbols::resolve_symbol_font_blocking(ch)
+                .ok()
+                .flatten()
                 .expect("a provider exists, so this resolves");
             assert_eq!(
                 signature(&resolved, ch),

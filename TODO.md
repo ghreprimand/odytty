@@ -113,6 +113,11 @@ Development on `master`; not released. Items check off when their code is on
       take a connection `unresponsive`; Kill Session reports a live host that
       does not answer instead of treating it as gone; every session-host
       connect is bounded by a deadline.
+- [ ] Interaction and render paths do not wait on hostile files or helpers:
+      shell history, desktop entries, images, ssh config, and settings refuse
+      FIFOs and devices without blocking; `xdg-mime`, `fc-match`, `fc-list`,
+      and `wsl.exe` run with a deadline and output cap; runtime glyph fallback
+      resolves on a worker and redraws when ready.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

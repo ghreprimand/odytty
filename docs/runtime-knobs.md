@@ -435,8 +435,12 @@ one-shot actions, rate limits, expiry, and platform behavior.
   symbols at the wrong weight beside the body font. A collection is read one
   face at a time rather than whole, so a multi-hundred-megabyte collection costs
   the face it provides rather than the file containing it. The query is
-  local-only and read-only, runs at most once per distinct missing codepoint,
-  and is never on the per-frame path; if fontconfig is absent (for example, in
+  local-only and read-only and runs at most once per distinct missing codepoint
+  on a background worker, never during frame preparation: until its answer
+  arrives the cell shows the hollow-box glyph, and the window then redraws with
+  the resolved face. Each `fc-match`/`fc-list` run is limited to 3 seconds and
+  1 MiB of output; a helper that exceeds either is stopped and runtime lookup is
+  turned off for the rest of the run. If fontconfig is absent (for example, in
   headless CI), the codepoint keeps the historical hollow-box glyph.
 
   Setting

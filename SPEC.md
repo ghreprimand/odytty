@@ -2234,7 +2234,8 @@ in [`TODO.md`](TODO.md).
 The first `src/emoji/` increment was a renderer-free probe
 module: no atlas, GPU, shader, or core terminal code. Discovery runs in two
 stages. First, `fc-match -f '%{file}\n%{family}' 'Noto Color Emoji'` is invoked
-directly; the returned path and family string are checked against a strict
+directly (limited to one second and 16 KiB of output, so a stalled helper falls
+through to the scan instead of delaying the first window); the returned path and family string are checked against a strict
 identity predicate (normalized filename or family must contain `notocoloremoji`),
 so generic fontconfig substitution fonts are rejected. If fontconfig is
 unavailable or returns a non-matching result, a bounded directory scan covers

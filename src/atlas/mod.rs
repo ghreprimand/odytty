@@ -731,7 +731,28 @@ impl GlyphInk {
 /// codepoint the static fallback chain missed, it returns a loaded face that
 /// covers it (or `None`). The native layer wires this to a cached `fc-match`
 /// query; see [`crate::text::runtime_resolve_symbol_font`].
-type RuntimeSymbolResolver = fn(char) -> Option<Arc<FontHandle>>;
+pub type RuntimeSymbolResolver = fn(char) -> RuntimeSymbol;
+
+/// A runtime glyph-fallback answer. The native resolver runs its fontconfig
+/// queries on a worker thread, so a first request is [`Self::Pending`]: the
+/// atlas draws the fallback box for that frame without caching anything, and
+/// asks again on a later rebuild once the worker has an answer.
+#[derive(Debug, Clone)]
+pub enum RuntimeSymbol {
+    /// A final answer: the covering face, or `None` when no host face covers
+    /// the codepoint. Cached per codepoint.
+    Ready(Option<Arc<FontHandle>>),
+    /// Resolution is still in progress; nothing is cached.
+    Pending,
+}
+
+/// The fallback-chain answer for one codepoint inside the atlas.
+pub(super) enum SymbolFallback {
+    /// Final: a face to rasterize from, or none (the fallback box).
+    Settled(Option<Arc<FontHandle>>),
+    /// The runtime resolver has no answer yet; draw the box uncached.
+    Pending,
+}
 
 #[derive(Debug, Clone)]
 pub struct GlyphAtlas {

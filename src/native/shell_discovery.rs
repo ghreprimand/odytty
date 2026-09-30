@@ -43,20 +43,50 @@ fn append_wsl_shells(out: &mut Vec<DiscoveredShell>) {
     }
 }
 
+/// Longest a profile picker waits for `wsl.exe --list`.
+#[cfg(windows)]
+const WSL_LIST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
+/// UTF-16 distro names, one per line; the parser keeps at most 32 of them.
+#[cfg(windows)]
+const WSL_LIST_MAX_OUTPUT: usize = 64 * 1024;
+/// How long one answer (including "none") is reused before `wsl.exe` runs
+/// again, so reopening a picker does not repeat the wait.
+#[cfg(windows)]
+const WSL_LIST_REUSE: std::time::Duration = std::time::Duration::from_secs(60);
+
+#[cfg(windows)]
+static WSL_LIST_CACHE: std::sync::Mutex<Option<(std::time::Instant, Vec<String>)>> =
+    std::sync::Mutex::new(None);
+
+/// WSL distro names, from a bounded `wsl.exe --list --quiet` run whose answer
+/// is reused for [`WSL_LIST_REUSE`]. A helper that stalls past
+/// [`WSL_LIST_DEADLINE`] or floods its output is killed and yields no distros.
 #[cfg(windows)]
 fn read_wsl_distro_names() -> Vec<String> {
+    let mut cache = WSL_LIST_CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((at, names)) = cache.as_ref()
+        && at.elapsed() < WSL_LIST_REUSE
+    {
+        return names.clone();
+    }
+    let names = query_wsl_distro_names();
+    *cache = Some((std::time::Instant::now(), names.clone()));
+    names
+}
+
+#[cfg(windows)]
+fn query_wsl_distro_names() -> Vec<String> {
     use std::process::Command;
 
     let mut command = Command::new("wsl.exe");
     command.args(["--list", "--quiet"]);
     super::app::win_spawn::apply_no_console_window(&mut command);
-    let Ok(output) = command.output() else {
-        return Vec::new();
-    };
-    if !output.status.success() {
-        return Vec::new();
+    match crate::bounded_io::run_bounded(&mut command, WSL_LIST_DEADLINE, WSL_LIST_MAX_OUTPUT) {
+        Ok(output) if output.status.success() => parse_wsl_distro_list(&output.stdout),
+        _ => Vec::new(),
     }
-    parse_wsl_distro_list(&output.stdout)
 }
 
 #[cfg(test)]
