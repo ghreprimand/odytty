@@ -245,8 +245,8 @@ impl AttachClient {
     }
 
     /// Retry a resize from the idle maintenance path without ever blocking
-    /// the calling (main) thread. The frame is sent with `MSG_DONTWAIT`: a full
-    /// send buffer (the host still stalled) returns `WouldBlock` with nothing
+    /// the calling (main) thread. The frame goes through [`NonBlockingSend`]: a
+    /// full send buffer (the host still stalled) returns `WouldBlock` with nothing
     /// written, which stays a transient failure the caller retries later. The
     /// zero-progress versus partial-progress contract is unchanged: a send that
     /// wrote part of the frame is a `TruncatedWrite` and poisons the client.
@@ -310,11 +310,19 @@ impl Drop for AttachClient {
     }
 }
 
-/// A [`Write`] over the attach socket that never waits: each write is one
-/// `send` with `MSG_DONTWAIT`, so a full send buffer returns `WouldBlock`
-/// instead of parking the caller for the socket's send timeout. The flag
-/// applies to this call only, so the pump reader and the input writer sharing
-/// the socket keep their blocking semantics.
+/// A [`Write`] over the attach socket that never waits: a full send buffer
+/// returns `WouldBlock` instead of parking the caller for the socket's send
+/// timeout. Nothing touches the shared file status flags, so the pump reader
+/// and the input writer sharing the socket keep their blocking semantics.
+///
+/// Linux honors `MSG_DONTWAIT` on `send`. macOS/BSD document that flag for
+/// receives only and a stream `send` still sleeps for buffer space until
+/// `SO_SNDTIMEO`, so on those targets a zero-timeout `poll` for `POLLOUT`
+/// gates the send first. Writability there means at least the low-water mark
+/// (2 KiB by default) is free, far more than a resize frame, and only this
+/// process writes to the socket (under the client lock), so the space cannot
+/// shrink between the poll and the send. The send timeout remains the outer
+/// bound either way.
 struct NonBlockingSend<'a>(&'a UnixStream);
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -327,6 +335,10 @@ const NONBLOCKING_SEND_FLAGS: libc::c_int = libc::MSG_DONTWAIT;
 impl Write for NonBlockingSend<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         use std::os::fd::AsRawFd;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        if !send_buffer_has_room(self.0.as_raw_fd())? {
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
         loop {
             // SAFETY: a valid socket fd and a readable buffer of `buf.len()`
             // bytes that outlives the call.
@@ -350,6 +362,30 @@ impl Write for NonBlockingSend<'_> {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+/// Zero-timeout `POLLOUT` probe for targets whose `send` ignores
+/// `MSG_DONTWAIT`. A hung-up or errored socket reports ready so the send that
+/// follows surfaces the real error instead of a transient `WouldBlock`.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn send_buffer_has_room(fd: std::os::fd::RawFd) -> io::Result<bool> {
+    let mut poll_fd = libc::pollfd {
+        fd,
+        events: libc::POLLOUT,
+        revents: 0,
+    };
+    loop {
+        // SAFETY: one valid `pollfd` for the duration of the call; a zero
+        // timeout never sleeps.
+        let ready = unsafe { libc::poll(&mut poll_fd, 1, 0) };
+        if ready >= 0 {
+            return Ok(ready > 0);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
     }
 }
 

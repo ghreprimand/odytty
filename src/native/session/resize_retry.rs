@@ -11,7 +11,8 @@
 //! doubling to at most 5 s). The event loop wakes at the earliest scheduled
 //! retry, and the retry resends the model's current dimensions. An attached
 //! retry never blocks the main thread: it skips a busy client lock and sends
-//! with `MSG_DONTWAIT`, so a still-stalled host costs one failed syscall. A
+//! without waiting (`MSG_DONTWAIT` on Linux, a zero-timeout `POLLOUT` check
+//! first on macOS/BSD), so a still-stalled host costs one or two syscalls. A
 //! live divider drag suppresses backend resizes on purpose and cancels any
 //! pending retry; the drag release flushes the final size as before.
 

@@ -1490,7 +1490,14 @@ mod hardening_tests {
         let listener = std::os::unix::net::UnixListener::bind(&path).expect("bind");
         listener.set_nonblocking(true).expect("nonblocking");
         let peers: Vec<UnixStream> = (0..MAX_PENDING_HANDSHAKES + MAX_ACCEPTS_PER_TICK)
-            .map(|_| UnixStream::connect(&path).expect("connect"))
+            .map(|_| {
+                let peer = UnixStream::connect(&path).expect("connect");
+                // Armed before the host can reject and close: macOS refuses
+                // `SO_RCVTIMEO` with `EINVAL` on a peer-closed socket.
+                peer.set_read_timeout(Some(Duration::from_secs(5)))
+                    .expect("timeout");
+                peer
+            })
             .collect();
         let mut pending = Vec::new();
 
@@ -1510,8 +1517,6 @@ mod hardening_tests {
         // Every connection past the cap was told why instead of hanging.
         let mut rejected = 0;
         for mut peer in peers.into_iter().skip(MAX_PENDING_HANDSHAKES) {
-            peer.set_read_timeout(Some(Duration::from_secs(5)))
-                .expect("timeout");
             let hello = super::super::protocol::read_host_hello(&mut peer).expect("hello");
             assert!(hello.into_result().is_err());
             rejected += 1;

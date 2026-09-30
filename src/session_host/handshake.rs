@@ -281,11 +281,13 @@ mod tests {
     #[test]
     fn a_rejected_handshake_tells_the_client_why() {
         let (mut client, server) = UnixStream::pair().expect("socketpair");
-        let pending = PendingHandshake::new(server, far_deadline()).expect("pending");
-        pending.reject("attach queue is full");
+        // Arm the timeout while the peer is open: macOS rejects `SO_RCVTIMEO`
+        // with `EINVAL` once the rejecting side has closed.
         client
             .set_read_timeout(Some(Duration::from_secs(5)))
             .expect("read timeout");
+        let pending = PendingHandshake::new(server, far_deadline()).expect("pending");
+        pending.reject("attach queue is full");
         let hello = read_host_hello(&mut client).expect("rejection hello");
         assert!(hello.into_result().is_err());
     }
