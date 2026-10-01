@@ -170,8 +170,11 @@ displaying data.
   query responses are bounded at `MAX_DCS_QUERY_BYTES` = 4096
   (`src/core/screen/query.rs`). Keyboard-protocol mode stacking is bounded at
   `KITTY_KEYBOARD_STACK_LIMIT` = 16 (`src/core/screen/ops.rs`). Scrollback is
-  bounded at `DEFAULT_SCROLLBACK_LIMIT` = 10,000 lines with a per-logical-line
-  ceiling of `MAX_LOGICAL_LINE_CELLS` = 2^20 (`src/core/scrollback.rs`).
+  bounded at `DEFAULT_SCROLLBACK_LIMIT` = 10,000 lines, an aggregate budget of
+  `RETAINED_CELLS_PER_LINE` = 1,024 cells per allowed line (whole oldest lines
+  are evicted past it; an unbounded limit has no budget), and a per-logical-line
+  ceiling of `MAX_LOGICAL_LINE_CELLS` = 2^20 (`src/core/scrollback.rs`). A
+  history-row request materializes only the requested rows of a long line.
   Combining marks per cell are capped at `MAX_COMBINING` = 4
   (`src/core/types.rs`). Program-defined clickable regions are bounded at
   `MAX_BUTTON_SPANS_PER_LINE` = 16, `MAX_BUTTON_ENTRIES` = 8192, and

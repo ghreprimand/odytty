@@ -193,6 +193,8 @@ mod tab_chrome;
 pub(super) mod tab_panel;
 // F4-V2 R1: vertical tab rail widget — the sibling of `tab_bar`, active when
 // `tab_bar_placement` is a rail.
+#[cfg(test)]
+mod device_loss_tests;
 mod tab_rail;
 #[cfg(test)]
 mod test_seams;

@@ -563,6 +563,44 @@ against the cold-path gain.
 platform-specific branch; the same code runs on every target and the
 `windows-latest` CI leg is the check.
 
+### Scrollback: an aggregate cell budget and windowed rows
+
+The line cap counts logical lines, not cells, so every retained line could be
+a long wrapped line. A bounded store now also keeps its total cells within
+`RETAINED_CELLS_PER_LINE` = 1,024 per allowed line (10,240,000 cells at the
+default 10,000 lines) and evicts whole oldest lines past it. This is a ceiling
+on retained capacity for pathological history, not a leak fix: ordinary output
+averages far below 1,024 cells per line and never reaches it.
+
+Measured with the ring attribution that `ODYTTY_MEMORY_REPORT` reports, a
+headless 80x24 terminal at the default limit was fed 800 lines of 40,000 cells
+in steps of 32. Before the budget the ring grew by about 35.9 MB per step, to
+896 MB after 800 lines. With the budget it grew the same way to 286.8 MB at 256
+lines and then stayed at 286.8 MB through 800 lines. These are attributed ring
+bytes, not a resident-set measurement. On the same machine, interleaved runs of
+the model benchmark's feed rows (`seq`, plain, heavy SGR, scroll-region churn,
+full repaint, SGR subparameters) showed no change larger than the run-to-run
+spread of each row (at most 6.7%). Feeding the 40,000-cell lines was 7.9%
+faster with the budget, because less history is kept.
+
+The row accessors (`physical_tail`, `physical_row`, `physical_range`) used to
+hydrate every row of the logical line containing the first requested row, so a
+one-row request against a near-limit 1,048,576-cell line built about a million
+cells and dropped all but 80. The projection now takes a row window: row
+boundaries are still found by walking the line from its start, because a wide
+glyph that wraps early moves every later boundary, but only rows inside the
+window are written. A regression test counts the cells written and pins one row
+of cells for a one-row request. Lines that a request covers whole, and lines
+that are only counted, run a projection copy whose write decision is fixed at
+compile time. A first version that decided per row for every line made
+ordinary scrolled-back snapshots and deep-scrollback resizes measurably
+slower; with the fixed copies those rows show no change beyond their
+run-to-run spread. On a headless terminal holding one open 1,048,000-cell
+line, `snapshot_with_scrollback` one or 24 rows up went from about 9.5 ms to
+0.95 ms per call, and 1,000 rows up from about 9.7 ms to 1.5 ms. That remaining
+time is the walk from the line's start. These are single-machine model timings,
+not frame latency.
+
 ### Glyph atlases: measured, retained, and not the dominant term
 
 The Phase 4 workstation survey covers default and large font sizes, grayscale

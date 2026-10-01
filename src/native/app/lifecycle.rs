@@ -202,7 +202,14 @@ impl App {
     /// `ActiveEventLoop` (which cannot be constructed in a unit test). The
     /// caller maps `Some`/`None` onto `WaitUntil`/`Wait`.
     pub(super) fn next_wake_deadline(&self) -> Option<Instant> {
-        self.next_wake_deadline_for_surface(self.window.is_some())
+        self.next_wake_deadline_for_window(self.window.is_some())
+    }
+
+    /// Wake set for a window that is (or is not) present. A lost GPU device
+    /// leaves no redraw consumer for render-only timers, exactly like a
+    /// hidden surface, so it presents as inactive.
+    pub(super) fn next_wake_deadline_for_window(&self, window_present: bool) -> Option<Instant> {
+        self.next_wake_deadline_for_surface(window_present && !self.gpu_device_lost)
     }
 
     /// Compute the deadline set for an explicit presentation state. A hidden

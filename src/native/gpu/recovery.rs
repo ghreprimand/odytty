@@ -17,7 +17,7 @@ impl GpuState {
     /// Reconfigure the surface for a new physical size. No-op for zero extents
     /// (e.g. a minimized window), which the swap chain rejects.
     pub(in crate::native) fn resize(&mut self, width: u32, height: u32) {
-        if width == 0 || height == 0 {
+        if width == 0 || height == 0 || self.is_device_lost() {
             return;
         }
         let (width, height) = crate::native::texture_limits::clamp_dimensions(
@@ -55,8 +55,19 @@ impl GpuState {
     }
 
     /// Reapply the current configuration for an outdated surface.
+    /// No-op once the device is lost: configuring against a lost device can
+    /// only fail, and rendering stays paused.
     pub(in crate::native) fn reconfigure(&self) {
+        if self.is_device_lost() {
+            return;
+        }
         self.surface.configure(&self.device, &self.config);
+    }
+
+    /// Whether the device-lost callback has fired (sticky; see
+    /// [`super::frame::device_loss_latched`]).
+    pub(in crate::native) fn is_device_lost(&self) -> bool {
+        super::frame::device_loss_latched(&self.device_lost)
     }
 
     /// Recreate a backend surface after `CurrentSurfaceTexture::Lost`.
@@ -88,6 +99,11 @@ impl GpuState {
     /// taken until `configure`) and keeps the capability-check error path from
     /// stranding the window with no surface at all.
     pub(in crate::native) fn recreate_surface(&mut self) -> Result<(), NativeError> {
+        // A replacement surface cannot be configured against a lost device;
+        // rendering stays paused, so leave the retired surface alone.
+        if self.is_device_lost() {
+            return Ok(());
+        }
         let surface = self
             .instance
             .create_surface(Arc::clone(&self.window))

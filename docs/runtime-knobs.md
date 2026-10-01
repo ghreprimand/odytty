@@ -157,7 +157,7 @@ environment variable was not set at startup.
 | `keybinds` | `ODYTTY_KEYBINDS` | `chord=action` list | empty |
 | `pane_prefix` | `ODYTTY_PANE_PREFIX` | Key chord, or `off` to disable | `ctrl+b` |
 | `scroll_wheel_lines` | `ODYTTY_SCROLL_WHEEL_LINES` | Float, `1.0..=10.0` lines | `6.0` |
-| `scrollback_lines` | `ODYTTY_SCROLLBACK_LINES` | Integer lines, `0..=1000000` (`0` = unlimited) | `10000` |
+| `scrollback_lines` | `ODYTTY_SCROLLBACK_LINES` | Integer lines, `0..=1000000` (`0` = unlimited); a bounded limit also caps retained cells at 1,024 per line on average, evicting the oldest long lines first | `10000` |
 | `scroll_drag_speed` | `ODYTTY_SCROLL_DRAG_SPEED` | `ramp`, `legacy` | `ramp` |
 | `pixel_scroll` | `ODYTTY_PIXEL_SCROLL` | `on`, `off` | `on` |
 | `scroll_pixel_speed` | `ODYTTY_SCROLL_PIXEL_SPEED` | Float, `0.25..=4.0` | `1.0` |

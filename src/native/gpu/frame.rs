@@ -5,7 +5,7 @@
 //! background quads, coverage glyphs, colour glyphs, then the cursor and
 //! overlay tail. `pre_present_notify` stays immediately before presentation.
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::grid;
 
@@ -219,7 +219,7 @@ impl GpuState {
     /// acquisition status through [`wgpu::CurrentSurfaceTexture`] rather than a
     /// `Result`, so there is no fatal out-of-memory path here.
     pub(in crate::native) fn render(&mut self) -> FrameOutcome {
-        if self.device_lost.swap(false, Ordering::AcqRel) {
+        if device_loss_latched(&self.device_lost) {
             return FrameOutcome::RecreateDevice;
         }
         self.ensure_scene_target_format();
@@ -322,6 +322,37 @@ impl GpuState {
             FrameOutcome::Reconfigure
         } else {
             FrameOutcome::Presented
+        }
+    }
+}
+
+/// Whether the device-lost callback has fired for this device.
+///
+/// The flag is sticky: it is set once by the callback and never cleared,
+/// because no path rebuilds the device-owned atlas, textures, and pipelines.
+/// Every later frame, resize, reconfigure, and surface recreation therefore
+/// keeps seeing the loss and stays off the lost device, instead of the first
+/// frame consuming the signal and a later redraw acquiring and presenting on
+/// it again.
+pub(super) fn device_loss_latched(device_lost: &AtomicBool) -> bool {
+    device_lost.load(Ordering::Acquire)
+}
+
+#[cfg(test)]
+mod device_loss_tests {
+    use super::*;
+
+    #[test]
+    fn device_loss_stays_latched_across_every_later_frame() {
+        let device_lost = AtomicBool::new(false);
+        assert!(!device_loss_latched(&device_lost));
+        // The device-lost callback stores `true` once.
+        device_lost.store(true, Ordering::Release);
+        for _ in 0..3 {
+            assert!(
+                device_loss_latched(&device_lost),
+                "a second redraw must not render on the lost device"
+            );
         }
     }
 }

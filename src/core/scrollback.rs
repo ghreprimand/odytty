@@ -328,9 +328,24 @@ pub(in crate::core) const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
 /// (e.g. `cat /dev/zero`) would otherwise grow one ever-open logical line
 /// without bound. When an open line exceeds this many cells, the oldest cells
 /// are dropped from its front (equivalent to that history scrolling away). The
-/// bound is generous (1,048,576 cells ≈ 36 MB) so it never trims realistic
-/// content; it exists purely to keep the pathological no-newline case bounded.
+/// bound is generous (1,048,576 cells, 28 MiB at 28 B per stored cell) so it
+/// never trims realistic content; it exists purely to keep the pathological
+/// no-newline case bounded.
 const MAX_LOGICAL_LINE_CELLS: usize = 1 << 20;
+
+/// Average cells per retained logical line that the aggregate cell budget
+/// allows: a store limited to `limit` lines retains at most
+/// `limit * RETAINED_CELLS_PER_LINE` cells in total. The line cap alone let
+/// every one of those lines be a long wrapped line, so memory grew with line
+/// length rather than line count (10,000 lines of 40,000 cells is 11 GB).
+/// 1,024 cells is 12.8 rows at 80 columns, well above the average of ordinary
+/// output, so the budget only trims history dominated by very long lines. At
+/// the default 10,000 lines it bounds the ring's cells at 10,240,000
+/// (287 MB at 28 B per stored cell). Eviction removes whole logical lines from
+/// the front, never the last (possibly open) line, so prompt marks, wrap state,
+/// and the line cap of what remains are unchanged. An unbounded (`0`) limit
+/// has no budget.
+const RETAINED_CELLS_PER_LINE: usize = 1_024;
 
 /// Logical-line scrollback with a lazily-(re)built physical projection.
 #[derive(Debug, Clone)]
@@ -354,6 +369,9 @@ pub(in crate::core) struct Scrollback {
     /// `ButtonTable` (it lives on `Screen`), so drops accumulate here and the
     /// owner drains them via [`Scrollback::take_freed_button_ids`].
     freed_button_ids: Vec<ButtonId>,
+    /// Total cells across `lines`, maintained at every mutation so the
+    /// aggregate budget check in [`Scrollback::enforce_limit`] is `O(1)`.
+    retained_cells: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -387,6 +405,7 @@ impl Scrollback {
             trim_epoch: 0,
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
+            retained_cells: 0,
         }
     }
 
@@ -399,6 +418,7 @@ impl Scrollback {
             trim_epoch: 0,
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
+            retained_cells: 0,
         }
     }
 
@@ -410,6 +430,7 @@ impl Scrollback {
     pub(in crate::core) fn from_physical_rows(rows: &[Line]) -> Self {
         let lines: VecDeque<LogicalLine> = logical_from_physical(rows).into();
         let limit = DEFAULT_SCROLLBACK_LIMIT.max(lines.len());
+        let retained_cells = lines.iter().map(|line| line.cells.len()).sum();
         Self {
             lines,
             cache: RefCell::new(Projection::empty()),
@@ -417,6 +438,7 @@ impl Scrollback {
             trim_epoch: 0,
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
+            retained_cells,
         }
     }
 
@@ -439,13 +461,16 @@ impl Scrollback {
     /// the eviction cap perturbing large corpora.
     #[cfg(test)]
     pub(in crate::core) fn from_physical(rows: &[Line]) -> Self {
+        let lines: VecDeque<LogicalLine> = logical_from_physical(rows).into();
+        let retained_cells = lines.iter().map(|line| line.cells.len()).sum();
         Self {
-            lines: logical_from_physical(rows).into(),
+            lines,
             cache: RefCell::new(Projection::empty()),
             limit: 0,
             trim_epoch: 0,
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
+            retained_cells,
         }
     }
 
@@ -518,19 +543,32 @@ impl Scrollback {
         // taking a suffix of its cells would re-wrap from the wrong offset.
         // The first line to pull is therefore the one *containing* the first
         // wanted row, found by binary search.
-        let (start_line, total_rows) = {
+        let (start_line, skip, total_rows) = {
             let cache = self.cache.borrow();
             let first_wanted = cache.total_rows.saturating_sub(n);
             match cache.locate(first_wanted) {
-                Some((line_index, _)) => (line_index, cache.total_rows),
+                Some((line_index, first_row)) => {
+                    (line_index, first_wanted - first_row, cache.total_rows)
+                }
                 // `locate` returns `None` only for an empty store, since
                 // `first_wanted < total_rows` whenever any row exists.
                 None => return Vec::new(),
             }
         };
-        let mut rows = project_logical(self.lines.iter().skip(start_line), width);
+        // The containing line is still walked from its start, but only the
+        // rows from the first wanted one on are materialized.
+        let mut rows = Vec::new();
+        for (index, line) in self.lines.range(start_line..).enumerate() {
+            let window = if index == 0 {
+                skip..usize::MAX
+            } else {
+                ALL_ROWS
+            };
+            project_line_into(line.view(), width, line.open, window, &mut rows);
+        }
         let n = n.min(total_rows);
-        // The pulled lines may project to more than `n` rows; keep the tail.
+        // The pulled lines may project to more than `n` rows; keep the tail,
+        // which drops exactly the unmaterialized leading rows.
         if rows.len() > n {
             rows.drain(0..rows.len() - n);
         }
@@ -561,7 +599,11 @@ impl Scrollback {
         let skip = start - first_row;
         let mut rows = Vec::new();
         for line in self.lines.range(line_index..) {
-            project_line_into(line.view(), width, line.open, true, &mut rows);
+            // Rows before `skip` and past `skip + n` are counted, not
+            // materialized; the window is relative to this line's first row.
+            let base = rows.len();
+            let window = (skip.saturating_sub(base))..(skip + n - base);
+            project_line_into(line.view(), width, line.open, window, &mut rows);
             if rows.len() >= skip + n {
                 break;
             }
@@ -581,8 +623,9 @@ impl Scrollback {
         let (line_index, first_row) = self.cache.borrow().locate(row)?;
         let line = self.lines.get(line_index)?;
         let mut rows = Vec::new();
-        project_line_into(line.view(), width, line.open, true, &mut rows);
-        rows.into_iter().nth(row - first_row)
+        let index = row - first_row;
+        project_line_into(line.view(), width, line.open, index..index + 1, &mut rows);
+        rows.into_iter().nth(index)
     }
 
     /// Absolute physical row index of each stored logical line's **first** row
@@ -642,6 +685,7 @@ impl Scrollback {
             // applied to both or to neither.
             let offset = last.cells.len();
             adopt_row_cells(&mut last.cells, &mut last.marks, &row.cells);
+            self.retained_cells += last.cells.len() - offset;
             last.open = wrapped;
             if last.prompt_mark.is_none() {
                 last.prompt_mark = row.prompt_mark;
@@ -684,6 +728,7 @@ impl Scrollback {
             if !wrapped {
                 line.finalize_capacity();
             }
+            self.retained_cells += line.cells.len();
             self.lines.push_back(line);
             appended_line = true;
         }
@@ -724,16 +769,22 @@ impl Scrollback {
             // `Vec::drain(0..excess)` performed once at the cap.
             let excess = self.lines.len() - self.limit;
             for _ in 0..excess {
-                if let Some(line) = self.lines.pop_front() {
-                    // A line leaving the ring surrenders its button-span
-                    // references; the owner drains these and decrements the
-                    // table refcounts (sticky buttons free at zero).
-                    self.freed_button_ids
-                        .extend(line.button_spans.iter().map(|span| span.id));
-                }
+                self.evict_front_line();
             }
             result.changed = true;
             result.evicted_lines = excess;
+        }
+
+        // Aggregate cell budget: evict whole logical lines from the front
+        // while the store holds more cells than its limit allows on average.
+        // The last line is never evicted here (it may be open and continue
+        // into the live grid); the per-line ceiling below bounds it.
+        if let Some(budget) = self.cell_budget() {
+            while self.retained_cells > budget && self.lines.len() > 1 {
+                self.evict_front_line();
+                result.changed = true;
+                result.evicted_lines += 1;
+            }
         }
 
         // Bound the pathological no-terminator case: a never-closed logical
@@ -760,6 +811,7 @@ impl Scrollback {
         {
             let drop = last.cells.len() - (MAX_LOGICAL_LINE_CELLS - SLACK);
             last.cells.drain(0..drop);
+            self.retained_cells -= drop;
             // The mark sidecar is keyed by flat index, so a front-drain of the
             // cells has to shift it by the same amount or every surviving mark
             // lands on a different base character than the one it belongs to.
@@ -799,6 +851,37 @@ impl Scrollback {
         result
     }
 
+    /// Remove the oldest logical line. A line leaving the ring surrenders its
+    /// button-span references; the owner drains these and decrements the
+    /// table refcounts (sticky buttons free at zero).
+    fn evict_front_line(&mut self) {
+        if let Some(line) = self.lines.pop_front() {
+            self.retained_cells -= line.cells.len();
+            self.freed_button_ids
+                .extend(line.button_spans.iter().map(|span| span.id));
+        }
+    }
+
+    /// The aggregate retained-cell budget, or `None` for an unbounded store.
+    fn cell_budget(&self) -> Option<usize> {
+        (self.limit != 0).then(|| self.limit.saturating_mul(RETAINED_CELLS_PER_LINE))
+    }
+
+    /// Total cells retained across every logical line (see
+    /// [`RETAINED_CELLS_PER_LINE`]).
+    #[cfg(test)]
+    pub(in crate::core) fn retained_cells(&self) -> usize {
+        assert_eq!(
+            self.retained_cells,
+            self.lines
+                .iter()
+                .map(|line| line.cells.len())
+                .sum::<usize>(),
+            "retained cell count drifted from the stored lines"
+        );
+        self.retained_cells
+    }
+
     /// Clear all scrollback.
     pub(in crate::core) fn clear(&mut self) {
         if !self.lines.is_empty() {
@@ -809,6 +892,7 @@ impl Scrollback {
                 .extend(line.button_spans.iter().map(|span| span.id));
         }
         self.lines.clear();
+        self.retained_cells = 0;
         self.invalidate();
     }
 
@@ -982,7 +1066,13 @@ impl Scrollback {
         let mut total_rows = 0usize;
         for line in &self.lines {
             scratch.clear();
-            project_line_into(line.counting_view(), width, line.open, false, &mut scratch);
+            project_line_into(
+                line.counting_view(),
+                width,
+                line.open,
+                NO_ROWS,
+                &mut scratch,
+            );
             row_starts.push_back(total_rows);
             total_rows += scratch.len();
         }
@@ -1060,6 +1150,7 @@ pub(in crate::core) fn resize_lazy_with_options(
         }
         match sb.lines.pop_back() {
             Some(line) => {
+                sb.retained_cells -= line.cells.len();
                 pulled_rows += count_projected_rows(&line, new_width);
                 pulled.push(line);
             }
@@ -1279,6 +1370,19 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
     lines
 }
 
+/// Materialize every row of a logical line (see [`project_line_into`]).
+const ALL_ROWS: std::ops::Range<usize> = 0..usize::MAX;
+/// Materialize no rows: count and flag them only.
+const NO_ROWS: std::ops::Range<usize> = 0..0;
+
+#[cfg(test)]
+thread_local! {
+    /// Cells written by [`project_line_into`] on this thread, so tests can
+    /// prove a windowed request hydrates only the rows it returns.
+    pub(in crate::core) static HYDRATED_CELLS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
 /// Project logical lines to physical rows at `width`.
 pub(in crate::core) fn project_logical<'a, I>(lines: I, width: usize) -> Vec<Line>
 where
@@ -1286,7 +1390,7 @@ where
 {
     let mut out = Vec::new();
     for line in lines {
-        project_line_into(line.view(), width, line.open, true, &mut out);
+        project_line_into(line.view(), width, line.open, ALL_ROWS, &mut out);
     }
     out
 }
@@ -1303,7 +1407,7 @@ fn line_all_blank(line: &LogicalLine) -> bool {
 
 fn count_projected_rows(line: &LogicalLine, width: usize) -> usize {
     let mut tmp = Vec::new();
-    project_line_into(line.counting_view(), width, line.open, false, &mut tmp);
+    project_line_into(line.counting_view(), width, line.open, NO_ROWS, &mut tmp);
     tmp.len()
 }
 
@@ -1325,16 +1429,25 @@ fn count_projected_rows(line: &LogicalLine, width: usize) -> usize {
 ///   `prompt_mark` carry extended to column ranges. Span-free lines (the
 ///   overwhelmingly common case) pay only an `is_empty` check.
 ///
-/// # `materialize`
+/// # `window`
 ///
-/// Callers that only need to know *how many* rows a line produces — the
-/// projection-shape cache and the resize subset pull — pass `false`, and the
-/// rows are emitted with their flags and their count but without their cells.
+/// Only rows whose index within this logical line falls in `window` are
+/// materialized; every other row is emitted with its flags and its count but
+/// without its cells. Callers that only need to know *how many* rows a line
+/// produces (the projection-shape cache and the resize subset pull) pass
+/// [`NO_ROWS`], full projections pass [`ALL_ROWS`], and a render or lookup
+/// that needs a few rows of a long wrapped line passes just those, so a
+/// one-row request against a 1,048,576-cell line hydrates one row of cells,
+/// not the whole line. Row boundaries still come from walking the line from
+/// its start, because a wide glyph that wraps early moves every later
+/// boundary.
 ///
-/// This is one implementation, not two. Every wrapping decision reads
-/// `row_len`, which is maintained identically in both modes; materializing only
-/// gates whether a cell is also *written*. `row_len` and the row vector are
-/// asserted equal at every push under `debug_assertions`, so the two modes
+/// This is one implementation, not two: the three monomorphized copies differ
+/// only in how they decide whether a row is written. Every wrapping decision
+/// reads `row_len`, which is maintained identically in every mode;
+/// materializing only gates whether a cell is also *written*. `row_len` and
+/// the row vector are asserted equal at every push under `debug_assertions`,
+/// so the modes
 /// cannot silently diverge — a missed increment fails immediately in every
 /// debug test run rather than producing a shape that disagrees with the
 /// projection it describes.
@@ -1347,7 +1460,43 @@ fn project_line_into(
     line: LineView<'_>,
     width: usize,
     open: bool,
-    materialize: bool,
+    window: std::ops::Range<usize>,
+    out: &mut Vec<Line>,
+) {
+    // A line of `n` cells produces at most `n + 1` rows, so a window that
+    // starts at row 0 and ends past that covers every row, and one that starts
+    // past it covers none. Those two cases (every full projection and every
+    // count) run a copy whose materialization decision is a compile-time
+    // constant, as it was before row windows existed; only a window that
+    // partially covers the line pays the per-row decision.
+    let max_rows = line.cells.len().saturating_add(1);
+    if window.start == 0 && window.end >= max_rows {
+        project_line_mode::<{ ProjectMode::ALL }>(line, width, open, ALL_ROWS, out);
+    } else if window.is_empty() || window.start >= max_rows {
+        project_line_mode::<{ ProjectMode::COUNT }>(line, width, open, NO_ROWS, out);
+    } else {
+        project_line_mode::<{ ProjectMode::WINDOW }>(line, width, open, window, out);
+    }
+}
+
+/// How [`project_line_mode`] decides which rows to write cells into.
+struct ProjectMode;
+
+impl ProjectMode {
+    /// Write every row.
+    const ALL: u8 = 0;
+    /// Write no row: count and flag only.
+    const COUNT: u8 = 1;
+    /// Write only the rows inside the window, decided per row.
+    const WINDOW: u8 = 2;
+}
+
+/// The body of [`project_line_into`], monomorphized per [`ProjectMode`].
+fn project_line_mode<const MODE: u8>(
+    line: LineView<'_>,
+    width: usize,
+    open: bool,
+    window: std::ops::Range<usize>,
     out: &mut Vec<Line>,
 ) {
     let LineView {
@@ -1382,6 +1531,14 @@ fn project_line_into(
     let cells = &cells[..keep];
 
     let blank = Cell::blank();
+    // Whether the row being built is inside `window`; re-evaluated each time a
+    // row is finished. A constant outside `WINDOW` mode.
+    let in_window = |row: usize| match MODE {
+        ProjectMode::ALL => true,
+        ProjectMode::COUNT => false,
+        _ => window.contains(&row),
+    };
+    let mut materialize = in_window(0);
     let mut row_cells: Vec<Cell> = Vec::with_capacity(if materialize { width } else { 0 });
     // Logical length of the row being built. This — not `row_cells.len()` — is
     // what every wrapping decision below reads, so the decisions are identical
@@ -1394,6 +1551,8 @@ fn project_line_into(
         ($make:expr) => {{
             row_len += 1;
             if materialize {
+                #[cfg(test)]
+                HYDRATED_CELLS.with(|count| count.set(count.get() + 1));
                 row_cells.push($make);
                 debug_assert_eq!(
                     row_cells.len(),
@@ -1407,6 +1566,7 @@ fn project_line_into(
         ($line:expr) => {{
             out.push($line);
             row_len = 0;
+            materialize = in_window(out.len() - first_row);
             row_cells = Vec::with_capacity(if materialize { width } else { 0 });
         }};
     }

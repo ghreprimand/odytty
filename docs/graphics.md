@@ -151,6 +151,20 @@ references for image garbage collection. Known deviation: tiles split the
 image uniformly across the placeholder grid; Kitty letterboxes to preserve
 aspect ratio.
 
+Each run of placeholder cells becomes its own tile, so a screen of short runs
+can produce up to one tile per visible cell. Consecutive tiles of the same
+image at the same z-index are drawn as one GPU draw, so a full grid of runs
+for one image costs one draw rather than one per run, with identical pixels.
+Runs that alternate between different images still draw separately; their
+number is bounded by the visible cells.
+
+GPU textures for images follow the active tab's layout: the single-pane and
+split views each keep their own texture cache, and switching between them
+releases the other cache, including textures of panes that have since
+closed. Images the new view shows are uploaded again: each switch re-uploads
+the pixels of every image the entered view shows. The time that upload takes
+has not been measured.
+
 ### Animation
 
 Animated images are one image id with a list of frames. Frame 1 is the image

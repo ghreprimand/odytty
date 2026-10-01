@@ -185,6 +185,10 @@ pub(in crate::native) struct App {
     /// Never reset; the watchdog compares it against its own episode-start
     /// snapshot rather than resetting it here.
     pub(super) redraws_delivered: u64,
+    /// Sticky once the GPU device is lost. Rendering stays paused for the
+    /// rest of the window's life: no path rebuilds device-owned state, so
+    /// redraws skip every GPU step and render-only timers leave the wake set.
+    pub(super) gpu_device_lost: bool,
     /// Start of the current interval in which a frame is owed. The Wayland
     /// callback escape hatch uses this to distinguish ordinary callback jitter
     /// from a callback that has stopped arriving.
@@ -682,6 +686,7 @@ impl App {
             pending_surface_reconfigure: false,
             consecutive_skipped_frames: 0,
             redraws_delivered: 0,
+            gpu_device_lost: false,
             frame_owed_since: None,
             redraws_delivered_at_owed_start: 0,
             last_frame_callback_hatch_at: None,

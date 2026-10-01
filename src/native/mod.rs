@@ -122,6 +122,8 @@ mod workspace_picker;
 #[cfg(test)]
 mod gpu_tests;
 #[cfg(test)]
+mod image_batch_tests;
+#[cfg(test)]
 mod image_layer_tests;
 #[cfg(test)]
 mod image_session_cache_tests;

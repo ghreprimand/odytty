@@ -297,6 +297,26 @@ pub(super) fn next_skipped_retry_delay(
 }
 
 impl App {
+    /// Enter the sticky device-lost pause once: log it, and discard the
+    /// skip episode (no later present can close it, so it must not report a
+    /// false self-heal) together with any deferred surface work. Later
+    /// redraws return before touching the GPU, and the render-only timers
+    /// leave the wake set (see [`App::next_wake_deadline`]).
+    pub(super) fn enter_gpu_device_lost(&mut self) {
+        if !self.gpu_device_lost {
+            tracing::error!(
+                "GPU device was lost; rendering is paused until the window is restarted"
+            );
+        }
+        self.gpu_device_lost = true;
+        self.skip_episode = SkipEpisode::default();
+        self.skip_escalation = SkipEscalation::default();
+        self.pending_surface_reconfigure = false;
+        self.consecutive_skipped_frames = 0;
+        self.skipped_frame_retry_deadline = None;
+        self.clear_frame_callback_hatch_episode();
+    }
+
     /// Whether this frame must rebuild geometry. `self.needs_rebuild` Derefs to
     /// the FOCUSED pane's flag; single-pane that is the only visible pane, so the
     /// decision is byte-identical to before. Multi-pane: OR the flag across every
@@ -333,6 +353,16 @@ impl App {
         self.sessions.reconcile_scrollback_trims();
         self.handle_terminal_clipboard_requests();
         self.update_window_title();
+        // A lost device stays lost: skip every GPU step (geometry, uploads,
+        // acquire, present) instead of re-entering the renderer on each
+        // later keyboard, PTY, or resize redraw. The terminal model and
+        // sessions keep running; only presentation is paused.
+        if !self.gpu_device_lost && self.gpu.as_ref().is_some_and(GpuState::is_device_lost) {
+            self.enter_gpu_device_lost();
+        }
+        if self.gpu_device_lost {
+            return false;
+        }
         // F4-P4: reflow the content grid if auto-sizing (or a max-width
         // edit) moved the rail band since the last frame — a shell-set
         // title changing the longest tab title has no other trigger. A
@@ -948,18 +978,13 @@ impl App {
                         recreate_failed = true;
                     }
                 }
-                FrameAction::DeviceLost => {
-                    // The callback only signals this event-loop thread.
-                    // Rebuilding every GPU-owned atlas, texture, and
-                    // pipeline needs an explicit state reconstruction;
-                    // stop cleanly instead of spinning on a dead device.
-                    // Deliberately NO wake: no timed retry can rebuild
-                    // device-owned state, so scheduling one would only
-                    // re-log the same dead-device error forever.
-                    tracing::error!(
-                        "GPU device was lost; rendering is paused until the window is restarted"
-                    );
-                }
+                // The callback only signals this event-loop thread.
+                // Rebuilding every GPU-owned atlas, texture, and pipeline
+                // needs an explicit state reconstruction; stop cleanly
+                // instead of spinning on a dead device. Deliberately NO
+                // wake: no timed retry can rebuild device-owned state. The
+                // pause itself is entered after the borrow below.
+                FrameAction::DeviceLost => {}
                 FrameAction::Idle | FrameAction::RetryAfter(_) => {}
             }
             (action, recreate_failed)
@@ -1013,17 +1038,7 @@ impl App {
                     }
                 }
             }
-            FrameAction::DeviceLost => {
-                // No later present can close the episode after rendering
-                // pauses, so discard it without reporting a false
-                // self-heal and drop any deferred surface work.
-                self.skip_episode = SkipEpisode::default();
-                self.skip_escalation = SkipEscalation::default();
-                self.pending_surface_reconfigure = false;
-                self.consecutive_skipped_frames = 0;
-                self.skipped_frame_retry_deadline = None;
-                self.clear_frame_callback_hatch_episode();
-            }
+            FrameAction::DeviceLost => self.enter_gpu_device_lost(),
             FrameAction::RetryAfter(delay) => {
                 self.skip_episode.note_skipped(Instant::now());
                 // BLACK-SCREEN-ON-RESTORE: a transiently-skipped frame

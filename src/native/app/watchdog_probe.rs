@@ -61,9 +61,12 @@ impl App {
             // skipped-frame retry, or the owed-frame latch that remains armed
             // until a present. When this is false the watchdog treats
             // latched-but-unpresented work as idle/background, not a freeze.
-            render_owed: self.frame_owed_since.is_some()
-                || self.should_rebuild_frame()
-                || self.skipped_frame_retry_deadline.is_some(),
+            // A lost device owes no frame: rendering is paused (and logged
+            // once), so latched work is not a stall.
+            render_owed: !self.gpu_device_lost
+                && (self.frame_owed_since.is_some()
+                    || self.should_rebuild_frame()
+                    || self.skipped_frame_retry_deadline.is_some()),
         }
     }
 }

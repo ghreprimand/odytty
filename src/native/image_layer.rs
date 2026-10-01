@@ -562,6 +562,13 @@ impl ImageLayer {
         cached.saturating_add(overlay)
     }
 
+    /// Draw calls the current placement geometry issues (single-pane plus
+    /// split), for the batching regression.
+    #[cfg(test)]
+    pub(super) fn draw_call_count(&self) -> usize {
+        self.draws.len() + self.pane_draws.len()
+    }
+
     /// Bytes the image layer's vertex buffers occupy, for memory attribution.
     /// The overlay and scrim quads are fixed-size allocations made at
     /// construction; the placement buffers grow by power-of-two doubling.
@@ -736,7 +743,9 @@ impl ImageLayer {
     /// to the pane's sub-rect on both axes (no bleed across a divider). The
     /// composite `(namespace, id)` key keeps two panes' identically-numbered
     /// `StoredImageId`s distinct. Clears the single-pane `draws` so a stale
-    /// single-pane image never renders over a split frame.
+    /// single-pane image never renders over a split frame, and releases the
+    /// single-pane textures so the inactive mode holds no GPU memory or old
+    /// image content; a later single-pane frame re-uploads what it shows.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn update_panes(
         &mut self,
@@ -750,9 +759,13 @@ impl ImageLayer {
     ) {
         self.pane_viewport = [viewport[0].max(1), viewport[1].max(1)];
         // Multipane frame owns the layer: drop any single-pane placement
-        // geometry so it cannot draw over the split. (Textures kept cached.)
+        // geometry so it cannot draw over the split, and release the
+        // single-pane textures. The namespace reset makes the next
+        // single-pane frame see an empty cache and supply every upload.
         self.draws.clear();
         self.vertices.clear();
+        self.textures.clear();
+        self.textures_namespace = None;
 
         // Combined visible set across all panes, keyed by `(namespace, id)`.
         let visible: BTreeSet<(u64, StoredImageId)> = panes
@@ -819,13 +832,25 @@ impl ImageLayer {
                 };
                 let first_vertex = self.pane_vertices.len() as u32;
                 push_quad(&mut self.pane_vertices, quad);
-                self.pane_draws.push(PaneImageDraw {
-                    key,
-                    first_vertex,
-                    vertex_count: 6,
-                    z_index: placement.z_index,
-                    scissor: pane.scissor,
-                });
+                // Same batching as the single-pane path, additionally
+                // requiring the same pane scissor.
+                match self.pane_draws.last_mut() {
+                    Some(last)
+                        if last.key == key
+                            && last.z_index == placement.z_index
+                            && last.scissor == pane.scissor
+                            && last.first_vertex + last.vertex_count == first_vertex =>
+                    {
+                        last.vertex_count += 6;
+                    }
+                    _ => self.pane_draws.push(PaneImageDraw {
+                        key,
+                        first_vertex,
+                        vertex_count: 6,
+                        z_index: placement.z_index,
+                        scissor: pane.scissor,
+                    }),
+                }
             }
         }
 
@@ -859,11 +884,13 @@ impl ImageLayer {
         content_gap_px: [f32; 2],
     ) {
         // Single-pane frame: it owns the image layer, so drop any multipane
-        // placement geometry left over from a prior split frame. The pane
-        // textures are left cached (cheap to keep; re-synced on the next split)
-        // but MUST NOT draw over a single-pane tab.
+        // placement geometry left over from a prior split frame and release
+        // the pane textures, which include content of panes that may since
+        // have closed. The next split frame sees an empty pane cache and
+        // re-uploads what its panes show.
         self.pane_draws.clear();
         self.pane_vertices.clear();
+        self.pane_textures.clear();
         if self.textures_namespace != Some(namespace) {
             // Another session owns the resident textures: none of them can be
             // reused for this session's ids, so release them all.
@@ -942,12 +969,26 @@ impl ImageLayer {
 
             let first_vertex = self.vertices.len() as u32;
             push_quad(&mut self.vertices, quad);
-            self.draws.push(ImageDraw {
-                image_id: placement.image_id,
-                first_vertex,
-                vertex_count: 6,
-                z_index: placement.z_index,
-            });
+            // Batch a quad into the previous draw when it samples the same
+            // texture at the same z-index and its vertices follow directly.
+            // One draw rasterizes its triangles in submission order, so the
+            // pixels match one draw per quad while a grid of Unicode
+            // placeholder runs for one image costs one draw, not one per run.
+            match self.draws.last_mut() {
+                Some(last)
+                    if last.image_id == placement.image_id
+                        && last.z_index == placement.z_index
+                        && last.first_vertex + last.vertex_count == first_vertex =>
+                {
+                    last.vertex_count += 6;
+                }
+                _ => self.draws.push(ImageDraw {
+                    image_id: placement.image_id,
+                    first_vertex,
+                    vertex_count: 6,
+                    z_index: placement.z_index,
+                }),
+            }
         }
 
         let needed = std::mem::size_of_val(self.vertices.as_slice()) as u64;

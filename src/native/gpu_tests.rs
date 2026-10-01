@@ -15,7 +15,7 @@ use crate::settings::{RenderQuality, Settings};
 use crate::text::SubpixelMode;
 use wgpu::util::DeviceExt;
 
-const TEST_SURFACE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+pub(super) const TEST_SURFACE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 fn adapter_info(
     name: &str,
@@ -1909,7 +1909,7 @@ fn split_pane_inline_image_renders_clipped_to_its_pane() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
-fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
+pub(super) fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
     // Serialize driver init against every other parallel test creating a device.
     let _init = crate::test_lock::device_creation_lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -2318,5 +2318,140 @@ fn multi_pane_color_glyph_accumulation_survives_uneven_emoji_panes() {
         shared.len(),
         INSTANCES_PER_QUAD,
         "an empty following pane must not drop pane A's emoji"
+    );
+}
+
+/// Switching between the single-pane and split image paths releases the
+/// inactive path's textures: resident bytes fall back to what the active
+/// path shows instead of accumulating both caches (and closed-pane content)
+/// until process exit. The re-entered path still receives and draws its
+/// image, because its cache reads as empty and the collector re-uploads.
+///
+/// GPU-gated (skips when no adapter is available).
+#[test]
+fn image_mode_switch_releases_the_inactive_mode_textures() {
+    use super::image_layer::{ImageLayer, ImageUpload, PaneImageInput, PaneImageUpload};
+    use crate::graphics::{
+        GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement,
+    };
+
+    let Some((device, queue)) = test_device_with_hdr() else {
+        return;
+    };
+    let mut layer = ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+    let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("test-image-mode-viewport"),
+        contents: bytemuck::bytes_of(&ViewportUniform {
+            size: [64.0, 48.0],
+            effect: [0.0, 1.0],
+            text: [1.0, 0.0, 0.0, 0.0],
+        }),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let cell = CellSize {
+        width: 8,
+        height: 8,
+        baseline: 6,
+    };
+    let placement = VisiblePlacement {
+        id: PlacementId(1),
+        image_id: StoredImageId(1),
+        protocol: GraphicsProtocol::Sixel,
+        row: 0,
+        column: 0,
+        source: SourceRect {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        },
+        display_columns: 4,
+        display_rows: 4,
+        pixel_offset_x: 0,
+        pixel_offset_y: 0,
+        z_index: 0,
+        generation: 1,
+    };
+    let upload = ImageUpload {
+        id: StoredImageId(1),
+        width: 32,
+        height: 32,
+        generation: 1,
+        rgba: vec![255; 32 * 32 * 4],
+    };
+    let single = |layer: &mut ImageLayer| {
+        let uploads: Vec<ImageUpload> = if layer.cached_generations(7).is_empty() {
+            vec![upload.clone()]
+        } else {
+            Vec::new()
+        };
+        layer.update_with_padding(
+            &device,
+            &queue,
+            &viewport_buf,
+            7,
+            std::slice::from_ref(&placement),
+            &uploads,
+            cell,
+            crate::native::WindowPadding::ZERO,
+            0,
+            0,
+            [0.0, 0.0],
+        );
+    };
+    let split = |layer: &mut ImageLayer| {
+        let uploads: Vec<PaneImageUpload> = if layer.cached_pane_generations().is_empty() {
+            vec![PaneImageUpload {
+                namespace: 7,
+                upload: upload.clone(),
+            }]
+        } else {
+            Vec::new()
+        };
+        let pane = PaneImageInput {
+            namespace: 7,
+            placements: std::slice::from_ref(&placement),
+            origin: [0.0, 0.0],
+            scissor: [0, 0, 64, 48],
+        };
+        layer.update_panes(
+            &device,
+            &queue,
+            &viewport_buf,
+            std::slice::from_ref(&pane),
+            &uploads,
+            cell,
+            [64, 48],
+        );
+    };
+
+    single(&mut layer);
+    let one_image = layer.gpu_texture_bytes();
+    assert!(one_image > 0, "the single-pane image is resident");
+
+    split(&mut layer);
+    assert_eq!(
+        layer.gpu_texture_bytes(),
+        one_image,
+        "entering a split releases the single-pane texture"
+    );
+    assert!(layer.cached_generations(7).is_empty());
+    assert_eq!(
+        layer.cached_pane_generations().len(),
+        1,
+        "the pane re-uploaded"
+    );
+
+    single(&mut layer);
+    assert_eq!(
+        layer.gpu_texture_bytes(),
+        one_image,
+        "leaving the split releases the pane texture"
+    );
+    assert!(layer.cached_pane_generations().is_empty());
+    assert_eq!(
+        layer.cached_generations(7).len(),
+        1,
+        "the image re-uploaded"
     );
 }

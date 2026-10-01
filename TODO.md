@@ -155,6 +155,14 @@ Development on `master`; not released. Items check off when their code is on
 - [ ] Device acceptance on Windows: a long wrapped PowerShell prompt at
       startup and in a new window places the first typed command directly
       after the prompt.
+- [ ] GPU and history work is bounded: a lost GPU device stays lost, so no
+      later redraw, resize, or surface recreation touches it and its render
+      timers stop waking the loop; switching a tab between single-pane and
+      split views releases the other view's image textures; consecutive
+      tiles of one image draw as one GPU draw; bounded scrollback keeps at
+      most 1,024 cells per allowed line on average, evicting the oldest long
+      lines first; and a history-row request materializes only the requested
+      rows of a long wrapped line.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

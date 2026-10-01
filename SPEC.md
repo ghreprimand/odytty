@@ -1168,8 +1168,15 @@ scope rather than silently inheriting deferred work from a prior release.
 - Bounded scrollback (`scrollback_lines` / `ODYTTY_SCROLLBACK_LINES`, default
   10,000 logical lines): oldest history is evicted past the cap so a process
   streaming unbounded output cannot grow memory until the OS OOM-kills it. `0`
-  means unbounded. A defensive per-line cell ceiling bounds the pathological
-  no-terminator stream (`cat /dev/zero`). Live-reloadable; lowering the cap
+  means unbounded. A bounded store also keeps an aggregate cell budget of 1,024
+  cells per allowed line on average (10,240,000 cells at the default), so
+  history made of very long wrapped lines is evicted, oldest whole line first,
+  before it can grow with line length; the newest line is never evicted by the
+  budget and ordinary output never reaches it. A defensive per-line cell
+  ceiling (1,048,576 cells) bounds the pathological no-terminator stream
+  (`cat /dev/zero`). A request for a few history rows (the rendered viewport,
+  a row lookup, an export range) materializes only those rows of a long
+  wrapped line, not the whole line. Live-reloadable; lowering the cap
   trims existing history immediately, and the cap applies to every session
   (including background tabs), not just the focused one.
 
