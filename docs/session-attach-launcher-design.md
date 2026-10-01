@@ -1,7 +1,7 @@
 # Session Navigator and Attach Launcher Design
 
 This design record describes the v0.14.0 Navigator and attach behavior.
-Unreleased identity and window-merge changes are separate in the
+Identity and window-merge behavior shipped in v0.15.0 and is recorded in the
 [v0.15.0 foundation](v0.15.0-foundation.md).
 
 This record covers the in-window session navigator and the detached-session

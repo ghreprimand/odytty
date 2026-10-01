@@ -44,8 +44,9 @@ any shell (bash, zsh, or fish):
 curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
 ```
 
-The script detects apt or dnf and installs the matching signature-verified
-package; other x86_64 systems get the portable binary tarball. It downloads the
+The script detects apt-get or dnf and installs the matching signature-verified
+package. A system that has dpkg but not apt-get, and every other x86_64
+system, gets the portable binary tarball. It downloads the
 latest release, authenticates `SHA256SUMS` with the pinned OdyTTY release key,
 and checks the artifact before installing. Verification is automatic: if
 `minisign` is not already present the script installs it from your package

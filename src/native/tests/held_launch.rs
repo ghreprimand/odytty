@@ -39,6 +39,32 @@ fn launches_settle_at_the_first_real_surface_grid() {
     assert!(app.workspace_set().launch_geometry_settled());
 }
 
+/// A 0x0 surface must not reflow the live grid down to the 1x1 clamp.
+/// `recompute_grid_for_tab_bar` applies the same width/height check, but a
+/// headless app has no window, so that function returns before reading a size.
+/// This test drives the resize path that unit tests can reach.
+#[test]
+fn zero_size_resize_keeps_grid_dimensions() {
+    let (mut app, _terminal) = crate::native::test_support::headless_app_with(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        crate::settings::Settings::default(),
+    );
+    let before = app.session_dimensions_for_test(0);
+    assert_eq!(before, Some(Dimensions::new(80, 24)));
+    app.apply_grid_resize_for_test(PendingResize {
+        cell: cell(8, 16),
+        padding: WindowPadding::ZERO,
+        width_px: 0,
+        height_px: 0,
+    });
+    assert_eq!(
+        app.session_dimensions_for_test(0),
+        before,
+        "a 0x0 resize must leave the grid alone"
+    );
+}
+
 /// End to end through the production grid path on ConPTY: a held child does
 /// not run at the 80x24 placeholder, and after the first surface grid it
 /// observes the real size. `mode con` prints the console's column count at

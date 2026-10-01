@@ -677,9 +677,10 @@ the most deliberate omissions.
   `tests/emoji_pixel_smoke.rs`).
 - **Planned fuzz target:** a font-shaped target over metadata extraction with a
   corpus of malformed and truncated font files, run under bounded memory.
-- **Residual risk:** the metadata parser's informational unmaintained-dependency
-  advisory is time-bounded through 2026-10-15 by the dependency audit gate and
-  documented in [`docs/release.md`](release.md). Finding **C** records the closed file-read
+- **Residual risk:** the unmaintained `ttf-parser` advisory exception was
+  removed on 2026-09-19, when normal-text parsing moved to skrifa and the crate
+  left both lockfiles. `.github/scripts/rustsec-audit.sh` treats a return of
+  that crate as a regression. Finding **C** records the closed file-read
   boundary rather than an outstanding unbounded allocation.
 
 ### B14 — Resource exhaustion

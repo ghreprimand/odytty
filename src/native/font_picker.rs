@@ -1028,4 +1028,12 @@ mod tests {
         assert_eq!(click[0].value, key[0].value);
         assert_eq!(click[0].value, "Hack");
     }
+
+    #[test]
+    fn sanitize_strips_control_characters_before_ellipsize() {
+        let raw = "Mono\u{7}space\n";
+        let cleaned = sanitize(raw);
+        assert_eq!(cleaned, "Monospace");
+        assert!(!ellipsize(&cleaned, 80).chars().any(|ch| ch.is_control()));
+    }
 }

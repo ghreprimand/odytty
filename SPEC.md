@@ -87,7 +87,8 @@ The privacy guarantees are structural:
 - **User-owned state.** Settings, themes, and terminal state stay on the local
   machine. Configuration is plain text the user can inspect; live grids and
   bounded scrollback remain in process memory unless the user explicitly uses
-  a local persistence feature.
+  a local persistence feature. Routine logs name a profile when its starting
+  directory is missing; they do not record that path or the fallback directory.
 
 - **Verifiable behavior.** GPL-3.0 source makes the absence of data collection
   auditable from the implementation.

@@ -6,7 +6,7 @@
 #   bash odytty-X.Y.Z-install.sh
 #
 # Detects the package manager and installs the matching prebuilt artifact from
-# the latest GitHub release: a native .deb (apt/dpkg), a native .rpm (dnf/rpm),
+# the latest GitHub release: a native .deb (apt-get), a native .rpm (dnf/rpm),
 # or the portable binary tarball otherwise. The downloaded artifact is always
 # signature-verified SHA256SUMS before anything is installed.
 #
@@ -83,7 +83,13 @@ esac
 # --- choose artifact + install command --------------------------------------
 # Aliases are the always-latest names published alongside every release; using
 # releases/latest/download keeps this script version-agnostic.
-if have apt-get || have dpkg; then
+# apt-get is required for the deb: `apt-get install` of a local package pulls
+# dependencies. dpkg alone cannot finish that install, and calling apt-get
+# again from that branch would invoke a tool this selector already knows is
+# absent. Those hosts get the
+# portable tarball instead. rpm without dnf still uses `rpm -i` (that command
+# exists on the same branch and does not call dnf).
+if have apt-get; then
     kind="deb"
     artifact="odytty-amd64.deb"
 elif have dnf || have rpm; then
@@ -112,7 +118,7 @@ if [ "${#SUDO[@]}" -gt 0 ]; then sudo_note=" via sudo"; fi
 
 describe_install() {
     case "$kind" in
-        deb)     say "  install with apt/dpkg (needs root$sudo_note)" ;;
+        deb)     say "  install with apt-get (needs root$sudo_note)" ;;
         rpm)     say "  install with dnf/rpm (needs root$sudo_note)" ;;
         tarball)
             if [ "${#SUDO[@]}" -gt 0 ] || [ "$(id -u)" -eq 0 ]; then
@@ -213,11 +219,8 @@ say "Checksum verified."
 # --- install ----------------------------------------------------------------
 case "$kind" in
     deb)
-        if have apt-get; then
-            "${SUDO[@]}" apt-get install -y "./$artifact"
-        else
-            "${SUDO[@]}" dpkg -i "$artifact" || "${SUDO[@]}" apt-get -f install -y
-        fi
+        # Reached only when apt-get exists (see the selector above).
+        "${SUDO[@]}" apt-get install -y "./$artifact"
         ;;
     rpm)
         if have dnf; then

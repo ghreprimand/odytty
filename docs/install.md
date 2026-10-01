@@ -208,8 +208,9 @@ Install or update with one command - the same command does both, in any shell
 curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
 ```
 
-The script chooses a native `.deb` on apt/dpkg systems, a native `.rpm` on
-dnf/rpm systems, or the portable binary tarball otherwise, and authenticates
+The script chooses a native `.deb` when apt-get is available, a native `.rpm` on
+dnf/rpm systems, or the portable binary tarball otherwise (including a system
+that has dpkg but not apt-get), and authenticates
 `SHA256SUMS` with the pinned release key before installing. Verification is
 automatic: if `minisign` is missing the script installs it from your package
 manager (`pacman`, `apt`, `dnf`, or `zypper`) first. Append ` -s -- --dry-run` to
@@ -238,8 +239,9 @@ bash "odytty-${version}-install.sh"
 ODYTTY_UPDATE
 ```
 
-The script chooses a native `.deb` on apt/dpkg systems, a native `.rpm` on
-dnf/rpm systems, or the portable binary tarball otherwise. It authenticates
+The script chooses a native `.deb` when apt-get is available, a native `.rpm` on
+dnf/rpm systems, or the portable binary tarball otherwise (including a system
+that has dpkg but not apt-get). It authenticates
 `SHA256SUMS.minisig` against its pinned copy of
 [`odytty-release.pub`](keys/odytty-release.pub) before accepting an artifact
 hash. System package managers need root, so the script uses `sudo` when

@@ -42,6 +42,12 @@ use crate::emoji::{ColorGlyphAtlas, ColorGlyphKey};
 use crate::ligature::LigatureRun;
 use crate::text::{self, FontStyle, GlyphAtlas};
 
+/// Resolutions of cell foreground/background during vertex rebuilds.
+/// Tests assert one call per lead cell per rebuild (both passes share it).
+#[cfg(test)]
+pub(crate) static CELL_COLOR_RESOLVE_CALLS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 /// Whether a cell's base character emits a coverage glyph quad.
 ///
 /// Spaces never do. Kitty Unicode placeholders ([`PLACEHOLDER_CHAR`], U+10EEEE)
@@ -1056,6 +1062,8 @@ fn build_cells_core(
     let default_bg = rgb_linear(snapshot.colors.background);
     let resolve =
         |cell: &crate::core::Cell, row: usize, col: usize| -> ([f32; 4], [f32; 4], bool) {
+            #[cfg(test)]
+            CELL_COLOR_RESOLVE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let mut fg = foreground_linear(&snapshot.colors, cell.attrs.foreground);
             let mut bg = background_linear(&snapshot.colors, cell.attrs.background);
             if cell.attrs.inverse() {
@@ -1149,6 +1157,24 @@ fn build_cells_core(
         }
     };
 
+    // One resolution per lead cell for this rebuild. Pass 1 and pass 2 read the
+    // same tuple, so a cell's colors cannot diverge between the background and
+    // the glyph. Wide continuation spacers are unused placeholders and are
+    // skipped by both passes. The cursor painter does not read this table: its
+    // under-glyph is floored against the cursor color, not this foreground, and
+    // sharing the table would change those pixels.
+    let mut resolved = Vec::with_capacity(rows.saturating_mul(cols));
+    for row in 0..rows {
+        for col in 0..cols {
+            let cell = &snapshot.cells[row * cols + col];
+            if cell.wide_continuation {
+                resolved.push(([0.0_f32; 4], [0.0_f32; 4], false));
+            } else {
+                resolved.push(resolve(cell, row, col));
+            }
+        }
+    }
+
     // Pass 1: full-cell background quads only. Emitting every background before
     // any glyph guarantees a later column's background can never paint over an
     // earlier glyph's beyond-cell overflow ink.
@@ -1159,7 +1185,7 @@ fn build_cells_core(
             if cell.wide_continuation {
                 continue;
             }
-            let (_, bg, colored_bg) = resolve(cell, row, col);
+            let (_, bg, colored_bg) = resolved[row * cols + col];
             // ID3/U5 image background: scale ONLY the background-quad alpha by
             // `cell_bg_opacity` so a background image shows through behind text.
             // `1.0` (the default) yields `bg[3] * 1.0 == bg[3]` — byte-identical.
@@ -1250,7 +1276,7 @@ fn build_cells_core(
             }
             // Pass 2 draws ink only; the colored-background classification is a
             // pass-1 (surface alpha) concern.
-            let (fg, bg, _) = resolve(cell, row, col);
+            let (fg, bg, _) = resolved[row * cols + col];
             // VE4 new-output fade: freshly arrived rows ramp their FOREGROUND
             // ink in (glyphs, marks, ligatures, decorations below) while the
             // pass-1 background stays untouched. Applied after the RV1 floor:

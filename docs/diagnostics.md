@@ -28,7 +28,10 @@ Routine diagnostics are designed not to record:
 - scrollback,
 - keystrokes or typed input,
 - window/tab titles,
-- the working directory or file paths from your session.
+- the working directory or file paths from your session. A missing profile
+  starting directory is the same class of path: the launch notice names the
+  profile and says the directory was missing. It does not record the missing
+  path or the directory used instead.
 
 The diagnostics sinks record *program state*: panic metadata, a freeze
 watchdog's latch snapshot, GPU adapter identity (hardware metadata), and

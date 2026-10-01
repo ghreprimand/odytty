@@ -263,8 +263,11 @@ pub(crate) fn profile_picker_entries(
 /// tab. Instead: if the resolved cwd names a path that is not an existing
 /// directory, fall back to the user's home (or the process default when no home
 /// is known) exactly as a plain tab does, and record a bounded warning so the
-/// existing notice path can surface it. An unset or already-valid cwd is
-/// untouched. A single `metadata` probe; never aborts. Cross-platform: the same
+/// existing notice path can surface it. That warning names the profile only.
+/// The missing directory and the fallback directory are not included, because
+/// every `profile launch notice` site logs this string. An unset or
+/// already-valid cwd is untouched. A single `metadata` probe; never aborts.
+/// Cross-platform: the same
 /// home fallback (`$HOME` / `%USERPROFILE%`) a restored pane uses.
 pub(crate) fn apply_missing_cwd_fallback(effective: &mut EffectiveLaunch) {
     let Some(dir) = effective.working_directory.clone() else {
@@ -278,13 +281,13 @@ pub(crate) fn apply_missing_cwd_fallback(effective: &mut EffectiveLaunch) {
         .profile_name
         .clone()
         .unwrap_or_else(|| "profile".to_owned());
-    let started = match home.as_ref() {
-        Some(path) => path.display().to_string(),
-        None => "the default directory".to_owned(),
+    let destination = if home.is_some() {
+        "the home directory"
+    } else {
+        "the default directory"
     };
     effective.warnings.push(format!(
-        "profile {profile}: working directory {} does not exist; started in {started}",
-        dir.display()
+        "profile {profile}: working directory does not exist; started in {destination}"
     ));
     effective.working_directory = home;
 }
@@ -510,7 +513,8 @@ mod tests {
     #[test]
     fn missing_cwd_falls_back_to_home_with_warning() {
         // A resolved profile cwd that does not exist must not reach the spawn:
-        // it falls back to home and records a warning naming the path.
+        // it falls back to home and records a warning that names the profile
+        // but not the missing path or the fallback path (those strings are logged).
         // Platform twin of `restore_home_dir`: `$HOME` on Unix, `%USERPROFILE%`
         // on Windows. Setting only HOME leaves Windows CI reading the real
         // USERPROFILE and failing the expected-temp assertion.
@@ -536,13 +540,16 @@ mod tests {
         effective.profile_name = Some("dev".to_owned());
         effective.working_directory = Some(PathBuf::from("/nonexistent/odytty/profile/dir"));
         super::apply_missing_cwd_fallback(&mut effective);
+        let home_text = home.display().to_string();
         assert_eq!(effective.working_directory, Some(home));
         assert!(
-            effective
-                .warnings
-                .iter()
-                .any(|w| w.contains("does not exist") && w.contains("dev")),
-            "a missing cwd must record a bounded warning naming the profile"
+            effective.warnings.iter().any(|w| {
+                w.contains("does not exist")
+                    && w.contains("dev")
+                    && !w.contains("/nonexistent/odytty/profile/dir")
+                    && !w.contains(&home_text)
+            }),
+            "a missing cwd must record a profile notice without either path"
         );
         unsafe {
             match previous {

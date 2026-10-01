@@ -113,6 +113,25 @@ fn blank_cells_emit_background_only() {
 }
 
 #[test]
+fn cell_colors_resolve_once_per_vertex_rebuild() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // A two-pass rebuild used to resolve every lead cell twice. The count is
+    // the lead-cell total, so this fails while each pass calls resolve.
+    let mut term = Terminal::new(3, 2);
+    term.advance(b"\x1b[?25l");
+    CELL_COLOR_RESOLVE_CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
+    let _verts = build_vertices(&term.snapshot(), &atlas);
+    assert_eq!(
+        CELL_COLOR_RESOLVE_CALLS.load(std::sync::atomic::Ordering::Relaxed),
+        3 * 2,
+        "each lead cell is resolved once per rebuild"
+    );
+}
+
+#[test]
 fn inverse_swaps_foreground_and_background() {
     // The render path resolves colors through the process-global default/
     // palette and minimum-contrast seams, so this assertion is only stable
