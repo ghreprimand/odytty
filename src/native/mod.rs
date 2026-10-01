@@ -375,7 +375,18 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
             SessionToken(base),
         )
     });
-    let mut host = app::MultiWindowHost::new(app, watchdog_shared, factory);
+    // Moving a tab or pane to a new window builds the window around the moved
+    // sessions: no shell is spawned, only the window and its settings.
+    let adopt_settings = settings.clone();
+    let adopt: app::AdoptFactory = Box::new(move |set| {
+        App::new_with_sessions(
+            NativeOptions::from_settings(&adopt_settings),
+            set,
+            adopt_settings.clone(),
+            crate::settings::SettingsReloader::for_current_process(Instant::now()),
+        )
+    });
+    let mut host = app::MultiWindowHost::new(app, watchdog_shared, factory, adopt);
     // v0.15.0 A: give the host a proxy so a registered global shortcut can wake
     // the loop and deliver a summon from the backend's own thread. Installed
     // before configure so the first registration can use it.

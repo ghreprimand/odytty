@@ -436,6 +436,15 @@ pub(in crate::native) struct App {
     /// (which has the live sibling-window list the picker needs). `None` at
     /// rest, so the single-window path is unaffected.
     pub(super) pending_merge_picker: Option<crate::native::merge_picker::MergeDirection>,
+    /// A pending "move to a new window" request, drained by the window owner.
+    pub(super) pending_move: Option<crate::native::app::reparent::MoveRequest>,
+    /// Whether an open picker that targets (or was opened by) this window
+    /// moves a tab or pane rather than merging windows; selects the badge
+    /// wording.
+    pub(super) merge_picker_moves: bool,
+    /// Host session ids attached in OTHER windows of this process, kept
+    /// current by the window owner, so attach dedup spans every window.
+    pub(super) peer_attached_sessions: Vec<String>,
     /// v0.15.0 D: how many OTHER live windows this window's owner currently
     /// knows about. The process window owner keeps this current; the command
     /// palette only offers the merge/pull rows when it is non-zero, so a
@@ -782,6 +791,9 @@ impl App {
             #[cfg(all(test, target_os = "linux"))]
             wayland_surface_present_for_test: None,
             pending_merge_picker: None,
+            pending_move: None,
+            merge_picker_moves: false,
+            peer_attached_sessions: Vec::new(),
             sibling_window_count: 0,
             broadcast: crate::native::broadcast::SharedBroadcast::default(),
             broadcast_peer_windows: false,

@@ -27,6 +27,7 @@ For installation and a shorter overview, start with the
   - [Open Local Tools](#open-local-tools)
   - [Summon A Quick Terminal](#summon-a-quick-terminal)
   - [Merge Windows From The Keyboard](#merge-windows-from-the-keyboard)
+  - [Move Tabs And Panes Between Windows](#move-tabs-and-panes-between-windows)
   - [Control OdyTTY Locally](#control-odytty-locally)
 - [Shell Integration](#shell-integration)
 - [Settings And Themes](#settings-and-themes)
@@ -992,6 +993,43 @@ attach handles move with the transfer; the source window closes only after
 success. When the source window owns the saved workspace layout, the surviving
 window takes over that role and saves the merged layout. Escape cancels. See the
 [window-merge contract](v0.15.0-foundation.md).
+
+### Move Tabs And Panes Between Windows
+
+Available in the v0.16.0 development tree; not included in v0.15.7.
+
+| Task | Command palette |
+| --- | --- |
+| Open the active tab in its own window | **Move Tab to New Window** |
+| Send the active tab to another window | **Move Tab to Window...**, then press the numeral shown in that window |
+| Open the focused pane in its own window | **Move Pane to New Window** |
+| Send the focused pane to another window | **Move Pane to Window...**, then press the numeral |
+
+The moved shell keeps running: its PTY or attached session, scrollback, images,
+selection, search, replay recording, profile, and `--hold` state move with it,
+and nothing is restarted. A moved tab keeps its panes and split layout. A moved
+pane becomes the only pane of a new tab, and the pane it leaves behind takes
+over its tab. The moved tab becomes the active tab of the destination window,
+which takes focus and resizes the panes to its own size; a resize clears a
+selection or search, as any resize does.
+
+The "to Window..." rows use the merge picker: each other window shows ` Press N
+to move here ` and the window that opened it names the keys, with Escape to
+cancel. They appear only when another ordinary window exists. The "to New
+Window" rows appear only when something stays behind, and the pane rows only
+when the active tab is split. Moving a window's last tab to another window
+closes the emptied window; when that window owned the saved workspace layout,
+the destination takes over that role. Otherwise only the primary window's
+layout is saved, so a tab moved into another window is not restored on the
+next launch. If a new window cannot be created, the tab or pane stays where it
+was and a notice says so. The quick terminal never sends or receives a tab or
+pane. A session attached in another window is not attached a second time; the
+attach list says it is already open elsewhere.
+
+Dragging a tab or pane out of a window is not supported. On Wayland, the
+compositor owns window placement and winit reports no drag between windows, so
+the palette is the route there; the same palette route works on X11, macOS, and
+Windows.
 
 ### Control OdyTTY Locally
 

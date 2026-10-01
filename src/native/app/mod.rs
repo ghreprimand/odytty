@@ -161,7 +161,7 @@ mod panes;
 mod paste;
 pub(in crate::native) mod platform_opener;
 pub(in crate::native) use multi_window::NewWindowRequest;
-pub(in crate::native) use multi_window_host::{MultiWindowHost, SiblingFactory};
+pub(in crate::native) use multi_window_host::{AdoptFactory, MultiWindowHost, SiblingFactory};
 mod pointer;
 mod pointer_motion;
 pub(super) use pointer::ChromeBand;
@@ -173,6 +173,8 @@ mod prompt_jump;
 mod rail_autohide;
 mod rail_overlay;
 pub(in crate::native) mod read_only;
+// Moving a tab or pane to another window: the window side.
+pub(in crate::native) mod reparent;
 // Guarded broadcast input: fan-out, labels, and the palette/menu actions.
 pub(in crate::native) mod broadcast_input;
 pub(in crate::native) mod redraw_schedule;

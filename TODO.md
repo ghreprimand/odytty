@@ -84,6 +84,15 @@ Development on `master`; not released. Items check off when their code is on
       labels disclose the set; `Ctrl+Shift+X` stops it and is never sent to a
       shell; receivers in other windows of the process are included.
 - [ ] Device acceptance for broadcast input on Linux, macOS, and Windows.
+- [ ] Move tabs and panes between windows from the command palette: to a new
+      window (built around the moved session, no shell spawn, restored to
+      its source if the window cannot open) or to another window through the
+      merge picker; sessions keep their PTY, scrollback, images, profile,
+      and `--hold` state; an emptied source closes and hands over the saved
+      layout role; the quick terminal is excluded; attach dedup spans every
+      window. Drag tear-out is not supported (Wayland cannot express it).
+- [ ] Device acceptance for moving tabs and panes on Linux (Wayland), plus
+      NVIDIA window create/destroy, macOS, and Windows.
 - [ ] Reject control-bearing palette text and show its controls as visible
       label escapes (backslashes stay literal); preserve viewport/selection
       and skip clipboard access when read-only input is refused, including

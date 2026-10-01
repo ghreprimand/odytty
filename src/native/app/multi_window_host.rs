@@ -160,6 +160,8 @@ pub(in crate::native) struct MultiWindowHost {
     shared: Arc<WatchdogShared>,
     last_seen_frames: u64,
     factory: SiblingFactory,
+    /// Builds a window around moved content (no shell spawn).
+    adopt: AdoptFactory,
     picker: Option<ActiveMergePicker>,
     /// The single quick-terminal lifecycle (v0.15.0 A). Disabled until
     /// `configure_quick_terminal` is called with an enabled setting, so the
@@ -254,12 +256,14 @@ impl MultiWindowHost {
         primary: App,
         shared: Arc<WatchdogShared>,
         factory: SiblingFactory,
+        adopt: AdoptFactory,
     ) -> Self {
         Self {
             windows: vec![primary],
             shared,
             last_seen_frames: 0,
             factory,
+            adopt,
             picker: None,
             quick: QuickTerminalController::new(QuickTerminalSettings::default()),
             quick_live: Arc::new(Mutex::new(None)),
@@ -525,6 +529,7 @@ impl MultiWindowHost {
     /// human-readable log); the frame-progress signal is the aggregate.
     fn refresh(&mut self) {
         self.service_broadcast();
+        self.sync_peer_attached_sessions();
         let total_frames: u64 = self
             .windows
             .iter()
@@ -659,12 +664,14 @@ impl MultiWindowHost {
         let Some(picker) = MergePicker::open(direction, origin, &listing) else {
             return;
         };
+        let moving = direction.move_scope().is_some();
         for candidate in picker.candidates() {
             if let Some(app) = self
                 .windows
                 .iter_mut()
                 .find(|app| app.process_window_id() == candidate.id)
             {
+                app.set_merge_picker_moves(moving);
                 app.set_merge_numeral(Some(candidate.numeral));
             }
         }
@@ -673,6 +680,7 @@ impl MultiWindowHost {
         // every candidate is stacked behind it.
         let count = u8::try_from(picker.candidates().len()).unwrap_or(u8::MAX);
         if let Some(app) = self.windows.get_mut(origin_idx) {
+            app.set_merge_picker_moves(moving);
             app.set_merge_origin_candidates(Some(count));
         }
         self.picker = Some(ActiveMergePicker { origin, picker });
@@ -690,6 +698,7 @@ impl MultiWindowHost {
         for app in &mut self.windows {
             app.set_merge_numeral(None);
             app.set_merge_origin_candidates(None);
+            app.set_merge_picker_moves(false);
         }
     }
 
@@ -726,7 +735,12 @@ impl MultiWindowHost {
             PickerKey::Cancel => {}
             PickerKey::Select(numeral) => {
                 if let Some(target_id) = active.picker.resolve_numeral(numeral) {
-                    self.execute_merge(active.origin, target_id, active.picker.direction());
+                    match active.picker.direction().move_scope() {
+                        Some(scope) => self.execute_move(active.origin, target_id, scope),
+                        None => {
+                            self.execute_merge(active.origin, target_id, active.picker.direction());
+                        }
+                    }
                 }
             }
         }
@@ -747,6 +761,8 @@ impl MultiWindowHost {
         let (source_id, target_id) = match direction {
             MergeDirection::MergeThisInto => (origin, selected),
             MergeDirection::PullIntoThis => (selected, origin),
+            // Moves are served by `execute_move` before this point.
+            MergeDirection::MoveTabInto | MergeDirection::MovePaneInto => return,
         };
         let Some(source_idx) = self.index_of(source_id) else {
             return;
@@ -1685,6 +1701,7 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
 
         // Service cross-window requests (may add or remove windows).
         self.service_new_windows(event_loop);
+        self.service_move_requests(event_loop);
         self.service_merge_requests();
         self.service_profile_binding_changes();
         self.service_quick_toggle(event_loop);
@@ -1726,6 +1743,10 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
 
 #[path = "multi_window_host/broadcast.rs"]
 mod broadcast;
+
+#[path = "multi_window_host/reparent.rs"]
+mod reparent;
+pub(in crate::native) use reparent::AdoptFactory;
 
 #[cfg(test)]
 #[path = "multi_window_host/tests.rs"]

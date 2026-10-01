@@ -39,6 +39,23 @@ pub(in crate::native) enum MergeDirection {
     /// Move the selected window's workspaces into THIS window, then close the
     /// selected window ("Pull window ... into this one").
     PullIntoThis,
+    /// Move THIS window's active tab into the selected window ("Move Tab to
+    /// Window..."). This window survives unless the tab was its last.
+    MoveTabInto,
+    /// Move THIS window's focused pane into the selected window as a new tab
+    /// ("Move Pane to Window...").
+    MovePaneInto,
+}
+
+impl MergeDirection {
+    /// The move scope for a move direction, or `None` for a window merge.
+    pub(in crate::native) fn move_scope(self) -> Option<crate::native::session::MoveScope> {
+        match self {
+            Self::MergeThisInto | Self::PullIntoThis => None,
+            Self::MoveTabInto => Some(crate::native::session::MoveScope::ActiveTab),
+            Self::MovePaneInto => Some(crate::native::session::MoveScope::ActivePane),
+        }
+    }
 }
 
 /// One offered target: a stable window id, a human label for the numeral badge,

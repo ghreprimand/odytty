@@ -1202,6 +1202,28 @@ scope rather than silently inheriting deferred work from a prior release.
   checked before viewport/selection effects or clipboard access, including
   clipboard and primary-selection paste, prefix passthrough, clear-input
   actions, context-menu cut, click-to-position, and selected-input deletion.
+- Moving tabs and panes between windows (v0.16.0): palette actions move the
+  active tab, or the focused pane as a new tab, to a new window or to a window
+  chosen with the merge picker. The arena transaction
+  (`session::reparent`) preflights the destination, detaches the content
+  with an exact restore point, attaches it as the destination's active tab,
+  and restores the source on any refusal; sessions move as values with
+  unchanged tokens, so pumps keep routing to the new owner. A moved tab keeps
+  its identity; a moved pane's tab and a new window's workspace mint fresh
+  identities from the destination's token range. The source settles
+  window-scoped state that names a leaving pane (focus-out report, pending
+  paste and image-paste confirmations, IME composition, context-menu command
+  target, open overlay, drags) and the `--hold` state moves with the pane.
+  The destination drops the moved panes' presentation caches, parks their
+  timers, applies its presentation policy, and activates the tab. A new
+  window is built around the content with no shell spawn and its surface is
+  created before it joins the window list; on failure the content returns to
+  its source. Moving a window's only tab to a new window is refused. An
+  emptied source window is retired and hands its primary autosave role to
+  the destination. The quick terminal never sends or receives. The window
+  owner shares every window's attached host-session ids with its siblings so
+  attach dedup spans the process. Drag tear-out is not implemented; on
+  Wayland it cannot be expressed through winit.
 - Broadcast input (v0.16.0): an explicit, process-wide set of receiver panes,
   held in memory only (never persisted, so quit, crash, and restore start
   empty). Panes join one at a time from the palette, the context menu, or the

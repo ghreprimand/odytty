@@ -124,6 +124,7 @@ impl PaletteOverlay {
         entries.extend(workspace_palette_entries(workspaces));
         entries.extend(profile_palette_entries(workspaces));
         entries.extend(merge_palette_entries(workspaces));
+        entries.extend(move_palette_entries(workspaces.move_rows));
         entries.extend(quick_terminal_palette_entries(workspaces));
         self.model = PaletteModel::with_options(entries, palette_options());
         self.reset_scroll();
@@ -391,6 +392,14 @@ pub(super) const MERGE_WINDOW_PULL_ID: &str = "merge-window-pull";
 /// dead no-op row. This is the always-available keyboard trigger; a global
 /// summon shortcut, where the platform can grant one, is the additive path.
 pub(super) const QUICK_TERMINAL_TOGGLE_ID: &str = "quick-terminal-toggle";
+/// Stable id for "Move Tab to New Window".
+pub(super) const MOVE_TAB_NEW_WINDOW_ID: &str = "move-tab-new-window";
+/// Stable id for "Move Tab to Window...", which opens the window picker.
+pub(super) const MOVE_TAB_TO_WINDOW_ID: &str = "move-tab-to-window";
+/// Stable id for "Move Pane to New Window".
+pub(super) const MOVE_PANE_NEW_WINDOW_ID: &str = "move-pane-new-window";
+/// Stable id for "Move Pane to Window...", which opens the window picker.
+pub(super) const MOVE_PANE_TO_WINDOW_ID: &str = "move-pane-to-window";
 
 /// The workspace-facing context the command palette needs to build its rows:
 /// the workspace names (switch rows, ODP-5), the known-host aliases (F6-W5 bind
@@ -417,6 +426,24 @@ pub(super) struct WorkspacePaletteContext<'a> {
     /// "Toggle Quick Terminal" row is offered. False suppresses the row so a
     /// disabled feature never shows a dead no-op entry.
     pub(super) quick_terminal_enabled: bool,
+    /// Which tab and pane move rows this window offers.
+    pub(super) move_rows: MovePaletteRows,
+}
+
+/// Which "Move Tab/Pane to ..." rows the palette offers. The "to Window..."
+/// rows need another ordinary window (they reuse the merge picker); the "to
+/// New Window" rows need something left behind; the pane rows need a split
+/// tab. The quick terminal offers none of them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::native) struct MovePaletteRows {
+    /// The active tab can open in a new window (the window keeps other tabs).
+    pub(super) tab_to_new_window: bool,
+    /// The active tab can move to another window.
+    pub(super) tab_to_window: bool,
+    /// The focused pane can open as a new window's tab.
+    pub(super) pane_to_new_window: bool,
+    /// The focused pane can move to another window as a new tab.
+    pub(super) pane_to_window: bool,
 }
 
 impl<'a> WorkspacePaletteContext<'a> {
@@ -433,6 +460,7 @@ impl<'a> WorkspacePaletteContext<'a> {
             bound_launch_profile: None,
             merge_targets_available: false,
             quick_terminal_enabled: false,
+            move_rows: MovePaletteRows::default(),
         }
     }
 }
@@ -536,6 +564,36 @@ fn merge_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEntry>
         PaletteEntry::action(MERGE_WINDOW_INTO_ID, "Merge This Window Into..."),
         PaletteEntry::action(MERGE_WINDOW_PULL_ID, "Pull Window Into This One..."),
     ]
+}
+
+/// The tab and pane move rows this window offers (see [`MovePaletteRows`]).
+fn move_palette_entries(rows: MovePaletteRows) -> Vec<PaletteEntry> {
+    let mut entries = Vec::new();
+    if rows.tab_to_new_window {
+        entries.push(PaletteEntry::action(
+            MOVE_TAB_NEW_WINDOW_ID,
+            "Move Tab to New Window",
+        ));
+    }
+    if rows.tab_to_window {
+        entries.push(PaletteEntry::action(
+            MOVE_TAB_TO_WINDOW_ID,
+            "Move Tab to Window...",
+        ));
+    }
+    if rows.pane_to_new_window {
+        entries.push(PaletteEntry::action(
+            MOVE_PANE_NEW_WINDOW_ID,
+            "Move Pane to New Window",
+        ));
+    }
+    if rows.pane_to_window {
+        entries.push(PaletteEntry::action(
+            MOVE_PANE_TO_WINDOW_ID,
+            "Move Pane to Window...",
+        ));
+    }
+    entries
 }
 
 /// The v0.15.0 A quick-terminal row. Empty unless the `quick_terminal` setting
@@ -718,6 +776,7 @@ mod tests {
             bound_launch_profile: None,
             merge_targets_available: false,
             quick_terminal_enabled: false,
+            move_rows: MovePaletteRows::default(),
         };
         let ids: Vec<String> = workspace_palette_entries(&unbound)
             .into_iter()
@@ -746,6 +805,7 @@ mod tests {
             bound_launch_profile: None,
             merge_targets_available: false,
             quick_terminal_enabled: false,
+            move_rows: MovePaletteRows::default(),
         };
         let labels: Vec<String> = workspace_palette_entries(&bound)
             .into_iter()
@@ -772,6 +832,7 @@ mod tests {
             bound_launch_profile: None,
             merge_targets_available: false,
             quick_terminal_enabled: false,
+            move_rows: MovePaletteRows::default(),
         };
         let entries = workspace_palette_entries(&ctx);
         let ids: Vec<String> = entries
@@ -810,6 +871,7 @@ mod tests {
                 bound_launch_profile: None,
                 merge_targets_available: available,
                 quick_terminal_enabled: false,
+                move_rows: MovePaletteRows::default(),
             };
             merge_palette_entries(&ctx)
                 .into_iter()
@@ -845,6 +907,7 @@ mod tests {
                 bound_launch_profile: None,
                 merge_targets_available: false,
                 quick_terminal_enabled: enabled,
+                move_rows: MovePaletteRows::default(),
             };
             quick_terminal_palette_entries(&ctx)
                 .into_iter()

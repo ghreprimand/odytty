@@ -20,6 +20,7 @@ pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
         shared: WatchdogShared::new(),
         last_seen_frames: 0,
         factory: Box::new(|_| None),
+        adopt: Box::new(adopt_for_test),
         picker: None,
         quick: QuickTerminalController::new(QuickTerminalSettings::default()),
         quick_live: Arc::new(Mutex::new(None)),
@@ -45,6 +46,17 @@ pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
         #[cfg(target_os = "linux")]
         wayland_drop_limitation_notified: false,
     }
+}
+
+/// The production adopt shape over test settings: a window built around a
+/// moved session set, with no shell spawn and no surface.
+pub(in crate::native::app) fn adopt_for_test(set: crate::native::session::WorkspaceSet) -> App {
+    App::new_with_sessions(
+        crate::native::options::NativeOptions::default(),
+        set,
+        crate::settings::Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(std::time::Instant::now()),
+    )
 }
 
 pub(in crate::native::app) fn headless() -> App {

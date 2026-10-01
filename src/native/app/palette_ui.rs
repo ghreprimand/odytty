@@ -9,9 +9,10 @@ use super::*;
 use crate::native::merge_picker::MergeDirection;
 use crate::native::palette_overlay::{
     LAYOUT_SAVE_ALL_ID, LAYOUT_SAVE_ID, MERGE_WINDOW_INTO_ID, MERGE_WINDOW_PULL_ID,
-    QUICK_TERMINAL_TOGGLE_ID, WORKSPACE_NEW_ID, WORKSPACE_NEW_LOCAL_TAB_ID, WORKSPACE_RENAME_ID,
-    WORKSPACE_UNBIND_ID, WorkspacePaletteContext, parse_layout_delete_id, parse_layout_open_id,
-    parse_profile_bind_id, parse_profile_launch_id, parse_workspace_bind_id,
+    MOVE_PANE_NEW_WINDOW_ID, MOVE_PANE_TO_WINDOW_ID, MOVE_TAB_NEW_WINDOW_ID, MOVE_TAB_TO_WINDOW_ID,
+    MovePaletteRows, QUICK_TERMINAL_TOGGLE_ID, WORKSPACE_NEW_ID, WORKSPACE_NEW_LOCAL_TAB_ID,
+    WORKSPACE_RENAME_ID, WORKSPACE_UNBIND_ID, WorkspacePaletteContext, parse_layout_delete_id,
+    parse_layout_open_id, parse_profile_bind_id, parse_profile_launch_id, parse_workspace_bind_id,
     parse_workspace_switch_id,
 };
 use crate::palette_catalog::PaletteAction;
@@ -56,6 +57,7 @@ impl App {
             bound_launch_profile: bound_launch_profile.as_deref(),
             merge_targets_available: self.merge_targets_available(),
             quick_terminal_enabled: self.settings.quick_terminal,
+            move_rows: self.move_palette_rows(),
         };
         self.overlay.open_command_palette(cwd.as_deref(), &context);
         self.request_selection_redraw();
@@ -123,6 +125,13 @@ impl App {
             {
                 self.sessions
                     .set_active_workspace_launch_profile(Some(name));
+            }
+            return;
+        }
+        if let Some(request) = move_request_for_palette_id(&id) {
+            match request {
+                PaletteMove::NewWindow(scope) => self.request_move_to_new_window(scope),
+                PaletteMove::Picker(direction) => self.request_merge_picker(direction),
             }
             return;
         }
@@ -257,6 +266,41 @@ impl App {
             PaletteAction::ZoomPane => self.apply_pane_action(BindableAction::ZoomPane),
             PaletteAction::EqualizePanes => self.apply_pane_action(BindableAction::EqualizePanes),
             PaletteAction::SessionNavigator => self.open_session_navigator_overlay(),
+        }
+    }
+}
+
+/// A palette move row resolved to its request.
+enum PaletteMove {
+    NewWindow(crate::native::session::MoveScope),
+    Picker(MergeDirection),
+}
+
+fn move_request_for_palette_id(id: &str) -> Option<PaletteMove> {
+    use crate::native::session::MoveScope;
+    match id {
+        MOVE_TAB_NEW_WINDOW_ID => Some(PaletteMove::NewWindow(MoveScope::ActiveTab)),
+        MOVE_PANE_NEW_WINDOW_ID => Some(PaletteMove::NewWindow(MoveScope::ActivePane)),
+        MOVE_TAB_TO_WINDOW_ID => Some(PaletteMove::Picker(MergeDirection::MoveTabInto)),
+        MOVE_PANE_TO_WINDOW_ID => Some(PaletteMove::Picker(MergeDirection::MovePaneInto)),
+        _ => None,
+    }
+}
+
+impl App {
+    /// The move rows this window offers. A window the owner reports no
+    /// siblings for (including the quick terminal, which never has any) gets
+    /// no "to Window..." rows; "to New Window" needs other content left
+    /// behind; pane rows need a split tab.
+    pub(in crate::native) fn move_palette_rows(&self) -> MovePaletteRows {
+        use crate::native::session::MoveScope;
+        let siblings = self.merge_targets_available();
+        let split = self.active_tab_is_split();
+        MovePaletteRows {
+            tab_to_new_window: !self.move_empties_window(MoveScope::ActiveTab),
+            tab_to_window: siblings,
+            pane_to_new_window: split,
+            pane_to_window: split && siblings,
         }
     }
 }

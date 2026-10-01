@@ -8,6 +8,10 @@
 
 use super::*;
 
+/// Notice when an attach target is already open in another window.
+pub(in crate::native) const ATTACHED_ELSEWHERE_NOTICE: &str =
+    "That session is already open in another OdyTTY window";
+
 impl App {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn initialize_session_with(
@@ -360,6 +364,14 @@ impl App {
             if self.sessions.switch(token) {
                 self.on_active_session_changed();
             }
+            return;
+        }
+        // A pane moved to another window keeps its attachment there; attaching
+        // the same host session again here would duplicate it.
+        if self.peer_attached_sessions.contains(&session_id) {
+            self.finish_divider_drag();
+            self.overlay.close();
+            self.raise_neutral_notice(ATTACHED_ELSEWHERE_NOTICE.to_owned());
             return;
         }
         self.overlay.open_attach_choice(session_id);

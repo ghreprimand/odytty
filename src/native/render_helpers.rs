@@ -240,11 +240,12 @@ pub(super) enum OverlayFragment {
     /// the frame so the badge repaints when the picker opens, changes numeral,
     /// or closes. `Inert` at rest (no picker targeting this window), so the
     /// default cache decision is unchanged.
-    MergeNumeral { numeral: u8 },
+    /// `moves` selects the "move here" wording of a tab or pane move.
+    MergeNumeral { numeral: u8, moves: bool },
     /// v0.15.0 D keyboard window merge: the banner the picker's ORIGIN window
     /// paints while its picker is open, keyed by the candidate count. `Inert`
     /// at rest.
-    MergeOrigin { candidates: u8 },
+    MergeOrigin { candidates: u8, moves: bool },
     /// The focused pane's persistent `READ-ONLY` label. `Inert` for a writable
     /// pane (the default), so the cache decision is unchanged there; toggling
     /// the flag flips the fragment and repaints the label on or off.

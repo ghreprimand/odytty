@@ -353,6 +353,17 @@ impl App {
         }
     }
 
+    /// Choose the picker badge wording: "move here" for a tab or pane move,
+    /// "merge here" for a window merge. Set with the numeral or origin banner.
+    pub(in crate::native) fn set_merge_picker_moves(&mut self, moves: bool) {
+        if self.merge_picker_moves == moves {
+            return;
+        }
+        self.merge_picker_moves = moves;
+        self.last_render_signature = None;
+        self.needs_rebuild = true;
+    }
+
     /// The temporary merge-picker numeral this window currently paints, if any.
     /// The frame path reads this to draw the candidate badge.
     pub(in crate::native) fn merge_numeral(&self) -> Option<u8> {
@@ -390,11 +401,15 @@ impl App {
         &self,
     ) -> crate::native::render_helpers::OverlayFragment {
         match (self.merge_numeral, self.merge_origin_candidates) {
-            (Some(numeral), _) => {
-                crate::native::render_helpers::OverlayFragment::MergeNumeral { numeral }
-            }
+            (Some(numeral), _) => crate::native::render_helpers::OverlayFragment::MergeNumeral {
+                numeral,
+                moves: self.merge_picker_moves,
+            },
             (None, Some(candidates)) => {
-                crate::native::render_helpers::OverlayFragment::MergeOrigin { candidates }
+                crate::native::render_helpers::OverlayFragment::MergeOrigin {
+                    candidates,
+                    moves: self.merge_picker_moves,
+                }
             }
             (None, None) => crate::native::render_helpers::OverlayFragment::Inert,
         }
@@ -443,8 +458,11 @@ impl App {
     /// the case: the origin is not a candidate) would show the numeral.
     pub(in crate::native) fn paint_merge_numeral_cells(&self, snapshot: &mut Snapshot) {
         let text = match (self.merge_numeral, self.merge_origin_candidates) {
+            (Some(numeral), _) if self.merge_picker_moves => {
+                format!(" Press {numeral} to move here ")
+            }
             (Some(numeral), _) => format!(" Press {numeral} to merge here "),
-            (None, Some(candidates)) => merge_origin_banner(candidates),
+            (None, Some(candidates)) => merge_origin_banner(candidates, self.merge_picker_moves),
             (None, None) => return,
         };
         let columns = snapshot.dimensions.columns;
@@ -513,10 +531,11 @@ impl App {
 /// The banner the merge picker's origin window paints while its picker is open.
 /// Names the numeral range to press in the candidate window(s) and the cancel
 /// key; the transfer direction was chosen in the palette or Session Navigator.
-fn merge_origin_banner(candidates: u8) -> String {
+fn merge_origin_banner(candidates: u8, moves: bool) -> String {
+    let kind = if moves { "Move" } else { "Merge" };
     match candidates {
-        0 | 1 => " Merge picker: press 1 in the other window, Esc cancels ".to_string(),
-        n => format!(" Merge picker: press 1-{n} in the target window, Esc cancels "),
+        0 | 1 => format!(" {kind} picker: press 1 in the other window, Esc cancels "),
+        n => format!(" {kind} picker: press 1-{n} in the target window, Esc cancels "),
     }
 }
 
@@ -599,7 +618,10 @@ mod tests {
         assert_eq!(app.merge_numeral(), Some(3));
         assert_eq!(
             app.merge_numeral_overlay_signature(),
-            OverlayFragment::MergeNumeral { numeral: 3 }
+            OverlayFragment::MergeNumeral {
+                numeral: 3,
+                moves: false
+            }
         );
 
         let mut snapshot = blank(40, 8);
@@ -626,7 +648,10 @@ mod tests {
         assert_eq!(app.merge_origin_candidates(), Some(1));
         assert_eq!(
             app.merge_numeral_overlay_signature(),
-            OverlayFragment::MergeOrigin { candidates: 1 }
+            OverlayFragment::MergeOrigin {
+                candidates: 1,
+                moves: false
+            }
         );
         let mut snapshot = blank(70, 8);
         app.paint_merge_numeral_cells(&mut snapshot);
