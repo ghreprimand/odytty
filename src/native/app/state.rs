@@ -87,16 +87,22 @@ pub(in crate::native) struct App {
     /// PTY key encoding.
     pub(super) super_key: bool,
     /// Lowercase character of a binding press this window consumed. The
-    /// matching release, one bare press of that character before the release,
-    /// and one single-character IME commit are dropped so the chord glyph
-    /// never reaches a pane. Focus loss clears the modifier cache and does
-    /// not clear this latch: the cache can look idle while the leftover
-    /// event is still in flight. A new window spawned by the chord inherits
-    /// the same character.
+    /// matching release and one delivery of that character are dropped so
+    /// the chord glyph never reaches a pane. Focus loss clears the modifier
+    /// cache and does not clear this latch: the cache can look idle while
+    /// the leftover event is still in flight. A new window spawned by the
+    /// chord inherits the same character.
     pub(super) consumed_chord: Option<char>,
-    /// The release of [`Self::consumed_chord`] has been observed. A later
-    /// unmodified press of that character is ordinary typing.
+    /// The release of [`Self::consumed_chord`] has been observed. On the
+    /// window that handled the chord, a later unmodified press is ordinary
+    /// typing. On a window that inherited the latch, that first press is
+    /// still the leftover and is dropped.
     pub(super) consumed_chord_released: bool,
+    /// This window inherited the latch from the chord that created it. The
+    /// first bare press of the letter is dropped whether it arrives before
+    /// or after the key-up. The window that handled the chord leaves this
+    /// false, so a press after the key-up there is real typing.
+    pub(super) consumed_chord_inherited: bool,
     pub(super) key_bindings: KeyBindings,
     /// Multiplexer prefix engine (§7). Holds the configurable prefix chord, the
     /// pane-action table, and the transient prefix-pending state. Additive: when
@@ -694,6 +700,7 @@ impl App {
             super_key: false,
             consumed_chord: None,
             consumed_chord_released: false,
+            consumed_chord_inherited: false,
             key_bindings,
             prefix_engine,
             last_active_session,

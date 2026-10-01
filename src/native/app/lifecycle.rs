@@ -1078,6 +1078,11 @@ impl App {
         // here a held launch that no successful resize releases (a window
         // that stays minimized) may start on the bounded fallback.
         self.sessions.arm_held_launch_fallback();
+        // The creation resize can be delivered before this window is in the
+        // host list and is then dropped. The size is already on the window;
+        // apply it here so a held shell is released by this grid instead of
+        // the five-second fallback.
+        self.apply_present_window_grid();
 
         // OS-THEME: seed the OS appearance from the window (Wayland delivers a
         // value here; X11 returns `None`) or the `ODYTTY_APPEARANCE` env
@@ -1109,6 +1114,22 @@ impl App {
             event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
         }
         Ok(())
+    }
+
+    /// Apply the size the window already has, when it is a real surface.
+    /// A minimized (0x0) window is left held for the fallback.
+    fn apply_present_window_grid(&mut self) {
+        let Some(size) = self.window.as_ref().map(|window| window.inner_size()) else {
+            return;
+        };
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+        let Some(gpu) = self.gpu.as_ref() else {
+            return;
+        };
+        let resize = pending_resize_for_surface(gpu.cell(), gpu.window_padding(), size);
+        self.record_pending_resize(resize, Instant::now());
     }
 
     pub(super) fn on_close_requested(&mut self) {

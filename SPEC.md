@@ -2042,7 +2042,10 @@ at startup, a reconnect before the first grid, and a new window's first session)
 run inside `pty::spawn_held`: the ConPTY child is created suspended and resumed
 only after the window's first surface-derived grid has reached its
 pseudoconsole (`WorkspaceSet::start_held_launches`, called from the surface
-grid path). A child starts only once its backend holds the model's size: its
+grid path). When the surface is created, the window applies the size it
+already has, and the new window is registered before that creation, so a
+resize event delivered before registration is not the only way the grid is
+reached. A child starts only once its backend holds the model's size: its
 resize in that pass succeeded, or none was needed. A child whose resize failed
 stays held until the bounded resize retry succeeds, which releases it. A
 released shell therefore starts at the window's grid. PSReadLine otherwise

@@ -261,6 +261,7 @@ pub(in crate::native) fn execute_window_merge(
 ///
 /// Requests are collected before any window is created so a factory that
 /// appends to `windows` cannot be observed mid-iteration.
+#[cfg(test)]
 pub(in crate::native) fn service_new_window_requests<F>(
     windows: &mut Vec<App>,
     mut factory: F,
@@ -277,6 +278,40 @@ where
         if let Some(app) = factory(request) {
             windows.push(app);
             created += 1;
+        }
+    }
+    created
+}
+
+/// Drain New Window requests, append each new window, then run `resume`.
+///
+/// `resume` runs only after the window is in `windows`, so a resize delivered
+/// while the surface is created is addressed to a window the host already
+/// tracks. Creating the surface inside `factory`, before the append, drops
+/// that event.
+pub(in crate::native) fn service_new_window_requests_then<F, R>(
+    windows: &mut Vec<App>,
+    mut factory: F,
+    mut resume: R,
+) -> usize
+where
+    F: FnMut(NewWindowRequest) -> Option<App>,
+    R: FnMut(&mut App, usize),
+{
+    let requests: Vec<NewWindowRequest> = windows
+        .iter_mut()
+        .filter_map(App::take_new_window_request)
+        .collect();
+    let mut created = 0;
+    for request in requests {
+        if let Some(app) = factory(request) {
+            windows.push(app);
+            created += 1;
+            let registered = windows.len();
+            resume(
+                windows.last_mut().expect("the sibling was just appended"),
+                registered,
+            );
         }
     }
     created
@@ -449,6 +484,27 @@ mod tests {
         assert_eq!(
             service_new_window_requests(&mut windows, |_| Some(headless_app_for_test().0)),
             0
+        );
+    }
+
+    #[test]
+    fn a_sibling_is_registered_before_its_surface_is_created() {
+        let (mut win, _t) = headless_app_for_test();
+        win.request_new_window();
+        let mut windows = vec![win];
+        let mut resume_index = None;
+        let created = service_new_window_requests_then(
+            &mut windows,
+            |_| Some(headless_app_for_test().0),
+            |_app, registered| {
+                resume_index = Some(registered);
+            },
+        );
+        assert_eq!(created, 1);
+        assert_eq!(
+            resume_index,
+            Some(2),
+            "surface creation runs after the sibling is in the window list"
         );
     }
 

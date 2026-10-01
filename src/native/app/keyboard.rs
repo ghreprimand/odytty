@@ -232,7 +232,11 @@ impl App {
                     return;
                 }
             }
-            let latch_before = (self.consumed_chord, self.consumed_chord_released);
+            let latch_before = (
+                self.consumed_chord,
+                self.consumed_chord_released,
+                self.consumed_chord_inherited,
+            );
             if action.is_some() {
                 self.arm_consumed_character(&logical);
             }
@@ -588,21 +592,41 @@ impl App {
         if let Some(ch) = Self::chord_character(logical) {
             self.consumed_chord = Some(ch);
             self.consumed_chord_released = false;
+            self.consumed_chord_inherited = false;
         }
     }
 
-    fn restore_consumed_chord(&mut self, snap: (Option<char>, bool)) {
+    fn restore_consumed_chord(&mut self, snap: (Option<char>, bool, bool)) {
         self.consumed_chord = snap.0;
         self.consumed_chord_released = snap.1;
+        self.consumed_chord_inherited = snap.2;
+    }
+
+    fn clear_consumed_chord(&mut self) {
+        self.restore_consumed_chord((None, false, false));
+    }
+
+    /// Modifier keys are part of the chord still being held. A press of one
+    /// on the new window (focus moved while Ctrl and Shift were down) must
+    /// not forget the letter the chord consumed.
+    fn is_modifier_key(logical: &WinitKey) -> bool {
+        matches!(
+            logical,
+            WinitKey::Named(NamedKey::Control | NamedKey::Shift | NamedKey::Alt | NamedKey::Super)
+        )
     }
 
     /// Drop the leftover of a consumed character chord.
     ///
     /// The press itself is handled by binding dispatch. What remains is the
-    /// key-up, a second press whose modifiers were already cleared, or (via
-    /// [`Self::swallow_chord_ime_commit`]) a one-character IME commit. A
-    /// different key press ends the latch. An unmodified press after the
-    /// release is real input and is not dropped.
+    /// key-up, a repeat while the modifiers are still down, one bare press
+    /// of that letter, or (via [`Self::swallow_chord_ime_commit`]) a
+    /// one-character IME commit of it. On the window that handled the chord,
+    /// a bare press after the key-up is real typing. On a window that
+    /// inherited the latch, Windows delivers that press after the key-up
+    /// (the new window already has focus), so the first bare press is still
+    /// the leftover. A different character press ends the latch. A modifier
+    /// press does not.
     fn suppress_leftover_chord_key(
         &mut self,
         logical: &WinitKey,
@@ -613,14 +637,14 @@ impl App {
             return false;
         };
         let Some(ch) = Self::chord_character(logical) else {
-            if event_type != KeyEventType::Release {
-                self.restore_consumed_chord((None, false));
+            if event_type != KeyEventType::Release && !Self::is_modifier_key(logical) {
+                self.clear_consumed_chord();
             }
             return false;
         };
         if ch != armed {
             if event_type != KeyEventType::Release {
-                self.restore_consumed_chord((None, false));
+                self.clear_consumed_chord();
             }
             return false;
         }
@@ -629,12 +653,21 @@ impl App {
             return true;
         }
         let bare = !mods.ctrl && !mods.alt && !mods.shift && !self.super_key;
+        if self.consumed_chord_inherited {
+            if !bare {
+                // Repeat of the chord that opened this window. Keep the
+                // latch so the bare press after the key-up is still dropped.
+                return true;
+            }
+            self.clear_consumed_chord();
+            return true;
+        }
         if bare && !self.consumed_chord_released {
-            self.restore_consumed_chord((None, false));
+            self.clear_consumed_chord();
             return true;
         }
         if bare && self.consumed_chord_released {
-            self.restore_consumed_chord((None, false));
+            self.clear_consumed_chord();
             return false;
         }
         false
@@ -651,7 +684,7 @@ impl App {
         if chars.next().is_some() || ch.to_ascii_lowercase() != armed {
             return false;
         }
-        self.restore_consumed_chord((None, false));
+        self.clear_consumed_chord();
         true
     }
 

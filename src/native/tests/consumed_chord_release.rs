@@ -4,7 +4,9 @@
 //! Ctrl+Shift+N (and the other default Ctrl+Shift letter chords) consume the
 //! press. Windows can still deliver the key-up, a modifier-less press of that
 //! letter, or a one-character IME commit after the modifier cache has been
-//! cleared, including to the new window. Those leftovers are not shell input.
+//! cleared, including to the new window. On the new window the press arrives
+//! after the key-up, because the new window already has focus. Those leftovers
+//! are not shell input.
 
 use std::io::{self, Write};
 
@@ -160,6 +162,71 @@ fn new_window_request_arms_the_sibling_and_a_pointer_request_does_not() {
     pointer.inherit_consumed_chord(None);
     press_bare(&mut pointer, 'n');
     assert_eq!(bytes_of(&pointer_bytes), b"n");
+}
+
+#[test]
+fn inherited_latch_drops_the_press_that_follows_the_release() {
+    let RecordingApp {
+        app: mut sibling,
+        bytes,
+        terminal: _terminal,
+    } = recording_app();
+    sibling.inherit_consumed_chord(Some('n'));
+    release_bare(&mut sibling, 'n');
+    press_bare(&mut sibling, 'n');
+    assert!(
+        bytes_of(&bytes).is_empty(),
+        "the new window's press after the key-up is still the chord glyph"
+    );
+    press_bare(&mut sibling, 'n');
+    assert_eq!(bytes_of(&bytes), b"n");
+}
+
+#[test]
+fn inherited_latch_survives_a_modifier_press() {
+    let RecordingApp {
+        app: mut sibling,
+        bytes,
+        terminal: _terminal,
+    } = recording_app();
+    sibling.inherit_consumed_chord(Some('n'));
+    sibling.drive_named_key_for_test(winit::keyboard::NamedKey::Control);
+    press_bare(&mut sibling, 'n');
+    assert!(
+        bytes_of(&bytes).is_empty(),
+        "a modifier press on the new window must not forget the chord letter"
+    );
+}
+
+#[test]
+fn inherited_latch_drops_a_preedited_ime_commit() {
+    let RecordingApp {
+        app: mut sibling,
+        bytes,
+        terminal: _terminal,
+    } = recording_app();
+    sibling.inherit_consumed_chord(Some('n'));
+    sibling.handle_ime(Ime::Preedit("n".into(), None));
+    sibling.handle_ime(Ime::Commit("n".into()));
+    assert!(
+        bytes_of(&bytes).is_empty(),
+        "a one-character pre-edit of the chord letter is still the chord glyph"
+    );
+    sibling.handle_ime(Ime::Commit("n".into()));
+    assert_eq!(bytes_of(&bytes), b"n");
+}
+
+#[test]
+fn inherited_latch_ends_on_a_different_character() {
+    let RecordingApp {
+        app: mut sibling,
+        bytes,
+        terminal: _terminal,
+    } = recording_app();
+    sibling.inherit_consumed_chord(Some('n'));
+    press_bare(&mut sibling, 'x');
+    press_bare(&mut sibling, 'n');
+    assert_eq!(bytes_of(&bytes), b"xn");
 }
 
 #[cfg(windows)]

@@ -598,13 +598,15 @@ impl MultiWindowHost {
         // while the factory closure borrows `&mut factory` and the event loop.
         let windows = &mut self.windows;
         let factory = &mut self.factory;
-        crate::native::window_owner::service_new_window_requests(windows, |request| {
-            let mut app = (factory)(request)?;
-            // Create the sibling's surface now (the event loop is in scope) so it
-            // appears without waiting for another resume.
-            app.on_resumed(event_loop);
-            Some(app)
-        });
+        // Register the sibling before creating its surface. A resize delivered
+        // during creation is routed by window id; if the window is not in the
+        // list yet, that event is dropped and the held shell waits out the
+        // fallback.
+        crate::native::window_owner::service_new_window_requests_then(
+            windows,
+            factory,
+            |app, _registered| app.on_resumed(event_loop),
+        );
     }
 
     /// Hand each window's profile renames/deletes to every other window, so a

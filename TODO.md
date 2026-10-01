@@ -159,7 +159,10 @@ Development on `master`; not released. Items check off when their code is on
       idle.
 - [ ] Windows first command lands at the prompt: a window's first shells
       (the launch session, a restored layout, a new window) are held
-      suspended until the window's real grid reaches ConPTY, so a released
+      suspended until the window's real grid reaches ConPTY. The window
+      applies the size it already has when its surface is created, and a new
+      window is registered before that creation, so the hold does not depend
+      on a resize event that arrived before registration. A released
       PSReadLine starts at that grid and does not echo the first command at
       the old wrapped column; a shell whose first resize failed waits for the
       retried resize, and once the window exists a held shell that no

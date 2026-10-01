@@ -269,6 +269,7 @@ impl App {
         if let Some(ch) = ch {
             self.consumed_chord = Some(ch.to_ascii_lowercase());
             self.consumed_chord_released = false;
+            self.consumed_chord_inherited = true;
         }
     }
 
