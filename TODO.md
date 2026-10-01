@@ -541,20 +541,19 @@ Delivered compatibility work under that policy:
   - [x] A2-F3: `cursor_visible` saved/restored in StoredScreen.
   - [x] A2-F4: `current_attrs` saved/restored in StoredScreen.
   - [x] A2: 11 new fixtures pinning per-mode cursor, cursor_visible, and attrs.
-- [ ] Complete the remaining Unicode-width policy work; wide characters,
-      combining marks, and supported emoji clusters already render correctly,
-      while an ambiguous-width setting remains future work.
+- [x] Complete the remaining Unicode-width policy work; wide characters,
+      combining marks, and supported emoji clusters render correctly, and
+      East Asian Ambiguous width is selectable (`narrow` default, `wide`
+      opt-in, including a per-profile override).
   - [x] Core: wide-cell write/erase coherence — overwrite-half clears the pair,
-        wide glyph wraps whole at EOL, erase/ICH/DCH/ECH repair pairs. Ambiguous
-        width stays narrow (future setting).
+        wide glyph wraps whole at EOL, erase/ICH/DCH/ECH repair pairs.
   - [x] Core and renderer: up to four zero-width combining marks attach to the
         preceding cell's grapheme, render over the base glyph, survive
         selection/copy, reflow, snapshot, and session-host serialization, and
         move into a per-line side table in scrollback. A mark at line start is
         a safe no-op and excess marks are dropped at the documented bound.
-  - [ ] Decide whether to add a user-selectable ambiguous-width policy; the
-        current implementation intentionally treats East Asian Ambiguous
-        codepoints as narrow.
+  - [x] Ambiguous-width policy: default stays narrow. `wide` is explicit,
+        per profile or global, and reflows that pane without resizing the PTY.
 - [x] Grow PTY-backed smoke coverage without making default tests flaky or slow.
 
 ## Stage 3: High-Quality Text And Rendering

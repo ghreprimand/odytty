@@ -57,8 +57,6 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 
-use unicode_width::UnicodeWidthChar;
-
 use super::button::{ButtonId, ButtonSpan, MAX_BUTTON_SPANS_PER_LINE, SpanReprojector};
 use super::prompt_marks::PromptKind;
 use super::reflow::{ReflowOptions, reflow_lines_with_options, resize_keep_width_with_options};
@@ -221,6 +219,9 @@ impl LogicalLine {
 struct Projection {
     /// Width the cached shape was computed at; `None` means invalid.
     width: Option<usize>,
+    /// Ambiguous-width policy the shape was counted with. A same-width policy
+    /// change must not reuse the old row counts.
+    ambiguous_wide: bool,
     /// Absolute index of each logical line's **first** physical row at `width`,
     /// parallel to [`Scrollback::lines`] and in the same order. Strictly
     /// increasing (every logical line projects to at least one row), which is
@@ -240,6 +241,7 @@ impl Projection {
     fn empty() -> Self {
         Self {
             width: None,
+            ambiguous_wide: false,
             row_starts: VecDeque::new(),
             base_row: 0,
             total_rows: 0,
@@ -372,6 +374,9 @@ pub(in crate::core) struct Scrollback {
     /// Total cells across `lines`, maintained at every mutation so the
     /// aggregate budget check in [`Scrollback::enforce_limit`] is `O(1)`.
     retained_cells: usize,
+    /// East Asian Ambiguous policy for projecting this store. Kept in lockstep
+    /// with [`Screen`]'s flag. Changing it invalidates the projection cache.
+    ambiguous_wide: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -406,7 +411,16 @@ impl Scrollback {
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
             retained_cells: 0,
+            ambiguous_wide: false,
         }
+    }
+
+    pub(in crate::core) fn set_ambiguous_wide(&mut self, wide: bool) {
+        if self.ambiguous_wide == wide {
+            return;
+        }
+        self.ambiguous_wide = wide;
+        self.invalidate();
     }
 
     /// Build a store with an explicit logical-line limit (`0` = unbounded).
@@ -419,6 +433,7 @@ impl Scrollback {
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
             retained_cells: 0,
+            ambiguous_wide: false,
         }
     }
 
@@ -439,6 +454,7 @@ impl Scrollback {
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
             retained_cells,
+            ambiguous_wide: false,
         }
     }
 
@@ -471,6 +487,7 @@ impl Scrollback {
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
             retained_cells,
+            ambiguous_wide: false,
         }
     }
 
@@ -509,7 +526,7 @@ impl Scrollback {
     /// [`Scrollback::physical_row`]; anything that needs only the count uses
     /// [`Scrollback::physical_len`].
     pub(in crate::core) fn physical_all(&self, width: usize) -> Vec<Line> {
-        project_logical(&self.lines, width)
+        project_logical_mode(&self.lines, width, self.ambiguous_wide)
     }
 
     /// Test window onto the whole projection.
@@ -564,7 +581,14 @@ impl Scrollback {
             } else {
                 ALL_ROWS
             };
-            project_line_into(line.view(), width, line.open, window, &mut rows);
+            project_line_into(
+                line.view(),
+                width,
+                line.open,
+                window,
+                &mut rows,
+                self.ambiguous_wide,
+            );
         }
         let n = n.min(total_rows);
         // The pulled lines may project to more than `n` rows; keep the tail,
@@ -603,7 +627,14 @@ impl Scrollback {
             // materialized; the window is relative to this line's first row.
             let base = rows.len();
             let window = (skip.saturating_sub(base))..(skip + n - base);
-            project_line_into(line.view(), width, line.open, window, &mut rows);
+            project_line_into(
+                line.view(),
+                width,
+                line.open,
+                window,
+                &mut rows,
+                self.ambiguous_wide,
+            );
             if rows.len() >= skip + n {
                 break;
             }
@@ -624,7 +655,14 @@ impl Scrollback {
         let line = self.lines.get(line_index)?;
         let mut rows = Vec::new();
         let index = row - first_row;
-        project_line_into(line.view(), width, line.open, index..index + 1, &mut rows);
+        project_line_into(
+            line.view(),
+            width,
+            line.open,
+            index..index + 1,
+            &mut rows,
+            self.ambiguous_wide,
+        );
         rows.into_iter().nth(index)
     }
 
@@ -740,10 +778,9 @@ impl Scrollback {
         // terminal lock is held on every output frame.
         let cached_width = self.cache.borrow().width;
         if let Some(width) = cached_width {
-            let last_rows = self
-                .lines
-                .back()
-                .map_or(0, |line| count_projected_rows(line, width));
+            let last_rows = self.lines.back().map_or(0, |line| {
+                count_projected_rows(line, width, self.ambiguous_wide)
+            });
             let mut cache = self.cache.borrow_mut();
             if appended_line {
                 cache.push_line(last_rows);
@@ -1039,6 +1076,7 @@ impl Scrollback {
     fn invalidate(&self) {
         let mut cache = self.cache.borrow_mut();
         cache.width = None;
+        cache.ambiguous_wide = false;
         cache.row_starts.clear();
         cache.base_row = 0;
         cache.total_rows = 0;
@@ -1057,7 +1095,7 @@ impl Scrollback {
     fn ensure_cache(&self, width: usize) {
         {
             let cache = self.cache.borrow();
-            if cache.width == Some(width) {
+            if cache.width == Some(width) && cache.ambiguous_wide == self.ambiguous_wide {
                 return;
             }
         }
@@ -1072,12 +1110,14 @@ impl Scrollback {
                 line.open,
                 NO_ROWS,
                 &mut scratch,
+                self.ambiguous_wide,
             );
             row_starts.push_back(total_rows);
             total_rows += scratch.len();
         }
         let mut cache = self.cache.borrow_mut();
         cache.width = Some(width);
+        cache.ambiguous_wide = self.ambiguous_wide;
         cache.row_starts = row_starts;
         cache.base_row = 0;
         cache.total_rows = total_rows;
@@ -1151,7 +1191,7 @@ pub(in crate::core) fn resize_lazy_with_options(
         match sb.lines.pop_back() {
             Some(line) => {
                 sb.retained_cells -= line.cells.len();
-                pulled_rows += count_projected_rows(&line, new_width);
+                pulled_rows += count_projected_rows(&line, new_width, sb.ambiguous_wide);
                 pulled.push(line);
             }
             None => break,
@@ -1165,7 +1205,7 @@ pub(in crate::core) fn resize_lazy_with_options(
         // Project at the unchanged width: full-width rows, no mid-line padding
         // (open lines are exact multiples of the width), so the keep-width fast
         // path's well-formedness assumption holds.
-        subset = project_logical(&pulled, new_width);
+        subset = project_logical_mode(&pulled, new_width, sb.ambiguous_wide);
     } else {
         // One mega-row per logical line (all cells, marked open/closed). The
         // reflow primitive rejoins by the wrapped flag — cell count is
@@ -1233,6 +1273,7 @@ pub(in crate::core) fn resize_lazy_with_options(
                 // shell, the `None` arm subtracts this to recover the incoming
                 // visible row instead of clamping the combined offset.
                 combined_cursor_prefix: cursor_prefix,
+                ambiguous_wide: sb.ambiguous_wide,
             },
         );
         ResizeResult {
@@ -1383,14 +1424,34 @@ thread_local! {
         const { std::cell::Cell::new(0) };
 }
 
-/// Project logical lines to physical rows at `width`.
+/// Project logical lines to physical rows at `width` using the narrow table.
+#[cfg(test)]
 pub(in crate::core) fn project_logical<'a, I>(lines: I, width: usize) -> Vec<Line>
+where
+    I: IntoIterator<Item = &'a LogicalLine>,
+{
+    project_logical_mode(lines, width, false)
+}
+
+/// Project logical lines with an explicit East Asian Ambiguous policy.
+pub(in crate::core) fn project_logical_mode<'a, I>(
+    lines: I,
+    width: usize,
+    ambiguous_wide: bool,
+) -> Vec<Line>
 where
     I: IntoIterator<Item = &'a LogicalLine>,
 {
     let mut out = Vec::new();
     for line in lines {
-        project_line_into(line.view(), width, line.open, ALL_ROWS, &mut out);
+        project_line_into(
+            line.view(),
+            width,
+            line.open,
+            ALL_ROWS,
+            &mut out,
+            ambiguous_wide,
+        );
     }
     out
 }
@@ -1405,9 +1466,16 @@ fn line_all_blank(line: &LogicalLine) -> bool {
     line.marks.is_empty() && line.cells.iter().all(|c| *c == plain)
 }
 
-fn count_projected_rows(line: &LogicalLine, width: usize) -> usize {
+fn count_projected_rows(line: &LogicalLine, width: usize, ambiguous_wide: bool) -> usize {
     let mut tmp = Vec::new();
-    project_line_into(line.counting_view(), width, line.open, NO_ROWS, &mut tmp);
+    project_line_into(
+        line.counting_view(),
+        width,
+        line.open,
+        NO_ROWS,
+        &mut tmp,
+        ambiguous_wide,
+    );
     tmp.len()
 }
 
@@ -1462,6 +1530,7 @@ fn project_line_into(
     open: bool,
     window: std::ops::Range<usize>,
     out: &mut Vec<Line>,
+    ambiguous_wide: bool,
 ) {
     // A line of `n` cells produces at most `n + 1` rows, so a window that
     // starts at row 0 and ends past that covers every row, and one that starts
@@ -1471,11 +1540,25 @@ fn project_line_into(
     // partially covers the line pays the per-row decision.
     let max_rows = line.cells.len().saturating_add(1);
     if window.start == 0 && window.end >= max_rows {
-        project_line_mode::<{ ProjectMode::ALL }>(line, width, open, ALL_ROWS, out);
+        project_line_mode::<{ ProjectMode::ALL }>(line, width, open, ALL_ROWS, out, ambiguous_wide);
     } else if window.is_empty() || window.start >= max_rows {
-        project_line_mode::<{ ProjectMode::COUNT }>(line, width, open, NO_ROWS, out);
+        project_line_mode::<{ ProjectMode::COUNT }>(
+            line,
+            width,
+            open,
+            NO_ROWS,
+            out,
+            ambiguous_wide,
+        );
     } else {
-        project_line_mode::<{ ProjectMode::WINDOW }>(line, width, open, window, out);
+        project_line_mode::<{ ProjectMode::WINDOW }>(
+            line,
+            width,
+            open,
+            window,
+            out,
+            ambiguous_wide,
+        );
     }
 }
 
@@ -1498,6 +1581,7 @@ fn project_line_mode<const MODE: u8>(
     open: bool,
     window: std::ops::Range<usize>,
     out: &mut Vec<Line>,
+    ambiguous_wide: bool,
 ) {
     let LineView {
         cells,
@@ -1574,8 +1658,8 @@ fn project_line_mode<const MODE: u8>(
     let mut i = 0;
     while i < cells.len() {
         let cell = cells[i];
-        let is_wide_lead =
-            !cell.wide_continuation() && UnicodeWidthChar::width(cell.ch()) == Some(2);
+        let is_wide_lead = !cell.wide_continuation()
+            && crate::core::char_width::char_display_width(cell.ch(), ambiguous_wide) == 2;
         let unit = if is_wide_lead && width >= 2 { 2 } else { 1 };
 
         // Wrap before a wide pair that would straddle the right edge.

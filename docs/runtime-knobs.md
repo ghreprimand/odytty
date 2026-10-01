@@ -136,6 +136,7 @@ environment variable was not set at startup.
 | `themed_ui_roles` | `ODYTTY_THEMED_UI_ROLES` | `on`, `off` | `on` |
 | `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `block` |
 | `cursor_blink` | `ODYTTY_CURSOR_BLINK` | `auto`, `on`, `off` | `on` |
+| `ambiguous_width` | `ODYTTY_AMBIGUOUS_WIDTH` | `narrow`, `wide` | `narrow` |
 | `cursor_easing` | `ODYTTY_CURSOR_EASING` | `on`, `off` | `on` |
 | `cursor_motion` | `ODYTTY_CURSOR_MOTION` | `on`, `off` | `on` |
 | `cursor_glow` | `ODYTTY_CURSOR_GLOW` | `on`, `off` | `on` |

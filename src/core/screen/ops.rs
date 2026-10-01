@@ -357,7 +357,7 @@ impl Screen {
         }
         row.truncate(columns);
 
-        sanitize_wide_row(row, blank);
+        sanitize_wide_row(row, blank, self.ambiguous_wide);
         // ICH pushes the line tail off the right edge on EVERY invocation
         // (`truncate(columns)`), destroying the content that flowed into a
         // continuation row. Unlike ECH (which reaches the edge only
@@ -397,7 +397,7 @@ impl Screen {
             row.push(blank);
         }
 
-        sanitize_wide_row(row, blank);
+        sanitize_wide_row(row, blank, self.ambiguous_wide);
         // DCH pads blanks at the right edge on EVERY invocation, destroying the
         // content that flowed into a continuation row. Like ICH this always
         // severs the soft-wrap flag so reflow cannot fuse the blank-padded
@@ -433,7 +433,7 @@ impl Screen {
             *cell = blank;
         }
 
-        sanitize_wide_row(row, blank);
+        sanitize_wide_row(row, blank, self.ambiguous_wide);
         // NF7 (C16 seam): `count` is clamped to the row tail, so equality means
         // the erase reached the right edge, destroying the content flow into
         // the continuation row — this row no longer soft-wraps, and reflow must
@@ -662,7 +662,7 @@ impl Screen {
         }
         // Erasing the lead-side boundary can orphan a wide pair (a continuation
         // at the cursor whose lead is just left of it); repair the row.
-        sanitize_wide_row(&mut self.rows[row], blank);
+        sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
         // C16: the erase reaches the right edge, destroying the content flow
         // into the next row — this row no longer soft-wraps, so reflow must
         // not fuse its remnant with the row below.
@@ -686,7 +686,7 @@ impl Screen {
         }
         // Erasing up to the cursor can orphan a wide lead at the cursor whose
         // continuation sits just right of it; repair the row.
-        sanitize_wide_row(&mut self.rows[row], blank);
+        sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
         self.mark_dirty();
     }
 

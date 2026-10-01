@@ -14,6 +14,7 @@ impl Screen {
             cursor_visible: true,
             pending_wrap: false,
             output_since_last_resize: false,
+            ambiguous_wide: false,
             shell_owns_cursor_on_resize: false,
             saved_cursor: None,
             primary_screen: None,
@@ -465,5 +466,73 @@ impl Screen {
                         text: text.clone(),
                     }),
             );
+    }
+}
+
+impl Screen {
+    /// Whether East Asian Ambiguous characters occupy two columns.
+    pub(crate) fn ambiguous_wide(&self) -> bool {
+        self.ambiguous_wide
+    }
+
+    /// True after output until the next real size change. A width-policy
+    /// reflow must not clear it.
+    #[cfg(test)]
+    pub(crate) fn output_since_last_resize(&self) -> bool {
+        self.output_since_last_resize
+    }
+
+    /// Switch the East Asian Ambiguous policy and reflow this pane's primary
+    /// grid in place. The PTY size is not changed and
+    /// `output_since_last_resize` is left alone, so a later real resize still
+    /// sees whether the shell has written since the last size change.
+    ///
+    /// An active alternate screen is left for the application to repaint. The
+    /// stored primary is reflowed, matching a width-changing resize.
+    pub(crate) fn set_ambiguous_wide(&mut self, wide: bool) {
+        if self.ambiguous_wide == wide {
+            return;
+        }
+        self.ambiguous_wide = wide;
+        self.scrollback.set_ambiguous_wide(wide);
+        let options = super::ResizeOptions {
+            preserve_cursor_physical_line: false,
+            cursor_pending_wrap: false,
+            collapse_prompt_start_row: None,
+            repaint_expected: false,
+            shell_owns_cursor_on_resize: false,
+        };
+        if let Some(primary) = self.primary_screen.as_mut() {
+            let columns = self.dimensions.columns;
+            primary.scrollback.set_ambiguous_wide(wide);
+            let pending = primary.pending_wrap;
+            let dims = Dimensions::new(columns, primary.rows.len());
+            let cursor = primary.cursor;
+            let mut options = options;
+            options.cursor_pending_wrap = pending;
+            let result = super::resize_lazy_with_options(
+                &mut primary.scrollback,
+                &mut primary.rows,
+                dims,
+                cursor,
+                false,
+                options,
+            );
+            primary.cursor = result.cursor;
+            primary.pending_wrap = result.pending_wrap;
+        } else {
+            let mut options = options;
+            options.cursor_pending_wrap = self.pending_wrap;
+            let result = super::resize_lazy_with_options(
+                &mut self.scrollback,
+                &mut self.rows,
+                self.dimensions,
+                self.cursor,
+                false,
+                options,
+            );
+            self.cursor = result.cursor;
+            self.pending_wrap = result.pending_wrap;
+        }
     }
 }

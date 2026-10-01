@@ -140,6 +140,7 @@ impl Settings {
             "themed_ui_roles" => bool_display(self.themed_ui_roles).to_owned(),
             "cursor_style" => cursor_style_display(self.cursor_style).to_owned(),
             "cursor_blink" => self.cursor_blink.as_str().to_owned(),
+            "ambiguous_width" => self.ambiguous_width.as_str().to_owned(),
             "cursor_easing" => bool_display(self.cursor_easing).to_owned(),
             "cursor_glow" => bool_display(self.cursor_glow).to_owned(),
             "cursor_glow_intensity" => format_float(self.cursor_glow_intensity),

@@ -5,8 +5,6 @@
 //! bulk of the terminal core; it builds on [`super::types`] and is exercised by
 //! `super::tests`.
 
-use unicode_width::UnicodeWidthChar;
-
 use crate::graphics::{ImageScene, VisiblePlacement};
 use crate::memory_report::ScrollbackBytes;
 use crate::parser::{OdyParser, Params, VtDispatch};
@@ -302,6 +300,10 @@ pub struct Screen {
     /// (every interactive Linux resize is followed by a repaint, so this is
     /// `true` on the next resize there).
     output_since_last_resize: bool,
+    /// East Asian Ambiguous characters occupy two columns when set. Default
+    /// false keeps today's narrow table. Changing it reflows this screen in
+    /// place and does not resize the PTY.
+    ambiguous_wide: bool,
     /// Whether the backend's shell authoritatively repaints with absolute
     /// positioning on resize, so this terminal defers cursor placement to the
     /// shell rather than translating the cursor itself. Set once by the native
@@ -1109,7 +1111,7 @@ impl Screen {
         } else {
             ch
         };
-        let width = UnicodeWidthChar::width(ch).unwrap_or(1);
+        let width = super::char_width::char_display_width(ch, self.ambiguous_wide);
         if width == 0 {
             // Zero-width combining mark: attach to the preceding base cell
             // rather than consuming a column. No-op at line start.
@@ -1841,17 +1843,17 @@ fn active_prompt_start_visible_row(
 /// can orphan either half. Blank any continuation cell whose lead is missing,
 /// and any wide lead whose continuation slot no longer carries the flag
 /// (including a wide lead shifted into the last column with no room to follow).
-fn sanitize_wide_row(row: &mut [Cell], blank: Cell) {
+fn sanitize_wide_row(row: &mut [Cell], blank: Cell, ambiguous_wide: bool) {
     let columns = row.len();
     for index in 0..columns {
         if row[index].wide_continuation {
             let lead_ok = index > 0
                 && !row[index - 1].wide_continuation
-                && UnicodeWidthChar::width(row[index - 1].ch) == Some(2);
+                && super::char_width::char_display_width(row[index - 1].ch, ambiguous_wide) == 2;
             if !lead_ok {
                 row[index] = blank;
             }
-        } else if UnicodeWidthChar::width(row[index].ch) == Some(2) {
+        } else if super::char_width::char_display_width(row[index].ch, ambiguous_wide) == 2 {
             let cont_ok = index + 1 < columns && row[index + 1].wide_continuation;
             if !cont_ok {
                 row[index] = blank;

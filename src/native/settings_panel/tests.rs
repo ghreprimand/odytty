@@ -1511,7 +1511,8 @@ fn level1_enter_drills_and_level2_esc_backs_out() {
                 || e.key == "synthetic_styles"
                 || e.key == "symbol_fallback"
                 || e.key == "symbol_font"
-                || e.key == "symbol_map"),
+                || e.key == "symbol_map"
+                || e.key == "ambiguous_width"),
         "Level 2 Fonts shows Font-group entries"
     );
 

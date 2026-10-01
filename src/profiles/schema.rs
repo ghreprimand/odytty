@@ -83,6 +83,8 @@ pub struct ProfileAppearance {
     pub follow_external_palette: Option<bool>,
     pub external_palette_provider: Option<String>,
     pub external_palette_path: Option<String>,
+    /// `narrow` or `wide`. Absent means the global ambiguous-width setting.
+    pub ambiguous_width: Option<String>,
     pub(crate) preserved: BTreeMap<String, Json>,
 }
 
@@ -434,6 +436,11 @@ fn appearance_to_json(appearance: &ProfileAppearance) -> Json {
         "external_palette_path",
         appearance.external_palette_path.as_deref(),
     );
+    push_opt_str(
+        &mut entries,
+        "ambiguous_width",
+        appearance.ambiguous_width.as_deref(),
+    );
     append_preserved(&mut entries, &appearance.preserved);
     json::obj_pairs(entries)
 }
@@ -778,6 +785,12 @@ fn read_appearance(
             external_palette_path: read_bounded_string(
                 entries,
                 "external_palette_path",
+                nested_known,
+                MAX_PROFILE_FIELD_CHARS,
+            )?,
+            ambiguous_width: read_bounded_string(
+                entries,
+                "ambiguous_width",
                 nested_known,
                 MAX_PROFILE_FIELD_CHARS,
             )?,

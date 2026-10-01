@@ -166,6 +166,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "symbol_fallback",
             "symbol_font",
             "symbol_map",
+            "ambiguous_width",
             "ligatures",
             "ss01",
             "ss02",

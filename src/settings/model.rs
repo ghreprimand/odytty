@@ -53,6 +53,45 @@ impl CursorBlink {
     }
 }
 
+/// East Asian Ambiguous display width. Narrow (one column) is the default and
+/// matches the historical width table. Wide is an explicit opt-in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AmbiguousWidth {
+    #[default]
+    Narrow,
+    Wide,
+}
+
+impl AmbiguousWidth {
+    pub fn is_wide(self) -> bool {
+        matches!(self, Self::Wide)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Narrow => "narrow",
+            Self::Wide => "wide",
+        }
+    }
+
+    pub(super) fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "narrow" => Some(Self::Narrow),
+            "wide" => Some(Self::Wide),
+            _ => None,
+        }
+    }
+
+    /// A profile value of `wide` or `narrow` wins. A missing, blank, or
+    /// unknown value keeps `global`.
+    pub fn from_profile(value: Option<&str>, global: Self) -> Self {
+        match value.map(str::trim).filter(|text| !text.is_empty()) {
+            Some(text) => Self::parse(text).unwrap_or(global),
+            None => global,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct KeyBindingModifiers {
     pub ctrl: bool,
@@ -988,6 +1027,9 @@ pub struct Settings {
     pub cursor_style: CursorStyle,
     /// Default cursor blink policy applied at power-on (DECSCUSR can override).
     pub cursor_blink: CursorBlink,
+    /// East Asian Ambiguous width. Narrow is the historical one-column table.
+    /// Wide reflows the panes that use it and does not resize the PTY.
+    pub ambiguous_width: AmbiguousWidth,
     /// Whether the cursor eases its opacity across the blink toggle (ID1). On
     /// by default; the off path holds alpha at `1.0` and hard-hides on the blink
     /// off-phase. Purely presentational.
@@ -1494,6 +1536,7 @@ impl Default for Settings {
             pane_prefix: default_pane_prefix(),
             cursor_style: CursorStyle::Block,
             cursor_blink: CursorBlink::On,
+            ambiguous_width: AmbiguousWidth::Narrow,
             cursor_easing: DEFAULT_CURSOR_EASING,
             cursor_glow: DEFAULT_CURSOR_GLOW,
             cursor_glow_intensity: DEFAULT_CURSOR_GLOW_INTENSITY,

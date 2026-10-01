@@ -818,6 +818,8 @@ impl App {
         let cvd_strength = self.settings.cvd_strength;
         let global = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
+        let global_ambiguous = self.settings.ambiguous_width;
+        let profile_catalog = super::profile_launch::load_profile_catalog();
         for session in self.sessions.iter() {
             // Per-session theme: a profile tab keeps its profile theme (CVD
             // applied on top), so a global settings write does not flatten it to
@@ -837,6 +839,14 @@ impl App {
             let base_bg = rgb(theme.background);
             // C29: OSC 4 replies report the theme palette, not the xterm table.
             let base_palette = theme.palette.map(rgb);
+            let profile_width = session.launch_profile.as_deref().and_then(|name| {
+                profile_catalog
+                    .get(name)
+                    .and_then(|profile| profile.appearance.ambiguous_width.as_deref())
+            });
+            let ambiguous_wide =
+                crate::settings::AmbiguousWidth::from_profile(profile_width, global_ambiguous)
+                    .is_wide();
             if let Ok(mut terminal) = session.terminal.lock() {
                 terminal.set_base_colors(base_fg, base_bg, session_cursor_default);
                 terminal.set_base_palette(base_palette);
@@ -844,6 +854,7 @@ impl App {
                 terminal.set_kitty_named_transports_enabled(kitty_named_transports);
                 terminal.set_cursor_defaults(cursor_style, cursor_blink);
                 terminal.set_scrollback_limit(scrollback_limit);
+                terminal.set_ambiguous_wide(ambiguous_wide);
                 button_gates.apply(&mut terminal);
             }
         }

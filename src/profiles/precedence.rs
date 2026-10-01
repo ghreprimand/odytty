@@ -6,7 +6,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::settings::{
-    BLOOM_ENV, CRT_ENV, CURSOR_BLINK_ENV, CURSOR_STYLE_ENV, ConfigValues,
+    AMBIGUOUS_WIDTH_ENV, BLOOM_ENV, CRT_ENV, CURSOR_BLINK_ENV, CURSOR_STYLE_ENV, ConfigValues,
     EXTERNAL_PALETTE_PATH_ENV, EXTERNAL_PALETTE_PROVIDER_ENV, FOLLOW_EXTERNAL_PALETTE_ENV,
     FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV, FONT_WEIGHT_ENV, RENDER_QUALITY_ENV, RETRO_ENV,
     Settings, THEME_ENV, VISUAL_ENV, resolve_theme_file, theme_dir_path,
@@ -215,6 +215,11 @@ fn profile_settings_overrides(profile: &LaunchProfile) -> BTreeMap<&'static str,
     }
     push_setting(&mut out, CURSOR_STYLE_ENV, profile.cursor.style.as_deref());
     push_setting(&mut out, CURSOR_BLINK_ENV, profile.cursor.blink.as_deref());
+    push_setting(
+        &mut out,
+        AMBIGUOUS_WIDTH_ENV,
+        profile.appearance.ambiguous_width.as_deref(),
+    );
     push_setting(
         &mut out,
         RENDER_QUALITY_ENV,

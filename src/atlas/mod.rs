@@ -175,10 +175,13 @@ fn wants_glyph(ch: char) -> bool {
 }
 
 /// Number of terminal cells a glyph occupies horizontally: `2` for East Asian
-/// wide / fullwidth codepoints, `1` otherwise. The decision mirrors core's
-/// cell-layout rule exactly (`UnicodeWidthChar::width(ch) == Some(2)` in
-/// `screen.rs`/`reflow.rs`/`scrollback.rs`) so the render-side slot width never
-/// diverges from where core places the `wide_continuation` spacer.
+/// wide / fullwidth codepoints, `1` otherwise.
+///
+/// This stays on the narrow table on purpose. The atlas is shared by every
+/// pane, and two panes may disagree about East Asian Ambiguous width, so a
+/// slot cannot be cached at two widths for one codepoint. The grid reserves
+/// the second column with `wide_continuation`; the lead cell's glyph is drawn
+/// inside that span.
 fn glyph_cells(ch: char) -> u32 {
     if UnicodeWidthChar::width(ch) == Some(2) {
         2

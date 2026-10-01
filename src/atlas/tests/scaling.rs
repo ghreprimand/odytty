@@ -85,8 +85,9 @@ fn cell_metrics_deterministic_and_monotonic_across_scales() {
 
 #[test]
 fn glyph_cells_matches_core_width_rule() {
-    // Width-2 East Asian forms; width-1 everything else. Mirrors core's
-    // `UnicodeWidthChar::width(ch) == Some(2)` cell-layout decision.
+    // Width-2 on the narrow table (East Asian wide / fullwidth). Ambiguous
+    // codepoints stay one column here: the shared atlas does not follow a
+    // pane's wide opt-in. See `glyph_cells`.
     for ch in ['世', '漢', '中', 'あ', '！', 'Ａ', '\u{3000}'] {
         assert_eq!(glyph_cells(ch), 2, "{ch:?} should be a 2-cell glyph");
     }

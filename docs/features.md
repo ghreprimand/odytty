@@ -312,6 +312,20 @@ and clears after one bounded delay without animation.
 | Fallback | Per-range symbol maps and bundled Nerd Font v3/v2 faces |
 | Readability | Linear-light color composition, glyph coverage gamma, stem darkening, and minimum-contrast enforcement |
 
+### Ambiguous Character Width
+
+East Asian Ambiguous characters use one column unless `ambiguous_width` is
+`wide`. The default `narrow` is today's width table. A profile may set
+`appearance.ambiguous_width` to `narrow` or `wide`; a missing profile value
+uses the global setting, and each pane follows the profile that launched it.
+
+Changing the value reflows the existing scrollback of the panes that use it.
+The cursor moves with the new column count. A selection or a search hit can
+land on different cells because the grid is remeasured; bytes already stored
+are not rewritten. The change applies immediately. The PTY is not resized and
+the shell is not told, so a prompt that wrapped under the old width stays as
+the shell last drew it until the operator redraws it.
+
 Fresh profiles enable contextual programming ligatures from the selected text
 font. Shaping runs cover eligible ASCII graphics, a curated allowlist of
 common non-ASCII operators and arrows, and Arabic joining bases, and change

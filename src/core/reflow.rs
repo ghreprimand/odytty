@@ -17,8 +17,6 @@
 //! [`resize_buffer_rows`] is the simple non-reflowing row truncate/pad used for
 //! the alternate screen (apps repaint, so no re-wrap is needed).
 
-use unicode_width::UnicodeWidthChar;
-
 use super::button::{ButtonSpan, SpanReprojector};
 use super::prompt_marks::PromptKind;
 use super::screen::{Line, blank_row};
@@ -106,6 +104,8 @@ pub(in crate::core) struct ReflowOptions {
     /// `cursor.row` that is already visible-relative (empty scrollback), so the
     /// subtraction is a no-op and their behavior is byte-identical.
     pub combined_cursor_prefix: usize,
+    /// East Asian Ambiguous characters occupy two columns when set.
+    pub ambiguous_wide: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -324,8 +324,8 @@ pub(in crate::core) fn reflow_lines_with_options(
         let mut i = 0;
         while i < cells.len() {
             let cell = cells[i];
-            let is_wide_lead =
-                !cell.wide_continuation && UnicodeWidthChar::width(cell.ch) == Some(2);
+            let is_wide_lead = !cell.wide_continuation
+                && super::char_width::char_display_width(cell.ch, options.ambiguous_wide) == 2;
             // A wide glyph needs two columns; if the grid is too narrow to hold
             // a pair, degrade it to width 1 (conservative wide-glyph handling).
             let unit = if is_wide_lead && new_cols >= 2 { 2 } else { 1 };
@@ -946,6 +946,7 @@ mod tests {
                 repaint_expected: true,
                 shell_owns_cursor_on_resize: false,
                 combined_cursor_prefix: 0,
+                ambiguous_wide: false,
             },
         );
 
@@ -1036,6 +1037,7 @@ mod tests {
                     repaint_expected: i == 0,
                     shell_owns_cursor_on_resize: false,
                     combined_cursor_prefix: 0,
+                    ambiguous_wide: false,
                 },
             );
             cursor = result.cursor;
@@ -1119,6 +1121,7 @@ mod tests {
                 repaint_expected: true,
                 shell_owns_cursor_on_resize: true,
                 combined_cursor_prefix: 0,
+                ambiguous_wide: false,
             },
         );
         assert_eq!(
@@ -1143,6 +1146,7 @@ mod tests {
                 repaint_expected: true,
                 shell_owns_cursor_on_resize: false,
                 combined_cursor_prefix: 0,
+                ambiguous_wide: false,
             },
         );
         assert_ne!(
@@ -1192,6 +1196,7 @@ mod tests {
                     repaint_expected: true,
                     shell_owns_cursor_on_resize: true,
                     combined_cursor_prefix: 0,
+                    ambiguous_wide: false,
                 },
             );
 

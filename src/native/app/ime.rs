@@ -15,7 +15,6 @@
 //! [`App::paint_ime_preedit_cells`] writes nothing — the default render path is
 //! unchanged.
 
-use unicode_width::UnicodeWidthChar;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::Ime;
 
@@ -198,7 +197,11 @@ impl App {
     /// Paint the pre-edit string inline starting at the cursor cell, underlined
     /// so it reads as provisional. Clamped to the cursor row; no-op when no
     /// composition is in progress.
-    pub(in crate::native) fn paint_ime_preedit_cells(&self, snapshot: &mut Snapshot) {
+    pub(in crate::native) fn paint_ime_preedit_cells(
+        &self,
+        snapshot: &mut Snapshot,
+        ambiguous_wide: bool,
+    ) {
         if self.ime_preedit.is_empty() {
             return;
         }
@@ -214,7 +217,7 @@ impl App {
             if ch.is_control() {
                 continue;
             }
-            let width = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
+            let width = crate::core::char_display_width(ch, ambiguous_wide).max(1);
             if x + width > columns {
                 break;
             }
@@ -255,7 +258,7 @@ mod tests {
         assert_eq!(app.ime_overlay_signature(), OverlayFragment::Inert);
         let mut snapshot = Terminal::new(COLS, ROWS).snapshot();
         let before = snapshot.cells.clone();
-        app.paint_ime_preedit_cells(&mut snapshot);
+        app.paint_ime_preedit_cells(&mut snapshot, false);
         assert_eq!(snapshot.cells, before, "off path leaves the grid untouched");
     }
 
@@ -272,7 +275,7 @@ mod tests {
         ));
 
         let mut snapshot = Terminal::new(COLS, ROWS).snapshot();
-        app.paint_ime_preedit_cells(&mut snapshot);
+        app.paint_ime_preedit_cells(&mut snapshot, false);
         assert_eq!(snapshot.cells[0].ch, 'a');
         assert_eq!(snapshot.cells[1].ch, 'b');
         assert_eq!(

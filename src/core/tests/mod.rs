@@ -6,6 +6,7 @@
 
 use super::*;
 
+mod ambiguous_width;
 mod bell;
 mod cancel_and_private_forms;
 mod cell_equivalence;

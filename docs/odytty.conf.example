@@ -46,6 +46,10 @@ ss02 = off
 symbol_fallback = on
 # symbol_font = auto
 # symbol_map = U+E000-U+F8FF=Symbols Nerd Font
+# East Asian Ambiguous width. narrow (default) is one column. wide is two
+# columns and reflows the panes that use it. The PTY is not resized and the
+# shell is not told.
+ambiguous_width = narrow
 
 # Readability and rendering.
 render_quality = high

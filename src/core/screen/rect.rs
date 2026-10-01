@@ -14,8 +14,6 @@
 //! xterm's uninitialized-cell distinction, so stream mode applies to blank cells
 //! too.
 
-use unicode_width::UnicodeWidthChar;
-
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,7 +146,7 @@ impl Screen {
         let mut copied = Vec::with_capacity(height);
         for row in source.top..source.top + height {
             let mut cells = self.rows[row][source.left..source.left + width].to_vec();
-            sanitize_wide_row(&mut cells, blank);
+            sanitize_wide_row(&mut cells, blank, self.ambiguous_wide);
             copied.push(cells);
         }
 
@@ -167,7 +165,7 @@ impl Screen {
             for (column_offset, cell) in cells.into_iter().enumerate() {
                 self.rows[row][dest_left + column_offset] = cell;
             }
-            sanitize_wide_row(&mut self.rows[row], blank);
+            sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
         }
 
         self.pending_wrap = false;
@@ -195,7 +193,7 @@ impl Screen {
             for column in rect.left..=rect.right {
                 self.rows[row][column] = cell;
             }
-            sanitize_wide_row(&mut self.rows[row], blank);
+            sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
         }
 
         self.pending_wrap = false;
@@ -266,7 +264,7 @@ impl Screen {
                     self.rows[row][column] = blank;
                 }
             }
-            sanitize_wide_row(&mut self.rows[row], blank);
+            sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
         }
         self.pending_wrap = false;
         self.mark_dirty();
@@ -299,12 +297,15 @@ impl Screen {
                 self.rows[row][column] = blank;
             }
         }
-        sanitize_wide_row(&mut self.rows[row], blank);
+        sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
     }
 
     fn fill_cell(&self, value: usize) -> Cell {
         let ch = char::from_u32(value as u32)
-            .filter(|ch| !ch.is_control() && UnicodeWidthChar::width(*ch) == Some(1))
+            .filter(|ch| {
+                !ch.is_control()
+                    && crate::core::char_width::char_display_width(*ch, self.ambiguous_wide) == 1
+            })
             .unwrap_or(' ');
         Cell::new_protected(ch, self.current_print_attrs(), self.current_protected)
     }

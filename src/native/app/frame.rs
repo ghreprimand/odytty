@@ -428,6 +428,7 @@ impl App {
                     visible_graphics,
                     visible_buttons,
                     image_uploads,
+                    ambiguous_wide,
                 ) = {
                     // NF21-6: bell + prompt-marks latches are drained
                     // in the about-to-wait maintenance sweep (over the
@@ -480,6 +481,7 @@ impl App {
                     let cursor_style = terminal.cursor_style();
                     let cursor_blinking = terminal.cursor_blinking();
                     let terminal_revision = terminal.render_revision();
+                    let ambiguous_wide = terminal.ambiguous_wide();
                     drop(terminal);
                     self.search = search;
                     (
@@ -491,6 +493,7 @@ impl App {
                         visible_graphics,
                         visible_buttons,
                         image_uploads,
+                        ambiguous_wide,
                     )
                 };
                 let pane_dims_reconciled = {
@@ -589,7 +592,7 @@ impl App {
                 self.paint_rename_tab_cells(&mut snapshot);
                 // IME pre-edit: paint the in-progress composition inline
                 // at the cursor; empty on the no-composition path.
-                self.paint_ime_preedit_cells(&mut snapshot);
+                self.paint_ime_preedit_cells(&mut snapshot, ambiguous_wide);
                 // Transient status or OSC 52 consent banner across the
                 // top of the grid; empty on the idle path.
                 self.paint_open_notice_cells(&mut snapshot);

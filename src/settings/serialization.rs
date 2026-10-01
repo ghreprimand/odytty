@@ -119,6 +119,10 @@ impl Settings {
         );
         values.insert(CURSOR_BLINK_ENV, self.cursor_blink.as_str().to_owned());
         values.insert(
+            AMBIGUOUS_WIDTH_ENV,
+            self.ambiguous_width.as_str().to_owned(),
+        );
+        values.insert(
             CURSOR_EASING_ENV,
             bool_display(self.cursor_easing).to_owned(),
         );

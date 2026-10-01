@@ -23,6 +23,16 @@ impl Terminal {
         self.screen.resize(columns, rows);
     }
 
+    /// Reflow this pane for an East Asian Ambiguous policy change. Does not
+    /// change the grid size, so callers must not resize the PTY for it.
+    pub fn set_ambiguous_wide(&mut self, wide: bool) {
+        self.screen.set_ambiguous_wide(wide);
+    }
+
+    pub fn ambiguous_wide(&self) -> bool {
+        self.screen.ambiguous_wide()
+    }
+
     pub fn take_host_output(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.screen.host_output)
     }

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Unicode width occupancy: a measured surface, not an assumed one.
 //!
-//! `print_char` asks `UnicodeWidthChar::width` once per scalar, with no
-//! lookahead. That is the whole width algorithm. This file records what that
-//! produces for a representative sample, including cases that disagree with
+//! `print_char` asks `char_display_width` once per scalar, with no lookahead.
+//! The default policy is the narrow table (`UnicodeWidthChar::width`). Wide
+//! mode uses `UnicodeWidthChar::width_cjk` and is covered separately. This
+//! file records what the default produces for a representative sample, including cases that disagree with
 //! Unicode grapheme-cluster width (VS15/VS16, ZWJ emoji, Khmer table outliers).
 //! Known-divergent rows assert the *current* occupancy so a future change
 //! cannot silently retcon the number; they also assert it is not the Unicode

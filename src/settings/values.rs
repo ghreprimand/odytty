@@ -254,6 +254,31 @@ pub(super) fn parse_cursor_blink_setting(
     }
 }
 
+/// Parse `ODYTTY_AMBIGUOUS_WIDTH`. Absent, empty, or unknown values stay
+/// narrow, the historical one-column table.
+pub(super) fn parse_ambiguous_width_setting(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> AmbiguousWidth {
+    let Some(raw) = raw else {
+        return AmbiguousWidth::Narrow;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return AmbiguousWidth::Narrow;
+    }
+    match AmbiguousWidth::parse(trimmed) {
+        Some(policy) => policy,
+        None => {
+            warn(&format!(
+                "{AMBIGUOUS_WIDTH_ENV}={trimmed:?} is not narrow|wide; using narrow"
+            ));
+            AmbiguousWidth::Narrow
+        }
+    }
+}
+
 pub(super) fn parse_font_size(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     let Some(raw) = raw else {
         return DEFAULT_FONT_SIZE_PX;

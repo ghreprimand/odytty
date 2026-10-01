@@ -529,6 +529,8 @@ impl Settings {
         let pane_prefix = parse_pane_prefix(get(PANE_PREFIX_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
         let cursor_blink = parse_cursor_blink_setting(get(CURSOR_BLINK_ENV).as_deref(), &mut warn);
+        let ambiguous_width =
+            parse_ambiguous_width_setting(get(AMBIGUOUS_WIDTH_ENV).as_deref(), &mut warn);
         let cursor_easing = parse_bool_setting(
             get(CURSOR_EASING_ENV).as_deref(),
             CURSOR_EASING_ENV,
@@ -1031,6 +1033,7 @@ impl Settings {
             pane_prefix,
             cursor_style,
             cursor_blink,
+            ambiguous_width,
             cursor_easing,
             cursor_glow,
             cursor_glow_intensity,

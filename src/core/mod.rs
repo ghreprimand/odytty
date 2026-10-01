@@ -15,6 +15,7 @@
 //! - [`reflow`] — resize re-wrapping and the width-unchanged fast path.
 
 mod button;
+mod char_width;
 mod encoding;
 mod graphics_routing;
 mod hyperlink;
@@ -80,6 +81,7 @@ pub use button::{
     ButtonEntry, ButtonHit, ButtonIcon, ButtonId, ButtonScope, ButtonSpan, ButtonState,
     MAX_BUTTON_ENTRIES, MAX_BUTTON_SPANS_PER_LINE, click_report_bytes,
 };
+pub(crate) use char_width::char_display_width;
 pub use encoding::{encode_focus_event, encode_mouse_event, encode_mouse_event_pixel};
 pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};
 pub use input_region::{EditRegionSignal, InputCertainty, InputRegion, RowJoin};
