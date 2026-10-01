@@ -61,12 +61,13 @@ impl App {
             Ime::Commit(text) => {
                 let origin = self.ime_session.take();
                 let accepts_commit = origin.is_none() || origin == Some(self.sessions.active_id());
+                let had_preedit = !self.ime_preedit.is_empty();
                 if !text.is_empty() && accepts_commit {
                     self.note_cursor_keyboard_activity(std::time::Instant::now());
                 }
                 self.set_ime_preedit(String::new());
                 if accepts_commit {
-                    self.commit_ime_text(&text);
+                    self.commit_ime_text(&text, had_preedit);
                 }
             }
         }
@@ -83,8 +84,14 @@ impl App {
     /// Returns nothing; empty commits are a no-op. Text is fed one char at a
     /// time to the overlay/modal (their winit mapper only accepts single-char
     /// `Character`s) and as a whole string to search (its handler iterates).
-    fn commit_ime_text(&mut self, text: &str) {
+    fn commit_ime_text(&mut self, text: &str, had_preedit: bool) {
         if text.is_empty() {
+            return;
+        }
+        // A one-character commit with no composition on screen is the chord
+        // glyph Windows delivers after a consumed Ctrl+Shift letter. A real
+        // composition (non-empty pre-edit) and any longer commit still write.
+        if !had_preedit && self.swallow_chord_ime_commit(text) {
             return;
         }
         if self.overlay.is_open() {

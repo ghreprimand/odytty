@@ -61,6 +61,9 @@ impl App {
         }
         let mods = self.modifiers;
         let key_modes = self.key_modes();
+        if self.suppress_leftover_chord_key(&logical, event_type, mods) {
+            return;
+        }
         if event_type != KeyEventType::Release {
             // RAIL-DRAG: Escape cancels an in-flight workspace-rail drag with the
             // order untouched, before any other key routing — the cancel-on-escape
@@ -164,16 +167,19 @@ impl App {
             // assigning this very chord, sees it first. Repeats are swallowed.
             if action == Some(BindableAction::StopBroadcast) && !self.overlay.is_capturing_chord() {
                 if event_type == KeyEventType::Press {
+                    self.arm_consumed_character(&logical);
                     self.stop_broadcast();
                 }
                 return;
             }
             if event_type == KeyEventType::Press && !self.overlay.is_capturing_chord() {
                 if action == Some(BindableAction::SettingsPanel) {
+                    self.arm_consumed_character(&logical);
                     self.toggle_settings_overlay();
                     return;
                 }
                 if action == Some(BindableAction::ThemePicker) {
+                    self.arm_consumed_character(&logical);
                     self.open_theme_picker_overlay();
                     return;
                 }
@@ -183,26 +189,32 @@ impl App {
                 return;
             }
             if action == Some(BindableAction::CommandPalette) {
+                self.arm_consumed_character(&logical);
                 self.open_command_palette_overlay();
                 return;
             }
             if action == Some(BindableAction::SessionReplay) {
+                self.arm_consumed_character(&logical);
                 self.open_replay_overlay();
                 return;
             }
             if action == Some(BindableAction::ConnectionManager) {
+                self.arm_consumed_character(&logical);
                 self.open_connection_overlay();
                 return;
             }
             if action == Some(BindableAction::SessionAttach) {
+                self.arm_consumed_character(&logical);
                 self.open_session_attach_overlay();
                 return;
             }
             if action == Some(BindableAction::ThemeBuilder) {
+                self.arm_consumed_character(&logical);
                 self.open_theme_builder_overlay();
                 return;
             }
             if action == Some(BindableAction::Search) {
+                self.arm_consumed_character(&logical);
                 self.toggle_search();
                 return;
             }
@@ -219,6 +231,10 @@ impl App {
                     self.route_modal_key(modal, &logical);
                     return;
                 }
+            }
+            let latch_before = (self.consumed_chord, self.consumed_chord_released);
+            if action.is_some() {
+                self.arm_consumed_character(&logical);
             }
             match action {
                 Some(BindableAction::Copy) => {
@@ -247,11 +263,13 @@ impl App {
                     if self.jump_prompt_prev() {
                         return;
                     }
+                    self.restore_consumed_chord(latch_before);
                 }
                 Some(BindableAction::JumpPromptNext) => {
                     if self.jump_prompt_next() {
                         return;
                     }
+                    self.restore_consumed_chord(latch_before);
                 }
                 Some(BindableAction::SelectCommandOutput) => {
                     self.select_command_range(crate::core::CommandRangePart::Output);
@@ -293,11 +311,13 @@ impl App {
                     if self.enter_copy_mode() {
                         return;
                     }
+                    self.restore_consumed_chord(latch_before);
                 }
                 Some(BindableAction::Hints) => {
                     if self.activate_hints() {
                         return;
                     }
+                    self.restore_consumed_chord(latch_before);
                 }
                 Some(BindableAction::ClearInput) => {
                     if self.refuse_input_if_read_only() {
@@ -392,7 +412,9 @@ impl App {
                 | Some(BindableAction::SettingsPanel)
                 | Some(BindableAction::ThemePicker)
                 | Some(BindableAction::StopBroadcast)
-                | None => {}
+                | None => {
+                    self.restore_consumed_chord(latch_before);
+                }
                 // Direct split chords (GUI, Ctrl+Shift+E / Ctrl+Shift+O). These
                 // two *creation* splits have direct global bindings so the first
                 // split on a single-pane tab is reachable without the prefix
@@ -415,7 +437,9 @@ impl App {
                 | Some(BindableAction::FocusPaneNext)
                 | Some(BindableAction::ClosePane)
                 | Some(BindableAction::ZoomPane)
-                | Some(BindableAction::EqualizePanes) => {}
+                | Some(BindableAction::EqualizePanes) => {
+                    self.restore_consumed_chord(latch_before);
+                }
             }
             // SMART-CTRLC: a plain Ctrl+C that matched no binding copies + clears
             // a local selection when the copy-or-interrupt policy is on, then
@@ -544,6 +568,91 @@ impl App {
             return;
         }
         self.surface_input_loss();
+    }
+
+    /// Lowercase letter of a winit character key, when the event is exactly
+    /// one scalar. Bindings and the leftover latch both use this identity.
+    fn chord_character(logical: &WinitKey) -> Option<char> {
+        let WinitKey::Character(text) = logical else {
+            return None;
+        };
+        let mut chars = text.chars();
+        let ch = chars.next()?;
+        if chars.next().is_some() {
+            return None;
+        }
+        Some(ch.to_ascii_lowercase())
+    }
+
+    fn arm_consumed_character(&mut self, logical: &WinitKey) {
+        if let Some(ch) = Self::chord_character(logical) {
+            self.consumed_chord = Some(ch);
+            self.consumed_chord_released = false;
+        }
+    }
+
+    fn restore_consumed_chord(&mut self, snap: (Option<char>, bool)) {
+        self.consumed_chord = snap.0;
+        self.consumed_chord_released = snap.1;
+    }
+
+    /// Drop the leftover of a consumed character chord.
+    ///
+    /// The press itself is handled by binding dispatch. What remains is the
+    /// key-up, a second press whose modifiers were already cleared, or (via
+    /// [`Self::swallow_chord_ime_commit`]) a one-character IME commit. A
+    /// different key press ends the latch. An unmodified press after the
+    /// release is real input and is not dropped.
+    fn suppress_leftover_chord_key(
+        &mut self,
+        logical: &WinitKey,
+        event_type: KeyEventType,
+        mods: Modifiers,
+    ) -> bool {
+        let Some(armed) = self.consumed_chord else {
+            return false;
+        };
+        let Some(ch) = Self::chord_character(logical) else {
+            if event_type != KeyEventType::Release {
+                self.restore_consumed_chord((None, false));
+            }
+            return false;
+        };
+        if ch != armed {
+            if event_type != KeyEventType::Release {
+                self.restore_consumed_chord((None, false));
+            }
+            return false;
+        }
+        if event_type == KeyEventType::Release {
+            self.consumed_chord_released = true;
+            return true;
+        }
+        let bare = !mods.ctrl && !mods.alt && !mods.shift && !self.super_key;
+        if bare && !self.consumed_chord_released {
+            self.restore_consumed_chord((None, false));
+            return true;
+        }
+        if bare && self.consumed_chord_released {
+            self.restore_consumed_chord((None, false));
+            return false;
+        }
+        false
+    }
+
+    pub(super) fn swallow_chord_ime_commit(&mut self, text: &str) -> bool {
+        let Some(armed) = self.consumed_chord else {
+            return false;
+        };
+        let mut chars = text.chars();
+        let Some(ch) = chars.next() else {
+            return false;
+        };
+        if chars.next().is_some() || ch.to_ascii_lowercase() != armed {
+            return false;
+        }
+        self.restore_consumed_chord((None, false));
+        true
     }
 
     pub(super) fn handle_held_exit_key(&mut self, event_type: KeyEventType) -> bool {

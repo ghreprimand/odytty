@@ -193,6 +193,7 @@ mod clipboard_paste;
 mod close_confirm;
 mod command_output_actions;
 mod command_palette;
+mod consumed_chord_release;
 mod context_menu;
 mod ctrl_click_open;
 mod cursor_icon;

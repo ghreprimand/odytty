@@ -34,6 +34,10 @@ pub(in crate::native) struct NewWindowRequest {
     /// quick terminal launches its configured profile). `None` uses the ordinary
     /// default-launch resolution, so a normal New Window is unchanged.
     pub(in crate::native) profile: Option<String>,
+    /// Chord character the requesting window just consumed. The sibling drops
+    /// one leftover release, bare press, or single-character IME commit of
+    /// this letter. `None` for a pointer New Window, which has no chord.
+    pub(in crate::native) suppress_character: Option<char>,
 }
 
 /// Release renderer and native-window ownership in that order. The generic
@@ -246,13 +250,26 @@ impl App {
         let cwd = self
             .validated_spawn_cwd()
             .and_then(|dir| dir.into_os_string().into_string().ok());
-        self.pending_new_window = Some(NewWindowRequest { cwd, profile: None });
+        self.pending_new_window = Some(NewWindowRequest {
+            cwd,
+            profile: None,
+            suppress_character: self.consumed_chord,
+        });
     }
 
     /// Take the pending New Window request, if any. The owner drains this in its
     /// maintenance pass and spawns the sibling window.
     pub(in crate::native) fn take_new_window_request(&mut self) -> Option<NewWindowRequest> {
         self.pending_new_window.take()
+    }
+
+    /// Arm the leftover-chord latch on a sibling built for a keyboard New
+    /// Window. A pointer request passes `None` and leaves typing unchanged.
+    pub(in crate::native) fn inherit_consumed_chord(&mut self, ch: Option<char>) {
+        if let Some(ch) = ch {
+            self.consumed_chord = Some(ch.to_ascii_lowercase());
+            self.consumed_chord_released = false;
+        }
     }
 
     /// Capture a request to toggle the dedicated quick terminal (v0.15.0 A). Set

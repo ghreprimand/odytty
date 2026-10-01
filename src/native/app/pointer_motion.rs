@@ -183,6 +183,8 @@ impl App {
             // Clear it; the next `ModifiersChanged` re-syncs the true state.
             self.modifiers = Modifiers::default();
             self.super_key = false;
+            // The consumed-chord latch stays. This wipe is what makes a
+            // leftover release or IME commit look like an unmodified `n`.
             // WHEEL-SENS (T-reset): drop any partially-accumulated wheel
             // notch so a gesture interrupted by an alt-tab does not
             // resume against the next surface on focus regain.

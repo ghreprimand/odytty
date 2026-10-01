@@ -86,6 +86,17 @@ pub(in crate::native) struct App {
     /// `input::Modifiers` because Super-based local shortcuts must not affect
     /// PTY key encoding.
     pub(super) super_key: bool,
+    /// Lowercase character of a binding press this window consumed. The
+    /// matching release, one bare press of that character before the release,
+    /// and one single-character IME commit are dropped so the chord glyph
+    /// never reaches a pane. Focus loss clears the modifier cache and does
+    /// not clear this latch: the cache can look idle while the leftover
+    /// event is still in flight. A new window spawned by the chord inherits
+    /// the same character.
+    pub(super) consumed_chord: Option<char>,
+    /// The release of [`Self::consumed_chord`] has been observed. A later
+    /// unmodified press of that character is ordinary typing.
+    pub(super) consumed_chord_released: bool,
     pub(super) key_bindings: KeyBindings,
     /// Multiplexer prefix engine (§7). Holds the configurable prefix chord, the
     /// pane-action table, and the transient prefix-pending state. Additive: when
@@ -672,6 +683,8 @@ impl App {
             grid,
             modifiers: Modifiers::default(),
             super_key: false,
+            consumed_chord: None,
+            consumed_chord_released: false,
             key_bindings,
             prefix_engine,
             last_active_session,

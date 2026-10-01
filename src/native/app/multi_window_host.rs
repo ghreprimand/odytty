@@ -1064,6 +1064,7 @@ impl MultiWindowHost {
                 let request = NewWindowRequest {
                     cwd: None,
                     profile: self.quick.settings().profile.clone(),
+                    suppress_character: None,
                 };
                 if let Some(mut app) = (self.factory)(request) {
                     // Enforce the role at the ownership boundary even though

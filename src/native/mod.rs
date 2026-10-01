@@ -645,12 +645,15 @@ fn build_sibling_app(
     // autosaves the workspace shape (the primary holds the instance lock), so it
     // is constructed inert on both without touching `set_primary_instance`
     // (which defaults to non-primary).
-    Some(App::new_with_sessions(
+    let suppress = request.suppress_character;
+    let mut app = App::new_with_sessions(
         options,
         session_set,
         settings.clone(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    ))
+    );
+    app.inherit_consumed_chord(suppress);
+    Some(app)
 }
 
 fn rgb(color: (u8, u8, u8)) -> RgbColor {
