@@ -13,6 +13,10 @@ impl App {
         if self.refuse_input_if_read_only() {
             return;
         }
+        if self.broadcast_active() {
+            self.route_broadcast_paste(source, text);
+            return;
+        }
         let bracketed = self
             .terminal
             .lock()
@@ -38,6 +42,7 @@ impl App {
             text,
             bracketed: false,
             file_shell: None,
+            broadcast: false,
         });
         self.reset_pointer_state_for_overlay();
         self.overlay.open_risky_paste(RiskyPasteDialog {
@@ -46,6 +51,7 @@ impl App {
             escaped_preview: assessment.escaped_preview,
             preview_truncated: assessment.preview_truncated,
             one_line_available: assessment.one_line_available,
+            broadcast: None,
         });
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
@@ -133,7 +139,55 @@ impl App {
         };
         let _source = pending.source;
         self.return_to_live();
+        if pending.broadcast {
+            self.broadcast_paste(&text);
+        }
         self.deliver_paste_text(&text);
+    }
+
+    /// Paste while broadcast is on. Text with a line break always opens the
+    /// confirmation, which names the receiver, hidden, and remote counts; a
+    /// single line goes out at once unless the single-pane policy would have
+    /// asked anyway. Cancel sends nothing to any pane, the focused pane
+    /// included. Each receiver encodes the text for its own terminal.
+    fn route_broadcast_paste(&mut self, source: PasteSource, text: String) {
+        let bracketed = self
+            .terminal
+            .lock()
+            .map(|terminal| terminal.bracketed_paste_enabled())
+            .unwrap_or(false);
+        let assessment = assess(&text);
+        let line_break = text.contains(['\n', '\r']);
+        let single_pane_would_ask =
+            !bracketed && self.settings.warn_on_risky_paste && assessment.risky;
+        if !line_break && !single_pane_would_ask {
+            self.return_to_live();
+            self.broadcast_paste(&text);
+            self.deliver_paste_text(&text);
+            return;
+        }
+        self.cancel_pending_text_paste();
+        let session = self.sessions.active_id();
+        self.pending_text_paste = Some(PendingTextPaste {
+            session,
+            source,
+            text,
+            bracketed,
+            file_shell: None,
+            broadcast: true,
+        });
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_risky_paste(RiskyPasteDialog {
+            line_count: assessment.line_count,
+            byte_count: assessment.byte_count,
+            escaped_preview: assessment.escaped_preview,
+            preview_truncated: assessment.preview_truncated,
+            one_line_available: assessment.one_line_available,
+            broadcast: Some(self.broadcast_summary()),
+        });
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
     }
 
     /// Encode and write one paste through the shared encoder, and show a
@@ -176,6 +230,7 @@ impl App {
             text,
             bracketed,
             file_shell: Some(shell),
+            broadcast: false,
         });
         self.reset_pointer_state_for_overlay();
         self.overlay.open_risky_paste(RiskyPasteDialog {
@@ -184,6 +239,7 @@ impl App {
             escaped_preview: assessment.escaped_preview,
             preview_truncated: assessment.preview_truncated,
             one_line_available: false,
+            broadcast: None,
         });
         if let Some(window) = &self.window {
             window.request_redraw();

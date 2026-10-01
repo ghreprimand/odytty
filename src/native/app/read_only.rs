@@ -141,6 +141,17 @@ impl App {
     }
 }
 
+/// The `READ-ONLY` label text a pane `columns` wide paints, or `None` when it
+/// is too narrow. Never truncated to a misleading fragment such as "READ": the
+/// unpadded word, then "RO", stand in on narrow panes. The broadcast label
+/// sits immediately left of whatever this returns.
+pub(in crate::native) fn read_only_label_text(columns: usize) -> Option<&'static str> {
+    let available = columns.checked_sub(1)?;
+    [READ_ONLY_LABEL, READ_ONLY_LABEL.trim(), "RO"]
+        .into_iter()
+        .find(|text| text.len() <= available)
+}
+
 /// Paint the `READ-ONLY` label at the pane's top-right, leaving the last
 /// column for the pane attention cell. Inverse video in the terminal's own
 /// default colors so it reads on every theme. The label is application chrome
@@ -155,12 +166,7 @@ pub(in crate::native) fn paint_read_only_label(snapshot: &mut Snapshot, read_onl
         return;
     }
     let available = columns - 1;
-    // Never truncate to a misleading fragment such as "READ": fall back to the
-    // unpadded word, then to "RO", on narrow panes.
-    let Some(text) = [READ_ONLY_LABEL, READ_ONLY_LABEL.trim(), "RO"]
-        .into_iter()
-        .find(|text| text.len() <= available)
-    else {
+    let Some(text) = read_only_label_text(columns) else {
         return;
     };
     let label: Vec<char> = text.chars().collect();

@@ -1202,6 +1202,30 @@ scope rather than silently inheriting deferred work from a prior release.
   checked before viewport/selection effects or clipboard access, including
   clipboard and primary-selection paste, prefix passthrough, clear-input
   actions, context-menu cut, click-to-position, and selected-input deletion.
+- Broadcast input (v0.16.0): an explicit, process-wide set of receiver panes,
+  held in memory only (never persisted, so quit, crash, and restore start
+  empty). Panes join one at a time from the palette, the context menu, or the
+  unbound `toggle-broadcast` action; splits, new tabs, restored panes, and
+  opened layouts never join on their own. `stop-broadcast` (default
+  `Ctrl+Shift+X`, dispatched above the overlay, search, and modal guards and
+  never written to a PTY) empties the set. The PTY-encode tail of key
+  handling, IME commits, and paste fan out through one helper to every
+  receiver other than the focused pane, which keeps its own single write.
+  Key bytes are encoded once for the focused pane's keyboard mode; Clear
+  Input, prefix passthrough, palette text, file drops, and selected-input
+  deletion stay on the focused pane.
+  Receivers are gated by `pane_accepts_input`; a read-only focused pane
+  originates nothing. Paste is encoded per receiver against its own
+  bracketed-paste mode with the shared encoder. Any paste containing a line
+  break opens the confirmation with receiver, hidden, and remote counts;
+  Cancel sends nothing anywhere, and Escape is otherwise ordinary input. A
+  receiver whose write fails is dropped with a notice naming its title.
+  Receivers in other windows are queued and delivered by the process window
+  owner after each event; a receiver whose pane no window owns is dropped.
+  Mouse reports, focus reports, resize, and click-to-position stay on the
+  focused pane, and automation has no send-text action. The focused pane
+  paints `BROADCAST n` (plus ` hidden m` / ` remote k`) and other visible
+  receivers paint `RECV`; both are keyed into the frame cache.
 - Scrollback export (v0.16.0): two palette actions save the focused pane's
   scrollback plus screen as plain text or as sanitized, self-contained HTML.
   The document is built from cells only: logical lines with soft wraps joined,

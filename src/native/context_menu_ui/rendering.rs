@@ -43,6 +43,8 @@ impl ContextMenuUi {
             multi_workspace: self.multi_workspace,
             bound_workspace: self.bound_workspace,
             pane_read_only: self.pane_read_only,
+            pane_broadcast: self.pane_broadcast,
+            broadcast_active: self.broadcast_active,
             workspace_count: self.workspace_count,
             surface: self.surface.discriminant(),
             has_path_target: self.path_target.is_some(),

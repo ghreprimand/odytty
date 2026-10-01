@@ -3,9 +3,10 @@
 Published release: **v0.15.7**.
 
 Current development work is tracked in [TODO.md](TODO.md). The v0.16.0
-development tree adds [read-only panes](docs/features.md#make-a-pane-read-only)
-and [scrollback export](docs/features.md#export-scrollback) as text or
-sanitized HTML; these features are not included in v0.15.7. The development
+development tree adds [read-only panes](docs/features.md#make-a-pane-read-only),
+[scrollback export](docs/features.md#export-scrollback) as text or
+sanitized HTML, and guarded [broadcast input](docs/features.md#broadcast-input)
+to explicitly chosen panes; these features are not included in v0.15.7. The development
 palette also refuses control-bearing history and directory entries instead of
 sending hidden input. Release evidence and historical corrections are listed
 in the [release index](docs/releases/README.md).

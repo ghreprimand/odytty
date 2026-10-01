@@ -18,6 +18,7 @@ For installation and a shorter overview, start with the
   - [Adjust The Tab Bar](#adjust-the-tab-bar)
   - [Split A Tab Into Panes](#split-a-tab-into-panes)
   - [Make A Pane Read-Only](#make-a-pane-read-only)
+  - [Broadcast Input](#broadcast-input)
   - [Export Scrollback](#export-scrollback)
   - [Organize Workspaces And The Rail](#organize-workspaces-and-the-rail)
   - [Close Workspaces And Handle Shell Exit](#close-workspaces-and-handle-shell-exit)
@@ -621,6 +622,61 @@ mode; New Tab, New Local Tab, and splits open writable. Local automation
 cannot send text to any pane, so it has nothing to bypass. Behavior is the same
 on Linux (Wayland and X11), macOS, and Windows.
 
+### Broadcast Input
+
+Available in the v0.16.0 development tree; not included in v0.15.7.
+
+| Task | Direct path |
+| --- | --- |
+| Add the focused pane to the receivers | **Broadcast to This Pane** in the terminal menu or the command palette |
+| Remove it again | **Remove Pane from Broadcast** in the terminal menu, or the same palette entry |
+| Stop broadcasting to every pane | `Ctrl+Shift+X`, or **Stop Broadcast** in the terminal menu or the command palette |
+| Bind chords | `keybinds = <chord>=toggle-broadcast` (no default chord) and `keybinds = <chord>=stop-broadcast` |
+
+Broadcast is off until panes are added one at a time. While any pane is a
+receiver, keys typed into the focused pane, IME commits, and paste also go to
+every receiver. The focused pane receives the input once whether or not it is
+a receiver itself. Panes are never added on their own: a split, a new tab, a
+restored workspace, or an opened layout starts outside the set. The set lives
+only in the running process and is never saved, so quitting, a crash, or a
+restore starts with broadcast off. A pane in another window of the same
+process can be a receiver. Closing a receiver pane, or its window, removes it.
+
+The focused pane shows `BROADCAST n` at its top-right while the set is
+non-empty, followed by ` hidden m` when m receivers are not on screen (another
+tab, workspace, or window, or behind a zoomed pane) and ` remote k` when k
+receivers are SSH or attached sessions. Every other visible receiver shows
+`RECV`. Narrow panes show a compact form such as `BC 3 h1 r1`. The labels sit
+beside a `READ-ONLY` label when both apply.
+
+Pasting text that contains a line break always opens a confirmation that names
+the receiver, hidden, and remote counts. **Paste** sends it to every pane;
+**Cancel** or `Esc` sends nothing to any pane, the focused pane included. Each
+receiver frames the paste for its own bracketed-paste mode. A single line goes
+out without asking unless the usual suspicious-paste check would ask for the
+focused pane anyway.
+
+Escape is ordinary input here: it reaches every receiver, so shells and editors
+still see it. `Ctrl+Shift+X` is the escape hatch. It empties the set, withdraws a
+pending broadcast paste confirmation, works while a menu or confirmation is
+open, and is never sent to any shell.
+
+Keys are encoded once, for the focused pane's keyboard mode, and every
+receiver gets those same bytes; a receiver whose program asked for a different
+keyboard protocol (for example the Kitty keyboard protocol, or Windows
+Win32-input mode) receives the focused pane's encoding. Paste is the
+exception: each receiver frames it for its own bracketed-paste mode. Clear
+Input, the doubled multiplexer prefix, palette text, dropped files, and
+deleting selected prompt input act on the focused pane only.
+
+A read-only receiver never receives broadcast input, and a read-only focused
+pane sends nothing to any pane. If writing to a receiver fails, that receiver
+is removed and a short notice names its title; the others keep receiving.
+Mouse reports, focus reports, resizes, and click-to-position stay on the
+focused pane. Local automation has no send-text action and does not consult
+the set. Behavior is the same on Linux (Wayland and X11), macOS (the chord
+stays on Ctrl like the other default chords), and Windows.
+
 ### Export Scrollback
 
 The command palette offers **Export Scrollback As Text** and **Export Scrollback
@@ -828,6 +884,7 @@ create one.
 | `Ctrl+Shift+Space` | Enter keyboard copy mode |
 | `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to the previous or next prompt mark |
 | `Ctrl+Shift+K` | Clear the current shell input line (sends readline Ctrl+A, Ctrl+K; no shell integration required) |
+| `Ctrl+Shift+X` | Stop [broadcast input](#broadcast-input) (never sent to the shell) |
 | `Delete` / `Backspace` | Delete selected editable prompt input when shell integration allows it |
 
 The command palette, connection manager, session replay, theme builder, and
@@ -1356,7 +1413,7 @@ The `keybinds` setting and `ODYTTY_KEYBINDS` override local actions:
 
 | Scope | Actions |
 | --- | --- |
-| Global | `search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `select-command-output`, `select-command-with-prompt`, `copy-command-output`, `copy-command-with-prompt`, `search-command-output`, `jump-failed-command-prev`, `jump-failed-command-next`, `export-command-output`, `copy-mode`, `hints`, `clear-input`, `toggle-read-only`, `command-palette`, `session-replay`, `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab` |
+| Global | `search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `select-command-output`, `select-command-with-prompt`, `copy-command-output`, `copy-command-with-prompt`, `search-command-output`, `jump-failed-command-prev`, `jump-failed-command-next`, `export-command-output`, `copy-mode`, `hints`, `clear-input`, `toggle-read-only`, `toggle-broadcast`, `stop-broadcast`, `command-palette`, `session-replay`, `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab` |
 | Workspace | `new-workspace`, `duplicate-workspace`, `close-workspace`, `rename-workspace`, `next-workspace`, `prev-workspace`, and `workspace-picker` |
 | Pane | `split-columns`, `split-rows`, `focus-pane-left`, `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`, `close-pane`, `zoom-pane`, and `equalize-panes` |
 

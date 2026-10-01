@@ -58,6 +58,7 @@ mod automation;
 #[cfg(unix)]
 mod attach;
 mod bindings;
+mod broadcast;
 mod clipboard;
 mod command_export;
 mod connection_form;

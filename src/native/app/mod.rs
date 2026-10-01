@@ -173,6 +173,8 @@ mod prompt_jump;
 mod rail_autohide;
 mod rail_overlay;
 pub(in crate::native) mod read_only;
+// Guarded broadcast input: fan-out, labels, and the palette/menu actions.
+pub(in crate::native) mod broadcast_input;
 pub(in crate::native) mod redraw_schedule;
 mod replay_ui;
 mod resize_hud;
@@ -317,6 +319,9 @@ struct PendingTextPaste {
     text: String,
     bracketed: bool,
     file_shell: Option<crate::shell_integration::ShellKind>,
+    /// The confirmation was opened for a broadcast paste: committing it fans
+    /// the text out to every receiver.
+    broadcast: bool,
 }
 
 /// Human-readable byte size for the image paste-through confirm prompt (F6-i7):

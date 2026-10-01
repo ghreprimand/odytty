@@ -76,6 +76,14 @@ Development on `master`; not released. Items check off when their code is on
       drop, and mouse-report input, and it is persisted in workspace and
       layout state.
 - [ ] Device acceptance for read-only panes on Linux, macOS, and Windows.
+- [ ] Guarded broadcast input: panes join an in-memory, never-persisted
+      receiver set one at a time from the palette or the context menu (no
+      default chord); keys, IME, and paste reach every receiver once; a
+      read-only receiver is skipped; any paste with a line break is confirmed
+      with receiver, hidden, and remote counts; `BROADCAST n` and `RECV`
+      labels disclose the set; `Ctrl+Shift+X` stops it and is never sent to a
+      shell; receivers in other windows of the process are included.
+- [ ] Device acceptance for broadcast input on Linux, macOS, and Windows.
 - [ ] Reject control-bearing palette text and show its controls as visible
       label escapes (backslashes stay literal); preserve viewport/selection
       and skip clipboard access when read-only input is refused, including

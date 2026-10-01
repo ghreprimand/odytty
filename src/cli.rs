@@ -998,6 +998,8 @@ fn action_value(action: BindableAction) -> &'static str {
         BindableAction::Hints => "hints",
         BindableAction::ClearInput => "clear-input",
         BindableAction::ToggleReadOnly => "toggle-read-only",
+        BindableAction::ToggleBroadcast => "toggle-broadcast",
+        BindableAction::StopBroadcast => "stop-broadcast",
         BindableAction::CommandPalette => "command-palette",
         BindableAction::SessionReplay => "session-replay",
         BindableAction::ConnectionManager => "connection-manager",

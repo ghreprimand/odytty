@@ -134,6 +134,15 @@ impl OverlayUi {
         self.context_menu.set_pane_read_only(read_only);
     }
 
+    /// Record the broadcast state on an open content menu.
+    pub(in crate::native) fn set_context_menu_broadcast(
+        &mut self,
+        pane_receiver: bool,
+        active: bool,
+    ) {
+        self.context_menu.set_broadcast(pane_receiver, active);
+    }
+
     /// Open the connection-row context menu (ODP-2C) at `spawn` for the row at
     /// filtered index `row_index`, snapshotting `host` so the menu can gate
     /// Edit/Remove (OdyTTY-owned only) and route each of the five actions. This
@@ -1012,6 +1021,10 @@ impl OverlayUi {
                     ContextMenuItem::MakePaneReadOnly | ContextMenuItem::MakePaneWritable => {
                         OverlayOutcome::ContextMenuToggleReadOnly
                     }
+                    ContextMenuItem::BroadcastToPane | ContextMenuItem::RemovePaneFromBroadcast => {
+                        OverlayOutcome::ContextMenuToggleBroadcast
+                    }
+                    ContextMenuItem::StopBroadcast => OverlayOutcome::ContextMenuStopBroadcast,
                     ContextMenuItem::NewTabWithProfile => {
                         OverlayOutcome::ContextMenuNewTabWithProfile
                     }

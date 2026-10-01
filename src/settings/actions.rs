@@ -44,6 +44,12 @@ pub enum BindableAction {
     /// Toggle the focused pane's read-only (input-disabled) mode. No default
     /// chord: a chord would take a key from the shell on writable panes.
     ToggleReadOnly,
+    /// Add the focused pane to the broadcast receivers, or remove it. No
+    /// default chord: membership changes stay deliberate.
+    ToggleBroadcast,
+    /// Empty the broadcast receiver set. Default `Ctrl+Shift+X`, which is
+    /// never written to a PTY.
+    StopBroadcast,
     /// Open the in-window command palette.
     CommandPalette,
     /// Open the output-replay overlay.
@@ -103,7 +109,7 @@ impl BindableAction {
     ///
     /// This is the single source of truth used by the editor and coverage
     /// guards, so additions must remain exhaustive.
-    pub const ALL: [Self; 50] = [
+    pub const ALL: [Self; 52] = [
         Self::Search,
         Self::SettingsPanel,
         Self::ThemePicker,
@@ -126,6 +132,8 @@ impl BindableAction {
         Self::Hints,
         Self::ClearInput,
         Self::ToggleReadOnly,
+        Self::ToggleBroadcast,
+        Self::StopBroadcast,
         Self::CommandPalette,
         Self::ConnectionManager,
         Self::SessionReplay,
@@ -192,6 +200,8 @@ impl BindableAction {
             "hints" | "hint" | "quickselect" | "patternselect" => Some(Self::Hints),
             "clearinput" | "clearline" | "killline" | "clear" => Some(Self::ClearInput),
             "togglereadonly" | "readonly" | "readonlypane" => Some(Self::ToggleReadOnly),
+            "togglebroadcast" | "broadcasttopane" | "broadcastpane" => Some(Self::ToggleBroadcast),
+            "stopbroadcast" | "broadcastoff" | "clearbroadcast" => Some(Self::StopBroadcast),
             "commandpalette" | "palette" | "cmdpalette" | "fuzzypalette" => {
                 Some(Self::CommandPalette)
             }

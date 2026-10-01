@@ -538,6 +538,13 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             char_chord('k', true, true, false, false),
             BindableAction::ClearInput,
         ),
+        // Broadcast escape hatch: empties the receiver set and is never
+        // written to a PTY. Bare `x` is the prefix close-pane key (a different
+        // modifier set); Ctrl+Shift+U is avoided because ibus takes it.
+        (
+            char_chord('x', true, true, false, false),
+            BindableAction::StopBroadcast,
+        ),
         (
             char_chord('t', true, true, false, false),
             BindableAction::NewTab,

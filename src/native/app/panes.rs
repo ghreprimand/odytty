@@ -940,6 +940,12 @@ impl App {
                 session.attention.failed,
             );
             super::read_only::paint_read_only_label(&mut pane.snapshot, session.read_only);
+            let label = self.broadcast_label_for(token, is_focused);
+            super::broadcast_input::paint_broadcast_label(
+                &mut pane.snapshot,
+                label.as_ref(),
+                session.read_only,
+            );
         }
 
         // Build every pane's status gutter in that pane's own scrollback and

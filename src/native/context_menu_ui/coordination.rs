@@ -18,6 +18,8 @@ impl Default for ContextMenuUi {
             multi_workspace: false,
             bound_workspace: false,
             pane_read_only: false,
+            pane_broadcast: false,
+            broadcast_active: false,
             workspace_count: 0,
             surface: ContextMenuSurface::Content,
             path_target: None,
@@ -108,6 +110,8 @@ impl ContextMenuUi {
         self.multi_workspace = multi_workspace;
         self.bound_workspace = bound_workspace;
         self.pane_read_only = false;
+        self.pane_broadcast = false;
+        self.broadcast_active = false;
         // RAIL-REORDER: reset to 0 on every open; the App sets the real count
         // via `set_workspace_count` only for a rail-slot menu.
         self.workspace_count = 0;
@@ -162,6 +166,8 @@ impl ContextMenuUi {
         self.multi_workspace = false;
         self.bound_workspace = false;
         self.pane_read_only = false;
+        self.pane_broadcast = false;
+        self.broadcast_active = false;
         self.workspace_count = 0;
         self.surface = ContextMenuSurface::ConnectionRow(row_index);
         self.path_target = None;
@@ -204,6 +210,8 @@ impl ContextMenuUi {
         self.multi_workspace = false;
         self.bound_workspace = false;
         self.pane_read_only = false;
+        self.pane_broadcast = false;
+        self.broadcast_active = false;
         self.workspace_count = 0;
         self.surface = ContextMenuSurface::NavigatorRow;
         self.path_target = None;
@@ -261,6 +269,15 @@ impl ContextMenuUi {
     /// so exactly one of Make Pane Read-Only / Make Pane Writable shows.
     pub(in crate::native) fn set_pane_read_only(&mut self, read_only: bool) {
         self.pane_read_only = read_only;
+    }
+
+    /// Record the broadcast state for a content-surface menu: whether the
+    /// focused pane is a receiver (selects Broadcast to This Pane or Remove
+    /// Pane from Broadcast) and whether any receiver exists (shows Stop
+    /// Broadcast).
+    pub(in crate::native) fn set_broadcast(&mut self, pane_receiver: bool, active: bool) {
+        self.pane_broadcast = pane_receiver;
+        self.broadcast_active = active;
     }
 
     /// The saved host snapshotted for a `ConnectionRow` menu (ODP-2C), if any.
@@ -351,6 +368,9 @@ impl ContextMenuUi {
             ContextMenuItem::SplitRows => true,
             ContextMenuItem::ClosePane => true,
             ContextMenuItem::MakePaneReadOnly | ContextMenuItem::MakePaneWritable => true,
+            ContextMenuItem::BroadcastToPane
+            | ContextMenuItem::RemovePaneFromBroadcast
+            | ContextMenuItem::StopBroadcast => true,
             ContextMenuItem::Settings => true,
             ContextMenuItem::KeyboardShortcuts => true,
             ContextMenuItem::ConnectionManager => true,

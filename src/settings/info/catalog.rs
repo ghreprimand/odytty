@@ -1355,6 +1355,8 @@ impl Settings {
                     "hints",
                     "clear-input",
                     "toggle-read-only",
+                    "toggle-broadcast",
+                    "stop-broadcast",
                     "command-palette",
                     "connection-manager",
                     "session-replay",

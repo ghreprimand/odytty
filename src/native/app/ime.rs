@@ -134,6 +134,7 @@ impl App {
             return;
         }
         self.return_to_live();
+        self.broadcast_bytes(text.as_bytes());
         let delivered = self.writer.lock().is_ok_and(|mut writer| {
             writer
                 .write_all(text.as_bytes())

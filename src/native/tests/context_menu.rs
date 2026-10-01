@@ -399,10 +399,18 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
             ..
         }
     ));
+    assert!(matches!(
+        rows[14],
+        ContextMenuRow::Item {
+            label: "Broadcast to This Pane",
+            enabled: true,
+            ..
+        }
+    ));
     // Workspace section: after Split, before Settings, bracketed by the third
     // (split|workspace) and fourth (workspace|Settings) separators.
     assert!(matches!(
-        rows[15],
+        rows[16],
         ContextMenuRow::Item {
             label: "New Workspace",
             enabled: true,
@@ -410,7 +418,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[16],
+        rows[17],
         ContextMenuRow::Item {
             label: "New Workspace with Profile\u{2026}",
             enabled: true,
@@ -418,7 +426,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[17],
+        rows[18],
         ContextMenuRow::Item {
             label: "Rename Workspace",
             enabled: true,
@@ -426,7 +434,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[18],
+        rows[19],
         ContextMenuRow::Item {
             label: "Close Workspace",
             enabled: true,
@@ -436,7 +444,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     // ODP-6B: an unbound workspace shows Bind to Host as the workspace section's
     // last row, right before the workspace|Settings separator.
     assert!(matches!(
-        rows[19],
+        rows[20],
         ContextMenuRow::Item {
             label: "Bind to Host\u{2026}",
             enabled: true,
@@ -447,7 +455,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     // workspace Save Workspace as Layout, and Open Layout round out the workspace
     // section, right before the workspace|Settings separator.
     assert!(matches!(
-        rows[20],
+        rows[21],
         ContextMenuRow::Item {
             label: "Save as Layout\u{2026}",
             enabled: true,
@@ -455,7 +463,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[21],
+        rows[22],
         ContextMenuRow::Item {
             label: "Save Workspace as Layout\u{2026}",
             enabled: true,
@@ -463,7 +471,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[22],
+        rows[23],
         ContextMenuRow::Item {
             label: "Open Layout\u{2026}",
             enabled: true,
@@ -475,7 +483,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         ContextMenuRow::Separator
     ));
     assert!(matches!(
-        rows[24],
+        rows[25],
         ContextMenuRow::Item {
             label: "Settings",
             enabled: true,
@@ -490,7 +498,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     ));
     // F3: Keyboard Shortcuts is the first launcher item, right below Settings.
     assert!(matches!(
-        rows[26],
+        rows[27],
         ContextMenuRow::Item {
             label: "Keyboard Shortcuts",
             enabled: true,
@@ -498,7 +506,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[27],
+        rows[28],
         ContextMenuRow::Item {
             label: "Connection Manager",
             enabled: true,
@@ -506,7 +514,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[28],
+        rows[29],
         ContextMenuRow::Item {
             label: "Command Palette",
             enabled: true,
@@ -514,7 +522,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[29],
+        rows[30],
         ContextMenuRow::Item {
             label: "Session Replay",
             enabled: true,

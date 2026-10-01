@@ -255,6 +255,15 @@ impl ContextMenuUi {
             .filter(|item| {
                 !matches!(item, ContextMenuItem::MakePaneWritable) || self.pane_read_only
             })
+            // Broadcast pair: exactly one row shows, keyed to whether the
+            // focused pane is a receiver; Stop Broadcast shows only while on.
+            .filter(|item| {
+                !matches!(item, ContextMenuItem::BroadcastToPane) || !self.pane_broadcast
+            })
+            .filter(|item| {
+                !matches!(item, ContextMenuItem::RemovePaneFromBroadcast) || self.pane_broadcast
+            })
+            .filter(|item| !matches!(item, ContextMenuItem::StopBroadcast) || self.broadcast_active)
             // ODP-5: hide Copy/Cut/Delete entirely with no selection (cleaner
             // than rendering them dim); Paste/Select All stay the always-present
             // editing anchors.

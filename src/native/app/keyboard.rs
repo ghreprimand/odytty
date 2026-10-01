@@ -157,6 +157,17 @@ impl App {
             //    toggle on every Repeat open/close-flickered the overlay. Act on
             //    the initial Press only; Repeats fall through (to the overlay
             //    key path once it is open) and are harmless.
+            // Broadcast escape hatch (default Ctrl+Shift+X): empties the
+            // receiver set and is never written to a PTY. It sits above the
+            // overlay, search, and modal guards so it works with a menu or a
+            // paste confirmation open; only the key-remap capture, which may be
+            // assigning this very chord, sees it first. Repeats are swallowed.
+            if action == Some(BindableAction::StopBroadcast) && !self.overlay.is_capturing_chord() {
+                if event_type == KeyEventType::Press {
+                    self.stop_broadcast();
+                }
+                return;
+            }
             if event_type == KeyEventType::Press && !self.overlay.is_capturing_chord() {
                 if action == Some(BindableAction::SettingsPanel) {
                     self.toggle_settings_overlay();
@@ -305,6 +316,10 @@ impl App {
                     self.toggle_active_pane_read_only();
                     return;
                 }
+                Some(BindableAction::ToggleBroadcast) => {
+                    self.toggle_broadcast_for_active_pane();
+                    return;
+                }
                 Some(BindableAction::NewTab) => {
                     self.handle_new_tab();
                     return;
@@ -376,6 +391,7 @@ impl App {
                 | Some(BindableAction::ThemeBuilder)
                 | Some(BindableAction::SettingsPanel)
                 | Some(BindableAction::ThemePicker)
+                | Some(BindableAction::StopBroadcast)
                 | None => {}
                 // Direct split chords (GUI, Ctrl+Shift+E / Ctrl+Shift+O). These
                 // two *creation* splits have direct global bindings so the first
@@ -511,6 +527,9 @@ impl App {
         // Any keystroke that reaches the shell snaps the viewport back to live,
         // so typing always returns to the prompt at the bottom.
         self.return_to_live();
+        // Broadcast receivers other than the focused pane get the same bytes;
+        // the focused pane keeps the write below, so it receives them once.
+        self.broadcast_bytes(&bytes);
         let delivered = if let Ok(mut writer) = self.writer.lock() {
             let write_ok = writer.write_all(&bytes).is_ok();
             let flush_ok = writer.flush().is_ok();

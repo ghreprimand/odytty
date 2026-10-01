@@ -444,6 +444,16 @@ pub(in crate::native) struct App {
     /// visible even when every candidate window is stacked behind it (the
     /// numerals themselves paint only inside the candidates). `None` at rest.
     pub(super) merge_origin_candidates: Option<u8>,
+    /// Guarded broadcast input: the process-wide receiver set. A window owns a
+    /// private empty set until the process window owner shares its own, so
+    /// every window of one process reads and writes the same set.
+    pub(super) broadcast: crate::native::broadcast::SharedBroadcast,
+    /// Whether other windows of this process may own broadcast receivers. Set
+    /// by the window owner; while `false`, a receiver token this window does
+    /// not own belongs to a closed pane and is dropped.
+    pub(super) broadcast_peer_windows: bool,
+    /// The set generation this window last repainted its labels for.
+    pub(super) broadcast_seen_generation: u64,
     /// A background Test Connection probe (ODP-8) in flight from the Add / Edit
     /// connection form. The worker thread sends its tri-state result here and
     /// wakes a redraw; `run_about_to_wait_maintenance` drains it into the form.
@@ -760,6 +770,9 @@ impl App {
             wayland_surface_present_for_test: None,
             pending_merge_picker: None,
             sibling_window_count: 0,
+            broadcast: crate::native::broadcast::SharedBroadcast::default(),
+            broadcast_peer_windows: false,
+            broadcast_seen_generation: 0,
             merge_numeral: None,
             merge_origin_candidates: None,
             connection_probe: None,

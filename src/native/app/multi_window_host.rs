@@ -524,6 +524,7 @@ impl MultiWindowHost {
     /// state snapshot is the primary window's (a representative surface for the
     /// human-readable log); the frame-progress signal is the aggregate.
     fn refresh(&mut self) {
+        self.service_broadcast();
         let total_frames: u64 = self
             .windows
             .iter()
@@ -1721,6 +1722,9 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         }
     }
 }
+
+#[path = "multi_window_host/broadcast.rs"]
+mod broadcast;
 
 #[cfg(test)]
 #[path = "multi_window_host/tests.rs"]

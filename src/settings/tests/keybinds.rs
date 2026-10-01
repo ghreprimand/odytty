@@ -335,7 +335,9 @@ fn all_bindable_actions_is_exhaustive() {
             | CopyMode
             | Hints
             | ClearInput
-            | ToggleReadOnly => 0,
+            | ToggleReadOnly
+            | ToggleBroadcast
+            | StopBroadcast => 0,
             CommandPalette | ConnectionManager | SessionReplay | ThemeBuilder | SessionAttach => 1,
             NewTab | NewWindow | NextTab | PrevTab | CloseTab | DuplicateTab => 2,
             NewWorkspace | DuplicateWorkspace | CloseWorkspace | RenameWorkspace

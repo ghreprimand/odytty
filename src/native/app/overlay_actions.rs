@@ -153,6 +153,10 @@ impl App {
                 .set_context_menu_command_actions_enabled(command_handle.is_some());
             self.overlay
                 .set_context_menu_pane_read_only(self.active_pane_read_only());
+            self.overlay.set_context_menu_broadcast(
+                self.is_broadcast_receiver(self.sessions.active_id()),
+                self.broadcast_active(),
+            );
         }
         // MENU-DEBOUNCE: stamp the open instant so a stale queued press flushed
         // into the just-opened menu is swallowed rather than activating an item
@@ -360,6 +364,14 @@ impl App {
             OverlayOutcome::ContextMenuToggleReadOnly => {
                 self.flush_pending_overlay_settings();
                 self.toggle_active_pane_read_only();
+            }
+            OverlayOutcome::ContextMenuToggleBroadcast => {
+                self.flush_pending_overlay_settings();
+                self.toggle_broadcast_for_active_pane();
+            }
+            OverlayOutcome::ContextMenuStopBroadcast => {
+                self.flush_pending_overlay_settings();
+                self.stop_broadcast();
             }
             OverlayOutcome::ContextMenuSelectAll => {
                 self.flush_pending_overlay_settings();

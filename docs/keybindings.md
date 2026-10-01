@@ -75,6 +75,7 @@ chords (`Ctrl+Shift+E` / `Ctrl+Shift+O`) and the hardcoded
 | `Ctrl+Shift+Up` | Jump to the previous prompt mark | `jump-prompt-prev` |
 | `Ctrl+Shift+Down` | Jump to the next prompt mark | `jump-prompt-next` |
 | `Ctrl+Shift+K` | Clear the shell input line (sends readline Ctrl+A, Ctrl+K; no shell integration required) | `clear-input` |
+| `Ctrl+Shift+X` | Stop broadcast input: empty the receiver set (never sent to the shell, works with a menu or confirmation open) | `stop-broadcast` |
 | `Delete` / `Backspace` | Delete the selected editable prompt input (when shell integration allows; otherwise the key behaves normally) | — |
 | `Shift+PageUp` | Scroll the viewport up one page | `scroll-up` |
 | `Shift+PageDown` | Scroll the viewport down one page | `scroll-down` |
@@ -409,6 +410,12 @@ These tokens are accepted on the right-hand side of `chord=action`:
   keep working. Refused Clear Input, paste (clipboard or primary selection),
   and prefix passthrough leave the viewport and selection unchanged; refused
   paste does not read the clipboard.
+- **Broadcast input:** `toggle-broadcast` (no default chord; "Broadcast to
+  This Pane" in the command palette and the terminal right-click menu) adds
+  the focused pane to the broadcast receivers or removes it; `stop-broadcast`
+  (default `Ctrl+Shift+X`) empties the set. Typed keys, IME commits, and paste
+  then reach every receiver as well as the focused pane. See
+  [Broadcast input](features.md#broadcast-input).
 - **Scroll and prompt:** `scroll-up`, `scroll-down`, `jump-prompt-prev`,
   `jump-prompt-next`.
 - **Tabs and windows:** `new-tab`, `new-window`, `next-tab`, `prev-tab`,

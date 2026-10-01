@@ -249,6 +249,14 @@ pub(super) enum OverlayFragment {
     /// pane (the default), so the cache decision is unchanged there; toggling
     /// the flag flips the fragment and repaints the label on or off.
     ReadOnly,
+    /// The focused pane's persistent broadcast label, keyed by the counts it
+    /// discloses. `Inert` while broadcast is off (the default), so the cache
+    /// decision is unchanged there.
+    Broadcast {
+        receivers: usize,
+        hidden: usize,
+        remote: usize,
+    },
 }
 
 /// Folds the NEW overlay contributors' fragments into one hashable cache key.
@@ -288,6 +296,8 @@ pub(super) struct OverlayCompositeSignature {
     pub(super) merge_numeral: OverlayFragment,
     /// Read-only pane label. `Inert` for a writable pane.
     pub(super) read_only: OverlayFragment,
+    /// Broadcast label. `Inert` while broadcast is off.
+    pub(super) broadcast: OverlayFragment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

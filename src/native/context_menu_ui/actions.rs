@@ -56,6 +56,17 @@ pub(in crate::native) enum ContextMenuItem {
     /// Turn a read-only focused pane writable again. Content surface only,
     /// shown while the pane is read-only.
     MakePaneWritable,
+    /// Add the focused pane to the broadcast receivers. Content surface only,
+    /// shown while the pane is not a receiver; the pair's other half is
+    /// [`Self::RemovePaneFromBroadcast`]. Bindable through
+    /// [`BindableAction::ToggleBroadcast`], which has no default chord.
+    BroadcastToPane,
+    /// Remove the focused pane from the broadcast receivers. Content surface
+    /// only, shown while the pane is a receiver.
+    RemovePaneFromBroadcast,
+    /// Empty the broadcast receiver set. Content surface only, shown while
+    /// broadcast is on. Default chord `Ctrl+Shift+X`.
+    StopBroadcast,
     /// Open the settings panel (always enabled, D-IN2-SETTINGS).
     Settings,
     /// Open the key-remap editor overlay directly (F3). Always enabled; same
@@ -266,6 +277,9 @@ impl ContextMenuItem {
         Self::ClosePane,
         Self::MakePaneReadOnly,
         Self::MakePaneWritable,
+        Self::BroadcastToPane,
+        Self::RemovePaneFromBroadcast,
+        Self::StopBroadcast,
         // Workspace section: on the content surface these render after the split
         // section and before Settings (their ALL position drives that order),
         // giving a distinct workspace group between panes and Settings.
@@ -370,7 +384,10 @@ impl ContextMenuItem {
             | Self::SplitRows
             | Self::ClosePane
             | Self::MakePaneReadOnly
-            | Self::MakePaneWritable => 2,
+            | Self::MakePaneWritable
+            | Self::BroadcastToPane
+            | Self::RemovePaneFromBroadcast
+            | Self::StopBroadcast => 2,
             Self::NewWorkspace
             | Self::NewWorkspaceWithProfile
             | Self::DuplicateWorkspace
@@ -473,6 +490,9 @@ impl ContextMenuItem {
             Self::ClosePane => "Close Pane",
             Self::MakePaneReadOnly => "Make Pane Read-Only",
             Self::MakePaneWritable => "Make Pane Writable",
+            Self::BroadcastToPane => "Broadcast to This Pane",
+            Self::RemovePaneFromBroadcast => "Remove Pane from Broadcast",
+            Self::StopBroadcast => "Stop Broadcast",
             Self::Settings => "Settings",
             Self::KeyboardShortcuts => "Keyboard Shortcuts",
             Self::ConnectionManager => "Connection Manager",
@@ -521,6 +541,10 @@ impl ContextMenuItem {
             Self::MakePaneReadOnly | Self::MakePaneWritable => {
                 Some(BindableAction::ToggleReadOnly)
             }
+            Self::BroadcastToPane | Self::RemovePaneFromBroadcast => {
+                Some(BindableAction::ToggleBroadcast)
+            }
+            Self::StopBroadcast => Some(BindableAction::StopBroadcast),
             // Close Pane has no chord in the flat global table — it resolves only
             // on the multiplexer prefix (`Ctrl-b x`), which the flat
             // `chord_for_action` lookup cannot represent. The App fills its

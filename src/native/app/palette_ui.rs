@@ -237,6 +237,8 @@ impl App {
                 }
             }
             PaletteAction::ToggleReadOnly => self.toggle_active_pane_read_only(),
+            PaletteAction::ToggleBroadcast => self.toggle_broadcast_for_active_pane(),
+            PaletteAction::StopBroadcast => self.stop_broadcast(),
             PaletteAction::NewTab => self.handle_new_tab(),
             PaletteAction::CloseTab => {
                 let _ = self.close_active_tab();

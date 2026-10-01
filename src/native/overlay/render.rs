@@ -65,6 +65,9 @@ impl OverlayUi {
             // No title bar — early-dispatched to `apply_context_menu`.
             OverlayMode::ContextMenu => String::new(),
             OverlayMode::ConfirmClose => "Close?".to_owned(),
+            OverlayMode::RiskyPaste if self.risky_paste.broadcast.is_some() => {
+                "Confirm broadcast paste".to_owned()
+            }
             OverlayMode::RiskyPaste => "Confirm paste".to_owned(),
             OverlayMode::AttachChoice => "Attach session".to_owned(),
             OverlayMode::ConfirmKillSession => "Kill session".to_owned(),
@@ -552,7 +555,9 @@ impl OverlayUi {
                 chunks.resize(3, String::new());
                 let was_truncated = self.risky_paste.preview_truncated
                     || self.risky_paste.escaped_preview.chars().count() > body_width.max(1) * 3;
-                let detail = if self.risky_paste.one_line_available {
+                let detail = if let Some(summary) = self.risky_paste.broadcast {
+                    summary.confirm_line()
+                } else if self.risky_paste.one_line_available {
                     if was_truncated {
                         "Preview truncated. One Line escapes CR/LF and backslashes.".to_owned()
                     } else {

@@ -112,6 +112,11 @@ pub(in crate::native) enum OverlayOutcome {
     /// Toggle the focused pane's read-only mode (Make Pane Read-Only / Make
     /// Pane Writable). The menu has closed itself.
     ContextMenuToggleReadOnly,
+    /// Add the focused pane to the broadcast receivers or remove it (Broadcast
+    /// to This Pane / Remove Pane from Broadcast). The menu has closed itself.
+    ContextMenuToggleBroadcast,
+    /// Empty the broadcast receiver set. The menu has closed itself.
+    ContextMenuStopBroadcast,
     ContextMenuNewTab,
     /// Open a local shell in a new tab from a bound-workspace tab menu (F6-W5
     /// escape hatch). The overlay has closed itself; the App dispatches this to
@@ -572,6 +577,9 @@ pub(in crate::native) struct RiskyPasteDialog {
     pub(in crate::native) escaped_preview: String,
     pub(in crate::native) preview_truncated: bool,
     pub(in crate::native) one_line_available: bool,
+    /// Set when the paste goes to broadcast receivers: the dialog names the
+    /// receiver, hidden, and remote counts.
+    pub(in crate::native) broadcast: Option<crate::native::broadcast::BroadcastSummary>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
