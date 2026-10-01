@@ -6,6 +6,43 @@
 
 use super::*;
 
+/// Mutation: default legacy leaves to read-only, drop nested split ratios,
+/// or parse foreign schema payloads before returning VersionSkew.
+#[test]
+fn phase9_legacy_nested_layout_is_writable_and_foreign_schema_is_not_restored() {
+    let text = r#"{
+      "version": 1, "active_workspace": 0, "workspaces": [{
+        "name": "legacy", "active_tab": 0, "tabs": [{
+          "title": "legacy split", "focused_leaf": 1,
+          "layout": {"split": {"axis": "columns", "ratio": 0.25,
+            "first": {"leaf": {"cwd": "C:\\synthetic\\work"}},
+            "second": {"leaf": {"cwd": null}}
+          }}
+        }]
+      }]
+    }"#;
+    let snapshot = ShapeSnapshot::from_json_str(text).expect("legacy schema supported");
+    let layout = &snapshot.workspaces[0].tabs[0].layout;
+    assert_eq!(
+        layout,
+        &PaneShape::Split {
+            axis: SplitAxisShape::Columns,
+            ratio: 0.25,
+            first: Box::new(leaf(Some(r"C:\synthetic\work"))),
+            second: Box::new(leaf(None)),
+        }
+    );
+    assert_eq!(
+        ShapeSnapshot::from_json_str(&snapshot.to_json_pretty()).unwrap(),
+        snapshot
+    );
+    for version in [0, SNAPSHOT_VERSION + 1] {
+        let foreign = format!(r#"{{"version":{version},"workspaces":"foreign-format"}}"#);
+        assert!(matches!(ShapeSnapshot::from_json_str(&foreign),
+            Err(LoadError::VersionSkew { found }) if found == version));
+    }
+}
+
 fn leaf(cwd: Option<&str>) -> PaneShape {
     PaneShape::Leaf {
         cwd: cwd.map(str::to_owned),

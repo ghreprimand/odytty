@@ -9,6 +9,74 @@ use crate::native::test_support::headless_app_for_test;
 use crate::profiles::{LaunchProfile, profiles_dir_path, write_profile_file};
 use std::path::Path;
 
+/// Mutation: transfer autosave ownership to every sibling, or reap sessions
+/// during merge retirement. Only the recipient inherits the primary flag.
+#[test]
+fn phase9_three_window_merge_preserves_survivors_and_one_snapshot_owner() {
+    let mut primary = headless();
+    primary.set_primary_instance_for_test(true);
+    let mut recipient = headless();
+    recipient.set_primary_instance_for_test(false);
+    recipient
+        .workspace_set_mut()
+        .rekey_sole_session_for_test(SessionToken(500));
+    let mut bystander = headless();
+    bystander.set_primary_instance_for_test(false);
+    bystander
+        .workspace_set_mut()
+        .rekey_sole_session_for_test(SessionToken(1000));
+    let recipient_id = recipient.process_window_id();
+    let bystander_id = bystander.process_window_id();
+    let mut host = host_of(vec![primary, recipient, bystander]);
+    host.open_picker(0, MergeDirection::MergeThisInto);
+    host.handle_picker_key(PickerKey::Select(1));
+    assert_eq!(host.windows.len(), 2);
+    assert_eq!(host.windows[0].process_window_id(), recipient_id);
+    assert_eq!(host.windows[1].process_window_id(), bystander_id);
+    assert!(
+        host.windows[0]
+            .workspace_set()
+            .owns_session(SessionToken(0))
+    );
+    assert!(
+        host.windows[0]
+            .workspace_set()
+            .owns_session(SessionToken(500))
+    );
+    assert!(
+        host.windows[1]
+            .workspace_set()
+            .owns_session(SessionToken(1000))
+    );
+    assert!(host.windows[0].autosave_is_primary);
+    assert!(!host.windows[1].autosave_is_primary);
+    host.save_restorable_shape_on_exit();
+    assert_eq!(host.windows[0].autosave_saves_for_test(), 1);
+    assert_eq!(host.windows[1].autosave_saves_for_test(), 0);
+    host.windows[0].close_all_sessions_for_test();
+    assert!(
+        host.windows[1]
+            .workspace_set()
+            .owns_session(SessionToken(1000)),
+        "closing one arena cannot reap a sibling's session"
+    );
+}
+
+/// Mutation: treat every window close as process exit. No event loop or OS
+/// window is needed for this policy.
+#[test]
+fn phase9_close_policy_exits_only_after_the_last_live_window() {
+    assert_eq!(
+        resolve_window_close(3, 1),
+        WindowCloseAction::RemoveWindow(1)
+    );
+    assert_eq!(
+        resolve_window_close(2, 0),
+        WindowCloseAction::RemoveWindow(0)
+    );
+    assert_eq!(resolve_window_close(1, 0), WindowCloseAction::ExitProcess);
+}
+
 /// A host over headless windows with a factory that spawns nothing, so the
 /// cross-window orchestration (picker, merge, sibling counts) can be driven
 /// without a real event loop. The event-loop-scoped methods (`resumed`,

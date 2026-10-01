@@ -8,6 +8,37 @@ use std::time::{Duration, Instant};
 
 use super::*;
 
+/// Mutation: make device loss process-global, clear it during presentation
+/// release, or disable every sibling's timers when one App loses its device.
+#[test]
+fn phase9_surface_release_keeps_loss_sticky_and_sibling_timers_independent() {
+    let mut failed = idle_app();
+    let mut sibling = idle_app();
+    sibling.arm_active_cursor_anim_for_test(Instant::now());
+    let sibling_deadline = sibling.next_wake_deadline_for_window(true);
+    assert!(sibling_deadline.is_some());
+    failed.enter_gpu_device_lost();
+    failed.release_surface();
+    failed.release_surface();
+    for bytes in [b"first output".as_slice(), b"\r\nsecond output".as_slice()] {
+        failed.terminal.lock().expect("terminal").advance(bytes);
+        failed.needs_rebuild = true;
+        assert!(!failed.on_redraw_requested());
+        assert!(failed.gpu_device_lost);
+        assert!(!failed.watchdog_state().render_owed);
+        assert!(!sibling.gpu_device_lost);
+        assert_eq!(
+            sibling.next_wake_deadline_for_window(true),
+            sibling_deadline
+        );
+    }
+    sibling.release_surface();
+    assert!(
+        !sibling.gpu_device_lost,
+        "normal release is not device loss"
+    );
+}
+
 fn idle_app() -> App {
     let (app, _terminal) = crate::native::test_support::headless_app_with(
         NativeOptions::default(),

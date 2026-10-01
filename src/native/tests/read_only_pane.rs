@@ -5,6 +5,52 @@ use super::*;
 use crate::native::session::SessionToken;
 use std::io::Write;
 
+/// Mutation: exempt non-visible panes from `pane_accepts_input`, or clear a
+/// pane's read-only flag on a tab switch. Hidden state must preserve policy.
+#[test]
+fn phase9_hidden_tab_keeps_read_only_policy_after_writable_input_and_export() {
+    let (mut app, first_terminal, first_bytes) = app_with_writer();
+    let first = make_read_only(&mut app);
+    first_terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"retained read-only text");
+    let dimensions = Dimensions::new(80, 24);
+    let writable_bytes = Arc::new(Mutex::new(Vec::new()));
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(RecordingWriter(
+        writable_bytes.clone(),
+    ))));
+    let position = app.push_headless_session_for_test(
+        Arc::new(Mutex::new(Terminal::new(80, 24))),
+        writer,
+        dimensions,
+    );
+    assert!(app.switch_to_session_for_test(position));
+    assert!(!app.workspace_set().is_visible_pane(first));
+    assert!(
+        !app.pane_accepts_input(first),
+        "hidden panes retain input policy"
+    );
+    app.drive_raw_key_event_for_test(
+        WinitKey::Character("v".into()),
+        WinitKey::Character("v".into()),
+        PhysicalKey::Code(KeyCode::KeyV),
+        Modifiers::NONE,
+        KeyEventType::Press,
+    );
+    assert_eq!(bytes(&writable_bytes), b"v");
+    assert!(bytes(&first_bytes).is_empty());
+    app.focus_session_token_for_test(first);
+    app.enable_osc52_read_for_test("blocked clipboard");
+    app.handle_paste_shortcut_for_test();
+    app.handle_ime(winit::event::Ime::Commit("blocked ime".to_owned()));
+    assert!(bytes(&first_bytes).is_empty());
+    let export = app
+        .capture_scrollback_export(crate::native::scrollback_export::ScrollbackFormat::PlainText)
+        .expect("read-only export remains available");
+    assert_eq!(export, "retained read-only text\n");
+}
+
 #[derive(Clone, Default)]
 struct RecordingWriter(Arc<Mutex<Vec<u8>>>);
 

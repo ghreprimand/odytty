@@ -4,6 +4,96 @@
 use super::*;
 use crate::core::Attrs;
 
+/// Mutation: bypass `safe_http_href` or `put_escaped` in `html_span`.
+/// Every rejected scheme must remain visible text without active markup.
+#[test]
+fn phase9_mixed_image_and_link_document_stays_inert() {
+    let mut lines = vec![text_line("header"), ExportLine::Image];
+    for target in [
+        "javascript:alert(1)",
+        "data:text/html,<script>run()</script>",
+        "file:///synthetic/archive",
+        "https://example.invalid/\u{1b}payload",
+        "https://example.invalid/\"onclick=\"run()",
+    ] {
+        lines.push(ExportLine::Text(vec![ExportSpan {
+            text: "<&\"\u{0}\u{7}\u{1b}>".to_owned(),
+            style: SpanStyle::default(),
+            link: Some(target.to_owned()),
+        }]));
+    }
+    lines.push(ExportLine::Text(vec![ExportSpan {
+        text: "safe label".to_owned(),
+        style: SpanStyle::default(),
+        link: Some("https://example.invalid/a?x=1&y=2".to_owned()),
+    }]));
+    let html = html_document(&lines, &palette());
+    assert_eq!(html.matches("<a href=").count(), 1);
+    assert!(html.contains("https://example.invalid/a?x=1&amp;y=2"));
+    assert_eq!(html.matches("[image]").count(), 1);
+    assert_eq!(html.matches('\u{FFFD}').count(), 15);
+    assert!(html.contains("&lt;&amp;&quot;"));
+    for forbidden in ["<img", "<script", "javascript:", "data:text", "file:"] {
+        assert!(!html.contains(forbidden), "active content: {forbidden}");
+    }
+    assert!(!html.chars().any(|ch| ch.is_control() && ch != '\n'));
+    let plain = plain_text(&lines);
+    assert_eq!(plain.matches("[image]").count(), 1);
+    assert!(!plain.contains("example.invalid"));
+}
+
+/// Mutation: change the encoder's byte check to character count, or omit
+/// HTML suffix bytes from `reserve`. Refusal must include the whole document.
+#[test]
+fn phase9_multibyte_and_image_markup_use_encoded_byte_limits() {
+    let lines = vec![text_line("\u{1f680}<&"), ExportLine::Image];
+    for html in [None, Some(palette())] {
+        let expected = encode_lines(&lines, html);
+        for limit in [expected.len(), expected.len() - 1] {
+            let result = (|| {
+                let mut encoder = Encoder::new(html, limit)?;
+                for line in &lines {
+                    encoder.encode(line)?;
+                }
+                encoder.finish()
+            })();
+            if limit == expected.len() {
+                assert_eq!(result, Ok(expected.clone()));
+            } else {
+                assert_eq!(result, Err(CommandExportError::TooLarge));
+            }
+        }
+    }
+}
+
+/// Mutation: remove `validate_text` from the shared atomic writer. An
+/// oversized export must never replace an existing destination on any OS.
+#[test]
+fn phase9_32_mib_refusal_keeps_the_existing_export_unchanged() {
+    use super::super::command_export::{MAX_COMMAND_EXPORT_BYTES, write_plain_text};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    assert_eq!(MAX_COMMAND_EXPORT_BYTES, 32 * 1024 * 1024);
+    let directory = std::env::temp_dir().join(format!(
+        "odytty-export-cap-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&directory).expect("owned directory");
+    let path = directory.join("saved.txt");
+    std::fs::write(&path, b"previous export\n").expect("existing export");
+    let oversized = "x".repeat(MAX_COMMAND_EXPORT_BYTES + 1);
+    let result = write_plain_text(&path, &oversized);
+    let previous = std::fs::read(&path).expect("existing destination remains");
+    let entries = std::fs::read_dir(&directory).expect("directory").count();
+    std::fs::remove_dir_all(&directory).expect("cleanup owned directory");
+    assert_eq!(result, Err(CommandExportError::TooLarge));
+    assert_eq!(previous, b"previous export\n");
+    assert_eq!(entries, 1, "no temporary export is left on refusal");
+}
+
 fn row(text: &str, columns: usize) -> Vec<Cell> {
     let mut cells: Vec<Cell> = text
         .chars()
