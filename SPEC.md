@@ -1221,7 +1221,11 @@ scope rather than silently inheriting deferred work from a prior release.
   runs when the last hold is released, including focus leaving every window,
   the last window closing, and process exit. While it is enabled,
   keyboard-intercept tools (event taps such as text expanders, and some
-  accessibility and automation tools) do not receive keystrokes. Other apps
+  accessibility and automation tools) do not receive keystrokes. Hotkey and
+  key-remapping apps that use those taps stop working too, including any
+  shortcut they provide (for example a remapped quit or window chord),
+  exactly as with Terminal.app's Secure Keyboard Entry. The app's own menu
+  shortcuts are unaffected. Other apps
   still receive keys. A `SECURE INPUT` label on each holding window is keyed
   into the frame cache. Keys still go to the focused pane and to broadcast
   receivers. Windows and Linux do not offer the row or the palette action
