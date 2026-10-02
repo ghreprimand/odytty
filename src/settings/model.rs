@@ -1017,10 +1017,6 @@ pub struct Settings {
     /// shared-memory transports named by terminal output. Off by default;
     /// direct and chunked-inline graphics remain available.
     pub kitty_named_transports: bool,
-    /// Process-wide secure keyboard entry. Default off. On macOS the primitive
-    /// is enabled only while this is on and a window of this process has
-    /// keyboard focus. Windows and Linux store the value and do not apply it.
-    pub secure_keyboard_input: bool,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Multiplexer prefix chord (§7). `Some(Ctrl-b)` by default — the single
     /// new globally-captured key that opens the transient pane-command mode.
@@ -1536,7 +1532,6 @@ impl Default for Settings {
             ligature_ss01: DEFAULT_LIGATURE_SS01,
             ligature_ss02: DEFAULT_LIGATURE_SS02,
             kitty_named_transports: false,
-            secure_keyboard_input: false,
             key_bindings: Vec::new(),
             pane_prefix: default_pane_prefix(),
             cursor_style: CursorStyle::Block,

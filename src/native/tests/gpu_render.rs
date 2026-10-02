@@ -1506,7 +1506,6 @@ fn render_sig() -> RenderSignature {
                 merge_numeral: OverlayFragment::Inert,
                 read_only: OverlayFragment::Inert,
                 broadcast: OverlayFragment::Inert,
-                secure_input: OverlayFragment::Inert,
             },
             rail_overlay: crate::native::render_helpers::RailOverlaySignature::default(),
         },

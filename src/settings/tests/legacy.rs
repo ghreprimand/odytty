@@ -227,8 +227,6 @@ fn setting_info_covers_every_field_with_descriptions() {
             "cursor_trail",
             "cursor_trail_strength",
             "cursor_motion",
-            #[cfg(target_os = "macos")]
-            "secure_keyboard_input",
             "keybinds",
             "scroll_wheel_lines",
             "scrollback_lines",

@@ -155,7 +155,6 @@ environment variable was not set at startup.
 | `quick_terminal_profile` | `ODYTTY_QUICK_TERMINAL_PROFILE` | Profile name, empty for default | (empty) |
 | `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `on` |
 | `new_output_fade_ms` | `ODYTTY_NEW_OUTPUT_FADE_MS` | Float, `50..=1000` ms | `250` |
-| `secure_keyboard_input` | `ODYTTY_SECURE_KEYBOARD_INPUT` | `on`, `off` | `off` |
 | `keybinds` | `ODYTTY_KEYBINDS` | `chord=action` list | empty |
 | `pane_prefix` | `ODYTTY_PANE_PREFIX` | Key chord, or `off` to disable | `ctrl+b` |
 | `scroll_wheel_lines` | `ODYTTY_SCROLL_WHEEL_LINES` | Float, `1.0..=10.0` lines | `6.0` |
@@ -210,17 +209,6 @@ environment variable was not set at startup.
     clamps, and hot-reloads from `odytty.conf` or `ODYTTY_CRT_CURVATURE` as
     documented; the default `0.0` is flat and pixel-identical to the
     no-curvature path.
-
-`secure_keyboard_input` (`ODYTTY_SECURE_KEYBOARD_INPUT`) is off by default.
-On macOS, `on` is a process-wide wish. Secure event input is enabled only
-while the wish is on and an OdyTTY window has keyboard focus. While it is
-enabled, keyboard-intercept tools (event taps such as text expanders, and
-some accessibility and automation tools) do not receive keystrokes. Other
-apps still receive keys. A holding window shows a `SECURE INPUT` label. A
-crash while it is enabled can leave secure input reported as active, and
-those tools blocked, until logout. Normal typing in other apps is unaffected.
-Windows and Linux accept the key and do not apply it. There is no default
-chord, and the mode never turns on because a program printed a password prompt.
 
 ## Setting Details
 

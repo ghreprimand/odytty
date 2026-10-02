@@ -605,7 +605,6 @@ impl MultiWindowHost {
                     // before PTY teardown so the native window is dropped only
                     // after its per-window GPU state has drained.
                     let mut app = self.windows.remove(i);
-                    app.release_secure_input_hold();
                     let removed_id = app.process_window_id();
                     app.release_surface();
                     app.close_all_sessions();
@@ -614,26 +613,6 @@ impl MultiWindowHost {
                     self.sync_sibling_counts();
                 }
             }
-        }
-    }
-
-    /// Apply a secure-input wish published by any window to every window.
-    ///
-    /// The palette toggle and a config reload write one process-wide value.
-    /// A window that is not focused does not acquire a hold; a focused
-    /// window does. Turning the wish off releases every hold.
-    fn service_secure_keyboard_wish(&mut self) {
-        let mut wish = None;
-        for app in &mut self.windows {
-            if let Some(next) = app.take_secure_wish_broadcast() {
-                wish = Some(next);
-            }
-        }
-        let Some(wish) = wish else {
-            return;
-        };
-        for app in &mut self.windows {
-            app.apply_process_secure_wish(wish);
         }
     }
 
@@ -1753,7 +1732,6 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         self.service_move_requests(event_loop);
         self.service_merge_requests();
         self.service_profile_binding_changes();
-        self.service_secure_keyboard_wish();
         self.service_quick_toggle(event_loop);
         self.sync_sibling_counts();
 

@@ -77,22 +77,6 @@ fn phase9_close_policy_exits_only_after_the_last_live_window() {
     assert_eq!(resolve_window_close(1, 0), WindowCloseAction::ExitProcess);
 }
 
-#[test]
-fn a_secure_input_wish_reaches_every_window() {
-    let mut host = host_of(vec![headless(), headless()]);
-    host.windows[0].publish_secure_keyboard_wish(true);
-    host.service_secure_keyboard_wish();
-    assert!(host.windows[0].settings.secure_keyboard_input);
-    assert!(
-        host.windows[1].settings.secure_keyboard_input,
-        "a wish published by one window is applied to the other"
-    );
-    host.windows[1].publish_secure_keyboard_wish(false);
-    host.service_secure_keyboard_wish();
-    assert!(!host.windows[0].settings.secure_keyboard_input);
-    assert!(!host.windows[1].settings.secure_keyboard_input);
-}
-
 /// A host over headless windows with a factory that spawns nothing, so the
 /// cross-window orchestration (picker, merge, sibling counts) can be driven
 /// without a real event loop. The event-loop-scoped methods (`resumed`,

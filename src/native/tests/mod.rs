@@ -238,7 +238,6 @@ mod restore_theme;
 mod scrollback_export;
 mod scrollback_export_app;
 mod scrollbar;
-mod secure_input;
 mod selection_copy_span;
 mod selection_extend;
 mod session_navigator;

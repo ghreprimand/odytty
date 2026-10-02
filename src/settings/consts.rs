@@ -41,9 +41,6 @@ pub const LIGATURES_ENV: &str = "ODYTTY_LIGATURES";
 pub const LIGATURE_SS01_ENV: &str = "ODYTTY_LIGATURE_SS01";
 pub const LIGATURE_SS02_ENV: &str = "ODYTTY_LIGATURE_SS02";
 pub const KITTY_NAMED_TRANSPORTS_ENV: &str = "ODYTTY_KITTY_NAMED_TRANSPORTS";
-/// Process-wide secure keyboard entry. Honored on macOS only. On Windows and
-/// Linux the key is accepted and ignored.
-pub const SECURE_KEYBOARD_INPUT_ENV: &str = "ODYTTY_SECURE_KEYBOARD_INPUT";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const PANE_PREFIX_ENV: &str = "ODYTTY_PANE_PREFIX";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
@@ -200,7 +197,6 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     LIGATURE_SS01_ENV,
     LIGATURE_SS02_ENV,
     KITTY_NAMED_TRANSPORTS_ENV,
-    SECURE_KEYBOARD_INPUT_ENV,
     KEYBINDS_ENV,
     PANE_PREFIX_ENV,
     CURSOR_STYLE_ENV,

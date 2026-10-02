@@ -525,12 +525,6 @@ impl Settings {
             false,
             &mut warn,
         );
-        let secure_keyboard_input = parse_bool_setting(
-            get(SECURE_KEYBOARD_INPUT_ENV).as_deref(),
-            SECURE_KEYBOARD_INPUT_ENV,
-            false,
-            &mut warn,
-        );
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let pane_prefix = parse_pane_prefix(get(PANE_PREFIX_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
@@ -1035,7 +1029,6 @@ impl Settings {
             ligature_ss01,
             ligature_ss02,
             kitty_named_transports,
-            secure_keyboard_input,
             key_bindings,
             pane_prefix,
             cursor_style,

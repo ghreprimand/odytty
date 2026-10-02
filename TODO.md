@@ -84,18 +84,6 @@ Development on `master`; not released. Items check off when their code is on
       labels disclose the set; `Ctrl+Shift+X` stops it and is never sent to a
       shell; receivers in other windows of the process are included.
 - [ ] Device acceptance for broadcast input on Linux, macOS, and Windows.
-- [ ] Secure keyboard input: an explicit macOS wish (palette and settings
-      row, no default chord, never automatic) that enables
-      EnableSecureEventInput only while the wish is on and an OdyTTY window
-      has keyboard focus, and pairs the disable when the last focused hold
-      is released. A `SECURE INPUT` label stays on each holding window.
-      Windows and Linux show the setting as unsupported and do not simulate
-      it. A crash while it is enabled can leave secure input reported as
-      active, and keyboard-intercept tools blocked, until logout. Normal
-      typing in other apps is unaffected.
-- [ ] Device acceptance for secure keyboard input: macOS toggle, label, and
-      focus release checked with the session secure-input owner key; Linux
-      and Windows confirm the row and palette action are absent.
 - [ ] Move tabs and panes between windows from the command palette: to a new
       window (built around the moved session, no shell spawn, restored to
       its source if the window cannot open) or to another window through the

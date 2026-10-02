@@ -44,7 +44,6 @@ pub const STABLE_ACTION_IDS: &[&str] = &[
     "hints",
     "clear-input",
     "toggle-read-only",
-    "toggle-secure-input",
     "toggle-broadcast",
     "stop-broadcast",
     "new-tab",
@@ -108,8 +107,6 @@ pub enum PaletteAction {
     ClearInput,
     /// Toggle the focused pane's read-only (input-disabled) mode.
     ToggleReadOnly,
-    /// Toggle process-wide secure keyboard entry. Offered on macOS only.
-    ToggleSecureInput,
     /// Add the focused pane to the broadcast receivers, or remove it.
     ToggleBroadcast,
     /// Empty the broadcast receiver set.
@@ -175,7 +172,6 @@ impl PaletteAction {
             "hints" => Self::Hints,
             "clear-input" => Self::ClearInput,
             "toggle-read-only" => Self::ToggleReadOnly,
-            "toggle-secure-input" => Self::ToggleSecureInput,
             "toggle-broadcast" => Self::ToggleBroadcast,
             "stop-broadcast" => Self::StopBroadcast,
             "new-tab" => Self::NewTab,
@@ -236,7 +232,6 @@ impl PaletteAction {
             Self::Hints => "hints",
             Self::ClearInput => "clear-input",
             Self::ToggleReadOnly => "toggle-read-only",
-            Self::ToggleSecureInput => "toggle-secure-input",
             Self::ToggleBroadcast => "toggle-broadcast",
             Self::StopBroadcast => "stop-broadcast",
             Self::NewTab => "new-tab",
@@ -296,7 +291,6 @@ impl PaletteAction {
             Self::Hints => "Open Hints",
             Self::ClearInput => "Clear Input",
             Self::ToggleReadOnly => "Toggle Read-Only Pane",
-            Self::ToggleSecureInput => "Toggle Secure Keyboard Input",
             Self::ToggleBroadcast => "Broadcast to This Pane",
             Self::StopBroadcast => "Stop Broadcast",
             Self::NewTab => "New Tab",
@@ -367,7 +361,6 @@ impl PaletteAction {
             Self::Hints => &["quick select", "links", "paths"],
             Self::ClearInput => &["clear line", "kill line", "readline"],
             Self::ToggleReadOnly => &["read only", "lock pane", "disable input", "writable"],
-            Self::ToggleSecureInput => &["secure input", "secure keyboard"],
             Self::ToggleBroadcast => &["broadcast", "send to all", "synchronize panes", "receiver"],
             Self::StopBroadcast => &["broadcast off", "end broadcast", "clear receivers"],
             Self::NewTab => &["tab new", "create tab"],
@@ -454,7 +447,6 @@ pub const DEFAULT_PALETTE_ACTIONS: &[PaletteAction] = &[
     PaletteAction::Hints,
     PaletteAction::ClearInput,
     PaletteAction::ToggleReadOnly,
-    PaletteAction::ToggleSecureInput,
     PaletteAction::ToggleBroadcast,
     PaletteAction::StopBroadcast,
     PaletteAction::NewTab,
@@ -511,32 +503,12 @@ where
     HS: AsRef<str>,
     DS: AsRef<str>,
 {
-    #[cfg(target_os = "macos")]
-    {
-        compose_palette_entries(
-            DEFAULT_PALETTE_ACTIONS,
-            history,
-            directories,
-            PaletteCompositionLimits::default(),
-        )
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        // The action stays in the stable catalog so matches stay exhaustive.
-        // Windows and Linux do not register it: there is no secure-input
-        // primitive, and the mode is never simulated.
-        let actions: Vec<PaletteAction> = DEFAULT_PALETTE_ACTIONS
-            .iter()
-            .copied()
-            .filter(|action| *action != PaletteAction::ToggleSecureInput)
-            .collect();
-        compose_palette_entries(
-            &actions,
-            history,
-            directories,
-            PaletteCompositionLimits::default(),
-        )
-    }
+    compose_palette_entries(
+        DEFAULT_PALETTE_ACTIONS,
+        history,
+        directories,
+        PaletteCompositionLimits::default(),
+    )
 }
 
 /// Build entries from action, history, and directory sources.

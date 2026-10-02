@@ -298,15 +298,6 @@ shell_integration = on
 # that raises SIGINT, so bash cannot. Turn this on only if you are prepared to
 # bind the Ctrl+keys your prompt needs.
 shell_key_enhancement = off
-# macOS only. Off everywhere else: the key is kept and secure input is not
-# applied. On macOS, on is a process-wide wish. Secure event input is enabled
-# only while the wish is on and an OdyTTY window has keyboard focus. While it
-# is enabled, keyboard-intercept tools do not receive keystrokes; other apps
-# still receive keys. A crash while it is enabled can leave secure input
-# reported as active until logout. Normal typing in other apps is unaffected.
-# There is no default key, and it never turns on because a program printed a
-# password prompt.
-secure_keyboard_input = off
 keybinds =
 # Example:
 # keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste

@@ -183,7 +183,6 @@ mod replay_ui;
 mod resize_hud;
 mod scroll_anim;
 mod scrollback_export;
-pub(in crate::native) mod secure_input;
 mod selection_input;
 mod session_attach_ui;
 mod session_navigator_ui;
