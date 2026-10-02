@@ -71,7 +71,9 @@ in_list() { # name list...
 
 mode="${1:-}"
 image="${2:-}"
-[ -n "$mode" ] && [ -n "$image" ] || die "usage: $0 audit|run <AppImage>"
+if [ -z "$mode" ] || [ -z "$image" ]; then
+  die "usage: $0 audit|run <AppImage>"
+fi
 [ -f "$image" ] || die "missing AppImage: $image"
 
 WORK="$(mktemp -d)"
