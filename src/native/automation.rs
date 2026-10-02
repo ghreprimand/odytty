@@ -62,12 +62,20 @@ pub(in crate::native) struct AutomationRuntime {
 }
 
 impl AutomationRuntime {
-    pub(in crate::native) fn reconcile(
+    /// Reconcile the endpoint with the setting. `make_wake` builds the owner
+    /// wake callback and runs only when an endpoint actually starts: on a
+    /// per-tick caller the idle paths must not construct anything, because on
+    /// macOS cloning a winit `EventLoopProxy` registers a run-loop source and
+    /// wakes the loop, so a clone per tick is a busy loop.
+    pub(in crate::native) fn reconcile<W>(
         &mut self,
         enabled: bool,
         first_frame_presented: bool,
-        wake: impl Fn() -> bool + Send + Sync + 'static,
-    ) -> ReconcileOutcome {
+        make_wake: impl FnOnce() -> W,
+    ) -> ReconcileOutcome
+    where
+        W: Fn() -> bool + Send + Sync + 'static,
+    {
         if !enabled {
             self.attempted = false;
             // A faulted server is no longer running but its queue and thread
@@ -101,7 +109,7 @@ impl AutomationRuntime {
 
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            match self.start_unix(wake) {
+            match self.start_unix(make_wake()) {
                 Ok(path) => ReconcileOutcome::Started(path.display().to_string()),
                 Err(error) => ReconcileOutcome::Unavailable(error.to_string()),
             }
@@ -109,7 +117,7 @@ impl AutomationRuntime {
 
         #[cfg(windows)]
         {
-            match self.start_windows(wake) {
+            match self.start_windows(make_wake()) {
                 Ok(path) => ReconcileOutcome::Started(path.display().to_string()),
                 Err(error) => ReconcileOutcome::Unavailable(error.to_string()),
             }
@@ -117,7 +125,7 @@ impl AutomationRuntime {
 
         #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         {
-            let _ = wake;
+            let _ = make_wake;
             ReconcileOutcome::Unavailable(
                 "local automation transport is unavailable on this platform".to_owned(),
             )
@@ -332,16 +340,21 @@ fn remove_if_same_socket(path: &Path, expected: &Metadata) -> io::Result<()> {
 mod tests {
     use super::*;
 
+    /// A wake factory that must never run: idle reconciles build nothing.
+    fn never_built() -> fn() -> bool {
+        panic!("an idle reconcile must not build the wake callback")
+    }
+
     #[test]
     fn default_runtime_is_inert_and_readiness_blocks_start() {
         let mut runtime = AutomationRuntime::default();
         assert!(!runtime.is_running());
         assert_eq!(
-            runtime.reconcile(false, true, || panic!("disabled endpoint must not wake")),
+            runtime.reconcile(false, true, never_built),
             ReconcileOutcome::Unchanged
         );
         assert_eq!(
-            runtime.reconcile(true, false, || panic!("pre-frame endpoint must not wake")),
+            runtime.reconcile(true, false, never_built),
             ReconcileOutcome::Unchanged
         );
         assert!(!runtime.is_running());
@@ -357,7 +370,7 @@ mod tests {
         let mut runtime = AutomationRuntime::default();
         let expected = crate::automation::windows::endpoint(std::process::id());
         assert_eq!(
-            runtime.reconcile(true, true, || true),
+            runtime.reconcile(true, true, || || true),
             ReconcileOutcome::Started(expected.display().to_string())
         );
         assert!(runtime.is_running());
@@ -457,6 +470,35 @@ mod tests {
         let _ = fs::remove_dir(dir);
     }
 
+    /// A running endpoint reconciles every tick; none of those ticks may build
+    /// the wake callback (a winit proxy clone is a run-loop wake on macOS).
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_running_endpoint_reconciles_without_building_the_wake_callback() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let tag = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("oa-r{:x}-{tag:x}", std::process::id()));
+        crate::state_dir::prepare_private_dir(&dir).expect("owner-private fixture dir");
+        let endpoint = dir.join(format!("control-{}.sock", std::process::id()));
+
+        let mut runtime = AutomationRuntime::default();
+        runtime.attempted = true;
+        runtime
+            .start_unix_at(endpoint, || true)
+            .expect("bind endpoint");
+        assert!(runtime.is_running());
+        for _ in 0..8 {
+            assert_eq!(
+                runtime.reconcile(true, true, never_built),
+                ReconcileOutcome::Unchanged
+            );
+        }
+        runtime.shutdown();
+        let _ = fs::remove_dir(dir);
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn listener_fault_tears_down_and_retries_only_after_off_and_on() {
@@ -496,21 +538,21 @@ mod tests {
         // Enabled: the fault is observed, the endpoint is torn down, and no
         // retry happens while the setting stays on.
         assert_eq!(
-            runtime.reconcile(true, true, wake.clone()),
+            runtime.reconcile(true, true, || wake.clone()),
             ReconcileOutcome::Faulted("accept failed: injected".to_owned()),
             "the first reason is retained"
         );
         assert!(runtime.queue.is_none() && runtime.server.is_none());
         assert!(!endpoint.exists(), "faulted endpoint removed");
         assert_eq!(
-            runtime.reconcile(true, true, wake.clone()),
+            runtime.reconcile(true, true, || wake.clone()),
             ReconcileOutcome::Unchanged,
             "no automatic rebind while the setting stays on"
         );
 
         // Off then on: one clean retry.
         assert_eq!(
-            runtime.reconcile(false, true, wake.clone()),
+            runtime.reconcile(false, true, || wake.clone()),
             ReconcileOutcome::Unchanged
         );
         assert!(!runtime.attempted);
@@ -526,7 +568,7 @@ mod tests {
             .expect("server")
             .inject_fault_for_test("accept failed: second");
         assert_eq!(
-            runtime.reconcile(false, true, wake),
+            runtime.reconcile(false, true, || wake),
             ReconcileOutcome::Stopped,
             "disabling a faulted endpoint tears it down"
         );
