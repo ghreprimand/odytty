@@ -315,7 +315,7 @@ and clears after one bounded delay without animation.
 
 ### Ambiguous Character Width
 
-Available in the v0.16.0 development tree; not included in v0.15.7.
+Available in the v0.16.0 development tree; not included in v0.15.8.
 
 East Asian Ambiguous characters use one column unless `ambiguous_width` is
 `wide`. The default `narrow` is today's width table. A profile may set
@@ -612,7 +612,7 @@ Command Palette, and Settings.
 
 ### Stacked And Floating Pane Layouts
 
-Available in the v0.16.0 development tree; not included in v0.15.7.
+Available in the v0.16.0 development tree; not included in v0.15.8.
 
 | Task | Command palette |
 | --- | --- |
@@ -680,7 +680,7 @@ for every other layout.
 
 ### Make A Pane Read-Only
 
-Available in the v0.16.0 development tree; not included in v0.15.7.
+Available in the v0.16.0 development tree; not included in v0.15.8.
 
 | Task | Direct path |
 | --- | --- |
@@ -714,7 +714,7 @@ on Linux (Wayland and X11), macOS, and Windows.
 
 ### Secure Keyboard Input
 
-Available in the v0.16.0 development tree; not included in v0.15.7.
+Available in the v0.16.0 development tree; not included in v0.15.8.
 
 | Task | Direct path |
 | --- | --- |
@@ -727,7 +727,7 @@ Windows and Linux have no equivalent primitive. The settings row and the palette
 
 ### Broadcast Input
 
-Available in the v0.16.0 development tree; not included in v0.15.7.
+Available in the v0.16.0 development tree; not included in v0.15.8.
 
 | Task | Direct path |
 | --- | --- |
@@ -782,7 +782,7 @@ stays on Ctrl like the other default chords), and Windows.
 
 ### Export Scrollback
 
-Available in the v0.16.0 development tree; not included in v0.15.7.
+Available in the v0.16.0 development tree; not included in v0.15.8.
 
 The command palette offers **Export Scrollback As Text** and **Export Scrollback
 As HTML**. Each saves the focused pane's scrollback followed by its current
@@ -1104,7 +1104,7 @@ window takes over that role and saves the merged layout. Escape cancels. See the
 
 ### Move Tabs And Panes Between Windows
 
-Available in the v0.16.0 development tree; not included in v0.15.7.
+Available in the v0.16.0 development tree; not included in v0.15.8.
 
 | Task | Command palette |
 | --- | --- |

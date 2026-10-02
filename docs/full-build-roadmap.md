@@ -947,9 +947,9 @@ ship:
 3. **Execute the provisional release sequence above one checkpoint at a time.**
    Profiles and navigation in v0.14.0 and fast access and local control in
    v0.15.0 are published, followed by the v0.15.5 font-maintenance and Wayland
-   reliability patch, the v0.15.6 cursor-glide regression fix, and the v0.15.7
-   Wayland stall-prevention and merge-autosave patch; v0.16.0 is the next
-   planned feature checkpoint.
+   reliability patch, the v0.15.6 cursor-glide regression fix, the v0.15.7
+   Wayland stall-prevention and merge-autosave patch, and the v0.15.8 macOS
+   idle-CPU patch; v0.16.0 is the next planned feature checkpoint.
    Do not hold a completed checkpoint for later roadmap work, and
    do not pull a later feature forward without its platform, security,
    documentation, and evidence gates.
