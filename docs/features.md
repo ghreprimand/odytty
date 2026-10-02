@@ -315,6 +315,8 @@ and clears after one bounded delay without animation.
 
 ### Ambiguous Character Width
 
+Available in the v0.16.0 development tree; not included in v0.15.7.
+
 East Asian Ambiguous characters use one column unless `ambiguous_width` is
 `wide`. The default `narrow` is today's width table. A profile may set
 `appearance.ambiguous_width` to `narrow` or `wide`; a missing profile value
@@ -325,7 +327,11 @@ The cursor moves with the new column count. A selection or a search hit can
 land on different cells because the grid is remeasured; bytes already stored
 are not rewritten. The change applies immediately. The PTY is not resized and
 the shell is not told, so a prompt that wrapped under the old width stays as
-the shell last drew it until the operator redraws it.
+the shell last drew it until the shell redraws it. An active alternate screen
+is left for the application to repaint. Overlay chrome, the tab bar, the
+search status line, and the glyph atlas stay on the narrow table, because one
+shared atlas cannot store two slot widths for the same codepoint. IME
+pre-edit follows the pane's policy.
 
 Fresh profiles enable contextual programming ligatures from the selected text
 font. Shaping runs cover eligible ASCII graphics, a curated allowlist of
@@ -674,7 +680,7 @@ for every other layout.
 
 ### Make A Pane Read-Only
 
-Available in the v0.16.0 development tree; not included in v0.15.6.
+Available in the v0.16.0 development tree; not included in v0.15.7.
 
 | Task | Direct path |
 | --- | --- |
@@ -775,6 +781,8 @@ the set. Behavior is the same on Linux (Wayland and X11), macOS (the chord
 stays on Ctrl like the other default chords), and Windows.
 
 ### Export Scrollback
+
+Available in the v0.16.0 development tree; not included in v0.15.7.
 
 The command palette offers **Export Scrollback As Text** and **Export Scrollback
 As HTML**. Each saves the focused pane's scrollback followed by its current

@@ -89,8 +89,8 @@ Development on `master`; not released. Items check off when their code is on
       EnableSecureEventInput only while the wish is on and an OdyTTY window
       has keyboard focus, and pairs the disable when the last focused hold
       is released. A `SECURE INPUT` label stays on each holding window.
-      Windows and Linux show the setting as unsupported and do not simulate
-      it. A crash while it is enabled can leave secure input reported as
+      Windows and Linux do not offer the settings row or the palette action
+      and do not simulate it. A crash while it is enabled can leave secure input reported as
       active, and keyboard-intercept tools blocked, until logout. Normal
       typing in other apps is unaffected.
 - [ ] Device acceptance for secure keyboard input: macOS toggle, label, and

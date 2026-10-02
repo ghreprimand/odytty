@@ -418,6 +418,11 @@ These tokens are accepted on the right-hand side of `chord=action`:
   (default `Ctrl+Shift+X`) empties the set. Typed keys, IME commits, and paste
   then reach every receiver as well as the focused pane. See
   [Broadcast input](features.md#broadcast-input).
+- **Secure keyboard input:** no bindable action and no default chord. On
+  macOS the command palette action is **Toggle Secure Keyboard Input** and
+  the settings row is **Secure keyboard input**. Windows and Linux do not
+  offer either, and the mode is not simulated. See
+  [Secure keyboard input](features.md#secure-keyboard-input).
 - **Pane layouts:** no bindable action and no default chord. **Stack Panes**,
   **Float Panes**, **Tile Panes**, **Arrange Floating Pane**, and the
   **Focus Pane k of n** rows are command palette entries; **Focus Next Pane**

@@ -1189,6 +1189,15 @@ scope rather than silently inheriting deferred work from a prior release.
 
 ### Native UI And Workspaces
 
+- East Asian Ambiguous width (v0.16.0): `ambiguous_width`
+  (`ODYTTY_AMBIGUOUS_WIDTH`, profile `appearance.ambiguous_width`) is
+  `narrow` (default, one column, the ordinary width table) or `wide` (two
+  columns). A pane uses the profile that launched it; a missing profile
+  value uses the global setting. Changing it reflows that pane's primary
+  grid and scrollback in place. The PTY is not resized and the shell is not
+  told. An active alternate screen is left for the application to repaint.
+  Overlay chrome, the tab bar, the search status line, and the glyph atlas
+  stay on the narrow table. IME pre-edit follows the pane's policy.
 - Read-only panes (v0.16.0): a per-pane input-disabled flag, toggled from
   the command palette, the terminal context menu, or the unbound
   `toggle-read-only` action. One policy helper (`pane_accepts_input`) gates

@@ -904,14 +904,21 @@ Three prohibitions apply to every boundary below:
 
 ### B19 - Broadcast input
 
+The development tree implements this boundary. Membership is an explicit,
+in-memory set. It is never saved, and a new pane does not join on its own.
+
 - **Attacker control:** A1 can print convincing prompts or instructions and can
   try to trigger terminal modes. A4 can synthesize ordinary input events within
   the limits of the trusted desktop session.
 - **Trust assumption:** only an explicit user gesture may select panes and arm
   broadcast. Focus alone is not authorization.
-- **Planned default:** off. Armed state is conspicuous, names the exact pane
-  group, is bounded to the current application ownership graph, and has a
-  discoverable one-action dismissal. New panes never join implicitly.
+- **Current default:** off. The user adds one pane at a time from the command
+  palette or the terminal menu (`toggle-broadcast`, no default chord).
+  `Ctrl+Shift+X` (`stop-broadcast`) empties the set and is not sent to a
+  shell. `BROADCAST n` and `RECV` labels show the set. A read-only receiver
+  is skipped. A paste that contains a line break is confirmed with receiver,
+  hidden, and remote counts. Receivers in other windows of the process are
+  included. Local automation has no send-text action.
 - **Validation and caps:** pane membership is resolved by stable identities at
   every transaction. Paste traverses the risky-paste policy before fan-out.
   Per-pane bracketed mode is honored independently; one destination failure does
@@ -1047,7 +1054,11 @@ Three prohibitions apply to every boundary below:
   range. The internal `rfd` adapter in AD-13-11 obtains a destination through the
   platform-native save dialog. Cancellation writes nothing. Only sanitized
   plain text from the canonical cell-text projection crosses the egress
-  boundary.
+  boundary. Scrollback export is a separate pair of palette actions. It uses
+  the same writer, 32 MiB cap, and native dialog, and it can also write
+  sanitized self-contained HTML: text is escaped, only `http` and `https`
+  links become anchors, and images and scripts are not embedded.
+  Command-output export itself stays plain text.
 - **Content validation and cap:** the export includes visible logical text and
   line breaks only. Terminal escape bytes, OSC/DCS/APC payloads, hidden prompt
   metadata, hyperlinks' targets/IDs, image payloads/placement data, private cwd
@@ -1197,12 +1208,12 @@ behavior, and a Linux or macOS result is never a substitute for a Windows one.
 | B16 notifications/progress | bounded OSC 9/777/9;4 parsing, generic trusted chrome, pane ownership, rate/expiry, restoration-default, and native-adapter command fixtures | manual native-delivery acceptance on each platform |
 | B17 local automation | Unix socket + Windows named-pipe transport, owner-bridge, hostile-client, and CLI fixtures | same-user IPC, authorization, schema, stale-ID, and lifecycle fixtures |
 | B18 file drop | shell quoting, paste-policy routing, Unix ownership, Windows platform refusal, and App-route fixtures | platform event delivery and hostile-path fixtures on each OS |
-| B19 broadcast input | no product surface | explicit group ownership, mixed-mode fan-out, disarm, and failure fixtures |
+| B19 broadcast input | `native::tests::broadcast_input` and the multi-window broadcast tests: explicit membership, read-only skip, receiver failure, cross-window delivery, stop chord | coverage-guided fan-out of mixed bracketed modes, paste cancellation, and partial writer failure |
 | B20 triggers | no product surface | bounded matching and proof of prohibited side-effect isolation |
 | B21 session logging | transient in-memory replay bounds only | private file creation, cap, write-failure, rotation, and sanitization fixtures |
 | B22 serial devices | no product surface | real-hardware gates plus bounded disconnect, stall, and flood fixtures |
 | B23 restored workflow metadata | current bounded workspace/session restore suites | new-field versioning, transient-authority exclusion, and platform restore fixtures |
-| B24 command-output export | current plain-text projection and path-hardening patterns only | sanitized cap, native dialog, no-follow/reparse, overwrite, private atomic writer, cleanup, and four-leg fixtures |
+| B24 command-output export | plain-text command export, plus scrollback text and HTML tests in `scrollback_export` and `scrollback_export_app`; the writer, cap, and dialog are shared | sanitized cap, native dialog, no-follow/reparse, overwrite, private atomic writer, cleanup, and four-leg fixtures |
 
 Every planned target must retain a provenance-safe public corpus, run under
 bounded allocation and bounded time, reproduce crashes deterministically, and

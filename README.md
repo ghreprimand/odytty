@@ -8,8 +8,11 @@ development tree adds [read-only panes](docs/features.md#make-a-pane-read-only),
 sanitized HTML, guarded [broadcast input](docs/features.md#broadcast-input)
 to explicitly chosen panes, [moving tabs and panes between windows](docs/features.md#move-tabs-and-panes-between-windows),
 [stacked and floating pane layouts](docs/features.md#stacked-and-floating-pane-layouts),
-and [secure keyboard input](docs/features.md#secure-keyboard-input) on macOS;
-these features are not included in v0.15.7. The development
+and [secure keyboard input](docs/features.md#secure-keyboard-input) on macOS.
+East Asian Ambiguous characters follow
+[`ambiguous_width`](docs/features.md#ambiguous-character-width) (`narrow` by
+default, or `wide`). On Windows, a window's first shells stay suspended until
+the live grid reaches ConPTY. These features are not included in v0.15.7. The development
 palette also refuses control-bearing history and directory entries instead of
 sending hidden input. Release evidence and historical corrections are listed
 in the [release index](docs/releases/README.md).
