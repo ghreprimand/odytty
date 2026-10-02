@@ -2217,6 +2217,22 @@ const CALLBACK_RECORD_PREFIX: &str =
     "freeze_watchdog: frame owed with compositor callback outstanding";
 const CLASSIC_RECORD_PREFIX: &str = "freeze_watchdog: work pending";
 
+/// The probe exports the slow-retry class from the real renderer counter: it
+/// turns on exactly when the fast retry budget is spent, and clears with the
+/// counter reset a present performs.
+#[test]
+fn watchdog_probe_reports_slow_retry_when_the_fast_budget_is_spent() {
+    let Some(mut app) = build_idle_app() else {
+        return;
+    };
+    app.consecutive_skipped_frames = MAX_SKIPPED_RETRIES - 1;
+    assert!(!app.watchdog_state().skip_slow_retry);
+    app.consecutive_skipped_frames = MAX_SKIPPED_RETRIES;
+    assert!(app.watchdog_state().skip_slow_retry);
+    app.consecutive_skipped_frames = 0;
+    assert!(!app.watchdog_state().skip_slow_retry);
+}
+
 /// A focused, present, Wayland state that owes a frame. `redraws_delivered` is
 /// caller-set so the same helper drives both the callback-outstanding (0) and
 /// the classic (>0) episodes.
@@ -2234,6 +2250,7 @@ fn watchdog_owed_state(redraws_delivered: u64) -> WatchdogAppState {
         needs_rebuild: true,
         frames_presented: 10,
         consecutive_skipped_frames: 0,
+        skip_slow_retry: false,
         redraws_delivered,
         render_owed: true,
     }

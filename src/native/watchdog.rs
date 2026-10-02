@@ -37,6 +37,15 @@ const RELOG_EVERY: Duration = Duration::from_secs(60);
 /// Monitor thread poll cadence. Coarse on purpose — the watchdog trades
 /// detection latency for near-zero idle cost.
 const POLL_EVERY: Duration = Duration::from_secs(2);
+/// A window in the renderer's skipped-frame slow retry is only classified as
+/// healthy-but-hidden while redraws keep being delivered. The slow retry fires
+/// about once a second ([`POLL_EVERY`] is two), so six seconds without a single
+/// delivered redraw means the retry timer itself stopped: that is the loop not
+/// delivering redraws, and the episode goes back to the classic stall record.
+const SLOW_RETRY_LIVENESS: Duration = Duration::from_secs(6);
+/// Fixed prefix of the slow-retry classification record (not a stall).
+pub(super) const SLOW_RETRY_RECORD_PREFIX: &str =
+    "freeze_watchdog: window in skipped-frame slow retry";
 
 /// State snapshot the probe (`App::watchdog_state`, see
 /// `app/watchdog_probe.rs`) hands the wrapper after every delegated event.
@@ -54,12 +63,18 @@ pub(super) struct WatchdogAppState {
     pub(super) overlay_open: bool,
     pub(super) context_menu_open: bool,
     /// Discriminant of `ActiveModal` (0 = None, 1 = CopyMode,
-    /// 2 = HintsSelect, 3 = RenameTab).
+    /// 2 = HintsSelect, 3 = RenameTab, 4 = FloatArrange).
     pub(super) modal: u8,
     pub(super) needs_rebuild: bool,
     /// Frames that reached `present()` since GPU init.
     pub(super) frames_presented: u64,
     pub(super) consecutive_skipped_frames: u32,
+    /// The renderer spent its fast skipped-frame retry budget and is on the
+    /// slow keep-alive retry (about one attempt per second). Together with an
+    /// unfocused or occluded window this is a hidden surface the compositor
+    /// is not presenting, not a render-path freeze, as long as the retries
+    /// keep delivering redraws (see [`SLOW_RETRY_LIVENESS`]).
+    pub(super) skip_slow_retry: bool,
     /// `RedrawRequested` events DELIVERED to the app since launch. Compared
     /// against the episode-start snapshot in [`WatchdogShared::evaluate`]: a
     /// flat counter means the windowing system never asked for the frame the
@@ -103,6 +118,15 @@ pub(super) struct WatchdogShared {
     needs_rebuild: AtomicBool,
     frames_presented: AtomicU64,
     consecutive_skipped_frames: AtomicU64,
+    skip_slow_retry: AtomicBool,
+    /// Slow-retry classification record already logged this episode.
+    slow_retry_logged: AtomicBool,
+    slow_retry_last_log_ms: AtomicU64,
+    /// Liveness tracking for the slow-retry class: whether it is armed, the
+    /// delivered-redraw count last seen, and when that count last advanced.
+    slow_retry_tracking: AtomicBool,
+    slow_retry_last_redraws: AtomicU64,
+    slow_retry_progress_ms: AtomicU64,
     /// Whether a frame is genuinely owed (gates the stall log; not logged).
     render_owed: AtomicBool,
     /// Monitor-clock instant when `render_owed` most recently became true.
@@ -137,6 +161,12 @@ impl WatchdogShared {
             needs_rebuild: AtomicBool::new(false),
             frames_presented: AtomicU64::new(0),
             consecutive_skipped_frames: AtomicU64::new(0),
+            skip_slow_retry: AtomicBool::new(false),
+            slow_retry_logged: AtomicBool::new(false),
+            slow_retry_last_log_ms: AtomicU64::new(0),
+            slow_retry_tracking: AtomicBool::new(false),
+            slow_retry_last_redraws: AtomicU64::new(0),
+            slow_retry_progress_ms: AtomicU64::new(0),
             render_owed: AtomicBool::new(false),
             render_owed_since_ms: AtomicU64::new(0),
             redraws_delivered: AtomicU64::new(0),
@@ -154,6 +184,7 @@ impl WatchdogShared {
                 .store(self.now_ms(), Ordering::Relaxed);
             self.logged.store(false, Ordering::Relaxed);
             self.callback_logged.store(false, Ordering::Relaxed);
+            self.reset_slow_retry_episode();
             // Baseline the delivered-redraw counter for this episode. The
             // wrapper calls this BEFORE delegating the event, so a
             // `RedrawRequested` that opens an episode still counts inside it.
@@ -168,6 +199,12 @@ impl WatchdogShared {
         self.pending.store(false, Ordering::Relaxed);
         self.logged.store(false, Ordering::Relaxed);
         self.callback_logged.store(false, Ordering::Relaxed);
+        self.reset_slow_retry_episode();
+    }
+
+    fn reset_slow_retry_episode(&self) {
+        self.slow_retry_logged.store(false, Ordering::Relaxed);
+        self.slow_retry_tracking.store(false, Ordering::Relaxed);
     }
 
     #[cfg(test)]
@@ -209,6 +246,8 @@ impl WatchdogShared {
             u64::from(state.consecutive_skipped_frames),
             Ordering::Relaxed,
         );
+        self.skip_slow_retry
+            .store(state.skip_slow_retry, Ordering::Relaxed);
         self.store_render_owed(state.render_owed);
         self.redraws_delivered
             .store(state.redraws_delivered, Ordering::Relaxed);
@@ -231,6 +270,7 @@ impl WatchdogShared {
                 self.consecutive_skipped_frames.load(Ordering::Relaxed),
             )
             .unwrap_or(u32::MAX),
+            skip_slow_retry: self.skip_slow_retry.load(Ordering::Relaxed),
             render_owed: self.render_owed.load(Ordering::Relaxed),
             redraws_delivered: self.redraws_delivered.load(Ordering::Relaxed),
         }
@@ -319,7 +359,19 @@ impl WatchdogShared {
         }
         let pending_since = self.pending_since_ms.load(Ordering::Relaxed);
         let pending_for = now_ms.saturating_sub(pending_since);
-        if pending_for < u64::try_from(STALL_AFTER.as_millis()).unwrap_or(u64::MAX) {
+        let stall_after = u64::try_from(STALL_AFTER.as_millis()).unwrap_or(u64::MAX);
+        // An unfocused or occluded window on the renderer's slow skipped-frame
+        // retry whose retries keep delivering redraws is a surface the
+        // windowing system is not presenting, not a render-path freeze. Classify
+        // it distinctly. When the redraws stop advancing the retry timer itself
+        // is dead (the loop is not delivering), and the episode falls through
+        // to the classic stall record below, so real stalls stay detectable.
+        match self.classify_slow_retry(now_ms, pending_for) {
+            SlowRetry::Record(record) => return Some(record),
+            SlowRetry::Quiet => return None,
+            SlowRetry::NotApplicable => {}
+        }
+        if pending_for < stall_after {
             return None;
         }
         let already_logged = self.logged.load(Ordering::Relaxed);
@@ -340,6 +392,61 @@ impl WatchdogShared {
     }
 }
 
+/// Outcome of the slow-retry classification step in [`WatchdogShared::evaluate`].
+enum SlowRetry {
+    /// The episode is not in the slow-retry class (or its retries stopped
+    /// delivering redraws): continue with the classic stall decision.
+    NotApplicable,
+    /// In the class, nothing to log now (inside the stall window or rate limit).
+    Quiet,
+    /// In the class: log this distinct, non-stall record.
+    Record(String),
+}
+
+impl WatchdogShared {
+    fn classify_slow_retry(&self, now_ms: u64, pending_for: u64) -> SlowRetry {
+        let state = self.snapshot();
+        let in_class = state.skip_slow_retry
+            && (!state.focused || state.window_occluded)
+            && !state.window_minimized
+            && state.window_present
+            && state.gpu_present;
+        if !in_class {
+            self.slow_retry_tracking.store(false, Ordering::Relaxed);
+            return SlowRetry::NotApplicable;
+        }
+        let was_tracking = self.slow_retry_tracking.swap(true, Ordering::Relaxed);
+        let last = self
+            .slow_retry_last_redraws
+            .swap(state.redraws_delivered, Ordering::Relaxed);
+        if !was_tracking || state.redraws_delivered != last {
+            self.slow_retry_progress_ms.store(now_ms, Ordering::Relaxed);
+        }
+        let idle_for = now_ms.saturating_sub(self.slow_retry_progress_ms.load(Ordering::Relaxed));
+        if idle_for >= u64::try_from(SLOW_RETRY_LIVENESS.as_millis()).unwrap_or(u64::MAX) {
+            return SlowRetry::NotApplicable;
+        }
+        if pending_for < u64::try_from(STALL_AFTER.as_millis()).unwrap_or(u64::MAX) {
+            return SlowRetry::Quiet;
+        }
+        let already_logged = self.slow_retry_logged.load(Ordering::Relaxed);
+        let last_log = self.slow_retry_last_log_ms.load(Ordering::Relaxed);
+        if already_logged
+            && now_ms.saturating_sub(last_log)
+                < u64::try_from(RELOG_EVERY.as_millis()).unwrap_or(u64::MAX)
+        {
+            return SlowRetry::Quiet;
+        }
+        self.slow_retry_logged.store(true, Ordering::Relaxed);
+        self.slow_retry_last_log_ms.store(now_ms, Ordering::Relaxed);
+        SlowRetry::Record(format_slow_retry_record(
+            pending_for / 1000,
+            self.redraws_this_episode(),
+            &state,
+        ))
+    }
+}
+
 /// Spawn the detached monitor thread. It holds only a weak reference so it
 /// unwinds naturally when the event loop (and its `Arc`) is gone.
 pub(super) fn spawn_monitor(shared: &Arc<WatchdogShared>) {
@@ -353,7 +460,13 @@ pub(super) fn spawn_monitor(shared: &Arc<WatchdogShared>) {
                 return;
             };
             if let Some(record) = shared.evaluate(shared.now_ms()) {
-                tracing::warn!("{record}");
+                if record.starts_with(SLOW_RETRY_RECORD_PREFIX) {
+                    // A classification, not a freeze: the surface is hidden
+                    // or unfocused and the retry loop is alive.
+                    tracing::info!("{record}");
+                } else {
+                    tracing::warn!("{record}");
+                }
             }
         }
     });
@@ -384,6 +497,27 @@ fn format_stall_record(
     )
 }
 
+/// State-only record for the slow-retry class: an unfocused or occluded
+/// window whose skipped-frame retries still deliver redraws. Not a stall.
+fn format_slow_retry_record(
+    pending_secs: u64,
+    redraws_this_episode: u64,
+    state: &WatchdogAppState,
+) -> String {
+    format!(
+        "{SLOW_RETRY_RECORD_PREFIX} for {pending_secs}s (retries delivering redraws, not a stall); \
+         focused={} minimized={} occluded={} window_present={} gpu_present={} \
+         frames_presented={} skipped_frames={} redraws_delivered={redraws_this_episode}",
+        state.focused,
+        state.window_minimized,
+        state.window_occluded,
+        state.window_present,
+        state.gpu_present,
+        state.frames_presented,
+        state.consecutive_skipped_frames,
+    )
+}
+
 /// Distinct state-only record for the no-redraw callback-outstanding class.
 fn format_callback_outstanding_record(owed_secs: u64, state: &WatchdogAppState) -> String {
     format!(
@@ -404,6 +538,7 @@ fn modal_name(discriminant: u8) -> &'static str {
         1 => "copy_mode",
         2 => "hints_select",
         3 => "rename_tab",
+        4 => "float_arrange",
         _ => "unknown",
     }
 }
@@ -436,6 +571,7 @@ mod tests {
             needs_rebuild: true,
             frames_presented: 1234,
             consecutive_skipped_frames: 0,
+            skip_slow_retry: false,
             render_owed: true,
             redraws_delivered: 77,
         }
@@ -549,6 +685,7 @@ mod tests {
             needs_rebuild: true,
             frames_presented: 987,
             consecutive_skipped_frames: 3,
+            skip_slow_retry: true,
             render_owed: true,
             redraws_delivered: 4_242,
         };
@@ -680,5 +817,194 @@ mod tests {
             record.contains("redraws_delivered=0"),
             "record must carry the episode's delivered-redraw count: {record}"
         );
+    }
+
+    /// An unfocused window on the slow skipped-frame retry whose retries keep
+    /// delivering redraws (the macOS log shape: `focused=false`, skipped
+    /// frames rising about once a second, `redraws_delivered` equal to the
+    /// skip count, no frame presented) is classified as slow-retry, never as
+    /// the freeze record.
+    fn slow_retry_state(redraws: u64) -> WatchdogAppState {
+        WatchdogAppState {
+            focused: false,
+            consecutive_skipped_frames: 12,
+            skip_slow_retry: true,
+            redraws_delivered: redraws,
+            ..state()
+        }
+    }
+
+    const CLASSIC_PREFIX: &str = "freeze_watchdog: work pending";
+
+    #[test]
+    fn unfocused_slow_retry_with_live_redraws_is_classified_not_a_stall() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        let mut records = Vec::new();
+        for t in 0..=30u64 {
+            shared.store_state(&slow_retry_state(t + 1));
+            if let Some(record) = shared.evaluate(since + t * 1_000) {
+                records.push((t, record));
+            }
+        }
+        assert_eq!(
+            records.len(),
+            1,
+            "one classification, rate limited: {records:?}"
+        );
+        let (t, record) = &records[0];
+        assert_eq!(*t, 10, "logged at the stall window, not before");
+        assert!(
+            record.starts_with(SLOW_RETRY_RECORD_PREFIX),
+            "got: {record}"
+        );
+        assert!(
+            !record.starts_with(CLASSIC_PREFIX),
+            "must not read as a freeze: {record}"
+        );
+        assert!(record.contains("focused=false"), "{record}");
+    }
+
+    #[test]
+    fn occluded_focused_slow_retry_is_classified_too() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        let mut last = None;
+        for t in 0..=10u64 {
+            let mut s = slow_retry_state(t + 1);
+            s.focused = true;
+            s.window_occluded = true;
+            shared.store_state(&s);
+            last = shared.evaluate(since + t * 1_000);
+        }
+        let record = last.expect("classification at the stall window");
+        assert!(
+            record.starts_with(SLOW_RETRY_RECORD_PREFIX),
+            "got: {record}"
+        );
+        assert!(record.contains("occluded=true"), "{record}");
+    }
+
+    #[test]
+    fn slow_retry_classification_relogs_only_after_the_rate_limit() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        let mut count = 0;
+        for t in 0..=80u64 {
+            shared.store_state(&slow_retry_state(t + 1));
+            if shared.evaluate(since + t * 1_000).is_some() {
+                count += 1;
+            }
+        }
+        assert_eq!(count, 2, "first at 10s, again after RELOG_EVERY");
+    }
+
+    /// Real stall preserved: the retry timer stopped delivering redraws, so
+    /// the slow-retry class lapses after SLOW_RETRY_LIVENESS and the classic
+    /// freeze record fires at the stall window.
+    #[test]
+    fn slow_retry_with_stopped_redraws_still_reports_the_classic_stall() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        let mut records = Vec::new();
+        for t in (0..=12u64).step_by(2) {
+            // Redraw count frozen at 1: the loop stopped delivering.
+            shared.store_state(&slow_retry_state(1));
+            if let Some(record) = shared.evaluate(since + t * 1_000) {
+                records.push((t, record));
+            }
+        }
+        assert_eq!(records.len(), 1, "{records:?}");
+        let (t, record) = &records[0];
+        assert_eq!(*t, 10);
+        assert!(record.starts_with(CLASSIC_PREFIX), "got: {record}");
+    }
+
+    /// A focused, visible window stuck on the slow retry is NOT excused: the
+    /// surface should present, so it keeps the classic record.
+    #[test]
+    fn focused_visible_slow_retry_stays_a_classic_stall() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        let mut last = None;
+        for t in 0..=10u64 {
+            let mut s = slow_retry_state(t + 1);
+            s.focused = true;
+            shared.store_state(&s);
+            last = shared.evaluate(since + t * 1_000);
+        }
+        let record = last.expect("classic stall");
+        assert!(record.starts_with(CLASSIC_PREFIX), "got: {record}");
+    }
+
+    /// Before the fast retry budget is spent the class does not apply: an
+    /// unfocused window with a few skips keeps the previous classic behavior.
+    #[test]
+    fn unfocused_below_the_slow_retry_budget_stays_a_classic_stall() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        let mut s = slow_retry_state(5);
+        s.skip_slow_retry = false;
+        s.consecutive_skipped_frames = 3;
+        shared.store_state(&s);
+        let record = shared.evaluate(since + 10_000).expect("classic stall");
+        assert!(record.starts_with(CLASSIC_PREFIX), "got: {record}");
+    }
+
+    /// A present clears the slow-retry episode so the next one classifies and
+    /// logs afresh.
+    #[test]
+    fn present_rearms_the_slow_retry_classification() {
+        let shared = WatchdogShared::new();
+        for round in 0..2u64 {
+            shared.note_activity();
+            let since = shared.pending_since_ms.load(Ordering::Relaxed);
+            let mut got = None;
+            for t in 0..=10u64 {
+                shared.store_state(&slow_retry_state(round * 100 + t + 1));
+                got = shared.evaluate(since + t * 1_000);
+            }
+            assert!(got.expect("record").starts_with(SLOW_RETRY_RECORD_PREFIX));
+            shared.note_present();
+        }
+    }
+
+    #[test]
+    fn slow_retry_record_is_state_only() {
+        let record = format_slow_retry_record(11, 11, &slow_retry_state(11));
+        let body = record.split_once("; ").expect("prefix; body").1;
+        for token in body.split_whitespace() {
+            let (key, value) = token.split_once('=').expect("key=value tokens only");
+            assert!(
+                key.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "{key}"
+            );
+            assert!(
+                value
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+                "{value}"
+            );
+        }
+        for key in [
+            "focused=",
+            "occluded=",
+            "skipped_frames=",
+            "redraws_delivered=",
+        ] {
+            assert!(record.contains(key), "missing {key} in: {record}");
+        }
+    }
+
+    #[test]
+    fn float_arrange_modal_has_a_name() {
+        assert_eq!(modal_name(4), "float_arrange");
+        assert_eq!(modal_name(200), "unknown");
     }
 }

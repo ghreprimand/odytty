@@ -127,6 +127,17 @@ archive these files when their diagnostic purpose is complete.
   rate-limited to at most one record per minute per stall, costs a few atomic
   stores per event on the healthy path, and re-arms as soon as a frame is
   presented.
+  A window that is unfocused or occluded and has spent the renderer's fast
+  skipped-frame retries is a hidden surface the windowing system is not
+  presenting, not a freeze. While its slow (about one per second) retries keep
+  delivering redraws, the watchdog logs one `info` record starting
+  `window in skipped-frame slow retry` instead of the stall record. If the
+  delivered-redraw count stops advancing for several seconds the retry timer
+  itself is dead and the normal stall record applies. A focused, visible
+  window stuck in the slow retry still reports a stall. The classification is
+  platform-independent logic; it was observed on macOS and has no
+  platform-specific code on Linux or Windows (a minimized window schedules no
+  retries and is outside the class).
 - **GPU adapter identity.** At startup OdyTTY records the selected GPU adapter's
   name, backend, and device class — hardware metadata only, no user
   content. If the selected adapter is a software rasterizer (llvmpipe, lavapipe,

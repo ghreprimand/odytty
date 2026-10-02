@@ -54,6 +54,9 @@ impl App {
                 .map(GpuState::frames_presented)
                 .unwrap_or(0),
             consecutive_skipped_frames: self.consecutive_skipped_frames,
+            // The fast retry budget is spent: retries now run on the slow
+            // keep-alive cadence (see `next_skipped_retry_delay`).
+            skip_slow_retry: self.consecutive_skipped_frames >= frame::MAX_SKIPPED_RETRIES,
             redraws_delivered: self.redraws_delivered,
             // Gating discriminator for the stall log: is a frame genuinely
             // owed right now? Use the multipane-aware `should_rebuild_frame()`
