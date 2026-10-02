@@ -123,23 +123,82 @@ pub(in crate::native) fn paint_secure_input_label(snapshot: &mut Snapshot, held:
         return;
     }
     let columns = snapshot.dimensions.columns;
-    let label: Vec<char> = SECURE_INPUT_LABEL.chars().collect();
-    if columns < label.len() || snapshot.dimensions.rows == 0 {
+    if columns < SECURE_INPUT_LABEL.chars().count() || snapshot.dimensions.rows == 0 {
         return;
     }
+    paint_label_at(snapshot, 0, 0);
+}
+
+/// Multi-pane variant: paint the label on the focused pane without covering
+/// the other chrome already painted on the pane's top row (the arrange label
+/// at the left, the read-only and broadcast labels at the right).
+///
+/// `baseline` is that top row as it was BEFORE the pane chrome was painted; a
+/// column that differs from it is taken. The label goes in the first run of
+/// free columns on the top row that holds it. When the top row has no such run
+/// it goes at the left of the second row, and on a one-row pane it replaces the
+/// start of the top row: disclosing a held secure-input state outranks a
+/// neighboring label. A pane too narrow for the full label is left unchanged.
+pub(in crate::native) fn paint_secure_input_label_clear_of(
+    snapshot: &mut Snapshot,
+    baseline: &[Cell],
+) {
+    let columns = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    let len = SECURE_INPUT_LABEL.chars().count();
+    if columns < len || rows == 0 {
+        return;
+    }
+    let taken = |column: usize| snapshot.cells.get(column) != baseline.get(column);
+    let mut run = 0;
+    let mut start = None;
+    for column in 0..columns {
+        if taken(column) {
+            run = 0;
+        } else {
+            run += 1;
+            if run == len {
+                start = Some(column + 1 - len);
+                break;
+            }
+        }
+    }
+    match start {
+        Some(column) => paint_label_at(snapshot, 0, column),
+        None if rows >= 2 => paint_label_at(snapshot, 1, 0),
+        None => paint_label_at(snapshot, 0, 0),
+    }
+}
+
+/// Write the label at `row`/`column`. The caller has checked the pane is wide
+/// enough for it.
+fn paint_label_at(snapshot: &mut Snapshot, row: usize, column: usize) {
+    let columns = snapshot.dimensions.columns;
     let mut attrs = Attrs::default();
     attrs.set_inverse(true);
     attrs.set_bold(true);
-    let len = label.len();
-    for (offset, ch) in label.iter().enumerate() {
-        if let Some(cell) = snapshot.cells.get_mut(offset) {
-            *cell = Cell::new(*ch, attrs);
+    let base = row * columns + column;
+    // A wide glyph whose spacer half starts the label would leave its lead
+    // cell drawing across the label; blank the lead.
+    if column > 0
+        && snapshot
+            .cells
+            .get(base)
+            .is_some_and(|cell| cell.wide_continuation)
+        && let Some(lead) = snapshot.cells.get_mut(base - 1)
+    {
+        *lead = Cell::new(' ', lead.attrs);
+    }
+    let len = SECURE_INPUT_LABEL.chars().count();
+    for (offset, ch) in SECURE_INPUT_LABEL.chars().enumerate() {
+        if let Some(cell) = snapshot.cells.get_mut(base + offset) {
+            *cell = Cell::new(ch, attrs);
         }
     }
     // The cell just past the label can be the spacer half of a wide glyph
     // whose lead was inside the label. Overwriting the lead orphans that
     // spacer; blank it.
-    if let Some(tail) = snapshot.cells.get_mut(len)
+    if let Some(tail) = snapshot.cells.get_mut(base + len)
         && tail.wide_continuation
     {
         let kept = tail.attrs;

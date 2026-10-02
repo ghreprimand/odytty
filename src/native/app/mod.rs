@@ -191,6 +191,8 @@ mod ssh_connect;
 // `App` state ownership: fields, construction, and the active-session
 // dereference. Extracted from this file without behavior change.
 mod state;
+#[cfg(test)]
+pub(in crate::native) use state::PanePaintProbe;
 mod tab_bar;
 // F4-RESKIN: shared "Phosphor Flat" treatment (color) for both tab-chrome axes.
 mod tab_chrome;

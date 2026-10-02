@@ -818,6 +818,28 @@ impl App {
         self.multipane_chrome_rows_for_test.clone()
     }
 
+    /// Drive the production `ModifiersChanged` handler with Ctrl held or
+    /// released (Cmd on macOS is not driven here).
+    #[cfg(test)]
+    pub(in crate::native) fn drive_ctrl_modifier_changed_for_test(&mut self, ctrl: bool) {
+        let state = if ctrl {
+            winit::keyboard::ModifiersState::CONTROL
+        } else {
+            winit::keyboard::ModifiersState::empty()
+        };
+        self.on_modifiers_changed(winit::event::Modifiers::from(state));
+    }
+
+    /// Drive the multi-pane rebuild and return each visible pane's probe (top
+    /// rows and underlined cell count), in paint order.
+    #[cfg(test)]
+    pub(in crate::native) fn rebuild_multipane_probe_for_test(
+        &mut self,
+    ) -> Vec<super::state::PanePaintProbe> {
+        self.rebuild_multipane();
+        self.multipane_pane_probe_for_test.clone()
+    }
+
     /// Test seam (floating layouts): the content rectangle and cell size the
     /// multi-pane geometry resolves to, or `None` on a single-pane tab.
     #[cfg(test)]
@@ -3671,3 +3693,31 @@ impl App {
 
 #[path = "test_seams/notifications.rs"]
 mod notifications;
+
+/// The probe of one pane's painted snapshot: its first three rows and its
+/// underlined cell count.
+#[cfg(test)]
+pub(super) fn pane_paint_probe(
+    snapshot: &crate::core::Snapshot,
+    focused: bool,
+) -> super::state::PanePaintProbe {
+    let columns = snapshot.dimensions.columns.max(1);
+    let rows = snapshot.dimensions.rows.min(3);
+    super::state::PanePaintProbe {
+        focused,
+        rows: (0..rows)
+            .map(|row| {
+                let end = ((row + 1) * columns).min(snapshot.cells.len());
+                snapshot.cells[row * columns..end]
+                    .iter()
+                    .map(|cell| cell.ch)
+                    .collect()
+            })
+            .collect(),
+        underlined: snapshot
+            .cells
+            .iter()
+            .filter(|cell| cell.attrs.underline())
+            .count(),
+    }
+}

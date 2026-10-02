@@ -718,7 +718,10 @@ impl App {
             return;
         };
         #[cfg(test)]
-        self.multipane_chrome_rows_for_test.clear();
+        {
+            self.multipane_chrome_rows_for_test.clear();
+            self.multipane_pane_probe_for_test.clear();
+        }
         // SCROLL-GLIDE (per-pane): a single frame timestamp for advancing every
         // visible pane's follower below. The follower is frame-rate independent
         // (its step reads each session's own last-tick delta), so one shared
@@ -1011,6 +1014,14 @@ impl App {
                 session.attention.completed,
                 session.attention.failed,
             );
+            // The secure-input label needs the top row as it stood before the
+            // pane chrome below, so it can sit beside the arrange, read-only,
+            // and broadcast labels instead of covering one. Only the focused
+            // pane carries it, and only while this window holds the hold.
+            let secure_baseline = (self.secure_input_held && is_focused).then(|| {
+                let columns = pane.snapshot.dimensions.columns;
+                pane.snapshot.cells[..columns.min(pane.snapshot.cells.len())].to_vec()
+            });
             super::read_only::paint_read_only_label(&mut pane.snapshot, session.read_only);
             super::floating_ui::paint_arrange_label(
                 &mut pane.snapshot,
@@ -1022,6 +1033,17 @@ impl App {
                 label.as_ref(),
                 session.read_only,
             );
+            // Ctrl+hover underline: the pointer maps only inside the focused
+            // pane, so the hovered span is in that pane's own coordinates.
+            if is_focused {
+                self.paint_armed_path_underline_cells(&mut pane.snapshot);
+            }
+            if let Some(baseline) = secure_baseline {
+                super::secure_input::paint_secure_input_label_clear_of(
+                    &mut pane.snapshot,
+                    &baseline,
+                );
+            }
             // Merge-picker chrome. The single-pane path paints this in
             // frame.rs. A tiled, stacked, or floating tab never takes that
             // path, so the origin banner and the candidate numeral land on
@@ -1044,6 +1066,10 @@ impl App {
                         .map(|cell| cell.ch)
                         .collect()
                 })
+                .collect();
+            self.multipane_pane_probe_for_test = panes_owned
+                .iter()
+                .map(|pane| super::test_seams::pane_paint_probe(&pane.snapshot, pane.focused))
                 .collect();
         }
 

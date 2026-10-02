@@ -721,7 +721,7 @@ Available in the v0.16.0 development tree; not included in v0.15.8.
 | Turn secure input on or off | **Toggle Secure Keyboard Input** in the command palette, or the **Secure keyboard input** settings row |
 | See that it is on | A `SECURE INPUT` label at the top-left of the focused window |
 
-This exists only on macOS, and only when the setting is turned on. It is never turned on because a program printed a password prompt, and there is no default key. The setting is one wish for the whole process: the palette toggle and a config reload set it for every window. A window created later in the same process adopts the wish already in force, including a wish turned on after startup. macOS secure event input is enabled only while that wish is on and an OdyTTY window has keyboard focus. While it is enabled, keyboard-intercept tools (event taps such as text expanders, and some accessibility and automation tools) do not receive keystrokes. Hotkey and key-remapping apps that use those taps stop working too, including any shortcut they provide (for example a remapped quit or window chord), exactly as with Terminal.app's Secure Keyboard Entry. The app's own menu shortcuts are unaffected. Other apps still receive keys. Keys typed in OdyTTY still reach the focused pane, and broadcast receivers when that set is active. Each window that holds the mode shows a `SECURE INPUT` label at its top-left. A crash while secure input is enabled can leave it reported as active, and those intercept tools blocked, until logout. Normal typing in other apps is unaffected. Turning the wish off, moving focus to another application, closing the last focused window, or quitting releases it.
+This exists only on macOS, and only when the setting is turned on. It is never turned on because a program printed a password prompt, and there is no default key. The setting is one wish for the whole process: the palette toggle and a config reload set it for every window. A window created later in the same process adopts the wish already in force, including a wish turned on after startup. macOS secure event input is enabled only while that wish is on and an OdyTTY window has keyboard focus. While it is enabled, keyboard-intercept tools (event taps such as text expanders, and some accessibility and automation tools) do not receive keystrokes. Hotkey and key-remapping apps that use those taps stop working too, including any shortcut they provide (for example a remapped quit or window chord), exactly as with Terminal.app's Secure Keyboard Entry. The app's own menu shortcuts are unaffected. Other apps still receive keys. Keys typed in OdyTTY still reach the focused pane, and broadcast receivers when that set is active. Each window that holds the mode shows a `SECURE INPUT` label at its top-left; in a split, stacked, or floating tab the label is on the focused pane, beside that pane's arrange, read-only, and broadcast labels instead of over them. A crash while secure input is enabled can leave it reported as active, and those intercept tools blocked, until logout. Normal typing in other apps is unaffected. Turning the wish off, moving focus to another application, closing the last focused window, or quitting releases it.
 
 Windows and Linux have no equivalent primitive. The settings row and the palette action are absent there. A `secure_keyboard_input` line in a shared config file is kept and not applied. The mode is not simulated.
 
@@ -1545,6 +1545,12 @@ jpeg, and webp files open in an in-app lightbox.
 Dismiss the lightbox with `Esc` or a click outside. A click hint and the path
 menu expose Open, **Open With…**, Copy Path, Copy File, and Reveal in File
 Manager.
+
+Holding the open modifier over a detected path underlines it, in single-pane,
+split, stacked, and floating tabs alike; in a multi-pane tab the underline is
+drawn on the focused pane, the only pane that tracks the pointer. The
+bottom-left click hint appears only in single-pane tabs: a split, stacked, or
+floating tab does not show it.
 
 Path detection currently recognizes POSIX path shapes (`/`, `~/`, `./`, `../`).
 Windows drive-absolute (`C:\`, `C:/`), UNC (`\\server\share`), and

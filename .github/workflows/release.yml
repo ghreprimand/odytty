@@ -123,9 +123,10 @@ jobs:
         run: cargo build --release --locked
 
       - name: Build AppImage
-        # build-appimage.sh deploys the dlopen'd xkbcommon-x11/Xcursor/Xi libraries
-        # explicitly (libxkbcommon.so.0 stays host-provided) (linuxdeploy only follows ELF NEEDED entries) and fails if
-        # one is missing from the build host or from the finished AppDir.
+        # linuxdeploy only follows ELF NEEDED entries, so build-appimage.sh
+        # deploys the dlopen'd xkbcommon-x11, Xcursor, and Xi libraries
+        # explicitly (libxkbcommon.so.0 stays host-provided) and fails if one is
+        # missing from the build host or from the finished AppDir.
         run: dist/appimage/build-appimage.sh "${VERSION}"
 
       - name: Smoke test the AppImage

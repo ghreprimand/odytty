@@ -477,6 +477,10 @@ pub(in crate::native) struct App {
     /// until that rebuild runs.
     #[cfg(test)]
     pub(super) multipane_chrome_rows_for_test: Vec<String>,
+    /// What each pane's top rows and underlined cells held after the latest
+    /// multi-pane rebuild, in paint order.
+    #[cfg(test)]
+    pub(super) multipane_pane_probe_for_test: Vec<PanePaintProbe>,
     /// Guarded broadcast input: the process-wide receiver set. A window owns a
     /// private empty set until the process window owner shares its own, so
     /// every window of one process reads and writes the same set.
@@ -829,6 +833,8 @@ impl App {
             merge_origin_candidates: None,
             #[cfg(test)]
             multipane_chrome_rows_for_test: Vec::new(),
+            #[cfg(test)]
+            multipane_pane_probe_for_test: Vec::new(),
             connection_probe: None,
             #[cfg(test)]
             last_image_upload: None,
@@ -902,4 +908,15 @@ impl App {
         app.sync_secure_keyboard_input();
         app
     }
+}
+
+/// Test probe of one pane's painted snapshot after a multi-pane rebuild.
+#[cfg(test)]
+#[derive(Debug, Clone, Default)]
+pub(in crate::native) struct PanePaintProbe {
+    pub(in crate::native) focused: bool,
+    /// The text of the first three rows (fewer on a shorter pane).
+    pub(in crate::native) rows: Vec<String>,
+    /// Cells carrying the underline attribute anywhere in the pane.
+    pub(in crate::native) underlined: usize,
 }

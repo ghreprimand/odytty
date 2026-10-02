@@ -4,7 +4,9 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::super::app::secure_input::paint_secure_input_label;
+use super::super::app::secure_input::{
+    paint_secure_input_label, paint_secure_input_label_clear_of,
+};
 use super::super::render_helpers::OverlayFragment;
 use super::super::secure_input::{
     SECURE_INPUT_LABEL, force_secure_input_apply_for_test, install_secure_input_ffi_for_test,
@@ -289,4 +291,86 @@ fn focus_gates_the_hold_and_one_toggle_releases_every_window() {
     );
     assert!(!secure_input_os_enabled());
     reset_secure_input_for_test();
+}
+
+fn row_text(snap: &Snapshot, row: usize, columns: usize) -> String {
+    snap.cells[row * columns..(row + 1) * columns]
+        .iter()
+        .map(|cell| cell.ch)
+        .collect()
+}
+
+/// The multi-pane painter leaves the other top-row chrome alone: the label
+/// goes in the first free run, between a left and a right label.
+#[test]
+fn clear_of_places_the_label_between_existing_top_row_labels() {
+    let columns = 40;
+    let mut snap = snapshot(&["", "second"], columns);
+    let baseline = snap.cells[..columns].to_vec();
+    // The real labels are inverse video, so their padding spaces differ from
+    // a blank cell and count as taken.
+    let mut chrome = Attrs::default();
+    chrome.set_inverse(true);
+    for (offset, ch) in " ARRANGE ".chars().enumerate() {
+        snap.cells[offset] = Cell::new(ch, chrome);
+    }
+    for (offset, ch) in " READ-ONLY ".chars().enumerate() {
+        snap.cells[columns - 1 - 11 + offset] = Cell::new(ch, chrome);
+    }
+    paint_secure_input_label_clear_of(&mut snap, &baseline);
+    let top = row_text(&snap, 0, columns);
+    assert!(top.starts_with(" ARRANGE "), "{top:?}");
+    assert!(top.contains(SECURE_INPUT_LABEL), "{top:?}");
+    assert!(top.contains(" READ-ONLY "), "{top:?}");
+    let at = top.find(SECURE_INPUT_LABEL).expect("label");
+    assert_eq!(at, 9, "first free column after the left label");
+    assert!(snap.cells[at].attrs.inverse() && snap.cells[at].attrs.bold());
+    assert_eq!(row_text(&snap, 1, columns).trim_end(), "second");
+}
+
+/// With the top row empty the label sits at the left, exactly where the
+/// single-pane painter puts it.
+#[test]
+fn clear_of_matches_the_single_pane_position_on_a_free_row() {
+    let columns = 30;
+    let mut multi = snapshot(&["hello"], columns);
+    let baseline = multi.cells[..columns].to_vec();
+    paint_secure_input_label_clear_of(&mut multi, &baseline);
+    let mut single = snapshot(&["hello"], columns);
+    paint_secure_input_label(&mut single, true);
+    assert_eq!(multi, single);
+}
+
+/// No free run on the top row: the label drops to the second row. A one-row
+/// pane has no second row, so the label replaces the start of the top row.
+/// A pane too narrow for the full label is left unchanged.
+#[test]
+fn clear_of_falls_back_to_the_second_row_then_the_start_of_the_top_row() {
+    let columns = 20;
+    let mut crowded = snapshot(&["", "second"], columns);
+    let baseline = crowded.cells[..columns].to_vec();
+    for offset in 0..columns - 1 {
+        crowded.cells[offset] = Cell::new('x', Attrs::default());
+    }
+    paint_secure_input_label_clear_of(&mut crowded, &baseline);
+    assert_eq!(
+        row_text(&crowded, 0, columns),
+        "xxxxxxxxxxxxxxxxxxx ",
+        "the top row keeps its chrome"
+    );
+    assert!(row_text(&crowded, 1, columns).starts_with(SECURE_INPUT_LABEL));
+
+    let mut one_row = snapshot(&[""], columns);
+    let baseline = one_row.cells[..columns].to_vec();
+    for offset in 0..columns - 1 {
+        one_row.cells[offset] = Cell::new('x', Attrs::default());
+    }
+    paint_secure_input_label_clear_of(&mut one_row, &baseline);
+    assert!(row_text(&one_row, 0, columns).starts_with(SECURE_INPUT_LABEL));
+
+    let mut narrow = snapshot(&["ab"], 2);
+    let baseline = narrow.cells[..2].to_vec();
+    let before = narrow.clone();
+    paint_secure_input_label_clear_of(&mut narrow, &baseline);
+    assert_eq!(narrow, before, "a short pane is not clipped");
 }

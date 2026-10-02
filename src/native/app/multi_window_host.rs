@@ -1818,3 +1818,7 @@ pub(in crate::native) use reparent::AdoptFactory;
 #[cfg(test)]
 #[path = "multi_window_host/tests.rs"]
 pub(super) mod tests;
+
+#[cfg(test)]
+#[path = "multi_window_host/picker_multipane_tests.rs"]
+mod picker_multipane_tests;

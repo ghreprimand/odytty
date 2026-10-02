@@ -1227,7 +1227,8 @@ scope rather than silently inheriting deferred work from a prior release.
   exactly as with Terminal.app's Secure Keyboard Entry. The app's own menu
   shortcuts are unaffected. Other apps
   still receive keys. A `SECURE INPUT` label on each holding window is keyed
-  into the frame cache. Keys still go to the focused pane and to broadcast
+  into the frame cache; a split, stacked, or floating tab has no frame cache,
+  so the toggle marks a rebuild and the label is painted on the focused pane. Keys still go to the focused pane and to broadcast
   receivers. Windows and Linux do not offer the row or the palette action
   and do not simulate the mode; a config key is stored and ignored. A crash
   while the primitive is enabled can leave secure input reported as active,

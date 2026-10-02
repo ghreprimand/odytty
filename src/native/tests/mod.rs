@@ -217,6 +217,7 @@ mod input_latch_lifecycle;
 mod interactive_urls;
 mod key_remap_wiring;
 mod mouse_rect;
+mod multipane_labels;
 mod navigator_pane_close;
 mod notifications;
 mod os_theme;
