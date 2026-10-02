@@ -63,6 +63,15 @@ use crate::native::overlay::{apply_overlay, overlay_composite_rect};
 use crate::native::render_helpers::image_uploads_for_visible;
 use std::collections::BTreeMap;
 
+/// Cell size, padding, surface size, and the resident pane-image cache for
+/// one multi-pane rebuild.
+type MultipaneFrameInputs = (
+    CellSize,
+    WindowPadding,
+    (u32, u32),
+    BTreeMap<(u64, StoredImageId), u64>,
+);
+
 /// Width of the divider gap between panes, in physical pixels. A crisp hairline
 /// matching the §8 pixel-smoke invariants.
 pub(super) const PANE_DIVIDER_PX: f32 = 1.0;
@@ -674,21 +683,42 @@ impl App {
         }
     }
 
-    /// Rebuild the GPU geometry for a **multi-pane** active tab. Mirrors the
-    /// single-pane rebuild's GPU hand-off but assembles one [`PaneRender`] per
-    /// visible pane and calls [`GpuState::update_from_panes`].
-    pub(super) fn rebuild_multipane(&mut self) {
-        let Some((cell, padding, surface, cached_pane_ids)) = self.gpu.as_ref().map(|gpu| {
-            (
+    /// Cell size, padding, surface size, and resident pane-image generations
+    /// for one multi-pane rebuild. Production reads them from the GPU. A
+    /// headless test with `test_cell` and `test_surface` set uses those
+    /// instead, and an empty image cache, so the paint path can run without
+    /// a device. No GPU and no test surface is the same early return as
+    /// before.
+    fn multipane_frame_inputs(&self) -> Option<MultipaneFrameInputs> {
+        if let Some(gpu) = self.gpu.as_ref() {
+            return Some((
                 gpu.cell(),
                 gpu.window_padding(),
                 gpu.surface_size(),
                 gpu.cached_pane_image_generations(),
-            )
-        }) else {
+            ));
+        }
+        #[cfg(test)]
+        {
+            let cell = self.resolved_cell()?;
+            let (surface_w, surface_h, padding) = self.resolved_surface()?;
+            Some((cell, padding, (surface_w, surface_h), BTreeMap::new()))
+        }
+        #[cfg(not(test))]
+        None
+    }
+
+    /// Rebuild the GPU geometry for a **multi-pane** active tab. Mirrors the
+    /// single-pane rebuild's GPU hand-off but assembles one [`PaneRender`] per
+    /// visible pane and calls [`GpuState::update_from_panes`].
+    pub(super) fn rebuild_multipane(&mut self) {
+        let Some((cell, padding, (surface_w, surface_h), cached_pane_ids)) =
+            self.multipane_frame_inputs()
+        else {
             return;
         };
-        let (surface_w, surface_h) = surface;
+        #[cfg(test)]
+        self.multipane_chrome_rows_for_test.clear();
         // SCROLL-GLIDE (per-pane): a single frame timestamp for advancing every
         // visible pane's follower below. The follower is frame-rate independent
         // (its step reads each session's own last-tick delta), so one shared
@@ -992,6 +1022,29 @@ impl App {
                 label.as_ref(),
                 session.read_only,
             );
+            // Merge-picker chrome. The single-pane path paints this in
+            // frame.rs. A tiled, stacked, or floating tab never takes that
+            // path, so the origin banner and the candidate numeral land on
+            // each visible pane here. No-op when this window is not in a picker.
+            self.paint_merge_numeral_cells(&mut pane.snapshot);
+        }
+        #[cfg(test)]
+        {
+            self.multipane_chrome_rows_for_test = panes_owned
+                .iter()
+                .map(|pane| {
+                    let columns = pane.snapshot.dimensions.columns;
+                    let rows = pane.snapshot.dimensions.rows;
+                    if columns == 0 || rows == 0 {
+                        return String::new();
+                    }
+                    let row = if rows >= 3 { 1 } else { 0 };
+                    pane.snapshot.cells[row * columns..(row + 1) * columns]
+                        .iter()
+                        .map(|cell| cell.ch)
+                        .collect()
+                })
+                .collect();
         }
 
         // Build every pane's status gutter in that pane's own scrollback and

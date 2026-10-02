@@ -809,6 +809,15 @@ impl App {
         self.test_path_probe = probe;
     }
 
+    /// Drive the multi-pane rebuild and return the picker-chrome row of each
+    /// visible pane (row 1, or row 0 when the pane is shorter than 3). Empty
+    /// when the rebuild had no surface.
+    #[cfg(test)]
+    pub(in crate::native) fn rebuild_multipane_chrome_rows_for_test(&mut self) -> Vec<String> {
+        self.rebuild_multipane();
+        self.multipane_chrome_rows_for_test.clone()
+    }
+
     /// Test seam (floating layouts): the content rectangle and cell size the
     /// multi-pane geometry resolves to, or `None` on a single-pane tab.
     #[cfg(test)]

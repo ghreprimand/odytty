@@ -457,3 +457,72 @@ fn moving_a_pane_between_windows_into_a_floating_tab_keeps_the_layout_mode() {
         token
     );
 }
+
+fn chrome_contains(rows: &[String], needle: &str) -> bool {
+    rows.iter().any(|row| row.contains(needle))
+}
+
+/// The merge picker banner and numeral are painted by the multi-pane rebuild,
+/// not only the single-pane frame. A split source used to leave the origin
+/// window blank while the candidate still showed its numeral.
+#[test]
+fn a_split_source_paints_the_move_picker_banner_in_every_layout() {
+    use crate::native::render_helpers::OverlayFragment;
+
+    let (mut app, _bytes) = app_with_panes(2);
+    app.set_merge_picker_moves(true);
+    app.set_merge_origin_candidates(Some(1));
+    assert_eq!(
+        app.merge_numeral_overlay_signature(),
+        OverlayFragment::MergeOrigin {
+            candidates: 1,
+            moves: true
+        }
+    );
+
+    let tiled = app.rebuild_multipane_chrome_rows_for_test();
+    assert!(
+        tiled.len() >= 2,
+        "a tiled split paints every pane, got {tiled:?}"
+    );
+    assert!(
+        chrome_contains(&tiled, "Move picker"),
+        "tiled origin banner missing: {tiled:?}"
+    );
+
+    app.handle_palette_action_for_test("stack-panes");
+    app.reflow_active_panes_for_test();
+    let stacked = app.rebuild_multipane_chrome_rows_for_test();
+    assert_eq!(stacked.len(), 1, "stacked shows only the focused pane");
+    assert!(
+        chrome_contains(&stacked, "Move picker"),
+        "stacked origin banner missing: {stacked:?}"
+    );
+
+    app.handle_palette_action_for_test("float-panes");
+    app.reflow_active_panes_for_test();
+    let floating = app.rebuild_multipane_chrome_rows_for_test();
+    assert!(
+        floating.len() >= 2,
+        "floating paints every pane, got {floating:?}"
+    );
+    assert!(
+        chrome_contains(&floating, "Move picker"),
+        "floating origin banner missing: {floating:?}"
+    );
+
+    app.set_merge_origin_candidates(None);
+    app.set_merge_numeral(Some(1));
+    assert_eq!(
+        app.merge_numeral_overlay_signature(),
+        OverlayFragment::MergeNumeral {
+            numeral: 1,
+            moves: true
+        }
+    );
+    let numeral = app.rebuild_multipane_chrome_rows_for_test();
+    assert!(
+        chrome_contains(&numeral, "Press 1 to move here"),
+        "floating candidate numeral missing: {numeral:?}"
+    );
+}

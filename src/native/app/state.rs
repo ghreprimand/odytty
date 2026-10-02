@@ -460,16 +460,23 @@ pub(in crate::native) struct App {
     /// v0.15.0 D: the temporary 1-based numeral this window paints while it is a
     /// candidate in an open keyboard merge target picker, or `None` when no
     /// picker is targeting it. The process window owner sets this on every
-    /// candidate when a picker opens and clears it on select/cancel; the frame
-    /// path paints the badge inside this window's own surface (compositor
-    /// independent). `None` at rest, so the single-window path never paints it.
+    /// candidate when a picker opens and clears it on select/cancel; the
+    /// single-pane and multi-pane frame paths paint the badge inside this
+    /// window's own surface (compositor independent). `None` at rest, so the
+    /// single-window path never paints it.
     pub(super) merge_numeral: Option<u8>,
     /// v0.15.0 D: the number of candidate windows while THIS window is the
     /// origin of an open keyboard merge target picker, or `None` when it is
-    /// not. The frame path paints a banner inside the origin so the picker is
-    /// visible even when every candidate window is stacked behind it (the
-    /// numerals themselves paint only inside the candidates). `None` at rest.
+    /// not. The single-pane and multi-pane frame paths paint a banner inside
+    /// the origin so the picker is visible even when every candidate window
+    /// is stacked behind it (the numerals themselves paint only inside the
+    /// candidates). `None` at rest.
     pub(super) merge_origin_candidates: Option<u8>,
+    /// Row 1 (or row 0 on a short pane) of each pane after the latest
+    /// multi-pane rebuild, so a headless test can see picker chrome. Empty
+    /// until that rebuild runs.
+    #[cfg(test)]
+    pub(super) multipane_chrome_rows_for_test: Vec<String>,
     /// Guarded broadcast input: the process-wide receiver set. A window owns a
     /// private empty set until the process window owner shares its own, so
     /// every window of one process reads and writes the same set.
@@ -820,6 +827,8 @@ impl App {
             broadcast_seen_generation: 0,
             merge_numeral: None,
             merge_origin_candidates: None,
+            #[cfg(test)]
+            multipane_chrome_rows_for_test: Vec::new(),
             connection_probe: None,
             #[cfg(test)]
             last_image_upload: None,

@@ -349,6 +349,12 @@ impl App {
             return;
         }
         self.merge_numeral = numeral;
+        // The painted badge is overlay state. Drop the cached frame and mark
+        // a rebuild so the single-pane signature and the multi-pane paint both
+        // run on the next redraw, including when the move/merge wording was
+        // already set.
+        self.last_render_signature = None;
+        self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
@@ -384,6 +390,10 @@ impl App {
             return;
         }
         self.merge_origin_candidates = candidates;
+        // Same rebuild contract as the candidate numeral: the origin banner
+        // changes pixels, so a cached frame must not stay up.
+        self.last_render_signature = None;
+        self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
@@ -451,6 +461,10 @@ impl App {
     /// The badge reads ` Press N to merge here ` centered near the top of the
     /// grid, where `N` is the window's assigned numeral. It never grows the
     /// grid and truncates to the visible width.
+    ///
+    /// The single-pane frame paints this into the window grid. A tiled,
+    /// stacked, or floating tab paints the same cells into each visible pane
+    /// (`rebuild_multipane`), because that path never builds one window grid.
     ///
     /// The picker's ORIGIN window paints a banner in the same position instead:
     /// ` Merge picker: press 1 in the other window, Esc cancels ` (or `1-N` for
