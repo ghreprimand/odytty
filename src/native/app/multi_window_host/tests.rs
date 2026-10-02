@@ -77,6 +77,99 @@ fn phase9_close_policy_exits_only_after_the_last_live_window() {
     assert_eq!(resolve_window_close(1, 0), WindowCloseAction::ExitProcess);
 }
 
+#[test]
+fn a_secure_input_wish_reaches_every_window() {
+    let _guard = crate::native::secure_input::secure_input_test_guard();
+    crate::native::secure_input::reset_secure_input_for_test();
+    let mut host = host_of(vec![headless(), headless()]);
+    host.windows[0].publish_secure_keyboard_wish(true);
+    host.service_secure_keyboard_wish();
+    assert!(host.windows[0].settings.secure_keyboard_input);
+    assert!(
+        host.windows[1].settings.secure_keyboard_input,
+        "a wish published by one window is applied to the other"
+    );
+    host.windows[1].publish_secure_keyboard_wish(false);
+    host.service_secure_keyboard_wish();
+    assert!(!host.windows[0].settings.secure_keyboard_input);
+    assert!(!host.windows[1].settings.secure_keyboard_input);
+}
+
+/// A sibling built through the New Window path adopts the process wish.
+/// Turning the wish off from that sibling releases every hold, and a window
+/// that loses focus drops its label on the next presented frame.
+#[test]
+fn a_new_window_adopts_the_wish_and_an_unfocused_release_clears_the_label() {
+    let _guard = crate::native::secure_input::secure_input_test_guard();
+    crate::native::secure_input::reset_secure_input_for_test();
+    crate::native::secure_input::force_secure_input_apply_for_test(true);
+    let mut host = host_of(vec![headless()]);
+    host.windows[0].on_window_focus_changed_for_test(true);
+    host.windows[0].toggle_secure_keyboard_input();
+    assert!(
+        crate::native::secure_input::secure_keyboard_wish(),
+        "the first window turned the wish on"
+    );
+    assert_eq!(
+        host.windows[0].secure_input_overlay_signature(),
+        crate::native::render_helpers::OverlayFragment::SecureInput
+    );
+
+    let epoch_before_blur = host.windows[0].presentation_epoch_for_test();
+    host.windows[0].on_window_focus_changed_for_test(false);
+    assert_eq!(
+        host.windows[0].secure_input_overlay_signature(),
+        crate::native::render_helpers::OverlayFragment::Inert,
+        "losing focus releases the hold and clears the label"
+    );
+    assert!(host.windows[0].needs_rebuild_for_test());
+    assert!(
+        host.windows[0].presentation_epoch_for_test() > epoch_before_blur,
+        "the release bumps the frame signature so the cleared label presents"
+    );
+
+    host.windows[0].request_new_window();
+    let created =
+        crate::native::window_owner::service_new_window_requests(&mut host.windows, |_| {
+            Some(headless())
+        });
+    assert_eq!(created, 1);
+    assert!(
+        crate::native::secure_input::secure_keyboard_wish(),
+        "creating a sibling does not clear the wish"
+    );
+    assert!(
+        host.windows[1].settings.secure_keyboard_input,
+        "the sibling adopts the process wish instead of the off config"
+    );
+    assert!(host.windows[0].settings.secure_keyboard_input);
+
+    host.windows[0].on_window_focus_changed_for_test(true);
+    let epoch_before_off = host.windows[0].presentation_epoch_for_test();
+    host.windows[1].toggle_secure_keyboard_input();
+    host.service_secure_keyboard_wish();
+    assert!(!crate::native::secure_input::secure_keyboard_wish());
+    assert!(!host.windows[0].settings.secure_keyboard_input);
+    assert!(!host.windows[1].settings.secure_keyboard_input);
+    assert_eq!(
+        host.windows[0].secure_input_overlay_signature(),
+        crate::native::render_helpers::OverlayFragment::Inert
+    );
+    assert_eq!(
+        host.windows[1].secure_input_overlay_signature(),
+        crate::native::render_helpers::OverlayFragment::Inert
+    );
+    assert_eq!(
+        crate::native::secure_input::secure_input_holders_for_test(),
+        0
+    );
+    assert!(
+        host.windows[0].presentation_epoch_for_test() > epoch_before_off,
+        "releasing the focused window's hold requests a presenting frame"
+    );
+    crate::native::secure_input::reset_secure_input_for_test();
+}
+
 /// A host over headless windows with a factory that spawns nothing, so the
 /// cross-window orchestration (picker, merge, sibling counts) can be driven
 /// without a real event loop. The event-loop-scoped methods (`resumed`,

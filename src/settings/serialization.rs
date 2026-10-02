@@ -111,6 +111,10 @@ impl Settings {
             KITTY_NAMED_TRANSPORTS_ENV,
             bool_display(self.kitty_named_transports).to_owned(),
         );
+        values.insert(
+            SECURE_KEYBOARD_INPUT_ENV,
+            bool_display(self.secure_keyboard_input).to_owned(),
+        );
         values.insert(KEYBINDS_ENV, key_bindings_edit_value(&self.key_bindings));
         values.insert(PANE_PREFIX_ENV, pane_prefix_display(self.pane_prefix));
         values.insert(

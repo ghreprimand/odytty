@@ -215,6 +215,10 @@ impl App {
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
+        // Secure input is held only while this window has keyboard focus.
+        // A focus loss of the last such window disables the primitive; a
+        // focus gain re-acquires it when the wish is on.
+        self.sync_secure_keyboard_input();
         self.send_focus_report(focused);
     }
 

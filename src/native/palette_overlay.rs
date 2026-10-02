@@ -965,7 +965,12 @@ mod tests {
     #[test]
     fn fuzzy_query_ranks_history_candidate() {
         let mut overlay = open(&["git status", "cargo test"], Some("/workspace/service"));
-        type_query(&mut overlay, "gst");
+        // "gst" also matches the macOS-only "Toggle Secure Keyboard Input"
+        // action. Actions carry a source bonus, so that row outranks history
+        // on macOS and the abbreviation stops selecting the history line.
+        // "gits" still fuzzy-matches "git status" and does not match that
+        // action (no "i" before a later "s").
+        type_query(&mut overlay, "gits");
 
         let labels: Vec<_> = overlay
             .model

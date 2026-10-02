@@ -7,7 +7,8 @@ development tree adds [read-only panes](docs/features.md#make-a-pane-read-only),
 [scrollback export](docs/features.md#export-scrollback) as text or
 sanitized HTML, guarded [broadcast input](docs/features.md#broadcast-input)
 to explicitly chosen panes, [moving tabs and panes between windows](docs/features.md#move-tabs-and-panes-between-windows),
-and [stacked and floating pane layouts](docs/features.md#stacked-and-floating-pane-layouts);
+[stacked and floating pane layouts](docs/features.md#stacked-and-floating-pane-layouts),
+and [secure keyboard input](docs/features.md#secure-keyboard-input) on macOS;
 these features are not included in v0.15.7. The development
 palette also refuses control-bearing history and directory entries instead of
 sending hidden input. Release evidence and historical corrections are listed

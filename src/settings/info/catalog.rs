@@ -1330,6 +1330,20 @@ impl Settings {
                 reloadable: true,
                 numeric: None,
             },
+            #[cfg(target_os = "macos")]
+            SettingInfo {
+                group: "Input",
+                key: "secure_keyboard_input",
+                env: SECURE_KEYBOARD_INPUT_ENV,
+                name: "Secure keyboard input",
+                value: bool_display(self.secure_keyboard_input).to_owned(),
+                description: "macOS only. When on, keyboard-intercept tools (event taps such as text expanders, and some accessibility and automation tools) do not receive keystrokes while an OdyTTY window has keyboard focus. Other apps still receive keys. The wish is process-wide. A SECURE INPUT label stays on each window that holds the mode. A crash while it is enabled can leave secure input reported as active, and those tools blocked, until logout. Normal typing in other apps is unaffected. Off by default, and never turned on because a program printed a password prompt. Windows and Linux do not offer this row.",
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+                numeric: None,
+            },
             SettingInfo {
                 group: "Input",
                 key: "keybinds",
