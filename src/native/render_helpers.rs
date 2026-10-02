@@ -258,6 +258,9 @@ pub(super) enum OverlayFragment {
         hidden: usize,
         remote: usize,
     },
+    /// Persistent `SECURE INPUT` label. `Inert` unless this window holds the
+    /// macOS primitive, so the default path stays a frame-to-frame constant.
+    SecureInput,
 }
 
 /// Folds the NEW overlay contributors' fragments into one hashable cache key.
@@ -299,6 +302,8 @@ pub(super) struct OverlayCompositeSignature {
     pub(super) read_only: OverlayFragment,
     /// Broadcast label. `Inert` while broadcast is off.
     pub(super) broadcast: OverlayFragment,
+    /// Secure-input label. `Inert` unless this window holds the mode.
+    pub(super) secure_input: OverlayFragment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

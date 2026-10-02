@@ -1202,6 +1202,23 @@ scope rather than silently inheriting deferred work from a prior release.
   checked before viewport/selection effects or clipboard access, including
   clipboard and primary-selection paste, prefix passthrough, clear-input
   actions, context-menu cut, click-to-position, and selected-input deletion.
+- Secure keyboard input (v0.16.0): a process-wide macOS wish, off by default,
+  toggled from the command palette or the settings row. There is no default
+  chord and no password-prompt detection. The primitive is
+  `EnableSecureEventInput` / `DisableSecureEventInput`, paired by a process
+  counter, and it runs only while the wish is on and an OdyTTY window has
+  keyboard focus. The enable runs for the first such window and the disable
+  runs when the last hold is released, including focus leaving every window,
+  the last window closing, and process exit. While it is enabled,
+  keyboard-intercept tools (event taps such as text expanders, and some
+  accessibility and automation tools) do not receive keystrokes. Other apps
+  still receive keys. A `SECURE INPUT` label on each holding window is keyed
+  into the frame cache. Keys still go to the focused pane and to broadcast
+  receivers. Windows and Linux do not offer the row or the palette action
+  and do not simulate the mode; a config key is stored and ignored. A crash
+  while the primitive is enabled can leave secure input reported as active,
+  and those intercept tools blocked, until logout. Normal typing in other
+  apps is unaffected.
 - Moving tabs and panes between windows (v0.16.0): palette actions move the
   active tab, or the focused pane as a new tab, to a new window or to a window
   chosen with the merge picker. The arena transaction

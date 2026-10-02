@@ -101,6 +101,7 @@ mod resize;
 mod save_dialog;
 mod scrollback_export;
 mod search_ui;
+mod secure_input;
 mod session;
 mod session_attach_overlay;
 mod session_navigator;

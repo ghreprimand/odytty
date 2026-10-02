@@ -1,0 +1,174 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! Secure keyboard entry.
+//!
+//! The mode exists only where the OS has a real primitive. It is never
+//! simulated. On macOS the primitive is `EnableSecureEventInput` /
+//! `DisableSecureEventInput` (HIToolbox), process-wide, called on the main
+//! thread. A process counter pairs the calls: the enable runs when the first
+//! focused window that wants the mode acquires it, and the disable runs when
+//! the last such hold is released. A disable at zero does nothing. Windows
+//! and Linux have no equivalent, so `set_secure_input` does not flip the
+//! test-visible OS flag there.
+//!
+//! The setting is the process-wide wish. The primitive is enabled only while
+//! that wish is on and at least one OdyTTY window has keyboard focus. While
+//! it is enabled, keyboard-intercept tools (event taps such as text
+//! expanders, and some accessibility and automation tools) do not receive
+//! keystrokes. Other apps still receive keys. A crash while it is enabled
+//! can leave secure input reported as active, and those tools blocked, until
+//! logout. Normal typing in other apps is unaffected. The mode never turns
+//! on because a program printed a password prompt, and it does not change
+//! bytes written to the PTY.
+
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Label painted on the focused window while this process holds secure input.
+pub(in crate::native) const SECURE_INPUT_LABEL: &str = "SECURE INPUT";
+
+#[cfg(target_os = "macos")]
+#[link(name = "Carbon", kind = "framework")]
+unsafe extern "C" {
+    fn EnableSecureEventInput();
+    fn DisableSecureEventInput();
+}
+
+/// Set only by the macOS production primitive. Stays false when that primitive
+/// is not called, including every Windows and Linux call.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static OS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+struct SecureInputState {
+    holders: usize,
+}
+
+static STATE: Mutex<SecureInputState> = Mutex::new(SecureInputState { holders: 0 });
+
+/// The user's wish, shared by every window. Distinct from the OS hold: a
+/// window applies the primitive only when this is set and that window has
+/// keyboard focus.
+static WISH: AtomicBool = AtomicBool::new(false);
+
+/// Linux and Windows tests opt in to the hold decision so the focus contract
+/// runs without a Mac. Production builds on those platforms leave this false,
+/// and the macOS build ignores it.
+#[cfg(all(test, not(target_os = "macos")))]
+static TEST_APPLY: AtomicBool = AtomicBool::new(false);
+
+/// Whether this process should acquire holds. Always true on macOS. Elsewhere
+/// only a test that opts in, so production Windows and Linux stay inert.
+pub(crate) fn secure_input_applies() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        true
+    }
+    #[cfg(all(test, not(target_os = "macos")))]
+    {
+        TEST_APPLY.load(Ordering::SeqCst)
+    }
+    #[cfg(not(any(target_os = "macos", test)))]
+    {
+        false
+    }
+}
+
+static FFI: Mutex<fn(bool)> = Mutex::new(production_ffi);
+
+fn production_ffi(enable: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        // Main-thread contract: callers are the winit event loop, window
+        // close, and process drop. The HIToolbox calls are not synchronized.
+        unsafe {
+            if enable {
+                EnableSecureEventInput();
+            } else {
+                DisableSecureEventInput();
+            }
+        }
+        OS_ENABLED.store(enable, Ordering::SeqCst);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = enable;
+    }
+}
+
+fn lock_state() -> std::sync::MutexGuard<'static, SecureInputState> {
+    STATE.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+fn current_ffi() -> fn(bool) {
+    *FFI.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+/// One window acquires (`enabled`) or releases the process-wide hold.
+///
+/// The OS primitive runs only on the 0->1 and 1->0 transitions. A release
+/// when nothing is held does not call it.
+pub fn set_secure_input(enabled: bool) {
+    let ffi = current_ffi();
+    let transition = {
+        let mut state = lock_state();
+        if enabled {
+            let was_zero = state.holders == 0;
+            state.holders = state.holders.saturating_add(1);
+            was_zero
+        } else if state.holders == 0 {
+            false
+        } else {
+            state.holders -= 1;
+            state.holders == 0
+        }
+    };
+    if enabled && transition {
+        ffi(true);
+    } else if !enabled && transition {
+        ffi(false);
+    }
+}
+
+/// Whether the macOS primitive is currently enabled. False on Windows and
+/// Linux, and false in tests that replace the primitive.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn secure_input_os_enabled() -> bool {
+    OS_ENABLED.load(Ordering::SeqCst)
+}
+
+/// The process-wide wish. Every window reads this; a palette toggle or a
+/// config reload writes it once.
+pub(crate) fn secure_keyboard_wish() -> bool {
+    WISH.load(Ordering::SeqCst)
+}
+
+pub(crate) fn set_secure_keyboard_wish(enabled: bool) {
+    WISH.store(enabled, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+pub(crate) fn secure_input_holders_for_test() -> usize {
+    lock_state().holders
+}
+
+#[cfg(test)]
+pub(crate) fn reset_secure_input_for_test() {
+    lock_state().holders = 0;
+    OS_ENABLED.store(false, Ordering::SeqCst);
+    WISH.store(false, Ordering::SeqCst);
+    #[cfg(not(target_os = "macos"))]
+    TEST_APPLY.store(false, Ordering::SeqCst);
+    *FFI.lock().unwrap_or_else(|poison| poison.into_inner()) = production_ffi;
+}
+
+#[cfg(test)]
+pub(crate) fn force_secure_input_apply_for_test(apply: bool) {
+    #[cfg(not(target_os = "macos"))]
+    TEST_APPLY.store(apply, Ordering::SeqCst);
+    #[cfg(target_os = "macos")]
+    let _ = apply;
+}
+
+#[cfg(test)]
+pub(crate) fn install_secure_input_ffi_for_test(ffi: fn(bool)) {
+    *FFI.lock().unwrap_or_else(|poison| poison.into_inner()) = ffi;
+}

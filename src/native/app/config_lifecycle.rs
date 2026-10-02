@@ -586,6 +586,7 @@ impl App {
         };
 
         self.settings = next_settings;
+        self.publish_secure_keyboard_wish(self.settings.secure_keyboard_input);
         self.options = next_options;
         // Phase 2 output recording: fan the live `session_replay` state out to
         // every session's recorder so a config-reload / settings-panel toggle

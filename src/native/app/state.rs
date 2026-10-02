@@ -591,6 +591,13 @@ pub(in crate::native) struct App {
     #[cfg(test)]
     pub(super) autosave_saves: u32,
     pub(in crate::native) startup_error: Option<NativeError>,
+    /// This window holds one reference on the process-wide secure-input
+    /// counter. True only while the wish is on and this window has keyboard
+    /// focus. False where the mode is unsupported.
+    pub(super) secure_input_held: bool,
+    /// This window changed the process-wide wish and sibling windows have
+    /// not applied it yet.
+    pub(super) secure_wish_broadcast: bool,
 }
 
 impl Deref for App {
@@ -844,6 +851,8 @@ impl App {
             #[cfg(test)]
             autosave_saves: 0,
             startup_error: None,
+            secure_input_held: false,
+            secure_wish_broadcast: false,
         };
         // ONBOARD (D-OB-1/D-OB-2): open the first-run welcome card iff the
         // config file does not yet exist (or the env override is set). First-run
@@ -872,6 +881,8 @@ impl App {
             .set_recording_enabled(app.settings.session_replay);
         app.sessions
             .set_shell_integration_enabled(app.settings.shell_integration);
+        crate::native::secure_input::set_secure_keyboard_wish(app.settings.secure_keyboard_input);
+        app.sync_secure_keyboard_input();
         app
     }
 }

@@ -121,6 +121,7 @@ impl Settings {
             "ss01" => bool_display(self.ligature_ss01).to_owned(),
             "ss02" => bool_display(self.ligature_ss02).to_owned(),
             "kitty_named_transports" => bool_display(self.kitty_named_transports).to_owned(),
+            "secure_keyboard_input" => bool_display(self.secure_keyboard_input).to_owned(),
             "synthetic_styles" => bool_display(self.synthetic_styles).to_owned(),
             "geometric_boxdraw" => bool_display(self.geometric_boxdraw).to_owned(),
             "box_thickness" => format_float(self.box_thickness),

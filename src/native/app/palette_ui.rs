@@ -253,6 +253,7 @@ impl App {
                 }
             }
             PaletteAction::ToggleReadOnly => self.toggle_active_pane_read_only(),
+            PaletteAction::ToggleSecureInput => self.toggle_secure_keyboard_input(),
             PaletteAction::ToggleBroadcast => self.toggle_broadcast_for_active_pane(),
             PaletteAction::StopBroadcast => self.stop_broadcast(),
             PaletteAction::NewTab => self.handle_new_tab(),

@@ -18,6 +18,7 @@ For installation and a shorter overview, start with the
   - [Adjust The Tab Bar](#adjust-the-tab-bar)
   - [Split A Tab Into Panes](#split-a-tab-into-panes)
   - [Make A Pane Read-Only](#make-a-pane-read-only)
+  - [Secure Keyboard Input](#secure-keyboard-input)
   - [Broadcast Input](#broadcast-input)
   - [Export Scrollback](#export-scrollback)
   - [Organize Workspaces And The Rail](#organize-workspaces-and-the-rail)
@@ -704,6 +705,19 @@ Duplicate Workspace start fresh shells that keep the source pane's read-only
 mode; New Tab, New Local Tab, and splits open writable. Local automation
 cannot send text to any pane, so it has nothing to bypass. Behavior is the same
 on Linux (Wayland and X11), macOS, and Windows.
+
+### Secure Keyboard Input
+
+Available in the v0.16.0 development tree; not included in v0.15.7.
+
+| Task | Direct path |
+| --- | --- |
+| Turn secure input on or off | **Toggle Secure Keyboard Input** in the command palette, or the **Secure keyboard input** settings row |
+| See that it is on | A `SECURE INPUT` label at the top-left of the focused window |
+
+This exists only on macOS, and only when the setting is turned on. It is never turned on because a program printed a password prompt, and there is no default key. The setting is one wish for the whole process: the palette toggle and a config reload set it for every window. macOS secure event input is enabled only while that wish is on and an OdyTTY window has keyboard focus. While it is enabled, keyboard-intercept tools (event taps such as text expanders, and some accessibility and automation tools) do not receive keystrokes. Other apps still receive keys. Keys typed in OdyTTY still reach the focused pane, and broadcast receivers when that set is active. Each window that holds the mode shows a `SECURE INPUT` label at its top-left. A crash while secure input is enabled can leave it reported as active, and those intercept tools blocked, until logout. Normal typing in other apps is unaffected. Turning the wish off, moving focus to another application, closing the last focused window, or quitting releases it.
+
+Windows and Linux have no equivalent primitive. The settings row and the palette action are absent there. A `secure_keyboard_input` line in a shared config file is kept and not applied. The mode is not simulated.
 
 ### Broadcast Input
 

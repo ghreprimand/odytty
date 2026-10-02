@@ -43,7 +43,7 @@ use super::{
     INTERACTIVE_URLS_ENV, KITTY_NAMED_TRANSPORTS_ENV, LIGATURE_SS01_ENV, LIGATURE_SS02_ENV,
     LIGATURES_ENV, LINE_HEIGHT_ENV, NAVIGATOR_PREVIEW_ENV, REMOTE_IMAGE_PASTE_ENV,
     REMOTE_INTEGRATION_ENV, REMOTE_PERSIST_ENV, REMOTE_REUSE_ENV, REMOTE_TMUX_ENV,
-    SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV, WARN_ON_RISKY_PASTE_ENV,
+    SECURE_KEYBOARD_INPUT_ENV, SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV, WARN_ON_RISKY_PASTE_ENV,
 };
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ConfigValues {
@@ -289,6 +289,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "kittynamedtransports" | "kittyfiletransports" | "kittysharedmemory" => {
             Some(KITTY_NAMED_TRANSPORTS_ENV)
         }
+        "securekeyboardinput" | "secureinput" => Some(SECURE_KEYBOARD_INPUT_ENV),
         "scrollwheellines" | "wheellines" | "scrollspeed" | "scrollwheelspeed" => {
             Some(SCROLL_WHEEL_LINES_ENV)
         }
@@ -458,6 +459,7 @@ pub(crate) fn env_to_config_key(env: &str) -> Option<&'static str> {
         LIGATURE_SS01_ENV => Some("ss01"),
         LIGATURE_SS02_ENV => Some("ss02"),
         KITTY_NAMED_TRANSPORTS_ENV => Some("kitty_named_transports"),
+        SECURE_KEYBOARD_INPUT_ENV => Some("secure_keyboard_input"),
         KEYBINDS_ENV => Some("keybinds"),
         PANE_PREFIX_ENV => Some("pane_prefix"),
         CURSOR_STYLE_ENV => Some("cursor_style"),

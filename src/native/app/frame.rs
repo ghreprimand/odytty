@@ -608,6 +608,10 @@ impl App {
                     &mut snapshot,
                     self.active_pane_read_only(),
                 );
+                super::secure_input::paint_secure_input_label(
+                    &mut snapshot,
+                    self.secure_input_held,
+                );
                 super::broadcast_input::paint_broadcast_label(
                     &mut snapshot,
                     self.broadcast_label_for(self.sessions.active_id(), true)
@@ -743,6 +747,7 @@ impl App {
                             merge_numeral: self.merge_numeral_overlay_signature(),
                             read_only: self.read_only_overlay_signature(),
                             broadcast: self.broadcast_overlay_signature(),
+                            secure_input: self.secure_input_overlay_signature(),
                         },
                         // F4-P3: fold the revealed rail overlay's
                         // visibility + geometry + visual state so a pure
