@@ -770,3 +770,56 @@ fn phase9_stacked_hidden_receiver_is_rechecked_before_paste_confirmation() {
         "read-only does not silently alter membership"
     );
 }
+
+#[test]
+fn phase9_broadcast_keyboard_bytes_follow_origin_protocol_on_every_platform() {
+    let (mut app, terminal, origin) = app();
+    let origin_token = app.active_session_token_for_test();
+    let (kitty_writer, kitty_bytes) = recording();
+    let (kitty_token, kitty_terminal) = split(&mut app, kitty_writer);
+    kitty_terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\x1b[>11u");
+    add_receiver(&mut app, kitty_token);
+    let (windows_writer, windows_bytes) = recording();
+    let (windows_token, windows_terminal) = split(&mut app, windows_writer);
+    windows_terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\x1b[>11u\x1b[?9001h");
+    add_receiver(&mut app, windows_token);
+    app.focus_session_token_for_test(origin_token);
+    let deliver = |app: &mut App| {
+        for event in [KeyEventType::Press, KeyEventType::Release] {
+            app.drive_raw_key_event_for_test(
+                WinitKey::Character("a".into()),
+                WinitKey::Character("a".into()),
+                PhysicalKey::Code(KeyCode::KeyA),
+                Modifiers::NONE,
+                event,
+            );
+        }
+    };
+    deliver(&mut app);
+    // The broadcast contract copies the origin's encoded keyboard bytes;
+    // receiver-specific encoding applies to paste only. W32IM requested by
+    // a receiver cannot change that contract on any front end.
+    for recorded in [&origin, &kitty_bytes, &windows_bytes] {
+        assert_eq!(bytes(recorded), b"a", "legacy origin emits no release");
+        recorded.lock().expect("bytes").clear();
+    }
+    terminal.lock().expect("terminal").advance(b"\x1b[>11u");
+    assert_eq!(
+        terminal
+            .lock()
+            .expect("terminal")
+            .keyboard_modes()
+            .kitty_keyboard_flags,
+        11
+    );
+    deliver(&mut app);
+    for recorded in [&origin, &kitty_bytes, &windows_bytes] {
+        assert_eq!(bytes(recorded), b"\x1b[97u\x1b[97;1:3u");
+    }
+}

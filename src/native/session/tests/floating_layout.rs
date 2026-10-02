@@ -683,3 +683,68 @@ fn phase9_foreign_schema_with_floating_geometry_is_rejected_before_restore() {
         snapshot
     );
 }
+
+#[test]
+fn phase9_older_layout_without_arrangement_restores_all_panes_as_tiled() {
+    let original = tab_of(3);
+    let json = original.capture_shape().to_json_pretty();
+    assert!(!json.contains("\"arrangement\""));
+    let loaded = ShapeSnapshot::from_json_str(&json).expect("legacy tiled shape");
+    let mut restored = WorkspaceSet::new(build_session(), None);
+    let mut handed = Vec::new();
+    restored.restore_from_snapshot_with(
+        &loaded,
+        None,
+        fake_spawner(&mut handed),
+        no_remote_spawner(),
+    );
+    assert_eq!(restored.active_pane_count(), 3);
+    assert!(restored.active_arrangement_is_tiled());
+    assert_eq!(
+        rects(&restored)
+            .into_iter()
+            .map(|(_, rect)| rect)
+            .collect::<Vec<_>>(),
+        rects(&original)
+            .into_iter()
+            .map(|(_, rect)| rect)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn phase9_unknown_layout_fields_do_not_bypass_newer_schema_rejection() {
+    let mut original = tab_of(2);
+    float(&mut original);
+    let shape = original.capture_shape();
+    let json = shape.to_json_pretty();
+    let extended = json
+        .replacen("{", "{\"future_root\": {\"nested\": [1, true]},", 1)
+        .replacen(
+            "\"focused_leaf\"",
+            "\"future_tab\": [false, 7], \"focused_leaf\"",
+            1,
+        )
+        .replacen(
+            "\"mode\"",
+            "\"future_arrangement\": {\"policy\": \"future\"}, \"mode\"",
+            1,
+        );
+    assert!(extended.contains("future_arrangement"));
+    assert_eq!(
+        ShapeSnapshot::from_json_str(&extended).expect("compatible extra fields"),
+        shape
+    );
+    let future_version = crate::native::persistence::SNAPSHOT_VERSION + 1;
+    let future = extended.replacen(
+        &format!(
+            "\"version\": {}",
+            crate::native::persistence::SNAPSHOT_VERSION
+        ),
+        &format!("\"version\": {future_version}"),
+        1,
+    );
+    assert_ne!(future, extended);
+    assert!(matches!(ShapeSnapshot::from_json_str(&future),
+        Err(crate::native::persistence::LoadError::VersionSkew { found }) if found == future_version));
+}
