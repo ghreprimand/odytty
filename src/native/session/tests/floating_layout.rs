@@ -639,3 +639,47 @@ fn float_pane_shape_has_no_hidden_state() {
     let text = shape.to_json_pretty();
     assert!(!text.contains("\"col\""));
 }
+
+#[test]
+fn phase9_foreign_schema_with_floating_geometry_is_rejected_before_restore() {
+    let mut set = tab_of(3);
+    float(&mut set);
+    set.step_active_floating(
+        FloatStep::Move {
+            d_col: -3,
+            d_row: 1,
+        },
+        content(),
+        CELL,
+    );
+    let snapshot = set.capture_shape();
+    assert!(matches!(
+        snapshot.workspaces[0].tabs[0].arrangement,
+        ArrangementShape::Floating(_)
+    ));
+    let json = snapshot.to_json_pretty();
+    assert!(json.contains("\"arrangement\""));
+    assert!(json.contains("\"floating\""));
+    for version in [0, crate::native::persistence::SNAPSHOT_VERSION + 1] {
+        let foreign = json.replacen(
+            &format!(
+                "\"version\": {}",
+                crate::native::persistence::SNAPSHOT_VERSION
+            ),
+            &format!("\"version\": {version}"),
+            1,
+        );
+        assert_ne!(foreign, json);
+        assert!(
+            matches!(
+                ShapeSnapshot::from_json_str(&foreign),
+                Err(crate::native::persistence::LoadError::VersionSkew { found }) if found == version
+            ),
+            "foreign schema must not best-effort apply floating geometry"
+        );
+    }
+    assert_eq!(
+        ShapeSnapshot::from_json_str(&json).expect("current schema"),
+        snapshot
+    );
+}

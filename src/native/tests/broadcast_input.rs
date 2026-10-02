@@ -661,3 +661,112 @@ fn fanout_reports_each_receiver_outcome_for_the_diagnostics_trace() {
             .is_empty()
     );
 }
+
+#[test]
+fn phase9_mixed_local_remote_hidden_receivers_encode_their_own_paste_modes() {
+    let (mut app, _terminal, origin) = app();
+    let origin_token = app.active_session_token_for_test();
+    let (local_token, local) = recorded_split(&mut app);
+    add_receiver(&mut app, local_token);
+    let dimensions = NativeOptions::default().initial_grid;
+    let remote_terminal = Arc::new(Mutex::new(Terminal::new(
+        dimensions.columns,
+        dimensions.rows,
+    )));
+    remote_terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\x1b[?2004h");
+    let (remote_writer, remote) = recording();
+    let position = app.push_headless_session_for_test(remote_terminal, remote_writer, dimensions);
+    assert!(app.switch_to_session_for_test(position));
+    let remote_token = app.active_session_token_for_test();
+    app.set_active_remote_upload_for_test("test@host.example.invalid");
+    add_receiver(&mut app, remote_token);
+    app.focus_session_token_for_test(origin_token);
+    assert_eq!(
+        app.broadcast_summary(),
+        BroadcastSummary {
+            receivers: 2,
+            hidden: 1,
+            remote: 1,
+        }
+    );
+
+    type_char(&mut app, 'a');
+    assert_eq!(bytes(&origin), b"a");
+    assert_eq!(bytes(&local), b"a");
+    assert_eq!(bytes(&remote), b"a");
+    for recorded in [&origin, &local, &remote] {
+        recorded.lock().expect("bytes").clear();
+    }
+    let text = "echo first\necho second\n";
+    app.inject_paste_text_for_test(text);
+    app.handle_paste_shortcut_for_test();
+    assert!(app.risky_paste_pending_for_test());
+    for recorded in [&origin, &local, &remote] {
+        assert!(
+            bytes(recorded).is_empty(),
+            "confirmation precedes all writes"
+        );
+    }
+    app.confirm_risky_paste_for_test(false);
+    assert_eq!(
+        bytes(&origin),
+        flatten_chunks(&encode_paste_chunks(text, false, PASTE_CHUNK_SIZE))
+    );
+    assert_eq!(bytes(&local), bytes(&origin));
+    assert_eq!(
+        bytes(&remote),
+        flatten_chunks(&encode_paste_chunks(text, true, PASTE_CHUNK_SIZE))
+    );
+}
+
+#[test]
+fn phase9_stacked_hidden_receiver_is_rechecked_before_paste_confirmation() {
+    let (mut app, _terminal, origin) = app();
+    let origin_token = app.active_session_token_for_test();
+    let (receiver_token, receiver) = recorded_split(&mut app);
+    add_receiver(&mut app, receiver_token);
+    // Layout actions require a real content rectangle for each session.
+    for token in app.active_tab_pane_tokens_for_test() {
+        app.focus_session_token_for_test(token);
+        app.set_test_cell_for_test(cell(8, 16));
+        app.set_test_surface_for_test(800, 416, WindowPadding::ZERO);
+    }
+    app.focus_session_token_for_test(origin_token);
+    app.reflow_active_panes_for_test();
+    app.handle_palette_action_for_test("stack-panes");
+    assert!(app.workspace_set().active_shows_only_focused());
+    assert_eq!(
+        app.broadcast_summary(),
+        BroadcastSummary {
+            receivers: 1,
+            hidden: 1,
+            remote: 0,
+        }
+    );
+    type_char(&mut app, 's');
+    assert_eq!(bytes(&origin), b"s");
+    assert_eq!(
+        bytes(&receiver),
+        b"s",
+        "stacked visibility never gates input"
+    );
+    origin.lock().expect("bytes").clear();
+    receiver.lock().expect("bytes").clear();
+    app.inject_paste_text_for_test("echo safe\n");
+    app.handle_paste_shortcut_for_test();
+    assert!(app.risky_paste_pending_for_test());
+    assert!(app.set_pane_read_only(receiver_token, true));
+    app.confirm_risky_paste_for_test(false);
+    assert_eq!(bytes(&origin), b"echo safe\r");
+    assert!(
+        bytes(&receiver).is_empty(),
+        "policy changes after opening confirmation are enforced"
+    );
+    assert!(
+        app.is_broadcast_receiver(receiver_token),
+        "read-only does not silently alter membership"
+    );
+}
