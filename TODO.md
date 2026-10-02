@@ -1,6 +1,6 @@
 # OdyTTY — TODO
 
-Published release: **v0.15.7**.
+Published release: **v0.15.8**.
 
 The milestones below distinguish published work, active development, explicit
 deferrals, and unmet evidence. Release corrections are listed in the
@@ -54,7 +54,10 @@ cursor-glide regression; see
 [`docs/releases/0.15.6.md`](docs/releases/0.15.6.md). Version 0.15.7 prevents
 Wayland window stalls after a hidden workspace and keeps workspace autosave
 after a primary-window merge; see
-[`docs/releases/0.15.7.md`](docs/releases/0.15.7.md). A checked item is delivered at the current head (or at the historical
+[`docs/releases/0.15.7.md`](docs/releases/0.15.7.md). Version 0.15.8 stops a
+macOS idle-CPU loop caused by a per-tick event-loop proxy clone, present since
+v0.15.0; see
+[`docs/releases/0.15.8.md`](docs/releases/0.15.8.md). A checked item is delivered at the current head (or at the historical
 milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as
@@ -64,6 +67,22 @@ recorded milestone before implementation.
 ## Release preparation
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
+
+## v0.15.8: macOS Idle CPU (published)
+
+Status notes: [`docs/releases/0.15.8.md`](docs/releases/0.15.8.md).
+
+Built from a `release/0.15.8` branch of v0.15.7 rather than from `master`, so
+no v0.16.0 development work is included. On Linux and Windows, proxy clones
+are cheap and showed no spin; the per-tick clone is removed there too, with
+no idle-CPU claim.
+
+- [x] The event loop's `about_to_wait` performs no per-tick `EventLoopProxy`
+      clone or wake on any platform.
+
+macOS acceptance for this release is an untouched window whose idle CPU returns
+to about zero, before and after on the same Mac. Linux and Windows have no
+idle-CPU claim.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

@@ -1,6 +1,6 @@
 # OdyTTY
 
-Published release: **v0.15.7**.
+Published release: **v0.15.8**.
 
 Current development work is tracked in [TODO.md](TODO.md). Release evidence
 and historical corrections are listed in the [release index](docs/releases/README.md).
@@ -176,7 +176,12 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.15.7 is published. It prevents
+OdyTTY is a broad pre-1.0 terminal. Version 0.15.8 is published. On macOS, an
+untouched window's idle CPU returns to about zero. The cause was a per-tick
+event-loop proxy clone that re-woke the macOS run loop, present since v0.15.0.
+On Linux and Windows the clones were cheap and showed no spin; the per-tick
+clone is removed there too, with no idle-CPU claim. See the
+[v0.15.8 release notes](docs/releases/0.15.8.md). Version 0.15.7 prevents
 Wayland windows from stopping updating after returning from a hidden workspace,
 and keeps workspace autosave working after the primary window is merged into
 another window; see the
@@ -199,10 +204,11 @@ launch profiles, external palette following, and unified Session Navigator; the
 [named profiles guide](docs/profiles.md) covers profiles, and the release index
 above records every published version.
 
-None of v0.15.0, v0.15.5, v0.15.6, or v0.15.7 optimizes rendering throughput,
-terminal storage, GPU allocation, or presentation timing (the v0.15.7
-present-mode change prevents a stall and is not a speed change), so they carry
-forward rather than relabel the v0.12.0 performance evidence. The v0.15.5 font change was compared before and
+None of v0.15.0, v0.15.5, v0.15.6, v0.15.7, or v0.15.8 optimizes rendering
+throughput, terminal storage, GPU allocation, or presentation timing (the
+v0.15.7 present-mode change prevents a stall and is not a speed change; the
+v0.15.8 change repairs a macOS idle-CPU loop and is not a throughput change),
+so they carry forward rather than relabel the v0.12.0 performance evidence. The v0.15.5 font change was compared before and
 after on one Linux workstation (benchmark rows, warm startup, and idle memory)
 without a new cross-terminal comparison.
 

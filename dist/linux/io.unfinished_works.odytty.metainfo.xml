@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.15.8" date="2026-10-02">
+      <description>
+        <p>On macOS, an untouched window's idle CPU returns to about zero. A per-tick clone of the event-loop proxy re-woke the macOS run loop, and had done so since v0.15.0. The tick path no longer clones that proxy. On Linux and Windows the clones were cheap and showed no spin; the per-tick clone is removed there too, with no idle-CPU claim.</p>
+      </description>
+    </release>
     <release version="0.15.7" date="2026-09-27">
       <description>
         <p>This release prevents Wayland windows from stopping updating after they return from a hidden workspace. Under the Fifo present mode, NVIDIA's proprietary driver was observed to ask the compositor to hold a window's updates far in the future; OdyTTY now presents with Mailbox on Wayland when the surface offers it. Windows, macOS, and X11 keep Fifo. The change was checked on device with NVIDIA's proprietary driver only.</p>

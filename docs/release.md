@@ -447,6 +447,14 @@ hidden workspace without a stall. AMD, Intel, and NVK Wayland drivers are
 untested on device. Unit tests cover the mode selection rules and both merge
 directions.
 
+Version 0.15.8 removes a per-tick event-loop proxy clone from `about_to_wait`
+and is cut from a `release/0.15.8` branch of v0.15.7. On macOS, an untouched
+window's idle CPU returns to about zero. The clone re-woke the macOS run loop
+and has been present since v0.15.0. On Linux and Windows, proxy clones are
+cheap and showed no spin; the per-tick clone is removed there too, with no
+idle-CPU claim. The change makes no rendering-throughput, startup, or memory
+claim, and the v0.12.0 results remain the applicable comparative evidence.
+
 ### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful

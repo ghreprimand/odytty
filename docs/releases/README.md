@@ -1,12 +1,13 @@
 # Release notes
 
-Published release: **v0.15.7**.
+Published release: **v0.15.8**.
 
 A short guide to what each OdyTTY release adds or improves for everyday use.
 For the detailed development history, see the [devlog](../../DEVLOG.md).
 
 | Release | Highlights |
 | --- | --- |
+| [v0.15.8](0.15.8.md) | On macOS, an untouched window's idle CPU returns to about zero. A per-tick event-loop proxy clone had been re-waking the macOS run loop since v0.15.0. |
 | [v0.15.7](0.15.7.md) | Wayland windows no longer stall after a hidden workspace, and merging the primary window keeps workspace autosave. |
 | [v0.15.6](0.15.6.md) | Long cursor moves glide without pausing again, and overflowing right-click menus scroll predictably. |
 | [v0.15.5](0.15.5.md) | Maintained font parsing with unchanged text rendering, Wayland repaint recovery, and an idle CPU fix. |
