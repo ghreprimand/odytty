@@ -595,26 +595,43 @@ impl MultiWindowHost {
     fn close_window(&mut self, idx: usize, event_loop: &ActiveEventLoop) {
         match resolve_window_close(self.windows.len(), idx) {
             WindowCloseAction::ExitProcess => event_loop.exit(),
-            WindowCloseAction::RemoveWindow(i) => {
-                // Deliver a profile edit made just before the close first.
-                self.service_profile_binding_changes();
-                if i < self.windows.len() {
-                    // A genuine window close reaps its own sessions (kills +
-                    // joins the PTYs). This is NOT the merge-retirement path,
-                    // whose source arena is already empty. Release the surface
-                    // before PTY teardown so the native window is dropped only
-                    // after its per-window GPU state has drained.
-                    let mut app = self.windows.remove(i);
-                    app.release_secure_input_hold();
-                    let removed_id = app.process_window_id();
-                    app.release_surface();
-                    app.close_all_sessions();
-                    self.detach_quick_if_owned(removed_id);
-                    self.cancel_picker_if_target_gone();
-                    self.sync_sibling_counts();
-                }
-            }
+            WindowCloseAction::RemoveWindow(i) => self.remove_closed_window(i),
         }
+    }
+
+    /// Remove window `i` while siblings remain. A genuine window close reaps
+    /// its own sessions (kills + joins the PTYs). This is NOT the
+    /// merge-retirement path, whose source arena is already empty.
+    ///
+    /// When the closing window owns shape persistence (the primary), the
+    /// oldest remaining ordinary window inherits that role first, so the
+    /// debounced autosave and the clean-exit save keep running for the rest of
+    /// the process; the next save then records the survivors' layout. The quick
+    /// terminal is never a survivor for this role (it is summoned, never
+    /// restored). Closing a non-primary window changes no ownership.
+    fn remove_closed_window(&mut self, i: usize) {
+        // Deliver a profile edit made just before the close first.
+        self.service_profile_binding_changes();
+        if i >= self.windows.len() {
+            return;
+        }
+        let mut app = self.windows.remove(i);
+        app.release_secure_input_hold();
+        let quick = &self.quick;
+        if let Some(survivor) = self.windows.iter_mut().find(|candidate| {
+            candidate.startup_error.is_none()
+                && quick.window_is_restorable(candidate.process_window_id())
+        }) {
+            survivor.adopt_autosave_ownership_from(&mut app, Instant::now());
+        }
+        let removed_id = app.process_window_id();
+        // Release the surface before PTY teardown so the native window is
+        // dropped only after its per-window GPU state has drained.
+        app.release_surface();
+        app.close_all_sessions();
+        self.detach_quick_if_owned(removed_id);
+        self.cancel_picker_if_target_gone();
+        self.sync_sibling_counts();
     }
 
     /// Apply a secure-input wish published by any window to every window.

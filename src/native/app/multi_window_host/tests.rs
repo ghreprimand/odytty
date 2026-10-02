@@ -9,6 +9,124 @@ use crate::native::test_support::headless_app_for_test;
 use crate::profiles::{LaunchProfile, profiles_dir_path, write_profile_file};
 use std::path::Path;
 
+/// Three windows over distinct sessions; window 0 holds the primary role.
+fn three_windows_with_primary_first() -> MultiWindowHost {
+    let mut first = headless();
+    first.set_primary_instance_for_test(true);
+    let mut second = headless();
+    second.set_primary_instance_for_test(false);
+    second
+        .workspace_set_mut()
+        .rekey_sole_session_for_test(SessionToken(500));
+    let mut third = headless();
+    third.set_primary_instance_for_test(false);
+    third
+        .workspace_set_mut()
+        .rekey_sole_session_for_test(SessionToken(1000));
+    host_of(vec![first, second, third])
+}
+
+fn owner_count(host: &MultiWindowHost) -> usize {
+    host.windows
+        .iter()
+        .filter(|app| app.autosave_is_primary)
+        .count()
+}
+
+/// Closing the primary window while others remain hands shape persistence to
+/// the oldest remaining window: exactly one owner, the survivors' sessions
+/// stay live, and the next autosave writes from the new owner only. Mutation:
+/// drop the handoff in the ordinary close path (the merge and move paths
+/// already transfer ownership, this one did not).
+#[test]
+fn closing_the_primary_window_hands_autosave_to_the_oldest_survivor() {
+    let mut host = three_windows_with_primary_first();
+    assert_eq!(owner_count(&host), 1);
+    let second_id = host.windows[1].process_window_id();
+    let third_id = host.windows[2].process_window_id();
+
+    host.remove_closed_window(0);
+
+    assert_eq!(host.windows.len(), 2);
+    assert_eq!(host.windows[0].process_window_id(), second_id);
+    assert_eq!(host.windows[1].process_window_id(), third_id);
+    assert_eq!(owner_count(&host), 1, "exactly one snapshot owner remains");
+    assert!(host.windows[0].autosave_is_primary, "the oldest survivor");
+    assert!(!host.windows[1].autosave_is_primary);
+    assert!(
+        host.windows[0].autosave_pending_for_test(),
+        "one write is armed so the survivors' layout is saved"
+    );
+    assert!(!host.windows[1].autosave_pending_for_test());
+    assert!(
+        host.windows[0]
+            .workspace_set()
+            .owns_session(SessionToken(500))
+    );
+    assert!(
+        host.windows[1]
+            .workspace_set()
+            .owns_session(SessionToken(1000))
+    );
+
+    let later = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    host.windows[0].run_shape_autosave_for_test(later);
+    host.windows[1].run_shape_autosave_for_test(later);
+    assert_eq!(host.windows[0].autosave_saves_for_test(), 1);
+    assert_eq!(host.windows[1].autosave_saves_for_test(), 0);
+
+    host.save_restorable_shape_on_exit();
+    assert_eq!(
+        host.windows[0].autosave_saves_for_test(),
+        2,
+        "the clean-exit save follows the new owner"
+    );
+    assert_eq!(host.windows[1].autosave_saves_for_test(), 0);
+}
+
+/// Closing a window that does not own persistence changes nothing about
+/// ownership and arms no write anywhere.
+#[test]
+fn closing_a_non_primary_window_leaves_autosave_ownership_alone() {
+    let mut host = three_windows_with_primary_first();
+    let primary_id = host.windows[0].process_window_id();
+
+    host.remove_closed_window(2);
+
+    assert_eq!(host.windows.len(), 2);
+    assert_eq!(host.windows[0].process_window_id(), primary_id);
+    assert_eq!(owner_count(&host), 1);
+    assert!(host.windows[0].autosave_is_primary);
+    assert!(!host.windows[1].autosave_is_primary);
+    assert!(!host.windows[0].autosave_pending_for_test());
+    assert!(!host.windows[1].autosave_pending_for_test());
+
+    host.remove_closed_window(1);
+    assert!(host.windows[0].autosave_is_primary);
+    assert!(!host.windows[0].autosave_pending_for_test());
+}
+
+/// The quick terminal is never a survivor for the primary role: it is
+/// summoned, never restored, so the oldest ORDINARY window inherits.
+#[test]
+fn closing_the_primary_window_skips_the_quick_terminal_survivor() {
+    let mut host = three_windows_with_primary_first();
+    // The oldest survivor is the quick terminal; the next window is ordinary.
+    let quick_id = host.windows[1].process_window_id();
+    host.quick
+        .attach_window(QuickTerminalIdentity::new(quick_id));
+
+    host.remove_closed_window(0);
+
+    assert_eq!(host.windows.len(), 2);
+    assert!(
+        !host.windows[0].autosave_is_primary,
+        "the quick terminal never owns shape persistence"
+    );
+    assert!(host.windows[1].autosave_is_primary);
+    assert_eq!(owner_count(&host), 1);
+}
+
 /// Mutation: transfer autosave ownership to every sibling, or reap sessions
 /// during merge retirement. Only the recipient inherits the primary flag.
 #[test]

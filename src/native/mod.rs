@@ -478,8 +478,10 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // self-guarded). Runs while the sessions are still live so per-pane cwds are
     // captured, and only when the loop exited cleanly so a startup failure never
     // clobbers a good snapshot. The host explicitly excludes its quick identity;
-    // the selected App still self-guards on primary-instance ownership, so an
-    // ordinary sibling cannot write if the original primary already closed.
+    // the selected App still self-guards on primary-instance ownership. Closing
+    // the primary while siblings remain hands that ownership to the oldest
+    // remaining ordinary window (`MultiWindowHost::remove_closed_window`), so
+    // this save still finds an owner.
     if run_result.is_ok() {
         host.save_restorable_shape_on_exit();
     }

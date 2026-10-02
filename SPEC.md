@@ -1410,7 +1410,11 @@ scope rather than silently inheriting deferred work from a prior release.
   launch; any CLI argument suppresses it, and a fresh shell is always spawned
   per pane. Only the primary window writes the snapshot; the ownership check
   sits in the snapshot writer itself, so no path (autosave, exit, or a profile
-  edit) can let another window replace it. Structural changes save after a
+  edit) can let another window replace it. Ownership moves only on a window
+  merge, on moving the last content out of the owning window, and on closing
+  the owning window while others remain, where the oldest remaining ordinary
+  window (never the quick terminal) takes it and arms one write of its own
+  layout. Structural changes save after a
   1.5 s debounce. A cwd-only change is checkpointed after 5 s of quiet and at
   most once a minute, so a crash restores recent working directories without
   a write per directory change. A profile rename or delete in any window

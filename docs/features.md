@@ -1121,7 +1121,8 @@ cancel. They appear only when another ordinary window exists. The "to New
 Window" rows appear only when something stays behind, and the pane rows only
 when the active tab is split. Moving a window's last tab to another window
 closes the emptied window; when that window owned the saved workspace layout,
-the destination takes over that role. Otherwise only the primary window's
+the destination takes over that role, as does the oldest remaining window when
+the owning window is simply closed. Otherwise only the primary window's
 layout is saved, so a tab moved into another window is not restored on the
 next launch. If a new window cannot be created, the tab or pane stays where it
 was and a notice says so. The quick terminal never sends or receives a tab or
