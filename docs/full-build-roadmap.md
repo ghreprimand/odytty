@@ -102,8 +102,8 @@ its cross-platform or evidence gate is not met.
   merging that folds one window's tabs into another through a numbered,
   compositor-independent target picker.
 - **v0.16.0 — Pane and window productivity.** Read-only panes, safe scrollback
-  export, guarded input broadcast, tab/pane tear-out, floating and stacked
-  layouts, and the remaining bounded window-management controls.
+  export, guarded input broadcast, tab/pane movement between windows through
+  the palette and the picker, floating and stacked layouts, and the remaining bounded window-management controls.
 - **v0.17.0 — International text and display correctness.** Bounded bidi and
   complex-script work, remaining grapheme/width fixtures, SVG-in-OpenType color
   glyphs, legacy-symbol fallback, and HiDPI validation.
@@ -586,7 +586,7 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   macOS, and Windows without any compositor cooperation. Tabs keep their PTY,
   profile, and attach handle; the source window closes only after the transfer
   completes, and a failed merge leaves both windows unchanged. Shares its
-  reparenting primitive with the v0.16.0 tear-out work.
+  reparenting primitive with the v0.16.0 tab/pane movement.
 - **Planned v0.16.0 — Pane and window controls.** Read-only panes, sanitized
   scrollback export, conspicuously guarded broadcast input, cross-window
   tab/pane movement, and floating or stacked layouts.
@@ -804,9 +804,12 @@ handful of deliberately-deferred niceties.
 - **Shipped in v0.15.0 - Window merge.** Fold every tab of one window into another
   from the keyboard, with a numbered picker whose numerals are painted inside
   each candidate window; see Track 6.
-- **Planned v0.16.0 - Multi-window movement and layout.** Tear individual tabs and panes
-  into another window (the reverse of the v0.15.0 merge, on the same primitive) without changing PTY/session ownership, and preserve the
-  resulting structure through named layouts and restoration.
+- **Planned v0.16.0 - Multi-window movement and layout.** Move individual tabs and panes
+  into a new or another window through the command palette and the
+  merge picker (the reverse of the v0.15.0 merge, on the same primitive)
+  without changing PTY/session ownership, and preserve the resulting
+  structure through named layouts and restoration. Dragging a tab or pane out
+  of a window is a possible later addition.
 
 ## Track 10 — Packaging, Release, And Platform
 

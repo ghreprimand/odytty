@@ -1228,8 +1228,8 @@ scope rather than silently inheriting deferred work from a prior release.
   shortcuts are unaffected. Other apps
   still receive keys. A `SECURE INPUT` label on each holding window is keyed
   into the frame cache; a split, stacked, or floating tab has no frame cache,
-  so the toggle marks a rebuild and the label is painted on the focused pane. Keys still go to the focused pane and to broadcast
-  receivers. Windows and Linux do not offer the row or the palette action
+  so the toggle marks a rebuild and the label is painted on the focused pane.
+  Keys still go to the focused pane and to broadcast receivers. Windows and Linux do not offer the row or the palette action
   and do not simulate the mode; a config key is stored and ignored. A crash
   while the primitive is enabled can leave secure input reported as active,
   and those intercept tools blocked, until logout. Normal typing in other
@@ -1254,8 +1254,9 @@ scope rather than silently inheriting deferred work from a prior release.
   emptied source window is retired and hands its primary autosave role to
   the destination. The quick terminal never sends or receives. The window
   owner shares every window's attached host-session ids with its siblings so
-  attach dedup spans the process. Drag tear-out is not implemented; on
-  Wayland it cannot be expressed through winit.
+  attach dedup spans the process. Drag tear-out is not implemented on any
+  platform; palette actions and the picker are the path everywhere, and on
+  Wayland the application cannot place the new window.
 - Stacked and floating layouts (v0.16.0): a tab keeps its binary split tree
   as the single source of truth for which panes exist and their stable order,
   and carries an arrangement beside it: tiled (default; the only mode older
@@ -1316,7 +1317,9 @@ scope rather than silently inheriting deferred work from a prior release.
 - Scrollback export (v0.16.0): two palette actions save the focused pane's
   scrollback plus screen as plain text or as sanitized, self-contained HTML.
   The document is built from cells only: logical lines with soft wraps joined,
-  `[image]` for image anchors, and no cwd, host, title, or environment.
+  `[image]` for image anchors, and no separate cwd, host, title, or environment
+  metadata. Terminal text is exported as shown, and permitted link targets are
+  kept.
   Writing reuses the command-output save dialog adapter, request routing,
   32 MiB cap, and private atomic writer. The capture walks the buffer front to
   back in bounded chunks (`Screen::export_chunk`), projecting each scrollback
@@ -1324,7 +1327,8 @@ scope rather than silently inheriting deferred work from a prior release.
   closes and the output never passes the cap; an over-cap export is refused
   whole, and a second export while a dialog is open is refused before capture.
   The capture runs on the UI thread under the terminal lock, so a capture that
-  reaches the cap pauses the window briefly. The HTML carries a CSP that blocks
+  reaches the cap pauses the window while it runs (the duration is unmeasured and
+  the cap bounds size, not time). The HTML carries a CSP that blocks
   scripts and fetches, and a bounded palette- and class-based style. It
   contains no active content, and only `http` and `https` OSC 8 targets with
   a host and no credentials become links.
@@ -2108,10 +2112,11 @@ A window spawns its first shells before it has measured its real grid, at the
 80x24 placeholder that also sizes the initial window request. Those spawns (the
 launch session, `-e` commands, a launch profile, every pane of a layout restored
 at startup, a reconnect before the first grid, and a new window's first session)
-run inside `pty::spawn_held`: the ConPTY child is created suspended and resumed
-only after the window's first surface-derived grid has reached its
-pseudoconsole (`WorkspaceSet::start_held_launches`, called from the surface
-grid path). When the surface is created, the window applies the size it
+run inside `pty::spawn_held`: the ConPTY child is created suspended and, in
+the normal case, resumed only after the window's first surface-derived grid has
+reached its pseudoconsole (`WorkspaceSet::start_held_launches`, called from the
+surface grid path); the five-second backstop described below can start it
+earlier. When the surface is created, the window applies the size it
 already has, and the new window is registered before that creation, so a
 resize event delivered before registration is not the only way the grid is
 reached. A child starts only once its backend holds the model's size: its

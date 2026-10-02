@@ -625,12 +625,14 @@ Available in the v0.16.0 development tree; not included in v0.15.8.
 A tab is tiled by default, and every tab saved by an older version opens
 tiled. The layouts need two or more panes; on a single pane the palette rows
 show a notice and change nothing. Switching layouts never restarts a shell: the
-split tree stays underneath, so **Tile Panes** restores the previous split
-geometry exactly, whatever happened in between.
+split tree stays underneath, so **Tile Panes** restores the split geometry the
+tab had before the layout change. Splitting or closing panes, or resizing the
+window, while a tab is stacked or floating changes the tree or its size in the
+usual way.
 
 Stacked and floating are layouts inside one window's content area. They are not
-native windows and never ask the desktop to place or float anything, so they
-behave the same on Linux (Wayland, including Hyprland, and X11), macOS, and
+native windows and never ask the desktop to place or float anything, so one
+implementation serves Linux (Wayland, including Hyprland, and X11), macOS, and
 Windows.
 
 **Stacked.** The focused pane fills the content area and the others keep
@@ -709,8 +711,8 @@ Workspace restore and named layouts keep it, so a restored pane shows the label
 before the first key. Older state files load as writable. Duplicate Tab and
 Duplicate Workspace start fresh shells that keep the source pane's read-only
 mode; New Tab, New Local Tab, and splits open writable. Local automation
-cannot send text to any pane, so it has nothing to bypass. Behavior is the same
-on Linux (Wayland and X11), macOS, and Windows.
+cannot send text to any pane, so it has nothing to bypass. One implementation
+serves Linux (Wayland and X11), macOS, and Windows.
 
 ### Secure Keyboard Input
 
@@ -777,7 +779,7 @@ pane sends nothing to any pane. If writing to a receiver fails, that receiver
 is removed and a short notice names its title; the others keep receiving.
 Mouse reports, focus reports, resizes, and click-to-position stay on the
 focused pane. Local automation has no send-text action and does not consult
-the set. Behavior is the same on Linux (Wayland and X11), macOS (the chord
+the set. One implementation serves Linux (Wayland and X11), macOS (the chord
 stays on Ctrl like the other default chords), and Windows.
 
 ### Export Scrollback
@@ -801,8 +803,11 @@ runs.
   text never includes link targets.
 
 Inline images (Kitty, iTerm2, sixel, and Kitty Unicode placeholders) appear as
-a single `[image]` line. Image data is never embedded. Neither format includes
-the working directory, host, user, profile, window title, or environment.
+a single `[image]` line. Image data is never embedded. Neither format adds application
+metadata: the working directory, host, user, profile, window title, and
+environment are not written. The terminal text itself is exported as it
+appears, so anything sensitive on screen or in scrollback is in the file, and
+an allowed `http` or `https` link target is kept as written.
 
 Exports share the command-output export limits and writer. A file over 32 MiB
 is refused whole, never truncated, before the dialog opens; the file is encoded
@@ -815,7 +820,8 @@ portal on Wayland and X11; macOS and Windows use their native dialogs.
 
 The capture takes one consistent snapshot while the window waits. Its cost
 grows linearly with the scrollback, so a very long scrollback pauses the window
-briefly while it is captured.
+while it is captured. That pause is not measured, and the size cap limits the
+file size, not the time.
 
 ### Organize Workspaces And The Rail
 
@@ -1137,10 +1143,10 @@ was and a notice says so. The quick terminal never sends or receives a tab or
 pane. A session attached in another window is not attached a second time; the
 attach list says it is already open elsewhere.
 
-Dragging a tab or pane out of a window is not supported. On Wayland, the
-compositor owns window placement and winit reports no drag between windows, so
-the palette is the route there; the same palette route works on X11, macOS, and
-Windows.
+Dragging a tab or pane out of a window is not supported on any platform.
+The command palette and the merge picker are the route everywhere.
+On Wayland the application cannot place the new window, so the compositor
+chooses where it opens.
 
 ### Control OdyTTY Locally
 

@@ -88,29 +88,33 @@ to 0.0% CPU.
 
 ## v0.16.0: Pane And Window Workflows
 
-Development on `master`; not released. Items check off when their code is on
-`master` with blocking Linux, macOS, and Windows CI.
+Development on `master`; not released. A code item checks off when its landing
+commit is on `master` with passing blocking Linux, macOS, and Windows CI. A
+device item checks off when a named hands-on result exists for the platforms it
+lists. The release notes are in
+[`docs/releases/0.16.0.md`](docs/releases/0.16.0.md).
 
-- [ ] Read-only panes: a per-pane input-disabled mode with a persistent
+- [x] Read-only panes: a per-pane input-disabled mode with a persistent
       `READ-ONLY` label. It is toggled from the palette or the context menu,
       or bound to a chord (none by default). It blocks key, IME, paste,
       drop, and mouse-report input, and it is persisted in workspace and
       layout state.
 - [ ] Device acceptance for read-only panes on Linux, macOS, and Windows.
-- [ ] Guarded broadcast input: panes join an in-memory, never-persisted
+- [x] Guarded broadcast input: panes join an in-memory, never-persisted
       receiver set one at a time from the palette or the context menu (no
       default chord); keys, IME, and paste reach every receiver once; a
       read-only receiver is skipped; any paste with a line break is confirmed
       with receiver, hidden, and remote counts; `BROADCAST n` and `RECV`
       labels disclose the set; `Ctrl+Shift+X` stops it and is never sent to a
       shell; receivers in other windows of the process are included.
-- [ ] Device acceptance for broadcast input on Linux, macOS, and Windows.
+- [x] Device acceptance for broadcast input on Linux (an owned headless Wayland
+      compositor), macOS, and Windows (Remote Desktop).
 - [ ] Secure keyboard input: an explicit macOS wish (palette and settings
       row, no default chord, never automatic) that enables
       EnableSecureEventInput only while the wish is on and an OdyTTY window
       has keyboard focus, and pairs the disable when the last focused hold
-      is released. A `SECURE INPUT` label stays on each holding window.
-      Windows and Linux do not offer the settings row or the palette action
+      is released. A `SECURE INPUT` label stays on each holding window, on the
+      focused pane in a split, stacked, or floating tab. Windows and Linux do not offer the settings row or the palette action
       and do not simulate it. A crash while it is enabled can leave secure input reported as
       active, and keyboard-intercept tools blocked, until logout. Normal
       typing in other apps is unaffected.
@@ -123,8 +127,10 @@ Development on `master`; not released. Items check off when their code is on
       merge picker; sessions keep their PTY, scrollback, images, profile,
       and `--hold` state; an emptied source closes and hands over the saved
       layout role; the quick terminal is excluded; attach dedup spans every
-      window. Drag tear-out is not supported (Wayland cannot express it).
-- [ ] Stacked and floating pane layouts: **Stack Panes**, **Float Panes**, and
+      window. Drag tear-out is not implemented on any platform;
+      palette actions and the picker are the path everywhere, and on Wayland the
+      application cannot place the new window.
+- [x] Stacked and floating pane layouts: **Stack Panes**, **Float Panes**, and
       **Tile Panes** from the palette (default stays tiled; older layouts load
       tiled); stacked shows the focused pane full-bleed with the rest alive;
       floating panes are whole-cell rectangles with a z-order, a frame, a cell
@@ -133,22 +139,24 @@ Development on `master`; not released. Items check off when their code is on
       order from the palette; mode, rectangles, and order are saved; a pane
       moved from another window joins a floating tab. Pointer drag of floating
       frames is not implemented.
-- [ ] Device acceptance for stacked and floating layouts on Linux (Wayland and
-      Hyprland), macOS, and Windows.
+- [x] Device acceptance for stacked and floating layouts on Linux (an owned
+      headless Wayland compositor), macOS, and Windows (Float Panes only).
 - [ ] Device acceptance for moving tabs and panes on Linux (Wayland), plus
       NVIDIA window create/destroy, macOS, and Windows.
-- [ ] Reject control-bearing palette text and show its controls as visible
+- [x] Reject control-bearing palette text and show its controls as visible
       label escapes (backslashes stay literal); preserve viewport/selection
       and skip clipboard access when read-only input is refused, including
       primary paste, prefix passthrough, Clear Input, context-menu Cut,
       click-to-position, and selected-input deletion.
-- [ ] Scrollback export as plain text and sanitized self-contained HTML
+- [x] Scrollback export as plain text and sanitized self-contained HTML
       from the command palette. It shares the command-output writer, cap, and
-      native dialog, uses `[image]` placeholders, carries no private
-      metadata, and turns only `http` and `https` targets into links.
+      native dialog, uses `[image]` placeholders, adds no application metadata
+      (working directory, host, user, profile, window title, environment), and
+      turns only `http` and `https` targets into links. The exported text
+      itself is not redacted.
 - [ ] Device acceptance for scrollback export (text and HTML, opened in a
       browser) on Linux, macOS, and Windows.
-- [ ] Input delivery is bounded and never silent: bracketed paste is capped at
+- [x] Input delivery is bounded and never silent: bracketed paste is capped at
       the 8 MiB attach input limit and checked before encoding; an oversized
       attached input is refused without disabling later typing; dropped or
       overflowed input raises an "Input lost" notice and a log count; a
@@ -156,36 +164,36 @@ Development on `master`; not released. Items check off when their code is on
       delivery; the session host keeps one over-cap frame whole and logs its
       overflow; OSC 52 read replies over the 64 KiB OSC 52 limit are refused
       whole.
-- [ ] Profile and workspace persistence is honest and owned: failed profile
+- [x] Profile and workspace persistence is honest and owned: failed profile
       and default writes report the real outcome, and rename/delete move the
       global default before retiring the file; only the primary window
       writes the workspace snapshot, enforced in the writer; profile renames
       and deletes update every window's bindings; cwd-only changes are
       checkpointed after 5 s and at most once a minute.
-- [ ] Inline image identity is exact: the single-pane texture cache is
+- [x] Inline image identity is exact: the single-pane texture cache is
       scoped to one session, so equal image ids in two sessions never share a
       texture; snapshot restore continues image id and generation counters;
       Kitty retransmission under an existing `i=` replaces the image and
       deletes its placements, freeing its quota first and leaving the old
       image intact when the new data is rejected.
-- [ ] Detached-session listing and kill never wait on a stuck host: the
+- [x] Detached-session listing and kill never wait on a stuck host: the
       Session Navigator and `odytty list` use nonblocking, handshake-free
       probes, report an unreadable registry, and mark a host that does not
       take a connection `unresponsive`; Kill Session reports a live host that
       does not answer instead of treating it as gone; every session-host
       connect is bounded by a deadline.
-- [ ] Interaction and render paths do not wait on hostile files or helpers:
+- [x] Interaction and render paths do not wait on hostile files or helpers:
       shell history, desktop entries, images, ssh config, and settings refuse
       FIFOs and devices without blocking; `xdg-mime`, `fc-match`, `fc-list`,
       and `wsl.exe` run with a deadline and output cap; runtime glyph fallback
       resolves on a worker and redraws when ready.
-- [ ] Terminal control semantics are exact: Search Command Output applies
+- [x] Terminal control semantics are exact: Search Command Output applies
       its range before the 10,000-match limit, and one long wrapped line
       stops at that limit; CSI cursor, editing, margin, and save/restore
       commands run only in their plain form, so private forms such as
       `CSI ? Pm s` and `CSI > Ps A` are ignored; an OSC or DCS string
       cancelled by CAN or SUB is discarded without effect.
-- [ ] Discovery work is bounded: the profile catalog examines at most 1,024
+- [x] Discovery work is bounded: the profile catalog examines at most 1,024
       entries of any kind and reuses the parsed catalog while the profile
       file stamps are unchanged (Windows stamps miss ACL-only changes; see
       docs/profiles.md), so per-prompt working-directory reports no longer
@@ -193,7 +201,7 @@ Development on `master`; not released. Items check off when their code is on
       discovery bounds entries examined and directories read, visits entries
       in name order, and includes symlinks to regular font files without
       following directory symlinks. Each truncation is reported.
-- [ ] Transport lifecycles are bounded: the session host reads each attach
+- [x] Transport lifecycles are bounded: the session host reads each attach
       hello without blocking under a deadline, accepts at most eight
       connections per pass with at most eight pending handshakes, and gives
       every frame a two-second whole-frame deadline; remote image uploads
@@ -201,7 +209,7 @@ Development on `master`; not released. Items check off when their code is on
       closes, and clean up their own remote file after a close; a failed
       backend resize is retried with a bounded backoff while the window is
       idle.
-- [ ] Windows first command lands at the prompt: a window's first shells
+- [x] Windows first command lands at the prompt: a window's first shells
       (the launch session, a restored layout, a new window) are held
       suspended until the window's real grid reaches ConPTY. The window
       applies the size it already has when its surface is created, and a new
@@ -216,10 +224,10 @@ Development on `master`; not released. Items check off when their code is on
       (and misplace its first command); the retry stays because dropping it
       can leave the model size and the pseudoconsole size different
       indefinitely. Unix spawns are unchanged.
-- [ ] Device acceptance on Windows: a long wrapped PowerShell prompt at
+- [x] Device acceptance on Windows: a long wrapped PowerShell prompt at
       startup and in a new window places the first typed command directly
       after the prompt.
-- [ ] GPU and history work is bounded: a lost GPU device stays lost, so no
+- [x] GPU and history work is bounded: a lost GPU device stays lost, so no
       later redraw, resize, or surface recreation touches it and its render
       timers stop waking the loop; switching a tab between single-pane and
       split views releases the other view's image textures; consecutive

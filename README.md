@@ -12,7 +12,8 @@ and [secure keyboard input](docs/features.md#secure-keyboard-input) on macOS.
 East Asian Ambiguous characters follow
 [`ambiguous_width`](docs/features.md#ambiguous-character-width) (`narrow` by
 default, or `wide`). On Windows, a window's first shells stay suspended until
-the live grid reaches ConPTY. These features are not included in the published
+the live grid reaches ConPTY, with a five-second backstop that can start one
+earlier. These features are not included in the published
 v0.15.8 release. The v0.16.0 development palette also refuses control-bearing
 history and directory entries instead of
 sending hidden input. Release evidence and historical corrections are listed
