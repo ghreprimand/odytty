@@ -116,12 +116,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config libfontconfig1-dev libfreetype6-dev \
-            libxkbcommon-dev libwayland-dev libx11-dev
+            libxkbcommon-dev libwayland-dev libx11-dev \
+            libxkbcommon-x11-0 libxcursor1 libxi6
 
       - name: Build release binary
         run: cargo build --release --locked
 
       - name: Build AppImage
+        # build-appimage.sh deploys the dlopen'd xkbcommon-x11/Xcursor/Xi libraries
+        # explicitly (libxkbcommon.so.0 stays host-provided) (linuxdeploy only follows ELF NEEDED entries) and fails if
+        # one is missing from the build host or from the finished AppDir.
         run: dist/appimage/build-appimage.sh "${VERSION}"
 
       - name: Smoke test the AppImage
@@ -130,6 +134,21 @@ jobs:
         run: |
           APPIMAGE_EXTRACT_AND_RUN=1 \
             ./odytty-${VERSION}-x86_64.AppImage --version
+
+      - name: Audit the dlopen'd libraries
+        # --version cannot see libraries loaded at window creation. Every
+        # library name in the shipped binary must be classified as bundled (and
+        # present in the AppImage) or host-provided; an unclassified name fails.
+        run: dist/appimage/smoke-test.sh audit "./odytty-${VERSION}-x86_64.AppImage"
+
+      - name: Smoke test the AppImage on a minimal X11 host
+        # Starts the AppImage under Xvfb in a clean ubuntu:22.04 container that
+        # has no libxkbcommon-x11, Xcursor, or XInput package, and requires it to stay
+        # up. A missing bundled library panics at startup and fails this step.
+        run: |
+          docker run --rm -v "$PWD:/w:ro" ubuntu:22.04 \
+            sh /w/dist/appimage/smoke-test-container.sh \
+            "/w/odytty-${VERSION}-x86_64.AppImage"
 
       - name: Upload AppImage artifact
         # v4.6.2

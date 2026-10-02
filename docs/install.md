@@ -329,6 +329,17 @@ defaults to `~/.local` for a no-root per-user install (make sure
 system-wide install. Remove a previous install with `./install.sh --uninstall`
 (honoring the same `PREFIX`).
 
+The tarball binary bundles no libraries, so the host must provide what OdyTTY
+loads at runtime: the Vulkan loader (`libvulkan.so.1`) with a driver, Fontconfig
+and FreeType, and `libxkbcommon`. On an X11 session it also needs
+`libxkbcommon-x11`, `libX11`, `libXcursor`, and `libXi`; on a Wayland session it
+needs `libwayland-client`. The `.deb`, `.rpm`, and AUR packages declare the
+Vulkan, text, and xkbcommon packages (including `libxkbcommon-x11`) and leave
+the display-server client libraries to the desktop that already provides them.
+OdyTTY loads the xkbcommon and X11 libraries when the window opens, so a missing
+one stops startup at that point with a library-load error instead of appearing
+at install time.
+
 ### AppImage (x86_64)
 
 Download the always-latest AppImage alias and checksum file, verify it, mark it
@@ -348,10 +359,17 @@ The executable bit is required because browsers normally omit it. Without
 `chmod +x`, the file may open in an archive viewer or fail with
 "permission denied".
 
-The AppImage bundles OdyTTY's own dependencies but **not** the graphics driver:
-it uses the host's Vulkan ICD or accelerated OpenGL/GLES stack, the same graphics
-requirement as a source build. It is built on the oldest supported Ubuntu LTS
-for a wide glibc floor. This is a best-effort artifact; if GPU initialization
+The AppImage bundles OdyTTY's own dependencies, including the libraries it loads
+at runtime on X11 (`libxkbcommon-x11`, `libXcursor`, and `libXi`), so it starts
+on a minimal X11 host. It does **not** bundle the graphics driver or the
+session libraries: it uses the host's Vulkan ICD or accelerated OpenGL/GLES
+stack, the same graphics requirement as a source build, plus the host's
+`libxkbcommon` (kept on the host so an older bundled copy never overrides a newer
+one), `libX11` or `libwayland-client`, Fontconfig, and FreeType. The
+release workflow starts the AppImage under Xvfb in a clean container that has
+none of the bundled libraries, and audits every library name in the binary
+against the bundled and host-provided lists. It is built on the oldest supported
+Ubuntu LTS for a wide glibc floor. This is a best-effort artifact; if GPU initialization
 fails, see [No Vulkan adapter, accelerated GL, and virtual
 machines](#no-vulkan-adapter-accelerated-gl-and-virtual-machines).
 
@@ -996,6 +1014,7 @@ depends=(
     'freetype2'
     'vulkan-icd-loader'
     'libxkbcommon'
+    'libxkbcommon-x11'
     'hicolor-icon-theme'
 )
 makedepends=('cargo')

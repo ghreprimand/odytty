@@ -10,6 +10,7 @@ pkgbase = odytty
 	depends = freetype2
 	depends = vulkan-icd-loader
 	depends = libxkbcommon
+	depends = libxkbcommon-x11
 	depends = hicolor-icon-theme
 	source = odytty-0.9.0.tar.gz::https://github.com/ghreprimand/odytty/releases/download/v0.9.0/odytty-0.9.0.tar.gz
 	sha256sums = SKIP

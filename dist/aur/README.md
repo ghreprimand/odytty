@@ -97,8 +97,8 @@ Reset `pkgrel` to `1` for every new upstream version.
 ## Package Dependencies
 
 The runtime dependencies cover the GPU, text, and desktop stack:
-`fontconfig`, `freetype2`, `vulkan-icd-loader`, `libxkbcommon`, and
-`hicolor-icon-theme`. The Vulkan ICD itself comes from the user's Mesa or vendor
+`fontconfig`, `freetype2`, `vulkan-icd-loader`, `libxkbcommon`,
+`libxkbcommon-x11`, and `hicolor-icon-theme`. The Vulkan ICD itself comes from the user's Mesa or vendor
 graphics driver and is not installed by this package.
 The binary links `freetype2` and `fontconfig` for Wayland client-side title-bar
 text, and runs the Fontconfig `fc-match` and `fc-list` tools for symbol

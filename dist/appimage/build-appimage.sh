@@ -15,6 +15,16 @@
 # ICD rather than carrying a driver that would mismatch the user's GPU. That is
 # the documented AppImage caveat: the host must provide a working Vulkan driver.
 #
+# dlopen'd libraries are invisible to linuxdeploy: it follows ELF NEEDED entries
+# only, but winit loads the xkbcommon and X11 input/cursor libraries at runtime
+# (xkbcommon-dl / x11-dl), so an AppImage built from ldd alone panics at startup
+# on an X11 host that lacks libxkbcommon-x11 ("Library libxkbcommon-x11.so could
+# not be loaded"). BUNDLED_DLOPEN_LIBS below is deployed explicitly; a missing
+# one fails the build instead of shipping a bundle that dies on a minimal host.
+# dist/appimage/smoke-test.sh audits the shipped binary's dlopen set against the
+# same classification (bundled vs host-provided) and fails on any unclassified
+# name, so a dependency bump that adds a dlopen'd library cannot slip through.
+#
 # No FUSE is required: APPIMAGE_EXTRACT_AND_RUN=1 makes both linuxdeploy and the
 # nested appimagetool self-extract instead of mounting, which is what CI needs.
 #
@@ -108,13 +118,65 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 export VERSION
 export OUTPUT="odytty-$VERSION-$ARCH.AppImage"
 
+# Libraries the binary loads with dlopen at runtime that are bundled because
+# the host may lack them (a minimal X11 host has libxkbcommon but often not
+# libxkbcommon-x11, libXcursor, or libXi). Keep in sync with the classification
+# in dist/appimage/smoke-test.sh (the smoke test fails if they diverge from what
+# the binary actually loads).
+BUNDLED_DLOPEN_LIBS=(
+  libxkbcommon-x11.so.0
+  libXcursor.so.1
+  libXi.so.6
+)
+
+# Resolve a soname to the build host's file path (linuxdeploy --library takes a
+# path). A missing library is a build error, never a silent omission.
+resolve_soname() {
+  local soname="$1" path
+  path="$( { /sbin/ldconfig -p 2>/dev/null || ldconfig -p 2>/dev/null; } |
+    awk -v n="$soname" '$1 == n && /x86-64/ { print $NF; exit }')"
+  if [ -z "$path" ] || [ ! -f "$path" ]; then
+    echo "error: cannot find $soname on the build host (install its runtime package)" >&2
+    exit 1
+  fi
+  # Return the soname-named path unresolved: linuxdeploy deploys a symlinked
+  # path under that name, while the resolved real file would land as
+  # libfoo.so.N.M.P and dlopen("libfoo.so.N") would not find it.
+  printf '%s\n' "$path"
+}
+
+# libxkbcommon.so.0 stays with the host: every X11 and Wayland desktop has it,
+# and a copy from the build host's older release would override a newer host
+# copy and could fail to compile a newer compositor keymap. libxkbcommon-x11
+# needs it, so linuxdeploy would otherwise deploy it as a dependency; exclude it
+# explicitly and let the bundled libxkbcommon-x11 resolve it from the host.
+LIBRARY_ARGS=(--exclude-library libxkbcommon.so.0)
+for soname in "${BUNDLED_DLOPEN_LIBS[@]}"; do
+  LIBRARY_ARGS+=(--library "$(resolve_soname "$soname")")
+done
+
 echo "==> bundling with linuxdeploy"
 "$LD" --appimage-extract-and-run \
   --appdir "$APPDIR" \
   --executable "$BIN" \
+  "${LIBRARY_ARGS[@]}" \
   --desktop-file dist/linux/io.unfinished_works.odytty.desktop \
   --icon-file dist/icons/hicolor/256x256/apps/io.unfinished_works.odytty.png \
   --output appimage
+
+# Each explicitly deployed library must have landed in the AppDir under its
+# soname (linuxdeploy renames nothing, but verify rather than assume), and the
+# host-provided libxkbcommon.so.0 must not have come along as a dependency.
+for soname in "${BUNDLED_DLOPEN_LIBS[@]}"; do
+  if [ ! -e "$APPDIR/usr/lib/$soname" ]; then
+    echo "error: $soname was not bundled into the AppDir" >&2
+    exit 1
+  fi
+done
+if [ -e "$APPDIR/usr/lib/libxkbcommon.so.0" ]; then
+  echo "error: libxkbcommon.so.0 was bundled; it must stay host-provided" >&2
+  exit 1
+fi
 
 # linuxdeploy writes OUTPUT into the cwd (repo root).
 if [ ! -f "$OUTPUT" ]; then

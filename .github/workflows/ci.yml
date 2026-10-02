@@ -328,6 +328,8 @@ jobs:
       - name: shellcheck
         run: |
           shellcheck dist/install.sh dist/linux/tarball-install.sh \
+            dist/appimage/build-appimage.sh dist/appimage/smoke-test.sh \
+            dist/appimage/smoke-test-container.sh \
             .github/scripts/verify-release-ci.sh \
             .github/scripts/verify-release-ci-test.sh \
             .github/scripts/await-release-ci.sh \
