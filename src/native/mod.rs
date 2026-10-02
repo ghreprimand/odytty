@@ -68,6 +68,7 @@ mod copy_mode;
 mod cursor;
 mod cvd_theme;
 mod file_drop;
+mod float_layout;
 mod font_picker;
 mod gpu;
 mod image_decode;

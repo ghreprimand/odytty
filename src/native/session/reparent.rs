@@ -19,7 +19,9 @@
 //!    collapsing its split parent) from the source and returns a
 //!    [`MovedContent`] holding the values plus an exact restore point.
 //! 3. [`WorkspaceSet::attach_moved`] inserts it into the destination as the
-//!    destination's active tab, or hands the content back on failure.
+//!    destination's active tab, or hands the content back on failure. A moved
+//!    pane instead joins the destination's active tab when that tab is already
+//!    floating, and arrives as a floating pane in front.
 //! 4. On any failure after step 2, [`WorkspaceSet::restore_moved`] puts the
 //!    content back exactly where it was (tab index, pane tree, focus, zoom),
 //!    so a refused move changes nothing.
@@ -36,7 +38,7 @@
 use std::collections::HashMap;
 
 use super::model::{Session, SessionToken, Tab, Workspace, WorkspaceSet, default_workspace_name};
-use crate::native::layout::PaneNode;
+use crate::native::layout::{EVEN_RATIO, PaneNode, SplitAxis};
 use crate::native::pty::UserEvent;
 use winit::event_loop::EventLoopProxy;
 
@@ -366,7 +368,15 @@ impl WorkspaceSet {
         if self.workspaces[ws_idx].tabs.try_reserve(1).is_err() {
             return Err(Box::new((MoveError::AllocationFailed, content)));
         }
-        if content.fresh_tab {
+        // A moved pane joins the destination's active tab, as a floating pane,
+        // only when that tab is already floating; otherwise it becomes a new
+        // tab. A whole moved tab always arrives as a tab.
+        let joins_floating = content.fresh_tab
+            && self.workspaces[ws_idx]
+                .tabs
+                .get(self.workspaces[ws_idx].active_tab)
+                .is_some_and(Tab::is_floating);
+        if content.fresh_tab && !joins_floating {
             let Some(identity) = self.mint_session_token() else {
                 return Err(Box::new((MoveError::CapacityExceeded, content)));
             };
@@ -376,6 +386,18 @@ impl WorkspaceSet {
             self.sessions.insert(session.id, session);
         }
         let ws = &mut self.workspaces[ws_idx];
+        if joins_floating {
+            let moved = content.tab.focused;
+            let active = ws.active_tab;
+            let dest = &mut ws.tabs[active];
+            let anchor = dest.focused;
+            let layout = std::mem::replace(&mut dest.layout, PaneNode::leaf(moved));
+            dest.layout = layout.split_leaf(anchor, SplitAxis::Columns, EVEN_RATIO, moved);
+            dest.focused = moved;
+            dest.zoomed = false;
+            dest.raise_focused();
+            return Ok(());
+        }
         ws.tabs.push(content.tab);
         ws.active_tab = ws.tabs.len() - 1;
         Ok(())

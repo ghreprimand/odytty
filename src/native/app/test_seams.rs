@@ -222,11 +222,15 @@ impl App {
     /// geometry.
     #[cfg(test)]
     pub(in crate::native) fn focused_pane_rects_for_test(&self) -> Option<([f32; 4], [f32; 4])> {
-        let (content, _cell) = self.multipane_geometry()?;
+        let (content, cell) = self.multipane_geometry()?;
         let focused = self.sessions.active_id();
         let tiled = self
             .sessions
-            .active_pane_rects(content, super::panes::PANE_DIVIDER_PX)
+            .active_pane_rects(
+                content,
+                super::panes::PANE_DIVIDER_PX,
+                (cell.width, cell.height),
+            )
             .into_iter()
             .find(|(t, _)| *t == focused)
             .map(|(_, r)| r)?;
@@ -803,6 +807,35 @@ impl App {
         probe: super::interactive_paths::MapProbe,
     ) {
         self.test_path_probe = probe;
+    }
+
+    /// Test seam (floating layouts): the content rectangle and cell size the
+    /// multi-pane geometry resolves to, or `None` on a single-pane tab.
+    #[cfg(test)]
+    pub(in crate::native) fn pane_geometry_for_test(&self) -> Option<(PaneRect, (u32, u32))> {
+        self.multipane_geometry()
+            .map(|(content, cell)| (content, (cell.width, cell.height)))
+    }
+
+    /// Test seam (floating layouts): every pane's outer pixel rectangle
+    /// `[x, y, w, h]` of the active tab in paint order (back to front), as the
+    /// render and hit-test paths resolve them.
+    #[cfg(test)]
+    pub(in crate::native) fn active_pane_rects_for_test(
+        &self,
+    ) -> Vec<(crate::native::session::SessionToken, [f32; 4])> {
+        let Some((content, cell)) = self.multipane_geometry() else {
+            return Vec::new();
+        };
+        self.sessions
+            .active_pane_rects(
+                content,
+                super::panes::PANE_DIVIDER_PX,
+                (cell.width, cell.height),
+            )
+            .into_iter()
+            .map(|(token, r)| (token, [r.x, r.y, r.w, r.h]))
+            .collect()
     }
 
     /// Test seam (CURSOR-ICON / divider hover): inject the surface size and

@@ -110,6 +110,12 @@ pub(in crate::native) struct PaneRender<'a> {
     /// overlay, and cursor quad is clipped on both axes before batching. `None`
     /// marks chrome and padding-zero panes, preserving those vertex streams.
     pub(in crate::native) content_clip: Option<[f32; 4]>,
+    /// Rectangles `[left, top, right, bottom]` of the floating panes painted
+    /// above this one. Every quad this pane emits is cut around them so a
+    /// covered pane never draws over the pane in front of it. Empty for chrome,
+    /// tiled, stacked, and zoomed panes, which leaves their vertex streams
+    /// untouched.
+    pub(in crate::native) occluders: &'a [[f32; 4]],
     /// TAB-LABEL-CENTERING: sub-row glyph shift (cell-height units) for a top
     /// tab-bar chrome strip, recentering its label row on the band's true center.
     /// `0.0` (every content pane and the rail strip) is inert.

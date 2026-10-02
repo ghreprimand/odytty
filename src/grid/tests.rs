@@ -2760,6 +2760,55 @@ mod pane_subcell_clip {
     }
 
     #[test]
+    fn occlusion_collapses_a_covered_quad_and_keeps_an_untouched_one() {
+        let mut verts = one_quad(0.0, 20.0, 0.0, 1.0);
+        let before = verts.clone();
+        // A hole that does not touch the quad changes nothing.
+        subtract_rects_from_quads(&mut verts, &[[100.0, 100.0, 120.0, 120.0]]);
+        assert_eq!(verts, before);
+        // No holes at all is inert.
+        subtract_rects_from_quads(&mut verts, &[]);
+        assert_eq!(verts, before);
+        // A hole over the whole quad collapses it without removing it.
+        subtract_rects_from_quads(&mut verts, &[[0.0, -5.0, 30.0, 30.0]]);
+        assert_eq!(verts.len(), INSTANCES_PER_QUAD, "batch shape is preserved");
+        assert_eq!(quad_left(&verts), quad_right(&verts));
+    }
+
+    #[test]
+    fn occlusion_crops_overhang_with_uvs_on_the_exposed_side() {
+        // The quad spans x 10..20, y 0..20; the hole covers x >= 16 over the
+        // full height, so the quad keeps x 10..16 and its right UV follows.
+        let mut verts = one_quad(0.0, 20.0, 0.0, 1.0);
+        subtract_rects_from_quads(&mut verts, &[[16.0, -5.0, 40.0, 30.0]]);
+        assert_eq!((quad_left(&verts), quad_right(&verts)), (10.0, 16.0));
+        assert!((quad_uv_right(&verts) - 0.6).abs() < 1e-4);
+        assert_eq!((quad_top(&verts), quad_bottom(&verts)), (0.0, 20.0));
+        // A hole across the full width crops vertically instead.
+        let mut verts = one_quad(0.0, 20.0, 0.0, 1.0);
+        subtract_rects_from_quads(&mut verts, &[[0.0, 12.0, 40.0, 40.0]]);
+        assert_eq!((quad_top(&verts), quad_bottom(&verts)), (0.0, 12.0));
+        assert!((quad_uv_bottom(&verts) - 0.6).abs() < 1e-4);
+    }
+
+    #[test]
+    fn occlusion_cut_of_a_corner_keeps_the_larger_remainder() {
+        let rect = [0.0, 0.0, 10.0, 10.0];
+        use crate::grid::clipping::{OcclusionCut, occlusion_cut};
+        // The hole covers the top-right corner: 2 wide and 8 tall, so the
+        // 8-wide full-height strip on the left is the larger remainder.
+        assert_eq!(
+            occlusion_cut(rect, [8.0, -1.0, 11.0, 8.0]),
+            OcclusionCut::Crop([0.0, 0.0, 8.0, 10.0])
+        );
+        // A hole in the middle of one edge only is a keep-the-wider-side crop.
+        assert_eq!(
+            occlusion_cut(rect, [3.0, -1.0, 5.0, 11.0]),
+            OcclusionCut::Crop([5.0, 0.0, 10.0, 10.0])
+        );
+    }
+
+    #[test]
     fn vclip_none_is_inert() {
         assert!(!VClip::NONE.active());
         let mut verts = one_quad(0.0, 10.0, 0.0, 1.0);

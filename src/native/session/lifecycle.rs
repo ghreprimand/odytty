@@ -615,6 +615,8 @@ impl WorkspaceSet {
         let layout = std::mem::replace(&mut tab.layout, PaneNode::leaf(new_token));
         tab.layout = layout.split_leaf(focused, axis, EVEN_RATIO, new_token);
         tab.focused = new_token;
+        // A floating tab paints the focused pane on top.
+        tab.raise_focused();
         // Splitting changes the tree, so any prior zoom no longer applies
         // (tmux un-zooms on split).
         tab.zoomed = false;
@@ -656,6 +658,7 @@ impl WorkspaceSet {
         match tab.layout.next_leaf_after(tab.focused) {
             Some(next) if next != tab.focused => {
                 tab.focused = next;
+                tab.raise_focused();
                 true
             }
             _ => false,
@@ -673,6 +676,7 @@ impl WorkspaceSet {
             return false;
         }
         tab.focused = token;
+        tab.raise_focused();
         true
     }
 

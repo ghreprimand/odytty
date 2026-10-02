@@ -112,6 +112,7 @@ fn append_from_snapshot_appends_without_clobbering() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![crate::native::persistence::TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: crate::native::persistence::PaneShape::Leaf {
@@ -228,6 +229,7 @@ fn append_from_snapshot_appends_all_workspaces_of_a_multi_workspace_layout() {
 
     // A three-workspace layout snapshot (the whole-app save output shape).
     let leaf = || crate::native::persistence::TabShape {
+        arrangement: Default::default(),
         title: None,
         focused_leaf: 0,
         layout: crate::native::persistence::PaneShape::Leaf {
@@ -328,6 +330,7 @@ fn append_consumes_a_pristine_workspace_on_open() {
     assert!(set.sessions.contains_key(&pristine_token));
 
     let leaf = || crate::native::persistence::TabShape {
+        arrangement: Default::default(),
         title: None,
         focused_leaf: 0,
         layout: crate::native::persistence::PaneShape::Leaf {
@@ -387,6 +390,7 @@ fn append_does_not_consume_a_single_but_renamed_workspace() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![crate::native::persistence::TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: crate::native::persistence::PaneShape::Leaf {
@@ -432,6 +436,7 @@ fn replace_via_restore_leaves_no_survivors() {
 
     // A two-workspace layout with a non-zero active index.
     let leaf = || crate::native::persistence::TabShape {
+        arrangement: Default::default(),
         title: None,
         focused_leaf: 0,
         layout: crate::native::persistence::PaneShape::Leaf {
@@ -490,6 +495,7 @@ fn reattach_counts_attempt_and_falls_back_to_fresh_when_host_is_dead() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![crate::native::persistence::TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: crate::native::persistence::PaneShape::Leaf {
@@ -588,6 +594,7 @@ fn restore_lands_stale_and_unknown_cwds_at_home() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: PaneShape::Split {
@@ -659,11 +666,13 @@ fn restore_aborts_cleanly_when_a_leaf_fails_to_spawn() {
             active_tab: 0,
             tabs: vec![
                 TabShape {
+                    arrangement: Default::default(),
                     title: None,
                     focused_leaf: 0,
                     layout: leaf(None),
                 },
                 TabShape {
+                    arrangement: Default::default(),
                     title: None,
                     focused_leaf: 0,
                     layout: leaf(None),
@@ -724,6 +733,7 @@ fn out_of_range_indices_in_a_snapshot_clamp_never_panic() {
             launch_profile: None,
             active_tab: 999,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 999,
                 layout: leaf(),
@@ -863,6 +873,7 @@ fn absurd_ratios_and_deep_nesting_restore_without_panicking() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: node,
@@ -898,6 +909,7 @@ fn restore_reconnects_remote_leaves_and_keeps_local_leaves_local() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: PaneShape::Split {
@@ -965,6 +977,7 @@ fn restore_falls_back_to_local_when_remote_host_unresolvable() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: PaneShape::Leaf {
@@ -1027,6 +1040,7 @@ fn restore_retries_at_home_when_spawn_fails_at_an_existing_cwd() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: PaneShape::Leaf {
@@ -1147,6 +1161,7 @@ fn restore_rebuilds_read_only_leaves_read_only() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: PaneShape::Split {

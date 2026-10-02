@@ -5,6 +5,7 @@
 //! happen only after the overlay accepts and closes: typing literal text into
 //! the focused pane or dispatching an existing local action.
 
+use super::floating_ui::PaneLayoutMode;
 use super::*;
 use crate::native::merge_picker::MergeDirection;
 use crate::native::palette_overlay::{
@@ -48,6 +49,7 @@ impl App {
         let layout_names = crate::native::persistence::list_layout_names();
         let catalog = super::profile_launch::load_profile_catalog();
         let profile_names = super::profile_launch::profile_display_names(&catalog);
+        let pane_rows = self.pane_focus_row_labels();
         let context = WorkspacePaletteContext {
             names: &workspaces,
             host_aliases: &host_aliases,
@@ -58,6 +60,7 @@ impl App {
             merge_targets_available: self.merge_targets_available(),
             quick_terminal_enabled: self.settings.quick_terminal,
             move_rows: self.move_palette_rows(),
+            pane_rows: &pane_rows,
         };
         self.overlay.open_command_palette(cwd.as_deref(), &context);
         self.request_selection_redraw();
@@ -85,6 +88,10 @@ impl App {
         // catalog for everything else.
         if let Some(idx) = parse_workspace_switch_id(&id) {
             self.switch_to_workspace(idx);
+            return;
+        }
+        if let Some(idx) = crate::native::palette_overlay::parse_pane_focus_id(&id) {
+            self.focus_pane_at_order_index(idx);
             return;
         }
         if id == WORKSPACE_NEW_ID {
@@ -265,6 +272,10 @@ impl App {
             PaletteAction::ClosePane => self.apply_pane_action(BindableAction::ClosePane),
             PaletteAction::ZoomPane => self.apply_pane_action(BindableAction::ZoomPane),
             PaletteAction::EqualizePanes => self.apply_pane_action(BindableAction::EqualizePanes),
+            PaletteAction::TilePanes => self.set_pane_layout(PaneLayoutMode::Tiled),
+            PaletteAction::StackPanes => self.set_pane_layout(PaneLayoutMode::Stacked),
+            PaletteAction::FloatPanes => self.set_pane_layout(PaneLayoutMode::Floating),
+            PaletteAction::ArrangeFloatingPane => self.enter_float_arrange(),
             PaletteAction::SessionNavigator => self.open_session_navigator_overlay(),
         }
     }

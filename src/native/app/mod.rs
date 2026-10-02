@@ -118,6 +118,7 @@ mod detach_switch;
 // surface-recreation escalation. Extracted from this file without behavior
 // change.
 mod event_loop;
+pub(in crate::native) mod floating_ui;
 mod frame;
 mod frame_assembly;
 pub(in crate::native) mod frame_callback_hatch;

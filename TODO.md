@@ -91,6 +91,17 @@ Development on `master`; not released. Items check off when their code is on
       and `--hold` state; an emptied source closes and hands over the saved
       layout role; the quick terminal is excluded; attach dedup spans every
       window. Drag tear-out is not supported (Wayland cannot express it).
+- [ ] Stacked and floating pane layouts: **Stack Panes**, **Float Panes**, and
+      **Tile Panes** from the palette (default stays tiled; older layouts load
+      tiled); stacked shows the focused pane full-bleed with the rest alive;
+      floating panes are whole-cell rectangles with a z-order, a frame, a cell
+      minimum, and a clamp that never deletes a pane; **Arrange Floating Pane**
+      moves and resizes from the keyboard; every pane is reachable in a stable
+      order from the palette; mode, rectangles, and order are saved; a pane
+      moved from another window joins a floating tab. Pointer drag of floating
+      frames is not implemented.
+- [ ] Device acceptance for stacked and floating layouts on Linux (Wayland and
+      Hyprland), macOS, and Windows.
 - [ ] Device acceptance for moving tabs and panes on Linux (Wayland), plus
       NVIDIA window create/destroy, macOS, and Windows.
 - [ ] Reject control-bearing palette text and show its controls as visible

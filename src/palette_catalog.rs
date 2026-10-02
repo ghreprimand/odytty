@@ -61,6 +61,10 @@ pub const STABLE_ACTION_IDS: &[&str] = &[
     "close-pane",
     "zoom-pane",
     "equalize-panes",
+    "tile-panes",
+    "stack-panes",
+    "float-panes",
+    "arrange-floating-pane",
     "session-navigator",
 ];
 
@@ -122,6 +126,14 @@ pub enum PaletteAction {
     ClosePane,
     ZoomPane,
     EqualizePanes,
+    /// Return the tab to the tiled split layout.
+    TilePanes,
+    /// Show one pane at a time; the focused pane fills the tab.
+    StackPanes,
+    /// Place the panes as overlapping rectangles inside the tab.
+    FloatPanes,
+    /// Move and resize the focused floating pane from the keyboard.
+    ArrangeFloatingPane,
     SessionNavigator,
 }
 
@@ -177,6 +189,10 @@ impl PaletteAction {
             "close-pane" => Self::ClosePane,
             "zoom-pane" => Self::ZoomPane,
             "equalize-panes" => Self::EqualizePanes,
+            "tile-panes" => Self::TilePanes,
+            "stack-panes" => Self::StackPanes,
+            "float-panes" => Self::FloatPanes,
+            "arrange-floating-pane" => Self::ArrangeFloatingPane,
             "session-navigator" => Self::SessionNavigator,
             _ => return None,
         })
@@ -233,6 +249,10 @@ impl PaletteAction {
             Self::ClosePane => "close-pane",
             Self::ZoomPane => "zoom-pane",
             Self::EqualizePanes => "equalize-panes",
+            Self::TilePanes => "tile-panes",
+            Self::StackPanes => "stack-panes",
+            Self::FloatPanes => "float-panes",
+            Self::ArrangeFloatingPane => "arrange-floating-pane",
             Self::SessionNavigator => "session-navigator",
         }
     }
@@ -288,6 +308,10 @@ impl PaletteAction {
             Self::ClosePane => "Close Pane",
             Self::ZoomPane => "Zoom Pane",
             Self::EqualizePanes => "Equalize Panes",
+            Self::TilePanes => "Tile Panes",
+            Self::StackPanes => "Stack Panes",
+            Self::FloatPanes => "Float Panes",
+            Self::ArrangeFloatingPane => "Arrange Floating Pane",
             Self::SessionNavigator => "Open Session Navigator",
         }
     }
@@ -364,6 +388,22 @@ impl PaletteAction {
             Self::ClosePane => &["kill pane", "tmux x"],
             Self::ZoomPane => &["toggle pane zoom", "fullscreen pane", "tmux z"],
             Self::EqualizePanes => &["balance panes", "even panes", "tmux ="],
+            Self::TilePanes => &["tiled layout", "split layout", "unfloat", "unstack"],
+            Self::StackPanes => &[
+                "stacked layout",
+                "one pane at a time",
+                "pane stack",
+                "tabbed panes",
+            ],
+            Self::FloatPanes => &[
+                "floating layout",
+                "overlapping panes",
+                "floating windows",
+                "free layout",
+            ],
+            Self::ArrangeFloatingPane => {
+                &["move floating pane", "resize floating pane", "arrange mode"]
+            }
             Self::SessionNavigator => &["sessions", "manage sessions", "detached", "attach"],
         }
     }
@@ -424,6 +464,10 @@ pub const DEFAULT_PALETTE_ACTIONS: &[PaletteAction] = &[
     PaletteAction::ClosePane,
     PaletteAction::ZoomPane,
     PaletteAction::EqualizePanes,
+    PaletteAction::TilePanes,
+    PaletteAction::StackPanes,
+    PaletteAction::FloatPanes,
+    PaletteAction::ArrangeFloatingPane,
     PaletteAction::SessionNavigator,
 ];
 

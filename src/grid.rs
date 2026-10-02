@@ -27,7 +27,9 @@ mod model;
 
 pub use background::{BackgroundTreatment, BackgroundTreatmentParams, MAX_BG_TREATMENT_DARKEN};
 pub use clipping::VClip;
-pub(crate) use clipping::{clip_quads_to_rect, clip_quads_vertical, extend_first_row_bg_to_top};
+pub(crate) use clipping::{
+    clip_quads_to_rect, clip_quads_vertical, extend_first_row_bg_to_top, subtract_rects_from_quads,
+};
 pub use model::{
     ColorGlyphRun, ColorGlyphVertex, ColorRunCoverage, INSTANCES_PER_QUAD, RowFade, SolidQuad,
     VERTS_PER_QUAD, Vertex,

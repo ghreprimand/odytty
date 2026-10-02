@@ -204,6 +204,7 @@ mod cvd_wiring;
 mod broadcast_input;
 #[cfg(unix)]
 mod file_drop_app;
+mod floating_layout;
 mod font_save;
 mod freeze_present_mode;
 mod gpu_render;

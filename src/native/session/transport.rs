@@ -24,7 +24,7 @@ use crate::native::app::{CursorBlinkState, SynchronizedOutputHold};
 use crate::native::attach::{
     AttachClient, attach_input_writer, resolve_session_socket, spawn_attach_pump,
 };
-use crate::native::layout::{PaneRect, grid_dims_for_rect, layout_rects, pane_inner_rect};
+use crate::native::layout::{PaneRect, grid_dims_for_rect, layout_rects};
 use crate::native::output_recorder::RecorderHandle;
 #[cfg(not(test))]
 use crate::native::pty::UserEvent;
@@ -737,11 +737,17 @@ impl WorkspaceSet {
     ) -> bool {
         let mut any_geometry_changed = false;
         for tab in self.workspaces.iter().flat_map(|ws| ws.tabs.iter()) {
-            // A zoomed tab sizes its focused pane to the whole content rect
-            // (it is rendered full-bleed); background panes keep their layout
-            // sub-rect so un-zoom is instantly correct without a second reflow.
-            let zoomed = tab.is_effectively_zoomed();
-            for (token, rect) in layout_rects(&tab.layout, content, divider_px) {
+            // A zoomed or stacked tab sizes its focused pane to the whole content
+            // rect (it is rendered full-bleed); background panes keep their
+            // layout sub-rect so un-zoom is instantly correct without a second
+            // reflow. A floating tab sizes every pane to its own cell rectangle.
+            let zoomed = tab.shows_only_focused_pane();
+            let tiles = if tab.is_floating() && !zoomed {
+                tab.pane_rects(content, divider_px, (cell_w, cell_h))
+            } else {
+                layout_rects(&tab.layout, content, divider_px)
+            };
+            for (token, rect) in tiles {
                 let rect = if zoomed && token == tab.focused {
                     content
                 } else {
@@ -753,7 +759,7 @@ impl WorkspaceSet {
                 // the grid never overflows into the divider gap. `pad == 0`, the
                 // single-pane path, and a zoomed full-bleed pane all yield an
                 // inner rect equal to `rect`, so those paths stay byte-identical.
-                let rect = pane_inner_rect(rect, content, pad);
+                let rect = tab.inner_rect(rect, content, pad);
                 let (drawable_cols, drawable_rows) = grid_dims_for_rect(rect, cell_w, cell_h);
                 // A heavily padded or aggressively narrowed leaf can have no
                 // drawable cell on one axis. Terminal models, Unix PTYs,

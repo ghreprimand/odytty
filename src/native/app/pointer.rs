@@ -293,13 +293,14 @@ impl App {
         if button == WinitMouseButton::Left
             && state == ElementState::Pressed
             && !self.pointer_in_workspace_rail_band()
-            && let Some((content, _cell)) = self.multipane_geometry()
+            && let Some((content, cell)) = self.multipane_geometry()
             && let Some((x_px, y_px)) = self.pointer_px
             && y_px as f32 >= content.y
             && x_px as f32 >= content.x
             && (x_px as f32) < content.x + content.w
         {
             let (x, y) = (x_px as f32, y_px as f32);
+            let cell_px = (cell.width, cell.height);
             if let Some(idx) = self.sessions.active_divider_at_point(
                 content,
                 PANE_DIVIDER_PX,
@@ -319,9 +320,9 @@ impl App {
             // press in a divider gap resolves to no pane and just returns, as
             // before — only the unconditional swallow of an in-pane press is
             // removed.
-            if let Some(token) = self
-                .sessions
-                .active_pane_at_point(content, PANE_DIVIDER_PX, x, y)
+            if let Some(token) =
+                self.sessions
+                    .active_pane_at_point(content, PANE_DIVIDER_PX, cell_px, x, y)
             {
                 // B3: remember whether THIS press performed the pane focus
                 // change — a focus-transfer click must not fire a button.
@@ -1008,11 +1009,15 @@ impl App {
     }
 
     fn local_wheel_scroll_target(&self) -> SessionToken {
-        if let Some((content, _)) = self.multipane_geometry()
+        if let Some((content, cell)) = self.multipane_geometry()
             && let Some((x, y)) = self.pointer_px
-            && let Some(token) =
-                self.sessions
-                    .active_pane_at_point(content, PANE_DIVIDER_PX, x as f32, y as f32)
+            && let Some(token) = self.sessions.active_pane_at_point(
+                content,
+                PANE_DIVIDER_PX,
+                (cell.width, cell.height),
+                x as f32,
+                y as f32,
+            )
         {
             return token;
         }

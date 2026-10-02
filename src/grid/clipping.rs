@@ -174,6 +174,118 @@ pub(crate) fn clip_quads_to_rect<V: ClipQuadInstance>(instances: &mut [V], clip:
     }
 }
 
+/// What cutting one occluding rectangle out of a quad leaves.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum OcclusionCut {
+    /// The hole does not touch the quad.
+    Keep,
+    /// The hole covers the whole quad.
+    Collapse,
+    /// The quad shrinks to this rectangle (`[left, top, right, bottom]`).
+    Crop([f32; 4]),
+}
+
+/// How `hole` (`[left, top, right, bottom]`) cuts the axis-aligned quad `rect`.
+///
+/// A quad is a single rectangle, so the result is the largest single rectangle
+/// that still avoids the hole: when the hole spans the quad's full height the
+/// quad is cropped horizontally, when it spans the full width it is cropped
+/// vertically, and a corner overlap crops along whichever axis keeps more area.
+/// Floating panes sit on a shared cell lattice, so cells fall wholly inside or
+/// outside a hole and only a glyph's overhang is ever cropped.
+pub(crate) fn occlusion_cut(rect: [f32; 4], hole: [f32; 4]) -> OcclusionCut {
+    let ix0 = rect[0].max(hole[0]);
+    let iy0 = rect[1].max(hole[1]);
+    let ix1 = rect[2].min(hole[2]);
+    let iy1 = rect[3].min(hole[3]);
+    if ix0 >= ix1 || iy0 >= iy1 {
+        return OcclusionCut::Keep;
+    }
+    if ix0 <= rect[0] && ix1 >= rect[2] && iy0 <= rect[1] && iy1 >= rect[3] {
+        return OcclusionCut::Collapse;
+    }
+    // The widest strip left once the hole's x interval is removed (only when it
+    // spans the full height), and likewise for y.
+    let x_crop = (iy0 <= rect[1] && iy1 >= rect[3]).then(|| {
+        let left = ix0 - rect[0];
+        let right = rect[2] - ix1;
+        if left >= right {
+            [rect[0], rect[1], ix0, rect[3]]
+        } else {
+            [ix1, rect[1], rect[2], rect[3]]
+        }
+    });
+    let y_crop = (ix0 <= rect[0] && ix1 >= rect[2]).then(|| {
+        let top = iy0 - rect[1];
+        let bottom = rect[3] - iy1;
+        if top >= bottom {
+            [rect[0], rect[1], rect[2], iy0]
+        } else {
+            [rect[0], iy1, rect[2], rect[3]]
+        }
+    });
+    let area = |r: [f32; 4]| (r[2] - r[0]) * (r[3] - r[1]);
+    match (x_crop, y_crop) {
+        (Some(x), Some(y)) => OcclusionCut::Crop(if area(x) >= area(y) { x } else { y }),
+        (Some(r), None) | (None, Some(r)) => OcclusionCut::Crop(r),
+        // A corner overlap: crop along the axis that keeps more of the quad.
+        (None, None) => {
+            let keep_x = if ix0 <= rect[0] {
+                [ix1, rect[1], rect[2], rect[3]]
+            } else if ix1 >= rect[2] {
+                [rect[0], rect[1], ix0, rect[3]]
+            } else {
+                return OcclusionCut::Keep;
+            };
+            let keep_y = if iy0 <= rect[1] {
+                [rect[0], iy1, rect[2], rect[3]]
+            } else if iy1 >= rect[3] {
+                [rect[0], rect[1], rect[2], iy0]
+            } else {
+                return OcclusionCut::Keep;
+            };
+            OcclusionCut::Crop(if area(keep_x) >= area(keep_y) {
+                keep_x
+            } else {
+                keep_y
+            })
+        }
+    }
+}
+
+/// Cut every occluding rectangle out of every quad in `instances`: a pane drawn
+/// behind a floating pane never shows through it. Coverage and colour-glyph UVs
+/// advance with a cropped edge, and a quad wholly behind a hole collapses to
+/// zero area instead of being removed, preserving the fixed background/glyph
+/// segment counts. Inert (returns immediately) with no holes, so tiled, stacked,
+/// zoomed, and chrome frames keep their vertex streams byte-identical.
+pub(crate) fn subtract_rects_from_quads<V: ClipQuadInstance>(
+    instances: &mut [V],
+    holes: &[[f32; 4]],
+) {
+    if holes.is_empty() {
+        return;
+    }
+    for instance in instances {
+        for hole in holes {
+            let rect = instance.rect();
+            if rect[2] <= rect[0] || rect[3] <= rect[1] {
+                break;
+            }
+            match occlusion_cut(rect, *hole) {
+                OcclusionCut::Keep => {}
+                OcclusionCut::Collapse => {
+                    instance.set_rect([rect[0], rect[1], rect[0], rect[1]]);
+                    break;
+                }
+                OcclusionCut::Crop(kept) => {
+                    clip_quads_to_rect(std::slice::from_mut(instance), kept);
+                }
+            }
+        }
+    }
+}
+
 /// PANE-SUBCELL-CLIP: fill the sub-cell gap a downward glide opens at the top of
 /// a pane by pulling the FIRST rendered row's background quads up to `top_y`,
 /// mirroring the chrome-seam [`content_bg_span`] first-row flush. When a pane's

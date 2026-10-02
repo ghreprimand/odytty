@@ -422,6 +422,11 @@ impl App {
             "active-session mutation must settle divider ownership first"
         );
         self.cancel_osc52_prompt();
+        // The floating arrange mode belongs to the tab it was armed on.
+        if self.float_arrange.is_some() && self.float_arrange != self.sessions.active_tab_identity()
+        {
+            self.float_arrange = None;
+        }
         let outgoing = self.last_active_session;
         if self.focused && outgoing != incoming {
             self.send_focus_report_to(outgoing, false);

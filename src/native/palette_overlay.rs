@@ -125,6 +125,7 @@ impl PaletteOverlay {
         entries.extend(profile_palette_entries(workspaces));
         entries.extend(merge_palette_entries(workspaces));
         entries.extend(move_palette_entries(workspaces.move_rows));
+        entries.extend(pane_focus_palette_entries(workspaces.pane_rows));
         entries.extend(quick_terminal_palette_entries(workspaces));
         self.model = PaletteModel::with_options(entries, palette_options());
         self.reset_scroll();
@@ -392,6 +393,28 @@ pub(super) const MERGE_WINDOW_PULL_ID: &str = "merge-window-pull";
 /// dead no-op row. This is the always-available keyboard trigger; a global
 /// summon shortcut, where the platform can grant one, is the additive path.
 pub(super) const QUICK_TERMINAL_TOGGLE_ID: &str = "quick-terminal-toggle";
+/// Prefix of the dynamic "Focus Pane k of n" rows; the pane's index in the tab's
+/// stable order is appended (`pane-focus-1`).
+pub(super) const PANE_FOCUS_ID_PREFIX: &str = "pane-focus-";
+
+/// Recover the pane index from a `pane-focus-<idx>` action id.
+pub(super) fn parse_pane_focus_id(id: &str) -> Option<usize> {
+    id.strip_prefix(PANE_FOCUS_ID_PREFIX)
+        .and_then(|suffix| suffix.parse().ok())
+}
+
+/// The accessible pane order of a stacked or floating tab: one row per pane in
+/// the stable tab order, the focused one marked in its label.
+fn pane_focus_palette_entries(labels: &[String]) -> Vec<PaletteEntry> {
+    labels
+        .iter()
+        .enumerate()
+        .map(|(idx, label)| {
+            PaletteEntry::action(format!("{PANE_FOCUS_ID_PREFIX}{idx}"), label.clone())
+        })
+        .collect()
+}
+
 /// Stable id for "Move Tab to New Window".
 pub(super) const MOVE_TAB_NEW_WINDOW_ID: &str = "move-tab-new-window";
 /// Stable id for "Move Tab to Window...", which opens the window picker.
@@ -428,6 +451,10 @@ pub(super) struct WorkspacePaletteContext<'a> {
     pub(super) quick_terminal_enabled: bool,
     /// Which tab and pane move rows this window offers.
     pub(super) move_rows: MovePaletteRows,
+    /// Labels for the "Focus Pane k of n" rows, in the tab's stable pane order.
+    /// Empty unless the active tab is stacked or floating, where a buried pane
+    /// has no pointer-free way to be reached otherwise.
+    pub(super) pane_rows: &'a [String],
 }
 
 /// Which "Move Tab/Pane to ..." rows the palette offers. The "to Window..."
@@ -461,6 +488,7 @@ impl<'a> WorkspacePaletteContext<'a> {
             merge_targets_available: false,
             quick_terminal_enabled: false,
             move_rows: MovePaletteRows::default(),
+            pane_rows: &[],
         }
     }
 }
@@ -777,6 +805,7 @@ mod tests {
             merge_targets_available: false,
             quick_terminal_enabled: false,
             move_rows: MovePaletteRows::default(),
+            pane_rows: &[],
         };
         let ids: Vec<String> = workspace_palette_entries(&unbound)
             .into_iter()
@@ -806,6 +835,7 @@ mod tests {
             merge_targets_available: false,
             quick_terminal_enabled: false,
             move_rows: MovePaletteRows::default(),
+            pane_rows: &[],
         };
         let labels: Vec<String> = workspace_palette_entries(&bound)
             .into_iter()
@@ -833,6 +863,7 @@ mod tests {
             merge_targets_available: false,
             quick_terminal_enabled: false,
             move_rows: MovePaletteRows::default(),
+            pane_rows: &[],
         };
         let entries = workspace_palette_entries(&ctx);
         let ids: Vec<String> = entries
@@ -872,6 +903,7 @@ mod tests {
                 merge_targets_available: available,
                 quick_terminal_enabled: false,
                 move_rows: MovePaletteRows::default(),
+                pane_rows: &[],
             };
             merge_palette_entries(&ctx)
                 .into_iter()
@@ -908,6 +940,7 @@ mod tests {
                 merge_targets_available: false,
                 quick_terminal_enabled: enabled,
                 move_rows: MovePaletteRows::default(),
+                pane_rows: &[],
             };
             quick_terminal_palette_entries(&ctx)
                 .into_iter()

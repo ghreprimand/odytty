@@ -67,11 +67,13 @@ fn sample_snapshot() -> ShapeSnapshot {
                 active_tab: 1,
                 tabs: vec![
                     TabShape {
+                        arrangement: Default::default(),
                         title: None,
                         focused_leaf: 0,
                         layout: leaf(Some("/home/tester")),
                     },
                     TabShape {
+                        arrangement: Default::default(),
                         title: Some("build".to_owned()),
                         focused_leaf: 1,
                         layout: PaneShape::Split {
@@ -89,6 +91,7 @@ fn sample_snapshot() -> ShapeSnapshot {
                 launch_profile: None,
                 active_tab: 0,
                 tabs: vec![TabShape {
+                    arrangement: Default::default(),
                     title: None,
                     focused_leaf: 2,
                     layout: PaneShape::Split {
@@ -181,6 +184,7 @@ fn windows_drive_letter_cwd_round_trips_with_escaped_backslashes() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: leaf(Some(r"C:\Users\Tester\Documents")),
@@ -208,6 +212,7 @@ fn unicode_and_control_characters_in_names_round_trip() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: Some("emoji 😺 tab".to_owned()),
                 focused_leaf: 0,
                 layout: leaf(Some("/tmp")),
@@ -230,6 +235,7 @@ fn null_title_and_cwd_round_trip_to_none() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: leaf(None),
@@ -550,6 +556,7 @@ fn workspace_default_profile_round_trips() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: leaf(None),
@@ -604,6 +611,7 @@ fn pane_session_host_id_round_trips_and_is_forward_compatible() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: PaneShape::Leaf {
@@ -652,6 +660,7 @@ fn pane_launch_profile_round_trips_and_is_forward_compatible() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: PaneShape::Leaf {
@@ -696,6 +705,7 @@ fn pane_remote_host_round_trips_and_is_forward_compatible() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: PaneShape::Leaf {
@@ -831,6 +841,7 @@ fn layout_save_list_load_delete_round_trip() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: Some("build".to_owned()),
                 focused_leaf: 0,
                 layout: leaf(Some("/home/tester")),
@@ -903,6 +914,7 @@ fn layout_exists_matches_the_writer_stem() {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout: leaf(None),
@@ -1127,6 +1139,7 @@ fn garbage_and_broken_files_on_disk_degrade_to_a_soft_outcome_never_panic() {
 
 fn single_leaf_tab() -> TabShape {
     TabShape {
+        arrangement: Default::default(),
         title: None,
         focused_leaf: 0,
         layout: leaf(None),
@@ -1176,6 +1189,7 @@ fn budget_accepts_realistic_and_at_cap_state() {
 
     // A pane tree exactly at the depth cap is accepted.
     let at_depth = one_workspace(vec![TabShape {
+        arrangement: Default::default(),
         title: None,
         focused_leaf: 0,
         layout: linear_split_chain(MAX_PANE_DEPTH),
@@ -1214,6 +1228,7 @@ fn budget_rejects_excess_tabs_in_one_workspace() {
 #[test]
 fn budget_rejects_pane_tree_deeper_than_the_cap() {
     let snap = one_workspace(vec![TabShape {
+        arrangement: Default::default(),
         title: None,
         focused_leaf: 0,
         layout: linear_split_chain(MAX_PANE_DEPTH + 1),
@@ -1227,6 +1242,7 @@ fn budget_rejects_total_leaves_over_the_spawn_ceiling() {
     // only the aggregate leaf ceiling. 512 tabs * 17 leaves = 8704 > 8192, with
     // tab count exactly at its cap and depth (17) well under its cap.
     let tab = TabShape {
+        arrangement: Default::default(),
         title: None,
         focused_leaf: 0,
         layout: linear_split_chain(17),
@@ -1311,6 +1327,7 @@ fn snapshot_with(layout: PaneShape) -> ShapeSnapshot {
             launch_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
+                arrangement: Default::default(),
                 title: None,
                 focused_leaf: 0,
                 layout,

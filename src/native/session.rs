@@ -12,11 +12,13 @@
 //! | [`transport`] | Sources, construction, pump, local, remote, attach, upload, reconnect, backend resize |
 //! | [`presentation`] | Cursor, title, viewport, timers, latches, geometry and tab-bar data |
 //! | [`lifecycle`] | Bounded joins, close, shutdown, exit, removal, pane, tab and workspace lifecycle |
+//! | [`arrangement`] | Stacked and floating tab arrangements over the split tree |
 //! | [`persistence`] | Capture, restore, append, validation, fingerprint and rollback |
 //!
 //! Dependency direction runs model first, then transport, presentation,
 //! lifecycle, and persistence.
 
+mod arrangement;
 mod lifecycle;
 mod model;
 mod persistence;
@@ -30,6 +32,7 @@ mod window_merge;
 #[cfg(test)]
 mod tests;
 
+pub(super) use arrangement::{ArrangeOutcome, FloatStep};
 pub(super) use lifecycle::SHUTDOWN_REAP_DEADLINE;
 pub(super) use model::{Session, SessionToken, WorkspaceSet};
 pub(super) use persistence::{RestoreReport, RestoredLocalLeaf};

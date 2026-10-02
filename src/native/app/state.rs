@@ -519,6 +519,12 @@ pub(in crate::native) struct App {
     /// (or when the rename closes). While set, pointer motion extends the
     /// field selection instead of doing any grid hover/selection work.
     pub(super) rename_dragging: bool,
+    /// The keyboard arrange mode for floating panes is armed: arrows move the
+    /// focused pane, Shift+arrows resize it, Tab cycles panes, Escape or Enter
+    /// leaves. Holds the identity of the tab it was armed on. Never persisted;
+    /// it is only honored while that tab is the active, floating tab (see
+    /// `App::float_arrange_active`).
+    pub(super) float_arrange: Option<SessionToken>,
     /// SLIDER-GUARD: whether the left mouse button is currently held while the
     /// overlay is open. Set on `MouseInput { Pressed, Left }` and cleared on
     /// `MouseInput { Released, Left }` through the overlay pointer path. Used to
@@ -817,6 +823,7 @@ impl App {
             rename_state: None,
             rename_clicks: ClickTracker::default(),
             rename_dragging: false,
+            float_arrange: None,
             overlay_left_held: false,
             pointer_left_held: false,
             grid_left_held: false,

@@ -12,8 +12,7 @@ use crate::core::Snapshot;
 use crate::native::app::TabBarSource;
 use crate::native::layout::{
     FocusDir, PaneRect, SplitAxis, divider_at_point, divider_axis_at_point,
-    divider_rects_with_axis, drag_divider_to, focus_move, layout_rects, pane_at_point,
-    snap_divider_to_cells,
+    divider_rects_with_axis, drag_divider_to, focus_move, pane_at_point, snap_divider_to_cells,
 };
 use crate::selection::PointerDrag;
 
@@ -347,7 +346,7 @@ impl WorkspaceSet {
     /// the active tab's layout. Mirrors [`Self::is_visible_pane`]'s membership.
     pub(in crate::native) fn active_visible_tokens(&self) -> Vec<SessionToken> {
         match self.active_tab_ref() {
-            Some(tab) if tab.is_effectively_zoomed() => vec![tab.focused],
+            Some(tab) if tab.shows_only_focused_pane() => vec![tab.focused],
             Some(tab) => tab.layout.leaves(),
             None => Vec::new(),
         }
@@ -389,7 +388,7 @@ impl WorkspaceSet {
         match self.active_tab_ref() {
             // While zoomed only the focused pane is on screen, so background
             // panes' output must not drive a redraw (it would not be visible).
-            Some(tab) if tab.is_effectively_zoomed() => tab.focused == token,
+            Some(tab) if tab.shows_only_focused_pane() => tab.focused == token,
             Some(tab) => tab.layout.contains(token),
             None => false,
         }
@@ -432,18 +431,38 @@ impl WorkspaceSet {
     /// `content`, for the multi-pane render dispatch. Single-pane tabs yield one
     /// entry spanning the whole content rect — identical geometry to the
     /// single-pane path, which never calls this.
+    ///
+    /// `cell` is the cell size in pixels `(width, height)`: floating panes are
+    /// whole-cell rectangles, so their geometry needs it. The list is in paint
+    /// order, back to front.
     pub(in crate::native) fn active_pane_rects(
         &self,
         content: PaneRect,
         divider_px: f32,
+        cell: (u32, u32),
     ) -> Vec<(SessionToken, PaneRect)> {
         match self.active_tab_ref() {
-            // Zoomed tab: only the focused pane is rendered, spanning the whole
-            // content rect (the layout tree underneath is untouched, so un-zoom
-            // restores the prior geometry exactly).
-            Some(tab) if tab.is_effectively_zoomed() => vec![(tab.focused, content)],
-            Some(tab) => layout_rects(&tab.layout, content, divider_px),
+            // A zoomed or stacked tab renders only the focused pane, spanning
+            // the whole content rect (the layout tree underneath is untouched,
+            // so un-zoom restores the prior geometry exactly); a floating tab
+            // yields its cell rectangles in z-order.
+            Some(tab) => tab.pane_rects(content, divider_px, cell),
             None => Vec::new(),
+        }
+    }
+
+    /// The drawable rectangle inside a pane's outer `rect` for the active tab:
+    /// a floating pane is inset by `pad` on every side, a tiled pane on its
+    /// divider-facing edges only.
+    pub(in crate::native) fn active_pane_inner_rect(
+        &self,
+        rect: PaneRect,
+        content: PaneRect,
+        pad: f32,
+    ) -> PaneRect {
+        match self.active_tab_ref() {
+            Some(tab) => tab.inner_rect(rect, content, pad),
+            None => crate::native::layout::pane_inner_rect(rect, content, pad),
         }
     }
 
@@ -454,10 +473,11 @@ impl WorkspaceSet {
         &self,
         content: PaneRect,
         divider_px: f32,
+        cell: (u32, u32),
         x: f32,
         y: f32,
     ) -> Option<SessionToken> {
-        let rects = self.active_pane_rects(content, divider_px);
+        let rects = self.active_pane_rects(content, divider_px, cell);
         pane_at_point(&rects, x, y)
     }
 
@@ -469,10 +489,11 @@ impl WorkspaceSet {
         &mut self,
         content: PaneRect,
         divider_px: f32,
+        cell: (u32, u32),
         dir: FocusDir,
     ) -> bool {
         let focused = self.active_id();
-        let rects = self.active_pane_rects(content, divider_px);
+        let rects = self.active_pane_rects(content, divider_px, cell);
         match focus_move(&rects, focused, dir) {
             Some(target) => self.set_active_focus(target),
             None => false,
@@ -491,8 +512,9 @@ impl WorkspaceSet {
         grab_px: f32,
     ) -> Option<usize> {
         self.active_tab_ref()
-            // No dividers are drawn while zoomed, so none can be grabbed.
-            .filter(|tab| !tab.is_effectively_zoomed())
+            // No dividers are drawn while zoomed, stacked, or floating, so
+            // none can be grabbed.
+            .filter(|tab| !tab.shows_only_focused_pane() && !tab.is_floating())
             .and_then(|tab| divider_at_point(&tab.layout, content, divider_px, x, y, grab_px))
     }
 
@@ -512,7 +534,7 @@ impl WorkspaceSet {
         grab_px: f32,
     ) -> Option<SplitAxis> {
         self.active_tab_ref()
-            .filter(|tab| !tab.is_effectively_zoomed())
+            .filter(|tab| !tab.shows_only_focused_pane() && !tab.is_floating())
             .and_then(|tab| divider_axis_at_point(&tab.layout, content, divider_px, x, y, grab_px))
     }
 

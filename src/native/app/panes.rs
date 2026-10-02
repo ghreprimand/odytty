@@ -51,6 +51,9 @@ struct OwnedPaneRender {
     cursor_style: crate::core::CursorStyle,
     glide_clip: crate::grid::VClip,
     content_clip: Option<[f32; 4]>,
+    /// Outer rectangles of the floating panes painted above this one, cut out
+    /// of everything this pane draws. Empty outside a floating tab.
+    occluders: Vec<[f32; 4]>,
 }
 use crate::graphics::VisiblePlacement;
 use crate::native::gpu::{OverlayTop, PaneRender, PanelFrameQuads, RailOverlay};
@@ -514,10 +517,10 @@ impl App {
         };
         let pad = self.window_pad_px();
         self.sessions
-            .active_pane_rects(content, PANE_DIVIDER_PX)
+            .active_pane_rects(content, PANE_DIVIDER_PX, (cell.width, cell.height))
             .into_iter()
             .any(|(_, tiled)| {
-                let inner = crate::native::layout::pane_inner_rect(tiled, content, pad);
+                let inner = self.sessions.active_pane_inner_rect(tiled, content, pad);
                 let dims = grid_dims_for_rect(inner, cell.width, cell.height);
                 dims.0 > 0
                     && dims.1 > 0
@@ -544,12 +547,12 @@ impl App {
         let focused = self.sessions.active_id();
         let rect = self
             .sessions
-            .active_pane_rects(content, PANE_DIVIDER_PX)
+            .active_pane_rects(content, PANE_DIVIDER_PX, (cell.width, cell.height))
             .into_iter()
             .find(|(token, _)| *token == focused)
             .map(|(_, rect)| rect)?;
         Some((
-            crate::native::layout::pane_inner_rect(rect, content, pad),
+            self.sessions.active_pane_inner_rect(rect, content, pad),
             cell,
         ))
     }
@@ -701,7 +704,28 @@ impl App {
         // Per-pane owned snapshots (PaneRender borrows them, so they must
         // outlive the render call). Each pane is snapshotted from its own
         // terminal at its own scrollback offset.
-        let rects = self.sessions.active_pane_rects(content, PANE_DIVIDER_PX);
+        let rects =
+            self.sessions
+                .active_pane_rects(content, PANE_DIVIDER_PX, (cell.width, cell.height));
+        // Floating panes overlap: each pane's occluders are the outer rects of
+        // the panes painted above it (later in `rects`). Empty for a tiled,
+        // stacked, or zoomed tab, so those frames are unchanged.
+        let floating =
+            self.sessions.active_is_floating() && !self.sessions.active_shows_only_focused();
+        let occluders_per_pane: Vec<Vec<[f32; 4]>> = rects
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| {
+                if floating {
+                    rects[idx + 1..]
+                        .iter()
+                        .map(|(_, above)| crate::native::float_layout::rect_edges(*above))
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect();
         let mut panes_owned: Vec<OwnedPaneRender> = Vec::with_capacity(rects.len());
         // The focused pane's overlay inputs, captured while its terminal is
         // locked: (index into `panes_owned`, viewport offset, scrollback len).
@@ -730,8 +754,10 @@ impl App {
         // graphics-free split incurs no image work.
         let mut pane_graphics: Vec<PaneGraphics> = Vec::new();
         let mut pane_uploads: Vec<PaneImageUpload> = Vec::new();
-        for (token, rect) in &rects {
-            let inner = crate::native::layout::pane_inner_rect(*rect, content, padding.as_f32());
+        for (rect_idx, (token, rect)) in rects.iter().enumerate() {
+            let inner = self
+                .sessions
+                .active_pane_inner_rect(*rect, content, padding.as_f32());
             let drawable =
                 crate::native::layout::grid_dims_for_rect(inner, cell.width, cell.height);
             // Collapsed padded leaves keep a valid 1x1 terminal/PTY backing
@@ -869,7 +895,22 @@ impl App {
             // origin + grid extent), clamped to the surface. Images are clipped
             // to this on both axes; a gliding image's partial edge row is cropped
             // at the pane's own content bottom, never crossing the divider.
-            if !visible.is_empty() {
+            // Inline images are drawn by a separate layer that cannot be cut
+            // around an overlapping floating pane, so a pane with another
+            // floating pane over any part of its drawable area shows no images
+            // until it is uncovered (documented limitation).
+            let inner_edges = crate::native::float_layout::rect_edges(inner);
+            let occluders: Vec<[f32; 4]> = occluders_per_pane[rect_idx]
+                .iter()
+                .copied()
+                .filter(|hole| {
+                    hole[0] < inner_edges[2]
+                        && hole[2] > inner_edges[0]
+                        && hole[1] < inner_edges[3]
+                        && hole[3] > inner_edges[1]
+                })
+                .collect();
+            if !visible.is_empty() && occluders.is_empty() {
                 let scissor = crate::native::layout::pane_image_scissor(
                     base_origin,
                     snapshot.dimensions.columns,
@@ -903,6 +944,7 @@ impl App {
                 cursor_style,
                 glide_clip: clip,
                 content_clip,
+                occluders,
             });
         }
 
@@ -940,6 +982,10 @@ impl App {
                 session.attention.failed,
             );
             super::read_only::paint_read_only_label(&mut pane.snapshot, session.read_only);
+            super::floating_ui::paint_arrange_label(
+                &mut pane.snapshot,
+                is_focused && self.float_arrange_active(),
+            );
             let label = self.broadcast_label_for(token, is_focused);
             super::broadcast_input::paint_broadcast_label(
                 &mut pane.snapshot,
@@ -1048,11 +1094,14 @@ impl App {
             }
         }
 
-        // Themed 1px dividers in the gaps between panes. None while zoomed: the
-        // focused pane is full-bleed and the layout tree underneath is hidden,
-        // so no divider should overdraw it.
-        let divider_quads = if self.sessions.active_is_zoomed() {
+        // Themed 1px dividers in the gaps between panes. None while zoomed or
+        // stacked: the focused pane is full-bleed and the layout tree underneath
+        // is hidden, so no divider should overdraw it. A floating tab has no
+        // gaps; each pane gets a frame instead.
+        let divider_quads = if self.sessions.active_shows_only_focused() {
             Vec::new()
+        } else if floating {
+            self.floating_border_quads(&rects, focused)
         } else {
             self.sessions
                 .active_layout()
@@ -1093,6 +1142,7 @@ impl App {
                 // Chrome strips never glide sub-row.
                 clip: crate::grid::VClip::NONE,
                 content_clip: None,
+                occluders: &[],
                 // TAB-LABEL-CENTERING: this strip's own label offset (one axis is
                 // always 0.0 — a strip is either the top bar or the rail).
                 band_glyph_dy_rows: strip.band_glyph_dy_rows,
@@ -1121,6 +1171,7 @@ impl App {
                 treatment,
                 clip: pane.glide_clip,
                 content_clip: pane.content_clip,
+                occluders: &pane.occluders,
                 // Content panes carry no chrome label; the offsets are inert.
                 band_glyph_dy_rows: 0.0,
                 rail_glyph_dy_rows: 0.0,

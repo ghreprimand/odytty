@@ -14,6 +14,7 @@ use super::model::{SessionToken, Tab, Workspace, WorkspaceSet};
 use super::transport::HeadlessSession;
 #[cfg(test)]
 use crate::core::Terminal;
+use crate::native::float_layout::{Arrangement, CellRect, FloatEntry, FloatLayout};
 use crate::native::layout::{PaneNode, SplitAxis};
 #[cfg(test)]
 use crate::native::pty::PtyWriter;
@@ -125,6 +126,70 @@ fn hash_pane_shape(node: &PaneNode, hasher: &mut impl std::hash::Hasher) {
     }
 }
 
+/// A tab's placement as saved: tiled tabs add nothing, stacked tabs record the
+/// mode (the front pane is the focused leaf), and floating tabs record every
+/// pane's rectangle back to front, by tree-order leaf index.
+fn capture_arrangement(tab: &Tab) -> crate::native::persistence::ArrangementShape {
+    use crate::native::persistence::{ArrangementShape, FloatPaneShape};
+    match &tab.arrangement {
+        Arrangement::Tiled => ArrangementShape::Tiled,
+        Arrangement::Stacked => ArrangementShape::Stacked,
+        Arrangement::Floating(layout) => {
+            let leaves = tab.layout.leaves();
+            ArrangementShape::Floating(
+                layout
+                    .reconciled(&leaves)
+                    .into_iter()
+                    .filter_map(|entry| {
+                        let leaf = leaves.iter().position(|token| *token == entry.token)?;
+                        Some(FloatPaneShape {
+                            leaf,
+                            rect: entry.rect.map(|r| (r.col, r.row, r.cols, r.rows)),
+                        })
+                    })
+                    .collect(),
+            )
+        }
+    }
+}
+
+/// Rebuild a tab's placement from its saved shape against the freshly rebuilt
+/// `leaves` (tree order). A floating list that is not exactly one entry per
+/// leaf is not applied at all: the tab restores tiled rather than with a
+/// partial or shifted set of rectangles.
+fn restore_arrangement(
+    shape: &crate::native::persistence::ArrangementShape,
+    leaves: &[SessionToken],
+) -> Arrangement {
+    use crate::native::persistence::ArrangementShape;
+    match shape {
+        ArrangementShape::Tiled => Arrangement::Tiled,
+        ArrangementShape::Stacked => Arrangement::Stacked,
+        ArrangementShape::Floating(panes) => {
+            let mut seen = vec![false; leaves.len()];
+            let valid = panes.len() == leaves.len()
+                && panes.iter().all(|pane| {
+                    seen.get_mut(pane.leaf)
+                        .is_some_and(|slot| !std::mem::replace(slot, true))
+                });
+            if !valid {
+                return Arrangement::Tiled;
+            }
+            Arrangement::Floating(FloatLayout::from_entries(
+                panes
+                    .iter()
+                    .map(|pane| FloatEntry {
+                        token: leaves[pane.leaf],
+                        rect: pane
+                            .rect
+                            .map(|(col, row, cols, rows)| CellRect::new(col, row, cols, rows)),
+                    })
+                    .collect(),
+            ))
+        }
+    }
+}
+
 /// this. WP2 has since wired the autosave / restore call sites, so these are
 /// live.
 impl WorkspaceSet {
@@ -154,6 +219,7 @@ impl WorkspaceSet {
                             title: tab.title_override.clone(),
                             focused_leaf,
                             layout: self.capture_pane(&tab.layout),
+                            arrangement: capture_arrangement(tab),
                         }
                     })
                     .collect(),
@@ -449,6 +515,7 @@ impl WorkspaceSet {
                     focused,
                     title_override: tab_shape.title.clone(),
                     zoomed: false,
+                    arrangement: restore_arrangement(&tab_shape.arrangement, &leaves),
                     activity: false,
                 });
             }
@@ -671,6 +738,25 @@ impl WorkspaceSet {
                     .unwrap_or(0)
                     .hash(&mut hasher);
                 hash_pane_shape(&tab.layout, &mut hasher);
+                // Stacked/floating placement is persisted state: changing the
+                // mode, a rectangle, or the z-order must re-arm the autosave.
+                match &tab.arrangement {
+                    Arrangement::Tiled => 0u8.hash(&mut hasher),
+                    Arrangement::Stacked => 1u8.hash(&mut hasher),
+                    Arrangement::Floating(layout) => {
+                        2u8.hash(&mut hasher);
+                        for entry in layout.reconciled(&leaves) {
+                            leaves
+                                .iter()
+                                .position(|token| *token == entry.token)
+                                .hash(&mut hasher);
+                            entry
+                                .rect
+                                .map(|r| (r.col, r.row, r.cols, r.rows))
+                                .hash(&mut hasher);
+                        }
+                    }
+                }
                 // The per-pane read-only flag is persisted state, so toggling
                 // it must re-arm the debounced autosave like a shape change.
                 for token in &leaves {

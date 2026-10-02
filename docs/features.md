@@ -603,6 +603,74 @@ running.
 Right-clicking the empty tab strip offers New Tab, New Workspace, Open Layout,
 Command Palette, and Settings.
 
+### Stacked And Floating Pane Layouts
+
+Available in the v0.16.0 development tree; not included in v0.15.7.
+
+| Task | Command palette |
+| --- | --- |
+| Show one pane at a time | **Stack Panes** |
+| Place the panes as overlapping rectangles | **Float Panes** |
+| Go back to the split layout | **Tile Panes** |
+| Move or resize the focused floating pane from the keyboard | **Arrange Floating Pane** |
+| Reach any pane, including a buried one | **Focus Pane k of n**, or **Focus Next Pane** (`Ctrl+b o`) |
+
+A tab is tiled by default, and every tab saved by an older version opens
+tiled. The layouts need two or more panes; on a single pane the palette rows
+show a notice and change nothing. Switching layouts never restarts a shell: the
+split tree stays underneath, so **Tile Panes** restores the previous split
+geometry exactly, whatever happened in between.
+
+Stacked and floating are layouts inside one window's content area. They are not
+native windows and never ask the desktop to place or float anything, so they
+behave the same on Linux (Wayland, including Hyprland, and X11), macOS, and
+Windows.
+
+**Stacked.** The focused pane fills the content area and the others keep
+running behind it, with their scrollback, images, and output intact. Focus
+cycles in the tab's stable pane order (the order the panes were split into the
+tab) and wraps, so pressing `Ctrl+b o` or choosing a **Focus Pane k of n** row
+brings each pane to the front in turn. The palette rows list every pane in that
+same order and mark the one in front, so no pane depends on a pointer to be
+reached. A pane that comes to the front is resized to the full content area.
+
+**Floating.** Each pane is a rectangle in whole terminal cells. Switching from
+tiled starts every pane exactly where its tile was, snapped to cells, so
+nothing moves at the moment of switching. Rectangles may overlap. The focused
+pane is always painted on top, and focusing a pane (a click on any visible part
+of it, **Focus Next Pane**, or a **Focus Pane k of n** row) raises it. A pane
+added while floating (a split, or a pane moved in from another window) joins
+at a default position in front. A frame is drawn around every pane, brighter
+for the focused one, and a frame is cut away where a pane in front covers it.
+A rectangle is at least 8 columns by 2 rows and always stays inside the content
+area. Shrinking the window moves and resizes rectangles to fit and never
+removes a pane; growing it again uses the stored rectangles.
+
+**Arrange Floating Pane** arms a keyboard mode on a floating tab. While it is
+armed, `←` `→` `↑` `↓` move the focused pane one cell, `Shift` with an arrow
+resizes it one cell from its top-left corner (`→` and `↓` grow, `←` and `↑`
+shrink), `Tab` focuses the next pane, and
+`Esc` or `Enter` ends the mode. Every other key is swallowed rather than typed
+into the shell, and the focused pane shows an `ARRANGE` label while the mode is
+armed. Outside the mode, bare arrows go to the shell as usual. Switching tabs
+ends the mode, and it never re-arms on its own. Dragging a floating frame with
+the pointer is not implemented; clicking still focuses and raises a pane.
+
+Inline images are not drawn in a floating pane while another floating pane
+covers any part of its drawable area; they return when it is uncovered. A pane
+moved from another window joins the destination window's active tab as a
+floating pane only when that tab is already floating; otherwise it becomes a
+new tab, as described under moving panes. A whole moved tab arrives as a tab and
+keeps its layout.
+
+The layout mode, each floating pane's rectangle, and the stacking order are
+saved with the workspace layout and restored deterministically: the same file
+at the same window size gives the same rectangles. A tiled tab writes none of
+these fields, so its saved layout is unchanged. A layout with an unknown mode,
+or a floating list that does not name each pane exactly once, restores tiled
+rather than applying part of it. Only the primary window's layout is saved, as
+for every other layout.
+
 ### Make A Pane Read-Only
 
 Available in the v0.16.0 development tree; not included in v0.15.6.
@@ -659,7 +727,7 @@ process can be a receiver. Closing a receiver pane, or its window, removes it.
 
 The focused pane shows `BROADCAST n` at its top-right while the set is
 non-empty, followed by ` hidden m` when m receivers are not on screen (another
-tab, workspace, or window, or behind a zoomed pane) and ` remote k` when k
+tab, workspace, or window, or behind a zoomed or stacked pane) and ` remote k` when k
 receivers are SSH or attached sessions. Every other visible receiver shows
 `RECV`. Narrow panes show a compact form such as `BC 3 h1 r1`. The labels sit
 beside a `READ-ONLY` label when both apply.
@@ -1025,9 +1093,11 @@ Available in the v0.16.0 development tree; not included in v0.15.7.
 
 The moved shell keeps running: its PTY or attached session, scrollback, images,
 selection, search, replay recording, profile, and `--hold` state move with it,
-and nothing is restarted. A moved tab keeps its panes and split layout. A moved
+and nothing is restarted. A moved tab keeps its panes and layout. A moved
 pane becomes the only pane of a new tab, and the pane it leaves behind takes
-over its tab. The moved tab becomes the active tab of the destination window,
+over its tab; when the destination window's active tab is floating, the pane
+joins that tab instead (see [Stacked and floating pane
+layouts](#stacked-and-floating-pane-layouts)). The moved tab becomes the active tab of the destination window,
 which takes focus and resizes the panes to its own size; a resize clears a
 selection or search, as any resize does.
 

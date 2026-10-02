@@ -307,6 +307,13 @@ pub(in crate::native) struct Tab {
     /// set (the toggle is a no-op there), but every zoom-aware path also guards
     /// on pane count so a stray flag can never perturb the single-pane render.
     pub(in crate::native) zoomed: bool,
+    /// How the tab places its panes: tiled by the split tree (the default),
+    /// stacked (the focused pane fills the content rectangle), or floating
+    /// (cell rectangles in z-order). The split tree above stays the single
+    /// source of truth for which panes exist and their stable order; the
+    /// arrangement only decides geometry, so switching modes never restarts a
+    /// pane and switching back restores the tiled geometry exactly.
+    pub(in crate::native) arrangement: crate::native::float_layout::Arrangement,
     /// Unseen-activity latch for the rollup indicator (NF21-6 / ODP-6 v2). Set
     /// when a bell rings in one of this tab's panes while the tab is NOT the
     /// active-visible tab; cleared once the tab is viewed (it is the active tab
@@ -328,6 +335,7 @@ impl Tab {
             focused: token,
             title_override: None,
             zoomed: false,
+            arrangement: crate::native::float_layout::Arrangement::Tiled,
             activity: false,
         }
     }
@@ -771,6 +779,7 @@ impl WorkspaceSet {
 
     /// True when the active tab is rendering one pane full-bleed (zoom mode).
     /// Drives the render path's divider suppression and the redraw decision.
+    #[cfg(test)]
     pub(in crate::native) fn active_is_zoomed(&self) -> bool {
         self.active_tab_ref()
             .map(Tab::is_effectively_zoomed)

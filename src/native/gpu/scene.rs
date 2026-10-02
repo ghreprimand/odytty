@@ -614,6 +614,9 @@ impl GpuState {
             if let Some(clip) = pane.content_clip {
                 grid::clip_quads_to_rect(&mut pane_buf, clip);
             }
+            // A floating pane drawn behind others is cut around them. Backgrounds
+            // and glyphs share `pane_buf`, so one pass covers both segments.
+            grid::subtract_rects_from_quads(&mut pane_buf, pane.occluders);
             self.vertices.extend_from_slice(&pane_buf[..bg]);
             glyph_segment.extend_from_slice(&pane_buf[bg..]);
 
@@ -622,6 +625,7 @@ impl GpuState {
             // without a GPU device (see `accumulate_pane_color_glyphs`): the
             // builder clears its output, so the multi-pane loop must extend
             // rather than write into the shared buffer at a captured offset.
+            let color_start = self.color_glyph_vertices.len();
             accumulate_pane_color_glyphs(
                 &mut self.color_glyph_vertices,
                 &mut pane_color_buf,
@@ -632,6 +636,10 @@ impl GpuState {
                 pane_chrome_pin(pane),
                 pane.clip,
                 pane.content_clip,
+            );
+            grid::subtract_rects_from_quads(
+                &mut self.color_glyph_vertices[color_start..],
+                pane.occluders,
             );
 
             let tail_start = tail.len();
@@ -680,6 +688,7 @@ impl GpuState {
             if let Some(clip) = pane.content_clip {
                 grid::clip_quads_to_rect(&mut tail[tail_start..], clip);
             }
+            grid::subtract_rects_from_quads(&mut tail[tail_start..], pane.occluders);
         }
         self.write_cursor_glow_instance(cursor_glow_instance);
         self.write_cursor_streak_instance(cursor_streak_instance);

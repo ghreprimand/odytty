@@ -260,22 +260,129 @@ impl PaneShape {
     }
 }
 
+/// One floating pane of a saved tab: its tree-order leaf index and, when the
+/// user placed it, its rectangle in whole cells `(col, row, cols, rows)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FloatPaneShape {
+    pub(crate) leaf: usize,
+    pub(crate) rect: Option<(usize, usize, usize, usize)>,
+}
+
+/// How a saved tab places its panes. Tiled (the default, and what every older
+/// file means) is omitted from the JSON entirely, so a tiled layout's bytes are
+/// unchanged. Floating panes are listed back to front (the z-order).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) enum ArrangementShape {
+    #[default]
+    Tiled,
+    Stacked,
+    Floating(Vec<FloatPaneShape>),
+}
+
+/// Largest cell coordinate or extent accepted from a file. Far above any grid;
+/// it only keeps hand-edited values away from arithmetic extremes.
+const MAX_FLOAT_CELL: usize = 65_535;
+
+impl ArrangementShape {
+    fn to_json(&self) -> Option<Json> {
+        match self {
+            ArrangementShape::Tiled => None,
+            ArrangementShape::Stacked => {
+                Some(Json::obj([("mode", Json::Str("stacked".to_owned()))]))
+            }
+            ArrangementShape::Floating(panes) => Some(Json::obj([
+                ("mode", Json::Str("floating".to_owned())),
+                (
+                    "panes",
+                    Json::Arr(panes.iter().copied().map(FloatPaneShape::to_json).collect()),
+                ),
+            ])),
+        }
+    }
+
+    /// Read a tab's `arrangement`. Anything this build does not understand (a
+    /// missing key, an unknown mode, a malformed pane list) is tiled: the rest
+    /// of the restore proceeds, and no half-read rectangle is ever applied.
+    fn from_json(value: Option<&Json>) -> Self {
+        let Some(value) = value else {
+            return ArrangementShape::Tiled;
+        };
+        match value.get("mode").and_then(Json::as_str) {
+            Some("stacked") => ArrangementShape::Stacked,
+            Some("floating") => {
+                let Some(items) = value.get("panes").and_then(Json::as_array) else {
+                    return ArrangementShape::Tiled;
+                };
+                if items.len() > MAX_TOTAL_LEAVES {
+                    return ArrangementShape::Tiled;
+                }
+                let panes: Option<Vec<FloatPaneShape>> =
+                    items.iter().map(FloatPaneShape::from_json).collect();
+                match panes {
+                    Some(panes) => ArrangementShape::Floating(panes),
+                    None => ArrangementShape::Tiled,
+                }
+            }
+            _ => ArrangementShape::Tiled,
+        }
+    }
+}
+
+impl FloatPaneShape {
+    fn to_json(self) -> Json {
+        let mut entries = vec![("leaf".to_owned(), Json::Num(self.leaf as f64))];
+        if let Some((col, row, cols, rows)) = self.rect {
+            entries.push(("col".to_owned(), Json::Num(col as f64)));
+            entries.push(("row".to_owned(), Json::Num(row as f64)));
+            entries.push(("cols".to_owned(), Json::Num(cols as f64)));
+            entries.push(("rows".to_owned(), Json::Num(rows as f64)));
+        }
+        Json::Obj(entries)
+    }
+
+    /// `None` when the pane entry is malformed, which voids the whole list.
+    fn from_json(value: &Json) -> Option<Self> {
+        let leaf = value.get("leaf").and_then(Json::as_usize)?;
+        let field = |key: &str| value.get(key).and_then(Json::as_usize);
+        let rect = match (field("col"), field("row"), field("cols"), field("rows")) {
+            (Some(col), Some(row), Some(cols), Some(rows)) => Some((
+                col.min(MAX_FLOAT_CELL),
+                row.min(MAX_FLOAT_CELL),
+                cols.min(MAX_FLOAT_CELL),
+                rows.min(MAX_FLOAT_CELL),
+            )),
+            // Any partial rectangle is dropped, never half applied.
+            _ => None,
+        };
+        Some(Self { leaf, rect })
+    }
+}
+
 /// One tab: its optional user title override, the tree-order index of the
-/// focused pane, and its pane layout.
+/// focused pane, its pane layout, and how it places its panes.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TabShape {
     pub(crate) title: Option<String>,
     pub(crate) focused_leaf: usize,
     pub(crate) layout: PaneShape,
+    /// Stacked or floating placement; [`ArrangementShape::Tiled`] for the
+    /// default and for files written before layouts existed.
+    pub(crate) arrangement: ArrangementShape,
 }
 
 impl TabShape {
     fn to_json(&self) -> Json {
-        Json::obj([
+        let mut tab = Json::obj([
             ("title", opt_str(&self.title)),
             ("focused_leaf", Json::Num(self.focused_leaf as f64)),
             ("layout", self.layout.to_json()),
-        ])
+        ]);
+        if let Some(arrangement) = self.arrangement.to_json()
+            && let Json::Obj(entries) = &mut tab
+        {
+            entries.push(("arrangement".to_owned(), arrangement));
+        }
+        tab
     }
 
     fn from_json(value: &Json) -> Result<Self, LoadError> {
@@ -290,6 +397,7 @@ impl TabShape {
                 .and_then(Json::as_usize)
                 .unwrap_or(0),
             layout,
+            arrangement: ArrangementShape::from_json(value.get("arrangement")),
         })
     }
 }

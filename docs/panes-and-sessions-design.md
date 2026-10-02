@@ -464,6 +464,15 @@ diagrams in §2 show:
   laid out (it takes the whole content rect), background panes are treated as
   off-screen for redraw, and no dividers are drawn or grabbable. Un-zoom restores
   the exact prior geometry; `split` / `close` / `equalize` clear the flag.
+- **Tab arrangement (v0.16.0).** `Tab` also carries an `arrangement`: tiled
+  (default), stacked, or floating. The split tree stays the source of truth for
+  which panes exist and their order; the arrangement only changes geometry
+  (`Tab::pane_rects`, shared by render, resize, and hit-testing). Stacked
+  renders the focused pane over the whole content rect like zoom but persists
+  across splits and closes; floating stores per-pane whole-cell rectangles and a
+  z-order, clamped at resolution time. Switching modes never restarts a pane and
+  Tile restores the tiled geometry exactly. See `docs/features.md` (Stacked And
+  Floating Pane Layouts) and `src/native/float_layout.rs`.
 - **Context-menu pane entries.** Splits and close are also reachable from the
   right-click menu: **Split Right**, **Split Down**, and **Close Pane** (the
   Close Pane item is shown only when the active tab has more than one pane). These

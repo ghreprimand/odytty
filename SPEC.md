@@ -1224,6 +1224,39 @@ scope rather than silently inheriting deferred work from a prior release.
   owner shares every window's attached host-session ids with its siblings so
   attach dedup spans the process. Drag tear-out is not implemented; on
   Wayland it cannot be expressed through winit.
+- Stacked and floating layouts (v0.16.0): a tab keeps its binary split tree
+  as the single source of truth for which panes exist and their stable order,
+  and carries an arrangement beside it: tiled (default; the only mode older
+  layouts know), stacked, or floating. Stacked renders only the focused pane
+  over the whole content rectangle (the render, resize, redraw, and hit-test
+  paths treat it like zoom, but it persists across splits and closes); the
+  other panes keep their sessions and tiled sizes. Floating stores one cell
+  rectangle per pane plus the z-order (back to front); a rectangle is at least
+  8 x 2 cells and is clamped inside the content grid at resolution time, so a
+  smaller window never deletes a pane and the stored rectangle returns when the
+  window grows. A pane with no stored rectangle (added while floating) takes a
+  deterministic cascade slot. The focused pane is always painted on top and
+  every focus change raises it; pane hit-tests scan paint order from the top;
+  focus cycling stays in tree order so every pane is reachable. Switching mode
+  never restarts a pane, and Tile restores the tiled geometry exactly because
+  the tree was never discarded. Floating panes overlap, so the multi-pane
+  vertex build cuts each pane's backgrounds, glyphs, colour glyphs, and
+  overlays around the rectangles painted above it (the frame quads likewise);
+  the inline-image layer cannot be cut, so a covered floating pane draws no
+  images until it is uncovered. Pane padding insets a floating pane on every
+  side. Geometry for resize comes from the same resolver as render
+  (`Tab::pane_rects`). The keyboard arrange mode is an `ActiveModal` owned by
+  the tab it was armed on (identity-keyed, cleared on any other tab becoming
+  active, never persisted). Persistence adds an `arrangement` object to a tab
+  only when it is not tiled (`mode` plus, for floating, `panes` by tree-order
+  leaf index with optional `col`/`row`/`cols`/`rows`); a missing key, an unknown
+  mode, a malformed pane entry, a partial rectangle, or a pane list that is not a
+  permutation of the restored leaves yields tiled or an unplaced pane, never a
+  partial rectangle. The structural fingerprint includes the mode, rectangles,
+  and z-order. A moved pane joins the destination's active tab as a floating
+  pane only when that tab is floating. Pointer drag of a floating frame is not
+  implemented. In-window layouts need no compositor cooperation, so there is
+  no Wayland-specific path.
 - Broadcast input (v0.16.0): an explicit, process-wide set of receiver panes,
   held in memory only (never persisted, so quit, crash, and restore start
   empty). Panes join one at a time from the palette, the context menu, or the

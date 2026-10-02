@@ -69,6 +69,7 @@ pub(in crate::native) enum ActiveModal {
     CopyMode,
     HintsSelect,
     RenameTab,
+    FloatArrange,
 }
 
 impl App {
@@ -418,6 +419,9 @@ impl App {
         if self.rename_state.is_some() {
             return ActiveModal::RenameTab;
         }
+        if self.float_arrange_active() {
+            return ActiveModal::FloatArrange;
+        }
         ActiveModal::None
     }
 
@@ -429,6 +433,7 @@ impl App {
             ActiveModal::CopyMode => self.copy_mode_key(key),
             ActiveModal::HintsSelect => self.hints_key(key),
             ActiveModal::RenameTab => self.rename_key(key),
+            ActiveModal::FloatArrange => self.float_arrange_key(key),
             ActiveModal::None => {}
         }
     }

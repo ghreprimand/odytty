@@ -286,16 +286,19 @@ impl App {
     /// tab (`multipane_geometry` is `None`), keeping the single-pane and
     /// focused-pane hover paths byte-identical.
     pub(super) fn pointer_over_nonfocused_pane(&self) -> bool {
-        let Some((content, _)) = self.multipane_geometry() else {
+        let Some((content, cell)) = self.multipane_geometry() else {
             return false;
         };
         let Some((px, py)) = self.pointer_px else {
             return false;
         };
-        match self
-            .sessions
-            .active_pane_at_point(content, PANE_DIVIDER_PX, px as f32, py as f32)
-        {
+        match self.sessions.active_pane_at_point(
+            content,
+            PANE_DIVIDER_PX,
+            (cell.width, cell.height),
+            px as f32,
+            py as f32,
+        ) {
             Some(token) => token != self.sessions.active_id(),
             None => true,
         }

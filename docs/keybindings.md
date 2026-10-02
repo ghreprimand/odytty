@@ -418,6 +418,14 @@ These tokens are accepted on the right-hand side of `chord=action`:
   (default `Ctrl+Shift+X`) empties the set. Typed keys, IME commits, and paste
   then reach every receiver as well as the focused pane. See
   [Broadcast input](features.md#broadcast-input).
+- **Pane layouts:** no bindable action and no default chord. **Stack Panes**,
+  **Float Panes**, **Tile Panes**, **Arrange Floating Pane**, and the
+  **Focus Pane k of n** rows are command palette entries; **Focus Next Pane**
+  (`Ctrl+b o`, or `focus-pane-next`) cycles panes in the stable tab order for
+  every layout. While **Arrange Floating Pane** is armed, arrows move the
+  focused pane, `Shift` with arrows resizes it, `Tab` focuses the next pane,
+  and `Esc` or `Enter` ends the mode. See
+  [Stacked and floating pane layouts](features.md#stacked-and-floating-pane-layouts).
 - **Scroll and prompt:** `scroll-up`, `scroll-down`, `jump-prompt-prev`,
   `jump-prompt-next`.
 - **Tabs and windows:** `new-tab`, `new-window`, `next-tab`, `prev-tab`,

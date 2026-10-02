@@ -890,6 +890,12 @@ impl App {
             BindableAction::FocusPaneNext => {
                 if self.sessions.focus_next_pane() {
                     self.on_active_session_changed();
+                    // A stacked or zoomed tab shows only the focused pane at the
+                    // full content size, so a new focus owner needs its grid
+                    // resized to match; a floating tab only changes z-order.
+                    if self.sessions.active_shows_only_focused() {
+                        self.reflow_active_panes_and_redraw();
+                    }
                 }
             }
             BindableAction::ClosePane => self.close_focused_pane(),
@@ -965,10 +971,13 @@ impl App {
     /// tab (`multipane_geometry` is `None`), so the single-pane path is
     /// unaffected.
     pub(super) fn focus_pane_dir(&mut self, dir: FocusDir) {
-        if let Some((content, _cell)) = self.multipane_geometry()
-            && self
-                .sessions
-                .focus_move_active(content, PANE_DIVIDER_PX, dir)
+        if let Some((content, cell)) = self.multipane_geometry()
+            && self.sessions.focus_move_active(
+                content,
+                PANE_DIVIDER_PX,
+                (cell.width, cell.height),
+                dir,
+            )
         {
             self.on_active_session_changed();
         }

@@ -27,6 +27,7 @@ use winit::platform::windows::EventLoopBuilderExtWindows;
 #[cfg(target_os = "linux")]
 use winit::platform::x11::EventLoopBuilderExtX11;
 
+mod floating_layout;
 mod lifecycle;
 mod persistence;
 mod presentation;

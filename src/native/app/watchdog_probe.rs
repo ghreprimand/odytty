@@ -45,6 +45,7 @@ impl App {
                 ActiveModal::CopyMode => 1,
                 ActiveModal::HintsSelect => 2,
                 ActiveModal::RenameTab => 3,
+                ActiveModal::FloatArrange => 4,
             },
             needs_rebuild: self.needs_rebuild,
             frames_presented: self

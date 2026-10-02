@@ -127,10 +127,10 @@ fn zoomed_tab_renders_only_the_focused_leaf_full_content() {
         set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
     let content = PaneRect::new(5.0, 7.0, 401.0, 200.0);
     // Un-zoomed: two tiled rects.
-    assert_eq!(set.active_pane_rects(content, 1.0).len(), 2);
+    assert_eq!(set.active_pane_rects(content, 1.0, (8, 16)).len(), 2);
 
     assert!(set.toggle_active_zoom());
-    let rects = set.active_pane_rects(content, 1.0);
+    let rects = set.active_pane_rects(content, 1.0, (8, 16));
     assert_eq!(rects.len(), 1, "only the focused pane renders while zoomed");
     let (token, rect) = rects[0];
     assert_eq!(token, right, "the focused pane is the one shown");
@@ -146,11 +146,11 @@ fn unzoom_restores_the_prior_pane_rects_exactly() {
     let mut set = WorkspaceSet::new(build_session(), None);
     set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
     let content = PaneRect::new(5.0, 7.0, 401.0, 200.0);
-    let before = set.active_pane_rects(content, 1.0);
+    let before = set.active_pane_rects(content, 1.0, (8, 16));
 
     assert!(set.toggle_active_zoom());
     assert!(set.toggle_active_zoom());
-    let after = set.active_pane_rects(content, 1.0);
+    let after = set.active_pane_rects(content, 1.0, (8, 16));
 
     assert_eq!(before.len(), after.len());
     for ((tb, rb), (ta, ra)) in before.iter().zip(after.iter()) {
@@ -302,7 +302,7 @@ fn active_pane_rects_tiles_the_content_without_overlap() {
     let mut set = WorkspaceSet::new(build_session(), None);
     set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
     let content = PaneRect::new(5.0, 7.0, 401.0, 200.0);
-    let rects = set.active_pane_rects(content, 1.0);
+    let rects = set.active_pane_rects(content, 1.0, (8, 16));
     assert_eq!(rects.len(), 2);
     let (_, left) = rects[0];
     let (_, right) = rects[1];
@@ -320,15 +320,18 @@ fn active_pane_at_point_resolves_focus_follows_click() {
     // 801px wide, 1px divider at x=400 → left pane [0,400), right [401,801).
     let content = PaneRect::new(0.0, 0.0, 801.0, 200.0);
     assert_eq!(
-        set.active_pane_at_point(content, 1.0, 100.0, 50.0),
+        set.active_pane_at_point(content, 1.0, (8, 16), 100.0, 50.0),
         Some(SessionToken(0))
     );
     assert_eq!(
-        set.active_pane_at_point(content, 1.0, 600.0, 50.0),
+        set.active_pane_at_point(content, 1.0, (8, 16), 600.0, 50.0),
         Some(right)
     );
     // The 1px divider gap (x=400) belongs to no pane.
-    assert_eq!(set.active_pane_at_point(content, 1.0, 400.0, 50.0), None);
+    assert_eq!(
+        set.active_pane_at_point(content, 1.0, (8, 16), 400.0, 50.0),
+        None
+    );
 }
 
 #[test]
@@ -365,7 +368,7 @@ fn drag_active_divider_reflows_the_active_split_ratio() {
         .expect("active split exists");
     assert!((new - 200.0 / 800.0).abs() < 1e-3);
     // The new ratio re-tiles the panes: left pane now ~200px wide.
-    let rects = set.active_pane_rects(content, 1.0);
+    let rects = set.active_pane_rects(content, 1.0, (8, 16));
     let (_, left) = rects[0];
     assert!((left.w - 200.0).abs() < 1.0);
     // An out-of-range divider index leaves the tree unchanged.
@@ -381,12 +384,12 @@ fn focus_move_active_lands_on_the_spatial_neighbor() {
     assert_eq!(set.active_id(), right);
     let content = PaneRect::new(0.0, 0.0, 801.0, 200.0);
     // Move focus left → the original pane; returns true (focus changed).
-    assert!(set.focus_move_active(content, 1.0, FocusDir::Left));
+    assert!(set.focus_move_active(content, 1.0, (8, 16), FocusDir::Left));
     assert_eq!(set.active_id(), SessionToken(0));
     // No neighbor to the left of the leftmost pane → no change, false.
-    assert!(!set.focus_move_active(content, 1.0, FocusDir::Left));
+    assert!(!set.focus_move_active(content, 1.0, (8, 16), FocusDir::Left));
     assert_eq!(set.active_id(), SessionToken(0));
     // Move right → back to the right pane.
-    assert!(set.focus_move_active(content, 1.0, FocusDir::Right));
+    assert!(set.focus_move_active(content, 1.0, (8, 16), FocusDir::Right));
     assert_eq!(set.active_id(), right);
 }
