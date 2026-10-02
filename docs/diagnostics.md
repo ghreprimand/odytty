@@ -203,6 +203,16 @@ through protocol selection and the PTY writer. Printable key and IME text is
 always reduced to character and UTF-8 byte counts; a single control character
 is identified only by its Unicode code point. Repeated empty IME pre-edit
 events are sampled at powers of two so a feedback loop cannot flood the log.
+Each time typed input, an IME commit, or a paste reaches broadcast fan-out
+(every typed key, whether or not broadcast is on), the same gate also records
+one `broadcast-fanout` line: the payload kind and byte count, the focused pane's numeric token, and
+each receiver's token with its outcome (`delivered`, `skipped-focused`,
+`skipped-read-only`, `skipped-unresolved`, `queued-other-window`,
+`write-failed`, `refused-too-large`, or `pruned`). `receivers=0` means input
+reached fan-out while the receiver set was empty; no `broadcast-fanout` line at
+all means the input never reached fan-out. Typed bytes, text, titles, and paths
+are never recorded, and nothing is logged while the gate is off.
+
 The gate uses warning-level application logging so it remains retrievable from
 `odytty.log`, including on Windows. Turn it off after the keyboard issue has
 been captured.

@@ -163,6 +163,97 @@ pub(super) fn log_backspace_writer_lock_failed(key: &WinitKey) {
     );
 }
 
+/// What one broadcast fan-out did for one receiver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FanoutOutcome {
+    Delivered,
+    /// The focused pane: it keeps its own write, so fan-out skips it.
+    Focused,
+    /// Another window owns the pane; the payload is queued for that window.
+    QueuedOtherWindow,
+    /// No window resolves the token on delivery.
+    Unresolved,
+    ReadOnly,
+    WriteFailed,
+    /// A paste too large for bracketed paste; refused with a notice.
+    TooLarge,
+    /// The pane no longer exists, so the receiver was dropped before delivery.
+    Pruned,
+}
+
+impl FanoutOutcome {
+    fn label(self) -> &'static str {
+        match self {
+            FanoutOutcome::Delivered => "delivered",
+            FanoutOutcome::Focused => "skipped-focused",
+            FanoutOutcome::QueuedOtherWindow => "queued-other-window",
+            FanoutOutcome::Unresolved => "skipped-unresolved",
+            FanoutOutcome::ReadOnly => "skipped-read-only",
+            FanoutOutcome::WriteFailed => "write-failed",
+            FanoutOutcome::TooLarge => "refused-too-large",
+            FanoutOutcome::Pruned => "pruned",
+        }
+    }
+}
+
+/// Whether the diagnostics flag is on, so callers can skip building a trace.
+pub(super) fn broadcast_trace_enabled() -> bool {
+    enabled()
+}
+
+/// One fan-out record: the payload kind, its size in bytes, the focused pane's
+/// token, and each receiver's token with its outcome. Counts and numeric
+/// tokens only: never the typed bytes, text, titles, or paths.
+fn broadcast_fanout_line(
+    kind: &str,
+    payload_bytes: usize,
+    focused: u64,
+    receivers: &[(u64, FanoutOutcome)],
+) -> String {
+    let mut line = format!(
+        "key-event diagnostic: broadcast-fanout kind={kind} bytes={payload_bytes} focused={focused} receivers={}",
+        receivers.len()
+    );
+    for (token, outcome) in receivers {
+        line.push_str(&format!(" [{token}:{}]", outcome.label()));
+    }
+    line
+}
+
+fn emit_broadcast_fanout(
+    on: bool,
+    emit: impl FnOnce(String),
+    kind: &str,
+    payload_bytes: usize,
+    focused: u64,
+    receivers: &[(u64, FanoutOutcome)],
+) {
+    if on {
+        emit(broadcast_fanout_line(
+            kind,
+            payload_bytes,
+            focused,
+            receivers,
+        ));
+    }
+}
+
+pub(super) fn log_broadcast_fanout(
+    kind: &str,
+    payload_bytes: usize,
+    focused: u64,
+    receivers: &[(u64, FanoutOutcome)],
+) {
+    emit_broadcast_fanout(
+        enabled(),
+        |line| tracing::warn!("{line}"),
+        kind,
+        payload_bytes,
+        focused,
+        receivers,
+    );
+}
+
 struct SafeKey<'a>(&'a WinitKey);
 
 impl fmt::Display for SafeKey<'_> {
@@ -266,6 +357,43 @@ impl fmt::Display for SafeIme<'_> {
 mod tests {
     use super::*;
     use winit::keyboard::Key;
+
+    #[test]
+    fn broadcast_fanout_trace_is_silent_when_off() {
+        let mut lines = Vec::new();
+        emit_broadcast_fanout(
+            false,
+            |line| lines.push(line),
+            "bytes",
+            1,
+            3,
+            &[(1, FanoutOutcome::Delivered)],
+        );
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn broadcast_fanout_trace_names_every_outcome_without_payload() {
+        let all = [
+            (1, FanoutOutcome::Delivered),
+            (2, FanoutOutcome::Focused),
+            (3, FanoutOutcome::QueuedOtherWindow),
+            (4, FanoutOutcome::Unresolved),
+            (5, FanoutOutcome::ReadOnly),
+            (6, FanoutOutcome::WriteFailed),
+            (7, FanoutOutcome::TooLarge),
+            (8, FanoutOutcome::Pruned),
+        ];
+        let mut lines = Vec::new();
+        emit_broadcast_fanout(true, |line| lines.push(line), "paste", 42, 9, &all);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(
+            lines[0],
+            "key-event diagnostic: broadcast-fanout kind=paste bytes=42 focused=9 receivers=8 \
+             [1:delivered] [2:skipped-focused] [3:queued-other-window] [4:skipped-unresolved] \
+             [5:skipped-read-only] [6:write-failed] [7:refused-too-large] [8:pruned]"
+        );
+    }
 
     #[test]
     fn diagnostics_are_opt_in() {

@@ -33,6 +33,7 @@
 use super::*;
 use crate::core::{Attrs, Cell};
 use crate::native::broadcast::{BroadcastPayload, BroadcastSummary, ReceiverInfo};
+use crate::native::key_event_diagnostics::FanoutOutcome;
 use crate::native::render_helpers::OverlayFragment;
 
 /// Label painted into every visible receiver other than the focused pane.
@@ -185,6 +186,7 @@ impl App {
     /// is empty).
     pub(super) fn broadcast_bytes(&mut self, bytes: &[u8]) {
         if self.broadcast_set_is_empty() {
+            self.trace_empty_fanout("bytes", bytes.len());
             return;
         }
         self.broadcast_to_receivers(BroadcastPayload::Bytes(bytes.to_vec()));
@@ -194,9 +196,22 @@ impl App {
     /// terminal (no-op while the set is empty).
     pub(super) fn broadcast_paste(&mut self, text: &str) {
         if self.broadcast_set_is_empty() {
+            self.trace_empty_fanout("paste", text.len());
             return;
         }
         self.broadcast_to_receivers(BroadcastPayload::Paste(text.to_owned()));
+    }
+
+    /// Diagnostics only: record that input reached fan-out with no receivers.
+    fn trace_empty_fanout(&self, kind: &str, payload_bytes: usize) {
+        if key_event_diagnostics::broadcast_trace_enabled() {
+            key_event_diagnostics::log_broadcast_fanout(
+                kind,
+                payload_bytes,
+                self.sessions.active_id().0,
+                &[],
+            );
+        }
     }
 
     fn broadcast_set_is_empty(&self) -> bool {
@@ -209,44 +224,69 @@ impl App {
     /// keeps its own write. Receivers this window owns are written now;
     /// receivers in another window are queued for the window owner. A
     /// receiver of a closed pane is dropped.
-    fn broadcast_to_receivers(&mut self, payload: BroadcastPayload) {
+    pub(in crate::native) fn broadcast_to_receivers(
+        &mut self,
+        payload: BroadcastPayload,
+    ) -> Vec<(u64, FanoutOutcome)> {
         let focused = self.sessions.active_id();
+        let mut trace: Vec<(u64, FanoutOutcome)> = Vec::new();
         let receivers: Vec<SessionToken> = {
             let mut set = crate::native::lock_recover(&self.broadcast);
             if set.receivers().is_empty() {
-                return;
+                drop(set);
+                self.trace_empty_fanout(payload.kind(), payload.byte_len());
+                return Vec::new();
             }
+            let before: Vec<SessionToken> =
+                set.receivers().iter().map(|(token, _)| *token).collect();
             let peers = self.broadcast_peer_windows;
             let sessions = &self.sessions;
             set.retain_live(|token| sessions.get(token).is_some() || peers);
-            set.receivers().iter().map(|(token, _)| *token).collect()
+            let after: Vec<SessionToken> =
+                set.receivers().iter().map(|(token, _)| *token).collect();
+            trace.extend(
+                before
+                    .iter()
+                    .filter(|token| !after.contains(token))
+                    .map(|token| (token.0, FanoutOutcome::Pruned)),
+            );
+            after
         };
         for token in receivers {
-            if token == focused {
-                continue;
-            }
-            if self.sessions.get(token).is_some() {
-                self.deliver_broadcast_payload(token, &payload);
+            let outcome = if token == focused {
+                FanoutOutcome::Focused
+            } else if self.sessions.get(token).is_some() {
+                self.deliver_broadcast_payload(token, &payload)
             } else {
                 crate::native::lock_recover(&self.broadcast).queue(token, payload.clone());
-            }
+                FanoutOutcome::QueuedOtherWindow
+            };
+            trace.push((token.0, outcome));
         }
+        key_event_diagnostics::log_broadcast_fanout(
+            payload.kind(),
+            payload.byte_len(),
+            focused.0,
+            &trace,
+        );
         self.sync_broadcast_labels();
+        trace
     }
 
     /// Deliver one payload to a receiver this window owns, through the
-    /// read-only gate. Returns `false` when this window does not own `token`.
-    /// A failed write removes the receiver and names it in a notice.
+    /// read-only gate. Returns [`FanoutOutcome::Unresolved`] when this window
+    /// does not own `token`. A failed write removes the receiver and names it
+    /// in a notice.
     pub(in crate::native) fn deliver_broadcast_payload(
         &mut self,
         token: SessionToken,
         payload: &BroadcastPayload,
-    ) -> bool {
+    ) -> FanoutOutcome {
         let Some(session) = self.sessions.get(token) else {
-            return false;
+            return FanoutOutcome::Unresolved;
         };
         if !self.pane_accepts_input(token) {
-            return true;
+            return FanoutOutcome::ReadOnly;
         }
         let delivered = match payload {
             BroadcastPayload::Bytes(bytes) => session.writer.lock().is_ok_and(|mut writer| {
@@ -263,7 +303,7 @@ impl App {
                         self.raise_open_notice(format!(
                             "Broadcast paste refused for {title}: too large for bracketed paste"
                         ));
-                        return true;
+                        return FanoutOutcome::TooLarge;
                     }
                     Err(PasteError::Write(_)) => false,
                 }
@@ -276,8 +316,9 @@ impl App {
                 "Broadcast stopped for {title}: input not delivered"
             ));
             self.sync_broadcast_labels();
+            return FanoutOutcome::WriteFailed;
         }
-        true
+        FanoutOutcome::Delivered
     }
 
     /// The label `token`'s pane paints, if any.

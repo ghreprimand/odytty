@@ -37,6 +37,24 @@ pub(in crate::native) enum BroadcastPayload {
     Paste(String),
 }
 
+impl BroadcastPayload {
+    /// Diagnostics label for the payload kind.
+    pub(in crate::native) fn kind(&self) -> &'static str {
+        match self {
+            BroadcastPayload::Bytes(_) => "bytes",
+            BroadcastPayload::Paste(_) => "paste",
+        }
+    }
+
+    /// Payload size in bytes (never its content).
+    pub(in crate::native) fn byte_len(&self) -> usize {
+        match self {
+            BroadcastPayload::Bytes(bytes) => bytes.len(),
+            BroadcastPayload::Paste(text) => text.len(),
+        }
+    }
+}
+
 /// The receiver set, plus the cross-window delivery queue and a change
 /// generation that tells every window its labels need repainting.
 #[derive(Debug, Default)]

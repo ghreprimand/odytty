@@ -3,7 +3,8 @@
 
 use super::*;
 use crate::native::app::broadcast_input::{BroadcastLabel, RECEIVER_LABEL, paint_broadcast_label};
-use crate::native::broadcast::BroadcastSummary;
+use crate::native::broadcast::{BroadcastPayload, BroadcastSummary, ReceiverInfo};
+use crate::native::key_event_diagnostics::FanoutOutcome;
 use crate::native::session::SessionToken;
 use crate::settings::{BindableAction, KeyBindingKey, KeyBindingModifiers, KeyChord};
 use std::io::Write;
@@ -607,5 +608,56 @@ fn labels_paint_beside_read_only_and_fall_back_on_narrow_panes() {
         label_row(&untouched),
         before,
         "broadcast off paints nothing"
+    );
+}
+
+#[test]
+fn fanout_reports_each_receiver_outcome_for_the_diagnostics_trace() {
+    let (mut app, _terminal, _first) = app();
+    let first_token = app.active_session_token_for_test();
+    let (delivered_token, delivered) = recorded_split(&mut app);
+    let (read_only_token, read_only) = recorded_split(&mut app);
+    let failing: PtyWriter = Arc::new(Mutex::new(Box::new(FailingWriter)));
+    let (failing_token, _terminal) = split(&mut app, failing);
+    for token in [first_token, delivered_token, read_only_token, failing_token] {
+        add_receiver(&mut app, token);
+    }
+    assert!(app.set_pane_read_only(read_only_token, true));
+    // A receiver whose pane no window resolves and no sibling window can own.
+    let gone = SessionToken(u64::MAX);
+    crate::native::lock_recover(&app.broadcast_handle())
+        .insert(gone, ReceiverInfo { remote: false });
+    app.focus_session_token_for_test(first_token);
+
+    let trace = app.broadcast_to_receivers(BroadcastPayload::Bytes(b"x".to_vec()));
+    assert_eq!(
+        trace,
+        vec![
+            (gone.0, FanoutOutcome::Pruned),
+            (first_token.0, FanoutOutcome::Focused),
+            (delivered_token.0, FanoutOutcome::Delivered),
+            (read_only_token.0, FanoutOutcome::ReadOnly),
+            (failing_token.0, FanoutOutcome::WriteFailed),
+        ]
+    );
+    assert_eq!(bytes(&delivered), b"x");
+    assert!(bytes(&read_only).is_empty());
+
+    // With sibling windows present the same unresolved token is queued for
+    // its owner instead of pruned.
+    crate::native::lock_recover(&app.broadcast_handle())
+        .insert(gone, ReceiverInfo { remote: false });
+    app.adopt_broadcast(app.broadcast_handle(), true);
+    let trace = app.broadcast_to_receivers(BroadcastPayload::Bytes(b"y".to_vec()));
+    assert!(
+        trace.contains(&(gone.0, FanoutOutcome::QueuedOtherWindow)),
+        "{trace:?}"
+    );
+
+    // No receivers: nothing is reported.
+    app.handle_palette_action_for_test("stop-broadcast");
+    assert!(
+        app.broadcast_to_receivers(BroadcastPayload::Bytes(b"z".to_vec()))
+            .is_empty()
     );
 }

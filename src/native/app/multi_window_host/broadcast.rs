@@ -10,6 +10,7 @@
 //! moved by a window merge still receives exactly once, at its new owner.
 
 use super::MultiWindowHost;
+use crate::native::key_event_diagnostics::FanoutOutcome;
 
 impl MultiWindowHost {
     pub(super) fn service_broadcast(&mut self) {
@@ -27,9 +28,19 @@ impl MultiWindowHost {
             set.retain_live(|token| windows.iter().any(|app| app.owns_session(token)));
             set.take_outbox()
         };
+        let tracing_on = crate::native::key_event_diagnostics::broadcast_trace_enabled();
         for (token, payload) in outbox {
             for app in &mut self.windows {
-                if app.deliver_broadcast_payload(token, &payload) {
+                let outcome = app.deliver_broadcast_payload(token, &payload);
+                if outcome != FanoutOutcome::Unresolved {
+                    if tracing_on {
+                        crate::native::key_event_diagnostics::log_broadcast_fanout(
+                            "queued-delivery",
+                            payload.byte_len(),
+                            0,
+                            &[(token.0, outcome)],
+                        );
+                    }
                     break;
                 }
             }
