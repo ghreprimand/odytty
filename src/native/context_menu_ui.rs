@@ -93,7 +93,37 @@ use crate::settings::BindableAction;
 /// `ALL` so every pre-existing accelerator-array index stays stable, and they
 /// never touch the content menu's separator geometry (that surface filters them
 /// out and they compose their own tight sections).
-pub(super) const CONTEXT_MENU_ITEMS: usize = 68;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 80;
+
+/// The arrangement of the tab a menu was opened on, snapshotted at open time.
+/// Selects which of Stack / Float / Tile Panes show (the one already in force
+/// hides) and whether Arrange Floating Pane shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(in crate::native) enum MenuLayout {
+    #[default]
+    Tiled,
+    Stacked,
+    Floating,
+}
+
+/// The window, layout, and move facts the v0.16 menu rows depend on, snapshotted
+/// by the App at open time from the same helpers the command palette uses, so a
+/// menu row is offered exactly when its palette row is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(in crate::native) struct WindowMenuActions {
+    /// The active tab's arrangement.
+    pub(in crate::native) layout: MenuLayout,
+    /// This window keeps another tab, so a tab can open in a new window.
+    pub(in crate::native) tab_to_new_window: bool,
+    /// Another window exists, so a tab can move to it.
+    pub(in crate::native) tab_to_window: bool,
+    /// The focused pane can open as a new window's tab (a split tab).
+    pub(in crate::native) pane_to_new_window: bool,
+    /// The focused pane can move to another window (a split tab and a sibling).
+    pub(in crate::native) pane_to_window: bool,
+    /// Another window exists, so the merge and pull rows have a target.
+    pub(in crate::native) merge: bool,
+}
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -117,7 +147,7 @@ pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 10;
 /// Broadcast to This Pane) and the workspace section (New / Rename / Close
 /// Workspace).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 15;
+pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 17;
 
 /// Body row index of the fourth visual separator (with-selection reference),
 /// between the workspace section and Settings. The unbound reference shows the
@@ -125,16 +155,16 @@ pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 15;
 /// Workspace as Layout, and Open Layout, so the section is eight items long
 /// (v0.14 profile rows plus LAYOUT-SURFACE + SAVE-ALL-LAYOUT).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 24;
+pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 26;
 
 /// Body row index of the fifth visual separator (with-selection reference),
 /// between Settings and the launcher section (Connection Manager / Command
 /// Palette / Session Replay).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 26;
+pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 28;
 
 /// Total body rows in the **with-selection** single-pane content reference:
-/// twenty-eight visible items plus five separator lines (Close Pane hidden;
+/// thirty visible items plus five separator lines (Close Pane hidden;
 /// the pane section carries Make Pane Read-Only and Broadcast to This Pane;
 /// Rename Tab dropped from the content menu; the workspace section adds New /
 /// New with Profile / Rename / Close Workspace, the conditional Bind-to-Host
@@ -142,7 +172,7 @@ pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 26;
 /// one separator). Production uses [`ContextMenuUi::body_row_count`] for the
 /// live count.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 33;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 35;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -220,20 +250,22 @@ impl ContextMenuSurface {
 /// separators. With-selection single-pane reference: items 0–4 (editing) sit at
 /// body rows 0–4; items 5–8 (tab actions: New Tab / New Tab with Profile / New
 /// Window / Close Tab) sit at body rows 6–9; items 9–12 (splits + Make Pane
-/// Read-Only + Broadcast to This Pane) sit at body rows 11–14; items 13–20
-/// (workspace section) sit at body rows 16–23; Settings (index 21) sits at body
-/// row 25; the launcher items 22–27 sit at body rows 27–32.
+/// Read-Only + Broadcast to This Pane) sit at body rows 11–14, and items 13–14
+/// (Export Scrollback As Text / As HTML) at body rows 15–16; items 15–22
+/// (workspace section) sit at body rows 18–25; Settings (index 23) sits at body
+/// row 27; the launcher items 24–29 sit at body rows 29–34.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    // With-selection reference: five separators at body rows 5, 10, 15, 24, 26,
-    // so the launcher section (items 22+) shifts by five, Settings (item 21) by
-    // four, the workspace section (items 13-20) by three, the pane section
-    // (items 9-12) by two, and the tab actions (items 5-8) by one.
-    if item_index >= 22 {
+    // With-selection reference: five separators at body rows 5, 10, 17, 26, 28,
+    // so the launcher section (items 24+) shifts by five, Settings (item 23) by
+    // four, the workspace section (items 15-22) by three, the pane section
+    // (items 9-14, with the two export rows) by two, and the tab actions
+    // (items 5-8) by one.
+    if item_index >= 24 {
         item_index + 5
-    } else if item_index >= 21 {
+    } else if item_index >= 23 {
         item_index + 4
-    } else if item_index >= 13 {
+    } else if item_index >= 15 {
         item_index + 3
     } else if item_index >= 9 {
         item_index + 2
@@ -371,6 +403,9 @@ pub(super) struct ContextMenuSignature {
     /// Attach item's enabled state, so an available-vs-unavailable detached row
     /// repaints.
     pub(super) navigator_detached_available: bool,
+    /// The v0.16 window, layout, and move facts that select the Move, layout, and
+    /// merge rows, so a change in any of them repaints the menu.
+    pub(super) window_actions: WindowMenuActions,
     /// Committed scroll anchor (first visible body row). The displayed window
     /// is derived from this plus `focused` at a given grid, so an overflow-mark
     /// press or a wheel step that scrolls without moving focus still changes
@@ -451,6 +486,10 @@ pub(super) struct ContextMenuUi {
     /// Whether the snapshotted detached navigator target is available to attach
     /// (always `true` for live targets). Gates the Attach item's enabled state.
     navigator_detached_available: bool,
+    /// The window, layout, and move facts snapshotted at open time by
+    /// [`Self::set_window_actions`]. Reset on every open so they never leak
+    /// across surfaces.
+    window_actions: WindowMenuActions,
     /// The name of the workspace under a right-clicked rail slot, snapshotted at
     /// open time on the `WorkspaceSlot` surface (RAIL-REVALIDATE). Unlike the
     /// tab surface (which carries an opaque `SessionToken` re-resolved at

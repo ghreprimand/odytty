@@ -251,6 +251,7 @@ mod tabs_sessions;
 mod theme_capture;
 mod viewport;
 mod wheel_zoom;
+mod window_menu_rows;
 mod workspaces;
 
 pub(super) fn snapshot(lines: &[&str], columns: usize) -> Snapshot {

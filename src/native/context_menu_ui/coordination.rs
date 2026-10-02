@@ -26,6 +26,7 @@ impl Default for ContextMenuUi {
             connection_target: None,
             navigator_target: None,
             navigator_detached_available: false,
+            window_actions: WindowMenuActions::default(),
             workspace_slot_name: None,
             // `[T; N]: Default` only exists up to N == 32; the item set is now
             // larger, so build the all-`None` array element-wise.
@@ -112,6 +113,7 @@ impl ContextMenuUi {
         self.pane_read_only = false;
         self.pane_broadcast = false;
         self.broadcast_active = false;
+        self.window_actions = WindowMenuActions::default();
         // RAIL-REORDER: reset to 0 on every open; the App sets the real count
         // via `set_workspace_count` only for a rail-slot menu.
         self.workspace_count = 0;
@@ -168,6 +170,7 @@ impl ContextMenuUi {
         self.pane_read_only = false;
         self.pane_broadcast = false;
         self.broadcast_active = false;
+        self.window_actions = WindowMenuActions::default();
         self.workspace_count = 0;
         self.surface = ContextMenuSurface::ConnectionRow(row_index);
         self.path_target = None;
@@ -212,6 +215,7 @@ impl ContextMenuUi {
         self.pane_read_only = false;
         self.pane_broadcast = false;
         self.broadcast_active = false;
+        self.window_actions = WindowMenuActions::default();
         self.workspace_count = 0;
         self.surface = ContextMenuSurface::NavigatorRow;
         self.path_target = None;
@@ -278,6 +282,12 @@ impl ContextMenuUi {
     pub(in crate::native) fn set_broadcast(&mut self, pane_receiver: bool, active: bool) {
         self.pane_broadcast = pane_receiver;
         self.broadcast_active = active;
+    }
+
+    /// Record the window, layout, and move facts on an open content, tab, or
+    /// empty-strip menu. Reset on every open.
+    pub(in crate::native) fn set_window_actions(&mut self, actions: WindowMenuActions) {
+        self.window_actions = actions;
     }
 
     /// The saved host snapshotted for a `ConnectionRow` menu (ODP-2C), if any.
@@ -416,6 +426,20 @@ impl ContextMenuUi {
             // ODP-5D: always available on the tab surface (the destructive
             // replace is consent-gated at activation, not by disabling here).
             ContextMenuItem::ConnectToHost | ContextMenuItem::ReplaceTabWithHost => true,
+            // The v0.16 window, layout, and export rows are shown only when they
+            // apply (see `visible_items`), so they are enabled whenever shown.
+            ContextMenuItem::MovePaneToNewWindow
+            | ContextMenuItem::MovePaneToWindow
+            | ContextMenuItem::ExportScrollbackText
+            | ContextMenuItem::ExportScrollbackHtml
+            | ContextMenuItem::StackPanes
+            | ContextMenuItem::FloatPanes
+            | ContextMenuItem::TilePanes
+            | ContextMenuItem::ArrangeFloatingPane
+            | ContextMenuItem::MoveTabToNewWindow
+            | ContextMenuItem::MoveTabToWindow
+            | ContextMenuItem::MergeWindowInto
+            | ContextMenuItem::PullWindowIntoThis => true,
             // ODP-2C: connection-row actions are enabled whenever shown; Edit
             // and Remove are gated by visibility (OdyTTY-owned only), not here,
             // and the destructive Remove is consent-gated at activation.
@@ -474,7 +498,9 @@ impl ContextMenuUi {
                 // ODP-5D host actions form their own group between the close
                 // section and the workspace/window tail.
                 ContextMenuItem::ConnectToHost | ContextMenuItem::ReplaceTabWithHost => 2,
-                ContextMenuItem::MoveToWorkspace => 3,
+                ContextMenuItem::MoveToWorkspace
+                | ContextMenuItem::MoveTabToNewWindow
+                | ContextMenuItem::MoveTabToWindow => 3,
                 ContextMenuItem::NewWindow => 4,
                 // Not part of the tab composition; grouped with New Window so a
                 // stray item never forces a spurious separator.
@@ -488,8 +514,11 @@ impl ContextMenuUi {
                 | ContextMenuItem::NewWorkspace
                 | ContextMenuItem::NewWorkspaceWithProfile
                 | ContextMenuItem::OpenLayout => 0,
-                ContextMenuItem::CommandPalette | ContextMenuItem::Settings => 1,
-                _ => 1,
+                // The window rows form their own group between creation and the
+                // palette / settings tail.
+                ContextMenuItem::MergeWindowInto | ContextMenuItem::PullWindowIntoThis => 1,
+                ContextMenuItem::CommandPalette | ContextMenuItem::Settings => 2,
+                _ => 2,
             },
             ContextMenuSurface::WorkspaceSlot(_) => match item {
                 // New/Rename group; Close in its own destructive group (one

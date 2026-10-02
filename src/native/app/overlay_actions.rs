@@ -148,6 +148,15 @@ impl App {
             path_target,
             accelerators,
         );
+        if matches!(
+            surface,
+            ContextMenuSurface::Content
+                | ContextMenuSurface::TabSlot(_)
+                | ContextMenuSurface::TabStripEmpty
+        ) {
+            self.overlay
+                .set_context_menu_window_actions(self.context_menu_window_actions());
+        }
         if matches!(surface, ContextMenuSurface::Content) {
             self.overlay
                 .set_context_menu_command_actions_enabled(command_handle.is_some());
@@ -372,6 +381,14 @@ impl App {
             OverlayOutcome::ContextMenuStopBroadcast => {
                 self.flush_pending_overlay_settings();
                 self.stop_broadcast();
+            }
+            OverlayOutcome::ContextMenuPaletteRow(id) => {
+                self.flush_pending_overlay_settings();
+                self.handle_palette_action(id.to_owned());
+            }
+            OverlayOutcome::ContextMenuTabWindowAction(token, id) => {
+                self.flush_pending_overlay_settings();
+                self.run_tab_menu_palette_row(token, id);
             }
             OverlayOutcome::ContextMenuSelectAll => {
                 self.flush_pending_overlay_settings();

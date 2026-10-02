@@ -247,6 +247,43 @@ pub(in crate::native) enum ContextMenuItem {
     /// scoped; appended last in [`Self::ALL`] so every pre-existing index stays
     /// stable.
     NavClose,
+    /// Move the focused pane into a new window (content surface; shown in a
+    /// split tab that has somewhere to go). Dispatches the same row as the
+    /// palette's "Move Pane to New Window".
+    MovePaneToNewWindow,
+    /// Move the focused pane to another window through the merge picker
+    /// (content surface; shown in a split tab when another window exists).
+    MovePaneToWindow,
+    /// Save the focused pane's scrollback as plain text through the native save
+    /// dialog. Content surface; the palette's "Export Scrollback As Text".
+    ExportScrollbackText,
+    /// Save the focused pane's scrollback as one self-contained HTML file.
+    /// Content surface; the palette's "Export Scrollback As HTML".
+    ExportScrollbackHtml,
+    /// Switch the tab to the stacked arrangement (content surface, 2+ panes,
+    /// hidden while the tab is already stacked).
+    StackPanes,
+    /// Switch the tab to the floating arrangement (content surface, 2+ panes,
+    /// hidden while the tab is already floating).
+    FloatPanes,
+    /// Switch the tab back to the tiled arrangement (content surface, hidden
+    /// while the tab is tiled).
+    TilePanes,
+    /// Arm the keyboard move/resize mode for floating panes (content surface,
+    /// floating tab only).
+    ArrangeFloatingPane,
+    /// Open the right-clicked tab in a new window. Tab-scoped (`TabSlot` only),
+    /// shown when this window keeps another tab. Appended last in [`Self::ALL`].
+    MoveTabToNewWindow,
+    /// Move the right-clicked tab to another window through the merge picker.
+    /// Tab-scoped, shown only when another window exists.
+    MoveTabToWindow,
+    /// Merge this whole window into another window (empty tab strip only, when
+    /// another window exists). The palette's "Merge This Window Into...".
+    MergeWindowInto,
+    /// Pull another window into this one (empty tab strip only, when another
+    /// window exists). The palette's "Pull Window Into This One...".
+    PullWindowIntoThis,
 }
 
 impl ContextMenuItem {
@@ -280,6 +317,18 @@ impl ContextMenuItem {
         Self::BroadcastToPane,
         Self::RemovePaneFromBroadcast,
         Self::StopBroadcast,
+        // Window and output rows of the pane section: moving the focused pane
+        // to another window and exporting its scrollback. Then the layout rows,
+        // which form their own group (only shown in a multi-pane or non-tiled
+        // tab).
+        Self::MovePaneToNewWindow,
+        Self::MovePaneToWindow,
+        Self::ExportScrollbackText,
+        Self::ExportScrollbackHtml,
+        Self::StackPanes,
+        Self::FloatPanes,
+        Self::TilePanes,
+        Self::ArrangeFloatingPane,
         // Workspace section: on the content surface these render after the split
         // section and before Settings (their ALL position drives that order),
         // giving a distinct workspace group between panes and Settings.
@@ -344,6 +393,13 @@ impl ContextMenuItem {
         Self::NavDuplicate,
         Self::NavMove,
         Self::NavClose,
+        // v0.16 window actions that only the tab surfaces carry; appended last
+        // so the content menu's visible order and every earlier index are
+        // unchanged.
+        Self::MoveTabToNewWindow,
+        Self::MoveTabToWindow,
+        Self::MergeWindowInto,
+        Self::PullWindowIntoThis,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -375,6 +431,10 @@ impl ContextMenuItem {
             | Self::CloseTab
             | Self::CloseOtherTabs
             | Self::MoveToWorkspace
+            | Self::MoveTabToNewWindow
+            | Self::MoveTabToWindow
+            | Self::MergeWindowInto
+            | Self::PullWindowIntoThis
             // Tab-scoped host actions; grouped with the tab section for the
             // global fallback (they are TabSlot-only, so this only matters for
             // section() completeness — section_of gives them their own group).
@@ -387,7 +447,16 @@ impl ContextMenuItem {
             | Self::MakePaneWritable
             | Self::BroadcastToPane
             | Self::RemovePaneFromBroadcast
-            | Self::StopBroadcast => 2,
+            | Self::StopBroadcast
+            | Self::MovePaneToNewWindow
+            | Self::MovePaneToWindow
+            | Self::ExportScrollbackText
+            | Self::ExportScrollbackHtml => 2,
+            // The layout rows sit in their own group below the pane section.
+            Self::StackPanes
+            | Self::FloatPanes
+            | Self::TilePanes
+            | Self::ArrangeFloatingPane => 7,
             Self::NewWorkspace
             | Self::NewWorkspaceWithProfile
             | Self::DuplicateWorkspace
@@ -485,6 +554,18 @@ impl ContextMenuItem {
             Self::NavDuplicate => "Duplicate",
             Self::NavMove => "Move",
             Self::NavClose => "Close",
+            Self::MovePaneToNewWindow => "Move Pane to New Window",
+            Self::MovePaneToWindow => "Move Pane to Window\u{2026}",
+            Self::ExportScrollbackText => "Export Scrollback As Text\u{2026}",
+            Self::ExportScrollbackHtml => "Export Scrollback As HTML\u{2026}",
+            Self::StackPanes => "Stack Panes",
+            Self::FloatPanes => "Float Panes",
+            Self::TilePanes => "Tile Panes",
+            Self::ArrangeFloatingPane => "Arrange Floating Pane",
+            Self::MoveTabToNewWindow => "Move Tab to New Window",
+            Self::MoveTabToWindow => "Move Tab to Window\u{2026}",
+            Self::MergeWindowInto => "Merge This Window Into\u{2026}",
+            Self::PullWindowIntoThis => "Pull Window Into This One\u{2026}",
             Self::SplitColumns => "Split Right",
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
@@ -507,6 +588,33 @@ impl ContextMenuItem {
             Self::RevealPath => "Reveal in File Manager",
             Self::DetachSwitch => "Detach & switch",
         }
+    }
+
+    /// The command-palette row this item dispatches, for the window, layout, and
+    /// export rows, or `None` for every other item. The menu row and the
+    /// palette row run the same App handler, so the two entry points cannot
+    /// drift apart.
+    pub(in crate::native) fn palette_row_id(self) -> Option<&'static str> {
+        use crate::native::palette_overlay::{
+            MERGE_WINDOW_INTO_ID, MERGE_WINDOW_PULL_ID, MOVE_PANE_NEW_WINDOW_ID,
+            MOVE_PANE_TO_WINDOW_ID, MOVE_TAB_NEW_WINDOW_ID, MOVE_TAB_TO_WINDOW_ID,
+        };
+        use crate::palette_catalog::PaletteAction;
+        Some(match self {
+            Self::MovePaneToNewWindow => MOVE_PANE_NEW_WINDOW_ID,
+            Self::MovePaneToWindow => MOVE_PANE_TO_WINDOW_ID,
+            Self::MoveTabToNewWindow => MOVE_TAB_NEW_WINDOW_ID,
+            Self::MoveTabToWindow => MOVE_TAB_TO_WINDOW_ID,
+            Self::MergeWindowInto => MERGE_WINDOW_INTO_ID,
+            Self::PullWindowIntoThis => MERGE_WINDOW_PULL_ID,
+            Self::ExportScrollbackText => PaletteAction::ExportScrollbackText.id(),
+            Self::ExportScrollbackHtml => PaletteAction::ExportScrollbackHtml.id(),
+            Self::StackPanes => PaletteAction::StackPanes.id(),
+            Self::FloatPanes => PaletteAction::FloatPanes.id(),
+            Self::TilePanes => PaletteAction::TilePanes.id(),
+            Self::ArrangeFloatingPane => PaletteAction::ArrangeFloatingPane.id(),
+            _ => return None,
+        })
     }
 
     /// The [`BindableAction`] whose effective chord is shown as this item's
@@ -606,7 +714,21 @@ impl ContextMenuItem {
             | Self::NavRename
             | Self::NavDuplicate
             | Self::NavMove
-            | Self::NavClose => None,
+            | Self::NavClose
+            // The v0.16 window, layout, and export rows reuse palette rows that
+            // carry no bindable chord.
+            | Self::MovePaneToNewWindow
+            | Self::MovePaneToWindow
+            | Self::ExportScrollbackText
+            | Self::ExportScrollbackHtml
+            | Self::StackPanes
+            | Self::FloatPanes
+            | Self::TilePanes
+            | Self::ArrangeFloatingPane
+            | Self::MoveTabToNewWindow
+            | Self::MoveTabToWindow
+            | Self::MergeWindowInto
+            | Self::PullWindowIntoThis => None,
         }
     }
 }

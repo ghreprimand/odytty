@@ -3,6 +3,27 @@ use super::*;
 use crate::native::overlay::OverlayRect;
 
 impl ContextMenuUi {
+    /// Whether a v0.16 window, layout, or export row shows on the content
+    /// surface. Every other item is unaffected (`true`).
+    fn window_row_visible(&self, item: ContextMenuItem) -> bool {
+        let actions = self.window_actions;
+        match item {
+            ContextMenuItem::MoveTabToNewWindow
+            | ContextMenuItem::MoveTabToWindow
+            | ContextMenuItem::MergeWindowInto
+            | ContextMenuItem::PullWindowIntoThis => false,
+            ContextMenuItem::MovePaneToNewWindow => actions.pane_to_new_window,
+            ContextMenuItem::MovePaneToWindow => actions.pane_to_window,
+            ContextMenuItem::StackPanes => self.multi_pane && actions.layout != MenuLayout::Stacked,
+            ContextMenuItem::FloatPanes => {
+                self.multi_pane && actions.layout != MenuLayout::Floating
+            }
+            ContextMenuItem::TilePanes => actions.layout != MenuLayout::Tiled,
+            ContextMenuItem::ArrangeFloatingPane => actions.layout == MenuLayout::Floating,
+            _ => true,
+        }
+    }
+
     /// The items currently visible, in display order. Close Pane is included
     /// only in a multi-pane tab; everything else is always present. The visible
     /// list is the single source of truth for focus indices, separator
@@ -38,20 +59,36 @@ impl ContextMenuUi {
                 if self.multi_workspace {
                     items.push(ContextMenuItem::MoveToWorkspace);
                 }
+                // v0.16: the same rows the palette offers, acting on the
+                // right-clicked tab. "to New Window" needs another tab left
+                // behind; "to Window..." needs a sibling window.
+                if self.window_actions.tab_to_new_window {
+                    items.push(ContextMenuItem::MoveTabToNewWindow);
+                }
+                if self.window_actions.tab_to_window {
+                    items.push(ContextMenuItem::MoveTabToWindow);
+                }
                 items.push(ContextMenuItem::NewWindow);
                 return items;
             }
             ContextMenuSurface::TabStripEmpty => {
-                return vec![
+                let mut items = vec![
                     ContextMenuItem::NewTab,
                     ContextMenuItem::NewTabWithProfile,
                     ContextMenuItem::NewWorkspace,
                     ContextMenuItem::NewWorkspaceWithProfile,
                     // LAYOUT-SURFACE: Open Layout is reachable from the empty strip.
                     ContextMenuItem::OpenLayout,
-                    ContextMenuItem::CommandPalette,
-                    ContextMenuItem::Settings,
                 ];
+                // v0.16: merge this window into another, or pull another into
+                // it, only when a sibling window exists.
+                if self.window_actions.merge {
+                    items.push(ContextMenuItem::MergeWindowInto);
+                    items.push(ContextMenuItem::PullWindowIntoThis);
+                }
+                items.push(ContextMenuItem::CommandPalette);
+                items.push(ContextMenuItem::Settings);
+                return items;
             }
             // The workspace rail surfaces carry their own tight compositions
             // (§3.5): a slot offers New/Rename/Close Workspace; the empty rail
@@ -264,6 +301,12 @@ impl ContextMenuUi {
                 !matches!(item, ContextMenuItem::RemovePaneFromBroadcast) || self.pane_broadcast
             })
             .filter(|item| !matches!(item, ContextMenuItem::StopBroadcast) || self.broadcast_active)
+            // v0.16 window, layout, and export rows. The tab-scoped and
+            // strip-scoped rows never show on content; the pane rows follow the
+            // palette's own eligibility (split tab, sibling window); the layout
+            // rows hide the arrangement already in force, and Stack / Float need
+            // two or more panes.
+            .filter(|item| self.window_row_visible(*item))
             // ODP-5: hide Copy/Cut/Delete entirely with no selection (cleaner
             // than rendering them dim); Paste/Select All stay the always-present
             // editing anchors.

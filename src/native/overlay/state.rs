@@ -619,6 +619,21 @@ impl OverlayUi {
         self.open && self.mode == OverlayMode::ContextMenu
     }
 
+    /// Test seam: the labels of the open context menu's items in display order
+    /// (separators excluded), so a test can assert which rows a surface offers
+    /// and walk focus to one by name.
+    #[cfg(test)]
+    pub(in crate::native) fn context_menu_labels_for_test(&self) -> Vec<&'static str> {
+        self.context_menu
+            .rows()
+            .into_iter()
+            .filter_map(|row| match row {
+                crate::native::context_menu_ui::ContextMenuRow::Item { label, .. } => Some(label),
+                crate::native::context_menu_ui::ContextMenuRow::Separator => None,
+            })
+            .collect()
+    }
+
     pub(in crate::native) fn is_risky_paste(&self) -> bool {
         self.open && self.mode == OverlayMode::RiskyPaste
     }

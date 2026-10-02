@@ -316,3 +316,46 @@ impl App {
         }
     }
 }
+
+impl App {
+    /// The window, layout, and move facts the right-click menu rows depend on,
+    /// built from the same helpers the command palette uses
+    /// ([`Self::move_palette_rows`], [`Self::merge_targets_available`]) so a
+    /// menu row is offered exactly when its palette row is.
+    pub(in crate::native) fn context_menu_window_actions(
+        &self,
+    ) -> crate::native::context_menu_ui::WindowMenuActions {
+        use crate::native::context_menu_ui::{MenuLayout, WindowMenuActions};
+        let rows = self.move_palette_rows();
+        let layout = if self.sessions.active_is_floating() {
+            MenuLayout::Floating
+        } else if self.sessions.active_arrangement_is_tiled() {
+            MenuLayout::Tiled
+        } else {
+            MenuLayout::Stacked
+        };
+        WindowMenuActions {
+            layout,
+            tab_to_new_window: rows.tab_to_new_window,
+            tab_to_window: rows.tab_to_window,
+            pane_to_new_window: rows.pane_to_new_window,
+            pane_to_window: rows.pane_to_window,
+            merge: self.merge_targets_available(),
+        }
+    }
+
+    /// Run a palette move row on the right-clicked tab. The move requests act on
+    /// the active tab, so the clicked tab becomes the active one first, exactly
+    /// as a click on it would, and the shared palette handler then runs. A tab
+    /// that no longer exists in this window's active workspace does nothing.
+    pub(super) fn run_tab_menu_palette_row(&mut self, token: SessionToken, id: &'static str) {
+        if self.sessions.position_of_token(token).is_none() {
+            return;
+        }
+        self.finish_divider_drag();
+        if self.sessions.switch(token) {
+            self.on_active_session_changed();
+        }
+        self.handle_palette_action(id.to_owned());
+    }
+}

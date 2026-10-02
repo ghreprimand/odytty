@@ -51,7 +51,7 @@ fn secure_input_available() {
 /// A headless App with `panes` side-by-side panes, a fixed cell size and
 /// surface, the first pane focused. Returns the first pane's terminal so a
 /// test can print into it.
-fn split_app(panes: usize) -> (App, Arc<Mutex<Terminal>>) {
+pub(super) fn split_app(panes: usize) -> (App, Arc<Mutex<Terminal>>) {
     let (mut app, terminal) = headless_app_with_writer(
         NativeOptions::default(),
         Dimensions::new(80, 24),

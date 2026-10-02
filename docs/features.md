@@ -593,7 +593,10 @@ Sessions**, and **Detach & switch** in a launcher section. Items with a bound
 chord show it right-aligned. A tab's own menu provides New Tab, optional New
 Local Tab for a host-bound workspace, Duplicate Tab, Rename Tab, Close Tab,
 Close Other Tabs, **Connect to Host…**, **Replace with Host…**, optional **Move
-to Workspace…**, and New Window.
+to Workspace…**, **Move Tab to New Window** and **Move Tab to Window...** when
+they apply, and New Window. The terminal content menu also lists scrollback
+export, **Move Pane to New Window** and **Move Pane to Window...** in a split
+tab, and the layout rows described under stacked and floating layouts.
 
 When a menu is taller than the window, the arrow marks on its top and bottom
 border show that more items are hidden; clicking a mark scrolls the menu one
@@ -608,19 +611,24 @@ the clicked tab and asks for confirmation when that tab still has a program
 running.
 
 Right-clicking the empty tab strip offers New Tab, New Workspace, Open Layout,
-Command Palette, and Settings.
+**Merge This Window Into...** and **Pull Window Into This One...** (only when
+another window exists), Command Palette, and Settings.
 
 ### Stacked And Floating Pane Layouts
 
 Available in the v0.16.0 development tree; not included in v0.15.8.
 
-| Task | Command palette |
-| --- | --- |
-| Show one pane at a time | **Stack Panes** |
-| Place the panes as overlapping rectangles | **Float Panes** |
-| Go back to the split layout | **Tile Panes** |
-| Move or resize the focused floating pane from the keyboard | **Arrange Floating Pane** |
-| Reach any pane, including a buried one | **Focus Pane k of n**, or **Focus Next Pane** (`Ctrl+b o`) |
+| Task | Command palette | Terminal right-click menu |
+| --- | --- | --- |
+| Show one pane at a time | **Stack Panes** | **Stack Panes** |
+| Place the panes as overlapping rectangles | **Float Panes** | **Float Panes** |
+| Go back to the split layout | **Tile Panes** | **Tile Panes** |
+| Move or resize the focused floating pane from the keyboard | **Arrange Floating Pane** | **Arrange Floating Pane** |
+| Reach any pane, including a buried one | **Focus Pane k of n**, or **Focus Next Pane** (`Ctrl+b o`) | |
+
+The menu rows run the palette actions. They show in a tab with two or more
+panes, hide the arrangement the tab already has, and **Arrange Floating Pane**
+shows only in a floating tab; **Tile Panes** shows whenever the tab is not tiled.
 
 A tab is tiled by default, and every tab saved by an older version opens
 tiled. The layouts need two or more panes; on a single pane the palette rows
@@ -787,7 +795,8 @@ stays on Ctrl like the other default chords), and Windows.
 Available in the v0.16.0 development tree; not included in v0.15.8.
 
 The command palette offers **Export Scrollback As Text** and **Export Scrollback
-As HTML**. Each saves the focused pane's scrollback followed by its current
+As HTML**, and the terminal right-click menu has the same two rows (**Export
+Scrollback As Text...** and **Export Scrollback As HTML...**). Each saves the focused pane's scrollback followed by its current
 screen through the native save dialog. The content is captured when the action
 runs.
 
@@ -1094,8 +1103,9 @@ press of the same letter, and a one-character IME commit of it are dropped.
 The next press of the letter is ordinary typing. A context-menu New Window
 does not drop a letter.
 Closing one window closes only that window; closing the last window exits
-OdyTTY. With two or more ordinary windows, the command palette offers
-**Merge This Window Into...** and **Pull Window Into This One...**. The Session
+OdyTTY. With two or more ordinary windows, the command palette and the empty tab-strip
+right-click menu offer **Merge This Window Into...** and **Pull Window Into This
+One...**. The Session
 Navigator legend adds `i merge window` and `p pull window` when targets exist.
 Candidates show temporary numerals painted inside each window surface, including
 decoration-less tiling compositors without compositor plugins. The window that
@@ -1112,12 +1122,16 @@ window takes over that role and saves the merged layout. Escape cancels. See the
 
 Available in the v0.16.0 development tree; not included in v0.15.8.
 
-| Task | Command palette |
-| --- | --- |
-| Open the active tab in its own window | **Move Tab to New Window** |
-| Send the active tab to another window | **Move Tab to Window...**, then press the numeral shown in that window |
-| Open the focused pane in its own window | **Move Pane to New Window** |
-| Send the focused pane to another window | **Move Pane to Window...**, then press the numeral |
+| Task | Command palette | Right-click menu |
+| --- | --- | --- |
+| Open a tab in its own window | **Move Tab to New Window** (the active tab) | **Move Tab to New Window** on the right-clicked tab |
+| Send a tab to another window | **Move Tab to Window...** (the active tab), then press the numeral shown in that window | **Move Tab to Window...** on the right-clicked tab |
+| Open the focused pane in its own window | **Move Pane to New Window** | **Move Pane to New Window** in the terminal menu |
+| Send the focused pane to another window | **Move Pane to Window...**, then press the numeral | **Move Pane to Window...** in the terminal menu |
+
+The tab menu rows make the right-clicked tab the active tab and then run the
+palette action, so the move acts on that tab even when another tab was active.
+Cancelling the window picker leaves the right-clicked tab active.
 
 The moved shell keeps running: its PTY or attached session, scrollback, images,
 selection, search, replay recording, profile, and `--hold` state move with it,
@@ -1144,7 +1158,8 @@ pane. A session attached in another window is not attached a second time; the
 attach list says it is already open elsewhere.
 
 Dragging a tab or pane out of a window is not supported on any platform.
-The command palette and the merge picker are the route everywhere.
+The command palette, the right-click menu rows above, and the merge picker are
+the route everywhere.
 On Wayland the application cannot place the new window, so the compositor
 chooses where it opens.
 

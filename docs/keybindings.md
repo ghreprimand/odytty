@@ -203,9 +203,11 @@ disabled with an "Enable shell integration in Settings" hint, and plain
 Closing a tab (`Ctrl+Shift+W`) closes the **whole** tab — every pane it holds.
 Closing the last tab of the last workspace quits OdyTTY. Right-click menus are
 context-aware: a tab slot includes New, Duplicate, Rename, Close, Close Others,
-Connect to Host, Replace with Host, optional Move to Workspace, and New Window;
-the empty tab strip offers New Tab, New Workspace, Open Layout, Command Palette,
-and Settings. The terminal grid opens the selection- and path-aware content
+Connect to Host, Replace with Host, optional Move to Workspace, Move Tab to New
+Window and Move Tab to Window when they apply, and New Window; the empty tab
+strip offers New Tab, New Workspace, Open Layout, Merge This Window Into and
+Pull Window Into This One when another window exists, Command Palette, and
+Settings. The terminal grid opens the selection- and path-aware content
 menu. Items with a bound chord show it.
 
 ## Windows Console Input

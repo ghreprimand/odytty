@@ -1234,9 +1234,13 @@ scope rather than silently inheriting deferred work from a prior release.
   while the primitive is enabled can leave secure input reported as active,
   and those intercept tools blocked, until logout. Normal typing in other
   apps is unaffected.
-- Moving tabs and panes between windows (v0.16.0): palette actions move the
+- Moving tabs and panes between windows (v0.16.0): palette actions and
+  right-click menu rows (the tab menu acts on the right-clicked tab, which the
+  row makes active first; the terminal menu acts on the focused pane) move the
   active tab, or the focused pane as a new tab, to a new window or to a window
-  chosen with the merge picker. The arena transaction
+  chosen with the merge picker. Each menu row dispatches the palette row of the
+  same name through the one palette handler, and is offered only when that
+  palette row is. The arena transaction
   (`session::reparent`) preflights the destination, detaches the content
   with an exact restore point, attaches it as the destination's active tab,
   and restores the source on any refusal; sessions move as values with
@@ -1255,7 +1259,8 @@ scope rather than silently inheriting deferred work from a prior release.
   the destination. The quick terminal never sends or receives. The window
   owner shares every window's attached host-session ids with its siblings so
   attach dedup spans the process. Drag tear-out is not implemented on any
-  platform; palette actions and the picker are the path everywhere, and on
+  platform; palette actions, the right-click menu rows, and the picker are the
+  path everywhere, and on
   Wayland the application cannot place the new window.
 - Stacked and floating layouts (v0.16.0): a tab keeps its binary split tree
   as the single source of truth for which panes exist and their stable order,
@@ -1314,7 +1319,8 @@ scope rather than silently inheriting deferred work from a prior release.
   focused pane, and automation has no send-text action. The focused pane
   paints `BROADCAST n` (plus ` hidden m` / ` remote k`) and other visible
   receivers paint `RECV`; both are keyed into the frame cache.
-- Scrollback export (v0.16.0): two palette actions save the focused pane's
+- Scrollback export (v0.16.0): two palette actions, also rows of the terminal
+  right-click menu, save the focused pane's
   scrollback plus screen as plain text or as sanitized, self-contained HTML.
   The document is built from cells only: logical lines with soft wraps joined,
   `[image]` for image anchors, and no separate cwd, host, title, or environment

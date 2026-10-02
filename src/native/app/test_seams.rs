@@ -2015,6 +2015,76 @@ impl App {
         self.handle_mouse_input(state, button);
     }
 
+    /// Test seam: move the pointer onto an empty part of the tab strip (inside
+    /// the chrome band with no tab, close, or new-tab hit). Returns whether one
+    /// was found.
+    #[cfg(test)]
+    pub(in crate::native) fn point_at_empty_top_strip_for_test(&mut self) -> bool {
+        let Some(cell) = self.resolved_cell() else {
+            return false;
+        };
+        let width_px = (self.grid.columns as f64) * f64::from(cell.width);
+        let y_px = f64::from(cell.height) * 0.5;
+        let mut x_px = width_px - 1.0;
+        while x_px > 0.0 {
+            self.window_pointer_px = Some((x_px, y_px));
+            self.pointer_px = Some((x_px, y_px));
+            if self.pointer_in_tab_chrome_band() && self.current_chrome_hit().is_none() {
+                self.pointer_cell = Some(CellPoint {
+                    row: 0,
+                    column: (x_px / f64::from(cell.width)) as usize,
+                });
+                return true;
+            }
+            x_px -= 1.0;
+        }
+        false
+    }
+
+    /// Test seam: open the tab menu for the tab holding `token` without a strip
+    /// hit (a window with one tab hides the strip).
+    #[cfg(test)]
+    pub(in crate::native) fn open_tab_slot_menu_for_test(
+        &mut self,
+        token: crate::native::session::SessionToken,
+    ) {
+        self.open_context_menu(super::ContextMenuSurface::TabSlot(token));
+    }
+
+    /// Test seam: the open context menu's item labels in display order.
+    #[cfg(test)]
+    pub(in crate::native) fn context_menu_labels_for_test(&self) -> Vec<&'static str> {
+        self.overlay.context_menu_labels_for_test()
+    }
+
+    /// Test seam: move the pointer onto the top-strip tab at `idx` (the strip
+    /// hit-test the production right-click uses) and set the pointer cell to
+    /// match. Returns whether such a tab was found.
+    #[cfg(test)]
+    pub(in crate::native) fn point_at_top_tab_for_test(&mut self, idx: usize) -> bool {
+        let Some(cell) = self.resolved_cell() else {
+            return false;
+        };
+        let width_px = (self.grid.columns as f64) * f64::from(cell.width);
+        let y_px = f64::from(cell.height) * 0.5;
+        let mut x_px = 0.0;
+        while x_px < width_px {
+            self.window_pointer_px = Some((x_px, y_px));
+            self.pointer_px = Some((x_px, y_px));
+            if let Some((ChromeBand::TopBar, TabHit::Switch(hit))) = self.current_chrome_hit()
+                && hit == idx
+            {
+                self.pointer_cell = Some(CellPoint {
+                    row: 0,
+                    column: (x_px / f64::from(cell.width)) as usize,
+                });
+                return true;
+            }
+            x_px += 1.0;
+        }
+        false
+    }
+
     /// Test seam (IN2): whether the context menu is the active overlay mode.
     #[cfg(test)]
     pub(in crate::native) fn context_menu_open_for_test(&self) -> bool {

@@ -117,6 +117,14 @@ pub(in crate::native) enum OverlayOutcome {
     ContextMenuToggleBroadcast,
     /// Empty the broadcast receiver set. The menu has closed itself.
     ContextMenuStopBroadcast,
+    /// Run the command-palette row with this id (a v0.16 window, layout, export,
+    /// or merge row chosen from the right-click menu). The menu has closed
+    /// itself; the App routes the id through the palette's own handler.
+    ContextMenuPaletteRow(&'static str),
+    /// Run a palette move row on the tab holding the token (a tab-menu Move Tab
+    /// row). The menu has closed itself; the App makes that tab the active one,
+    /// as a click on it would, then routes the id through the palette handler.
+    ContextMenuTabWindowAction(SessionToken, &'static str),
     ContextMenuNewTab,
     /// Open a local shell in a new tab from a bound-workspace tab menu (F6-W5
     /// escape hatch). The overlay has closed itself; the App dispatches this to

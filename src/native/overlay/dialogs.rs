@@ -134,6 +134,15 @@ impl OverlayUi {
         self.context_menu.set_pane_read_only(read_only);
     }
 
+    /// Record the window, layout, and move facts on an open content, tab, or
+    /// empty-strip menu.
+    pub(in crate::native) fn set_context_menu_window_actions(
+        &mut self,
+        actions: crate::native::context_menu_ui::WindowMenuActions,
+    ) {
+        self.context_menu.set_window_actions(actions);
+    }
+
     /// Record the broadcast state on an open content menu.
     pub(in crate::native) fn set_context_menu_broadcast(
         &mut self,
@@ -1025,6 +1034,31 @@ impl OverlayUi {
                         OverlayOutcome::ContextMenuToggleBroadcast
                     }
                     ContextMenuItem::StopBroadcast => OverlayOutcome::ContextMenuStopBroadcast,
+                    // v0.16 window, layout, and export rows: each runs the
+                    // palette row of the same name. The tab rows carry the
+                    // right-clicked tab so they act on it, not on the active
+                    // tab; the rest act on the active window state.
+                    ContextMenuItem::MoveTabToNewWindow | ContextMenuItem::MoveTabToWindow => {
+                        match (item.palette_row_id(), self.context_menu.rename_target()) {
+                            (Some(id), Some(token)) => {
+                                OverlayOutcome::ContextMenuTabWindowAction(token, id)
+                            }
+                            _ => OverlayOutcome::Consumed,
+                        }
+                    }
+                    ContextMenuItem::MovePaneToNewWindow
+                    | ContextMenuItem::MovePaneToWindow
+                    | ContextMenuItem::ExportScrollbackText
+                    | ContextMenuItem::ExportScrollbackHtml
+                    | ContextMenuItem::StackPanes
+                    | ContextMenuItem::FloatPanes
+                    | ContextMenuItem::TilePanes
+                    | ContextMenuItem::ArrangeFloatingPane
+                    | ContextMenuItem::MergeWindowInto
+                    | ContextMenuItem::PullWindowIntoThis => match item.palette_row_id() {
+                        Some(id) => OverlayOutcome::ContextMenuPaletteRow(id),
+                        None => OverlayOutcome::Consumed,
+                    },
                     ContextMenuItem::NewTabWithProfile => {
                         OverlayOutcome::ContextMenuNewTabWithProfile
                     }

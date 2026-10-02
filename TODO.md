@@ -121,14 +121,16 @@ lists. The release notes are in
 - [ ] Device acceptance for secure keyboard input: macOS toggle, label, and
       focus release checked with the session secure-input owner key; Linux
       and Windows confirm the row and palette action are absent.
-- [ ] Move tabs and panes between windows from the command palette: to a new
+- [ ] Move tabs and panes between windows from the command palette or the
+      right-click menu: to a new
       window (built around the moved session, no shell spawn, restored to
       its source if the window cannot open) or to another window through the
       merge picker; sessions keep their PTY, scrollback, images, profile,
       and `--hold` state; an emptied source closes and hands over the saved
       layout role; the quick terminal is excluded; attach dedup spans every
       window. Drag tear-out is not implemented on any platform;
-      palette actions and the picker are the path everywhere, and on Wayland the
+      palette actions, right-click menu rows, and the picker are the path
+      everywhere, and on Wayland the
       application cannot place the new window.
 - [x] Stacked and floating pane layouts: **Stack Panes**, **Float Panes**, and
       **Tile Panes** from the palette (default stays tiled; older layouts load
