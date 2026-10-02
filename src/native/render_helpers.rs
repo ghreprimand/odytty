@@ -220,10 +220,11 @@ pub(super) enum OverlayFragment {
     /// Static centered feedback chip shared by bounded font-size and resize
     /// cues. The message changes the key; `Inert` when absent.
     TransientHud { text: String },
-    /// UX-A (Phase 11) armed underline on the Ctrl+hovered interactive-path
-    /// span. `Inert` unless `interactive_paths` is on, Ctrl is held, and a
-    /// resolved path is hovered — so plain hover and feature-off are unchanged;
-    /// the span coordinates change the key so moving the armed hover repaints.
+    /// UX-A (Phase 11) armed underline on the open-modifier-hovered
+    /// interactive-path or bare-URL span. `Inert` unless the open modifier (Ctrl,
+    /// or Cmd on macOS) is held and an enabled path or URL is hovered, so plain
+    /// hover and feature-off are unchanged; the span coordinates change the key
+    /// so moving the armed hover repaints.
     ArmedPath {
         row: usize,
         start: usize,
@@ -286,8 +287,8 @@ pub(super) struct OverlayCompositeSignature {
     pub(super) click_hint: OverlayFragment,
     /// Reusable centered feedback HUD. `Inert` when no cue is visible.
     pub(super) transient_hud: OverlayFragment,
-    /// UX-A (Phase 11) Ctrl+hover armed underline span. `Inert` unless armed, so
-    /// toggling Ctrl while hovering a path reclassifies to a Full rebuild.
+    /// UX-A (Phase 11) open-modifier armed underline span. `Inert` unless armed, so
+    /// toggling the open modifier while hovering a path or URL reclassifies to a Full rebuild.
     pub(super) armed_path: OverlayFragment,
     /// Button Protocol B2 visible-button set. `Inert` when no button is visible
     /// (the gate-off / no-button path), so the composite stays constant there;

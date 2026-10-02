@@ -12,6 +12,7 @@
 //! The `ApplicationHandler` match in the parent module remains the stable event
 //! ingress; the `KeyboardInput` arm reaches this chain exactly as before.
 
+use super::platform_opener::OpenerOs;
 use super::*;
 
 impl App {
@@ -1210,8 +1211,19 @@ impl App {
     /// cached state must be updated here for the next `KeyboardInput` to encode
     /// with the modifiers held at press time.
     pub(super) fn on_modifiers_changed(&mut self, state: winit::event::Modifiers) {
-        let state = state.state();
-        let was_ctrl = self.modifiers.ctrl;
+        self.apply_modifiers_changed(state.state(), OpenerOs::host());
+    }
+
+    /// The body of [`Self::on_modifiers_changed`] with the OS that selects the
+    /// open modifier passed in, so a test can drive the macOS (Cmd) and the
+    /// Linux/Windows (Ctrl) choice on one host. Production passes
+    /// [`OpenerOs::host`].
+    pub(super) fn apply_modifiers_changed(
+        &mut self,
+        state: winit::keyboard::ModifiersState,
+        os: OpenerOs,
+    ) {
+        let was_open = open_modifier_held(self.modifiers, self.super_key, os);
         self.modifiers = Modifiers {
             ctrl: state.control_key(),
             alt: state.alt_key(),
@@ -1219,15 +1231,16 @@ impl App {
         };
         self.super_key = state.super_key();
         key_event_diagnostics::log_modifiers_changed(self.modifiers, self.super_key);
-        // UX-A (Phase 11): the Ctrl+hover armed underline appears/clears
-        // as Ctrl toggles while a path is hovered, so a Ctrl transition
-        // there must trigger a rebuild + redraw to repaint the span.
-        // Gated on `interactive_paths` + a hovered path, so the default /
-        // feature-off path is untouched (byte-identical).
-        if was_ctrl != self.modifiers.ctrl
-            && self.settings.interactive_paths
-            && self.hovered_path.is_some()
-        {
+        // UX-A (Phase 11): the open-modifier armed underline (Ctrl on Linux
+        // and Windows, Cmd on macOS, via `open_modifier_held`) appears and
+        // clears as that modifier toggles while an enabled path or bare URL is
+        // hovered, so a change of the open modifier, press or release, must
+        // trigger a rebuild + redraw to repaint the span. Gated on the same
+        // hover predicate the painter uses, so the default / feature-off /
+        // no-hover path is untouched (byte-identical), and a modifier that is
+        // not the open modifier on this OS changes nothing.
+        let is_open = open_modifier_held(self.modifiers, self.super_key, os);
+        if was_open != is_open && self.open_decoration_hovered() {
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();

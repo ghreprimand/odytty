@@ -269,6 +269,16 @@ impl App {
         None
     }
 
+    /// Whether an openable target is hovered whose armed underline the open
+    /// modifier would draw: a resolved path (gated on `interactive_paths`) or a
+    /// bare URL (gated on `interactive_urls`). This is the hover half of
+    /// [`Self::armed_path_underline_cells`], so the modifier-change handler
+    /// invalidates exactly when the underline would appear or clear.
+    pub(in crate::native) fn open_decoration_hovered(&self) -> bool {
+        (self.settings.interactive_paths && self.hovered_path_cells.is_some())
+            || (self.settings.interactive_urls && self.hovered_url_cells.is_some())
+    }
+
     /// Cache fragment for the armed underline: the span coords while armed, else
     /// `Inert`. `Inert` on the default / plain-hover / feature-off path keeps the
     /// composite constant; the coords change the key so a moving armed hover
@@ -284,7 +294,7 @@ impl App {
         }
     }
 
-    /// Underline the Ctrl+hovered path span (presentation-only). No-op unless
+    /// Underline the open-modifier-hovered path or URL span (presentation-only). No-op unless
     /// armed, so plain hover and feature-off frames are byte-identical. Sets only
     /// the underline attribute on the span's existing cells; the glyphs, colors,
     /// and the rest of the row are untouched.

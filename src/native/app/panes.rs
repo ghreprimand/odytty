@@ -1033,7 +1033,7 @@ impl App {
                 label.as_ref(),
                 session.read_only,
             );
-            // Ctrl+hover underline: the pointer maps only inside the focused
+            // Open-modifier underline: the pointer maps only inside the focused
             // pane, so the hovered span is in that pane's own coordinates.
             if is_focused {
                 self.paint_armed_path_underline_cells(&mut pane.snapshot);

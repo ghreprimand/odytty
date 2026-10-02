@@ -293,7 +293,7 @@ impl App {
 
     /// As [`Self::resolved_hovered_path`], but also returns the visible-cell span
     /// (UX-A): the row and column range the detected path occupies, so the
-    /// Ctrl+hover armed underline can decorate exactly those cells. The span's
+    /// open-modifier armed underline can decorate exactly those cells. The span's
     /// byte offsets are mapped to column indices by counting chars (correct for
     /// any multi-byte content earlier in the row, though paths are ASCII/narrow).
     pub(super) fn resolved_hovered_path_with_cells(

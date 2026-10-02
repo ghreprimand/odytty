@@ -139,7 +139,7 @@ pub(in crate::native) struct Session {
     /// it can ever run), so the default hover path is byte-identical.
     pub(in crate::native) hovered_path: Option<crate::paths::Resolved>,
     /// UX-A (Phase 11): the visible-cell span of `hovered_path`, captured in the
-    /// same hover computation so the Ctrl+hover armed underline can decorate
+    /// same hover computation so the open-modifier armed underline can decorate
     /// exactly those cells without re-scanning the row at paint time. Kept in
     /// lockstep with `hovered_path` (set/cleared together); `None` whenever
     /// `hovered_path` is `None`, so it is permanently `None` while the feature is
@@ -156,7 +156,7 @@ pub(in crate::native) struct Session {
     /// double-decorated.
     pub(in crate::native) hovered_url: Option<String>,
     /// INTERACTIVE-URLS: the visible-cell span of `hovered_url`, captured in the
-    /// same hover computation so the Ctrl+hover armed underline can decorate
+    /// same hover computation so the open-modifier armed underline can decorate
     /// exactly those cells. Kept in lockstep with `hovered_url` (set/cleared
     /// together), so it is permanently `None` while the feature is off.
     pub(in crate::native) hovered_url_cells: Option<crate::native::app::click_hint::HoverPathCells>,

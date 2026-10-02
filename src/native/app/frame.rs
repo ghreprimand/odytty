@@ -618,11 +618,12 @@ impl App {
                         .as_ref(),
                     self.active_pane_read_only(),
                 );
-                // UX-A (Phase 11): the Ctrl+hover armed underline on the
-                // hovered path span, then the transient bottom-left
-                // "Ctrl+click to open" hint. Both no-op (byte-identical)
-                // off their gates — armed underline needs interactive_paths
-                // + Ctrl + a hovered path; the hint needs to be shown.
+                // UX-A (Phase 11): the open-modifier armed underline on the
+                // hovered path or URL span, then the transient bottom-left
+                // click hint. Both no-op (byte-identical) off their gates:
+                // the underline needs the open modifier (Ctrl, or Cmd on
+                // macOS) and an enabled hovered path or URL; the hint needs
+                // to be shown.
                 self.paint_armed_path_underline_cells(&mut snapshot);
                 self.paint_click_hint_cells(&mut snapshot);
                 // Static centered feedback for bounded window-level gestures

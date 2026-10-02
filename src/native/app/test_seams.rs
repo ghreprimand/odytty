@@ -818,16 +818,26 @@ impl App {
         self.multipane_chrome_rows_for_test.clone()
     }
 
-    /// Drive the production `ModifiersChanged` handler with Ctrl held or
-    /// released (Cmd on macOS is not driven here).
+    /// Drive the production `ModifiersChanged` handler body with `state` held
+    /// and `os` choosing the open modifier (Cmd on macOS, Ctrl elsewhere), so
+    /// both choices run on any host.
     #[cfg(test)]
-    pub(in crate::native) fn drive_ctrl_modifier_changed_for_test(&mut self, ctrl: bool) {
-        let state = if ctrl {
-            winit::keyboard::ModifiersState::CONTROL
-        } else {
-            winit::keyboard::ModifiersState::empty()
-        };
-        self.on_modifiers_changed(winit::event::Modifiers::from(state));
+    pub(in crate::native) fn drive_modifiers_changed_for_test(
+        &mut self,
+        state: winit::keyboard::ModifiersState,
+        os: super::platform_opener::OpenerOs,
+    ) {
+        self.apply_modifiers_changed(state, os);
+    }
+
+    /// Drive the production `ModifiersChanged` entry itself, which resolves the
+    /// host OS for the open modifier.
+    #[cfg(test)]
+    pub(in crate::native) fn drive_host_modifiers_changed_for_test(
+        &mut self,
+        state: winit::event::Modifiers,
+    ) {
+        self.on_modifiers_changed(state);
     }
 
     /// Drive the multi-pane rebuild and return each visible pane's probe (top

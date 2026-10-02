@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Window-level chrome in split, stacked, and floating tabs: the secure-input
-//! label and the Ctrl+hover path underline. The single-pane frame paints both
+//! label and the open-modifier path underline. The single-pane frame paints both
 //! after its own branch; a multi-pane tab never reaches that branch, so the
 //! multi-pane rebuild paints them on the focused pane.
 //!
@@ -12,6 +12,7 @@
 use super::*;
 use crate::native::app::PanePaintProbe;
 use crate::native::app::interactive_paths::MapProbe;
+use crate::native::app::platform_opener::OpenerOs;
 use crate::native::render_helpers::OverlayFragment;
 use crate::native::secure_input::{
     SECURE_INPUT_LABEL, force_secure_input_apply_for_test, install_secure_input_ffi_for_test,
@@ -316,18 +317,225 @@ fn armed_path_underline_paints_on_the_focused_pane_in_a_split_tab() {
     assert!(released.iter().all(|probe| probe.underlined == 0));
 }
 
-/// A modifier press over a hovered path marks the tab for a rebuild, so the
-/// underline appears without waiting for other output.
-#[test]
-fn the_open_modifier_marks_a_split_tab_for_rebuild_over_a_hovered_path() {
-    let mut app = app_with_hoverable_path();
+/// The modifier set that is the open modifier on `os`: Cmd on macOS, Ctrl on
+/// Linux and Windows.
+fn open_state(os: OpenerOs) -> winit::keyboard::ModifiersState {
+    match os {
+        OpenerOs::Macos => winit::keyboard::ModifiersState::SUPER,
+        OpenerOs::Linux | OpenerOs::Windows => winit::keyboard::ModifiersState::CONTROL,
+    }
+}
+
+/// The modifier set that is NOT the open modifier on `os`.
+fn other_state(os: OpenerOs) -> winit::keyboard::ModifiersState {
+    match os {
+        OpenerOs::Macos => winit::keyboard::ModifiersState::CONTROL,
+        OpenerOs::Linux | OpenerOs::Windows => winit::keyboard::ModifiersState::SUPER,
+    }
+}
+
+const ALL_OS: [OpenerOs; 3] = [OpenerOs::Linux, OpenerOs::Windows, OpenerOs::Macos];
+
+/// A bare URL printed at columns 4..23 of row 0.
+const URL_LINE: &[u8] = b"see https://example.com here";
+
+fn hover_split_path(app: &mut App) {
     app.pointer_move_for_test(f64::from(8_u32) * 5.5, f64::from(16_u32) * 0.5);
-    assert!(app.hovered_path_for_test().is_some());
+}
+
+fn hover_split_url(app: &mut App) {
+    app.pointer_move_for_test(f64::from(8_u32) * 10.5, f64::from(16_u32) * 0.5);
+}
+
+/// A split app with a bare URL printed in the focused pane and the URL feature
+/// on (its default), hovered by the pointer.
+fn split_app_over_url() -> App {
+    let (mut app, terminal) = split_app(2);
+    terminal.lock().expect("terminal").advance(URL_LINE);
+    app.set_interactive_urls_for_test(true);
+    hover_split_url(&mut app);
+    assert!(app.hovered_url_for_test().is_some(), "the URL is hovered");
+    app
+}
+
+/// A single-pane headless app with `content` printed and a fixed cell size.
+fn single_app(content: &[u8]) -> App {
+    let (mut app, terminal) = headless_app_with(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        Settings::default(),
+    );
+    terminal.lock().expect("terminal").advance(content);
+    app.set_test_cell_for_test(cell(8, 16));
+    app
+}
+
+/// Press then release the open modifier of `os` and report whether each
+/// transition marked the split tab for a rebuild.
+fn split_rebuilds_on_open_modifier(app: &mut App, os: OpenerOs) -> (bool, bool) {
     app.clear_visible_pane_rebuild_flags_for_test();
     assert!(!app.should_rebuild_frame_for_test());
-    app.drive_ctrl_modifier_changed_for_test(true);
-    assert!(
-        app.should_rebuild_frame_for_test(),
-        "the modifier change reaches the multi-pane rebuild gate"
-    );
+    app.drive_modifiers_changed_for_test(open_state(os), os);
+    let press = app.should_rebuild_frame_for_test();
+    app.clear_visible_pane_rebuild_flags_for_test();
+    app.drive_modifiers_changed_for_test(winit::keyboard::ModifiersState::empty(), os);
+    (press, app.should_rebuild_frame_for_test())
+}
+
+/// Press then release the open modifier of `os` on a single-pane app and report
+/// whether each transition set the rebuild flag.
+fn single_rebuilds_on_open_modifier(app: &mut App, os: OpenerOs) -> (bool, bool) {
+    app.clear_needs_rebuild_for_test();
+    app.drive_modifiers_changed_for_test(open_state(os), os);
+    let press = app.needs_rebuild_for_test();
+    app.clear_needs_rebuild_for_test();
+    app.drive_modifiers_changed_for_test(winit::keyboard::ModifiersState::empty(), os);
+    (press, app.needs_rebuild_for_test())
+}
+
+/// The open modifier, pressed and released, marks a split tab for a rebuild over
+/// a hovered path, for the Ctrl choice (Linux, Windows) and the Cmd choice
+/// (macOS) alike.
+#[test]
+fn the_open_modifier_marks_a_split_tab_for_rebuild_over_a_hovered_path() {
+    for os in ALL_OS {
+        let mut app = app_with_hoverable_path();
+        hover_split_path(&mut app);
+        assert!(app.hovered_path_for_test().is_some());
+        assert_eq!(
+            split_rebuilds_on_open_modifier(&mut app, os),
+            (true, true),
+            "{os:?}: press and release reach the multi-pane rebuild gate"
+        );
+    }
+}
+
+/// A bare URL is decorated by the same underline, so the open modifier over a
+/// hovered URL (no path hovered) also invalidates.
+#[test]
+fn the_open_modifier_marks_a_split_tab_for_rebuild_over_a_hovered_url() {
+    for os in ALL_OS {
+        let mut app = split_app_over_url();
+        assert!(app.hovered_path_for_test().is_none());
+        assert_eq!(
+            split_rebuilds_on_open_modifier(&mut app, os),
+            (true, true),
+            "{os:?}"
+        );
+    }
+}
+
+/// Single-pane tabs invalidate the same way over a path and over a bare URL.
+#[test]
+fn the_open_modifier_marks_a_single_pane_for_rebuild_over_a_hovered_target() {
+    for os in ALL_OS {
+        let mut path_app = single_app(PATH);
+        path_app.set_interactive_paths_for_test(true);
+        path_app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+        path_app.pointer_move_for_test(f64::from(8_u32) * 5.5, 8.0);
+        assert!(path_app.hovered_path_for_test().is_some());
+        assert_eq!(
+            single_rebuilds_on_open_modifier(&mut path_app, os),
+            (true, true),
+            "{os:?} over a path"
+        );
+
+        let mut url_app = single_app(URL_LINE);
+        url_app.set_interactive_urls_for_test(true);
+        url_app.pointer_move_for_test(f64::from(8_u32) * 10.5, 8.0);
+        assert!(url_app.hovered_url_for_test().is_some());
+        assert_eq!(
+            single_rebuilds_on_open_modifier(&mut url_app, os),
+            (true, true),
+            "{os:?} over a bare URL"
+        );
+    }
+}
+
+/// A modifier that is not the open modifier on this OS (Ctrl on macOS, Cmd on
+/// Linux and Windows) never invalidates, in a split or a single-pane tab.
+#[test]
+fn the_wrong_platform_modifier_does_not_invalidate() {
+    for os in ALL_OS {
+        let mut split = app_with_hoverable_path();
+        hover_split_path(&mut split);
+        split.clear_visible_pane_rebuild_flags_for_test();
+        split.drive_modifiers_changed_for_test(other_state(os), os);
+        assert!(!split.should_rebuild_frame_for_test(), "{os:?} split path");
+        split.drive_modifiers_changed_for_test(winit::keyboard::ModifiersState::empty(), os);
+        assert!(
+            !split.should_rebuild_frame_for_test(),
+            "{os:?} split release"
+        );
+
+        let mut url = split_app_over_url();
+        url.clear_visible_pane_rebuild_flags_for_test();
+        url.drive_modifiers_changed_for_test(other_state(os), os);
+        assert!(!url.should_rebuild_frame_for_test(), "{os:?} split url");
+
+        let mut single = single_app(URL_LINE);
+        single.set_interactive_urls_for_test(true);
+        single.pointer_move_for_test(f64::from(8_u32) * 10.5, 8.0);
+        single.clear_needs_rebuild_for_test();
+        single.drive_modifiers_changed_for_test(other_state(os), os);
+        assert!(!single.needs_rebuild_for_test(), "{os:?} single url");
+    }
+}
+
+/// Feature off and no hover are unchanged: the open modifier alone invalidates
+/// nothing.
+#[test]
+fn the_open_modifier_does_not_invalidate_without_an_enabled_hovered_target() {
+    for os in ALL_OS {
+        // No hover at all.
+        let mut idle = app_with_hoverable_path();
+        assert_eq!(
+            split_rebuilds_on_open_modifier(&mut idle, os),
+            (false, false),
+            "{os:?} no hover"
+        );
+
+        // Path hovered, then the feature is switched off.
+        let mut off = app_with_hoverable_path();
+        hover_split_path(&mut off);
+        off.set_interactive_paths_for_test(false);
+        off.set_interactive_urls_for_test(false);
+        assert_eq!(
+            split_rebuilds_on_open_modifier(&mut off, os),
+            (false, false),
+            "{os:?} feature off"
+        );
+
+        // URL hovered, then the URL feature is switched off.
+        let mut url_off = split_app_over_url();
+        url_off.set_interactive_urls_for_test(false);
+        assert_eq!(
+            split_rebuilds_on_open_modifier(&mut url_off, os),
+            (false, false),
+            "{os:?} url feature off"
+        );
+
+        let mut single = single_app(PATH);
+        assert_eq!(
+            single_rebuilds_on_open_modifier(&mut single, os),
+            (false, false),
+            "{os:?} single no hover"
+        );
+    }
+}
+
+/// The production `ModifiersChanged` entry resolves the host OS itself: the host
+/// open modifier invalidates over a hovered path and the other modifier does not.
+#[test]
+fn the_production_modifier_handler_uses_the_host_open_modifier() {
+    let host = OpenerOs::host();
+    let mut app = app_with_hoverable_path();
+    hover_split_path(&mut app);
+    app.clear_visible_pane_rebuild_flags_for_test();
+    app.drive_host_modifiers_changed_for_test(winit::event::Modifiers::from(other_state(host)));
+    assert!(!app.should_rebuild_frame_for_test());
+    app.drive_host_modifiers_changed_for_test(winit::event::Modifiers::default());
+    app.clear_visible_pane_rebuild_flags_for_test();
+    app.drive_host_modifiers_changed_for_test(winit::event::Modifiers::from(open_state(host)));
+    assert!(app.should_rebuild_frame_for_test());
 }

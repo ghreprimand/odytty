@@ -681,11 +681,12 @@ fn os_theme_report_is_recorded_always_and_followed_only_when_enabled() {
 /// (no-PTY) session, so the fixture creates no OS child.
 /// The `ModifiersChanged` arm forwards to `on_modifiers_changed`. The cached
 /// modifier state is what the next `KeyboardInput` encodes with, and the arm
-/// additionally repaints the Ctrl-armed path underline -- but only while
-/// interactive paths are on AND a path is hovered. Both halves are pinned so
-/// the forwarding cannot quietly drop either the cache update or its gate.
+/// additionally repaints the armed path underline when the platform open
+/// modifier (Ctrl, or Cmd on macOS) changes -- but only while interactive paths
+/// are on AND a path span is hovered. Both halves are pinned so the forwarding
+/// cannot quietly drop either the cache update or its gate.
 #[test]
-fn modifiers_forwarding_caches_state_and_gates_the_ctrl_repaint() {
+fn modifiers_forwarding_caches_state_and_gates_the_open_modifier_repaint() {
     use winit::keyboard::ModifiersState;
 
     let mut app = build_idle_app().expect("headless app builds without a surface");
@@ -706,9 +707,14 @@ fn modifiers_forwarding_caches_state_and_gates_the_ctrl_repaint() {
     );
     assert!(
         !app.needs_rebuild,
-        "with interactive paths off, a ctrl transition must not force a rebuild"
+        "with interactive paths off, a modifier transition must not force a rebuild"
     );
 
+    app.on_modifiers_changed(winit::event::Modifiers::default());
+    assert!(
+        !app.modifiers.ctrl,
+        "releasing ctrl must clear the cached state"
+    );
     app.settings.interactive_paths = true;
     app.hovered_path = Some(crate::paths::Resolved {
         abs: "/synthetic/hovered".to_owned(),
@@ -716,14 +722,28 @@ fn modifiers_forwarding_caches_state_and_gates_the_ctrl_repaint() {
         line: None,
         col: None,
     });
-    app.on_modifiers_changed(winit::event::Modifiers::default());
-    assert!(
-        !app.modifiers.ctrl,
-        "releasing ctrl must clear the cached state"
-    );
+    app.hovered_path_cells = Some(super::click_hint::HoverPathCells {
+        row: 0,
+        start: 0,
+        end: 4,
+    });
+    // The open modifier on the host: Cmd on macOS, Ctrl elsewhere.
+    let open = match super::platform_opener::OpenerOs::host() {
+        super::platform_opener::OpenerOs::Macos => ModifiersState::SUPER,
+        super::platform_opener::OpenerOs::Linux | super::platform_opener::OpenerOs::Windows => {
+            ModifiersState::CONTROL
+        }
+    };
+    app.on_modifiers_changed(winit::event::Modifiers::from(open));
     assert!(
         app.needs_rebuild,
-        "a ctrl transition over a hovered path must repaint the armed underline"
+        "an open-modifier press over a hovered path must repaint the armed underline"
+    );
+    app.needs_rebuild = false;
+    app.on_modifiers_changed(winit::event::Modifiers::default());
+    assert!(
+        app.needs_rebuild,
+        "an open-modifier release over a hovered path must repaint the armed underline"
     );
 }
 
