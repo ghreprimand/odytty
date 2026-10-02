@@ -455,6 +455,19 @@ cheap and showed no spin; the per-tick clone is removed there too, with no
 idle-CPU claim. The change makes no rendering-throughput, startup, or memory
 claim, and the v0.12.0 results remain the applicable comparative evidence.
 
+Version 0.16.0 publishes read-only panes, bounded text and sanitized HTML
+scrollback export, guarded broadcast input, tab and pane movement through
+menus and a picker, stacked and floating layouts, an Ambiguous width
+preference, and macOS secure keyboard input. It includes the Windows held
+first-shell launch and Ctrl+Shift+N input fixes. Device acceptance is scoped
+to the platforms and checks listed in TODO; it is not an exhaustive
+application, keyboard-protocol, GPU, or compositor claim. Drag tear-out is not
+implemented, and the Windows five-second launch backstop can still precede a
+successful resize retry. Version 0.16.0 is built from `master`; the publication
+commit keeps both lockfiles, release markers, AppStream, and release notes in
+sync. Check artifact hashes, alias/pinned pairs, and package propagation after
+publication, and record those results separately from source validation.
+
 ### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful

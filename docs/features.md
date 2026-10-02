@@ -315,8 +315,6 @@ and clears after one bounded delay without animation.
 
 ### Ambiguous Character Width
 
-Available in the v0.16.0 development tree; not included in v0.15.8.
-
 East Asian Ambiguous characters use one column unless `ambiguous_width` is
 `wide`. The default `narrow` is today's width table. A profile may set
 `appearance.ambiguous_width` to `narrow` or `wide`; a missing profile value
@@ -616,8 +614,6 @@ another window exists), Command Palette, and Settings.
 
 ### Stacked And Floating Pane Layouts
 
-Available in the v0.16.0 development tree; not included in v0.15.8.
-
 | Task | Command palette | Terminal right-click menu |
 | --- | --- | --- |
 | Show one pane at a time | **Stack Panes** | **Stack Panes** |
@@ -690,8 +686,6 @@ for every other layout.
 
 ### Make A Pane Read-Only
 
-Available in the v0.16.0 development tree; not included in v0.15.8.
-
 | Task | Direct path |
 | --- | --- |
 | Stop input to the focused pane | **Make Pane Read-Only** in the terminal menu, or **Toggle Read-Only Pane** in the command palette |
@@ -724,8 +718,6 @@ serves Linux (Wayland and X11), macOS, and Windows.
 
 ### Secure Keyboard Input
 
-Available in the v0.16.0 development tree; not included in v0.15.8.
-
 | Task | Direct path |
 | --- | --- |
 | Turn secure input on or off | **Toggle Secure Keyboard Input** in the command palette, or the **Secure keyboard input** settings row |
@@ -736,8 +728,6 @@ This exists only on macOS, and only when the setting is turned on. It is never t
 Windows and Linux have no equivalent primitive. The settings row and the palette action are absent there. A `secure_keyboard_input` line in a shared config file is kept and not applied. The mode is not simulated.
 
 ### Broadcast Input
-
-Available in the v0.16.0 development tree; not included in v0.15.8.
 
 | Task | Direct path |
 | --- | --- |
@@ -791,8 +781,6 @@ the set. One implementation serves Linux (Wayland and X11), macOS (the chord
 stays on Ctrl like the other default chords), and Windows.
 
 ### Export Scrollback
-
-Available in the v0.16.0 development tree; not included in v0.15.8.
 
 The command palette offers **Export Scrollback As Text** and **Export Scrollback
 As HTML**, and the terminal right-click menu has the same two rows (**Export
@@ -1105,8 +1093,10 @@ does not drop a letter.
 Closing one window closes only that window; closing the last window exits
 OdyTTY. With two or more ordinary windows, the command palette and the empty tab-strip
 right-click menu offer **Merge This Window Into...** and **Pull Window Into This
-One...**. The Session
-Navigator legend adds `i merge window` and `p pull window` when targets exist.
+One...**. Merge and pull move the source window's workspaces whole: each arrives
+as its own workspace in the destination rail, rather than as tabs in the
+current workspace; to add one tab to the current workspace, use **Move Tab to
+Window...** instead. The Session Navigator legend adds `i merge window` and `p pull window` when targets exist.
 Candidates show temporary numerals painted inside each window surface, including
 decoration-less tiling compositors without compositor plugins. The window that
 opened the picker paints a banner naming the numerals to press and the Escape
@@ -1119,8 +1109,6 @@ window takes over that role and saves the merged layout. Escape cancels. See the
 [window-merge contract](v0.15.0-foundation.md).
 
 ### Move Tabs And Panes Between Windows
-
-Available in the v0.16.0 development tree; not included in v0.15.8.
 
 | Task | Command palette | Right-click menu |
 | --- | --- | --- |
@@ -1360,7 +1348,7 @@ a corrupted command line.
 The command palette fuzzy-filters local actions, bounded read-only shell
 history, and recent OSC 7 directories. A history or directory choice types its
 text into the active pane without pressing Enter; an action runs after the
-overlay closes. In the v0.16.0 development tree, history and directory entries
+overlay closes. History and directory entries
 containing a control character are refused: the palette stays open with a
 notice, and no bytes are sent. There is no confirm-and-send exception.
 Labels show control characters as visible escapes (`\n`, `\r`, `\t`, or

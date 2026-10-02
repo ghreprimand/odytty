@@ -904,7 +904,7 @@ Three prohibitions apply to every boundary below:
 
 ### B19 - Broadcast input
 
-The development tree implements this boundary. Membership is an explicit,
+Version 0.16.0 implements this boundary. Membership is an explicit,
 in-memory set. It is never saved, and a new pane does not join on its own.
 
 - **Attacker control:** A1 can print convincing prompts or instructions and can

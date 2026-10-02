@@ -1,12 +1,13 @@
 # Release notes
 
-Published release: **v0.15.8**.
+Published release: **v0.16.0**.
 
 A short guide to what each OdyTTY release adds or improves for everyday use.
 For the detailed development history, see the [devlog](../../DEVLOG.md).
 
 | Release | Highlights |
 | --- | --- |
+| [v0.16.0](0.16.0.md) | Read-only panes, guarded broadcast input, macOS secure keyboard input, moving tabs and panes between windows, stacked and floating layouts, scrollback export, an Ambiguous width preference, and a Windows first-command placement fix. |
 | [v0.15.8](0.15.8.md) | On macOS, an untouched window's idle CPU returns to about zero. A per-tick event-loop proxy clone had been re-waking the macOS run loop since v0.15.0. |
 | [v0.15.7](0.15.7.md) | Wayland windows no longer stall after a hidden workspace, and merging the primary window keeps workspace autosave. |
 | [v0.15.6](0.15.6.md) | Long cursor moves glide without pausing again, and overflowing right-click menus scroll predictably. |

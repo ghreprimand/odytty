@@ -11,8 +11,9 @@ default copy/paste bindings. The exception is opening links and interactive
 paths, which uses Cmd+click on macOS because Ctrl+click is a secondary click.
 
 OdyTTY adds a Quick Terminal palette action and configurable OS shortcut, plus
-Merge and Pull palette and Session Navigator actions. The v0.16.0 development
-tree adds Move Tab/Pane to New Window and to Window... palette actions. No
+Merge and Pull palette and Session Navigator actions. Version 0.16.0 adds
+Move Tab/Pane to New Window and to Window... palette actions and right-click
+menu rows. No
 fixed merge or move chord is defined; the quick-terminal shortcut is set with
 `quick_terminal_shortcut`.
 See the [v0.15.0 contract](v0.15.0-foundation.md).

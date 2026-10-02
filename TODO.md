@@ -1,6 +1,6 @@
 # OdyTTY — TODO
 
-Published release: **v0.15.8**.
+Published release: **v0.16.0**.
 
 The milestones below distinguish published work, active development, explicit
 deferrals, and unmet evidence. Release corrections are listed in the
@@ -54,12 +54,11 @@ cursor-glide regression; see
 [`docs/releases/0.15.6.md`](docs/releases/0.15.6.md). Version 0.15.7 prevents
 Wayland window stalls after a hidden workspace and keeps workspace autosave
 after a primary-window merge; see
-[`docs/releases/0.15.7.md`](docs/releases/0.15.7.md). Version 0.15.8 is the
-published release. It stops a macOS idle-CPU loop caused by a per-tick
-event-loop proxy clone, present since v0.15.0; see
-[`docs/releases/0.15.8.md`](docs/releases/0.15.8.md). v0.16.0 stays in
-development on `master`. A checked item is delivered at the current head (or at the historical
-milestone its section names). An unchecked item is concrete remaining work or
+[`docs/releases/0.15.7.md`](docs/releases/0.15.7.md). Version 0.15.8 stops
+a macOS idle-CPU loop caused by a per-tick event-loop proxy clone, present since v0.15.0; see
+[`docs/releases/0.15.8.md`](docs/releases/0.15.8.md). Version 0.16.0
+is the published release with pane and window workflows. A checked item is
+delivered at the current head (or at the historical milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as
 implementation commitments. Longer-range candidates require a separately
@@ -69,29 +68,11 @@ recorded milestone before implementation.
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
 
-## v0.15.8: macOS Idle CPU (published)
+## v0.16.0: Pane And Window Workflows (published)
 
-Status notes: [`docs/releases/0.15.8.md`](docs/releases/0.15.8.md).
-
-Built from a `release/0.15.8` branch of v0.15.7 rather than from `master`, so
-no v0.16.0 development work is included. On Linux and Windows, proxy clones
-are cheap and showed no spin; the per-tick clone is removed there too, with
-no idle-CPU claim.
-
-- [x] The event loop's `about_to_wait` performs no per-tick `EventLoopProxy`
-      clone or wake on any platform.
-
-macOS acceptance for this release is an untouched window whose idle CPU returns
-to about zero, before and after on the same Mac. Linux and Windows have no
-idle-CPU claim. The check of the published source tag passed: an untouched window settled
-to 0.0% CPU.
-
-## v0.16.0: Pane And Window Workflows
-
-Development on `master`; not released. A code item checks off when its landing
-commit is on `master` with passing blocking Linux, macOS, and Windows CI. A
-device item checks off when a named hands-on result exists for the platforms it
-lists. The release notes are in
+Code items have passing blocking Linux, macOS, and Windows CI. Device items
+name the platforms and checks with recorded hands-on results; they do not
+claim acceptance on other platforms. The release notes are in
 [`docs/releases/0.16.0.md`](docs/releases/0.16.0.md).
 
 - [x] Read-only panes: a per-pane input-disabled mode with a persistent
@@ -99,7 +80,8 @@ lists. The release notes are in
       or bound to a chord (none by default). It blocks key, IME, paste,
       drop, and mouse-report input, and it is persisted in workspace and
       layout state.
-- [ ] Device acceptance for read-only panes on Linux, macOS, and Windows.
+- [x] Device acceptance for read-only panes on Linux (an owned headless Wayland
+      compositor).
 - [x] Guarded broadcast input: panes join an in-memory, never-persisted
       receiver set one at a time from the palette or the context menu (no
       default chord); keys, IME, and paste reach every receiver once; a
@@ -109,7 +91,7 @@ lists. The release notes are in
       shell; receivers in other windows of the process are included.
 - [x] Device acceptance for broadcast input on Linux (an owned headless Wayland
       compositor), macOS, and Windows (Remote Desktop).
-- [ ] Secure keyboard input: an explicit macOS wish (palette and settings
+- [x] Secure keyboard input: an explicit macOS wish (palette and settings
       row, no default chord, never automatic) that enables
       EnableSecureEventInput only while the wish is on and an OdyTTY window
       has keyboard focus, and pairs the disable when the last focused hold
@@ -118,10 +100,11 @@ lists. The release notes are in
       and do not simulate it. A crash while it is enabled can leave secure input reported as
       active, and keyboard-intercept tools blocked, until logout. Normal
       typing in other apps is unaffected.
-- [ ] Device acceptance for secure keyboard input: macOS toggle, label, and
-      focus release checked with the session secure-input owner key; Linux
-      and Windows confirm the row and palette action are absent.
-- [ ] Move tabs and panes between windows from the command palette or the
+- [x] Device acceptance for secure keyboard input on macOS: toggle,
+      single-pane label, and focus release checked with the session
+      secure-input owner key. Labels in split, stacked, and floating tabs
+      are covered by automated tests.
+- [x] Move tabs and panes between windows from the command palette or the
       right-click menu: to a new
       window (built around the moved session, no shell spawn, restored to
       its source if the window cannot open) or to another window through the
@@ -133,8 +116,8 @@ lists. The release notes are in
       everywhere, and on Wayland the
       application cannot place the new window.
 - [x] Stacked and floating pane layouts: **Stack Panes**, **Float Panes**, and
-      **Tile Panes** from the palette (default stays tiled; older layouts load
-      tiled); stacked shows the focused pane full-bleed with the rest alive;
+      **Tile Panes** from the palette or terminal menu (default stays tiled;
+      older layouts load tiled); stacked shows the focused pane full-bleed with the rest alive;
       floating panes are whole-cell rectangles with a z-order, a frame, a cell
       minimum, and a clamp that never deletes a pane; **Arrange Floating Pane**
       moves and resizes from the keyboard; every pane is reachable in a stable
@@ -143,21 +126,24 @@ lists. The release notes are in
       frames is not implemented.
 - [x] Device acceptance for stacked and floating layouts on Linux (an owned
       headless Wayland compositor), macOS, and Windows (Float Panes only).
-- [ ] Device acceptance for moving tabs and panes on Linux (Wayland), plus
-      NVIDIA window create/destroy, macOS, and Windows.
+- [x] Device acceptance for moving tabs and panes on Linux Wayland (an owned
+      headless compositor, plus native-session tab movement), macOS, and
+      Windows; ten sibling-window create/destroy cycles on native
+      Hyprland/NVIDIA with the session locked.
 - [x] Reject control-bearing palette text and show its controls as visible
       label escapes (backslashes stay literal); preserve viewport/selection
       and skip clipboard access when read-only input is refused, including
       primary paste, prefix passthrough, Clear Input, context-menu Cut,
       click-to-position, and selected-input deletion.
 - [x] Scrollback export as plain text and sanitized self-contained HTML
-      from the command palette. It shares the command-output writer, cap, and
-      native dialog, uses `[image]` placeholders, adds no application metadata
+      from the command palette or terminal menu. It shares the command-output
+      writer, cap, and native dialog, uses `[image]` placeholders, adds no application metadata
       (working directory, host, user, profile, window title, environment), and
       turns only `http` and `https` targets into links. The exported text
       itself is not redacted.
-- [ ] Device acceptance for scrollback export (text and HTML, opened in a
-      browser) on Linux, macOS, and Windows.
+- [x] Device acceptance for scrollback export as text and HTML on Linux
+      (an owned headless Wayland compositor, HTML opened in Firefox) and
+      macOS (HTML opened in Safari, with a JavaScript link inert).
 - [x] Input delivery is bounded and never silent: bracketed paste is capped at
       the 8 MiB attach input limit and checked before encoding; an oversized
       attached input is refused without disabling later typing; dropped or
@@ -237,6 +223,23 @@ lists. The release notes are in
       most 1,024 cells per allowed line on average, evicting the oldest long
       lines first; and a history-row request materializes only the requested
       rows of a long wrapped line.
+
+## v0.15.8: macOS Idle CPU (published)
+
+Status notes: [`docs/releases/0.15.8.md`](docs/releases/0.15.8.md).
+
+Built from a `release/0.15.8` branch of v0.15.7 rather than from `master`, so
+no v0.16.0 development work is included. On Linux and Windows, proxy clones
+are cheap and showed no spin; the per-tick clone is removed there too, with
+no idle-CPU claim.
+
+- [x] The event loop's `about_to_wait` performs no per-tick `EventLoopProxy`
+      clone or wake on any platform.
+
+macOS acceptance for this release is an untouched window whose idle CPU returns
+to about zero, before and after on the same Mac. Linux and Windows have no
+idle-CPU claim. The check of the published source tag passed: an untouched window settled
+to 0.0% CPU.
 
 ## v0.15.7: Wayland Stall Prevention and Merge Autosave (published)
 

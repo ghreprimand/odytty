@@ -1,9 +1,9 @@
 # OdyTTY
 
-Published release: **v0.15.8**.
+Published release: **v0.16.0**.
 
-Current development work is tracked in [TODO.md](TODO.md). The v0.16.0
-development tree adds [read-only panes](docs/features.md#make-a-pane-read-only),
+Current development work is tracked in [TODO.md](TODO.md). Version 0.16.0
+adds [read-only panes](docs/features.md#make-a-pane-read-only),
 [scrollback export](docs/features.md#export-scrollback) as text or
 sanitized HTML, guarded [broadcast input](docs/features.md#broadcast-input)
 to explicitly chosen panes, [moving tabs and panes between windows](docs/features.md#move-tabs-and-panes-between-windows),
@@ -13,10 +13,8 @@ East Asian Ambiguous characters follow
 [`ambiguous_width`](docs/features.md#ambiguous-character-width) (`narrow` by
 default, or `wide`). On Windows, a window's first shells stay suspended until
 the live grid reaches ConPTY, with a five-second backstop that can start one
-earlier. These features are not included in the published
-v0.15.8 release. The v0.16.0 development palette also refuses control-bearing
-history and directory entries instead of
-sending hidden input. Release evidence and historical corrections are listed
+earlier. The palette also refuses control-bearing history and directory
+entries instead of sending hidden input. Release evidence and historical corrections are listed
 in the [release index](docs/releases/README.md).
 
 [Website](https://odytty.unfinished-works.com) |
@@ -191,9 +189,8 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.15.8 is the published
-release, and v0.16.0 remains in development on `master`. On macOS, an
-untouched window's idle CPU returns to about zero. The cause was a per-tick
+OdyTTY is a broad pre-1.0 terminal. Version 0.16.0 is the published
+release. On macOS, an untouched window's idle CPU returns to about zero. The cause was a per-tick
 event-loop proxy clone that re-woke the macOS run loop, present since
 v0.15.0. On Linux and Windows the clones were cheap and showed no spin; the
 per-tick clone is removed there too, with no idle-CPU claim. See the

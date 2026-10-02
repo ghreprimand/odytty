@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.16.0" date="2026-10-02">
+      <description>
+        <p>This release adds pane and window workflows: read-only panes, guarded broadcast input, macOS secure keyboard input, moving tabs and panes between windows, stacked and floating layouts, scrollback export, an East Asian Ambiguous width preference, and Windows fixes for first-command placement after a wrapped PowerShell prompt and Ctrl+Shift+N input.</p>
+      </description>
+    </release>
     <release version="0.15.8" date="2026-10-02">
       <description>
         <p>On macOS, an untouched window's idle CPU returns to about zero. A per-tick clone of the event-loop proxy re-woke the macOS run loop, and had done so since v0.15.0. The tick path no longer clones that proxy. On Linux and Windows the clones were cheap and showed no spin; the per-tick clone is removed there too, with no idle-CPU claim.</p>
