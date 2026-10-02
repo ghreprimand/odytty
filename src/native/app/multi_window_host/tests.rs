@@ -796,6 +796,29 @@ fn two_mut_rejects_equal_or_out_of_range_indices() {
     assert!(pair.is_some(), "distinct in-range indices split cleanly");
 }
 
+/// On macOS a winit `EventLoopProxy` clone registers a run-loop source and
+/// wakes the loop, so any clone reachable from `about_to_wait` re-arms the loop
+/// every tick and pins a core at idle. The clone count is the contract: the
+/// per-tick services of an idle host (automation disabled, no pending quick
+/// registration, nothing started) request none, however many ticks run. The
+/// one-shot starters (endpoint start, shortcut registration, Wayland drop
+/// listener) clone once, when they actually start.
+#[test]
+fn idle_ticks_clone_no_event_loop_proxy() {
+    let mut host = host_of(vec![headless()]);
+    let before = super::proxy_clone_requests_for_test();
+    for _ in 0..32 {
+        host.service_automation_endpoint();
+        #[cfg(target_os = "linux")]
+        host.service_wayland_file_drop();
+    }
+    assert_eq!(
+        super::proxy_clone_requests_for_test(),
+        before,
+        "an idle tick must not clone the event-loop proxy"
+    );
+}
+
 #[test]
 fn default_automation_is_inert_and_enabled_state_waits_for_a_presented_frame() {
     let mut host = host_of(vec![headless()]);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Event-loop ownership bridge for the opt-in local automation endpoint.
 
+use super::multi_window_host::clone_event_proxy;
 use super::{App, MultiWindowHost, UserEvent};
 use crate::automation::dispatch::MAX_PER_DISPATCH;
 #[cfg(test)]
@@ -18,11 +19,18 @@ impl MultiWindowHost {
             .first()
             .is_some_and(App::automation_endpoint_enabled);
         let ready = self.first_usable_frame_ready();
-        let proxy = self.automation_proxy.clone();
-        let outcome = self.automation.reconcile(enabled, ready, move || {
-            proxy
-                .as_ref()
-                .is_some_and(|proxy| proxy.send_event(UserEvent::AutomationWake).is_ok())
+        // The wake callback owns its own proxy clone, built only when an endpoint
+        // actually starts. This runs every `about_to_wait`; on macOS a proxy
+        // clone registers a run-loop source and wakes the loop, so an eager
+        // clone here re-armed the loop forever (idle busy loop).
+        let proxy_source = self.automation_proxy.as_ref();
+        let outcome = self.automation.reconcile(enabled, ready, || {
+            let proxy = clone_event_proxy(proxy_source);
+            move || {
+                proxy
+                    .as_ref()
+                    .is_some_and(|proxy| proxy.send_event(UserEvent::AutomationWake).is_ok())
+            }
         });
         match outcome {
             ReconcileOutcome::Unchanged => {}

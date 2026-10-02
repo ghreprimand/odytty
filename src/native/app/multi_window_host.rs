@@ -150,6 +150,32 @@ fn quick_surface_policy(_event_loop: &ActiveEventLoop) -> QuickSurfacePolicy {
     QuickSurfacePolicy::for_wayland(false)
 }
 
+/// The one place the host clones a winit `EventLoopProxy`.
+///
+/// On macOS a clone registers a run-loop source and wakes the loop, so a clone
+/// on any per-tick path (`about_to_wait`) re-arms the loop forever. Every
+/// clone is therefore one-shot or event-driven, and the test build counts them
+/// so an idle tick can be proven to perform none. Linux and Windows clones are
+/// cheap, but the same rule applies there.
+pub(super) fn clone_event_proxy(
+    proxy: Option<&winit::event_loop::EventLoopProxy<UserEvent>>,
+) -> Option<winit::event_loop::EventLoopProxy<UserEvent>> {
+    #[cfg(test)]
+    PROXY_CLONE_REQUESTS.with(|count| count.set(count.get() + 1));
+    proxy.cloned()
+}
+
+#[cfg(test)]
+thread_local! {
+    static PROXY_CLONE_REQUESTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Proxy clones requested on this thread so far (test builds only).
+#[cfg(test)]
+pub(super) fn proxy_clone_requests_for_test() -> usize {
+    PROXY_CLONE_REQUESTS.with(std::cell::Cell::get)
+}
+
 fn quick_needs_host_resume(visibility: QuickVisibility, surface_exists: bool) -> bool {
     visibility == QuickVisibility::Visible && !surface_exists
 }
@@ -360,7 +386,7 @@ impl MultiWindowHost {
             self.wayland_drop_started = true;
             return;
         };
-        let Some(proxy) = self.wayland_drop_proxy.clone() else {
+        let Some(proxy) = clone_event_proxy(self.wayland_drop_proxy.as_ref()) else {
             return;
         };
         self.start_wayland_file_drop(display, move |display, registry| {
@@ -900,7 +926,7 @@ impl MultiWindowHost {
             // The generation live at dispatch. If a reconfigure/teardown bumps
             // it before this worker resolves, the worker is stale.
             let my_generation = generation.load(Ordering::SeqCst);
-            let outcome_proxy = self.quick_summon_proxy.clone();
+            let outcome_proxy = clone_event_proxy(self.quick_summon_proxy.as_ref());
             let spawned = std::thread::Builder::new()
                 .name("odytty-quick-register".to_owned())
                 .spawn(move || {
@@ -973,7 +999,7 @@ impl MultiWindowHost {
     /// With no proxy the grab still confirms, but delivery relies on the palette
     /// path - the honest fallback, never a false claim.
     fn quick_sink(&self) -> SummonSink {
-        match self.quick_summon_proxy.clone() {
+        match clone_event_proxy(self.quick_summon_proxy.as_ref()) {
             Some(proxy) => Arc::new(move || {
                 let _ = proxy.send_event(UserEvent::QuickTerminalSummon);
             }),
