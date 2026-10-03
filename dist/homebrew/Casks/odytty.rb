@@ -9,8 +9,8 @@
 # The cask installs the prebuilt, ad-hoc-signed `OdyTTY.app` (Apple Silicon /
 # arm64) that the release workflow's macOS leg produces. The app is ad-hoc
 # signed but not notarized, so macOS quarantines the download and Gatekeeper
-# would block the first launch; the postflight below clears the quarantine flag
-# on the installed app so it launches cleanly, the same one-time step a user
+# would block the first launch; postflight_steps below clears the quarantine
+# flag on the installed app so it launches cleanly, the same one-time step a user
 # would otherwise run by hand; the caveats disclose that clearance at install
 # time. Notarization (Apple Developer Program) would remove the need for it.
 # Intel Macs use the source-build formula instead.
@@ -37,10 +37,10 @@ cask "odytty" do
   # on the installed app so it launches without a warning. Tolerate a non-zero
   # exit (for example when the attribute is already absent) so a reinstall never
   # fails on this step.
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-r", "-d", "com.apple.quarantine", "#{appdir}/OdyTTY.app"],
-                   must_succeed: false
+  postflight_steps do
+    run "/usr/bin/xattr",
+        args:         ["-dr", "com.apple.quarantine", "{{appdir}}/OdyTTY.app"],
+        must_succeed: false
   end
 
   caveats <<~EOS

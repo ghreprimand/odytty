@@ -31,8 +31,9 @@ The channel provides two recipes:
 
 The app is ad-hoc signed but not notarized. macOS therefore quarantines the
 download, and Gatekeeper would normally block its first launch. The cask's
-postflight removes `com.apple.quarantine` from the installed app and discloses
-that action in its caveats.
+`postflight_steps` removes `com.apple.quarantine` from the installed app and
+discloses that action in its caveats. The cask requires Homebrew 7.0 or newer;
+Homebrew normally auto-updates.
 
 Users who do not want that quarantine change can install the source formula:
 

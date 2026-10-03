@@ -625,7 +625,8 @@ xattr -dr com.apple.quarantine /Applications/OdyTTY.app
 
 The `xattr -dr com.apple.quarantine` step is the one-time stopgap that lets an
 ad-hoc-signed app past Gatekeeper without notarization. The Homebrew cask runs
-the same quarantine-clearing step in its postflight, so this manual step is
+the same quarantine-clearing step in `postflight_steps`, which requires
+Homebrew 7.0 or newer. Homebrew normally auto-updates. This manual step is
 only needed for a direct (non-brew) zip download.
 
 ### Build from source

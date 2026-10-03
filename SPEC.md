@@ -1944,6 +1944,9 @@ scope rather than silently inheriting deferred work from a prior release.
 
 ### Platform And Packaging
 
+The Apple Silicon Homebrew cask requires Homebrew 7.0 or newer and uses
+`postflight_steps` for its disclosed quarantine-clearing step.
+
 Linux, macOS, and Windows behavior is defined in
 [Cross-Platform Architecture](#cross-platform-architecture). Published package
 formats and install channels are defined in the

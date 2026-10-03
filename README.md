@@ -74,7 +74,8 @@ target; X11 is supported through the current windowing and GPU stack.
 
 ### macOS
 
-The Homebrew cask installs the prebuilt Apple Silicon app:
+The Homebrew cask installs the prebuilt Apple Silicon app with Homebrew 7.0
+or newer (Homebrew normally auto-updates):
 
 ```sh
 brew tap ghreprimand/odytty

@@ -66,6 +66,9 @@ recorded milestone before implementation.
 
 ## Release preparation
 
+- [ ] Migrate the Homebrew cask quarantine step to `postflight_steps` for
+      Homebrew 7.0 or newer.
+
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
 
 ## v0.16.1: AppImage Update Information (published)
