@@ -1,6 +1,6 @@
 # OdyTTY — TODO
 
-Published release: **v0.16.0**.
+Published release: **v0.16.1**.
 
 The milestones below distinguish published work, active development, explicit
 deferrals, and unmet evidence. Release corrections are listed in the
@@ -57,7 +57,7 @@ after a primary-window merge; see
 [`docs/releases/0.15.7.md`](docs/releases/0.15.7.md). Version 0.15.8 stops
 a macOS idle-CPU loop caused by a per-tick event-loop proxy clone, present since v0.15.0; see
 [`docs/releases/0.15.8.md`](docs/releases/0.15.8.md). Version 0.16.0
-is the published release with pane and window workflows. A checked item is
+published pane and window workflows; v0.16.1 adds AppImage update information. A checked item is
 delivered at the current head (or at the historical milestone its section names). An unchecked item is concrete remaining work or
 an unmet evidence gate. Standing policies and explicit non-goals are prose
 rather than unchecked boxes, so this file does not present them as
@@ -68,13 +68,14 @@ recorded milestone before implementation.
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
 
-## v0.16.1: AppImage Update Information
+## v0.16.1: AppImage Update Information (published)
 
-- [ ] Embed the latest-release update channel in the AppImage and publish
+- [x] Embed the latest-release update channel in the AppImage and publish
       `odytty-x86_64.AppImage.zsync` for its alias, covered by SHA256SUMS
       and provenance. Verify the embedded string, control-file length and
       digest, and byte-identical alias/pinned images before publication.
-      No terminal behavior changes.
+      The only change is AppImage update information; every other package
+      is rebuilt at 0.16.1 with no behavior change from 0.16.0.
 
 ## v0.16.0: Pane And Window Workflows (published)
 

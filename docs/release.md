@@ -486,6 +486,14 @@ commit keeps both lockfiles, release markers, AppStream, and release notes in
 sync. Check artifact hashes, alias/pinned pairs, and package propagation after
 publication, and record those results separately from source validation.
 
+Version 0.16.1 changes AppImage update metadata and publication of the
+`odytty-x86_64.AppImage.zsync` control file only. It is built from `master`
+after v0.16.0. Every other package is rebuilt at 0.16.1 with no behavior
+change from 0.16.0. Verify the exact embedded
+latest-release channel, alias-addressed control fields and image digest/length,
+byte-identical alias/pinned files, and signed checksums and provenance for the
+eighteen release assets. Retain the library audit and minimal-X11 smoke check.
+
 ### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful

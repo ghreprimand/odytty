@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.16.1" date="2026-10-03">
+      <description>
+        <p>The only change is AppImage update information and the companion zsync asset for AppImage update tools such as AppImageUpdate. Every other package is rebuilt at version 0.16.1 with no behavior change from version 0.16.0.</p>
+      </description>
+    </release>
     <release version="0.16.0" date="2026-10-02">
       <description>
         <p>This release adds pane and window workflows: read-only panes, guarded broadcast input, macOS secure keyboard input, moving tabs and panes between windows, stacked and floating layouts, scrollback export, an East Asian Ambiguous width preference, and Windows fixes for first-command placement after a wrapped PowerShell prompt and Ctrl+Shift+N input.</p>

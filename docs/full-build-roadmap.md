@@ -104,6 +104,9 @@ its cross-platform or evidence gate is not met.
 - **Shipped v0.16.0 - Pane and window productivity.** Read-only panes, safe scrollback
   export, guarded input broadcast, tab/pane movement between windows through
   the palette, right-click menus, and the picker, floating and stacked layouts, and the remaining bounded window-management controls.
+- **Shipped v0.16.1 - AppImage update information.** The AppImage embeds its
+  latest-release update channel and ships an alias-addressed zsync control
+  file, covered by signed checksums and provenance. Terminal behavior is unchanged.
 - **v0.17.0 — International text and display correctness.** Bounded bidi and
   complex-script work, remaining grapheme/width fixtures, SVG-in-OpenType color
   glyphs, legacy-symbol fallback, and HiDPI validation.

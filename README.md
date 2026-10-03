@@ -1,6 +1,6 @@
 # OdyTTY
 
-Published release: **v0.16.0**.
+Published release: **v0.16.1**.
 
 Current development work is tracked in [TODO.md](TODO.md). Version 0.16.0
 adds [read-only panes](docs/features.md#make-a-pane-read-only),
@@ -189,8 +189,8 @@ workflows, settings, and platform-specific behavior.
 
 ## Status And Scope
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.16.0 is the published
-release. On macOS, an untouched window's idle CPU returns to about zero. The cause was a per-tick
+OdyTTY is a broad pre-1.0 terminal. Version 0.16.1 is the published
+release, adding AppImage update information to the v0.16.0 workflows. On macOS, an untouched window's idle CPU returns to about zero. The cause was a per-tick
 event-loop proxy clone that re-woke the macOS run loop, present since
 v0.15.0. On Linux and Windows the clones were cheap and showed no spin; the
 per-tick clone is removed there too, with no idle-CPU claim. See the
