@@ -32,7 +32,9 @@ Each release publishes seven artifact types:
 Each of these seven package types has an always-latest alias and a byte-identical
 version-pinned copy. From v0.14.0, the version-pinned installer is an additional
 asset without an alias. The fourteen package files, installer, `SHA256SUMS`,
-and `SHA256SUMS.minisig` make seventeen published assets. Use the
+and `SHA256SUMS.minisig` make seventeen published assets through v0.16.0.
+From v0.16.1, `odytty-x86_64.AppImage.zsync` adds an eighteenth asset, covered
+by the signed manifest and provenance, for AppImage update clients. Use the
 [Install Guide artifact table](docs/install.md#release-artifact-names-and-checksums)
 for exact filenames and the [Release Guide](docs/release.md) for publication
 checks.

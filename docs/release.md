@@ -1,6 +1,6 @@
 # Releasing OdyTTY
 
-Use this guide to cut a tagged OdyTTY release, verify its 17 published assets,
+Use this guide to cut a tagged OdyTTY release, verify its published assets (18 from v0.16.1; 17 earlier),
 and confirm the Scoop, Homebrew, and AUR channels updated. Replace `X.Y.Z` with
 the version being released.
 
@@ -158,12 +158,30 @@ and a byte-identical version-pinned name:
 
 The version-pinned installer `odytty-X.Y.Z-install.sh` is an additional asset
 from v0.14.0 onward. It has no always-latest alias. `SHA256SUMS` covers the
-fourteen package files and this installer. Each package alias and its pinned
+fourteen package files and this installer. From v0.16.1 it also covers
+`odytty-x86_64.AppImage.zsync`, the update control file for the AppImage alias. Each package alias and its pinned
 twin have the same hash because they contain the same bytes.
 `SHA256SUMS.minisig` authenticates that checksum manifest with the OdyTTY
-Minisign release key, bringing the total to seventeen assets. Verify the
+Minisign release key, bringing the total to eighteen assets from v0.16.1 (seventeen earlier). Verify the
 manifest signature and the installer's checksum before executing the installer;
 see the [install guide](install.md).
+
+From v0.16.1, the AppImage embeds
+`gh-releases-zsync|ghreprimand|odytty|latest|odytty-x86_64.AppImage.zsync`.
+The pinned linuxdeploy plugin generates the image and control file under the
+alias name, then the image is copied to its pinned name. The AppImage job and
+publication collection both run:
+
+```sh
+python3 scripts/appimage-update.py odytty-x86_64.AppImage \
+  odytty-x86_64.AppImage.zsync "odytty-${VERSION}-x86_64.AppImage"
+```
+
+This reads `.upd_info` without executing the image, requires relative alias
+Filename/URL fields and a complete zsync checksum table, matches SHA-1 and
+length against the image, and compares the pinned bytes. SHA-1 here verifies
+transfer consistency; the signed SHA256SUMS and provenance also cover the
+control file. Keep the dlopen audit and minimal-X11 smoke checks.
 
 Every binary-producing release job supplies the exact release commit as
 `ODYTTY_BUILD_SHA`, which the About panel displays as its **Commit** value. The
@@ -487,8 +505,9 @@ the three package-channel jobs.
 
 ### 4. Verify The Published Release
 
-Confirm the release has 17 assets: seven package aliases, seven pinned package
-copies, `odytty-X.Y.Z-install.sh`, `SHA256SUMS`, and `SHA256SUMS.minisig`.
+Confirm releases from v0.16.1 have 18 assets: seven package aliases, seven pinned package
+copies, `odytty-x86_64.AppImage.zsync` (from v0.16.1),
+`odytty-X.Y.Z-install.sh`, `SHA256SUMS`, and `SHA256SUMS.minisig`.
 Verify the Minisign signature first, then verify every package and the installer
 against the authenticated manifest. Confirm that every alias/pinned pair has
 matching hashes and compare each pair byte-for-byte.
@@ -505,7 +524,7 @@ gh attestation verify odytty-x86_64.AppImage \
 
 Repeat for the Windows and macOS zips. Confirm the reported commit matches the
 tag. The attestation is a repository-level record rather than a release asset,
-so it does not change the 17-asset count.
+so it does not change the 18-asset count (17 before v0.16.1).
 
 Download the pinned source archive and confirm it builds:
 

@@ -373,6 +373,16 @@ Ubuntu LTS for a wide glibc floor. This is a best-effort artifact; if GPU initia
 fails, see [No Vulkan adapter, accelerated GL, and virtual
 machines](#no-vulkan-adapter-accelerated-gl-and-virtual-machines).
 
+From v0.16.1 onward, the AppImage embeds update information for the latest
+GitHub release, with a companion `odytty-x86_64.AppImage.zsync` asset. Tools
+such as [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate)
+can use it to check for and download updates.
+Version 0.16.0 and earlier contain no update information: replace those files
+manually once to move to an update-capable version. OdyTTY itself performs no
+automatic update check. Before running an updated file, verify its entry in
+the signed `SHA256SUMS`; the zsync SHA-1 is transfer integrity, not release
+authentication.
+
 To integrate it into menus, tools like [Gear Lever][gearlever] or
 `appimaged` register the bundled desktop entry and icon. The AppImage can be
 built locally with `dist/appimage/build-appimage.sh`.

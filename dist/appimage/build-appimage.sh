@@ -6,7 +6,8 @@
 #
 # If [version] is omitted it is read from Cargo.toml. The release binary is
 # built if target/release/odytty is missing. The finished AppImage is written
-# to the repository root as odytty-<version>-x86_64.AppImage.
+# to the repository root under alias and version-pinned names, together with
+# odytty-x86_64.AppImage.zsync for the alias.
 #
 # Tooling: linuxdeploy (plus its appimage output plugin) does the dependency
 # bundling. linuxdeploy ships a default exclude list that deliberately leaves
@@ -116,7 +117,14 @@ export PATH="$WORK:$PATH"
 
 export APPIMAGE_EXTRACT_AND_RUN=1
 export VERSION
-export OUTPUT="odytty-$VERSION-$ARCH.AppImage"
+# Build under the durable alias: appimagetool writes that name into both the
+# Filename and relative URL fields of its generated zsync control file.
+export OUTPUT="odytty-$ARCH.AppImage"
+export LDAI_OUTPUT="$OUTPUT"
+export LDAI_UPDATE_INFORMATION="gh-releases-zsync|ghreprimand|odytty|latest|odytty-x86_64.AppImage.zsync"
+# The pinned 1-alpha-20250213-1 plugin maps LDAI_UPDATE_INFORMATION to -u.
+# Refuse stale outputs as evidence of successful generation.
+rm -f "$OUTPUT" "$OUTPUT.zsync"
 
 # Libraries the binary loads with dlopen at runtime that are bundled because
 # the host may lack them (a minimal X11 host has libxkbcommon but often not
@@ -184,5 +192,8 @@ if [ ! -f "$OUTPUT" ]; then
   exit 1
 fi
 chmod +x "$OUTPUT"
-echo "==> built $OUTPUT"
-ls -lh "$OUTPUT"
+PINNED="odytty-$VERSION-$ARCH.AppImage"
+cp "$OUTPUT" "$PINNED"
+python3 scripts/appimage-update.py "$OUTPUT" "$OUTPUT.zsync" "$PINNED"
+echo "==> built $OUTPUT, $PINNED, and $OUTPUT.zsync"
+ls -lh "$OUTPUT" "$PINNED" "$OUTPUT.zsync"

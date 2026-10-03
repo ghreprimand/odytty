@@ -353,6 +353,7 @@ jobs:
 
       - name: Release notes fixtures and current-version check
         run: |
+          python3 scripts/appimage-update-test.py
           python3 scripts/release-notes-test.py
           version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           python3 scripts/release-notes.py --version "$version" --check

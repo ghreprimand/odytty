@@ -129,6 +129,11 @@ jobs:
         # missing from the build host or from the finished AppDir.
         run: dist/appimage/build-appimage.sh "${VERSION}"
 
+      - name: Verify AppImage update information and aliases
+        run: |
+          python3 scripts/appimage-update.py odytty-x86_64.AppImage \
+            odytty-x86_64.AppImage.zsync "odytty-${VERSION}-x86_64.AppImage"
+
       - name: Smoke test the AppImage
         # --version exits before any GPU/window init, so it runs headlessly in
         # CI; this confirms the bundle's loader, libs, and entrypoint are sound.
@@ -156,7 +161,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: appimage
-          path: odytty-*-x86_64.AppImage
+          path: |
+            odytty-*-x86_64.AppImage
+            odytty-x86_64.AppImage.zsync
+          if-no-files-found: error
 
   windows:
     name: Windows zip (x86_64)
@@ -671,7 +679,7 @@ jobs:
           mkdir -p out
           find artifacts -type f \
             \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' \
-               -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} out/ \;
+               -o -name '*.deb' -o -name '*.rpm' -o -name '*.zsync' \) -exec cp {} out/ \;
           cd out
           # Version-less aliases so `releases/latest/download/<name>` resolves a
           # stable URL the README can use without ever naming a version. These
@@ -680,6 +688,8 @@ jobs:
           version="${VERSION}"
           cp "odytty-${version}.tar.gz" "odytty.tar.gz"
           cp "odytty-${version}-x86_64.AppImage" "odytty-x86_64.AppImage"
+          python3 ../scripts/appimage-update.py odytty-x86_64.AppImage \
+            odytty-x86_64.AppImage.zsync "odytty-${version}-x86_64.AppImage"
           cp "odytty-${version}-windows-x86_64.zip" "odytty-windows-x86_64.zip"
           cp "odytty-${version}-macos-arm64.zip" "odytty-macos-arm64.zip"
           cp "odytty-${version}-linux-x86_64.tar.gz" "odytty-linux-x86_64.tar.gz"
@@ -782,8 +792,8 @@ jobs:
           done
           # A loop over an empty or mismatched directory would otherwise pass
           # silently, reporting success for having verified nothing.
-          if [ "$count" -ne 17 ]; then
-            echo "::error::verified ${count} attested files, expected exactly 17" >&2
+          if [ "$count" -ne 18 ]; then
+            echo "::error::verified ${count} attested files, expected exactly 18" >&2
             exit 1
           fi
           echo "verified build provenance for ${count} published files"
@@ -800,6 +810,7 @@ jobs:
           files: |
             out/*.tar.gz
             out/*.AppImage
+            out/*.zsync
             out/*.zip
             out/*.deb
             out/*.rpm

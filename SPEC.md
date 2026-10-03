@@ -1949,6 +1949,13 @@ Linux, macOS, and Windows behavior is defined in
 formats and install channels are defined in the
 [Install Guide](docs/install.md).
 
+From v0.16.1, the AppImage embeds the GitHub latest-release update channel
+and ships `odytty-x86_64.AppImage.zsync` for the always-latest alias. The
+alias and version-pinned image are byte-identical; the control file is
+checksummed and attested. OdyTTY does not initiate update checks. Update
+tools use zsync for transfer integrity; the signed SHA256SUMS remains the
+release-authentication boundary. Version 0.16.0 and earlier lack update info.
+
 ### Out Of Scope
 
 - Kitty `I=` addressing on display (`a=p`) and delete (`d=n`/`d=N`) commands,

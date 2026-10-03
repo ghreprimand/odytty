@@ -68,6 +68,14 @@ recorded milestone before implementation.
 
 - [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
 
+## v0.16.1: AppImage Update Information
+
+- [ ] Embed the latest-release update channel in the AppImage and publish
+      `odytty-x86_64.AppImage.zsync` for its alias, covered by SHA256SUMS
+      and provenance. Verify the embedded string, control-file length and
+      digest, and byte-identical alias/pinned images before publication.
+      No terminal behavior changes.
+
 ## v0.16.0: Pane And Window Workflows (published)
 
 Code items have passing blocking Linux, macOS, and Windows CI. Device items

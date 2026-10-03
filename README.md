@@ -108,7 +108,7 @@ Use the same channel that installed OdyTTY:
 | Linux installer | Re-run the one-line install command above. |
 | Direct `.deb` or `.rpm` | Re-run the one-line install command, or download and install the latest package. OdyTTY does not publish an apt or dnf repository. |
 | AUR | Run `paru -Syu` or `yay -Syu`; for a manual checkout, run `git pull --ff-only` and `makepkg -si`. |
-| AppImage or tarball | Replace it with the always-latest artifact, verify `SHA256SUMS`, and reuse the previous install location. |
+| AppImage or tarball | Replace it with the always-latest artifact and verify the signed `SHA256SUMS`. From v0.16.1, AppImage update tools such as AppImageUpdate can use embedded AppImage update information; earlier AppImages require a manual replacement. |
 | Homebrew | Run `brew update`, then `brew upgrade --cask odytty`. |
 | Scoop | Run `scoop update`, then `scoop update odytty` (two commands; older Windows PowerShell rejects `&&`). |
 | Source | Update the source tree, rebuild with `cargo build --release --locked`, and reinstall to the same prefix. |
