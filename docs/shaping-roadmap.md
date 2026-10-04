@@ -109,8 +109,8 @@ cells.
 
 ### Full Unicode bidirectional layout
 
-Full BiDi is outside the current overlay model and has no partial implementation
-roadmap. Right-to-left input is stored and drawn in logical cell order. Arabic
+Full BiDi is not supported, and no visual reordering is shipped.
+Right-to-left input is stored and drawn in logical cell order. Arabic
 joining forms are shaped within that order; cells are not reordered into visual
 reading order.
 
@@ -123,6 +123,17 @@ covering isolates, numbers, cursor navigation, rectangular and linear
 selection, reflow, scrollback, and logical-order copy. Until those prerequisites
 exist together, partial visual reordering is rejected because it would make
 what the user sees disagree with terminal addressing and copied text.
+
+The first prerequisite exists as a headless module, `src/core/bidi`: for one
+wrapped logical line it resolves UAX #9 levels with the paragraph level forced
+to left to right, applies the line rules to each physical row, and returns
+reversible owner-to-visual-span and visual-column-to-owner maps with
+mirrored-glyph flags. Paragraphs over its owner, byte, or row cap get the
+complete identity layout. It passes every case of the Unicode 17.0.0
+BidiCharacterTest.txt and BidiTest.txt files, with a committed subset
+asserted in the test suite. Its bidi class data is Unicode 16.0.0, bundled
+with the `unicode-bidi` crate. Nothing renders, hit-tests, moves the cursor,
+selects, or copies through it, so display and behavior are unchanged.
 
 ### Complex Indic and Brahmic shaping
 

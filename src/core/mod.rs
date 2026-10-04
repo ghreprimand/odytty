@@ -13,7 +13,10 @@
 //! - [`search`] — pure literal scrollback/screen search over the combined
 //!   buffer, reporting matches as absolute cell ranges.
 //! - [`reflow`] — resize re-wrapping and the width-unchanged fast path.
+//! - [`bidi`]: headless UAX #9 display plans for one wrapped logical line,
+//!   computed but not yet consumed by any display or input path.
 
+mod bidi;
 mod button;
 mod char_width;
 mod encoding;
@@ -77,6 +80,10 @@ mod tests;
 #[cfg(test)]
 pub(crate) use tests::v013_fixtures;
 
+pub use bidi::{
+    BidiIdentityReason, BidiLayout, BidiOwner, BidiPlan, BidiVisualCell, MAX_BIDI_OWNER_WIDTH,
+    MAX_BIDI_PARAGRAPH_BYTES, MAX_BIDI_PARAGRAPH_OWNERS, MAX_BIDI_PARAGRAPH_ROWS, is_bidi_mirrored,
+};
 pub use button::{
     ButtonEntry, ButtonHit, ButtonIcon, ButtonId, ButtonScope, ButtonSpan, ButtonState,
     MAX_BUTTON_ENTRIES, MAX_BUTTON_SPANS_PER_LINE, click_report_bytes,
