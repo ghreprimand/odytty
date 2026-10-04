@@ -170,7 +170,8 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
 
     // WP2 sub-ODP 8d: elect a single primary instance. The lock is held for the
     // whole process lifetime (this binding is never dropped until `run_native`
-    // returns). Only the primary autosaves and restores the workspace shape; a
+    // returns). Only the primary of a bare launch autosaves and restores the
+    // workspace shape (see `claim_launch_shape_ownership` below); a
     // second concurrent window runs with `is_primary == false` and stays inert
     // on both, so two windows never race on `workspaces.json`.
     let instance_lock = instance_lock::PrimaryInstanceLock::acquire();
@@ -333,24 +334,24 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     {
         tracing::error!("attach session {session_id} failed: {err}");
     }
-    // WP2: gate autosave/restore on primary-instance status, then restore the
-    // saved workspace shape only for a bare `odytty` launch with the setting on
-    // (sub-ODPs 8a/8b). Any CLI argument leaves `bare_launch` false and starts
-    // fresh; a secondary instance never restores.
-    app.set_primary_instance(is_primary);
+    // WP2: shape autosave and restore belong to the primary instance of a bare
+    // `odytty` launch (sub-ODPs 8a/8b). Any CLI argument leaves `bare_launch`
+    // false: the launch starts fresh and never writes the saved shape, so the
+    // saved layout survives it. A secondary instance never restores or writes.
+    let owns_shape = app.claim_launch_shape_ownership(is_primary, bare_launch);
     if is_primary {
         // C27: clear crash-orphaned atomic-write temporaries from the state and
         // layouts dirs before autosave begins (only the primary writes them).
         crate::native::persistence::sweep_stale_temp_files();
     }
-    if is_primary && bare_launch && settings.restore_workspaces {
+    if owns_shape && settings.restore_workspaces {
         app.restore_workspaces_on_launch();
     }
     // SECONDARY-INSTANCE-NOTICE: a second concurrent window is silently inert on
     // restore/autosave (a live primary holds the instance lock). Surface that
     // once at startup when the user expects restore, so relaunching over a
     // still-running or wedged first window no longer reads as "restore failed".
-    app.notice_secondary_instance_if_suppressed();
+    app.notice_secondary_instance_if_suppressed(is_primary);
     // FREEZE-HARDEN (b): run the app under the freeze watchdog - the
     // multi-window host notes input/redraw activity and mirrors a state
     // snapshot into the shared record, and a detached monitor thread logs the
@@ -474,8 +475,8 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         .run_app(&mut host)
         .map_err(|err| NativeError::EventLoop(err.to_string()));
 
-    // WP2 sub-ODP 8c: unconditional shape save on a clean exit (primary only,
-    // self-guarded). Runs while the sessions are still live so per-pane cwds are
+    // WP2 sub-ODP 8c: unconditional shape save on a clean exit (shape owner
+    // only, self-guarded, so never after a launch with arguments). Runs while the sessions are still live so per-pane cwds are
     // captured, and only when the loop exited cleanly so a startup failure never
     // clobbers a good snapshot. The host explicitly excludes its quick identity;
     // the selected App still self-guards on primary-instance ownership. Closing

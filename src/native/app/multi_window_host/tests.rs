@@ -84,6 +84,70 @@ fn closing_the_primary_window_hands_autosave_to_the_oldest_survivor() {
     assert_eq!(host.windows[1].autosave_saves_for_test(), 0);
 }
 
+/// A launch with a command-line argument holds the instance lock but owns no
+/// saved shape, so no path writes the snapshot for the process lifetime: the
+/// debounced autosave, the cwd checkpoint, a sibling profile binding edit, the
+/// shared writer, the close handoff, a merge, and the clean-exit save. A bare
+/// launch with the lock still owns it. Mutation: claim ownership from the lock
+/// alone, as before, and the argument session overwrites the saved layout.
+#[test]
+fn an_argument_launch_never_writes_the_saved_shape_through_any_path() {
+    use crate::native::app::config_lifecycle::ProfileBindingChange;
+    let mut bare = headless();
+    assert!(bare.claim_launch_shape_ownership_for_test(true, true));
+    assert!(
+        bare.autosave_is_primary,
+        "a bare primary still owns the shape"
+    );
+    let mut secondary = headless();
+    assert!(!secondary.claim_launch_shape_ownership_for_test(false, true));
+
+    let mut host = three_windows_with_primary_first();
+    assert!(!host.windows[0].claim_launch_shape_ownership_for_test(true, false));
+    assert_eq!(owner_count(&host), 0);
+    let now = std::time::Instant::now();
+    let later = now + std::time::Duration::from_secs(600);
+    let window = &mut host.windows[0];
+    window.set_restore_workspaces_for_test(true);
+    window.notice_secondary_instance_if_suppressed(true);
+    assert!(
+        window.open_notice_message_for_test().is_none(),
+        "the lock holder blames no other window"
+    );
+    window.run_shape_autosave_for_test(now);
+    window.push_headless_session_for_test(
+        Arc::new(Mutex::new(crate::core::Terminal::new(80, 24))),
+        crate::native::test_support::headless_writer(),
+        crate::core::Dimensions::new(80, 24),
+    );
+    window.advance_primary_terminal_for_test(b"\x1b]7;file://localhost/tmp\x07");
+    window.run_shape_autosave_for_test(now);
+    window.run_shape_autosave_for_test(later);
+    window.workspace_set_mut().workspaces[0].launch_profile = Some("bound".to_owned());
+    window.apply_sibling_profile_binding_change(&ProfileBindingChange::Deleted {
+        name: "bound".to_owned(),
+    });
+    window.write_shape_snapshot();
+    host.save_restorable_shape_on_exit();
+    assert_eq!(host.windows[0].autosave_saves_for_test(), 0);
+
+    // Closing the first window and merging the rest hand nothing on.
+    host.remove_closed_window(0);
+    host.open_picker(0, MergeDirection::MergeThisInto);
+    host.handle_picker_key(PickerKey::Select(1));
+    assert_eq!(owner_count(&host), 0);
+    for window in &mut host.windows {
+        window.run_shape_autosave_for_test(later);
+    }
+    host.save_restorable_shape_on_exit();
+    assert!(
+        host.windows
+            .iter()
+            .all(|window| window.autosave_saves_for_test() == 0),
+        "no later window writes the saved shape"
+    );
+}
+
 /// Closing a window that does not own persistence changes nothing about
 /// ownership and arms no write anywhere.
 #[test]

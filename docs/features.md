@@ -914,7 +914,10 @@ default.
 
 Launching `odytty` with no arguments restores the primary instance's
 workspaces, tabs, pane splits, and each pane's recorded working directory. Any
-command-line argument suppresses restore.
+command-line argument suppresses restore, and that process then never writes
+the saved layout: not while it runs, not on quit, and not from a window opened
+or merged later in it. The layout saved by the last bare launch is kept for
+the next one. The same rule applies on Linux, macOS, and Windows.
 
 On Unix, OdyTTY validates its final state-directory leaves as owner-private,
 non-symlink directories and uses owner-private regular files for layouts,

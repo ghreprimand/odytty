@@ -1433,7 +1433,10 @@ scope rather than silently inheriting deferred work from a prior release.
   running, so a restore can never replay a command. Restore fires only for the
   primary instance (elected via a state-dir lock file) on a bare `odytty`
   launch; any CLI argument suppresses it, and a fresh shell is always spawned
-  per pane. Only the primary window writes the snapshot; the ownership check
+  per pane. A process launched with any CLI argument also never writes the
+  snapshot (autosave, cwd checkpoint, exit, profile edit, or a later window
+  inheriting ownership), so the saved layout survives it; it still holds the
+  instance lock. Only the primary window of a bare launch writes the snapshot; the ownership check
   sits in the snapshot writer itself, so no path (autosave, exit, or a profile
   edit) can let another window replace it. Ownership moves only on a window
   merge, on moving the last content out of the owning window, and on closing

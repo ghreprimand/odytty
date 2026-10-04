@@ -780,10 +780,12 @@ Rules:
 
 - **Only a bare `odytty` restores.** Any command-line argument — a flag, a
   path, `--working-directory`, `-e COMMAND`, an attach id — starts that launch
-  fresh and suppresses restore.
-- **The layout autosave runs regardless of this setting.** A shape snapshot is
-  written (debounced) as the layout changes and on a clean exit, so a snapshot
-  is ready the moment you turn restore on. The snapshot is shape-only and lives
+  fresh and suppresses restore. That process also never writes the snapshot,
+  while it runs or on quit, so the layout saved by the last bare launch is
+  kept for the next one.
+- **The layout autosave of a bare launch runs regardless of this setting.**
+  A shape snapshot is written (debounced) as the layout changes and on a clean
+  exit, so a snapshot is ready the moment you turn restore on. The snapshot is shape-only and lives
   in the state directory (`workspaces.json`).
 - **One window owns the autosave.** When several odytty windows are open only
   the first (primary) instance writes the snapshot and restores it, so a second

@@ -172,7 +172,7 @@ pub(super) fn tail_setting_rows(settings: &Settings) -> Vec<SettingInfo> {
             env: RESTORE_WORKSPACES_ENV,
             name: "Restore workspaces at launch",
             value: bool_display(settings.restore_workspaces).to_owned(),
-            description: "When on, launching odytty with no arguments reopens the previous workspace/tab/pane layout \u{2014} workspace names, tab titles and order, and each pane's split tree at its captured directory, each with a fresh shell. Never restores terminal output, scrollback, or commands (shape only). Off by default; any command-line argument starts fresh for that launch. The layout autosave runs regardless, so a snapshot is ready the moment this is turned on.",
+            description: "When on, launching odytty with no arguments reopens the previous workspace/tab/pane layout \u{2014} workspace names, tab titles and order, and each pane's split tree at its captured directory, each with a fresh shell. Never restores terminal output, scrollback, or commands (shape only). Off by default; any command-line argument starts fresh for that launch and that launch never saves the layout, so the saved one is kept. A bare launch autosaves the layout regardless of this setting, so a snapshot is ready the moment this is turned on.",
             kind: SettingKind::Bool,
             range: None,
             options: &["on", "off"],

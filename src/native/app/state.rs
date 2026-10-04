@@ -574,7 +574,8 @@ pub(in crate::native) struct App {
     /// WP2 autosave (sub-ODP 8c/8d): whether THIS instance may persist the
     /// workspace shape. Only the primary instance (the one holding the state-dir
     /// lock) autosaves or restores; a second concurrent window sets this `false`
-    /// and never writes `workspaces.json`. Set once at startup.
+    /// and never writes `workspaces.json`, and so does a primary launched with
+    /// a command-line argument. Set once at startup.
     pub(super) autosave_is_primary: bool,
     /// Profile renames/deletes made in this window that the window host has
     /// not yet applied to sibling windows' workspace bindings.

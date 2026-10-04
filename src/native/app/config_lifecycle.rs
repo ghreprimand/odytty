@@ -744,6 +744,29 @@ impl App {
         self.autosave_is_primary = primary;
     }
 
+    /// Startup ownership of the saved workspace shape. The process window
+    /// owns it only when it holds the instance lock AND was launched bare (no
+    /// command-line argument). A launch with any argument skips restore, so
+    /// its windows never describe the saved layout: letting it autosave would
+    /// replace that layout with the argument session's shape on the first
+    /// structural change or on quit. Such a process therefore writes no shape
+    /// snapshot for its whole lifetime: not the debounced autosave, the cwd
+    /// checkpoint, the clean-exit save, nor a profile binding edit, and no
+    /// later window inherits ownership because none ever had it. The lock is
+    /// still held, so a concurrent bare launch stays secondary as before.
+    /// Returns whether this window owns the shape (and may restore it). The
+    /// same rule and the same shared persistence path apply on Linux, macOS,
+    /// and Windows.
+    pub(in crate::native) fn claim_launch_shape_ownership(
+        &mut self,
+        lock_held: bool,
+        bare_launch: bool,
+    ) -> bool {
+        let owns = lock_held && bare_launch;
+        self.set_primary_instance(owns);
+        owns
+    }
+
     /// Same-process window merge: when the window being retired (`source`)
     /// owns shape persistence, move that ownership to the surviving window
     /// (`self`), which now holds every merged workspace. Without the transfer
@@ -783,9 +806,11 @@ impl App {
     /// lock cannot reach here — the advisory instance lock is released the
     /// instant its owner exits or crashes, so a non-primary election always
     /// means a live peer still holds it (the same std lock API on every
-    /// platform, so this is platform-agnostic).
-    pub(in crate::native) fn notice_secondary_instance_if_suppressed(&mut self) {
-        if self.autosave_is_primary || !self.settings.restore_workspaces {
+    /// platform, so this is platform-agnostic). Keyed on the lock, not on shape
+    /// ownership: a lock holder launched with an argument owns no shape either,
+    /// but no other window is to blame, so it raises nothing.
+    pub(in crate::native) fn notice_secondary_instance_if_suppressed(&mut self, lock_held: bool) {
+        if lock_held || !self.settings.restore_workspaces {
             return;
         }
         self.raise_open_notice(SECONDARY_INSTANCE_NOTICE.to_owned());

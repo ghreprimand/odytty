@@ -1140,9 +1140,10 @@ pub const REMOTE_IMAGE_PASTE_MAX_BYTES: usize = 10 * 1024 * 1024;
 /// last saved layout — workspace names, tab titles/order, and each pane's
 /// split tree at its captured cwd — landing a fresh interactive shell in each
 /// pane. Never restores grid content, scrollback, or commands. Off by default;
-/// any CLI argument suppresses restore for that launch. The shape autosave that
-/// feeds this runs regardless of the setting, so a snapshot is ready the moment
-/// it is turned on.
+/// any CLI argument suppresses restore for that launch, and that process never
+/// writes the snapshot, so the saved layout survives it. The shape autosave of
+/// a bare launch runs regardless of the setting, so a snapshot is ready the
+/// moment it is turned on.
 pub const DEFAULT_RESTORE_WORKSPACES: bool = false;
 
 /// Opt-in host/directory-aware named-profile switching for the focused local

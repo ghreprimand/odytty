@@ -2591,6 +2591,16 @@ impl App {
         self.set_primary_instance(primary);
     }
 
+    /// Test seam: the startup shape-ownership claim `run_native` makes.
+    #[cfg(test)]
+    pub(in crate::native) fn claim_launch_shape_ownership_for_test(
+        &mut self,
+        lock_held: bool,
+        bare_launch: bool,
+    ) -> bool {
+        self.claim_launch_shape_ownership(lock_held, bare_launch)
+    }
+
     /// Test seam (SECONDARY-INSTANCE-NOTICE): flip the `restore_workspaces`
     /// setting so the notice gate can be exercised without a config file.
     #[cfg(test)]
@@ -2601,7 +2611,7 @@ impl App {
     /// Test seam (SECONDARY-INSTANCE-NOTICE): drive the startup notice gate.
     #[cfg(test)]
     pub(in crate::native) fn notice_secondary_instance_for_test(&mut self) {
-        self.notice_secondary_instance_if_suppressed();
+        self.notice_secondary_instance_if_suppressed(self.autosave_is_primary);
     }
 
     /// Test seam (WP2): number of shape writes the autosave has emitted. Under
