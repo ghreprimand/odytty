@@ -25,9 +25,7 @@
 #   * Box drawing / block elements / Braille    — core geometric coverage
 #   * Sextants, octants, triangles, eighths      — Symbols for Legacy Computing
 #                                                  (newly added geometric ranges)
-#   * Deferred ranges                            — documented holes; expect
-#                                                  font fallback / tofu until a
-#                                                  later phase closes them
+#   * Diagonal blocks, negative diagonals         - antialiased polygon fills
 #   * Powerline + Nerd Font PUA samples          — the icon/symbol fallback path
 #                                                  (the screenshot regression)
 #   * CJK wide                                   — 2-cell width handling
@@ -172,16 +170,15 @@ line("# seven-segment digits 0-9  (U+1FBF0..U+1FBF9)")
 line(" ".join(chr(c) for c in range(0x1FBF0, 0x1FBF9 + 1)))
 line()
 
-# ----------------------------------------------------- deferred holes
+# ----------------------------------------------------- diagonal polygons
 section(
-    "DEFERRED — known holes (expect font fallback / tofu)",
+    "Symbols for Legacy Computing: diagonal blocks and negative diagonals",
     [
-        "These Symbols for Legacy Computing ranges are NOT yet rendered",
-        "geometrically. With symbol_fallback on they may resolve via the bundled",
-        "symbols font; otherwise expect tofu. The corpus intentionally surfaces",
-        "them so progress is visible.",
+        "Diagonal-edged block fills and negative diagonals, rendered",
+        "geometrically by an antialiased polygon filler. Each lower fill and the",
+        "upper fill 22 codepoints later tile into one solid cell.",
     ],
-    ranges_blurb="# Holes: U+1FB3C..U+1FB67, U+1FBBD..U+1FBBF (need an AA polygon filler)",
+    ranges_blurb="# Covered: U+1FB3C..U+1FB67, U+1FBBD..U+1FBBF (geometric)",
 )
 line("# diagonal-edged blocks  (U+1FB3C..U+1FB67)")
 chunked(0x1FB3C, 0x1FB67, per_line=15)

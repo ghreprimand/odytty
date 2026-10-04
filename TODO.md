@@ -693,12 +693,11 @@ not a stretch goal.
   - [x] Geometric Symbols for Legacy Computing: sextants, octants,
         triangles, eighth strips/ladders, L-combo eighth blocks
         (`U+1FB7C..1FB81`), and segmented digits (`U+1FBF0..1FBF9`) render from
-        cell geometry. Deferred (post-v0.1.6): diagonal-edged blocks
-        `U+1FB3C..1FB67` and negative diagonals `U+1FBBD..1FBBF` (need a general
-        antialiased polygon filler).
-- [ ] Add a general antialiased polygon filler before claiming geometric
-      rendering for diagonal-edged Symbols for Legacy Computing
-      (`U+1FB3C..U+1FB67`, `U+1FBBD..U+1FBBF`).
+        cell geometry.
+- [x] Add a general antialiased polygon filler and render diagonal-edged
+      Symbols for Legacy Computing (`U+1FB3C..U+1FB67`) and negative diagonals
+      (`U+1FBBD..U+1FBBF`) from cell geometry, with independent area fixtures
+      and frozen pixel hashes for every previously covered glyph.
 - [x] Ship grid-preserving contextual ligatures behind a live setting
       (ASCII graphics plus a curated non-ASCII operator allowlist, with
       `calt`+`liga` on Latin/operator runs). Explicit optional `ss01`/`ss02`

@@ -420,8 +420,9 @@ one-shot actions, rate limits, expiry, and platform behavior.
   default).
 - `geometric_boxdraw = on` renders supported box-drawing, block and shade
   elements, Braille (`U+2800..=U+28FF`), all four Powerline separators, and
-  Symbols for Legacy Computing sextants and octants from cell geometry instead
-  of relying on the active font. The procedural coverage tiles each cell edge
+  Symbols for Legacy Computing sextants, octants, diagonal-edged blocks
+  (`U+1FB3C..U+1FB67`), and negative diagonals (`U+1FBBD..U+1FBBF`) from cell
+  geometry instead of relying on the active font. The procedural coverage tiles each cell edge
   exactly, so TUI borders and prompt separators stay seamless at any selected
   font or size. `box_thickness` adjusts the line weight without changing cell
   placement.

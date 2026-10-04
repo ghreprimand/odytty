@@ -31,13 +31,20 @@
 //!   outline variants used by powerline / starship-style prompts.
 //! - **Symbols for Legacy Computing**: sextants `U+1FB00..=U+1FB3B`, octants
 //!   `U+1CD00..=U+1CDE5`, triangular blocks `U+1FB68..=U+1FB6F`, supplemental
-//!   eighth-blocks `U+1FB70..=U+1FB8F`, and seven-segment digits
-//!   `U+1FBF0..=U+1FBF9`.
+//!   eighth-blocks `U+1FB70..=U+1FB8F`, seven-segment digits
+//!   `U+1FBF0..=U+1FBF9`, and, through the general antialiased polygon
+//!   filler in `boxdraw/polygon.rs`, diagonal-edged blocks
+//!   `U+1FB3C..=U+1FB67` and negative diagonals `U+1FBBD..=U+1FBBF`.
 //!
 //! Everything else (arcs beyond the four rounded corners, the rarer technical
 //! symbols, etc.) is left to the font glyph via the fallback path.
 
 use std::sync::atomic::{AtomicU32, Ordering};
+
+mod diagonal_blocks;
+mod polygon;
+
+use diagonal_blocks::{PolygonGlyph, polygon_table, render_polygon_glyph};
 
 /// Active box-drawing stroke-thickness multiplier (BOXTHICK), bit-cast `f32` in
 /// an atomic so the pure raster path stays lock-free (mirrors the stem-darken
@@ -225,6 +232,9 @@ enum Glyph {
     /// A seven-segment display digit 0-9 (`U+1FBF0..=U+1FBF9`), as the standard
     /// `abcdefg` segment bit mask.
     SegmentedDigit(u8),
+    /// A diagonal-edged block (`U+1FB3C..=U+1FB67`) or negative diagonal
+    /// (`U+1FBBD..=U+1FBBF`), drawn by the polygon filler.
+    Polygon(PolygonGlyph),
 }
 
 // Compact aliases for the arm tables below.
@@ -270,6 +280,7 @@ pub fn coverage(ch: char, width: u32, height: u32) -> Option<Vec<u8>> {
         Glyph::Octant(mask) => render_octant(&mut canvas, mask),
         Glyph::Triangle(tri) => render_triangle(&mut canvas, tri),
         Glyph::SegmentedDigit(mask) => render_segmented_digit(&mut canvas, mask),
+        Glyph::Polygon(glyph) => render_polygon_glyph(&mut canvas, glyph),
     }
     Some(canvas.data)
 }
@@ -315,6 +326,9 @@ fn classify(ch: char) -> Option<Glyph> {
     }
     if let Some(mask) = segmented_digit_table(ch) {
         return Some(Glyph::SegmentedDigit(mask));
+    }
+    if let Some(glyph) = polygon_table(ch) {
+        return Some(Glyph::Polygon(glyph));
     }
     None
 }

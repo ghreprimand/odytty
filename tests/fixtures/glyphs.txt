@@ -152,12 +152,11 @@
 🯰 🯱 🯲 🯳 🯴 🯵 🯶 🯷 🯸 🯹
 
 # ========================================================================
-# DEFERRED — known holes (expect font fallback / tofu)
-# These Symbols for Legacy Computing ranges are NOT yet rendered
-# geometrically. With symbol_fallback on they may resolve via the bundled
-# symbols font; otherwise expect tofu. The corpus intentionally surfaces
-# them so progress is visible.
-# # Holes: U+1FB3C..U+1FB67, U+1FBBD..U+1FBBF (need an AA polygon filler)
+# Symbols for Legacy Computing: diagonal blocks and negative diagonals
+# Diagonal-edged block fills and negative diagonals, rendered
+# geometrically by an antialiased polygon filler. Each lower fill and the
+# upper fill 22 codepoints later tile into one solid cell.
+# # Covered: U+1FB3C..U+1FB67, U+1FBBD..U+1FBBF (geometric)
 # ------------------------------------------------------------------------
 # diagonal-edged blocks  (U+1FB3C..U+1FB67)
 # U+1FB3C..U+1FB4A

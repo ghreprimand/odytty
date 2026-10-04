@@ -374,10 +374,13 @@ in stored order. If the active font lacks a combining mark, OdyTTY omits that
 mark instead of drawing a tofu box over the base glyph.
 
 Supported box-drawing, block and shade elements, Braille, Powerline separators,
-and Symbols for Legacy Computing sextants and octants use OdyTTY's procedural
-cell coverage instead of font outlines. The coverage meets its cell edges
-exactly, keeping TUI borders, graphs, and prompt separators crisp and seamless
-at every font size. `geometric_boxdraw` is on by default; `box_thickness` tunes
+and Symbols for Legacy Computing sextants, octants, diagonal-edged blocks
+(`U+1FB3C..U+1FB67`), and negative diagonals (`U+1FBBD..U+1FBBF`) use OdyTTY's
+procedural cell coverage instead of font outlines. The coverage meets its cell
+edges exactly, keeping TUI borders, graphs, and prompt separators crisp and
+seamless at every font size. Diagonal edges are antialiased from the exact
+polygon area in each pixel, so a lower diagonal fill and its upper complement
+tile into one solid cell. `geometric_boxdraw` is on by default; `box_thickness` tunes
 line weight when a different visual density is preferred.
 
 Text colors are composed in linear light, with an sRGB surface preferred for

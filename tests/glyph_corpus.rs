@@ -7,10 +7,9 @@
 //!    real shell history, local paths, hostnames, emails, or IP addresses. It
 //!    must be fully synthetic Unicode plus short labels.
 //! 2. **Coverage claims** — every codepoint in a range the corpus advertises as
-//!    "rendered geometrically" must satisfy [`odytty::boxdraw::covers`], and
-//!    every documented hole must not. This ties the eyeball fixture to the
-//!    implementation: a regression (a range silently losing geometric coverage,
-//!    or a hole being silently closed without updating the label) is caught.
+//!    "rendered geometrically" must satisfy [`odytty::boxdraw::covers`] and
+//!    produce a bitmap. This ties the eyeball fixture to the implementation: a
+//!    range silently losing geometric coverage is caught.
 //! 3. **Structure** — all expected sections are present, so a truncated or stale
 //!    regeneration is detected.
 
@@ -28,7 +27,7 @@ const EXPECTED_SECTIONS: &[&str] = &[
     "octants",
     "triangular blocks",
     "eighth strips",
-    "DEFERRED — known holes",
+    "diagonal blocks and negative diagonals",
     "Powerline symbols",
     "Nerd Font PUA samples",
     "CJK wide text",
@@ -47,13 +46,8 @@ const COVERED_RANGES: &[(u32, u32)] = &[
     (0x1FB82, 0x1FB8B), // upper/right eighth ladders
     (0x1FB8C, 0x1FB8F), // half-shades
     (0x1FBF0, 0x1FBF9), // segmented digits 0-9
-];
-
-/// Documented holes. None of these may be geometrically covered yet; the corpus
-/// deliberately surfaces them so the gap stays visible.
-const HOLE_RANGES: &[(u32, u32)] = &[
-    (0x1FB3C, 0x1FB67), // diagonal-edged blocks (need an AA polygon filler)
-    (0x1FBBD, 0x1FBBF), // negative diagonals (need an AA polygon filler)
+    (0x1FB3C, 0x1FB67), // diagonal-edged blocks (polygon filler)
+    (0x1FBBD, 0x1FBBF), // negative diagonals (polygon filler)
 ];
 
 #[test]
@@ -138,20 +132,6 @@ fn advertised_geometric_ranges_are_actually_covered() {
             assert!(
                 boxdraw::coverage(ch, 9, 18).is_some(),
                 "U+{cp:04X} is covered but produced no coverage bitmap"
-            );
-        }
-    }
-}
-
-#[test]
-fn documented_holes_remain_uncovered() {
-    for &(lo, hi) in HOLE_RANGES {
-        for cp in lo..=hi {
-            let ch = char::from_u32(cp).expect("valid codepoint");
-            assert!(
-                !boxdraw::covers(ch),
-                "U+{cp:04X} is now geometrically covered; if intended, move it out \
-                 of the DEFERRED section in the fixture and out of HOLE_RANGES"
             );
         }
     }
