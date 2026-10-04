@@ -748,12 +748,16 @@ process can be a receiver. Closing a receiver pane, or its window, removes it.
 The focused pane shows `BROADCAST n` at its top-right while the set is
 non-empty, followed by ` hidden m` when m receivers are not on screen (another
 tab, workspace, or window, or behind a zoomed or stacked pane) and ` remote k` when k
-receivers are SSH or attached sessions. Every other visible receiver shows
-`RECV`. Narrow panes show a compact form such as `BC 3 h1 r1`. The labels sit
-beside a `READ-ONLY` label when both apply.
+receivers are SSH or attached sessions. When the focused pane is the only
+receiver, so typing reaches no other pane, it shows `BROADCAST this pane only`
+instead (compact `BC self`); a single receiver that is another pane still shows
+`BROADCAST 1`. Every other visible receiver shows `RECV`. Narrow panes show a
+compact form such as `BC 3 h1 r1`. The labels sit beside a `READ-ONLY` label
+when both apply.
 
 Pasting text that contains a line break always opens a confirmation that names
-the receiver, hidden, and remote counts. **Paste** sends it to every pane;
+the receiver, hidden, and remote counts, or reads `Broadcast to this pane
+only.` when the focused pane is the only receiver. **Paste** sends it to every pane;
 **Cancel** or `Esc` sends nothing to any pane, the focused pane included. Each
 receiver frames the paste for its own bracketed-paste mode. A single line goes
 out without asking unless the usual suspicious-paste check would ask for the

@@ -155,13 +155,33 @@ pub(in crate::native) struct BroadcastSummary {
     pub(in crate::native) hidden: usize,
     /// Receivers whose bytes leave the machine.
     pub(in crate::native) remote: usize,
+    /// The focused pane is the only receiver, so nothing fans out: the label
+    /// and the paste confirmation say so instead of a count of one.
+    pub(in crate::native) self_only: bool,
 }
+
+/// Wide label when the focused pane is the only receiver.
+const SELF_ONLY_LABEL: &str = "BROADCAST this pane only";
+
+/// Compact label when the focused pane is the only receiver.
+const SELF_ONLY_COMPACT_LABEL: &str = "BC self";
 
 impl BroadcastSummary {
     /// The label texts from widest to narrowest: `BROADCAST n` with ` hidden m`
     /// and ` remote k` when they are non-zero, then a compact form that keeps
-    /// every count. ASCII so every font renders it.
+    /// every count. When the focused pane is the only receiver the texts read
+    /// `BROADCAST this pane only` and `BC self` instead: no other pane gets
+    /// the input, and that pane is visible, so there is no hidden count, and
+    /// no remote count because nothing leaves through broadcast. ASCII so
+    /// every font renders it.
     pub(in crate::native) fn label_candidates(&self) -> [String; 3] {
+        if self.self_only {
+            return [
+                format!(" {SELF_ONLY_LABEL} "),
+                SELF_ONLY_LABEL.to_owned(),
+                SELF_ONLY_COMPACT_LABEL.to_owned(),
+            ];
+        }
         let mut full = format!("BROADCAST {}", self.receivers);
         let mut compact = format!("BC {}", self.receivers);
         if self.hidden > 0 {
@@ -177,6 +197,9 @@ impl BroadcastSummary {
 
     /// One sentence for the paste confirmation.
     pub(in crate::native) fn confirm_line(&self) -> String {
+        if self.self_only {
+            return "Broadcast to this pane only.".to_owned();
+        }
         let panes = if self.receivers == 1 { "pane" } else { "panes" };
         format!(
             "Broadcast to {} {panes}: {} hidden, {} remote.",
@@ -209,6 +232,7 @@ mod tests {
             receivers: 3,
             hidden: 1,
             remote: 2,
+            self_only: false,
         };
         let [padded, full, compact] = summary.label_candidates();
         assert_eq!(full, "BROADCAST 3 hidden 1 remote 2");
@@ -219,5 +243,34 @@ mod tests {
             ..BroadcastSummary::default()
         };
         assert_eq!(plain.label_candidates()[1], "BROADCAST 2");
+    }
+
+    #[test]
+    fn a_set_holding_only_the_focused_pane_says_so_instead_of_a_count() {
+        let summary = BroadcastSummary {
+            receivers: 1,
+            self_only: true,
+            ..BroadcastSummary::default()
+        };
+        assert_eq!(
+            summary.label_candidates(),
+            [
+                " BROADCAST this pane only ".to_owned(),
+                "BROADCAST this pane only".to_owned(),
+                "BC self".to_owned(),
+            ]
+        );
+        assert_eq!(summary.confirm_line(), "Broadcast to this pane only.");
+
+        // One receiver that is another pane keeps the count.
+        let other = BroadcastSummary {
+            receivers: 1,
+            ..BroadcastSummary::default()
+        };
+        assert_eq!(other.label_candidates()[1], "BROADCAST 1");
+        assert_eq!(
+            other.confirm_line(),
+            "Broadcast to 1 pane: 0 hidden, 0 remote."
+        );
     }
 }

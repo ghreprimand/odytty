@@ -466,6 +466,7 @@ fn hidden_and_remote_receivers_are_counted() {
             receivers: 2,
             hidden: 1,
             remote: 1,
+            self_only: false,
         }
     );
     app.focus_session_token_for_test(first_token);
@@ -475,6 +476,7 @@ fn hidden_and_remote_receivers_are_counted() {
             receivers: 2,
             hidden: 1,
             remote: 1,
+            self_only: false,
         },
         "from the first tab the remote pane is the hidden one"
     );
@@ -544,6 +546,7 @@ fn the_label_joins_the_render_signature_through_the_real_input_path() {
             receivers: 1,
             hidden: 0,
             remote: 0,
+            self_only: false,
         }
     );
     assert_eq!(
@@ -554,6 +557,118 @@ fn the_label_joins_the_render_signature_through_the_real_input_path() {
     press_ctrl_shift_x(&mut app);
     assert_eq!(app.broadcast_overlay_signature(), OverlayFragment::Inert);
     assert_eq!(app.broadcast_label_for(second_token, false), None);
+}
+
+#[test]
+fn a_set_holding_only_the_focused_pane_says_this_pane_only_through_the_real_input_path() {
+    use crate::native::render_helpers::OverlayFragment;
+    let (mut app, _terminal, first) = app();
+    let first_token = app.active_session_token_for_test();
+    let (second_token, second) = recorded_split(&mut app);
+    app.focus_session_token_for_test(first_token);
+
+    // Toggle the focused pane alone through the production palette action.
+    app.handle_palette_action_for_test("toggle-broadcast");
+    assert!(app.is_broadcast_receiver(first_token));
+    let self_only = app.broadcast_overlay_signature();
+    assert_eq!(
+        self_only,
+        OverlayFragment::Broadcast {
+            receivers: 1,
+            hidden: 0,
+            remote: 0,
+            self_only: true,
+        }
+    );
+    let label = app.broadcast_label_for(first_token, true);
+    let mut snapshot = Terminal::new(80, 4).snapshot();
+    paint_broadcast_label(&mut snapshot, label.as_ref(), false);
+    assert!(
+        label_row(&snapshot).ends_with(" BROADCAST this pane only  "),
+        "{:?}",
+        label_row(&snapshot)
+    );
+    assert!(!label_row(&snapshot).contains("BROADCAST 1"));
+
+    // Nothing fans out, and a multi-line paste still asks first.
+    type_char(&mut app, 'a');
+    assert_eq!(bytes(&first), b"a");
+    assert!(bytes(&second).is_empty());
+    app.inject_paste_text_for_test("echo one\necho two\n");
+    app.handle_paste_shortcut_for_test();
+    assert!(app.risky_paste_pending_for_test());
+    let rendered = app.render_overlay_rows_for_test(100, 30).join("\n");
+    assert!(
+        rendered.contains("Broadcast to this pane only."),
+        "{rendered}"
+    );
+    app.cancel_risky_paste_for_test();
+
+    // Seen from the other pane the same set is one other receiver.
+    app.focus_session_token_for_test(second_token);
+    let from_other = app.broadcast_overlay_signature();
+    assert_ne!(from_other, self_only, "the label change re-keys the frame");
+    let mut snapshot = Terminal::new(80, 4).snapshot();
+    paint_broadcast_label(
+        &mut snapshot,
+        app.broadcast_label_for(second_token, true).as_ref(),
+        false,
+    );
+    assert!(
+        label_row(&snapshot).ends_with(" BROADCAST 1  "),
+        "{:?}",
+        label_row(&snapshot)
+    );
+    assert_eq!(
+        app.broadcast_label_for(first_token, false),
+        Some(BroadcastLabel::Receiver)
+    );
+
+    // A second receiver restores the count; removing it returns to self-only.
+    app.focus_session_token_for_test(first_token);
+    add_receiver(&mut app, second_token);
+    assert!(!app.broadcast_summary().self_only);
+    assert_eq!(app.broadcast_summary().receivers, 2);
+    app.focus_session_token_for_test(second_token);
+    app.handle_palette_action_for_test("toggle-broadcast");
+    app.focus_session_token_for_test(first_token);
+    assert_eq!(app.broadcast_overlay_signature(), self_only);
+}
+
+#[test]
+fn the_self_only_label_falls_back_on_narrow_panes() {
+    let summary = BroadcastSummary {
+        receivers: 1,
+        self_only: true,
+        ..BroadcastSummary::default()
+    };
+    let label = BroadcastLabel::Summary(summary);
+    let mut terminal = Terminal::new(14, 4);
+    let mut narrow = terminal.snapshot();
+    paint_broadcast_label(&mut narrow, Some(&label), false);
+    assert!(
+        label_row(&narrow).ends_with("BC self "),
+        "{:?}",
+        label_row(&narrow)
+    );
+
+    // Beside a READ-ONLY label the wide text still fits a normal pane.
+    terminal.resize(60, 4);
+    let mut snapshot = terminal.snapshot();
+    crate::native::app::read_only::paint_read_only_label(&mut snapshot, true);
+    paint_broadcast_label(&mut snapshot, Some(&label), true);
+    assert!(
+        label_row(&snapshot).ends_with(" BROADCAST this pane only  READ-ONLY  "),
+        "{:?}",
+        label_row(&snapshot)
+    );
+
+    // Too narrow for every candidate: untouched.
+    terminal.resize(7, 4);
+    let mut tiny = terminal.snapshot();
+    let before = label_row(&tiny);
+    paint_broadcast_label(&mut tiny, Some(&label), false);
+    assert_eq!(label_row(&tiny), before);
 }
 
 fn label_row(snapshot: &crate::core::Snapshot) -> String {
@@ -569,6 +684,7 @@ fn labels_paint_beside_read_only_and_fall_back_on_narrow_panes() {
         receivers: 3,
         hidden: 1,
         remote: 1,
+        self_only: false,
     };
     let mut terminal = Terminal::new(60, 4);
     let mut snapshot = terminal.snapshot();
@@ -690,6 +806,7 @@ fn phase9_mixed_local_remote_hidden_receivers_encode_their_own_paste_modes() {
             receivers: 2,
             hidden: 1,
             remote: 1,
+            self_only: false,
         }
     );
 
@@ -744,6 +861,7 @@ fn phase9_stacked_hidden_receiver_is_rechecked_before_paste_confirmation() {
             receivers: 1,
             hidden: 1,
             remote: 0,
+            self_only: false,
         }
     );
     type_char(&mut app, 's');

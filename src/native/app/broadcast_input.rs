@@ -22,8 +22,9 @@
 //!   fails is removed with a one-line notice naming its title; the rest still
 //!   receive.
 //! - **Disclosure.** While the set is non-empty the focused pane shows
-//!   `BROADCAST n` (plus ` hidden m` and ` remote k` when non-zero) and every
-//!   other visible receiver shows `RECV`, at the pane's top-right beside any
+//!   `BROADCAST n` (plus ` hidden m` and ` remote k` when non-zero), or
+//!   `BROADCAST this pane only` when it is the only receiver, and every other
+//!   visible receiver shows `RECV`, at the pane's top-right beside any
 //!   `READ-ONLY` label. Both labels join the render signature.
 //!
 //! Platform-neutral: the same model, chord, and labels apply on Linux
@@ -101,10 +102,14 @@ impl App {
     }
 
     /// The counts the label and the paste confirmation disclose. A receiver is
-    /// hidden when it is not a visible pane of this window's current tab.
+    /// hidden when it is not a visible pane of this window's current tab. The
+    /// summary is self-only when this window's focused pane is the only
+    /// receiver.
     pub(in crate::native) fn broadcast_summary(&self) -> BroadcastSummary {
         let receivers = self.live_broadcast_receivers();
+        let focused = self.sessions.active_id();
         BroadcastSummary {
+            self_only: matches!(receivers.as_slice(), [(token, _)] if *token == focused),
             receivers: receivers.len(),
             hidden: receivers
                 .iter()
@@ -349,6 +354,7 @@ impl App {
                 receivers: summary.receivers,
                 hidden: summary.hidden,
                 remote: summary.remote,
+                self_only: summary.self_only,
             }
         }
     }

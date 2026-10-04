@@ -258,6 +258,7 @@ pub(super) enum OverlayFragment {
         receivers: usize,
         hidden: usize,
         remote: usize,
+        self_only: bool,
     },
     /// Persistent `SECURE INPUT` label. `Inert` unless this window holds the
     /// macOS primitive, so the default path stays a frame-to-frame constant.

@@ -1317,7 +1317,8 @@ scope rather than silently inheriting deferred work from a prior release.
   owner after each event; a receiver whose pane no window owns is dropped.
   Mouse reports, focus reports, resize, and click-to-position stay on the
   focused pane, and automation has no send-text action. The focused pane
-  paints `BROADCAST n` (plus ` hidden m` / ` remote k`) and other visible
+  paints `BROADCAST n` (plus ` hidden m` / ` remote k`), or
+  `BROADCAST this pane only` when it is the only receiver, and other visible
   receivers paint `RECV`; both are keyed into the frame cache.
 - Scrollback export (v0.16.0): two palette actions, also rows of the terminal
   right-click menu, save the focused pane's
