@@ -40,6 +40,8 @@ pub const BOX_THICKNESS_ENV: &str = "ODYTTY_BOX_THICKNESS";
 pub const LIGATURES_ENV: &str = "ODYTTY_LIGATURES";
 pub const LIGATURE_SS01_ENV: &str = "ODYTTY_LIGATURE_SS01";
 pub const LIGATURE_SS02_ENV: &str = "ODYTTY_LIGATURE_SS02";
+/// Alternate zero (`font_zero`): the body font's OpenType `zero` feature.
+pub const FONT_ZERO_ENV: &str = "ODYTTY_FONT_ZERO";
 pub const KITTY_NAMED_TRANSPORTS_ENV: &str = "ODYTTY_KITTY_NAMED_TRANSPORTS";
 /// Process-wide secure keyboard entry. Honored on macOS only. On Windows and
 /// Linux the key is accepted and ignored.
@@ -199,6 +201,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     LIGATURES_ENV,
     LIGATURE_SS01_ENV,
     LIGATURE_SS02_ENV,
+    FONT_ZERO_ENV,
     KITTY_NAMED_TRANSPORTS_ENV,
     SECURE_KEYBOARD_INPUT_ENV,
     KEYBINDS_ENV,
@@ -754,6 +757,12 @@ pub const DEFAULT_LIGATURE_SS01: bool = false;
 /// default; only applies while programming ligatures are enabled. No other
 /// `ssXX` tags are exposed.
 pub const DEFAULT_LIGATURE_SS02: bool = false;
+
+/// Alternate zero (`ODYTTY_FONT_ZERO`): applies the body font's OpenType `zero`
+/// feature (a slashed or dotted zero, as the face designs it) to `0`. Off by
+/// default. Independent of the ligature switch. A face without a `zero`
+/// lookup renders unchanged, and cell width, height, and baseline never move.
+pub const DEFAULT_FONT_ZERO: bool = false;
 
 /// Themed window border (`ODYTTY_WINDOW_BORDER`, ID4): when on, a thin border in
 /// the theme `border` role color is drawn around the grid, framing the terminal

@@ -46,6 +46,11 @@ use skrifa::outline::{DrawSettings, OutlinePen};
 pub struct FontHandle {
     bytes: Vec<u8>,
     index: u32,
+    /// The glyph the face's OpenType `zero` feature substitutes for `'0'`,
+    /// when the alternate-zero legibility control is on and the face carries
+    /// such a lookup (see [`Self::with_zero_feature`]). `None` maps `'0'`
+    /// through the cmap exactly as before.
+    zero_glyph: Option<GlyphId>,
 }
 
 impl std::fmt::Debug for FontHandle {
@@ -53,6 +58,7 @@ impl std::fmt::Debug for FontHandle {
         f.debug_struct("FontHandle")
             .field("len", &self.bytes.len())
             .field("index", &self.index)
+            .field("zero_glyph", &self.zero_glyph)
             .finish()
     }
 }
@@ -71,7 +77,36 @@ impl FontHandle {
     /// Parse and validate a specific face index from owned bytes.
     pub fn from_vec_and_index(bytes: Vec<u8>, index: u32) -> Result<Self, FontParseError> {
         skrifa::FontRef::from_index(&bytes, index).map_err(|_| FontParseError)?;
-        Ok(Self { bytes, index })
+        Ok(Self {
+            bytes,
+            index,
+            zero_glyph: None,
+        })
+    }
+
+    /// Apply or clear the OpenType `zero` feature (slashed or dotted zero) for
+    /// `'0'` on this face.
+    ///
+    /// When `enabled`, the face's `zero` substitution for a lone `'0'` is
+    /// resolved once through the shaper and [`Self::glyph_id`] returns that
+    /// glyph for `'0'` from then on, so the scalar atlas path draws it. A face
+    /// without a `zero` lookup (or whose lookup leaves `'0'` unchanged) keeps
+    /// its cmap glyph, so it renders exactly as with the control off. Cell
+    /// metrics never read `'0'` (width comes from `'M'`, height and baseline
+    /// from the face's ascent and descent), so they are unchanged either way.
+    #[must_use]
+    pub fn with_zero_feature(mut self, enabled: bool) -> Self {
+        self.zero_glyph = if enabled {
+            resolve_zero_alternate(&self.bytes, self.index, self.cmap_glyph_id('0'))
+        } else {
+            None
+        };
+        self
+    }
+
+    /// Whether [`Self::with_zero_feature`] found a `zero` alternate for `'0'`.
+    pub fn has_zero_alternate(&self) -> bool {
+        self.zero_glyph.is_some()
     }
 
     /// The exact font bytes this handle was built from, unchanged.
@@ -94,7 +129,18 @@ impl FontHandle {
 
     /// The glyph id `ch` maps to, or `GlyphId(0)` (`.notdef`) when the face does
     /// not cover it, matching `ab_glyph::Font::glyph_id`.
+    /// While the `zero` control is on and the face has an alternate, `'0'`
+    /// maps to that alternate instead (see [`Self::with_zero_feature`]).
     pub fn glyph_id(&self, ch: char) -> GlyphId {
+        if ch == '0'
+            && let Some(zero) = self.zero_glyph
+        {
+            return zero;
+        }
+        self.cmap_glyph_id(ch)
+    }
+
+    fn cmap_glyph_id(&self, ch: char) -> GlyphId {
         let font = self.font_ref();
         let gid = font.charmap().map(ch).unwrap_or(skrifa::GlyphId::NOTDEF);
         GlyphId(u16::try_from(gid.to_u32()).unwrap_or(0))
@@ -189,6 +235,35 @@ impl FontHandle {
             curves: builder.curves,
             bounds,
         })
+    }
+}
+
+/// The glyph a face's `zero` feature substitutes for a lone `'0'`, or `None`
+/// when the face has no such lookup, the lookup leaves `'0'` unchanged, or the
+/// result is not a single real glyph. The GSUB walk is the same `swash` shaper
+/// the ligature path already runs over these bytes; only a one-glyph,
+/// non-`.notdef` result different from the cmap glyph is accepted.
+fn resolve_zero_alternate(bytes: &[u8], index: u32, cmap_zero: GlyphId) -> Option<GlyphId> {
+    use swash::shape::{Direction, ShapeContext};
+    use swash::text::Script;
+
+    if cmap_zero.0 == 0 {
+        return None;
+    }
+    let font = swash::FontRef::from_index(bytes, usize::try_from(index).ok()?)?;
+    let mut context = ShapeContext::new();
+    let mut shaper = context
+        .builder(font)
+        .script(Script::Latin)
+        .direction(Direction::LeftToRight)
+        .features([("zero", 1_u16)])
+        .build();
+    shaper.add_str("0");
+    let mut glyphs = Vec::new();
+    shaper.shape_with(|cluster| glyphs.extend(cluster.glyphs.iter().map(|glyph| glyph.id)));
+    match glyphs.as_slice() {
+        [id] if *id != 0 && *id != cmap_zero.0 => Some(GlyphId(*id)),
+        _ => None,
     }
 }
 

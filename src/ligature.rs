@@ -50,7 +50,9 @@
 //! Latin/operator runs enable OpenType `calt` and `liga` together; optional
 //! stylistic sets `ss01` and `ss02` are off by default and gated by
 //! [`LatinShapingFeatures`]. Open-ended `ssXX` beyond those two tags is out of
-//! scope.
+//! scope. The alternate-zero control (`zero`) rides the same struct but is
+//! applied equally to both shaping passes, so it never creates an overlay; it
+//! only keeps a `0` inside a substituted span consistent with the scalar `0`.
 
 use std::collections::{HashMap, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
@@ -64,6 +66,8 @@ use swash::{FontRef, GlyphId};
 
 #[cfg(test)]
 mod bidi;
+#[cfg(test)]
+mod zero_tests;
 
 use crate::atlas::{FontStyle, ShapedGlyphKey};
 use crate::core::{Cell, Snapshot};
@@ -166,20 +170,33 @@ fn shaping_kind(ch: char) -> Option<ShapingKind> {
 pub struct LatinShapingFeatures {
     pub ss01: bool,
     pub ss02: bool,
+    /// The alternate-zero control. Unlike the stylistic sets it is set to the
+    /// same value in both the plain and the contextual shaping pass, so it
+    /// never creates an overlay of its own: a lone `0` keeps drawing through
+    /// the scalar atlas path (whose face already maps `0` to the alternate),
+    /// and a `0` inside a substituted span is shaped with the same alternate.
+    pub zero: bool,
 }
 
 impl LatinShapingFeatures {
-    fn on_tags(self) -> [(&'static str, u16); 4] {
+    fn on_tags(self) -> [(&'static str, u16); 5] {
         [
             ("calt", 1),
             ("liga", 1),
             ("ss01", u16::from(self.ss01)),
             ("ss02", u16::from(self.ss02)),
+            ("zero", u16::from(self.zero)),
         ]
     }
 
-    fn off_tags(self) -> [(&'static str, u16); 4] {
-        [("calt", 0), ("liga", 0), ("ss01", 0), ("ss02", 0)]
+    fn off_tags(self) -> [(&'static str, u16); 5] {
+        [
+            ("calt", 0),
+            ("liga", 0),
+            ("ss01", 0),
+            ("ss02", 0),
+            ("zero", u16::from(self.zero)),
+        ]
     }
 }
 
@@ -1099,7 +1116,7 @@ mod tests {
             &[],
             LatinShapingFeatures {
                 ss01: true,
-                ss02: false,
+                ..LatinShapingFeatures::default()
             },
         );
         // Feature change must not reuse plans shaped under ss01=off.
@@ -1115,7 +1132,7 @@ mod tests {
             &[],
             LatinShapingFeatures {
                 ss01: true,
-                ss02: false,
+                ..LatinShapingFeatures::default()
             },
         );
         assert_eq!(shaper.shape_calls(), warm, "same features must hit cache");
@@ -1129,19 +1146,38 @@ mod tests {
         let features = LatinShapingFeatures::default();
         assert_eq!(
             features.on_tags(),
-            [("calt", 1), ("liga", 1), ("ss01", 0), ("ss02", 0)]
+            [
+                ("calt", 1),
+                ("liga", 1),
+                ("ss01", 0),
+                ("ss02", 0),
+                ("zero", 0)
+            ]
         );
         assert_eq!(
             features.off_tags(),
-            [("calt", 0), ("liga", 0), ("ss01", 0), ("ss02", 0)]
+            [
+                ("calt", 0),
+                ("liga", 0),
+                ("ss01", 0),
+                ("ss02", 0),
+                ("zero", 0)
+            ]
         );
         let with_sets = LatinShapingFeatures {
             ss01: true,
             ss02: true,
+            zero: false,
         };
         assert_eq!(
             with_sets.on_tags(),
-            [("calt", 1), ("liga", 1), ("ss01", 1), ("ss02", 1)]
+            [
+                ("calt", 1),
+                ("liga", 1),
+                ("ss01", 1),
+                ("ss02", 1),
+                ("zero", 0)
+            ]
         );
     }
 

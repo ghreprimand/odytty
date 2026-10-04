@@ -38,12 +38,13 @@ use super::{
     WORKSPACE_RAIL_WIDTH_ENV, normalize_name,
 };
 use super::{
-    BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
-    INTERACTIVE_PATHS_EDITOR_ENV, INTERACTIVE_PATHS_ENV, INTERACTIVE_PATHS_IMAGE_INLINE_ENV,
-    INTERACTIVE_URLS_ENV, KITTY_NAMED_TRANSPORTS_ENV, LIGATURE_SS01_ENV, LIGATURE_SS02_ENV,
-    LIGATURES_ENV, LINE_HEIGHT_ENV, NAVIGATOR_PREVIEW_ENV, REMOTE_IMAGE_PASTE_ENV,
-    REMOTE_INTEGRATION_ENV, REMOTE_PERSIST_ENV, REMOTE_REUSE_ENV, REMOTE_TMUX_ENV,
-    SECURE_KEYBOARD_INPUT_ENV, SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV, WARN_ON_RISKY_PASTE_ENV,
+    BOX_THICKNESS_ENV, FONT_ZERO_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV,
+    INTERACTIVE_PATHS_CLICK_HINT_ENV, INTERACTIVE_PATHS_EDITOR_ENV, INTERACTIVE_PATHS_ENV,
+    INTERACTIVE_PATHS_IMAGE_INLINE_ENV, INTERACTIVE_URLS_ENV, KITTY_NAMED_TRANSPORTS_ENV,
+    LIGATURE_SS01_ENV, LIGATURE_SS02_ENV, LIGATURES_ENV, LINE_HEIGHT_ENV, NAVIGATOR_PREVIEW_ENV,
+    REMOTE_IMAGE_PASTE_ENV, REMOTE_INTEGRATION_ENV, REMOTE_PERSIST_ENV, REMOTE_REUSE_ENV,
+    REMOTE_TMUX_ENV, SECURE_KEYBOARD_INPUT_ENV, SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV,
+    WARN_ON_RISKY_PASTE_ENV,
 };
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ConfigValues {
@@ -286,6 +287,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "ligatures" | "programmingligatures" | "calt" => Some(LIGATURES_ENV),
         "ligaturesss01" | "ss01" | "stylisticset01" => Some(LIGATURE_SS01_ENV),
         "ligaturesss02" | "ss02" | "stylisticset02" => Some(LIGATURE_SS02_ENV),
+        "fontzero" | "zero" | "alternatezero" => Some(FONT_ZERO_ENV),
         "kittynamedtransports" | "kittyfiletransports" | "kittysharedmemory" => {
             Some(KITTY_NAMED_TRANSPORTS_ENV)
         }
@@ -458,6 +460,7 @@ pub(crate) fn env_to_config_key(env: &str) -> Option<&'static str> {
         LIGATURES_ENV => Some("ligatures"),
         LIGATURE_SS01_ENV => Some("ss01"),
         LIGATURE_SS02_ENV => Some("ss02"),
+        FONT_ZERO_ENV => Some("font_zero"),
         KITTY_NAMED_TRANSPORTS_ENV => Some("kitty_named_transports"),
         SECURE_KEYBOARD_INPUT_ENV => Some("secure_keyboard_input"),
         KEYBINDS_ENV => Some("keybinds"),

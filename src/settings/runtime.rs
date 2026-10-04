@@ -87,6 +87,19 @@ pub fn ligature_ss02_enabled() -> bool {
     LIGATURE_SS02_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Alternate zero: the body font's OpenType `zero` feature for `0`. Off by
+/// default; independent of the ligature switch.
+static FONT_ZERO_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(DEFAULT_FONT_ZERO);
+
+pub fn set_font_zero_enabled(enabled: bool) {
+    FONT_ZERO_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn font_zero_enabled() -> bool {
+    FONT_ZERO_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Runtime flag mirroring [`Settings::symbol_fallback`], published
 /// process-wide so the GPU renderer can rebuild the glyph atlas when live
 /// settings enable or disable the RV6 symbol / Nerd-font fallback. Defaults to

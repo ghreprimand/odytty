@@ -80,10 +80,10 @@ pub mod theme_author;
 /// republish, audited from that seam outward rather than from the list of
 /// globals tests happen to set today: the contrast floor, the default
 /// foreground/background and ANSI palette, the stem-darkening gain, the
-/// box-drawing thickness multiplier, and the six atlas/shaping switches the
+/// box-drawing thickness multiplier, and the atlas/shaping switches the
 /// reload helper publishes (synthetic styles, geometric box drawing,
-/// ligatures, optional ss01/ss02, symbol fallback, symbol font path, symbol
-/// map). A global that is
+/// ligatures, optional ss01/ss02, alternate zero, symbol fallback, symbol font
+/// path, symbol map). A global that is
 /// only latent today still belongs here: the cost of snapshotting one more
 /// value is trivial next to a leak that surfaces as an unrelated test failing
 /// on someone else's machine. Extend this struct, never add a second lock.
@@ -121,6 +121,7 @@ pub(crate) mod test_lock {
         ligatures: bool,
         ligature_ss01: bool,
         ligature_ss02: bool,
+        font_zero: bool,
         symbol_fallback: bool,
         symbol_font: Option<std::path::PathBuf>,
         symbol_map: crate::text::SymbolMap,
@@ -138,6 +139,7 @@ pub(crate) mod test_lock {
                 ligatures: crate::settings::ligatures_enabled(),
                 ligature_ss01: crate::settings::ligature_ss01_enabled(),
                 ligature_ss02: crate::settings::ligature_ss02_enabled(),
+                font_zero: crate::settings::font_zero_enabled(),
                 symbol_fallback: crate::settings::symbol_fallback_enabled(),
                 symbol_font: crate::settings::symbol_font_path(),
                 symbol_map: crate::settings::symbol_map(),
@@ -155,6 +157,7 @@ pub(crate) mod test_lock {
             crate::settings::set_ligatures_enabled(self.ligatures);
             crate::settings::set_ligature_ss01_enabled(self.ligature_ss01);
             crate::settings::set_ligature_ss02_enabled(self.ligature_ss02);
+            crate::settings::set_font_zero_enabled(self.font_zero);
             crate::settings::set_symbol_fallback_enabled(self.symbol_fallback);
             crate::settings::set_symbol_font_path(self.symbol_font.clone());
             // The map slot starts as `None` and its only reader resolves that to
@@ -353,6 +356,7 @@ pub(crate) mod test_lock {
             crate::settings::set_ligatures_enabled(!crate::settings::ligatures_enabled());
             crate::settings::set_ligature_ss01_enabled(true);
             crate::settings::set_ligature_ss02_enabled(true);
+            crate::settings::set_font_zero_enabled(true);
             crate::settings::set_symbol_fallback_enabled(false);
             crate::settings::set_symbol_font_path(Some(std::path::PathBuf::from("probe.ttf")));
             crate::settings::set_symbol_map(probe_symbol_map());

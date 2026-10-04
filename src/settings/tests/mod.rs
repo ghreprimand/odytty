@@ -28,6 +28,7 @@ mod automation;
 /// hand-restore a baseline: restoration now happens on every exit path,
 /// including a panicking one.
 mod cursor;
+mod font_zero;
 mod info;
 mod keybinds;
 mod kitty;

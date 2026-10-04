@@ -309,6 +309,7 @@ and clears after one bounded delay without animation.
 | --- | --- |
 | Font sources | Bundled families, system families, and direct font files |
 | Styling | Font-weight variants, synthetic styles, and subpixel antialiasing |
+| Legibility | Optional off-by-default alternate zero (the font's OpenType `zero` feature); no other font features are exposed |
 | Programming ligatures | Default-on `calt`+`liga` for ASCII plus a curated non-ASCII operator allowlist; optional off-by-default `ss01`/`ss02`; Arabic joining forms in logical LTR cell order; grid-aligned source cells |
 | Fallback | Per-range symbol maps and bundled Nerd Font v3/v2 faces |
 | Readability | Linear-light color composition, glyph coverage gamma, stem darkening, and minimum-contrast enforcement |
@@ -345,11 +346,27 @@ render through the normal per-cell path. Set `ligatures = off` in Settings or
 configuration, or `ODYTTY_LIGATURES=off` for one launch, to restore scalar
 rendering; the setting reloads live.
 
+The alternate zero is a separate legibility control. `font_zero = on`
+(Settings > Fonts > Alternate zero, reachable from the right-click menu's
+Settings item; or `ODYTTY_FONT_ZERO=on`) draws `0` with the body font's
+OpenType `zero` feature, a slashed or dotted zero as that font designs it. It
+is off by default and reloads live. It applies to the regular, bold, italic,
+and bold-italic faces, with ligatures on or off. A `0` drawn on its own uses
+the alternate glyph, and contextual shaping runs apply the same feature, so a
+`0` never differs between the two paths and the setting never creates or
+removes a ligature. Fonts without a `zero` substitution, including the
+default bundled Victor Mono, render unchanged; bundled JetBrains Mono provides
+one. Cell width, cell height, and the baseline never change, because cell
+metrics come from `M` and the face's ascent and descent rather than from `0`.
+Glyphs drawn from symbol-fallback, symbol-map, or color emoji faces are
+unaffected. Stylistic sets other than `ss01`/`ss02` and raw OpenType feature
+tags are not exposed.
+
 The support boundary is explicit:
 
 | Surface | Current support | Standing position |
 | --- | --- | --- |
-| Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, and opt-in `ss01`/`ss02` overlays | More curated operators and bounded, explicit font-feature settings are candidates within the current overlay model |
+| Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order; combining-marked cells stay on the monochrome path | More joining-script coverage that requires no visual reordering is a candidate; this is not bidirectional layout |
 | Full Unicode bidirectional layout | Not supported | Outside the current overlay model. Correct support first requires line-level logical-to-visual mapping shared by rendering, hit testing, cursor movement, selection, damage tracking, and copy semantics |
 | Complex Indic/Brahmic shaping | Not supported | Outside the current fixed-cell overlay model. Correct support requires grapheme-cluster ownership plus reordered glyph placement that remains reversible to logical cells |

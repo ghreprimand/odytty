@@ -2399,6 +2399,22 @@ so they do not split a contextual glyph outline. Each pane shapes independently
 inside its own origin and clip rectangle. This keeps the terminal grid stable
 even when the selected font lacks the requested alternates.
 
+#### Alternate Zero
+
+`font_zero` (default off) is the one named legibility font feature. When it is
+on, each body face (regular, bold, italic, bold-italic) resolves its OpenType
+`zero` substitution for a lone `0` once, through the same shaper, and maps `0`
+to that glyph for atlas rasterization and coverage. A face whose `zero`
+lookup is absent, or that yields anything other than one real glyph different
+from the cmap glyph, keeps its cmap glyph. Cell width comes from `M` and cell
+height and baseline from the face's ascent and descent, so the control never
+changes cell metrics. Contextual shaping sets `zero` to the same value in its
+plain and contextual passes, so it neither creates nor removes an overlay. A
+toggle re-derives the body faces and rebuilds the glyph atlas and shape-plan
+cache through the text-options seam. Symbol fallback, symbol-map override, and
+color-glyph faces are unaffected. Other stylistic sets beyond `ss01`/`ss02`
+and raw feature tags are not exposed.
+
 #### Wide-Glyph Wrap Padding
 
 When a two-column owner does not fit at the right edge, the generated blank

@@ -1142,6 +1142,7 @@ impl GpuState {
             crate::ligature::LatinShapingFeatures {
                 ss01: self.ligature_ss01,
                 ss02: self.ligature_ss02,
+                zero: self.font_zero,
             },
         )
     }

@@ -495,6 +495,11 @@ pub(in crate::native) struct GpuState {
     pub(super) ligature_ss01: bool,
     /// Last-applied optional OpenType `ss02` stylistic set (off by default).
     pub(super) ligature_ss02: bool,
+    /// Last-applied alternate-zero control (the body faces' OpenType `zero`
+    /// feature; off by default). The alternate glyph is baked into atlas slots
+    /// and shaped runs, so a live toggle re-derives the faces and rebuilds the
+    /// atlas and the shaper cache.
+    pub(super) font_zero: bool,
     /// Last-applied effective symbol / Nerd-font fallback switch. The setting is
     /// published process-wide and the legacy env var may override it; retaining
     /// the effective value lets live toggles rebuild the atlas.
@@ -766,7 +771,13 @@ impl GpuState {
         surface.configure(&device, &config);
 
         // --- Glyph atlas: rasterize at physical pixels for crisp HiDPI text.
+        let font_zero = crate::settings::font_zero_enabled();
         let fonts = StyleFonts::load(options)?;
+        let fonts = if font_zero {
+            fonts.with_zero_feature(true)
+        } else {
+            fonts
+        };
         let window_padding = WindowPadding::from_logical(options.window_padding_px, scale);
         let origin = [window_padding.as_f32(), window_padding.as_f32()];
         atlas::set_stem_darken(stem_darken);
@@ -880,6 +891,7 @@ impl GpuState {
             crate::ligature::LatinShapingFeatures {
                 ss01: ligature_ss01,
                 ss02: ligature_ss02,
+                zero: font_zero,
             },
         );
         for glyph in initial_ligature_runs
@@ -1123,6 +1135,7 @@ impl GpuState {
             ligatures_enabled,
             ligature_ss01,
             ligature_ss02,
+            font_zero,
             symbol_fallback_enabled,
             symbol_font_path,
             symbol_fallback,
@@ -1411,8 +1424,12 @@ impl GpuState {
         let ligatures_changed = ligatures_now != self.ligatures_enabled;
         let ss01_now = crate::settings::ligature_ss01_enabled();
         let ss02_now = crate::settings::ligature_ss02_enabled();
-        let shaping_features_changed =
-            ligatures_changed || ss01_now != self.ligature_ss01 || ss02_now != self.ligature_ss02;
+        let font_zero_now = crate::settings::font_zero_enabled();
+        let font_zero_changed = font_zero_now != self.font_zero;
+        let shaping_features_changed = ligatures_changed
+            || ss01_now != self.ligature_ss01
+            || ss02_now != self.ligature_ss02
+            || font_zero_changed;
         let symbol_fallback_now = effective_symbol_fallback_enabled();
         let symbol_font_path_now = effective_symbol_font_path();
         let symbol_fallback_changed = symbol_fallback_now != self.symbol_fallback_enabled
@@ -1448,7 +1465,10 @@ impl GpuState {
         };
 
         if let Some(fonts) = next_fonts {
+            // A freshly loaded face set carries no alternate zero yet; the
+            // block below applies the live control to it.
             self.fonts = fonts;
+            self.font_zero = false;
             self.font_path = options.font_path.clone();
             self.font_family = options.font_family.clone();
             self.font_weight = options.font_weight.clone();
@@ -1485,6 +1505,10 @@ impl GpuState {
             self.ligatures_enabled = ligatures_now;
             self.ligature_ss01 = ss01_now;
             self.ligature_ss02 = ss02_now;
+        }
+        if font_zero_now != self.font_zero {
+            self.fonts = self.fonts.with_zero_feature(font_zero_now);
+            self.font_zero = font_zero_now;
         }
         if symbol_fallback_changed {
             self.symbol_fallback_enabled = symbol_fallback_now;

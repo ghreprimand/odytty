@@ -16,6 +16,7 @@ mod stem_darken;
 mod subpixel;
 mod symbol_map;
 mod synthetic;
+mod zero;
 
 pub(super) fn test_font() -> Option<FontHandle> {
     load_font().ok()

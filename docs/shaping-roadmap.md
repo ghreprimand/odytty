@@ -48,7 +48,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 
 | Surface | Current support | Standing position |
 | --- | --- | --- |
-| Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, and opt-in `ss01`/`ss02` overlays | More curated operators and bounded, explicit font-feature settings are candidates within the current overlay model |
+| Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order; combining-marked cells stay on the monochrome path | More joining-script coverage that requires no visual reordering is a candidate; this is not bidirectional layout |
 | Full Unicode bidirectional layout | Not supported | Outside the current overlay model. Correct support first requires line-level logical-to-visual mapping shared by rendering, hit testing, cursor movement, selection, damage tracking, and copy semantics |
 | Complex Indic/Brahmic shaping | Not supported | Outside the current fixed-cell overlay model. Correct support requires grapheme-cluster ownership plus reordered glyph placement that remains reversible to logical cells |
@@ -89,6 +89,15 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
   `ODYTTY_LIGATURE_SS01` / `ODYTTY_LIGATURE_SS02`), both off by default, apply
   only while programming ligatures are enabled. No other `ssXX` tags are
   exposed.
+- **Alternate zero (`zero`).** The named legibility control `font_zero` (env
+  `ODYTTY_FONT_ZERO`), off by default, applies the body font's OpenType `zero`
+  feature with ligatures on or off. Each body face resolves its `zero`
+  substitution for `0` once when the control is applied, and the scalar atlas
+  path draws that glyph. Contextual runs set `zero` identically in both shaping
+  passes, so the control never creates an overlay and a shaped `0` matches the
+  scalar one. Cell metrics are unchanged, and a face without the feature renders
+  byte-identically, pinned by atlas fixtures on the bundled JetBrains Mono
+  (which has `zero`) and Victor Mono (which does not).
 - **Arabic contextual joining forms.** Compatible Arabic runs are shaped with
   `Script::Arabic` under **logical left-to-right cell order** (explicitly not
   bidi reordering). OpenType init/medi/fina/isol (and length-changing joining
@@ -236,9 +245,9 @@ only with differential tests proving those properties.
   combining path. This is a candidate within the overlay model, not a claim of
   current joining support for marked bases.
 - **Open-ended stylistic sets** beyond the explicit `ss01`/`ss02` settings.
-  v0.17.0 adds named, bounded legibility controls such as the OpenType `zero`
-  feature when the selected font supports them, but an unrestricted `ssXX` or
-  raw feature-tag surface stays deferred.
+  The named alternate-zero control (`font_zero`) is the only legibility
+  feature exposed; an unrestricted `ssXX` or raw feature-tag surface stays
+  deferred.
 
 ## Sequencing rationale
 

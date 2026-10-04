@@ -1507,6 +1507,7 @@ fn level1_enter_drills_and_level2_esc_backs_out() {
                 || e.key == "font_family"
                 || e.key == "font_size"
                 || e.key == "font_weight"
+                || e.key == "font_zero"
                 || e.key == "line_height"
                 || e.key == "synthetic_styles"
                 || e.key == "symbol_fallback"

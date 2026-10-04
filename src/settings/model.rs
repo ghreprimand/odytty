@@ -1013,6 +1013,11 @@ pub struct Settings {
     /// Optional OpenType stylistic set `ss02`. Off by default; applies only
     /// while [`Self::ligatures`] is on. No other `ssXX` tags are exposed.
     pub ligature_ss02: bool,
+    /// Alternate zero: the body font's OpenType `zero` feature (slashed or
+    /// dotted zero) for `0`. Off by default; independent of
+    /// [`Self::ligatures`]. Only `zero` is exposed: no stylistic sets or raw
+    /// feature tags. Cell metrics are unchanged.
+    pub font_zero: bool,
     /// Whether Kitty graphics may read file, temporary-file, and POSIX
     /// shared-memory transports named by terminal output. Off by default;
     /// direct and chunked-inline graphics remain available.
@@ -1535,6 +1540,7 @@ impl Default for Settings {
             ligatures: DEFAULT_LIGATURES,
             ligature_ss01: DEFAULT_LIGATURE_SS01,
             ligature_ss02: DEFAULT_LIGATURE_SS02,
+            font_zero: DEFAULT_FONT_ZERO,
             kitty_named_transports: false,
             secure_keyboard_input: false,
             key_bindings: Vec::new(),

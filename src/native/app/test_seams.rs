@@ -1422,6 +1422,12 @@ impl App {
         self.settings.tab_rail_autohide
     }
 
+    /// Test seam: the live `font_zero` (alternate zero) setting value.
+    #[cfg(test)]
+    pub(in crate::native) fn font_zero_setting_for_test(&self) -> bool {
+        self.settings.font_zero
+    }
+
     /// Test seam (RAIL-AUTOHIDE-CTL): center pixel of the rail's bottom-edge
     /// auto-hide toggle control this frame, or `None` when the rail (or its
     /// revealed overlay) is not present. Built from the same geometry the live

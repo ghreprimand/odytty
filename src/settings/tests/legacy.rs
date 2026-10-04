@@ -162,6 +162,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "font_family",
             "font_weight",
             "font_size",
+            "font_zero",
             "line_height",
             "symbol_fallback",
             "symbol_font",

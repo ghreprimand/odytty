@@ -187,6 +187,28 @@ impl StyleFonts {
     pub(super) fn regular_font(&self) -> &FontHandle {
         &self.regular
     }
+
+    /// The same four faces with the alternate-zero control applied or
+    /// cleared on each (see [`FontHandle::with_zero_feature`]). A style slot
+    /// that shares the Regular face keeps sharing the new Regular face, so
+    /// [`Self::synthetic_mask`] is unchanged by the toggle.
+    pub(in crate::native) fn with_zero_feature(&self, enabled: bool) -> Self {
+        let apply = |face: &Arc<FontHandle>| Arc::new((**face).clone().with_zero_feature(enabled));
+        let regular = apply(&self.regular);
+        let share_or_apply = |face: &Arc<FontHandle>| {
+            if Arc::ptr_eq(face, &self.regular) {
+                Arc::clone(&regular)
+            } else {
+                apply(face)
+            }
+        };
+        Self {
+            bold: share_or_apply(&self.bold),
+            italic: share_or_apply(&self.italic),
+            bold_italic: share_or_apply(&self.bold_italic),
+            regular,
+        }
+    }
 }
 
 impl LigatureFonts for StyleFonts {
@@ -468,5 +490,38 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn zero_feature_applies_to_every_style_face_and_keeps_the_synthetic_mask() {
+        let fonts = StyleFonts::load_from(None, text::JETBRAINS_FONT_FAMILY, "").expect("bundled");
+        let zeroed = fonts.with_zero_feature(true);
+        assert_eq!(zeroed.synthetic_mask(), fonts.synthetic_mask());
+        for style in [
+            FontStyle::Regular,
+            FontStyle::Bold,
+            FontStyle::Italic,
+            FontStyle::BoldItalic,
+        ] {
+            assert_ne!(
+                zeroed.font_for(style).glyph_id('0'),
+                fonts.font_for(style).glyph_id('0'),
+                "{style:?}"
+            );
+            let cleared = zeroed.with_zero_feature(false);
+            assert_eq!(
+                cleared.font_for(style).glyph_id('0'),
+                fonts.font_for(style).glyph_id('0')
+            );
+        }
+
+        // A single shared face (synthetic styles) stays shared after the toggle.
+        let shared = StyleFonts::regular(
+            text::load_bundled_style_for(text::JETBRAINS_FONT_FAMILY, FontStyle::Regular)
+                .expect("bundled"),
+        );
+        let zeroed = shared.with_zero_feature(true);
+        assert_eq!(zeroed.synthetic_mask(), (true, true, true));
+        assert!(zeroed.font_for(FontStyle::Bold).has_zero_alternate());
     }
 }

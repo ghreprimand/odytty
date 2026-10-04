@@ -206,6 +206,7 @@ mod broadcast_input;
 mod file_drop_app;
 mod floating_layout;
 mod font_save;
+mod font_zero;
 mod freeze_present_mode;
 mod gpu_render;
 mod graphics_anim;

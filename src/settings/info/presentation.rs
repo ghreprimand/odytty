@@ -120,6 +120,7 @@ impl Settings {
             "ligatures" => bool_display(self.ligatures).to_owned(),
             "ss01" => bool_display(self.ligature_ss01).to_owned(),
             "ss02" => bool_display(self.ligature_ss02).to_owned(),
+            "font_zero" => bool_display(self.font_zero).to_owned(),
             "kitty_named_transports" => bool_display(self.kitty_named_transports).to_owned(),
             "secure_keyboard_input" => bool_display(self.secure_keyboard_input).to_owned(),
             "synthetic_styles" => bool_display(self.synthetic_styles).to_owned(),

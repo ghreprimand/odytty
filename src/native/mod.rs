@@ -204,6 +204,8 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     crate::settings::set_ligatures_enabled(settings.ligatures);
     crate::settings::set_ligature_ss01_enabled(settings.ligature_ss01);
     crate::settings::set_ligature_ss02_enabled(settings.ligature_ss02);
+    // Publish the alternate-zero control before the body faces are loaded.
+    crate::settings::set_font_zero_enabled(settings.font_zero);
     // Publish the RV6 symbol fallback knobs before the atlas is built; the
     // reload path republishes them and the renderer re-resolves/rebuilds when
     // either value changes.

@@ -43,6 +43,10 @@ ligatures = on
 # default and affect presentation only.
 ss01 = off
 ss02 = off
+# Alternate zero: the font's OpenType zero feature (a slashed or dotted 0, as
+# the font designs it). Off by default; fonts without it render unchanged and
+# cell size never changes.
+font_zero = off
 symbol_fallback = on
 # symbol_font = auto
 # symbol_map = U+E000-U+F8FF=Symbols Nerd Font

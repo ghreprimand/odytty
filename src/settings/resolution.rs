@@ -519,6 +519,12 @@ impl Settings {
             DEFAULT_LIGATURE_SS02,
             &mut warn,
         );
+        let font_zero = parse_bool_setting(
+            get(FONT_ZERO_ENV).as_deref(),
+            FONT_ZERO_ENV,
+            DEFAULT_FONT_ZERO,
+            &mut warn,
+        );
         let kitty_named_transports = parse_bool_setting(
             get(KITTY_NAMED_TRANSPORTS_ENV).as_deref(),
             KITTY_NAMED_TRANSPORTS_ENV,
@@ -1034,6 +1040,7 @@ impl Settings {
             ligatures,
             ligature_ss01,
             ligature_ss02,
+            font_zero,
             kitty_named_transports,
             secure_keyboard_input,
             key_bindings,
