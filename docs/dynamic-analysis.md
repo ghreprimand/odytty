@@ -8,7 +8,7 @@ results mean, and what they may never be used to claim.
 
 ## Current status
 
-The Linux x86_64 lane has completed three retained Miri executions on
+The initial Linux x86_64 baseline completed three retained Miri executions on
 `nightly-2026-07-29` and two retained sanitizer executions. Six Miri filters
 are promoted to `required`: encoding, charset, cursor, alternate-screen,
 search, and selection. All six passed runs `30687422002`, `31239892322`, and
@@ -39,6 +39,13 @@ and the OKLab fade alias. Their assertions now use tolerances far below one
 8-bit output quantum, preserving the observable conversion and alias
 contracts without requiring interpreter/native bit identity. These probes
 remain unpromoted until a later recorded Miri run passes them.
+
+A later weekly run, `37112986434` at `b7957202`, reached the Miri job's
+150-minute limit. All six required filters passed; four probes timed out and
+later probes remained unexecuted. No undefined behavior was reported before
+cancellation. AddressSanitizer and ThreadSanitizer failed the slow snapshot
+reader's PTY-latency assertion. Those failures are retained as assertion
+failures, not sanitizer findings or successful sanitizer executions.
 
 Nothing in these results proves memory safety, freedom from undefined
 behavior, or freedom from data races. They are evidence only for the named
@@ -139,6 +146,21 @@ terminal-core, scrollback, grid, text, and settings coverage is split along
 existing test-module or behavior-family boundaries. This keeps an expensive
 family from hiding the results of neighboring families and gives every timeout
 an attributable scope.
+
+The workflow isolates the six required filters in one job and distributes all
+49 probes across nine round-robin shards. Jobs run serially, retain distinct
+artifacts, and continue after another shard fails. Each job executes at most
+six filters. With a 1,800-second setup limit, 900 seconds per filter, and
+60 seconds of kill grace per command, the bounded execution totals at most
+127 minutes. The 150-minute job limit leaves 23 minutes for toolchain
+installation and artifact upload. The orchestration check enforces complete,
+unique filter coverage and the six-filter bound before the lane runs.
+
+A shard's success applies only to its filters. Complete lane evidence requires
+all ten jobs and their retained summaries. Probe timeout and unsupported
+classifications stay diagnostic; required failures and undefined behavior
+still fail their job. The unpartitioned script remains available for deliberate
+local runs with a wall limit sized for the complete filter table.
 
 Excluded by construction, not by oversight: the graphics and Kitty transport
 paths (POSIX shared memory and other foreign calls), the PTY layer, the
@@ -270,7 +292,17 @@ the machine with it.
 # Miri
 systemd-run --user --scope \
   -p MemoryHigh=16G -p MemoryMax=24G -p MemorySwapMax=4G -p CPUQuota=800% \
-  timeout --kill-after=120 3h .github/scripts/run-miri.sh
+  timeout --kill-after=120 150m env ODYTTY_MIRI_PARTITION=required .github/scripts/run-miri.sh
+
+# All nine Miri probe shards, sequentially, with separate retained summaries.
+for shard in 0 1 2 3 4 5 6 7 8; do
+  systemd-run --user --scope \
+    -p MemoryHigh=16G -p MemoryMax=24G -p MemorySwapMax=4G -p CPUQuota=800% \
+    timeout --kill-after=120 150m env ODYTTY_MIRI_PARTITION=probe \
+    ODYTTY_MIRI_SHARD="$shard" ODYTTY_MIRI_SHARDS=9 \
+    ODYTTY_DYNAMIC_LOG_DIR="target/dynamic-analysis/miri-probe-$shard" \
+    .github/scripts/run-miri.sh
+done
 
 # AddressSanitizer
 systemd-run --user --scope \
@@ -291,7 +323,10 @@ ODYTTY_ALLOW_MSAN=1 systemd-run --user --scope \
 Both scripts honor a small set of environment variables:
 `ODYTTY_DYNAMIC_TOOLCHAIN`, `ODYTTY_DYNAMIC_LOG_DIR`, `ODYTTY_DYNAMIC_JOBS`,
 `ODYTTY_MIRI_TIMEOUT`, `ODYTTY_MIRI_SETUP_TIMEOUT`, `ODYTTY_MIRIFLAGS`, and
-`ODYTTY_SANITIZER_TIMEOUT`. Build parallelism defaults to four jobs and test
+`ODYTTY_SANITIZER_TIMEOUT`, `ODYTTY_MIRI_PARTITION` (`all`, `required`, or
+`probe`), `ODYTTY_MIRI_SHARD` (zero-based), and `ODYTTY_MIRI_SHARDS`.
+Shard selection applies within the chosen partition and refuses an empty run.
+Build parallelism defaults to four jobs and test
 threads to one, so aggregate resource use is bounded by the configuration
 rather than by the host CPU count.
 

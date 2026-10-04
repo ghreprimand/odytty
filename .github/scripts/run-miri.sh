@@ -48,64 +48,6 @@ filter_timeout="${ODYTTY_MIRI_TIMEOUT:-900}"
 setup_timeout="${ODYTTY_MIRI_SETUP_TIMEOUT:-1800}"
 build_jobs="${ODYTTY_DYNAMIC_JOBS:-4}"
 
-# Host guard. A non-Linux or non-x86_64 host is reported as unavailable, not as
-# a skip inside an otherwise green run: a caller that ignores this exit code
-# would otherwise publish an empty result set as if the lane had run.
-host_os="$(uname -s)"
-host_arch="$(uname -m)"
-if [ "$host_os" != "Linux" ] || [ "$host_arch" != "x86_64" ]; then
-  echo "run-miri.sh: unavailable on ${host_os}/${host_arch}; this lane produces evidence only on Linux x86_64" >&2
-  echo "run-miri.sh: no results were produced, and none may be inferred for this host" >&2
-  exit 3
-fi
-
-for tool in timeout rustup cargo; do
-  if ! command -v "$tool" >/dev/null 2>&1; then
-    echo "run-miri.sh: required tool '$tool' not found; refusing to run" >&2
-    exit 3
-  fi
-done
-
-if ! rustup toolchain list | grep -Fq "$toolchain"; then
-  echo "run-miri.sh: toolchain '$toolchain' is not installed; refusing to fall back to another nightly" >&2
-  exit 3
-fi
-
-export RUSTUP_TOOLCHAIN="$toolchain"
-export CARGO_BUILD_JOBS="$build_jobs"
-export RUST_TEST_THREADS=1
-export RUST_BACKTRACE=1
-# Miri flags stay at the pinned toolchain's defaults. The checking model is
-# whatever that Miri version enforces by default; adding or removing a flag
-# changes what a result means, so any future flag needs a recorded reason in
-# docs/dynamic-analysis.md rather than an inline tweak here.
-export MIRIFLAGS="${ODYTTY_MIRIFLAGS:-}"
-
-if ! cargo miri --version >/dev/null 2>&1; then
-  echo "run-miri.sh: the miri component is missing from '$toolchain'; refusing to substitute another toolchain" >&2
-  exit 3
-fi
-
-mkdir -p "$log_dir"
-summary="$log_dir/summary.tsv"
-: >"$summary"
-printf 'declared_status\tfilter\tresult\tseconds\tlog\n' >>"$summary"
-
-echo "Miri lane"
-echo "  toolchain: $toolchain"
-echo "  miri:      $(cargo miri --version 2>&1 | head -n 1)"
-echo "  host:      ${host_os}/${host_arch}"
-echo "  logs:      $log_dir"
-echo
-
-setup_log="$log_dir/setup.log"
-echo "== miri setup"
-if ! timeout --kill-after=60 "$setup_timeout" cargo miri setup >"$setup_log" 2>&1; then
-  echo "run-miri.sh: 'cargo miri setup' failed; see $setup_log" >&2
-  tail -n 40 "$setup_log" >&2 || true
-  exit 1
-fi
-
 # Declared filter table: <declared_status>|<test filter>|<what it covers>
 #
 # declared_status is the contract for this filter, not a prediction:
@@ -205,6 +147,103 @@ filters=(
   "probe|settings::tests::system_theme::|system-theme setting resolution"
 )
 
+
+# Required coverage runs independently from diagnostic probes. Round-robin
+# shards retain every declared filter while bounding each workflow job.
+partition="${ODYTTY_MIRI_PARTITION:-all}"
+shard="${ODYTTY_MIRI_SHARD:-0}"
+shards="${ODYTTY_MIRI_SHARDS:-1}"
+case "$partition" in all | required | probe) ;; *)
+  echo "run-miri.sh: invalid partition '$partition'" >&2; exit 2 ;;
+esac
+if ! [[ "$shard" =~ ^[0-9]{1,3}$ && "$shards" =~ ^[0-9]{1,3}$ ]]; then
+  echo "run-miri.sh: shard values must be decimal integers from 0 to 999" >&2
+  exit 2
+fi
+shard=$((10#$shard))
+shards=$((10#$shards))
+if [ "$shards" -lt 1 ] || [ "$shard" -ge "$shards" ]; then
+  echo "run-miri.sh: shard index must be less than a positive shard count" >&2
+  exit 2
+fi
+selected=()
+ordinal=0
+for entry in "${filters[@]}"; do
+  declared="${entry%%|*}"
+  if [ "$partition" != "all" ] && [ "$partition" != "$declared" ]; then
+    continue
+  fi
+  if [ "$((ordinal % shards))" -eq "$shard" ]; then
+    selected+=("$entry")
+  fi
+  ordinal=$((ordinal + 1))
+done
+if [ "${#selected[@]}" -eq 0 ]; then
+  echo "run-miri.sh: empty partition/shard; refusing to report an empty run" >&2
+  exit 2
+fi
+filters=("${selected[@]}")
+
+# Host guard. A non-Linux or non-x86_64 host is reported as unavailable, not as
+# a skip inside an otherwise green run: a caller that ignores this exit code
+# would otherwise publish an empty result set as if the lane had run.
+host_os="$(uname -s)"
+host_arch="$(uname -m)"
+if [ "$host_os" != "Linux" ] || [ "$host_arch" != "x86_64" ]; then
+  echo "run-miri.sh: unavailable on ${host_os}/${host_arch}; this lane produces evidence only on Linux x86_64" >&2
+  echo "run-miri.sh: no results were produced, and none may be inferred for this host" >&2
+  exit 3
+fi
+
+for tool in timeout rustup cargo; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "run-miri.sh: required tool '$tool' not found; refusing to run" >&2
+    exit 3
+  fi
+done
+
+if ! rustup toolchain list | grep -Fq "$toolchain"; then
+  echo "run-miri.sh: toolchain '$toolchain' is not installed; refusing to fall back to another nightly" >&2
+  exit 3
+fi
+
+export RUSTUP_TOOLCHAIN="$toolchain"
+export CARGO_BUILD_JOBS="$build_jobs"
+export RUST_TEST_THREADS=1
+export RUST_BACKTRACE=1
+# Miri flags stay at the pinned toolchain's defaults. The checking model is
+# whatever that Miri version enforces by default; adding or removing a flag
+# changes what a result means, so any future flag needs a recorded reason in
+# docs/dynamic-analysis.md rather than an inline tweak here.
+export MIRIFLAGS="${ODYTTY_MIRIFLAGS:-}"
+
+if ! cargo miri --version >/dev/null 2>&1; then
+  echo "run-miri.sh: the miri component is missing from '$toolchain'; refusing to substitute another toolchain" >&2
+  exit 3
+fi
+
+mkdir -p "$log_dir"
+summary="$log_dir/summary.tsv"
+: >"$summary"
+printf 'declared_status\tfilter\tresult\tseconds\tlog\n' >>"$summary"
+
+echo "Miri lane"
+echo "  partition: $partition, shard $shard/$shards, filters ${#filters[@]}"
+echo "  toolchain: $toolchain"
+echo "  miri:      $(cargo miri --version 2>&1 | head -n 1)"
+echo "  host:      ${host_os}/${host_arch}"
+echo "  logs:      $log_dir"
+echo
+
+setup_log="$log_dir/setup.log"
+echo "== miri setup"
+if ! timeout --kill-after=60 "$setup_timeout" cargo miri setup >"$setup_log" 2>&1; then
+  echo "run-miri.sh: 'cargo miri setup' failed; see $setup_log" >&2
+  tail -n 40 "$setup_log" >&2 || true
+  exit 1
+fi
+
+
 required_total=0
 pass_total=0
 required_fail_total=0
@@ -303,7 +342,7 @@ done < <(tail -n +2 "$summary")
 
 if [ "$required_total" -eq 0 ]; then
   echo
-  echo "NOTE: no filter is declared required yet, so this run is diagnostic only."
+  echo "NOTE: this partition contains no required filters, so its results are diagnostic only."
   echo "A green result here is not evidence that the interpreted paths are free of"
   echo "undefined behavior. See the promotion protocol in docs/dynamic-analysis.md."
 fi

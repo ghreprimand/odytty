@@ -61,6 +61,7 @@ jobs:
         id: resolve
         shell: bash
         run: |
+          python3 scripts/dynamic-analysis-tests.py
           miri_pin="$(.github/scripts/run-miri.sh --print-toolchain)"
           san_pin="$(.github/scripts/run-sanitizer.sh --print-toolchain)"
           if [ "$miri_pin" != "$san_pin" ]; then
@@ -75,13 +76,29 @@ jobs:
           echo "auxiliary toolchain pin: $miri_pin"
 
   miri:
-    name: Miri (Linux x86_64)
+    name: Miri (${{ matrix.partition }} ${{ matrix.shard }}, Linux x86_64)
     needs: pin
     if: github.event_name != 'workflow_dispatch' || inputs.lane == 'all' || inputs.lane == 'miri'
     runs-on: ubuntu-latest
-    # Wide enough for the std build plus the declared filter list, tight enough
-    # that a wedged interpretation fails the job instead of running to the
-    # runner backstop. Each filter also carries its own timeout in the script.
+    # At most six filters per job: setup 1800+60s, six filters at 900+60s
+    # each = 127 minutes, leaving 23 minutes for install and artifact upload.
+    # Required coverage is isolated from probes. Serialize the shards so
+    # interpreted builds do not overlap. Every probe remains represented.
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - { partition: required, shard: 0, shards: 1 }
+          - { partition: probe, shard: 0, shards: 9 }
+          - { partition: probe, shard: 1, shards: 9 }
+          - { partition: probe, shard: 2, shards: 9 }
+          - { partition: probe, shard: 3, shards: 9 }
+          - { partition: probe, shard: 4, shards: 9 }
+          - { partition: probe, shard: 5, shards: 9 }
+          - { partition: probe, shard: 6, shards: 9 }
+          - { partition: probe, shard: 7, shards: 9 }
+          - { partition: probe, shard: 8, shards: 9 }
     timeout-minutes: 150
     steps:
       # v4.2.2
@@ -111,6 +128,10 @@ jobs:
 
       - name: Run Miri lane
         shell: bash
+        env:
+          ODYTTY_MIRI_PARTITION: ${{ matrix.partition }}
+          ODYTTY_MIRI_SHARD: ${{ matrix.shard }}
+          ODYTTY_MIRI_SHARDS: ${{ matrix.shards }}
         run: .github/scripts/run-miri.sh
 
       # v4.6.2
@@ -118,7 +139,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: dynamic-analysis-miri
+          name: dynamic-analysis-miri-${{ matrix.partition }}-${{ matrix.shard }}
           path: target/dynamic-analysis/miri/
           retention-days: 14
           if-no-files-found: warn

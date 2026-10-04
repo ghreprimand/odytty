@@ -189,7 +189,8 @@ fn a_client_that_reads_its_snapshot_slowly_is_bounded_by_the_frame_deadline() {
         program: "/bin/sh".into(),
         args: vec![
             "-c".into(),
-            "od -An -tx1 -v /dev/urandom | head -n 12000; \
+            "awk 'BEGIN { for (i = 0; i < 12000; i++) \
+             printf \"%08d 0123456789abcdef0123456789abcdef0123456789abcdef\\n\", i }'; \
              while read line; do printf 'got:%s\\n' \"$line\"; done"
                 .into(),
         ],
@@ -209,8 +210,24 @@ fn a_client_that_reads_its_snapshot_slowly_is_bounded_by_the_frame_deadline() {
         &super::protocol::ClientHello::current("slowread"),
     )
     .expect("slow hello");
+    let (snapshot_started_tx, snapshot_started_rx) = std::sync::mpsc::sync_channel(1);
     let reader = thread::spawn(move || {
         use std::io::Read;
+        slow.set_read_timeout(Some(WAIT))
+            .expect("slow read timeout");
+        super::protocol::read_host_hello(&mut slow).expect("slow host hello");
+        // Snapshot capture and encoding precede the frame send deadline. Wait
+        // for its header so instrumentation overhead in that setup
+        // does not become part of the write-liveness measurement.
+        let mut header = [0u8; 5];
+        slow.read_exact(&mut header).expect("snapshot header");
+        assert_eq!(header[0], 1, "the first host frame must be a snapshot");
+        let payload_len = u32::from_be_bytes(header[1..].try_into().expect("length"));
+        assert!(
+            payload_len > 8 * 1024 * 1024,
+            "snapshot must outlast the slow reader"
+        );
+        snapshot_started_tx.send(()).expect("snapshot started");
         let mut chunk = vec![0u8; 64 * 1024];
         let start = Instant::now();
         let end = start + Duration::from_secs(8);
@@ -224,9 +241,14 @@ fn a_client_that_reads_its_snapshot_slowly_is_bounded_by_the_frame_deadline() {
                 }
             }
         }
-        let _ = total;
+        assert!(
+            total < payload_len as usize,
+            "the slow reader must receive a truncated snapshot"
+        );
     });
-    thread::sleep(Duration::from_millis(100));
+    snapshot_started_rx
+        .recv_timeout(WAIT)
+        .expect("snapshot write did not start");
     let latency = echo_latency(&mut client, "slow");
     assert!(
         latency < Duration::from_millis(3500),
