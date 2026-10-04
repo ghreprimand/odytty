@@ -74,7 +74,14 @@ MAX_PRODUCTION_LINES = 1999
 
 # Files the guard measures but does not enforce, each with the audited reason.
 # Format: (repository-relative path, rationale). Empty is the correct state:
-# `src/` currently holds no generated, vendored, fixture, or data-only Rust.
+# `src/` holds no vendored or fixture Rust. Generated data tables are allowed
+# under `src/` only when the file starts with a header naming its generator
+# script, every source file with its SHA-256, and "Do not edit by hand", and
+# the tracked script regenerates it byte for byte. The Unicode bidi tables in
+# `src/core/bidi/` (`mirrored.rs`, `classes.rs`, `brackets.rs`, from
+# `scripts/unicode-bidi-data.py`) are the current instances. Generated files
+# get no exclusion: they are measured and enforced like handwritten files, and
+# a table that would reach the limit is split by its generator.
 # An entry here is a documented hole in an architectural rule, so it carries a
 # reason in tracked text and is verified to still match a real file.
 EXCLUSIONS: list[tuple[str, str]] = []

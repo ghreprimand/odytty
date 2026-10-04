@@ -12,6 +12,8 @@
 
 use unicode_bidi::{BidiClass, Level, ParagraphBidiInfo};
 
+use super::data::Unicode17;
+
 /// Resolved paragraph levels before any line rule, one entry per scalar.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ParagraphLevels {
@@ -27,7 +29,7 @@ pub(super) struct ParagraphLevels {
 /// `None` applies rules P2 and P3. Never panics for any `text`.
 pub(super) fn resolve_paragraph(text: &str, base: Option<u8>) -> ParagraphLevels {
     let base = base.and_then(|level| Level::new(level).ok());
-    let info = ParagraphBidiInfo::new(text, base);
+    let info = ParagraphBidiInfo::new_with_data_source(&Unicode17, text, base);
     let scalars = text.chars().count();
     let mut classes = Vec::with_capacity(scalars);
     let mut levels = Vec::with_capacity(scalars);

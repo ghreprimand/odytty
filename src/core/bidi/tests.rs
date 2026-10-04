@@ -354,9 +354,15 @@ fn adversarial_control_and_bracket_sequences_always_yield_a_valid_plan() {
     for _ in 0..2_000 {
         let len = (next() % 160) as usize;
         let owners: Vec<BidiOwner<'_>> = (0..len)
-            .map(|_| BidiOwner {
-                text: ALPHABET[(next() % ALPHABET.len() as u64) as usize],
-                width: 1 + (next() % 2) as u8,
+            .map(|_| {
+                let text = ALPHABET[(next() % ALPHABET.len() as u64) as usize];
+                // Format controls sometimes arrive as width-0 owners.
+                let width = if text.chars().all(is_bidi_format_control) {
+                    (next() % 2) as u8
+                } else {
+                    1 + (next() % 2) as u8
+                };
+                BidiOwner { text, width }
             })
             .collect();
         let mut rows = Vec::new();

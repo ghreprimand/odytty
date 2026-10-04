@@ -17,6 +17,11 @@
 //!   order: a base scalar with its attached marks, or a blank, each with its
 //!   cell width. A wide owner keeps its cells adjacent and its internal
 //!   lead-then-continuation arrangement. Owners are never split.
+//! - **Format controls.** An owner of width 0 made only of bidi format
+//!   controls ([`is_bidi_format_control`]) keeps its exact logical position,
+//!   including at the start of a paragraph or row, and takes part in level
+//!   resolution, but has no ink and covers no visual column: its visual span
+//!   is empty and no column maps back to it.
 //! - **Levels.** An owner takes the line level of its first scalar.
 //! - **Maps.** A reordered plan answers both directions for every owner and
 //!   every visual column: logical owner to visual span, and visual column to
@@ -27,20 +32,26 @@
 //!   complete identity layout, never a partially reordered prefix. Caps are
 //!   checked before any bidi work starts.
 //!
-//! Data: bidi classes and bracket pairs come from `unicode-bidi` 0.3.18, which
-//! bundles Unicode 16.0.0 tables, while OdyTTY's width tables are Unicode 17.0.0.
-//! Characters assigned or reclassified in Unicode 17 therefore resolve with
-//! their Unicode 16 class. Bidi_Mirrored comes from Unicode 17.0.0 data in
-//! [`mirrored`]. Performance is unmeasured.
+//! Data: bidi classes, bracket pairs, and Bidi_Mirrored are Unicode 17.0.0,
+//! the same version as OdyTTY's width tables, generated into [`classes`],
+//! [`brackets`], and [`mirrored`] by `scripts/unicode-bidi-data.py`.
+//! `unicode-bidi` 0.3.18 resolves levels through a `BidiDataSource` over that
+//! data; its own bundled Unicode 16.0.0 tables are not built. Performance is
+//! unmeasured.
 //!
 //! Platform-neutral: pure computation with no process globals, used the same
 //! way on Linux, macOS, and Windows.
 
+mod brackets;
+mod classes;
+mod data;
 mod mirrored;
 mod resolve;
 
 #[cfg(test)]
 mod conformance_tests;
+#[cfg(test)]
+mod data_tests;
 #[cfg(test)]
 mod tests;
 
@@ -66,7 +77,8 @@ pub const MAX_BIDI_OWNER_WIDTH: u8 = 4;
 pub struct BidiOwner<'a> {
     /// The owner's scalars in logical order, base first. Never empty.
     pub text: &'a str,
-    /// Cells the owner occupies, 1 to [`MAX_BIDI_OWNER_WIDTH`].
+    /// Cells the owner occupies, 1 to [`MAX_BIDI_OWNER_WIDTH`], or 0 for an
+    /// owner made only of bidi format controls.
     pub width: u8,
 }
 
@@ -81,8 +93,9 @@ pub enum BidiIdentityReason {
     ByteCap,
     /// More than [`MAX_BIDI_PARAGRAPH_ROWS`] physical rows.
     RowCap,
-    /// Row lengths that do not sum to the owner count, an empty owner, or an
-    /// owner width outside 1 to [`MAX_BIDI_OWNER_WIDTH`].
+    /// Row lengths that do not sum to the owner count, an empty owner, an
+    /// owner width above [`MAX_BIDI_OWNER_WIDTH`], or a width-0 owner holding
+    /// anything but bidi format controls.
     MalformedInput,
 }
 
@@ -171,7 +184,13 @@ impl BidiPlan {
         self.mirrored.get(owner).copied().unwrap_or(false)
     }
 
-    /// The owner's physical row and the visual columns it covers there.
+    /// Whether the owner is a width-0 run of bidi format controls.
+    pub fn is_format_control(&self, owner: usize) -> bool {
+        self.widths.get(owner) == Some(&0)
+    }
+
+    /// The owner's physical row and the visual columns it covers there. A
+    /// format-control owner has an empty range at its visual position.
     pub fn owner_visual_span(&self, owner: usize) -> Option<(usize, std::ops::Range<usize>)> {
         let row = *self.owner_row.get(owner)? as usize;
         let start = *self.owner_column.get(owner)? as usize;
@@ -232,7 +251,9 @@ fn check_input(
         .try_fold(0usize, |sum, count| sum.checked_add(*count));
     let shape_ok = rows_total == Some(owners.len())
         && owners.iter().all(|owner| {
-            !owner.text.is_empty() && (1..=MAX_BIDI_OWNER_WIDTH).contains(&owner.width)
+            !owner.text.is_empty()
+                && owner.width <= MAX_BIDI_OWNER_WIDTH
+                && (owner.width > 0 || owner.text.chars().all(is_bidi_format_control))
         });
     if !shape_ok {
         return Err(BidiIdentityReason::MalformedInput);
@@ -240,7 +261,7 @@ fn check_input(
     let any_raise = owners
         .iter()
         .flat_map(|owner| owner.text.chars())
-        .any(|scalar| resolve::can_raise_level(unicode_bidi::bidi_class(scalar)));
+        .any(|scalar| resolve::can_raise_level(data::bidi_class(scalar)));
     if !any_raise {
         return Err(BidiIdentityReason::LeftToRightOnly);
     }
@@ -323,6 +344,16 @@ fn build(owners: &[BidiOwner<'_>], row_owner_counts: &[usize], bytes: usize) -> 
         visual_owners,
         column_owners,
     }))
+}
+
+/// Whether `scalar` is a bidi format control: an explicit embedding,
+/// override, or isolate control (`U+202A..=U+202E`, `U+2066..=U+2069`), or
+/// one of the implicit marks LRM, RLM, and ALM.
+pub fn is_bidi_format_control(scalar: char) -> bool {
+    matches!(
+        scalar,
+        '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+    )
 }
 
 /// Whether `scalar` has Bidi_Mirrored=Yes (Unicode 17.0.0).

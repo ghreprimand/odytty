@@ -65,9 +65,11 @@ tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 # UAX #9 paragraph level resolution for the headless bidi display plan
-# (`src/core/bidi`). MIT OR Apache-2.0. Default features only (`std` plus the
-# bundled Unicode 16.0.0 class tables); no transitive dependencies.
-unicode-bidi = "0.3.18"
+# (`src/core/bidi`). MIT OR Apache-2.0; no transitive dependencies. Default
+# features are off: the crate's bundled Unicode 16.0.0 tables are not built,
+# and class and bracket data come from OdyTTY's generated Unicode 17.0.0
+# tables through `BidiDataSource`.
+unicode-bidi = { version = "0.3.18", default-features = false }
 unicode-width = "0.2.2"
 wgpu = "29.0.3"
 # Winit defaults are disabled so the Wayland client-side title bar renders

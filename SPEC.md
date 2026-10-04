@@ -342,7 +342,7 @@ decision, not a trade-off pending revisitation.
 | Window creation and event loop | `winit` |
 | Clipboard transport | `arboard` |
 | Unicode character-width tables | `unicode-width` |
-| Unicode bidi class tables and paragraph level resolution (UAX #9) | `unicode-bidi` |
+| Unicode bidi paragraph level resolution (UAX #9), over generated Unicode 17.0.0 class and bracket tables | `unicode-bidi` |
 
 ## Graphics Architecture
 
@@ -2303,7 +2303,7 @@ OdyTTY is a Linux-first Rust application built around these primary crates:
 | `ab_glyph_rasterizer` | Coverage rasterization of normal-text outlines |
 | `swash` | Emoji discovery, shaping, and color-font probing |
 | `unicode-width` | Terminal cell widths |
-| `unicode-bidi` | UAX #9 levels for the headless bidi display plan, which no display path uses yet |
+| `unicode-bidi` | UAX #9 levels for the headless bidi display plan, which no display path uses yet; built without its bundled Unicode 16.0.0 tables |
 | `arboard` | Clipboard integration |
 | `rustix` | Unix PTY and termios access |
 | `png` | PNG decoding for Kitty `f=100` |

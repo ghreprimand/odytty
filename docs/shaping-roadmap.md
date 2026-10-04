@@ -131,9 +131,13 @@ reversible owner-to-visual-span and visual-column-to-owner maps with
 mirrored-glyph flags. Paragraphs over its owner, byte, or row cap get the
 complete identity layout. It passes every case of the Unicode 17.0.0
 BidiCharacterTest.txt and BidiTest.txt files, with a committed subset
-asserted in the test suite. Its bidi class data is Unicode 16.0.0, bundled
-with the `unicode-bidi` crate. Nothing renders, hit-tests, moves the cursor,
-selects, or copies through it, so display and behavior are unchanged.
+asserted in the test suite. Its bidi class, bracket-pair, and mirroring data
+is Unicode 17.0.0, the same version as the width tables, generated from the
+Unicode Character Database by `scripts/unicode-bidi-data.py`. Bidi format
+controls (embeddings, overrides, isolates, LRM, RLM, and ALM) can be passed as
+width-0 owners that keep their logical position, take part in level
+resolution, and cover no visual column. Nothing renders, hit-tests, moves the
+cursor, selects, or copies through it, so display and behavior are unchanged.
 
 ### Complex Indic and Brahmic shaping
 
