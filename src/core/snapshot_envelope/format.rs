@@ -7,7 +7,7 @@
 //! format change cannot drift between producer and consumer.
 
 pub const SNAPSHOT_MAGIC: &[u8; 15] = b"ODYTTY-SNAPSHOT";
-pub const SNAPSHOT_FORMAT_VERSION: u16 = 4;
+pub const SNAPSHOT_FORMAT_VERSION: u16 = 5;
 pub const SNAPSHOT_PROTOCOL_VERSION: u16 = 1;
 
 pub(super) const SECTION_TERMINAL_STATE: u16 = 1;
@@ -20,10 +20,10 @@ pub(super) const SECTION_FLAG_REQUIRED: u8 = 0x01;
 /// Worst-case wire bytes for one encoded cell: char scalar (4), attribute
 /// flags (2), underline style (1), optional RGB underline color (1 + 4),
 /// RGB foreground (4), RGB background (4), hyperlink id (4), protected (1),
-/// cell ownership flags (1), combining count (1) and `MAX_COMBINING` (4)
+/// cell ownership flags (1), combining count (1) and `MAX_COMBINING` (16)
 /// combining scalars (4 each). Pinned by `maximal_cell_wire_len_is_pinned` so
 /// a wire format change cannot silently drift the budgets derived from it.
-pub const MAX_CELL_WIRE_BYTES: usize = 43;
+pub const MAX_CELL_WIRE_BYTES: usize = 91;
 
 /// Wire bytes per row beyond its cells: wrapped flag (1) + width prefix (4).
 pub const ROW_WIRE_OVERHEAD_BYTES: usize = 5;

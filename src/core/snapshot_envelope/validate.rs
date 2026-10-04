@@ -33,6 +33,7 @@ impl SnapshotEnvelope {
             check_u32(mark.row, "prompt mark row")?;
         }
         self.layout.validate_wire_bounds()?;
+        self.layout.validate_streaming_owner(&self.terminal)?;
         Ok(())
     }
 }
@@ -52,12 +53,57 @@ impl SnapshotMetadata {
 }
 
 impl SnapshotLayoutState {
+    pub(in crate::core) fn validate_streaming_owner(
+        &self,
+        terminal: &SnapshotTerminalState,
+    ) -> Result<(), SnapshotEnvelopeError> {
+        let columns = terminal.dimensions.columns;
+        if self.pending_wrap && terminal.cursor.column != columns.saturating_sub(1) {
+            return Err(SnapshotEnvelopeError::InvalidCursor {
+                cursor: terminal.cursor,
+            });
+        }
+        if let Some(owner) = self.cluster_owner {
+            let cell = terminal
+                .visible_rows
+                .get(owner.row)
+                .and_then(|r| r.cells.get(owner.column));
+            let valid = cell.is_some_and(|c| !c.wide_continuation && !c.layout_padding)
+                && owner.row == terminal.cursor.row
+                && owner.row < terminal.dimensions.rows
+                && owner.column < columns;
+            if !valid {
+                return Err(SnapshotEnvelopeError::InvalidCursor { cursor: owner });
+            }
+            let wide = terminal.visible_rows[owner.row]
+                .cells
+                .get(owner.column + 1)
+                .is_some_and(|c| c.wide_continuation);
+            let after = owner
+                .column
+                .saturating_add(if wide {
+                    2
+                } else {
+                    crate::core::char_width::char_display_width(cell.unwrap().ch, false).max(1)
+                })
+                .min(columns.saturating_sub(1));
+            if terminal.cursor.column != after {
+                return Err(SnapshotEnvelopeError::InvalidCursor { cursor: owner });
+            }
+        }
+        Ok(())
+    }
+
     /// The layout half of [`SnapshotEnvelope::validate_wire_bounds`]: the
     /// scroll-region bounds and the tab-stop count travel as `u32`.
     fn validate_wire_bounds(&self) -> Result<(), SnapshotEnvelopeError> {
         if let Some(region) = self.scroll_region {
             check_u32(region.top, "scroll region top")?;
             check_u32(region.bottom, "scroll region bottom")?;
+        }
+        if let Some(owner) = self.cluster_owner {
+            check_u32(owner.row, "cluster owner row")?;
+            check_u32(owner.column, "cluster owner column")?;
         }
         check_u32(self.tab_stops.len(), "tab stop count")?;
         Ok(())
@@ -100,6 +146,13 @@ impl SnapshotTerminalState {
             check_u32(row.cells.len(), "row cell count")?;
             for cell in &row.cells {
                 check_u8(cell.combining.len(), "combining mark count")?;
+                if cell.combining.len() > crate::core::types::MAX_COMBINING {
+                    return Err(SnapshotEnvelopeError::ValueTooLarge {
+                        what: "combining mark count",
+                        value: cell.combining.len(),
+                        max: crate::core::types::MAX_COMBINING,
+                    });
+                }
                 if cell.layout_padding
                     && (cell.ch != ' '
                         || cell.protected

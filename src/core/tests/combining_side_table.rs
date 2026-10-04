@@ -251,17 +251,14 @@ fn max_combining_boundary_is_exact_on_adjacent_cells() {
 }
 
 #[test]
-fn fifth_mark_drop_does_not_affect_the_neighbor_cell() {
+fn fifth_mark_retention_does_not_affect_the_neighbor_cell() {
     let four = cluster('e', 4);
     let five = cluster('x', 5);
     let mut terminal = Terminal::new(8, 1);
     terminal.advance(four.as_bytes());
     terminal.advance(five.as_bytes());
     assert_eq!(terminal.screen().cell(0, 0).unwrap().grapheme(), four);
-    assert_eq!(
-        terminal.screen().cell(0, 1).unwrap().grapheme(),
-        cluster('x', 4)
-    );
+    assert_eq!(terminal.screen().cell(0, 1).unwrap().grapheme(), five);
 }
 
 #[test]

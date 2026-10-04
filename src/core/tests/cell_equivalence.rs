@@ -19,13 +19,13 @@ use std::mem::{align_of, size_of};
 /// Measured on rustc 1.96 (x86_64). Do not infer alignment from the leading
 /// field: `Attrs` starts with a `u16` but `Color` / `Option<LinkId>` raise it
 /// to 4. The `Cell` comment in `types.rs` claiming 36 bytes predates the
-/// four-slot combining array.
+/// sixteen-slot extension array.
 const _: () = assert!(size_of::<Attrs>() == 20);
 const _: () = assert!(align_of::<Attrs>() == 4);
-const _: () = assert!(size_of::<Cell>() == 44);
+const _: () = assert!(size_of::<Cell>() == 92);
 const _: () = assert!(align_of::<Cell>() == 4);
 
-const MARKS: [char; 5] = ['\u{0301}', '\u{0302}', '\u{0303}', '\u{0304}', '\u{0305}'];
+const MARKS: [char; 17] = ['\u{0301}'; 17];
 
 fn needs_copy<T: Copy>(_: T) {}
 
@@ -104,13 +104,13 @@ fn cell_and_attrs_layout_matches_recorded_sizes() {
     needs_copy(Attrs::default());
     assert_eq!(size_of::<Attrs>(), 20);
     assert_eq!(align_of::<Attrs>(), 4);
-    assert_eq!(size_of::<Cell>(), 44);
+    assert_eq!(size_of::<Cell>(), 92);
     assert_eq!(align_of::<Cell>(), 4);
-    assert_eq!(MAX_COMBINING, 4);
+    assert_eq!(MAX_COMBINING, 16);
 }
 
 #[test]
-fn combining_keeps_four_marks_and_drops_the_fifth() {
+fn combining_owner_bound_and_streaming_overflow_are_explicit() {
     let mut cell = Cell::new('e', Attrs::default());
     for (i, mark) in MARKS.iter().enumerate() {
         let kept = cell.push_combining(*mark);
@@ -124,7 +124,7 @@ fn combining_keeps_four_marks_and_drops_the_fifth() {
     assert_eq!(cell.grapheme(), combining_cluster('e', MAX_COMBINING));
 
     let mut terminal = Terminal::new(8, 2);
-    terminal.advance(combining_cluster('e', 5).as_bytes());
+    terminal.advance(combining_cluster('e', MAX_COMBINING + 1).as_bytes());
     let printed = terminal.screen().cell(0, 0).unwrap();
     assert_eq!(printed.ch, 'e');
     assert_eq!(printed.combining(), &MARKS[..MAX_COMBINING]);

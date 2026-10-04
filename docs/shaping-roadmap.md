@@ -6,7 +6,7 @@ work that remains possible without weakening terminal semantics.
 
 ## The model
 
-OdyTTY's terminal model keeps one logical character per grid cell. That
+OdyTTY's terminal model keeps logical source owners on a fixed cell grid. That
 invariant is not negotiable: cursor addressing, selection, search, copy,
 scrollback, and transcript export all address the grid by cell, and every one
 of them has to stay exact regardless of how a cell's glyph is drawn.
@@ -14,7 +14,17 @@ of them has to stay exact regardless of how a cell's glyph is drawn.
 Generated wide-glyph wrap padding has no logical scalar. Its provenance
 survives history and snapshot storage, so resizing does not inject spaces into
 search, copy, or export. Typed spaces remain logical source text. This does not
-add extended-grapheme or script-aware widths.
+change glyph placement.
+
+Each source owner now retains up to seventeen scalars. Ordinary leading marks and
+extensions beyond that bound start new owners without synthetic source text.
+Controls, cursor movement, edits, hard breaks, and resize terminate extension;
+SGR preserves it. Thai/Lao consonant plus SARA AM extends to a two-cell owner.
+Tone marks, Tibetan subjoined letters, and pre-base vowels retain their prior
+widths. This storage substrate does not add Indic conjunct widths, emoji
+sequence widths, or font-backed complex-script shaping.
+Unattached width-zero format controls and selectors occupy zero columns and
+are still not retained. They extend source text when an eligible owner exists.
 
 Shaped presentation is layered on top of that grid as anchored overlay spans
 (`LigatureRun`) rather than by letting shaping change the grid itself. A run
@@ -41,7 +51,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, and opt-in `ss01`/`ss02` overlays | More curated operators and bounded, explicit font-feature settings are candidates within the current overlay model |
 | Arabic | Contextual joining forms in logical left-to-right cell order; combining-marked cells stay on the monochrome path | More joining-script coverage that requires no visual reordering is a candidate; this is not bidirectional layout |
 | Full Unicode bidirectional layout | Not supported | Outside the current overlay model. Correct support first requires line-level logical-to-visual mapping shared by rendering, hit testing, cursor movement, selection, damage tracking, and copy semantics |
-| Complex Indic/Brahmic shaping | Not supported | Outside the current one-character-per-cell overlay model. Correct support requires grapheme-cluster ownership plus reordered glyph placement that remains reversible to logical cells |
+| Complex Indic/Brahmic shaping | Not supported | Outside the current fixed-cell overlay model. Correct support requires grapheme-cluster ownership plus reordered glyph placement that remains reversible to logical cells |
 | Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |
 | SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Planned for v0.17.0. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
 
@@ -159,7 +169,7 @@ selects, or copies through it, so on-screen display and behavior are unchanged.
 
 ### Complex Indic and Brahmic shaping
 
-Complex Indic/Brahmic shaping is outside the current one-character-per-cell
+Complex Indic/Brahmic shaping is outside the current fixed-cell
 overlay model and has no approximate fallback claim. Correct conjuncts can
 require several source characters to form one cluster, glyphs to reorder around
 the cluster, and marks to attach at positions that do not correspond to their

@@ -36,6 +36,7 @@ use super::snapshot_envelope::{
 use super::types::*;
 
 mod charset;
+mod cluster;
 mod export_rows;
 mod ops;
 mod osc;
@@ -283,6 +284,8 @@ pub struct Screen {
     cursor: Position,
     cursor_visible: bool,
     pending_wrap: bool,
+    /// Owner eligible for streaming extension until a control or edit boundary.
+    cluster_owner: Option<Position>,
     /// Discriminator for the `preserve_cursor_physical_line` resize override:
     /// `true` once the shell has applied output (printed a cell) since the last
     /// width-changing resize. The override re-anchors the cursor to its old
@@ -1074,115 +1077,6 @@ impl Screen {
         }
     }
 
-    /// Attach a zero-width combining mark to the base cell the cursor last
-    /// advanced past, appending it to that cell's grapheme. After printing a
-    /// base char the cursor sits to its right (or stays on it in pending-wrap),
-    /// so the base is just left of the cursor; a wide continuation spacer is
-    /// stepped back to its lead. No-op at line start or when capacity is full —
-    /// never panics.
-    fn attach_combining(&mut self, mark: char) {
-        let row = self.cursor.row;
-        let col = if self.pending_wrap {
-            self.cursor.column
-        } else if self.cursor.column > 0 {
-            self.cursor.column - 1
-        } else {
-            return; // combining mark at line start: nothing to attach to.
-        };
-        let base_col = if self.rows[row][col].wide_continuation && col > 0 {
-            col - 1
-        } else {
-            col
-        };
-        self.rows[row][base_col].push_combining(mark);
-        self.mark_dirty();
-    }
-
-    fn print_char(&mut self, ch: char) {
-        // Charset seam: translate through DEC Special Graphics BEFORE width
-        // computation and `last_graphic_char` capture, so the grid, wrap
-        // logic, and REP all operate on the final Unicode glyph. Only
-        // single-byte-range characters (`0x5F..=0x7E`) can map; multi-byte
-        // UTF-8 decodes above that range and passes through untouched. The
-        // map is idempotent, so a REP replay of a stored translated glyph is
-        // unaffected even if the charset changed in between.
-        let ch = if self.charsets.active_graphics() && matches!(ch, '\x5f'..='\x7e') {
-            charset::dec_special_graphics(ch)
-        } else {
-            ch
-        };
-        let width = super::char_width::char_display_width(ch, self.ambiguous_wide);
-        if width == 0 {
-            // Zero-width combining mark: attach to the preceding base cell
-            // rather than consuming a column. No-op at line start.
-            self.attach_combining(ch);
-            return;
-        }
-
-        self.last_graphic_char = Some(ch);
-        // The shell applied output: a width-changing resize that follows can
-        // trust that a repaint is in the loop and honor the cursor-anchor
-        // override (see `output_since_last_resize`).
-        self.output_since_last_resize = true;
-
-        if self.pending_wrap {
-            // The row we are leaving filled to the right edge and the logical
-            // line continues here: mark it as a soft wrap so resize can rejoin.
-            self.rows[self.cursor.row].wrapped = true;
-            self.carriage_return();
-            self.line_feed();
-            self.pending_wrap = false;
-        }
-
-        if self.auto_wrap && self.cursor.column + width > self.dimensions.columns {
-            // A wide glyph does not fit in the remaining columns. xterm does not
-            // split it across rows: blank the trailing cell(s) and soft-wrap the
-            // glyph onto the next row, marking the row wrapped so resize rejoins
-            // the logical line.
-            let blank = Cell::layout_blank(self.current_blank().attrs);
-            let r = self.cursor.row;
-            let c = self.cursor.column;
-            self.clear_wide_orphans(r, c, self.dimensions.columns - c);
-            for col in c..self.dimensions.columns {
-                self.rows[r][col] = blank;
-            }
-            self.rows[r].wrapped = true;
-            self.carriage_return();
-            self.line_feed();
-        }
-
-        if self.insert_mode {
-            // IRM: open `width` blank cells at the cursor, shifting the rest of
-            // the line right (cells past the edge drop off), then write into the
-            // freshly cleared slot. `insert_chars` handles the right-edge
-            // truncation and wide-pair sanitization.
-            self.insert_chars(width);
-        }
-
-        let row = self.cursor.row;
-        let column = self.cursor.column;
-        // Overwriting either half of an existing wide pair must clear its
-        // partner so no half-wide orphan survives.
-        self.clear_wide_orphans(row, column, width);
-        let attrs = self.current_print_attrs();
-        self.rows[row][column] = Cell::new_protected(ch, attrs, self.current_protected);
-
-        if width == 2 && column + 1 < self.dimensions.columns {
-            self.rows[row][column + 1] = Cell::wide_spacer_protected(attrs, self.current_protected);
-        }
-
-        if self.auto_wrap && self.cursor.column + width >= self.dimensions.columns {
-            self.cursor.column = self.dimensions.columns - 1;
-            self.pending_wrap = true;
-        } else if self.cursor.column + width >= self.dimensions.columns {
-            self.cursor.column = self.dimensions.columns - 1;
-            self.pending_wrap = false;
-        } else {
-            self.cursor.column += width;
-        }
-        self.mark_dirty();
-    }
-
     fn backspace(&mut self) {
         self.cursor.column = self.cursor.column.saturating_sub(1);
         self.pending_wrap = false;
@@ -1621,22 +1515,29 @@ impl VtDispatch for Screen {
     }
 
     fn execute(&mut self, byte: u8) {
+        self.cluster_owner = None;
         self.dispatch_execute(byte);
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
+        self.cluster_owner = None;
         self.dispatch_osc(params, bell_terminated);
     }
 
     fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        if action != 'm' || !intermediates.is_empty() || ignore {
+            self.cluster_owner = None;
+        }
         self.dispatch_csi(params, intermediates, ignore, action);
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
+        self.cluster_owner = None;
         self.dispatch_esc(intermediates, ignore, byte);
     }
 
     fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        self.cluster_owner = None;
         self.dispatch_dcs_hook(params, intermediates, ignore, action);
     }
 
@@ -1656,6 +1557,7 @@ impl VtDispatch for Screen {
     }
 
     fn apc_dispatch(&mut self, data: &[u8]) {
+        self.cluster_owner = None;
         self.dispatch_apc(data);
     }
 }
@@ -1849,11 +1751,20 @@ fn sanitize_wide_row(row: &mut [Cell], blank: Cell, ambiguous_wide: bool) {
         if row[index].wide_continuation {
             let lead_ok = index > 0
                 && !row[index - 1].wide_continuation
-                && super::char_width::char_display_width(row[index - 1].ch, ambiguous_wide) == 2;
+                && super::char_width::owner_display_width(
+                    row[index - 1].ch,
+                    row[index - 1].combining(),
+                    ambiguous_wide,
+                ) == 2;
             if !lead_ok {
                 row[index] = blank;
             }
-        } else if super::char_width::char_display_width(row[index].ch, ambiguous_wide) == 2 {
+        } else if super::char_width::owner_display_width(
+            row[index].ch,
+            row[index].combining(),
+            ambiguous_wide,
+        ) == 2
+        {
             let cont_ok = index + 1 < columns && row[index + 1].wide_continuation;
             if !cont_ok {
                 row[index] = blank;

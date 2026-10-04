@@ -13,6 +13,7 @@ impl Screen {
             cursor: Position::default(),
             cursor_visible: true,
             pending_wrap: false,
+            cluster_owner: None,
             output_since_last_resize: false,
             ambiguous_wide: false,
             shell_owns_cursor_on_resize: false,
@@ -490,6 +491,7 @@ impl Screen {
     /// An active alternate screen is left for the application to repaint. The
     /// stored primary is reflowed, matching a width-changing resize.
     pub(crate) fn set_ambiguous_wide(&mut self, wide: bool) {
+        self.cluster_owner = None;
         if self.ambiguous_wide == wide {
             return;
         }

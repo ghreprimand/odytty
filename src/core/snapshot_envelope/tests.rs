@@ -699,7 +699,10 @@ fn resize_budget_guarantees_worst_case_visible_grid_decodes() {
     // the section cap, with zero scrollback room required.
     let caps = SnapshotEnvelopeCaps::default();
     let budget = caps.max_self_decodable_visible_cells();
-    assert!(budget >= 500_000, "budget covers any realistic display");
+    assert!(
+        budget >= 350_000,
+        "sixteen-extension owners retain a bounded large-grid budget"
+    );
     assert!(budget <= caps.max_cells);
     // Worst-case per-cell wire size at the budget fits the section cap.
     let worst = budget

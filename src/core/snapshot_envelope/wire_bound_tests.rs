@@ -150,9 +150,9 @@ fn from_terminal_encode_bytes_are_pinned() {
     let bytes = envelope.encode().expect("encode");
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     let expected = concat!(
-        "4f44595454592d534e415053484f5404000100030070696e050001000100b900",
+        "4f44595454592d534e415053484f5405000100030070696e050001000100b900",
         "0000000000000200000009010000000000000300000002000000000000000400",
-        "0000040000000000000005000000090000000000000004000000020000000000",
+        "0000040000000000000005000000130000000000000004000000020000000000",
         "0000020000000100010001000000000000000000000000000002000000000400",
         "0000680000000000000000000000000000000069000000000000000000000000",
         "0000000020000000000000000000000000000000002000000000000000000000",
@@ -167,7 +167,66 @@ fn from_terminal_encode_bytes_are_pinned() {
         "0000000000000000000000000000000000000000000000000000000000000000",
         "0000000000000000000000000000000000000000000000000000000000000000",
         "0000000000000000000000000000000000000000000000000000000000000004",
-        "00000000000000",
+        "0000000000000000010000000001000000",
     );
     assert_eq!(hex, expected);
+}
+
+#[test]
+fn extension_count_is_bounded_on_encode_and_decode() {
+    let mut envelope = sample_envelope();
+    envelope.terminal.visible_rows[0].cells[0].combining = vec!['\u{301}'; 17];
+    expect_too_large(&envelope, "combining mark count");
+    assert!(matches!(
+        Terminal::from_snapshot_envelope(&envelope),
+        Err(SnapshotEnvelopeError::ValueTooLarge {
+            what: "combining mark count",
+            value: 17,
+            max: 16
+        })
+    ));
+    envelope.terminal.visible_rows[0].cells[0].combining.clear();
+    let mut wire = envelope.encode().unwrap();
+    let producer_len = u16::from_le_bytes([wire[19], wire[20]]) as usize;
+    let table = 23 + producer_len;
+    let terminal_start = table + 5 * 12;
+    // Prelude 31, history count 4, visible count 4, row prefix 5.
+    // A default-attribute cell has 4 scalar bytes, 2 flags, 1 underline style,
+    // 1 optional underline color, 1 fg, 1 bg, 4 link, protection and ownership.
+    let count = terminal_start + 31 + 4 + 4 + 5 + 16;
+    assert_eq!(wire[count], 0);
+    wire[count] = 17;
+    assert!(matches!(
+        SnapshotEnvelope::decode(&wire, SnapshotEnvelopeCaps::default()),
+        Err(SnapshotEnvelopeError::ValueTooLarge {
+            what: "combining mark count",
+            value: 17,
+            max: 16
+        })
+    ));
+}
+
+#[test]
+fn legacy_v4_restores_scalars_with_extension_disabled() {
+    let mut terminal = Terminal::new(8, 2);
+    terminal.advance("a\u{301}\u{302}\u{303}\u{304}".as_bytes());
+    let envelope = SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
+    let mut wire = envelope.encode().unwrap();
+    wire[15..17].copy_from_slice(&4u16.to_le_bytes());
+    let producer_len = u16::from_le_bytes([wire[19], wire[20]]) as usize;
+    let layout_len_at = 23 + producer_len + 4 * 12 + 4;
+    let len = u64::from_le_bytes(wire[layout_len_at..layout_len_at + 8].try_into().unwrap());
+    wire[layout_len_at..layout_len_at + 8].copy_from_slice(&(len - 10).to_le_bytes());
+    wire.truncate(wire.len() - 10);
+    let decoded = SnapshotEnvelope::decode(&wire, SnapshotEnvelopeCaps::default()).unwrap();
+    assert_eq!(decoded.layout.cluster_owner, None);
+    assert!(!decoded.layout.pending_wrap);
+    let mut restored = Terminal::from_snapshot_envelope(&decoded).unwrap();
+    assert_eq!(restored.snapshot().cells, terminal.snapshot().cells);
+    restored.advance("\u{305}".as_bytes());
+    assert_eq!(
+        restored.screen().cell(0, 0).unwrap().grapheme(),
+        "a\u{301}\u{302}\u{303}\u{304}"
+    );
+    assert_eq!(restored.screen().cell(0, 1).unwrap().ch, '\u{305}');
 }

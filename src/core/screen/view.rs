@@ -96,6 +96,7 @@ impl Screen {
     /// a resize is coherent. Alternate-screen isolation and the no-scrollback
     /// rule for the alternate buffer are preserved.
     pub fn resize(&mut self, columns: usize, rows: usize) {
+        self.cluster_owner = None;
         let dimensions = Dimensions::new(columns, rows);
         let width_unchanged = dimensions.columns == self.dimensions.columns;
         // A resize re-anchors everything; an open button run's absolute start
@@ -350,6 +351,8 @@ impl Screen {
     /// [`Snapshot`] surface.
     pub fn snapshot_layout_state(&self) -> SnapshotLayoutState {
         SnapshotLayoutState {
+            cluster_owner: self.cluster_owner,
+            pending_wrap: self.pending_wrap,
             scroll_region: self.scroll_region.map(|region| SnapshotScrollRegion {
                 top: region.top,
                 bottom: region.bottom,
@@ -368,6 +371,7 @@ impl Screen {
         &mut self,
         envelope: &SnapshotEnvelope,
     ) -> Result<(), SnapshotEnvelopeError> {
+        envelope.validate_wire_bounds()?;
         restore_validate_terminal_state(&envelope.terminal)?;
         envelope.layout.validate(envelope.terminal.dimensions)?;
 
@@ -388,6 +392,11 @@ impl Screen {
         );
         restored.rows = visible_rows;
         restored.scrollback = Scrollback::from_physical_rows(&scrollback_rows);
+        envelope
+            .layout
+            .validate_streaming_owner(&envelope.terminal)?;
+        restored.cluster_owner = envelope.layout.cluster_owner;
+        restored.pending_wrap = envelope.layout.pending_wrap;
         restored.cursor = envelope.terminal.cursor;
         restored.cursor_visible = envelope.terminal.cursor_visible;
         restored.cursor_style = envelope.terminal.cursor_style;

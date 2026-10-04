@@ -9,6 +9,8 @@ deferrals, and unmet evidence. Release corrections are listed in the
 Wide-glyph wrap padding is distinguished from logical source spaces through
 eager and lazy reflow, search, selection/copy, export, and snapshot restore.
 Extended-cluster ownership and script-group width corrections remain pending.
+Unattached width-zero format controls and selectors occupy zero columns and
+are still not retained. They extend source text when an eligible owner exists.
 
 Dependency maintenance includes the standalone fuzz workspace lockfile and its
 locked API compile check before landing.
@@ -623,11 +625,11 @@ Delivered compatibility work under that policy:
       opt-in, including a per-profile override).
   - [x] Core: wide-cell write/erase coherence — overwrite-half clears the pair,
         wide glyph wraps whole at EOL, erase/ICH/DCH/ECH repair pairs.
-  - [x] Core and renderer: up to four zero-width combining marks attach to the
+  - [x] Core and renderer: up to sixteen extension scalars attach to the
         preceding cell's grapheme, render over the base glyph, survive
         selection/copy, reflow, snapshot, and session-host serialization, and
-        move into a per-line side table in scrollback. A mark at line start is
-        a safe no-op and excess marks are dropped at the documented bound.
+        move into a per-line side table in scrollback. Ordinary leading marks and
+        overflow extensions start source-preserving one-cell owners.
   - [x] Ambiguous-width policy: default stays narrow. `wide` is explicit,
         per profile or global, and reflows that pane without resizing the PTY.
 - [x] Grow PTY-backed smoke coverage without making default tests flaky or slow.
@@ -763,7 +765,8 @@ not a stretch goal.
         that revision),
         recovering `seq` +24% with parser-oracle goldens unchanged. Public
         `bold`..`hidden` fields became getters/setters. The later four-slot
-        combining-mark array returned live-grid `Cell` to 44 B; current
+        combining-mark array returned live-grid `Cell` to 44 B; bounded
+        extended storage now uses 92 B, with a 28 B scrollback cell. Current
         scrollback instead stores 28 B `StoredCell` values with marks in a
         per-line side table.
   - [x] Native render-loop mitigation: reusable CPU vertex storage plus a

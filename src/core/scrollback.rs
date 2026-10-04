@@ -1664,7 +1664,11 @@ fn project_line_mode<const MODE: u8>(
             continue;
         }
         let is_wide_lead = !cell.wide_continuation()
-            && crate::core::char_width::char_display_width(cell.ch(), ambiguous_wide) == 2;
+            && crate::core::char_width::owner_display_width(
+                cell.ch(),
+                marks.marks_at(i),
+                ambiguous_wide,
+            ) == 2;
         let unit = if is_wide_lead && width >= 2 { 2 } else { 1 };
 
         // Wrap before a wide pair that would straddle the right edge.

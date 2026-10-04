@@ -301,9 +301,8 @@ pub struct Attrs {
     /// write/blank-row throughput on scroll-heavy feeds.
     ///
     /// This note used to add "and `Cell` from 44 to 36". That was true when it
-    /// was written and is not true now: `Cell` is 44 bytes again, because the
-    /// four-slot `combining` array was added afterwards and this comment was
-    /// never revised. Both sizes are pinned by compile-time assertion in
+    /// was written and is not true now: `Cell` is now 92 bytes because it retains up to sixteen extension
+    /// scalars. Scrollback keeps those scalars in its per-line sidecar. Both sizes are pinned by compile-time assertion in
     /// `crate::core::tests::cell_equivalence`, so the figures here are
     /// measured rather than remembered.
     ///
@@ -499,10 +498,10 @@ impl LinkId {
         self.0.get()
     }
 }
-/// Maximum zero-width combining marks stored per cell. The first two cover the
-/// common path; two bounded spill slots preserve deeper clusters without making
-/// `Cell` heap-owning or non-`Copy`.
-pub(crate) const MAX_COMBINING: usize = 4;
+/// Maximum retained extension scalars per owner, excluding its first scalar.
+/// The fixed bound keeps live cells self-contained and `Copy`. The printer
+/// starts another owner on overflow, preserving source text.
+pub(crate) const MAX_COMBINING: usize = 16;
 const INLINE_COMBINING: usize = 2;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Cell {
@@ -519,7 +518,7 @@ pub struct Cell {
     pub wide_continuation: bool,
     /// A blank generated solely to wrap a wide owner. Carries no logical text.
     pub layout_padding: bool,
-    /// Zero-width combining marks attached to `ch`, in arrival order. Unused
+    /// Retained extension scalars attached to `ch`, in arrival order. Unused
     /// slots hold `'\0'`. Private so the invariant (`combining_len` marks, the
     /// rest zeroed) stays internal; constructors keep `Cell: Copy`.
     combining: [char; MAX_COMBINING],
@@ -634,14 +633,14 @@ impl Cell {
         Self::new(' ', attrs)
     }
 
-    /// Zero-width combining marks attached to this cell's base char, in order.
+    /// Retained extension scalars attached to this owner, in source order.
     /// Empty for the common case. The renderer composes `ch` followed by these.
     pub fn combining(&self) -> &[char] {
         &self.combining[..self.combining_len as usize]
     }
 
-    /// Append a combining mark. Returns `false` (dropping the mark) once the
-    /// per-cell capacity is reached — a bounded limitation.
+    /// Append a retained extension scalar. Returns false at the owner bound.
+    /// The printer then starts a new owner rather than dropping source text.
     pub(crate) fn push_combining(&mut self, mark: char) -> bool {
         let len = self.combining_len as usize;
         if len < MAX_COMBINING {

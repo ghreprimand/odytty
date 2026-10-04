@@ -31,3 +31,46 @@ pub(crate) fn char_display_width(ch: char, ambiguous_wide: bool) -> usize {
     };
     measured.unwrap_or(1)
 }
+
+/// Thai/Lao SARA AM keeps its preceding consonant as the source owner.
+/// Pre-base vowels and unrelated preceding text remain separate owners.
+pub(crate) fn thai_lao_spacing_extension(base: char, next: char) -> bool {
+    match next {
+        '\u{0e33}' => matches!(base, '\u{0e01}'..='\u{0e2e}'),
+        '\u{0eb3}' => {
+            matches!(base, '\u{0e81}'..='\u{0eae}')
+                && !matches!(
+                    base,
+                    '\u{0e83}' | '\u{0e85}' | '\u{0e8b}' | '\u{0ea4}' | '\u{0ea6}'
+                )
+        }
+        _ => false,
+    }
+}
+
+/// Width of a retained owner. Script-specific additions stay bounded here;
+/// Indic conjuncts and emoji sequences retain their existing scalar policy.
+pub(crate) fn owner_display_width(base: char, extensions: &[char], ambiguous_wide: bool) -> usize {
+    if extensions
+        .iter()
+        .any(|&c| thai_lao_spacing_extension(base, c))
+    {
+        2
+    } else {
+        char_display_width(base, ambiguous_wide)
+    }
+}
+
+/// Unicode 17.0.0 DerivedCoreProperties.txt Default_Ignorable_Code_Point.
+/// https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt
+/// The caller also
+/// requires scalar width zero; visible fillers keep their existing widths.
+/// Standalone source retention for these scalars remains unsupported.
+pub(crate) fn is_default_ignorable(ch: char) -> bool {
+    matches!(ch as u32,
+        0x00ad | 0x034f | 0x061c | 0x115f..=0x1160 | 0x17b4..=0x17b5
+        | 0x180b..=0x180f | 0x200b..=0x200f | 0x202a..=0x202e
+        | 0x2060..=0x206f | 0x3164 | 0xfe00..=0xfe0f | 0xfeff
+        | 0xffa0 | 0xfff0..=0xfff8 | 0x1bca0..=0x1bca3
+        | 0x1d173..=0x1d17a | 0xe0000..=0xe0fff)
+}

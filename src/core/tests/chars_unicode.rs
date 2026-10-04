@@ -374,16 +374,15 @@ fn combining_mark_attaches_to_wide_lead_not_spacer() {
 }
 
 #[test]
-fn combining_mark_at_line_start_is_noop() {
+fn combining_mark_at_line_start_has_its_own_source_owner() {
     let mut terminal = Terminal::new(6, 1);
-    // A combining mark with no preceding base char must not panic and must
-    // leave the grid untouched.
+    // A leading mark survives without inventing a space in the source.
     terminal.advance("\u{0301}".as_bytes());
 
     let cell = terminal.screen().cell(0, 0).unwrap();
-    assert_eq!(cell.ch, ' ');
+    assert_eq!(cell.ch, '\u{0301}');
     assert!(cell.combining().is_empty());
-    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 1 });
 }
 
 #[test]

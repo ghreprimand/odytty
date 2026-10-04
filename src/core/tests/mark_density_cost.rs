@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Price Candidate B's admitted regression: a marked cell costs a 28-byte
-//! stored cell plus a sidecar entry, against 44 bytes inline.
+//! stored cell plus a sidecar entry, against 92 bytes inline.
 //!
 //! Measures the pathological corpus (every cell carrying marks) at the shipped
 //! 10,000-line default so the break-even density is a number, not an adjective.
@@ -42,12 +42,12 @@ fn cells_in(lines: usize) -> u64 {
 /// 80-column lines — the shipped default depth.
 ///
 /// B wins on unmarked content and loses at 100% marked density. Break-even is
-/// the marked-cell fraction where ring bytes match a 44-byte inline cell.
+/// the marked-cell fraction where ring bytes match a 92-byte inline cell.
 #[test]
 fn pathological_mark_density_at_shipped_default() {
     assert_eq!(
         size_of::<Cell>(),
-        44,
+        92,
         "live Cell size is the inline baseline"
     );
 
@@ -63,12 +63,12 @@ fn pathological_mark_density_at_shipped_default() {
     );
     assert!(
         unmarked.ring < inline,
-        "unmarked B must beat inline 44-byte cells: ring={} inline={inline}",
+        "unmarked B must beat inline 92-byte cells: ring={} inline={inline}",
         unmarked.ring
     );
     assert!(
         marked.ring > inline,
-        "100% marked B must lose to inline 44-byte cells: ring={} inline={inline}",
+        "100% marked B must lose to inline 92-byte cells: ring={} inline={inline}",
         marked.ring
     );
 
@@ -94,15 +94,17 @@ fn pathological_mark_density_at_shipped_default() {
         marked.ring.saturating_mul(10),
     );
 
-    // usize-keyed MarkRun is 32 bytes; extra per marked cell must sit near that,
-    // not near a truncated u16 key (2+16) or a vanished sidecar (0).
+    // Sidecar cost follows the retained extension capacity. Compare against
+    // its real layout, with the same tolerance for live rows and ring metadata.
+    let sidecar = crate::core::stored_cell::marks_bytes(1) as f64;
     assert!(
-        extra_per > 24.0 && extra_per < 40.0,
-        "extra per marked cell {extra_per:.3} is not a 32-byte-class sidecar"
+        extra_per > sidecar - 8.0 && extra_per < sidecar + 8.0,
+        "extra per marked cell {extra_per:.3} does not match the {sidecar}-byte sidecar"
     );
+    let expected_break_even = (inline_per - 28.0) / sidecar;
     assert!(
-        break_even > 0.35 && break_even < 0.55,
-        "break-even density {break_even:.4} drifted off the measured ~45% band"
+        (break_even - expected_break_even).abs() < 0.10,
+        "break-even density {break_even:.4} differs from layout estimate {expected_break_even:.4}"
     );
 }
 

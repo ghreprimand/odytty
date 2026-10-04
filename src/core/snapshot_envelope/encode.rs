@@ -112,6 +112,15 @@ impl SnapshotLayoutState {
         for &stop in &self.tab_stops {
             write_u8(&mut out, u8::from(stop));
         }
+        write_u8(&mut out, u8::from(self.pending_wrap));
+        match self.cluster_owner {
+            Some(owner) => {
+                write_u8(&mut out, 1);
+                write_u32(&mut out, owner.row as u32);
+                write_u32(&mut out, owner.column as u32);
+            }
+            None => write_u8(&mut out, 0),
+        }
         out
     }
 }

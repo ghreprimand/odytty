@@ -1170,28 +1170,8 @@ fn grapheme_oracle_corpus() -> Vec<String> {
 #[test]
 fn scrollback_projection_preserves_graphemes_at_every_width() {
     let corpus = grapheme_oracle_corpus();
-    // Expected clusters are what the *cell* representation can hold, not what
-    // was fed: `push_combining` drops marks past `MAX_COMBINING`, and that
-    // bound is a documented limitation this oracle must not paper over.
-    let expected: Vec<String> = corpus
-        .iter()
-        .map(|line| {
-            let mut out = String::new();
-            let mut marks = 0usize;
-            for ch in line.chars() {
-                if is_zero_width_mark(ch) {
-                    if marks < MAX_COMBINING {
-                        out.push(ch);
-                        marks += 1;
-                    }
-                } else {
-                    out.push(ch);
-                    marks = 0;
-                }
-            }
-            out
-        })
-        .collect();
+    // Every source scalar survives, including extensions past the owner bound.
+    let expected = corpus.clone();
 
     for width in [2usize, 3, 5, 8, 13, 40, 80] {
         let mut term = Terminal::new(width, 3);
@@ -1232,13 +1212,6 @@ fn scrollback_projection_preserves_graphemes_at_every_width() {
     }
 }
 
-/// Zero-width marks as the printer classifies them (`Screen::print_char` treats
-/// width 0 as a combining mark), so the oracle's expectation is derived from the
-/// same rule the feed path applies rather than from a second list.
-fn is_zero_width_mark(ch: char) -> bool {
-    unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1) == 0
-}
-
 /// Candidate A: `Cell` with the four-slot `combining` array and its length byte
 /// replaced by a 4-byte handle into a side table. Declared here purely so the
 /// resulting size is produced by the compiler's layout rules rather than by
@@ -1263,7 +1236,7 @@ struct CandidateHandleCell {
 /// *difference* between the two.
 #[test]
 fn stage_b_candidate_cell_sizes() {
-    assert_eq!(std::mem::size_of::<Cell>(), 44);
+    assert_eq!(std::mem::size_of::<Cell>(), 92);
     assert_eq!(std::mem::size_of::<CandidateHandleCell>(), 32);
     assert_eq!(
         std::mem::size_of::<crate::core::stored_cell::StoredCell>(),

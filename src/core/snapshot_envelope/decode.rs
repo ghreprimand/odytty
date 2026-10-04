@@ -90,7 +90,7 @@ impl SnapshotEnvelope {
                     prompt_marks = Some(decode_prompt_marks(payload, caps)?);
                 }
                 SECTION_LAYOUT_STATE => {
-                    layout = Some(SnapshotLayoutState::decode(payload, caps)?);
+                    layout = Some(SnapshotLayoutState::decode(payload, caps, format_version)?);
                 }
                 _ if section.flags & SECTION_FLAG_REQUIRED != 0 => {
                     return Err(SnapshotEnvelopeError::UnknownRequiredSection(section.id));
@@ -110,6 +110,7 @@ impl SnapshotEnvelope {
         let layout =
             layout.unwrap_or_else(|| SnapshotLayoutState::defaults_for(terminal.dimensions));
         layout.validate(terminal.dimensions)?;
+        layout.validate_streaming_owner(&terminal)?;
 
         Ok(Self {
             producer_version,
@@ -139,7 +140,11 @@ impl SnapshotMetadata {
 }
 
 impl SnapshotLayoutState {
-    fn decode(bytes: &[u8], caps: SnapshotEnvelopeCaps) -> Result<Self, SnapshotEnvelopeError> {
+    fn decode(
+        bytes: &[u8],
+        caps: SnapshotEnvelopeCaps,
+        format_version: u16,
+    ) -> Result<Self, SnapshotEnvelopeError> {
         let mut reader = Reader::new(bytes);
         let scroll_region = match reader.read_u8()? {
             0 => None,
@@ -163,10 +168,21 @@ impl SnapshotLayoutState {
         for _ in 0..count {
             tab_stops.push(reader.read_bool()?);
         }
+        let pending_wrap = format_version >= 5 && reader.read_bool()?;
+        let cluster_owner = if format_version >= 5 && reader.read_bool()? {
+            Some(Position {
+                row: reader.read_u32()? as usize,
+                column: reader.read_u32()? as usize,
+            })
+        } else {
+            None
+        };
         if reader.remaining() != 0 {
             return Err(SnapshotEnvelopeError::TrailingBytes(reader.remaining()));
         }
         Ok(Self {
+            pending_wrap,
+            cluster_owner,
             scroll_region,
             tab_stops,
         })
@@ -287,6 +303,18 @@ impl SnapshotCell {
         let wide_continuation = ownership == 1;
         let layout_padding = ownership == 2;
         let combining_len = reader.read_u8()? as usize;
+        let max = if format_version >= 5 {
+            crate::core::types::MAX_COMBINING
+        } else {
+            4
+        };
+        if combining_len > max {
+            return Err(SnapshotEnvelopeError::ValueTooLarge {
+                what: "combining mark count",
+                value: combining_len,
+                max,
+            });
+        }
         let mut combining = Vec::with_capacity(combining_len);
         for _ in 0..combining_len {
             combining.push(read_char(reader)?);

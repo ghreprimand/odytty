@@ -39,6 +39,9 @@ pub struct SnapshotPromptMark {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotLayoutState {
+    /// Streaming owner, terminated by controls and edits. Version 5 and later.
+    pub cluster_owner: Option<Position>,
+    pub pending_wrap: bool,
     pub scroll_region: Option<SnapshotScrollRegion>,
     pub tab_stops: Vec<bool>,
 }
@@ -46,6 +49,8 @@ pub struct SnapshotLayoutState {
 impl SnapshotLayoutState {
     pub fn defaults_for(dimensions: Dimensions) -> Self {
         Self {
+            cluster_owner: None,
+            pending_wrap: false,
             scroll_region: None,
             tab_stops: default_tab_stops(dimensions.columns),
         }

@@ -261,7 +261,7 @@ fn pre_charset_snapshots_decode_with_default_charset_state() {
     let envelope = SnapshotEnvelope::from_terminal(&term, SnapshotCaptureLimits::default());
     let mut bytes = envelope.encode().expect("encode");
 
-    // Rewrite the header version 4 -> 2 and strip the appended charset byte
+    // Rewrite the header version 5 -> 2 and strip the appended charset byte
     // from the terminal-state section, shrinking its table length by one.
     // Header (all integers little-endian): magic(15) + version(2) +
     // protocol(2) + producer string(u16 len + bytes) + section count(2),
@@ -269,7 +269,7 @@ fn pre_charset_snapshots_decode_with_default_charset_state() {
     let version_at = 15;
     assert_eq!(
         u16::from_le_bytes([bytes[version_at], bytes[version_at + 1]]),
-        4
+        5
     );
     bytes[version_at..version_at + 2].copy_from_slice(&2u16.to_le_bytes());
     let producer_len = u16::from_le_bytes([bytes[19], bytes[20]]) as usize;
@@ -287,6 +287,13 @@ fn pre_charset_snapshots_decode_with_default_charset_state() {
     // v2 payload keeps the first 30).
     let payload_start = table_start + 5 * 12;
     bytes.remove(payload_start + 30);
+    // Version 5 appends pending-wrap and an optional owner to the final layout
+    // section. This fixture has an owner, so strip exactly ten bytes.
+    let layout_len_at = table_start + 4 * 12 + 4;
+    let layout_len =
+        u64::from_le_bytes(bytes[layout_len_at..layout_len_at + 8].try_into().unwrap());
+    bytes[layout_len_at..layout_len_at + 8].copy_from_slice(&(layout_len - 10).to_le_bytes());
+    bytes.truncate(bytes.len() - 10);
 
     let decoded =
         SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).expect("v2 decode");

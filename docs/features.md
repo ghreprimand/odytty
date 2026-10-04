@@ -352,7 +352,7 @@ The support boundary is explicit:
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, and opt-in `ss01`/`ss02` overlays | More curated operators and bounded, explicit font-feature settings are candidates within the current overlay model |
 | Arabic | Contextual joining forms in logical left-to-right cell order; combining-marked cells stay on the monochrome path | More joining-script coverage that requires no visual reordering is a candidate; this is not bidirectional layout |
 | Full Unicode bidirectional layout | Not supported | Outside the current overlay model. Correct support first requires line-level logical-to-visual mapping shared by rendering, hit testing, cursor movement, selection, damage tracking, and copy semantics |
-| Complex Indic/Brahmic shaping | Not supported | Outside the current one-character-per-cell overlay model. Correct support requires grapheme-cluster ownership plus reordered glyph placement that remains reversible to logical cells |
+| Complex Indic/Brahmic shaping | Not supported | Outside the current fixed-cell overlay model. Correct support requires grapheme-cluster ownership plus reordered glyph placement that remains reversible to logical cells |
 | Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |
 | SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Deferred implementation work, not a cell-model conflict. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
 
@@ -367,6 +367,16 @@ cases, all Brahmic or derived from Southeast Asian Brahmic scripts; the run
 reported none in its Latin, Cyrillic, Greek, CJK, Hebrew, or non-conjunct Arabic
 cases. This is a result for that corpus, not a percentage of languages OdyTTY
 claims to support.
+
+Source owners retain up to seventeen scalars, including their base. Ordinary leading
+marks and overflow extensions start new one-cell owners rather than disappearing.
+Cursor movement, controls, edits, hard breaks, and resize terminate extension;
+SGR preserves it. Thai/Lao consonant plus SARA AM owns two cells. Tone marks,
+Tibetan subjoined letters, and pre-base-vowel positions keep their prior widths.
+Snapshot v5 preserves these scalars, the extension boundary, and pending wrap.
+Indic conjunct and emoji sequence widths remain separate work.
+Unattached width-zero format controls and selectors occupy zero columns and
+are still not retained. They extend source text when an eligible owner exists.
 
 Decomposed combining marks stay attached to their base glyph in the monochrome
 text path. Wrapped and rectangular selection copy the base followed by its marks
@@ -1551,11 +1561,13 @@ to search, copy, or scrollback export. Typed spaces at soft-wrap boundaries
 remain logical source text. Eager and lazy reflow preserve this distinction
 on Linux Wayland, Linux X11, macOS, and Windows.
 
-Snapshot format v4 preserves layout-padding provenance and G0/G1 character-set
+Snapshot format v5 preserves layout-padding provenance and G0/G1 character-set
 designation and SO/SI selection, so an ACS box-drawing run survives reattach.
-Formats v1 through v3 remain readable. Formats v1 and v2 restore the power-on
-ASCII character-set state; all older formats restore blanks as logical spaces
-because they carry no padding provenance.
+Formats v1 through v4 remain readable. Formats v1 and v2 restore the power-on
+ASCII character-set state. Formats v1 through v3 restore blanks as logical
+spaces because they carry no padding provenance. Version 4 retains padding;
+versions 1 through 4 restore with the streaming extension boundary disabled.
+Version 5 retains that boundary and pending wrap.
 
 On Windows, the Session Navigator lists live local and integrated SSH panes only;
 detached sessions and attach stay unavailable until a Windows detached

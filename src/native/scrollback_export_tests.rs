@@ -559,3 +559,28 @@ fn generated_wide_padding_is_not_exported_as_source_text() {
         }
     }
 }
+
+#[test]
+fn extended_source_owners_survive_plain_and_html_export() {
+    // Project-authored script samples, under the project license.
+    let text = format!(
+        "\u{301}abc\u{e01}\u{e33}\u{f40}\u{f90}\u{f72}A{}Z",
+        "\u{301}".repeat(40)
+    );
+    let mut terminal = crate::core::Terminal::new(4, 24);
+    terminal.advance(text.as_bytes());
+    let rows: Vec<_> = terminal
+        .visible_search_rows(0)
+        .into_iter()
+        .map(|row| (row.cells, row.wrapped))
+        .collect();
+    let lines = build(&rows);
+    assert_eq!(plain_text(&lines), format!("{text}\n"));
+    let html = bounded(ScrollbackFormat::Html, 8192, &rows).unwrap();
+    // Text is kept in logical order despite owner and wrapping boundaries.
+    assert!(html.contains(&text));
+    assert_eq!(
+        bounded(ScrollbackFormat::PlainText, 8192, &rows).unwrap(),
+        format!("{text}\n")
+    );
+}

@@ -1697,11 +1697,13 @@ scope rather than silently inheriting deferred work from a prior release.
   per-user Unix-domain socket under `$XDG_RUNTIME_DIR/odytty/`, requires a
   `0700` current-user runtime directory, rejects incompatible protocol/snapshot
   versions, sends a current `SnapshotEnvelope` on every attach, streams
-  output/invalidation frames, and reaps the child process. Snapshot format v4
+  output/invalidation frames, and reaps the child process. Snapshot format v5
   retains layout-padding provenance as well as G0/G1 designation and SO/SI
-  selection. Formats v1 through v3 remain readable; v1 and v2 restore the
-  power-on ASCII character-set state. Older snapshots restore blanks as logical
-  spaces because their format carries no padding provenance. The envelope carries cells
+  selection. Formats v1 through v4 remain readable; v1 and v2 restore the
+  power-on ASCII character-set state. Formats v1 through v3 restore blanks as logical
+  spaces because they carry no padding provenance. Version 4 retains padding;
+  versions 1 through v4 restore with streaming extension disabled. Version 5
+  retains the extension boundary and pending wrap. The envelope carries cells
   but not the OSC 8 link table, the button table, or the graphics scene, so a
   restored screen drops those references instead of letting later output
   reuse them: link ids are cleared (the text stays, inert), Kitty Unicode
@@ -2379,7 +2381,7 @@ complex-text shaping remains outside this terminal-grid model.
 
 `ligatures` is a default-on presentation setting. Eligible same-style ASCII runs
 are shaped with `swash::ShapeContext` and contextual alternates, while the
-terminal model retains its original one-character-per-cell state. `ligatures =
+terminal model retains its source owners and fixed cell positions. `ligatures =
 off` performs no shaping and retains the prior scalar atlas and vertex output
 exactly.
 
@@ -2406,12 +2408,30 @@ scrollback reflow discard its old layout position before wrapping again.
 Typed spaces remain source text, including spaces at a soft-wrap boundary.
 Overwrite and erase replace padding with ordinary content. Insert/delete
 character edits materialize row padding as ordinary blanks; rectangular copy
-materializes padding at the destination. Attaching a mark to padding retains
-that mark on an ordinary space. Snapshot format v4 stores ownership flags in
+materializes padding at the destination. An unattached mark starts a new
+source owner rather than attaching to generated padding. Snapshot format v5 stores ownership flags in
 the existing spacer byte and rejects malformed padding at decode.
 The same core policy applies on Linux Wayland, Linux X11, macOS, and Windows.
 
 #### Combining Marks
+
+An owner retains its first scalar and up to sixteen extension scalars in source
+order. Further extensions start another one-cell owner. An unattached ordinary leading mark also starts a one-cell owner with the mark
+itself as source text, without a synthetic space or dotted-circle scalar.
+Controls, cursor movement, edits, hard line breaks, and resize terminate the
+streaming extension boundary. SGR preserves it. Thai and Lao SARA AM following
+a consonant extends the preceding owner to two cells; tone marks and Tibetan
+subjoined letters retain their existing widths. Pre-base vowels stay separate.
+Snapshot format v5 retains the extension boundary and pending-wrap state;
+versions 1 through 4 decode with extension disabled and retain their original
+four-extension storage limit. The format caps counts before allocating.
+Unattached width-zero default-ignorable scalars, including format controls and
+variation selectors, occupy zero columns and are still not retained. With an
+eligible owner they extend its source text. Ordinary leading marks previously
+disappeared and now occupy one cell, without an invented base.
+The default 32 MiB snapshot section budget bounds the visible grid by 91 bytes
+per maximum-size encoded cell instead of 43, allowing about 368,000 cells.
+Indic conjunct and emoji sequence width changes are separate work.
 
 Zero-width combining marks remain stored with their base cell in arrival order.
 The monochrome renderer draws resident marks over that base and suppresses a
@@ -2424,9 +2444,9 @@ Wrapped and rectangular selection copy the base followed by those stored marks.
 blink, strikethrough, inverse, hidden) in a single private `flags: u16`
 bitfield. The public API is `&self` getters (`bold()` … `hidden()`) and `&mut
 self` setters (`set_bold()` … `set_hidden()`). `Attrs` is 20 B and the live-grid
-`Cell` is 44 B; scrollback uses a 28 B `StoredCell` plus a per-line combining-mark
+`Cell` is 92 B; scrollback uses a 28 B `StoredCell` plus a per-line combining-mark
 side table, so the grid stays self-describing while ordinary history does not
-pay for four empty mark slots per cell. `protected` and `wide_continuation`
+pay for sixteen empty extension slots per cell. `protected` and `wide_continuation`
 remain public `bool` fields on `Cell`. The
 hand-written `Debug` impl reads through the getters and emits the same field
 names and values as the previous `#[derive(Debug)]` output, so parser-oracle

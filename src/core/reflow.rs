@@ -334,7 +334,11 @@ pub(in crate::core) fn reflow_lines_with_options(
                 continue;
             }
             let is_wide_lead = !cell.wide_continuation
-                && super::char_width::char_display_width(cell.ch, options.ambiguous_wide) == 2;
+                && super::char_width::owner_display_width(
+                    cell.ch,
+                    cell.combining(),
+                    options.ambiguous_wide,
+                ) == 2;
             // A wide glyph needs two columns; if the grid is too narrow to hold
             // a pair, degrade it to width 1 (conservative wide-glyph handling).
             let unit = if is_wide_lead && new_cols >= 2 { 2 } else { 1 };

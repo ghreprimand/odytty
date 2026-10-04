@@ -307,4 +307,21 @@ mod tests {
         rec.record(frame(cells.max(1), 1, 'Z'));
         assert_eq!(rec.len(), 1);
     }
+    #[test]
+    fn replay_frames_preserve_extended_owners_and_logical_text() {
+        let mut terminal = crate::core::Terminal::new(8, 3);
+        let source = format!("\u{301}\u{e01}\u{e33}A{}", "\u{301}".repeat(40));
+        terminal.advance(source.as_bytes());
+        let mut recorder = OutputRecorder::default();
+        recorder.record(terminal.snapshot());
+        let frame = recorder.frames.front().unwrap();
+        let text: String = frame
+            .cells
+            .iter()
+            .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
+            .map(Cell::grapheme)
+            .collect();
+        assert_eq!(text.trim_end_matches(' '), source);
+        assert_eq!(frame.cells, terminal.snapshot().cells);
+    }
 }

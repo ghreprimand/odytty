@@ -4,7 +4,7 @@
 //!
 //! # Why the ring stores a different cell
 //!
-//! [`super::types::Cell`] is 44 bytes, and 16 of them are the four-slot
+//! [`super::types::Cell`] is 92 bytes, and 64 of them are the sixteen-slot
 //! `combining` array (plus its length byte) that is empty for effectively every
 //! cell in real content. Scrollback is overwhelmingly cells — 97.7% of the ring
 //! at 100,000 hard-terminated lines — so the array is paid for on every stored
@@ -32,7 +32,7 @@
 //! # Cost that goes up
 //!
 //! A cell that *does* carry marks now costs 28 bytes plus a
-//! [`MarkRun`] entry, which is more than the 44 it used to cost alone. That is
+//! [`MarkRun`] entry, which is more than the 92 bytes of the full live cell. That is
 //! the intended trade: mark-bearing cells are rare enough that the per-cell
 //! saving dominates, and content that is mostly combining marks is the case
 //! this representation is worst for.
@@ -64,7 +64,7 @@ pub(in crate::core) struct StoredCell {
 /// the *difference*: if `Cell` shrank and this did not, the trade would change
 /// and should be re-decided rather than silently kept.
 const _: () = assert!(std::mem::size_of::<StoredCell>() == 28);
-const _: () = assert!(std::mem::size_of::<Cell>() == 44);
+const _: () = assert!(std::mem::size_of::<Cell>() == 92);
 
 impl StoredCell {
     /// Narrow a `Cell` for storage. The caller is responsible for recording
@@ -92,7 +92,7 @@ impl StoredCell {
     ///
     /// Marks are re-attached through [`Cell::push_combining`] rather than by
     /// writing the array directly, so the `MAX_COMBINING` bound and its
-    /// drop-on-overflow semantics are the same code that enforced them on the
+    /// bounded capacity are the same code that enforced it on the
     /// way in. A second copy of that rule here is exactly how the two would
     /// drift apart.
     #[inline]
@@ -366,9 +366,9 @@ mod tests {
 
     #[test]
     fn hydrate_applies_the_same_overflow_bound_as_the_cell() {
-        // Five marks offered, four storable: the truncation must be the
+        // Seventeen extensions offered, sixteen storable: the truncation must be the
         // `Cell`'s own, not a second rule in this module.
-        let offered = ['\u{301}', '\u{302}', '\u{303}', '\u{304}', '\u{305}'];
+        let offered = ['\u{301}'; MAX_COMBINING + 1];
         let cell = marked('a', &offered);
         assert_eq!(cell.combining().len(), MAX_COMBINING);
         let stored = StoredCell::from_cell(&cell);
