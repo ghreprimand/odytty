@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Headless bidirectional display plans for one wrapped logical line.
 //!
-//! This module computes, and nothing yet consumes, the visual arrangement the
-//! Unicode Bidirectional Algorithm (UAX #9) gives one terminal paragraph. It
-//! changes no display, input, selection, or stored cell. Terminal semantics
+//! This module computes the visual arrangement the Unicode Bidirectional
+//! Algorithm (UAX #9) gives one terminal paragraph. Only a test-only rendering
+//! seam ([`crate::grid::BidiDisplayMap`]) consumes it; it changes no shipped
+//! display, input, selection, or stored cell. Terminal semantics
 //! stay logical: the plan is a derived, immutable presentation map.
 //!
 //! The contract:
@@ -32,9 +33,10 @@
 //!   complete identity layout, never a partially reordered prefix. Caps are
 //!   checked before any bidi work starts.
 //!
-//! Data: bidi classes, bracket pairs, and Bidi_Mirrored are Unicode 17.0.0,
-//! the same version as OdyTTY's width tables, generated into [`classes`],
-//! [`brackets`], and [`mirrored`] by `scripts/unicode-bidi-data.py`.
+//! Data: bidi classes, bracket pairs, Bidi_Mirrored, and Bidi_Mirroring_Glyph
+//! are Unicode 17.0.0, the same version as OdyTTY's width tables, generated
+//! into [`classes`], [`brackets`], [`mirrored`], and [`mirroring`] by
+//! `scripts/unicode-bidi-data.py`.
 //! `unicode-bidi` 0.3.18 resolves levels through a `BidiDataSource` over that
 //! data; its own bundled Unicode 16.0.0 tables are not built. Performance is
 //! unmeasured.
@@ -46,6 +48,7 @@ mod brackets;
 mod classes;
 mod data;
 mod mirrored;
+mod mirroring;
 mod resolve;
 
 #[cfg(test)]
@@ -369,4 +372,16 @@ pub fn is_bidi_mirrored(scalar: char) -> bool {
             }
         })
         .is_ok()
+}
+
+/// The Bidi_Mirroring_Glyph of `scalar` (Unicode 17.0.0): the character whose
+/// glyph presents `scalar` mirrored, for an owner [`BidiPlan::is_mirrored`]
+/// reports. `None` for a character with no mirroring pair, including
+/// Bidi_Mirrored characters such as U+2211 that need a mirrored glyph rather
+/// than a different character. Presentation only: stored text never changes.
+pub fn bidi_mirroring_glyph(scalar: char) -> Option<char> {
+    mirroring::BIDI_MIRRORING_GLYPH
+        .binary_search_by(|(source, _)| source.cmp(&scalar))
+        .ok()
+        .map(|index| mirroring::BIDI_MIRRORING_GLYPH[index].1)
 }

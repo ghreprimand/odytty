@@ -8,6 +8,8 @@
 #   * src/core/bidi/classes.rs: every Bidi_Class other than L from
 #     extracted/DerivedBidiClass.txt, with the file's @missing default ranges
 #     applied first and its explicit data lines over them.
+#   * src/core/bidi/mirroring.rs: the Bidi_Mirroring_Glyph pairs from
+#     BidiMirroring.txt, used only to present a mirrored character.
 #   * src/core/bidi/brackets.rs: Bidi_Paired_Bracket pairs from
 #     BidiBrackets.txt, each keyed to its opening bracket after canonical
 #     singleton decomposition from UnicodeData.txt (rule BD16 matches
@@ -17,10 +19,11 @@
 #     conformance files, with every @Levels and @Reorder header kept so each
 #     retained BidiTest data line keeps its expected result.
 #
-# Usage: unicode-bidi-data.py <directory holding the six UCD files>
+# Usage: unicode-bidi-data.py <directory holding the seven UCD files>
 #
 # The input files come from https://www.unicode.org/Public/<version>/ucd/
-# (BidiCharacterTest.txt, BidiTest.txt, BidiBrackets.txt, UnicodeData.txt)
+# (BidiCharacterTest.txt, BidiTest.txt, BidiBrackets.txt, BidiMirroring.txt,
+# UnicodeData.txt)
 # and .../ucd/extracted/ (DerivedBinaryProperties.txt, DerivedBidiClass.txt). Their SHA-256 values are written into each
 # generated header so a later run can prove which release produced them.
 # Standard library only.
@@ -39,6 +42,7 @@ FIXTURES = REPO / "tests" / "fixtures" / "unicode-bidi"
 MIRRORED_RS = REPO / "src" / "core" / "bidi" / "mirrored.rs"
 CLASSES_RS = REPO / "src" / "core" / "bidi" / "classes.rs"
 BRACKETS_RS = REPO / "src" / "core" / "bidi" / "brackets.rs"
+MIRRORING_RS = REPO / "src" / "core" / "bidi" / "mirroring.rs"
 
 # Long Bidi_Class value names used by @missing lines, to the short names the
 # data lines and `unicode_bidi::BidiClass` use.
@@ -310,6 +314,32 @@ def brackets_table(brackets: Path, unicode_data: Path) -> str:
     )
 
 
+def mirroring_table(source: Path) -> str:
+    pairs: list[tuple[int, int]] = []
+    for line in source.read_text(encoding="utf-8").splitlines():
+        body = line.split("#")[0].strip()
+        if not body:
+            continue
+        cp, mirror = (int(part.strip(), 16) for part in body.split(";"))
+        pairs.append((cp, mirror))
+    pairs.sort()
+    if len({cp for cp, _ in pairs}) != len(pairs):
+        raise SystemExit("duplicate Bidi_Mirroring_Glyph entry")
+    items = [f" ('\\u{{{cp:04X}}}', '\\u{{{mirror:04X}}}')," for cp, mirror in pairs]
+    return "\n".join(
+        generated_header([source], "Bidi_Mirroring_Glyph pairs")
+        + [
+            f"/// {len(pairs)} pairs sorted by code point: a Bidi_Mirrored character and",
+            "/// the character whose glyph presents its mirror image.",
+            "#[rustfmt::skip]",
+            "pub(super) const BIDI_MIRRORING_GLYPH: &[(char, char)] = &[",
+            *wrap_items(items),
+            "];",
+            "",
+        ]
+    )
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(__doc__ or "usage: unicode-bidi-data.py <ucd dir>", file=sys.stderr)
@@ -328,6 +358,7 @@ def main() -> int:
     BRACKETS_RS.write_text(
         brackets_table(ucd / "BidiBrackets.txt", ucd / "UnicodeData.txt"), encoding="utf-8"
     )
+    MIRRORING_RS.write_text(mirroring_table(ucd / "BidiMirroring.txt"), encoding="utf-8")
     return 0
 
 

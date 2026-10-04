@@ -236,3 +236,24 @@ fn width_zero_owners_must_hold_only_format_controls() {
         assert!(!is_bidi_format_control(scalar));
     }
 }
+
+#[test]
+fn mirroring_glyph_pairs_are_sorted_mirrored_and_presentation_only() {
+    let table = super::mirroring::BIDI_MIRRORING_GLYPH;
+    assert_eq!(table.len(), 428, "BidiMirroring-17.0.0.txt pair count");
+    assert!(table.windows(2).all(|pair| pair[0].0 < pair[1].0));
+    for &(source, mirror) in table {
+        assert!(
+            is_bidi_mirrored(source),
+            "{source:?} pairs but is not mirrored"
+        );
+        assert_ne!(source, mirror);
+    }
+    for (source, mirror) in [('(', ')'), (')', '('), ('<', '>'), ('[', ']'), ('{', '}')] {
+        assert_eq!(bidi_mirroring_glyph(source), Some(mirror));
+    }
+    // Bidi_Mirrored without a mirroring character, and an unmirrored letter.
+    assert!(is_bidi_mirrored('\u{2211}'));
+    assert_eq!(bidi_mirroring_glyph('\u{2211}'), None);
+    assert_eq!(bidi_mirroring_glyph('a'), None);
+}

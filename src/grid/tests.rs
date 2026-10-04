@@ -122,10 +122,10 @@ fn cell_colors_resolve_once_per_vertex_rebuild() {
     // the lead-cell total, so this fails while each pass calls resolve.
     let mut term = Terminal::new(3, 2);
     term.advance(b"\x1b[?25l");
-    CELL_COLOR_RESOLVE_CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
+    CELL_COLOR_RESOLVE_CALLS.with(|calls| calls.set(0));
     let _verts = build_vertices(&term.snapshot(), &atlas);
     assert_eq!(
-        CELL_COLOR_RESOLVE_CALLS.load(std::sync::atomic::Ordering::Relaxed),
+        CELL_COLOR_RESOLVE_CALLS.with(std::cell::Cell::get),
         3 * 2,
         "each lead cell is resolved once per rebuild"
     );

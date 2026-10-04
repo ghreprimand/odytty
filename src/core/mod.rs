@@ -82,7 +82,8 @@ pub(crate) use tests::v013_fixtures;
 
 pub use bidi::{
     BidiIdentityReason, BidiLayout, BidiOwner, BidiPlan, BidiVisualCell, MAX_BIDI_OWNER_WIDTH,
-    MAX_BIDI_PARAGRAPH_BYTES, MAX_BIDI_PARAGRAPH_OWNERS, MAX_BIDI_PARAGRAPH_ROWS, is_bidi_mirrored,
+    MAX_BIDI_PARAGRAPH_BYTES, MAX_BIDI_PARAGRAPH_OWNERS, MAX_BIDI_PARAGRAPH_ROWS,
+    bidi_mirroring_glyph, is_bidi_mirrored,
 };
 pub use button::{
     ButtonEntry, ButtonHit, ButtonIcon, ButtonId, ButtonScope, ButtonSpan, ButtonState,

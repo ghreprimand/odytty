@@ -136,8 +136,26 @@ is Unicode 17.0.0, the same version as the width tables, generated from the
 Unicode Character Database by `scripts/unicode-bidi-data.py`. Bidi format
 controls (embeddings, overrides, isolates, LRM, RLM, and ALM) can be passed as
 width-0 owners that keep their logical position, take part in level
-resolution, and cover no visual column. Nothing renders, hit-tests, moves the
-cursor, selects, or copies through it, so display and behavior are unchanged.
+resolution, and cover no visual column.
+
+A test-only rendering seam draws a snapshot through those plans. It treats each
+run of soft-wrapped rows as one paragraph and draws every cell at its visual
+column; a wide cell keeps its lead and continuation cells together. A mirrored
+character in right-to-left text draws its Unicode 17.0.0 Bidi_Mirroring_Glyph
+counterpart. Each glyph on a reordered row is clipped to its own visual cells.
+Contextual shaping runs split wherever the resolved level changes, so no
+ligature crosses a direction boundary. Arabic joining runs are shaped right to
+left, and each joined glyph is placed on the visual cells of its source
+characters. Left-to-right ligatures are not formed inside right-to-left text.
+Pixel fixtures use a project-authored font. They compare each mixed-direction
+line against the unchanged renderer drawing the hand-ordered visual string,
+covering Hebrew with Latin and digits, a mirrored bracket pair, wide cells, a
+ligature across a direction boundary, Arabic lam-alef joining, and color glyphs.
+Known limits of the seam: paragraphs that begin in scrollback resolve from
+their visible rows only, and a mirrored character with no mirroring counterpart
+(U+2211, for example) draws unmirrored. Only the test suite reaches this seam:
+no setting, menu, or flag enables it. Nothing hit-tests, moves the cursor,
+selects, or copies through it, so on-screen display and behavior are unchanged.
 
 ### Complex Indic and Brahmic shaping
 

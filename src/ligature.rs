@@ -62,6 +62,9 @@ use swash::shape::{Direction, ShapeContext};
 use swash::text::{Codepoint as _, JoiningType, Script};
 use swash::{FontRef, GlyphId};
 
+#[cfg(test)]
+mod bidi;
+
 use crate::atlas::{FontStyle, ShapedGlyphKey};
 use crate::core::{Cell, Snapshot};
 use crate::grid::{ColorGlyphRun, ColorRunCoverage, font_style_for_attrs};
@@ -189,6 +192,11 @@ pub trait LigatureFonts {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LigatureGlyph {
     pub key: ShapedGlyphKey,
+    /// Source cells of the glyph's shaping cluster, starting at its anchor
+    /// cell (2 for a lam-alef ligature). Presentation placement only: display
+    /// order puts the glyph's pen on the cluster's leftmost visual cell. Not
+    /// part of the atlas identity.
+    pub source_cells: u8,
 }
 
 /// A substituted source-cell span. Scalar glyphs inside the span are suppressed
@@ -249,6 +257,19 @@ type RowBucket = Vec<(Arc<RowKey>, Arc<RowPlan>)>;
 struct ShapedGlyph {
     id: GlyphId,
     source_start: usize,
+    /// Exclusive end column of the glyph's shaping cluster.
+    source_end: usize,
+}
+
+/// Whether two shaping results draw the same glyphs from the same source
+/// cells. Cluster extents are placement data and do not decide whether an
+/// overlay exists.
+fn same_glyphs(off: &[ShapedGlyph], on: &[ShapedGlyph]) -> bool {
+    off.len() == on.len()
+        && off
+            .iter()
+            .zip(on)
+            .all(|(a, b)| a.id == b.id && a.source_start == b.source_start)
 }
 
 /// Deterministic FIFO row-plan cache plus the reusable swash shaping context.
@@ -415,6 +436,7 @@ impl LigatureShaper {
                 start,
                 style,
                 fonts.ligature_font(style),
+                Direction::LeftToRight,
             ));
         }
         RowPlan { runs }
@@ -426,21 +448,24 @@ impl LigatureShaper {
         column_start: usize,
         style: FontStyle,
         font: &FontHandle,
+        direction: Direction,
     ) -> Vec<RelativeRun> {
         let Some(font_ref) = FontRef::from_index(font.as_slice(), 0) else {
             return Vec::new();
         };
         let arabic = run_text.text.chars().any(is_arabic_joining_base);
         let (off, on) = if arabic {
-            // Joining forms vs cmap defaults (typically isolated). Direction is
-            // always LTR: cells stay in logical order - this is not bidi.
+            // Joining forms vs cmap defaults (typically isolated). Live runs
+            // pass LTR: cells stay in logical order. The test-only bidi seam
+            // passes RTL for a right-to-left level run; swash still reports
+            // clusters in logical order, and placement maps them visually.
             (
                 shape_run(
                     &mut self.context,
                     font_ref,
                     run_text,
                     Script::Latin,
-                    Direction::LeftToRight,
+                    direction,
                     &[],
                 ),
                 shape_run(
@@ -448,7 +473,7 @@ impl LigatureShaper {
                     font_ref,
                     run_text,
                     Script::Arabic,
-                    Direction::LeftToRight,
+                    direction,
                     &[],
                 ),
             )
@@ -473,7 +498,7 @@ impl LigatureShaper {
                 ),
             )
         };
-        if off == on {
+        if same_glyphs(&off, &on) {
             return Vec::new();
         }
         let fingerprint_slot = &mut self.face_fingerprints[font_style_index(style)];
@@ -533,6 +558,7 @@ impl LigatureShaper {
                                 span_cells,
                                 anchor_cell,
                             },
+                            source_cells: cluster_cells(glyph, span.end),
                         })
                     })
                     .collect::<Vec<_>>();
@@ -687,17 +713,31 @@ fn shape_run(
     shaper.add_str(&run_text.text);
     let mut glyphs = Vec::new();
     shaper.shape_with(|cluster| {
-        let Some(source_start) = run_text.column_at_byte(cluster.source.to_range().start) else {
+        let bytes = cluster.source.to_range();
+        let Some(source_start) = run_text.column_at_byte(bytes.start) else {
             return;
         };
+        let source_end = bytes
+            .end
+            .checked_sub(1)
+            .and_then(|last| run_text.column_at_byte(last))
+            .map_or(source_start + 1, |last| last.max(source_start) + 1);
         for glyph in cluster.glyphs {
             glyphs.push(ShapedGlyph {
                 id: glyph.id,
                 source_start,
+                source_end,
             });
         }
     });
     glyphs
+}
+
+/// Source cells of `glyph`'s cluster, clipped at the exclusive column `end`
+/// of its overlay and never below one.
+fn cluster_cells(glyph: &ShapedGlyph, end: usize) -> u8 {
+    let cells = glyph.source_end.min(end).saturating_sub(glyph.source_start);
+    u8::try_from(cells.max(1)).unwrap_or(u8::MAX)
 }
 
 /// One overlay covering every cell in a run when shaping changes glyph count
@@ -726,6 +766,7 @@ fn whole_run_overlay(
                     span_cells,
                     anchor_cell,
                 },
+                source_cells: cluster_cells(glyph, cell_count),
             })
         })
         .collect::<Vec<_>>();

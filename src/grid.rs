@@ -22,33 +22,47 @@
 //! be rebuilt for a resize (only when the snapshot content changes).
 
 mod background;
+mod bidi;
 mod clipping;
+mod glyph_quads;
 mod model;
 
 pub use background::{BackgroundTreatment, BackgroundTreatmentParams, MAX_BG_TREATMENT_DARKEN};
+pub use bidi::BidiDisplayMap;
 pub use clipping::VClip;
 pub(crate) use clipping::{
     clip_quads_to_rect, clip_quads_vertical, extend_first_row_bg_to_top, subtract_rects_from_quads,
 };
+#[cfg(test)]
+use glyph_quads::push_color_glyph_quad;
+pub use glyph_quads::{
+    build_color_glyph_vertices_into, build_color_glyph_vertices_with_origin_into,
+};
+use glyph_quads::{push_cell_glyph, push_glyph_quad, push_glyph_quad_clipped_rect};
 pub use model::{
     ColorGlyphRun, ColorGlyphVertex, ColorRunCoverage, INSTANCES_PER_QUAD, RowFade, SolidQuad,
     VERTS_PER_QUAD, Vertex,
 };
 use model::{DIM_PERCEPTUAL_AMOUNT, LINE_DECORATION_THICKNESS_DIVISOR, push_quad};
 
-use crate::atlas::GlyphBounds;
 use crate::core::{
     Attrs, Color, CursorStyle, DynamicColors, PLACEHOLDER_CHAR, RgbColor, Snapshot, UnderlineStyle,
 };
-use crate::emoji::{ColorGlyphAtlas, ColorGlyphKey};
+#[cfg(test)]
+use crate::emoji::ColorGlyphAtlas;
+use crate::emoji::ColorGlyphKey;
 use crate::ligature::LigatureRun;
 use crate::text::{self, FontStyle, GlyphAtlas};
 
-/// Resolutions of cell foreground/background during vertex rebuilds.
-/// Tests assert one call per lead cell per rebuild (both passes share it).
 #[cfg(test)]
-pub(crate) static CELL_COLOR_RESOLVE_CALLS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+thread_local! {
+    /// Resolutions of cell foreground/background during vertex rebuilds on
+    /// this thread. Tests assert one call per lead cell per rebuild (both
+    /// passes share it); per-thread counting keeps builds in concurrently
+    /// running tests out of the count.
+    pub(crate) static CELL_COLOR_RESOLVE_CALLS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
 
 /// Whether a cell's base character emits a coverage glyph quad.
 ///
@@ -86,124 +100,6 @@ pub fn push_solid_quad_with_origin(out: &mut Vec<Vertex>, quad: SolidQuad, origi
         quad.rect[3] + origin[1],
     ];
     push_quad(out, rect, [0.0, 0.0, 0.0, 0.0], quad.color, 0.0);
-}
-
-fn push_color_glyph_quad(
-    out: &mut Vec<ColorGlyphVertex>,
-    rect: [f32; 4],
-    uv: [f32; 4],
-    alpha: f32,
-) {
-    let [x0, y0, x1, y1] = rect;
-    let [u0, v0, u1, v1] = uv;
-    out.push(ColorGlyphVertex::new(
-        [x0, y0],
-        [x1, y1],
-        [u0, v0],
-        [u1, v1],
-        alpha,
-    ));
-}
-
-/// Build the dedicated color-glyph vertex segment for shaped runs.
-///
-/// Color glyphs draw after coverage glyphs/decorations and before cursor/
-/// overlays. Selection and search backgrounds are therefore already painted
-/// under the unchanged premultiplied RGBA pixels. A 2-cell color glyph emits
-/// exactly one quad from the lead cell; a run pointing at a continuation spacer
-/// emits nothing.
-pub fn build_color_glyph_vertices_into(
-    out: &mut Vec<ColorGlyphVertex>,
-    snapshot: &Snapshot,
-    atlas: &ColorGlyphAtlas,
-    runs: &[ColorGlyphRun],
-) {
-    build_color_glyph_vertices_with_origin_into(
-        out,
-        snapshot,
-        atlas,
-        runs,
-        [0.0, 0.0],
-        ChromePin::NONE,
-        RowFade::NONE,
-    );
-}
-
-pub fn build_color_glyph_vertices_with_origin_into(
-    out: &mut Vec<ColorGlyphVertex>,
-    snapshot: &Snapshot,
-    atlas: &ColorGlyphAtlas,
-    runs: &[ColorGlyphRun],
-    origin: [f32; 2],
-    // SCROLL-CHROME-BOUNCE: crop content color glyphs at the tab-bar seam.
-    chrome_pin: ChromePin,
-    // VE4 new-output fade: a color glyph on a fading row rides the same
-    // foreground alpha ramp as mono ink (`RowFade::NONE` = every alpha 1.0).
-    row_fade: RowFade,
-) {
-    out.clear();
-    out.reserve(runs.len() * INSTANCES_PER_QUAD);
-
-    let cols = snapshot.dimensions.columns;
-    let rows = snapshot.dimensions.rows;
-    let cell_w = atlas.cell.width as f32;
-    let cell_h = atlas.cell.height as f32;
-    // SCROLL-CHROME-BOUNCE: color glyphs are always content; crop any that glide
-    // up under the pinned tab bar at the seam (inert unless a glide is running).
-    let chrome_seam_y = chrome_pin.seam_y(origin[1], cell_h);
-
-    for run in runs {
-        if run.row >= rows || run.column >= cols {
-            continue;
-        }
-        let idx = run.row * cols + run.column;
-        let cell = &snapshot.cells[idx];
-        if cell.wide_continuation || cell.attrs.hidden() {
-            continue;
-        }
-
-        let Some(bounds) = atlas.lookup(run.key) else {
-            continue;
-        };
-        let width_cells = bounds.width_cells as usize;
-        if width_cells == 0 || run.column + width_cells > cols {
-            continue;
-        }
-        if width_cells > run.covered_columns as usize {
-            continue;
-        }
-
-        // CHROME-GAP: color glyphs ride the same per-cell chrome-gap shifts as
-        // the mono builder (content past a left rail / below the bar; the rail
-        // band past a right rail). Zero-gap pins leave both terms at 0.0.
-        let x0 = origin[0] + run.column as f32 * cell_w + chrome_pin.cell_dx(run.column);
-        let y0 = origin[1] + run.row as f32 * cell_h + chrome_pin.cell_dy(run.row, run.column);
-        let x1 = x0 + bounds.pixel_width as f32;
-        let fade_alpha = row_fade.multiplier(run.row, run.column);
-        if chrome_pin.active() && chrome_pin.top_rows > 0 {
-            push_color_glyph_quad_clipped_top(
-                out,
-                x0,
-                y0,
-                x1,
-                bounds.pixel_height as f32,
-                bounds.uv,
-                chrome_seam_y,
-                fade_alpha,
-            );
-        } else {
-            // TAB-LABEL-CENTERING: an emoji tab/rail label rides the same sub-cell
-            // shift the mono path uses, so a color label centers identically.
-            // `0.0` (content, single-row / odd-height bands) is byte-identical.
-            let glyph_y0 = y0 + chrome_pin.glyph_center_dy(run.row, run.column, cell_h);
-            push_color_glyph_quad(
-                out,
-                [x0, glyph_y0, x1, glyph_y0 + bounds.pixel_height as f32],
-                bounds.uv,
-                fade_alpha,
-            );
-        }
-    }
 }
 
 /// Pick the atlas style requested by terminal attributes.
@@ -842,6 +738,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
         // no-selection callers.
         1.0,
         RowFade::NONE,
+        None,
     );
 }
 
@@ -885,6 +782,7 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
         chrome_pin,
         1.0,
         RowFade::NONE,
+        None,
     );
 }
 
@@ -935,6 +833,7 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
         chrome_pin,
         selection_opacity,
         RowFade::NONE,
+        None,
     );
 }
 
@@ -982,6 +881,7 @@ pub fn build_cell_vertices_with_ligatures_selection_and_row_fade_into(
         chrome_pin,
         selection_opacity,
         row_fade,
+        None,
     );
 }
 
@@ -1035,6 +935,10 @@ fn build_cells_core(
     chrome_pin: ChromePin,
     selection_opacity: f32,
     row_fade: RowFade,
+    // BIDI: display-order placement. Only the test-only entry point passes a
+    // map; `None`, and every row the map leaves in identity layout, take the
+    // unchanged logical-column path.
+    bidi: Option<&BidiDisplayMap>,
 ) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
@@ -1065,7 +969,7 @@ fn build_cells_core(
     let resolve =
         |cell: &crate::core::Cell, row: usize, col: usize| -> ([f32; 4], [f32; 4], bool) {
             #[cfg(test)]
-            CELL_COLOR_RESOLVE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            CELL_COLOR_RESOLVE_CALLS.with(|calls| calls.set(calls.get() + 1));
             let mut fg = foreground_linear(&snapshot.colors, cell.attrs.foreground);
             let mut bg = background_linear(&snapshot.colors, cell.attrs.background);
             if cell.attrs.inverse() {
@@ -1158,6 +1062,13 @@ fn build_cells_core(
             1.0
         }
     };
+    // BIDI: the visual column of a cell and, on a reordered row, the pixel
+    // span of its owner that clips every glyph drawn for it.
+    let reordered = |row: usize| bidi.filter(|map| map.row_is_reordered(row));
+    let visual_col =
+        |row: usize, col: usize| reordered(row).map_or(col, |map| map.visual_column(row, col));
+    let owner_clip =
+        |row: usize, x0: f32, span: f32| reordered(row).map(|_| [x0, x0 + cell_w * span]);
 
     // One resolution per lead cell for this rebuild. Pass 1 and pass 2 read the
     // same tuple, so a cell's colors cannot diverge between the background and
@@ -1248,7 +1159,7 @@ fn build_cells_core(
             };
             let bg = [bg[0], bg[1], bg[2], bg[3] * cell_opacity];
             let span = span_of(row, col);
-            let x0 = origin[0] + col as f32 * cell_w + chrome_pin.cell_dx(col);
+            let x0 = origin[0] + visual_col(row, col) as f32 * cell_w + chrome_pin.cell_dx(col);
             let y0 = chrome_pin.cell_top_y(origin[1], cell_h, row, col);
             let (bg_top, bg_bottom) =
                 content_bg_span(&chrome_pin, chrome_seam_y, y0, cell_h, row, col);
@@ -1294,9 +1205,15 @@ fn build_cells_core(
                 fg
             };
             let span = span_of(row, col);
-            let x0 = origin[0] + col as f32 * cell_w + chrome_pin.cell_dx(col);
+            let x0 = origin[0] + visual_col(row, col) as f32 * cell_w + chrome_pin.cell_dx(col);
             let y0 = chrome_pin.cell_top_y(origin[1], cell_h, row, col);
             let decoration_y0 = y0 + chrome_pin.glyph_center_dy(row, col, cell_h);
+            // SCROLL-CHROME-BOUNCE: content glyphs gliding up under the pinned
+            // bar are cropped at the seam; chrome glyphs and the inert path are not.
+            let seam =
+                (chrome_pin.active() && chrome_pin.top_rows > 0 && !chrome_pin.is_chrome(row, col))
+                    .then_some(chrome_seam_y);
+            let clip = owner_clip(row, x0, span);
 
             while ligature_runs
                 .get(ligature_index)
@@ -1304,6 +1221,13 @@ fn build_cells_core(
             {
                 ligature_index += 1;
             }
+            // BIDI: on a reordered row a run draws only when its cells share
+            // one level (adjacent on screen, one direction); otherwise its
+            // cells fall back to scalar glyphs.
+            let ligature_box = |run: &LigatureRun| match reordered(row) {
+                Some(map) => map.uniform_visual_span(row, run.start..run.end),
+                None => Some(run.start..run.end),
+            };
             let ligature = ligature_runs
                 .get(ligature_index)
                 .filter(|run| run.covers(row, col))
@@ -1311,28 +1235,24 @@ fn build_cells_core(
                     run.glyphs
                         .iter()
                         .all(|glyph| atlas.contains_shaped(glyph.key))
-                });
+                })
+                .filter(|run| ligature_box(run).is_some());
+            let style = font_style_for_attrs(&cell.attrs);
+            // BIDI: a mirrored cell presents its Bidi_Mirroring_Glyph, falling
+            // back to its own glyph when that character is not in the atlas.
+            let mirrored = bidi.and_then(|map| map.mirrored_char(row, col));
             if !cell.attrs.hidden()
                 && cell_draws_base_glyph(cell.ch)
                 && !color_coverage.covers(row, col)
                 && ligature.is_none()
-                && let Some(bounds) =
-                    atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
+                && let Some(bounds) = mirrored
+                    .and_then(|ch| atlas.glyph_quad_styled(style, ch))
+                    .or_else(|| atlas.glyph_quad_styled(style, cell.ch))
             {
-                // SCROLL-CHROME-BOUNCE: a content glyph gliding up under the
-                // pinned bar is cropped at the seam (UV, not squash); chrome
-                // glyphs and the inert path draw uncropped (byte-identical).
-                if chrome_pin.active() && chrome_pin.top_rows > 0 && !chrome_pin.is_chrome(row, col)
-                {
-                    push_glyph_quad_clipped_top(out, x0, y0, bounds, fg, chrome_seam_y);
-                } else {
-                    // TAB-LABEL-CENTERING: a chrome band label rides a sub-cell Y
-                    // shift so a multi-row bar's/slot's single label line lands on
-                    // the band's true pixel center. `0.0` (content cells, single-
-                    // row / odd-height bands) leaves the glyph exactly where the
-                    // row-snap placed it, so the plain path is byte-identical.
-                    push_glyph_quad(out, x0, decoration_y0, bounds, fg);
-                }
+                // TAB-LABEL-CENTERING: a chrome band label rides a sub-cell Y
+                // shift (`decoration_y0`); `0.0` for content cells keeps the
+                // plain path byte-identical.
+                push_cell_glyph(out, [x0, y0, decoration_y0], bounds, fg, seam, clip);
             }
 
             // Zero-width combining marks stored on the cell draw over the base
@@ -1349,18 +1269,8 @@ fn build_cells_core(
                 && ligature.is_none()
             {
                 for &mark in cell.combining() {
-                    let Some(bounds) =
-                        atlas.combining_mark_quad(font_style_for_attrs(&cell.attrs), mark)
-                    else {
-                        continue;
-                    };
-                    if chrome_pin.active()
-                        && chrome_pin.top_rows > 0
-                        && !chrome_pin.is_chrome(row, col)
-                    {
-                        push_glyph_quad_clipped_top(out, x0, y0, bounds, fg, chrome_seam_y);
-                    } else {
-                        push_glyph_quad(out, x0, decoration_y0, bounds, fg);
+                    if let Some(bounds) = atlas.combining_mark_quad(style, mark) {
+                        push_cell_glyph(out, [x0, y0, decoration_y0], bounds, fg, seam, clip);
                     }
                 }
             }
@@ -1374,8 +1284,9 @@ fn build_cells_core(
                 // (a shaping run never crosses the rail↔content seam — the band
                 // and content carry distinct attrs — so one dx spans the run).
                 let run_dx = chrome_pin.cell_dx(run.start);
-                let span_x0 = origin[0] + run.start as f32 * cell_w + run_dx;
-                let span_x1 = origin[0] + run.end as f32 * cell_w + run_dx;
+                let visual = ligature_box(run).unwrap_or(run.start..run.end);
+                let span_x0 = origin[0] + visual.start as f32 * cell_w + run_dx;
+                let span_x1 = origin[0] + visual.end as f32 * cell_w + run_dx;
                 let grid_top = if chrome_pin.active()
                     && chrome_pin.top_rows > 0
                     && !chrome_pin.is_chrome(row, col)
@@ -1389,9 +1300,27 @@ fn build_cells_core(
                 let grid_bottom = origin[1] + rows as f32 * cell_h + chrome_pin.cell_dy(row, col);
                 for glyph in run.glyphs.iter() {
                     if let Some(bounds) = atlas.shaped_glyph_quad(glyph.key) {
+                        // BIDI: the atlas drew the glyph with its pen at
+                        // `anchor_cell`; shift the slot so that pen lands on
+                        // the leftmost visual cell of the glyph's source
+                        // cluster. Identity placement keeps `span_x0`.
+                        let glyph_x0 = match reordered(row) {
+                            Some(map) => {
+                                let anchor = usize::from(glyph.key.anchor_cell);
+                                let source = run.start + anchor;
+                                let end =
+                                    (source + usize::from(glyph.source_cells.max(1))).min(run.end);
+                                let pen = (source..end.max(source + 1))
+                                    .map(|column| map.visual_column(row, column))
+                                    .min()
+                                    .unwrap_or(visual.start);
+                                origin[0] + (pen as f32 - anchor as f32) * cell_w + run_dx
+                            }
+                            None => span_x0,
+                        };
                         push_glyph_quad_clipped_rect(
                             out,
-                            span_x0,
+                            glyph_x0,
                             decoration_y0,
                             bounds,
                             fg,
@@ -1443,6 +1372,38 @@ fn build_cells_core(
             }
         }
     }
+}
+
+/// BIDI test-only seam: the cell build in display order under `bidi`, at the
+/// identity origin with every other effect at its inert value. No production
+/// path, setting, or flag reaches display-order rendering.
+#[cfg(test)]
+pub(crate) fn build_cell_vertices_with_bidi_into(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    color_runs: &[ColorGlyphRun],
+    ligature_runs: &[LigatureRun],
+    bidi: &BidiDisplayMap,
+) {
+    build_cells_core(
+        out,
+        snapshot,
+        atlas,
+        color_runs,
+        ligature_runs,
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        1.0,
+        1.0,
+        1.0,
+        None,
+        ChromePin::NONE,
+        1.0,
+        RowFade::NONE,
+        Some(bidi),
+    );
 }
 
 /// Visual-only parameters applied to cursor geometry. The [`Default`] is the
@@ -1527,126 +1488,6 @@ pub fn append_cursor_vertices_with_origin(
         origin,
         params,
     );
-}
-
-/// Push a glyph quad sized and positioned from bearing-aware atlas bounds.
-///
-/// The cell's on-screen origin is `(x0, y0)`; the quad is offset and sized by the
-/// glyph's inked extent (1 atlas pixel == 1 physical screen pixel), so ink that
-/// overflows the cell box is drawn uncropped while backgrounds stay full-cell.
-fn push_glyph_quad(out: &mut Vec<Vertex>, x0: f32, y0: f32, bounds: GlyphBounds, color: [f32; 4]) {
-    let gx0 = x0 + bounds.offset_x as f32;
-    let gy0 = y0 + bounds.offset_y as f32;
-    let gx1 = gx0 + bounds.width as f32;
-    let gy1 = gy0 + bounds.height as f32;
-    push_quad(out, [gx0, gy0, gx1, gy1], bounds.uv, color, 1.0);
-}
-
-/// Crop a coverage glyph to a pixel rectangle by adjusting UVs, never by
-/// squashing geometry. Used by multi-cell contextual glyphs so their ink stays
-/// inside the logical source span and pane/grid bounds.
-fn push_glyph_quad_clipped_rect(
-    out: &mut Vec<Vertex>,
-    x0: f32,
-    y0: f32,
-    bounds: GlyphBounds,
-    color: [f32; 4],
-    clip: [f32; 4],
-) {
-    let mut gx0 = x0 + bounds.offset_x as f32;
-    let mut gy0 = y0 + bounds.offset_y as f32;
-    let mut gx1 = gx0 + bounds.width as f32;
-    let mut gy1 = gy0 + bounds.height as f32;
-    let [mut u0, mut v0, mut u1, mut v1] = bounds.uv;
-    let original_uv = bounds.uv;
-    let original_w = gx1 - gx0;
-    let original_h = gy1 - gy0;
-    if original_w <= 0.0
-        || original_h <= 0.0
-        || gx1 <= clip[0]
-        || gx0 >= clip[2]
-        || gy1 <= clip[1]
-        || gy0 >= clip[3]
-    {
-        return;
-    }
-    if gx0 < clip[0] {
-        let t = (clip[0] - gx0) / original_w;
-        u0 = original_uv[0] + t * (original_uv[2] - original_uv[0]);
-        gx0 = clip[0];
-    }
-    if gx1 > clip[2] {
-        let t = (gx1 - clip[2]) / original_w;
-        u1 = original_uv[2] - t * (original_uv[2] - original_uv[0]);
-        gx1 = clip[2];
-    }
-    if gy0 < clip[1] {
-        let t = (clip[1] - gy0) / original_h;
-        v0 = original_uv[1] + t * (original_uv[3] - original_uv[1]);
-        gy0 = clip[1];
-    }
-    if gy1 > clip[3] {
-        let t = (gy1 - clip[3]) / original_h;
-        v1 = original_uv[3] - t * (original_uv[3] - original_uv[1]);
-        gy1 = clip[3];
-    }
-    push_quad(out, [gx0, gy0, gx1, gy1], [u0, v0, u1, v1], color, 1.0);
-}
-
-/// SCROLL-CHROME-BOUNCE: push a coverage glyph whose top is cropped at
-/// `clip_top_y` via a UV adjustment (never a squash), so a content glyph gliding
-/// up under the pinned tab bar cannot paint into the chrome band. Glyphs entirely
-/// above the seam are dropped.
-fn push_glyph_quad_clipped_top(
-    out: &mut Vec<Vertex>,
-    x0: f32,
-    y0: f32,
-    bounds: GlyphBounds,
-    color: [f32; 4],
-    clip_top_y: f32,
-) {
-    let gx0 = x0 + bounds.offset_x as f32;
-    let mut gy0 = y0 + bounds.offset_y as f32;
-    let gx1 = gx0 + bounds.width as f32;
-    let gy1 = gy0 + bounds.height as f32;
-    if gy1 <= clip_top_y {
-        return;
-    }
-    let [u0, mut v0, u1, v1] = bounds.uv;
-    if gy0 < clip_top_y {
-        let t = (clip_top_y - gy0) / (gy1 - gy0);
-        v0 += t * (v1 - v0);
-        gy0 = clip_top_y;
-    }
-    push_quad(out, [gx0, gy0, gx1, gy1], [u0, v0, u1, v1], color, 1.0);
-}
-
-/// SCROLL-CHROME-BOUNCE: color-glyph analogue of [`push_glyph_quad_clipped_top`]
-/// — crop the emoji quad's top at the seam via UV so a gliding color glyph never
-/// paints into the pinned tab bar.
-#[allow(clippy::too_many_arguments)]
-fn push_color_glyph_quad_clipped_top(
-    out: &mut Vec<ColorGlyphVertex>,
-    x0: f32,
-    y0: f32,
-    x1: f32,
-    pixel_height: f32,
-    uv: [f32; 4],
-    clip_top_y: f32,
-    alpha: f32,
-) {
-    let mut gy0 = y0;
-    let gy1 = y0 + pixel_height;
-    if gy1 <= clip_top_y {
-        return;
-    }
-    let [u0, mut v0, u1, v1] = uv;
-    if gy0 < clip_top_y {
-        let t = (clip_top_y - gy0) / (gy1 - gy0);
-        v0 += t * (v1 - v0);
-        gy0 = clip_top_y;
-    }
-    push_color_glyph_quad(out, [x0, gy0, x1, gy1], [u0, v0, u1, v1], alpha);
 }
 
 /// Rebuild the full vertex list and append presentation-only solid overlays.
@@ -1885,5 +1726,7 @@ fn rgb_from_tuple(color: (u8, u8, u8)) -> RgbColor {
     RgbColor::new(color.0, color.1, color.2)
 }
 
+#[cfg(test)]
+mod bidi_tests;
 #[cfg(test)]
 mod tests;
