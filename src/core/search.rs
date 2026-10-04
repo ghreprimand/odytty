@@ -175,7 +175,7 @@ pub fn search_rows_scoped(
         let mut col = 0;
         while col < cells.len() {
             let cell = &cells[col];
-            if cell.wide_continuation {
+            if cell.wide_continuation || cell.layout_padding {
                 // Consumed by its lead; contributes no independent unit.
                 col += 1;
                 continue;

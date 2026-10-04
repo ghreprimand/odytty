@@ -197,8 +197,13 @@ impl SnapshotTerminalState {
         let cursor_style = decode_cursor_style(reader.read_u8()?)?;
         let cursor_blink = reader.read_bool()?;
         let basic_modes = SnapshotBasicModes::decode(&mut reader, format_version)?;
-        let scrollback_rows = read_rows(&mut reader, dimensions, caps.max_scrollback_rows)?;
-        let visible_rows = read_rows(&mut reader, dimensions, caps.max_rows)?;
+        let scrollback_rows = read_rows(
+            &mut reader,
+            dimensions,
+            caps.max_scrollback_rows,
+            format_version,
+        )?;
+        let visible_rows = read_rows(&mut reader, dimensions, caps.max_rows, format_version)?;
         if visible_rows.len() != rows {
             return Err(SnapshotEnvelopeError::InvalidVisibleRowCount {
                 count: visible_rows.len(),
@@ -267,21 +272,37 @@ impl SnapshotBasicModes {
 }
 
 impl SnapshotCell {
-    fn decode(reader: &mut Reader<'_>) -> Result<Self, SnapshotEnvelopeError> {
+    fn decode(reader: &mut Reader<'_>, format_version: u16) -> Result<Self, SnapshotEnvelopeError> {
         let ch = read_char(reader)?;
         let attrs = SnapshotAttrs::decode(reader)?;
         let protected = reader.read_bool()?;
-        let wide_continuation = reader.read_bool()?;
+        let ownership = reader.read_u8()?;
+        let allowed = if format_version >= 4 { 2 } else { 1 };
+        if ownership > allowed {
+            return Err(SnapshotEnvelopeError::InvalidEnum(
+                "cell ownership",
+                ownership,
+            ));
+        }
+        let wide_continuation = ownership == 1;
+        let layout_padding = ownership == 2;
         let combining_len = reader.read_u8()? as usize;
         let mut combining = Vec::with_capacity(combining_len);
         for _ in 0..combining_len {
             combining.push(read_char(reader)?);
+        }
+        if layout_padding && (ch != ' ' || protected || !combining.is_empty()) {
+            return Err(SnapshotEnvelopeError::InvalidEnum(
+                "layout padding",
+                ownership,
+            ));
         }
         Ok(Self {
             ch,
             attrs,
             protected,
             wide_continuation,
+            layout_padding,
             combining,
         })
     }
@@ -328,6 +349,7 @@ fn read_rows(
     reader: &mut Reader<'_>,
     dimensions: Dimensions,
     max_rows: usize,
+    format_version: u16,
 ) -> Result<Vec<SnapshotRow>, SnapshotEnvelopeError> {
     let count = reader.read_u32()? as usize;
     if count > max_rows {
@@ -353,7 +375,7 @@ fn read_rows(
         }
         let mut cells = Vec::with_capacity(width);
         for _ in 0..width {
-            cells.push(SnapshotCell::decode(reader)?);
+            cells.push(SnapshotCell::decode(reader, format_version)?);
         }
         rows.push(SnapshotRow { wrapped, cells });
     }

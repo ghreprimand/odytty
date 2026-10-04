@@ -175,7 +175,10 @@ impl LineAssembler {
         sink: &mut impl LineSink,
     ) -> Result<(), CommandExportError> {
         let budget = sink.line_budget();
-        for cell in cells.iter().filter(|cell| !cell.wide_continuation) {
+        for cell in cells
+            .iter()
+            .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
+        {
             if cell.ch == PLACEHOLDER_CHAR {
                 self.image_in_line = true;
                 continue;

@@ -531,3 +531,31 @@ fn oversized_trailing_blank_tail_is_ignored_but_interior_overflow_is_refused() {
         "a later non-blank character makes the oversized tail part of the output"
     );
 }
+
+#[test]
+fn generated_wide_padding_is_not_exported_as_source_text() {
+    for text in ["abc\u{754C}Z", "abc \u{754C}Z"] {
+        let mut terminal = crate::core::Terminal::new(4, 4);
+        terminal.advance(text.as_bytes());
+        let rows: Vec<_> = terminal
+            .visible_search_rows(0)
+            .into_iter()
+            .take(2)
+            .map(|row| (row.cells, row.wrapped))
+            .collect();
+        let lines = build(&rows);
+        assert_eq!(plain_text(&lines), format!("{text}\n"));
+        for format in [ScrollbackFormat::PlainText, ScrollbackFormat::Html] {
+            assert_eq!(
+                bounded(format, 4096, &rows).unwrap(),
+                encode_lines(
+                    &lines,
+                    match format {
+                        ScrollbackFormat::PlainText => None,
+                        ScrollbackFormat::Html => Some(palette()),
+                    }
+                )
+            );
+        }
+    }
+}

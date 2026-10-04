@@ -100,6 +100,14 @@ impl SnapshotTerminalState {
             check_u32(row.cells.len(), "row cell count")?;
             for cell in &row.cells {
                 check_u8(cell.combining.len(), "combining mark count")?;
+                if cell.layout_padding
+                    && (cell.ch != ' '
+                        || cell.protected
+                        || cell.wide_continuation
+                        || !cell.combining.is_empty())
+                {
+                    return Err(SnapshotEnvelopeError::InvalidEnum("layout padding", 2));
+                }
             }
         }
         Ok(())

@@ -6,6 +6,10 @@ The milestones below distinguish published work, active development, explicit
 deferrals, and unmet evidence. Release corrections are listed in the
 [release index](docs/releases/README.md).
 
+Wide-glyph wrap padding is distinguished from logical source spaces through
+eager and lazy reflow, search, selection/copy, export, and snapshot restore.
+Extended-cluster ownership and script-group width corrections remain pending.
+
 Dependency maintenance includes the standalone fuzz workspace lockfile and its
 locked API compile check before landing.
 

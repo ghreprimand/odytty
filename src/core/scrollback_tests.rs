@@ -1776,3 +1776,43 @@ fn a_marked_space_is_not_trimmed_as_a_trailing_blank() {
         "a marked space was trimmed as a trailing blank"
     );
 }
+
+#[test]
+fn wide_padding_survives_eager_and_lazy_reflow_without_source_spaces() {
+    let mut terminal = Terminal::new(12, 4);
+    let text = "A\u{05D0}\u{05B0}\u{0628}\u{064E}\u{754C}\u{0301}Z";
+    terminal.advance(text.as_bytes());
+    let original: Vec<Line> = terminal
+        .visible_search_rows(0)
+        .into_iter()
+        .map(|r| {
+            let mut line = Line::unwrapped(r.cells);
+            line.wrapped = r.wrapped;
+            line
+        })
+        .collect();
+    let mut rows = original;
+    let mut history = Vec::new();
+    let mut cursor = terminal.screen().cursor();
+    for width in [4, 9, 3, 12] {
+        cursor = reflow_lines(&mut history, &mut rows, Dimensions::new(width, 4), cursor);
+        let logical = history
+            .iter()
+            .chain(&rows)
+            .flat_map(|row| &row.cells)
+            .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
+            .map(Cell::grapheme)
+            .collect::<String>();
+        assert_eq!(logical.trim_end(), text);
+    }
+    // Live scrolling adopts the marked physical row into StoredCell, then
+    // projection, range hydration, and later resizes all preserve its meaning.
+    let mut terminal = Terminal::new(4, 2);
+    terminal.advance(text.as_bytes());
+    terminal.advance(b"\r\ntail\r\nnext\r\n");
+    assert_eq!(terminal.search(text, SearchOptions::default()).len(), 1);
+    for width in [9, 3, 12, 4] {
+        terminal.resize(width, 2);
+        assert_eq!(terminal.search(text, SearchOptions::default()).len(), 1);
+    }
+}

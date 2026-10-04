@@ -690,7 +690,10 @@ impl Screen {
             .iter()
             .map(|row| {
                 let mut line = String::new();
-                for cell in row.iter().filter(|cell| !cell.wide_continuation) {
+                for cell in row
+                    .iter()
+                    .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
+                {
                     line.push(cell.ch);
                     for &mark in cell.combining() {
                         line.push(mark);

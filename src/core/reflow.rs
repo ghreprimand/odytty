@@ -125,6 +125,8 @@ pub(in crate::core) struct ReflowResult {
 /// - Trailing plain blanks are trimmed from each logical line before re-wrapping
 ///   (but never past the cursor column), so a cleared-but-tall screen does not
 ///   bloat into many blank rows on shrink.
+/// - Layout-padding cells carry no logical scalar and are omitted before
+///   wrapping at the new width. Interior source spaces are retained.
 /// - Wide glyphs are kept whole: a wide pair never straddles the right edge.
 /// - The visible window is the bottom `dimensions.rows` rows of the reflowed
 ///   buffer; everything above becomes scrollback. The cursor is mapped to its
@@ -324,6 +326,13 @@ pub(in crate::core) fn reflow_lines_with_options(
         let mut i = 0;
         while i < cells.len() {
             let cell = cells[i];
+            if cell.layout_padding {
+                if cursor_target == Some(i) {
+                    cursor_dest = Some((new_combined.len(), row_cells.len().min(new_cols - 1)));
+                }
+                i += 1;
+                continue;
+            }
             let is_wide_lead = !cell.wide_continuation
                 && super::char_width::char_display_width(cell.ch, options.ambiguous_wide) == 2;
             // A wide glyph needs two columns; if the grid is too narrow to hold
@@ -334,7 +343,7 @@ pub(in crate::core) fn reflow_lines_with_options(
             // and wrap before placing it so the pair stays whole.
             if unit == 2 && row_cells.len() + unit > new_cols && !row_cells.is_empty() {
                 while row_cells.len() < new_cols {
-                    row_cells.push(plain);
+                    row_cells.push(Cell::layout_blank(Attrs::default()));
                 }
                 new_combined.push(Line::wrapped(std::mem::take(&mut row_cells)));
                 produced_any = true;

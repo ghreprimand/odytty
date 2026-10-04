@@ -162,7 +162,9 @@ impl Screen {
                     end: dest_left + width,
                 },
             );
-            for (column_offset, cell) in cells.into_iter().enumerate() {
+            for (column_offset, mut cell) in cells.into_iter().enumerate() {
+                // Rectangle copy addresses visual cells, creating source blanks.
+                cell.layout_padding = false;
                 self.rows[row][dest_left + column_offset] = cell;
             }
             sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);

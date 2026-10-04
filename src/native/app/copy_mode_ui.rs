@@ -278,13 +278,16 @@ impl App {
                     .cells
                     .get(start_col..=end_col)
                     .map(|cells| {
-                        cells
+                        let text = cells
                             .iter()
-                            .filter(|cell| !cell.wide_continuation)
+                            .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
                             .flat_map(selection::cell_grapheme_chars)
-                            .collect::<String>()
-                            .trim_end()
-                            .to_owned()
+                            .collect::<String>();
+                        if row.wrapped && !block {
+                            text
+                        } else {
+                            text.trim_end().to_owned()
+                        }
                     })
                     .unwrap_or_default();
                 if have_previous && (block || !previous_wrapped) {

@@ -357,6 +357,9 @@ impl Screen {
         }
         row.truncate(columns);
 
+        for cell in row.iter_mut() {
+            cell.layout_padding = false;
+        }
         sanitize_wide_row(row, blank, self.ambiguous_wide);
         // ICH pushes the line tail off the right edge on EVERY invocation
         // (`truncate(columns)`), destroying the content that flowed into a
@@ -397,6 +400,9 @@ impl Screen {
             row.push(blank);
         }
 
+        for cell in row.iter_mut() {
+            cell.layout_padding = false;
+        }
         sanitize_wide_row(row, blank, self.ambiguous_wide);
         // DCH pads blanks at the right edge on EVERY invocation, destroying the
         // content that flowed into a continuation row. Like ICH this always

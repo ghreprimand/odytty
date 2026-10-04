@@ -174,7 +174,11 @@ impl SnapshotCell {
         write_u32(out, self.ch as u32);
         self.attrs.encode(out);
         write_u8(out, u8::from(self.protected));
-        write_u8(out, u8::from(self.wide_continuation));
+        // Format v4 packs layout padding into bit 1 of the old spacer byte.
+        write_u8(
+            out,
+            u8::from(self.wide_continuation) | (u8::from(self.layout_padding) << 1),
+        );
         write_u8(out, self.combining.len() as u8);
         for &mark in &self.combining {
             write_u32(out, mark as u32);

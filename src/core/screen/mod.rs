@@ -1139,7 +1139,7 @@ impl Screen {
             // split it across rows: blank the trailing cell(s) and soft-wrap the
             // glyph onto the next row, marking the row wrapped so resize rejoins
             // the logical line.
-            let blank = self.current_blank();
+            let blank = Cell::layout_blank(self.current_blank().attrs);
             let r = self.cursor.row;
             let c = self.cursor.column;
             self.clear_wide_orphans(r, c, self.dimensions.columns - c);

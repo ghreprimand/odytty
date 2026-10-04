@@ -261,7 +261,7 @@ fn pre_charset_snapshots_decode_with_default_charset_state() {
     let envelope = SnapshotEnvelope::from_terminal(&term, SnapshotCaptureLimits::default());
     let mut bytes = envelope.encode().expect("encode");
 
-    // Rewrite the header version 3 -> 2 and strip the appended charset byte
+    // Rewrite the header version 4 -> 2 and strip the appended charset byte
     // from the terminal-state section, shrinking its table length by one.
     // Header (all integers little-endian): magic(15) + version(2) +
     // protocol(2) + producer string(u16 len + bytes) + section count(2),
@@ -269,7 +269,7 @@ fn pre_charset_snapshots_decode_with_default_charset_state() {
     let version_at = 15;
     assert_eq!(
         u16::from_le_bytes([bytes[version_at], bytes[version_at + 1]]),
-        3
+        4
     );
     bytes[version_at..version_at + 2].copy_from_slice(&2u16.to_le_bytes());
     let producer_len = u16::from_le_bytes([bytes[19], bytes[20]]) as usize;

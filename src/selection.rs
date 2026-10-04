@@ -568,7 +568,7 @@ pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
         let offset = row * snapshot.dimensions.columns;
         let line = snapshot.cells[offset + start_column..=offset + end_column]
             .iter()
-            .filter(|cell| !cell.wide_continuation)
+            .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
             .flat_map(cell_grapheme_chars)
             .collect::<String>()
             .trim_end()
@@ -586,7 +586,9 @@ pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
 /// scrollback-window copy path so the snapshot and scrollback extractors
 /// contribute identical bytes for a cell.
 pub(crate) fn cell_grapheme_chars(cell: &crate::core::Cell) -> impl Iterator<Item = char> + '_ {
-    std::iter::once(cell.ch).chain(cell.combining().iter().copied())
+    std::iter::once(cell.ch)
+        .chain(cell.combining().iter().copied())
+        .filter(|_| !cell.layout_padding)
 }
 
 /// Extract a block (rectangular/column) selection as text (MOUSE-RECT). Unlike
@@ -620,7 +622,7 @@ pub fn selected_text_block(snapshot: &Snapshot, range: SelectionRange) -> String
         let offset = row * snapshot.dimensions.columns;
         let line = snapshot.cells[offset + lo..=offset + hi]
             .iter()
-            .filter(|cell| !cell.wide_continuation)
+            .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
             .flat_map(cell_grapheme_chars)
             .collect::<String>()
             .trim_end()

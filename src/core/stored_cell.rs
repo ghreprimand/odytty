@@ -11,13 +11,14 @@
 //! cell to serve a small minority of them.
 //!
 //! [`StoredCell`] is that cell with the array lifted out: base char, the whole
-//! `Attrs`, and the two per-cell booleans packed into one byte, at 28 bytes.
+//! `Attrs`, and the per-cell booleans packed into one byte, at 28 bytes.
 //! Marks move to [`MarkTable`], a sidecar carried by the owning logical line and
 //! keyed by flat-cell index, allocated only for a line that actually has marks.
 //!
 //! # What this deliberately does not do
 //!
-//! `Cell` itself is unchanged and stays `Copy`. Nothing outside this module's
+//! `Cell` stays self-describing and `Copy`. Padding provenance uses a spare
+//! stored flag bit without growing either cell type. Nothing outside this module's
 //! callers sees `StoredCell`: the ring converts on the way in and on the way
 //! out, so [`super::types::Cell::combining`] and
 //! [`super::types::Cell::grapheme`] keep their exact behavior for every reader,
@@ -42,6 +43,7 @@ use super::types::{Attrs, Cell, MAX_COMBINING};
 const F_PROTECTED: u8 = 1 << 0;
 /// Trailing spacer of a wide (two-column) glyph.
 const F_WIDE_CONTINUATION: u8 = 1 << 1;
+const F_LAYOUT_PADDING: u8 = 1 << 2;
 
 /// One scrollback cell as the ring stores it: everything [`Cell`] carries
 /// except the combining-mark array, which lives in the owning line's
@@ -76,6 +78,9 @@ impl StoredCell {
         if cell.wide_continuation {
             flags |= F_WIDE_CONTINUATION;
         }
+        if cell.layout_padding {
+            flags |= F_LAYOUT_PADDING;
+        }
         Self {
             ch: cell.ch,
             attrs: cell.attrs,
@@ -98,6 +103,7 @@ impl StoredCell {
             self.flags & F_PROTECTED != 0,
             self.flags & F_WIDE_CONTINUATION != 0,
         );
+        cell.layout_padding = self.layout_padding();
         for &mark in marks {
             cell.push_combining(mark);
         }
@@ -112,6 +118,11 @@ impl StoredCell {
     #[inline]
     pub(in crate::core) fn attrs(self) -> Attrs {
         self.attrs
+    }
+
+    #[inline]
+    pub(in crate::core) fn layout_padding(self) -> bool {
+        self.flags & F_LAYOUT_PADDING != 0
     }
 
     #[inline]

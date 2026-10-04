@@ -221,3 +221,77 @@ fn physical_hit_testing_uses_cell_boundaries_at_multiple_scales() {
         );
     }
 }
+
+#[test]
+fn wide_wrap_padding_never_becomes_logical_search_text() {
+    let text = "A\u{05D0}\u{05B0}\u{0628}\u{064E}\u{754C}\u{0301}Z";
+    let mut terminal = Terminal::new(12, 5);
+    terminal.advance(text.as_bytes());
+    for columns in [4, 9, 3, 12] {
+        terminal.resize(columns, 5);
+        assert_eq!(
+            terminal.search(text, SearchOptions::default()).len(),
+            1,
+            "logical search changed at {columns} columns"
+        );
+    }
+}
+
+#[test]
+fn generated_padding_and_typed_spaces_remain_distinct_through_restore() {
+    for (text, padding) in [("abc\u{754C}Z", true), ("abc \u{754C}Z", false)] {
+        let mut terminal = Terminal::new(4, 5);
+        terminal.advance(text.as_bytes());
+        assert_eq!(
+            terminal.screen().cell(0, 3).unwrap().layout_padding,
+            padding
+        );
+        assert_eq!(terminal.search(text, SearchOptions::default()).len(), 1);
+        let envelope = SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
+        let decoded =
+            SnapshotEnvelope::decode(&envelope.encode().unwrap(), SnapshotEnvelopeCaps::default())
+                .unwrap();
+        assert_eq!(decoded.terminal, envelope.terminal);
+        let mut restored = Terminal::from_snapshot_envelope(&decoded).unwrap();
+        for columns in [9, 3, 4, 12] {
+            restored.resize(columns, 5);
+            assert_eq!(restored.search(text, SearchOptions::default()).len(), 1);
+        }
+    }
+}
+
+#[test]
+fn editing_generated_padding_creates_logical_content() {
+    for command in [b"\x1b[1;4HX".as_slice(), b"\x1b[1;4H ", b"\x1b[1;4H\x1b[X"] {
+        let mut terminal = Terminal::new(4, 5);
+        terminal.advance("abc\u{754C}Z".as_bytes());
+        assert!(terminal.screen().cell(0, 3).unwrap().layout_padding);
+        terminal.advance(command);
+        assert!(!terminal.screen().cell(0, 3).unwrap().layout_padding);
+    }
+    for command in [b"\x1b[1;2H\x1b[@".as_slice(), b"\x1b[1;2H\x1b[P"] {
+        let mut terminal = Terminal::new(4, 5);
+        terminal.advance("abc\u{754C}Z".as_bytes());
+        terminal.advance(command);
+        assert!(
+            terminal.visible_search_rows(0)[0]
+                .cells
+                .iter()
+                .all(|cell| !cell.layout_padding)
+        );
+    }
+}
+
+#[test]
+fn padding_is_omitted_from_snapshot_and_rectangular_copy() {
+    let mut terminal = Terminal::new(4, 4);
+    terminal.advance("abc\u{754C}Z".as_bytes());
+    let snapshot = terminal.snapshot();
+    assert_eq!(
+        selected_text(&snapshot, range((0, 0), (1, 2))),
+        "abc\n\u{754C}Z"
+    );
+    assert_eq!(selected_text_block(&snapshot, range((0, 3), (0, 3))), "");
+    terminal.advance(b"\x1b[32;1;4;1;4$x");
+    assert!(!terminal.screen().cell(0, 3).unwrap().layout_padding);
+}

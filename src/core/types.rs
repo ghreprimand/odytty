@@ -517,6 +517,8 @@ pub struct Cell {
     pub protected: bool,
     /// True for the trailing spacer cell of a wide (two-column) glyph.
     pub wide_continuation: bool,
+    /// A blank generated solely to wrap a wide owner. Carries no logical text.
+    pub layout_padding: bool,
     /// Zero-width combining marks attached to `ch`, in arrival order. Unused
     /// slots hold `'\0'`. Private so the invariant (`combining_len` marks, the
     /// rest zeroed) stays internal; constructors keep `Cell: Copy`.
@@ -550,6 +552,7 @@ impl Cell {
             attrs,
             protected: false,
             wide_continuation: false,
+            layout_padding: false,
             combining: ['\0'; MAX_COMBINING],
             combining_len: 0,
         }
@@ -584,6 +587,7 @@ impl Cell {
             attrs,
             protected,
             wide_continuation,
+            layout_padding: false,
             combining: ['\0'; MAX_COMBINING],
             combining_len: 0,
         }
@@ -596,6 +600,7 @@ impl Cell {
             attrs,
             protected: false,
             wide_continuation: true,
+            layout_padding: false,
             combining: ['\0'; MAX_COMBINING],
             combining_len: 0,
         }
@@ -605,6 +610,14 @@ impl Cell {
         Self {
             protected,
             ..Self::wide_spacer(attrs)
+        }
+    }
+
+    /// Generate a visual blank without adding a source-text scalar.
+    pub(crate) fn layout_blank(attrs: Attrs) -> Self {
+        Self {
+            layout_padding: true,
+            ..Self::new(' ', attrs)
         }
     }
 
@@ -632,6 +645,7 @@ impl Cell {
     pub(crate) fn push_combining(&mut self, mark: char) -> bool {
         let len = self.combining_len as usize;
         if len < MAX_COMBINING {
+            self.layout_padding = false;
             self.combining[len] = mark;
             self.combining_len += 1;
             true

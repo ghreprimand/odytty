@@ -1485,6 +1485,7 @@ fn count_projected_rows(line: &LogicalLine, width: usize, ambiguous_wide: bool) 
 ///
 /// - Trailing blank cells are trimmed before wrapping (a no-op for `open` lines,
 ///   which are full by construction), then the final row is re-padded to width.
+/// - Layout-padding cells are omitted before wrapping; typed spaces remain.
 /// - Wide glyphs are kept whole: a two-column glyph never straddles the right
 ///   edge; if the grid is too narrow for a pair the lead degrades to width 1 and
 ///   an orphaned continuation spacer is dropped.
@@ -1658,6 +1659,10 @@ fn project_line_mode<const MODE: u8>(
     let mut i = 0;
     while i < cells.len() {
         let cell = cells[i];
+        if cell.layout_padding() {
+            i += 1;
+            continue;
+        }
         let is_wide_lead = !cell.wide_continuation()
             && crate::core::char_width::char_display_width(cell.ch(), ambiguous_wide) == 2;
         let unit = if is_wide_lead && width >= 2 { 2 } else { 1 };
@@ -1665,7 +1670,7 @@ fn project_line_mode<const MODE: u8>(
         // Wrap before a wide pair that would straddle the right edge.
         if unit == 2 && row_len + unit > width && row_len != 0 {
             while row_len < width {
-                emit!(blank);
+                emit!(Cell::layout_blank(blank.attrs));
             }
             finish_row!(Line::wrapped(std::mem::take(&mut row_cells)));
             produced_any = true;

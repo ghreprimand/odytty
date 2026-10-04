@@ -94,6 +94,7 @@ pub struct SnapshotCell {
     pub attrs: SnapshotAttrs,
     pub protected: bool,
     pub wide_continuation: bool,
+    pub layout_padding: bool,
     pub combining: Vec<char>,
 }
 
@@ -104,6 +105,7 @@ impl From<Cell> for SnapshotCell {
             attrs: SnapshotAttrs::from(cell.attrs),
             protected: cell.protected,
             wide_continuation: cell.wide_continuation,
+            layout_padding: cell.layout_padding,
             combining: cell.combining().to_vec(),
         }
     }
@@ -114,6 +116,7 @@ impl SnapshotCell {
         let mut cell = Cell::new(self.ch, self.attrs.to_attrs());
         cell.protected = self.protected;
         cell.wide_continuation = self.wide_continuation;
+        cell.layout_padding = self.layout_padding;
         for &mark in &self.combining {
             let _ = cell.push_combining(mark);
         }

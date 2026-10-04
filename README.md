@@ -2,7 +2,9 @@
 
 Published release: **v0.16.1**.
 
-Current development work is tracked in [TODO.md](TODO.md). Version 0.16.0
+Current development work is tracked in [TODO.md](TODO.md). Generated wide-glyph
+wrap padding stays separate from logical text through resize, search, copy, and
+export. Version 0.16.0
 adds [read-only panes](docs/features.md#make-a-pane-read-only),
 [scrollback export](docs/features.md#export-scrollback) as text or
 sanitized HTML, guarded [broadcast input](docs/features.md#broadcast-input)

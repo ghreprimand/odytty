@@ -1696,9 +1696,11 @@ scope rather than silently inheriting deferred work from a prior release.
   per-user Unix-domain socket under `$XDG_RUNTIME_DIR/odytty/`, requires a
   `0700` current-user runtime directory, rejects incompatible protocol/snapshot
   versions, sends a current `SnapshotEnvelope` on every attach, streams
-  output/invalidation frames, and reaps the child process. Snapshot format v3
-  retains G0/G1 designation and SO/SI selection; v1 and v2 remain readable and
-  restore the power-on ASCII character-set state. The envelope carries cells
+  output/invalidation frames, and reaps the child process. Snapshot format v4
+  retains layout-padding provenance as well as G0/G1 designation and SO/SI
+  selection. Formats v1 through v3 remain readable; v1 and v2 restore the
+  power-on ASCII character-set state. Older snapshots restore blanks as logical
+  spaces because their format carries no padding provenance. The envelope carries cells
   but not the OSC 8 link table, the button table, or the graphics scene, so a
   restored screen drops those references instead of letting later output
   reuse them: link ids are cleared (the text stays, inert), Kitty Unicode
@@ -2392,6 +2394,20 @@ search colors are compositing inputs rather than artificial shaping boundaries,
 so they do not split a contextual glyph outline. Each pane shapes independently
 inside its own origin and clip rectangle. This keeps the terminal grid stable
 even when the selected font lacks the requested alternates.
+
+#### Wide-Glyph Wrap Padding
+
+When a two-column owner does not fit at the right edge, the generated blank
+carries layout-padding provenance. It occupies a visual cell but contributes
+no logical scalar to search, copy, or transcript export. Both live-grid and
+scrollback reflow discard its old layout position before wrapping again.
+Typed spaces remain source text, including spaces at a soft-wrap boundary.
+Overwrite and erase replace padding with ordinary content. Insert/delete
+character edits materialize row padding as ordinary blanks; rectangular copy
+materializes padding at the destination. Attaching a mark to padding retains
+that mark on an ordinary space. Snapshot format v4 stores ownership flags in
+the existing spacer byte and rejects malformed padding at decode.
+The same core policy applies on Linux Wayland, Linux X11, macOS, and Windows.
 
 #### Combining Marks
 

@@ -509,6 +509,7 @@ fn maximal_cell_wire_len_is_pinned() {
         },
         protected: true,
         wide_continuation: true,
+        layout_padding: false,
         combining: vec!['\u{301}'; super::super::types::MAX_COMBINING],
     };
     let mut out = Vec::new();
@@ -852,4 +853,72 @@ fn v1_envelope_decodes_with_v2_defaults() {
         decoded.layout,
         SnapshotLayoutState::defaults_for(decoded.terminal.dimensions)
     );
+}
+
+#[test]
+fn ownership_flags_are_versioned_and_padding_is_validated() {
+    let mut terminal = Terminal::new(4, 2);
+    terminal.advance("abc\u{754C}".as_bytes());
+    let envelope = SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
+    let section = SectionPayload {
+        id: SECTION_TERMINAL_STATE,
+        flags: SECTION_FLAG_REQUIRED,
+        payload: envelope.terminal.encode(),
+    };
+    let bytes = encode_sections_for_version(
+        3,
+        "legacy",
+        SNAPSHOT_PROTOCOL_VERSION,
+        std::slice::from_ref(&section),
+    );
+    assert!(SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).is_err());
+    let bytes = encode_sections_for_version(4, "padding", SNAPSHOT_PROTOCOL_VERSION, &[section]);
+    let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).unwrap();
+    assert!(decoded.terminal.visible_rows[0].cells[3].layout_padding);
+    // Formats 1-3 restore ordinary blanks without guessing their provenance.
+    let mut plain = Terminal::new(4, 2);
+    plain.advance(b"abc ");
+    let state = SnapshotEnvelope::from_terminal(&plain, SnapshotCaptureLimits::default()).terminal;
+    let bytes = encode_sections_for_version(
+        3,
+        "legacy",
+        SNAPSHOT_PROTOCOL_VERSION,
+        &[SectionPayload {
+            id: SECTION_TERMINAL_STATE,
+            flags: SECTION_FLAG_REQUIRED,
+            payload: state.encode(),
+        }],
+    );
+    assert!(
+        !SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default())
+            .unwrap()
+            .terminal
+            .visible_rows[0]
+            .cells[3]
+            .layout_padding
+    );
+    for mutation in 0..4 {
+        let mut hostile = envelope.clone();
+        let cell = &mut hostile.terminal.visible_rows[0].cells[3];
+        match mutation {
+            0 => cell.ch = 'X',
+            1 => cell.protected = true,
+            2 => cell.wide_continuation = true,
+            3 => cell.combining.push('\u{0301}'),
+            _ => unreachable!(),
+        }
+        assert!(hostile.encode().is_err());
+        // Bypass the producer validation to exercise untrusted decode.
+        let bytes = encode_sections_for_version(
+            4,
+            "hostile",
+            SNAPSHOT_PROTOCOL_VERSION,
+            &[SectionPayload {
+                id: SECTION_TERMINAL_STATE,
+                flags: SECTION_FLAG_REQUIRED,
+                payload: hostile.terminal.encode(),
+            }],
+        );
+        assert!(SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).is_err());
+    }
 }

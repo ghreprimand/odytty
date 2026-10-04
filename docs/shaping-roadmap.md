@@ -11,6 +11,11 @@ invariant is not negotiable: cursor addressing, selection, search, copy,
 scrollback, and transcript export all address the grid by cell, and every one
 of them has to stay exact regardless of how a cell's glyph is drawn.
 
+Generated wide-glyph wrap padding has no logical scalar. Its provenance
+survives history and snapshot storage, so resizing does not inject spaces into
+search, copy, or export. Typed spaces remain logical source text. This does not
+add extended-grapheme or script-aware widths.
+
 Shaped presentation is layered on top of that grid as anchored overlay spans
 (`LigatureRun`) rather than by letting shaping change the grid itself. A run
 covers a contiguous span of source cells; the shaped glyphs it produces are

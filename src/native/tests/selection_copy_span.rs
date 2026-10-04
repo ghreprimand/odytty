@@ -167,3 +167,15 @@ fn copy_after_untriaged_scrollback_trim_does_not_return_stale_rows() {
         "a copy after an unreconciled scrollback trim must not read shifted rows"
     );
 }
+
+#[test]
+fn wide_padding_is_omitted_from_actual_selection_copy() {
+    for text in ["abc\u{754C}Z", "abc \u{754C}Z"] {
+        let dims = Dimensions::new(4, 4);
+        let (mut app, terminal) =
+            headless_app_with(NativeOptions::default(), dims, Settings::default());
+        terminal.lock().unwrap().advance(text.as_bytes());
+        app.set_selection_range_for_test(0, 0, 1, 2);
+        assert_eq!(app.selection_text_for_test().as_deref(), Some(text));
+    }
+}

@@ -683,7 +683,7 @@ pub(super) fn snapshot_row_text(
     end: usize,
 ) -> String {
     snapshot_row_cells(snapshot, row, start, end)
-        .filter(|cell| !cell.wide_continuation)
+        .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
         .map(|cell| cell.grapheme())
         .collect()
 }
@@ -695,7 +695,7 @@ pub(super) fn snapshot_row_cell_count(
     end: usize,
 ) -> usize {
     snapshot_row_cells(snapshot, row, start, end)
-        .filter(|cell| !cell.wide_continuation)
+        .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
         .count()
 }
 
