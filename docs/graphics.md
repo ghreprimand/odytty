@@ -631,7 +631,9 @@ so SGR styling layers correctly around the color bitmap without tinting it.
 
 **Degradation.** If no supported color-emoji font is installed (Noto Color
 Emoji, Apple Color Emoji, stock Windows Segoe UI Emoji, or another parseable
-COLR/CPAL face), `EmojiRasterizer::discover()` returns a rasterizer with no font
-rather than failing. A face or glyph with only SVG-in-OT data takes the
+COLR/CPAL face, or a face whose only color data is SVG-in-OT),
+`EmojiRasterizer::discover()` returns a rasterizer with no font rather than
+failing. An SVG-in-OT document that exceeds a limit or draws nothing takes the
 monochrome coverage path. Emoji cells remain readable. See
-[accessibility.md](accessibility.md) for the related readability controls and limits.
+[accessibility.md](accessibility.md) for the related readability controls and
+limits.

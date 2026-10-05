@@ -55,6 +55,14 @@ pollster = "0.4.0"
 # desktop portal backend on both Wayland and X11; macOS and Windows use rfd's
 # native platform implementations. Exact pin and minimal feature set keep the
 # reviewed dependency surface stable.
+# SVG-in-OpenType color glyphs (`src/emoji/svg.rs`). Apache-2.0 OR MIT.
+# 0.45.1 is the release built on tiny-skia 0.11.4, the rasterizer already used
+# for COLR v1, so no second tiny-skia enters the build. All default features
+# are off: no text layout, no system font database, no memory-mapped fonts,
+# and no raster image decoding. Documents are parsed by `roxmltree` with DTDs
+# disabled and node and depth limits checked before conversion, and every
+# external-resource resolver returns nothing.
+resvg = { version = "=0.45.1", default-features = false }
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
 # Direct use of the already-transitive Fontations stack evaluates guarded COLR
 # v1 Paint graphs. `swash` remains the shaping and bitmap/COLR v0 rasterizer.

@@ -668,6 +668,14 @@ the most deliberate omissions.
   a directory read, and the assembled face size is checked against the same
   256 MiB boundary *before* any buffer is reserved -- so a corrupt or hostile
   header cannot drive an allocation from its own declared numbers.
+  SVG-in-OpenType documents (`src/emoji/svg.rs`, rendered by `resvg` with
+  every default feature off) are read through a checked `SVG ` index, capped
+  at 1 MiB raw and after gzip decompression, parsed with DTDs refused and at
+  most 20,000 XML nodes, and refused before conversion when nesting exceeds 64,
+  reference expansion exceeds 80,000 nodes, a reference cycle exists, or the
+  document uses patterns or stylesheet `url(` references. Every image resolver
+  returns nothing, so no file or network resource is read, and the raster is
+  the color atlas slot.
 - **Failure behavior:** an unparseable font is skipped during enumeration or
   falls back to the next candidate at load time.
 - **Diagnostic exposure:** font paths may include a user's home directory and

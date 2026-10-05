@@ -1253,7 +1253,7 @@ a floor; surpassing it is the standing ambition.
 - [x] Color emoji - RGBA color-glyph path, `swash` shaping and established
       bitmap/COLR v0 rasterization, Fontations-backed COLR v1 Paint graphs,
       stock Windows Segoe UI Emoji discovery, VS15/VS16 presentation, and
-      ZWJ/cluster support; SVG-in-OT remains deferred.
+      ZWJ/cluster support, and bounded SVG-in-OT documents as the last source.
   - [x] `swash` dependency and fontconfig emoji font discovery.
   - [x] RGBA color-glyph atlas (`ColorGlyphAtlas`) and dedicated
         shader/draw segment; premultiplied-RGBA source pixels, no SGR
@@ -1273,7 +1273,10 @@ a floor; surpassing it is the standing ambition.
         premultiplied atlas: solid fills, linear/radial/sweep gradients,
         transforms, clips, and all standard composite modes; synthetic v1-only
         fixture plus a Windows CI stock-font coverage census.
-  - [ ] SVG-in-OT rasterization; SVG-only glyphs use monochrome fallback.
+  - [x] SVG-in-OT rasterization as the last color source through resvg, with
+        document, nesting, expansion, resource, and raster limits; refused
+        documents keep the monochrome fallback; SVG-only faces rank last in
+        discovery; portable SVG-only fixtures.
 - [x] Perceptual color pipeline: linear-space blending active in the render
       path; OKLab / OKLCH helpers (`dim_perceptual`, `mix_oklab`, `src/color.rs`)
       used by the minimum-contrast lift and the SGR dim-text resolve step.

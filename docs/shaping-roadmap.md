@@ -62,7 +62,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed complex-script reordering remains unsupported |
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
-| SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Planned for v0.17.0. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
+| SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, or reference-expansion limits, and documents with patterns or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
 
 ## What the overlay model supports
 
@@ -259,17 +259,21 @@ OpenType script tags to the existing overlay is not sufficient.
 
 ### SVG-in-OpenType
 
-SVG-in-OpenType is planned for v0.17.0 and is not a conflict with the cell
-model. An SVG glyph can rasterize into the same bounded one-cell or two-cell
-color atlas slot used by bitmap, COLR v0, and COLR v1 sources. The logical grid
-does not need to change.
+SVG-in-OpenType glyphs rasterize through resvg into the same bounded one-cell
+or two-cell color atlas slot used by bitmap, COLR v0, and COLR v1 sources, and
+only for glyphs none of those sources draws. The logical grid does not change.
+The glyph element's ink box is fitted into the slot the way COLR v1 glyphs are.
 
-Enablement requires a bounded rasterizer with external resource loading,
-network access, scripts, animation, and unbounded document expansion disabled;
-checked document and raster-size limits; deterministic premultiplied-RGBA
-output; cache and fallback behavior matching the other color sources; and
-portable SVG-only fixtures exercised on Linux, macOS, and Windows. Until that
-surface is implemented and tested, SVG-only glyphs use monochrome fallback.
+Documents are untrusted: the `SVG ` index is read with checked arithmetic; a
+document is at most 1 MiB raw and after gzip decompression; XML is parsed with
+DTDs refused and at most 20,000 nodes; nesting is at most 64 deep; `use`,
+`href`, and `url(#id)` references may expand to at most 80,000 nodes, and
+cycles are refused; documents with patterns or stylesheet `url(` references are
+refused. No file, network, or embedded image is loaded, scripts and animation
+have no effect, and SVG text is not drawn. Output is premultiplied RGBA no
+larger than the slot. A refused or empty document keeps the monochrome
+fallback, and a key that fails is remembered so it is not reparsed each frame.
+Synthetic SVG-only fixtures cover these paths on Linux, macOS, and Windows.
 
 ## Tractable candidate work
 
@@ -316,5 +320,4 @@ Sequence-aware width follows the cell-storage work because it changes cluster
 ownership without requiring visual reordering. Full complex-script shaping and
 BiDi remain outside the overlay model because they require a reversible mapping
 between logical terminal cells and a different visual order. SVG-in-OpenType is
-independent of that sequence and enters the v0.17.0 work only after its bounded
-rasterization and security prerequisites are implemented and tested.
+independent of that sequence.

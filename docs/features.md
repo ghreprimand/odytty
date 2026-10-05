@@ -401,7 +401,7 @@ The support boundary is explicit:
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed complex-script reordering remains unsupported |
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
-| SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Deferred implementation work, not a cell-model conflict. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
+| SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, or reference-expansion limits, and documents with patterns or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
 
 A partial BiDi or complex-script approximation is not planned: visual order
 that disagrees with cursor, selection, search, or copy behavior would weaken
@@ -514,13 +514,24 @@ Segoe UI Emoji ships no regional-indicator flag glyphs, so flag clusters
 use visible coverage fallback rather than a color flag. Adjacent source-owned
 flags retain separate two-cell render spans.
 
-Source preference is bitmap strike, then COLR v0, then COLR v1. The first two
-paths retain their established byte output; v1 is attempted only when they do
-not cover the glyph. The Windows CI assertion records how many glyphs in the
+Source preference is bitmap strike, then COLR v0, then COLR v1, then
+SVG-in-OpenType. The first two paths retain their established byte output; v1
+is attempted only when they do not cover the glyph, and an SVG document only
+when no COLR source draws it. The Windows CI assertion records how many glyphs in the
 installed Segoe build expose v0, v1, and v1-only coverage instead of assuming a
 specific system-font revision. The synthetic v1-only fixture is the portable
-correctness evidence when no stock v1-only glyph is observed. SVG-in-OpenType
-remains deferred; an SVG-only glyph falls back to the monochrome path.
+correctness evidence when no stock v1-only glyph is observed. An SVG document
+is parsed with DTDs refused and checked before conversion: at most 1 MiB raw
+and after gzip decompression, 20,000 XML nodes, nesting depth 64, and 80,000
+nodes once `use`, `href`, and `url(#id)` references are expanded, with
+reference cycles, patterns, and stylesheet `url(` references refused. External
+files, network URLs, and embedded images are never loaded, scripts and
+animation have no effect, and SVG text is not drawn. A refused document keeps
+the monochrome path, and a glyph that fails to rasterize is not retried. When
+no named or COLR/CPAL face is installed, directory discovery accepts a face
+whose only color data is an `SVG ` table; such faces rank after every named and
+COLR/CPAL face. Synthetic SVG-only fixtures cover these paths on all three
+platforms.
 
 ### Display Inline Graphics
 

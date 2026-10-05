@@ -343,6 +343,7 @@ decision, not a trade-off pending revisitation.
 | Clipboard transport | `arboard` |
 | Unicode character-width tables | `unicode-width` |
 | Unicode bidi paragraph level resolution (UAX #9), over generated Unicode 17.0.0 class, bracket, and mirroring tables | `unicode-bidi` |
+| SVG-in-OpenType color glyph rasterization, with every default feature off | `resvg` |
 
 ## Graphics Architecture
 
@@ -2308,6 +2309,7 @@ OdyTTY is a Linux-first Rust application built around these primary crates:
 | `swash` | Emoji discovery, shaping, and color-font probing |
 | `unicode-width` | Terminal cell widths |
 | `unicode-bidi` | UAX #9 levels for the bidi display plan the renderer uses while `bidi_reorder` is on; built without its bundled Unicode 16.0.0 tables |
+| `resvg` | SVG-in-OpenType color glyphs (with its `usvg` parser), built without text layout, system fonts, or raster image decoding |
 | `arboard` | Clipboard integration |
 | `rustix` | Unix PTY and termios access |
 | `png` | PNG decoding for Kitty `f=100` |
@@ -2551,20 +2553,29 @@ the existing coverage atlas.
 Emoji cells sample source pixels directly and are never tinted by SGR
 foreground color. Linux font discovery probes fontconfig for Noto Color Emoji;
 directory scanning recognizes Noto Color Emoji, Apple Color Emoji, stock
-Windows Segoe UI Emoji (`seguiemj.ttf`), and other COLR/CPAL faces,
-and a candidate that fails to load falls through to the next. A file not named
-after a known color-emoji face is checked for COLR and CPAL through its first
-face's table directory only (size ceiling, sfnt or collection magic, and each
-table's byte range inside the file), not by reading the whole file.
-Rasterization prefers existing CBDT/CBLC or sbix bitmap strikes, then static
-COLR/CPAL v0 layers, then COLR v1 Paint graphs. The v1 evaluator covers solid
-fills, gradients, transforms, clips, and composites while the earlier paths
-retain byte-identical output. Compatible Segoe glyphs leave the monochrome
-fallback on a stock Windows install. SVG-in-OT remains deferred; a glyph that
-exposes only SVG data still falls back to monochrome. An
-explicit per-session setting is planned as a follow-up. VS15 (`U+FE0E`) forces
-the text path; VS16 (`U+FE0F`) forces the emoji path; characters with
-Unicode `Emoji_Presentation=Yes` default to emoji; others default to text. The
+Windows Segoe UI Emoji (`seguiemj.ttf`), and other COLR/CPAL faces, and a
+candidate that fails to load falls through to the next. A file not named after
+a known color-emoji face is checked for COLR and CPAL through its first face's
+table directory only (size ceiling, sfnt or collection magic, and each table's
+byte range inside the file), not by reading the whole file. Rasterization
+prefers existing CBDT/CBLC or sbix bitmap strikes, then static COLR/CPAL v0
+layers, then COLR v1 Paint graphs, then SVG-in-OpenType documents. The v1
+evaluator covers solid fills, gradients, transforms, clips, and composites
+while the earlier paths retain byte-identical output. Compatible Segoe glyphs
+leave the monochrome fallback on a stock Windows install. An SVG document is
+used only for a glyph no earlier source draws; its glyph element is fitted into
+the same one- or two-cell color slot. Documents are bounded: 1 MiB raw and
+after gzip decompression, DTDs refused, 20,000 XML nodes, nesting depth 64,
+80,000 nodes once `use`, `href`, and `url(#id)` references are expanded,
+reference cycles refused, and documents with patterns or stylesheet `url(`
+references refused. No file, network, or embedded image is loaded, scripts and
+animation have no effect, and SVG text is not drawn. A refused or empty
+document leaves the monochrome fallback, and a key that fails to rasterize is
+not retried. When no named or COLR/CPAL face exists, directory discovery
+accepts a face whose only color data is an `SVG ` table. An explicit
+per-session setting is planned as a follow-up. VS15 (`U+FE0E`) forces the text
+path; VS16 (`U+FE0F`) forces the emoji path; characters with Unicode
+`Emoji_Presentation=Yes` default to emoji; others default to text. The
 predicate must not claim whole symbol blocks: text-default Dingbats/geometric
 markers stay on the monochrome coverage/symbol fallback path.
 
@@ -2572,10 +2583,9 @@ RGI clusters are
 treated as atomic if `swash` shapes them to a single color glyph; unsupported
 clusters degrade per-codepoint to the existing fallback path.
 Draw order: cell backgrounds → below-text images → coverage glyphs and line
-decorations → color emoji glyphs → cursor and overlays. SVG-in-OT is deferred
-but architecturally permitted; the boundary rule (rasterization external,
-placement owned) applies to that path as well. The delivery ladder is tracked
-in [`TODO.md`](TODO.md).
+decorations → color emoji glyphs → cursor and overlays. SVG-in-OT glyphs follow
+the same boundary rule (rasterization external, placement owned). The delivery
+ladder is tracked in [`TODO.md`](TODO.md).
 
 ### First Emoji Increment
 

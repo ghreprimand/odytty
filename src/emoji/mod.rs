@@ -10,6 +10,7 @@
 mod color_atlas;
 mod colr1;
 mod render;
+mod svg;
 
 use std::path::{Path, PathBuf};
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -159,6 +160,7 @@ pub struct SequenceProbe {
     pub has_color_bitmap: bool,
     pub has_color_outline: bool,
     pub has_colr_v1: bool,
+    pub has_svg: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -247,8 +249,10 @@ pub(crate) fn load_color_emoji_font_in_inventory(
 
 /// The first loadable color-emoji face under `inventory`, skipping `skip`:
 /// files named after a known color-emoji face in inventory order, then any
-/// other file with a COLR/CPAL table, at most [`MAX_EMOJI_FONT_CANDIDATES`]
-/// load attempts in all.
+/// other file with a COLR/CPAL table, then any other file whose only color
+/// data is an `SVG ` table, at most [`MAX_EMOJI_FONT_CANDIDATES`] load
+/// attempts in all. SVG-only faces rank last so a host that has a named or
+/// COLR/CPAL face resolves exactly as it did before SVG glyphs rendered.
 fn load_color_emoji_font_excluding(
     inventory: &crate::text::FontFileInventory,
     skip: Option<&Path>,
@@ -260,8 +264,12 @@ fn load_color_emoji_font_excluding(
     let probed = files
         .iter()
         .filter(|path| !is_color_emoji_name(&normalized_stem(path)) && has_colr_cpal(path));
+    let svg_only = files.iter().filter(|path| {
+        !is_color_emoji_name(&normalized_stem(path)) && !has_colr_cpal(path) && has_svg(path)
+    });
     named
         .chain(probed)
+        .chain(svg_only)
         .filter(|path| Some(path.as_path()) != skip)
         .take(MAX_EMOJI_FONT_CANDIDATES)
         .find_map(|path| EmojiFont::load_face(path.clone(), 0).ok())
@@ -280,13 +288,14 @@ pub(crate) fn discover_noto_color_emoji_in_inventory(
                 .files()
                 .iter()
                 .find(|path| has_colr_cpal(path))
+                .or_else(|| inventory.files().iter().find(|path| has_svg(path)))
                 .cloned()
         })?;
     Some(EmojiFontMatch {
         path,
         source: EmojiFontSource::SearchDirs,
         // Directory discovery matches whole files by name or by probing for
-        // COLR/CPAL, neither of which selects a face within a collection, so
+        // COLR/CPAL or SVG tables, none of which selects a face within a collection, so
         // this path has no index to carry and takes the first face.
         face_index: 0,
     })
@@ -379,7 +388,11 @@ pub fn probe_cluster_resolution(font: &EmojiFont, text: &str) -> FallbackOutcome
             .build();
         scaler.scale_color_outline(*glyph_id).is_some()
     };
-    if has_color_bitmap || has_color_outline() || has_colr_v1_glyph(font, *glyph_id) {
+    if has_color_bitmap
+        || has_color_outline()
+        || has_colr_v1_glyph(font, *glyph_id)
+        || has_svg_glyph(font_ref, *glyph_id)
+    {
         FallbackOutcome::Resolved
     } else {
         FallbackOutcome::MissingGlyph
@@ -442,6 +455,10 @@ pub fn probe_font(font: &EmojiFont) -> EmojiProbeReport {
                 .iter()
                 .copied()
                 .any(|id| has_colr_v1_glyph(font, id));
+            let has_svg = glyph_ids
+                .iter()
+                .copied()
+                .any(|id| has_svg_glyph(font_ref, id));
 
             SequenceProbe {
                 name: sequence.name,
@@ -453,6 +470,7 @@ pub fn probe_font(font: &EmojiFont) -> EmojiProbeReport {
                 has_color_bitmap,
                 has_color_outline,
                 has_colr_v1,
+                has_svg,
             }
         })
         .collect();
@@ -496,7 +514,7 @@ pub fn summarize_report(report: &EmojiProbeReport) -> String {
     out.push_str(&format!("formats={:?}\n", report.formats));
     for sequence in &report.sequences {
         out.push_str(&format!(
-            "{} {:?}: glyphs={:?} clusters={} fallback={:?} color_bitmap={} color_outline={} colr_v1={}\n",
+            "{} {:?}: glyphs={:?} clusters={} fallback={:?} color_bitmap={} color_outline={} colr_v1={} svg={}\n",
             sequence.name,
             sequence.kind,
             sequence.glyph_ids,
@@ -504,10 +522,17 @@ pub fn summarize_report(report: &EmojiProbeReport) -> String {
             sequence.fallback,
             sequence.has_color_bitmap,
             sequence.has_color_outline,
-            sequence.has_colr_v1
+            sequence.has_colr_v1,
+            sequence.has_svg
         ));
     }
     out
+}
+
+/// Whether the face's `SVG ` table has a document record for `glyph_id`.
+fn has_svg_glyph(font: FontRef<'_>, glyph_id: GlyphId) -> bool {
+    font.table(tag_from_bytes(b"SVG "))
+        .is_some_and(|table| svg::has_glyph(table, glyph_id))
 }
 
 fn has_colr_v1_glyph(font: &EmojiFont, glyph_id: GlyphId) -> bool {
@@ -615,6 +640,12 @@ fn normalized_stem(path: &Path) -> String {
 /// table directory alone so probing a host font never reads the whole file.
 fn has_colr_cpal(path: &Path) -> bool {
     crate::font_file::face0_has_tables(path, &[*b"COLR", *b"CPAL"])
+}
+
+/// Whether face 0 of `path` carries an `SVG ` table, read from the table
+/// directory alone like [`has_colr_cpal`].
+fn has_svg(path: &Path) -> bool {
+    crate::font_file::face0_has_tables(path, &[*b"SVG "])
 }
 
 /// Family-name normalization for the fontconfig result; gated with its sole

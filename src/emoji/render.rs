@@ -3,7 +3,9 @@
 //!
 //! This module is intentionally narrow: it only activates color rendering when
 //! the terminal grid contains one emoji grapheme or a bounded RGI cluster that
-//! resolves to one bitmap strike or COLR/CPAL glyph.
+//! resolves to one bitmap strike, COLR/CPAL glyph, or SVG-in-OpenType glyph.
+
+use std::collections::HashSet;
 
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content};
 use swash::shape::{Direction, ShapeContext};
@@ -22,11 +24,19 @@ pub enum EmojiPresentation {
     Color,
 }
 
+/// Most color-glyph keys remembered as failing to rasterize. The set is
+/// cleared when full, so it never grows past this bound.
+const MAX_FAILED_COLOR_KEYS: usize = 1024;
+
 /// Stateful swash contexts plus the optional discovered emoji face.
 pub struct EmojiRasterizer {
     font: Option<EmojiFont>,
     shape_context: ShapeContext,
     scale_context: ScaleContext,
+    /// Keys whose rasterization returned nothing. Rasterization is a pure
+    /// function of the key, so a failed key is not retried each frame; this
+    /// keeps a hostile SVG document from being parsed on every redraw.
+    failed: HashSet<ColorGlyphKey>,
 }
 
 impl EmojiRasterizer {
@@ -46,6 +56,7 @@ impl EmojiRasterizer {
             font,
             shape_context: ShapeContext::new(),
             scale_context: ScaleContext::new(),
+            failed: HashSet::new(),
         }
     }
 
@@ -55,6 +66,12 @@ impl EmojiRasterizer {
 
     pub fn has_font(&self) -> bool {
         self.font.is_some()
+    }
+
+    /// How many color-glyph keys are remembered as failing to rasterize.
+    #[cfg(test)]
+    pub(crate) fn failed_color_keys(&self) -> usize {
+        self.failed.len()
     }
 
     pub fn build_color_glyph_runs(
@@ -102,15 +119,24 @@ impl EmojiRasterizer {
         if atlas.lookup(key).is_some() {
             return Some(key);
         }
+        if self.failed.contains(&key) {
+            return None;
+        }
 
-        let rgba = render_color_glyph(
+        let Some(rgba) = render_color_glyph(
             &mut self.scale_context,
             font_ref,
             font.data(),
             *glyph_id,
             atlas.cell,
             width_cells,
-        )?;
+        ) else {
+            if self.failed.len() >= MAX_FAILED_COLOR_KEYS {
+                self.failed.clear();
+            }
+            self.failed.insert(key);
+            return None;
+        };
         atlas
             .insert_premultiplied(key, width_cells, &rgba)
             .ok()
@@ -274,13 +300,17 @@ pub(super) fn render_color_glyph(
 ) -> Option<Vec<u8>> {
     // Keep bitmap strikes and COLR v0 ahead of the v1 evaluator so their
     // established pixels remain byte-identical. V1 engages only when swash has
-    // no bitmap or v0 layer composition for this glyph. SVG-in-OT remains a
-    // separate, unsupported source.
+    // no bitmap or v0 layer composition for this glyph, and an SVG document
+    // only when no COLR source draws it either.
     if let Some(rgba) = render_established_color_glyph(context, font, glyph_id, cell, width_cells) {
         return Some(rgba);
     }
     let width = cell.width.checked_mul(u32::from(width_cells))?;
-    super::colr1::render(font_data, glyph_id, width, cell.height)
+    if let Some(rgba) = super::colr1::render(font_data, glyph_id, width, cell.height) {
+        return Some(rgba);
+    }
+    let table = font.table(swash::tag_from_bytes(b"SVG "))?;
+    super::svg::render(table, glyph_id, width, cell.height)
 }
 
 pub(super) fn render_established_color_glyph(

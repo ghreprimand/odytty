@@ -264,10 +264,9 @@ do not cover every GPU, compositor, IME, font, or hardware configuration.
 
 Linux is the primary target. macOS and Windows are supported, shipped, and
 blocking CI targets. Known gaps include Windows detached and resumable session
-hosting, complex-script reordering, right-to-left paragraph levels and
+hosting, complex-script reordering, and right-to-left paragraph levels and
 alternate-screen reordering (bidirectional display reordering is an opt-in,
-off-by-default setting for the primary screen), and SVG-in-OpenType color
-glyphs.
+off-by-default setting for the primary screen).
 The [v0.13.0 foundation contract](docs/v0.13.0-foundation.md) records the
 security, architecture, platform, and measurement boundaries carried forward
 from v0.13.0. Named launch profiles have a versioned on-disk foundation and a settings Profile
