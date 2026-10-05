@@ -76,7 +76,7 @@ environment variable was not set at startup.
 | `os_theme_dark` | `ODYTTY_OS_THEME_DARK` | Built-in theme name | unset |
 | `os_theme_light` | `ODYTTY_OS_THEME_LIGHT` | Built-in theme name | unset |
 | `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `ambient` |
-| `font` | `ODYTTY_FONT` | `.ttf`, `.otf`, or `.ttc` path | unset |
+| `font` | `ODYTTY_FONT` | `.ttf`, `.otf`, or `.ttc` path, loaded without a monospace check | unset |
 | `font_family` | `ODYTTY_FONT_FAMILY` | Monospace family name or font path | `Victor Mono` |
 | `font_weight` | `ODYTTY_FONT_WEIGHT` | Weight suffix such as `Light`, `Medium`, `SemiBold`, or empty | empty |
 | `font_size` | `ODYTTY_FONT_SIZE` | Float, `6.0..=72.0` px | `20.0` |

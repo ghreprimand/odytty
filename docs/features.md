@@ -344,13 +344,16 @@ joining is shaped in **logical left-to-right cell order** unless bidirectional
 reordering is on (below). In logical order each letter takes the contextual
 form its typed neighbors give it, but the letters sit left to right, so their
 connecting strokes face away from each other and a word does not draw as one
-connected shape; with reordering on it does. Arabic letters carrying harakat (fatha, kasra,
-shadda, and the other Arabic nonspacing marks) stay in their joining run, and
-the marks are drawn where the font's mark positioning places them. Unsupported
-fonts and runs
-render through the normal per-cell path. Set `ligatures = off` in Settings or
-configuration, or `ODYTTY_LIGATURES=off` for one launch, to restore scalar
-rendering; the setting reloads live.
+connected shape; with reordering on it does. Each joined glyph is drawn from
+its own cell's left edge, so strokes connect only when the text font's joining
+forms advance exactly one cell, as in a monospace face; a proportional face
+loaded through the `font` path setting, which is not checked for monospace,
+draws gaps between joined letters. Arabic letters carrying harakat (fatha,
+kasra, shadda, and the other Arabic nonspacing marks) stay in their joining
+run, and the marks are drawn where the font's mark positioning places them.
+Unsupported fonts and runs render through the normal per-cell path. Set
+`ligatures = off` in Settings or configuration, or `ODYTTY_LIGATURES=off` for
+one launch, to restore scalar rendering; the setting reloads live.
 
 The alternate zero is a separate legibility control. `font_zero = on`
 (Settings > Fonts > Alternate zero, reachable from the right-click menu's

@@ -109,15 +109,19 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
   (which has `zero`) and Victor Mono (which does not).
 - **Arabic contextual joining forms.** Compatible Arabic runs are shaped with
   `Script::Arabic` under **logical left-to-right cell order**, or right to
-  left in display order while `bidi_reorder` is on (see Bidirectional
-  layout). OpenType init/medi/fina/isol (and length-changing joining
-  ligatures such as lam-alef) become `LigatureRun` overlays clipped to their
-  source-cell spans. Selection, copy, search, and cursor addressing still
-  report the logical characters in cell order. In logical order the
-  connecting strokes of adjacent letters face away from each other, so a word
-  draws as one connected shape only with `bidi_reorder` on. When the active
-  text font has no Arabic coverage, the shaper emits no overlay and the
-  ordinary per-cell path remains (no invented tofu).
+  left in display order while `bidi_reorder` is on (see Bidirectional layout).
+  OpenType init/medi/fina/isol (and length-changing joining ligatures such as
+  lam-alef) become `LigatureRun` overlays clipped to their source-cell spans.
+  Selection, copy, search, and cursor addressing still report the logical
+  characters in cell order. In logical order the connecting strokes of
+  adjacent letters face away from each other, so a word draws as one connected
+  shape only with `bidi_reorder` on. Each joined glyph is drawn from its own
+  cell's left edge, so strokes connect only when the text font's joining forms
+  advance exactly one cell, as in a monospace face; a proportional face loaded
+  through the `font` path setting, which is not checked for monospace, draws
+  gaps between joined letters. When the active text font has no Arabic
+  coverage, the shaper emits no overlay and the ordinary per-cell path remains
+  (no invented tofu).
 - **Arabic harakat inside joining runs.** An Arabic joining letter whose
   retained marks are all Arabic harakat (the Arabic and Arabic Extended-A
   nonspacing marks, except U+08CA through U+08D2, which the shaping engine's

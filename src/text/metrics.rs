@@ -26,9 +26,15 @@ pub fn font_provides_outline_glyph(font: &FontHandle, ch: char) -> bool {
 /// Whether a font's representative glyphs share one advance width (monospace).
 ///
 /// Compares the horizontal advance of several probe glyphs at a fixed scale; a
-/// proportional font (where, e.g., `i` is narrower than `M`) is rejected. Glyphs
-/// the font lacks are skipped; at least one probe must resolve.
+/// proportional font (where, e.g., `i` is narrower than `M`) is rejected. Other
+/// probe glyphs the font lacks are skipped, but `M` must resolve: the atlas
+/// measures the cell width from `M`, so a face without it (a script-only face
+/// whose only probe hit is a period) would size cells from `.notdef` and pass
+/// on a single probe while its letters advance at many widths.
 pub fn is_monospace(font: &FontHandle) -> bool {
+    if font.glyph_id('M').0 == 0 {
+        return false;
+    }
     let scaled = font.as_scaled(PxScale::from(64.0));
     let probe = ['i', 'l', '.', 'M', 'W', 'm', 'x', '@'];
     let mut advance: Option<f32> = None;
@@ -49,4 +55,35 @@ pub fn is_monospace(font: &FontHandle) -> bool {
         }
     }
     advance.is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::text::{FontResolveError, try_resolve_font_family};
+    use std::path::{Path, PathBuf};
+
+    fn fixture(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/fonts")
+            .join(name)
+    }
+
+    /// A script-only face whose single probe hit is a period, with letters at
+    /// several advances, is proportional. It must not pass the probe on that
+    /// one glyph and then size cells from `.notdef`.
+    #[test]
+    fn latinless_proportional_face_is_not_monospace() {
+        let path = fixture("latinless-proportional.ttf");
+        let font = FontHandle::try_from_vec(std::fs::read(&path).expect("read fixture"))
+            .expect("parse fixture");
+        assert_ne!(font.glyph_id('.').0, 0, "fixture maps the period probe");
+        assert_eq!(font.glyph_id('M').0, 0, "fixture has no M");
+        assert!(!is_monospace(&font), "a face without M is not monospace");
+        assert_eq!(
+            try_resolve_font_family(path.to_str().expect("utf-8 path"), &[]),
+            Err(FontResolveError::NotMonospace),
+            "a direct path to the face reports NotMonospace"
+        );
+    }
 }
