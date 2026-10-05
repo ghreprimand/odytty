@@ -193,14 +193,25 @@ impl GlyphAtlas {
         let slot = self.allocate_slots(span)?;
         let origin = slot_offset(slot, self.cols, self.cell);
         let synth = self.synth_for(key.style);
+        // A positioned mark moves its pen by the shaped offset. Raising the
+        // pen baseline would also move the synthetic-italic shear origin, so
+        // the shear that baseline shift removes is added back to x.
+        let [dx, dy] = key.mark_offset;
+        let units_to_px = if key.mark_offset == [0, 0] {
+            0.0
+        } else {
+            font.px_per_unit(self.px)
+        };
+        let dx_px = f32::from(dx) * units_to_px;
+        let dy_px = f32::from(dy) * units_to_px;
         let ink = rasterize_glyph_id(
             font,
             Pen {
                 px: self.px,
-                baseline: self.cell.baseline as f32,
+                baseline: self.cell.baseline as f32 - dy_px,
             },
             GlyphId(key.glyph_id),
-            f32::from(key.anchor_cell) * self.cell.width as f32,
+            f32::from(key.anchor_cell) * self.cell.width as f32 + dx_px + synth.shear * dy_px,
             &mut self.data,
             self.width,
             self.subpixel,

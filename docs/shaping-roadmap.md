@@ -52,7 +52,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Surface | Current support | Standing position |
 | --- | --- | --- |
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
-| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; combining-marked cells stay on the monochrome path | More joining-script coverage is a candidate; harakat inside joining runs are not yet shaped |
+| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen, right-to-left paragraph levels, and complex-script shaping are not reordered |
 | Complex Indic/Brahmic shaping | Not supported | Northern and southern Indic source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping |
@@ -109,11 +109,27 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
   layout). OpenType init/medi/fina/isol (and length-changing joining
   ligatures such as lam-alef) become `LigatureRun` overlays clipped to their
   source-cell spans. Selection, copy, search, and cursor addressing still
-  report the logical characters in cell order. Cells that carry combining
-  marks - including Arabic harakat - still break runs and stay on the mono
-  combining path; that is a stated limitation of this slice, not silent
-  wrongness. When the active text font has no Arabic coverage, the shaper
-  emits no overlay and the ordinary per-cell path remains (no invented tofu).
+  report the logical characters in cell order. When the active text font has
+  no Arabic coverage, the shaper emits no overlay and the ordinary per-cell
+  path remains (no invented tofu).
+- **Arabic harakat inside joining runs.** An Arabic joining letter whose
+  retained marks are all Arabic harakat (the Arabic and Arabic Extended-A
+  nonspacing marks, except U+08CA through U+08D2, which the shaping engine's
+  character data does not treat as transparent) stays in its joining run, so
+  the letter takes its contextual form and its neighbors keep theirs. The
+  font's composition (for example shadda with fatha) and mark-to-base
+  positioning apply: each mark is drawn at its shaped offset from its base,
+  clipped to the run's cells, and is not drawn a second time by the monochrome
+  combining path. Within a run of two or more Arabic cells every marked letter
+  draws this way, including one whose form joining leaves unchanged; a marked
+  letter with no adjacent Arabic letter keeps the monochrome path. A mark
+  without an attachment is drawn from its base's advance, which matches the
+  monochrome placement when the letter is one cell wide. A marked cell whose
+  marks the text font does not map, and any other combining mark on an Arabic
+  letter, keep the monochrome combining path and split the run there. Copy,
+  search, selection, and cursor addressing are unchanged. Mark ink stays
+  within the run's cells horizontally and within the glyph slot's overflow
+  margin vertically.
 
 ## Measured extent
 
@@ -270,8 +286,8 @@ Other candidates that fit the anchored overlay model are:
 - more operators added through the reviewed scalar allowlist;
 - more explicit, opt-in OpenType features with bounded settings, rather than an
   unrestricted tag surface;
-- Arabic harakat inside joining runs, and further joining-script coverage only
-  where it needs contextual substitution without visual reordering.
+- further joining-script coverage only where it needs contextual
+  substitution without visual reordering.
 
 Each candidate must preserve logical cells, copy/search output, cursor columns,
 wide-cell boundaries, and fallback behavior. A candidate moves to supported
@@ -279,10 +295,6 @@ only with differential tests proving those properties.
 
 ## Other deferred extensions
 
-- **Arabic harakat inside joining runs.** Combining marks on an Arabic base
-  still break the compatible-run gate so the marked cell uses the mono
-  combining path. This is a candidate within the overlay model, not a claim of
-  current joining support for marked bases.
 - **Open-ended stylistic sets** beyond the explicit `ss01`/`ss02` settings.
   The named alternate-zero control (`font_zero`) is the only legibility
   feature exposed; an unrestricted `ssXX` or raw feature-tag surface stays

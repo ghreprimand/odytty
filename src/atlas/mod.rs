@@ -637,6 +637,11 @@ pub struct ShapedGlyphKey {
     pub glyph_id: u16,
     pub span_cells: u8,
     pub anchor_cell: u8,
+    /// Font-unit `[x, y]` (y up) pen offset of a combining-mark glyph from
+    /// the first glyph of its shaping cluster, as OpenType mark positioning
+    /// placed it. `[0, 0]` for every other glyph, which keeps their pen at
+    /// `anchor_cell` exactly as before.
+    pub mark_offset: [i16; 2],
 }
 
 /// Integer pixel metrics for one monospace cell.

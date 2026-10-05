@@ -13,7 +13,7 @@
 use swash::shape::Direction;
 
 use super::{
-    LigatureFonts, LigatureShaper, RowPlan, RunText, compatible_run_bounds, is_arabic_joining_base,
+    LigatureFonts, LigatureShaper, RowPlan, RunText, is_arabic_joining_base, shaping_run_bounds,
 };
 use crate::core::Cell;
 use crate::grid::{BidiDisplayMap, ColorRunCoverage};
@@ -48,7 +48,7 @@ impl LigatureShaper {
     ) -> RowPlan {
         let level = |column: usize| levels.get(column).copied().unwrap_or(0);
         let mut runs = Vec::new();
-        for (start, end, style) in compatible_run_bounds(cells, row, coverage) {
+        for (start, end, style) in shaping_run_bounds(cells, row, coverage, fonts) {
             let mut segment = start;
             while segment < end {
                 let segment_level = level(segment);

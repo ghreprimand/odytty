@@ -183,6 +183,21 @@ impl FontHandle {
     /// drawable outline for it. Mirrors `ab_glyph::Font::outline_glyph`; the
     /// returned handle answers [`OutlinedGlyph::px_bounds`] and
     /// [`OutlinedGlyph::draw`].
+    /// Pixels per font unit at the uniform pixel scale `px`, the factor
+    /// [`Self::outline_glyph`] applies (px over ascent minus descent). Zero
+    /// when the face's vertical metrics are degenerate.
+    pub fn px_per_unit(&self, px: f32) -> f32 {
+        let metrics = self
+            .font_ref()
+            .metrics(Size::unscaled(), LocationRef::default());
+        let height_u = metrics.ascent - metrics.descent;
+        if height_u.is_finite() && height_u > 0.0 {
+            px / height_u
+        } else {
+            0.0
+        }
+    }
+
     pub fn outline_glyph(&self, glyph: Glyph) -> Option<OutlinedGlyph> {
         let raw = self.raw_outline(glyph.id)?;
         let legacy = raw.bounds?;

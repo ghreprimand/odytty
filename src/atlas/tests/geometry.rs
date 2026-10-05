@@ -235,6 +235,7 @@ fn over_wide_shaped_span_falls_back_to_scalar() {
         glyph_id: font.glyph_id('=').0,
         span_cells: (ATLAS_COLS + 1) as u8,
         anchor_cell: 0,
+        mark_offset: [0, 0],
     };
     assert_eq!(atlas.ensure_shaped(&font, key), None);
     assert!(
@@ -285,6 +286,7 @@ fn full_row_shaped_span_allocates_within_row_bounds() {
         glyph_id: font.glyph_id('=').0,
         span_cells: ATLAS_COLS as u8,
         anchor_cell: 0,
+        mark_offset: [0, 0],
     };
     let _ = atlas.ensure_shaped(&font, key);
     assert!(

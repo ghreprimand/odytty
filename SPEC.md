@@ -2483,6 +2483,11 @@ grapheme conformance is claimed.
 Zero-width combining marks remain stored with their base cell in arrival order.
 The monochrome renderer draws resident marks over that base and suppresses a
 missing-mark tofu fallback, so a missing font glyph cannot obscure the base.
+With programming ligatures on, Arabic harakat on an Arabic letter inside a
+joining run of two or more cells are drawn instead by the shaping overlay at
+the font's mark-positioned offsets, and only when the text font maps every
+mark on that cell; the monochrome path does not draw them again (see
+[`docs/shaping-roadmap.md`](docs/shaping-roadmap.md)).
 Wrapped and rectangular selection copy the base followed by those stored marks.
 
 ### Store Cell Attributes Compactly

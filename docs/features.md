@@ -341,7 +341,10 @@ their ordinary semantics. Latin/operator runs enable OpenType `calt` and
 `liga` together; optional stylistic sets `ss01` and `ss02` are off by default
 (`ss01 = on` / `ODYTTY_LIGATURE_SS01=on`, and likewise for `ss02`). Arabic
 joining is shaped in **logical left-to-right cell order** unless bidirectional
-reordering is on (below). Unsupported fonts and runs
+reordering is on (below). Arabic letters carrying harakat (fatha, kasra,
+shadda, and the other Arabic nonspacing marks) stay in their joining run, and
+the marks are drawn where the font's mark positioning places them. Unsupported
+fonts and runs
 render through the normal per-cell path. Set `ligatures = off` in Settings or
 configuration, or `ODYTTY_LIGATURES=off` for one launch, to restore scalar
 rendering; the setting reloads live.
@@ -384,7 +387,7 @@ The support boundary is explicit:
 | Surface | Current support | Standing position |
 | --- | --- | --- |
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
-| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; combining-marked cells stay on the monochrome path | More joining-script coverage is a candidate; harakat inside joining runs are not yet shaped |
+| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen, right-to-left paragraph levels, and complex-script shaping are not reordered |
 | Complex Indic/Brahmic shaping | Not supported | Northern and southern Indic source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping |

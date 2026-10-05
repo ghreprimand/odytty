@@ -720,8 +720,9 @@ not a stretch goal.
   - [x] Arabic contextual joining forms: compatible Arabic runs shaped with
         `Script::Arabic` in logical LTR cell order (not bidi). Overlays cover
         init/medi/fina/isol and length-changing joining ligatures (e.g.
-        lam-alef). Harakat-bearing cells still break runs. Active fonts without
-        Arabic coverage emit no overlay.
+        lam-alef). Harakat-bearing cells broke runs in this slice; they now
+        join with the font's mark positioning. Active fonts without Arabic
+        coverage emit no overlay.
 - [x] Improve rasterization quality: pixel alignment, baseline consistency,
       padding, gamma, blending, and contrast.
   - [x] Raster side (`src/atlas/`): single documented baseline for every
