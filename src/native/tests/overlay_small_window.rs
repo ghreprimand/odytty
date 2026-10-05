@@ -64,11 +64,12 @@ fn context_menu_keyboard_scrolls_rendered_rows() {
     assert!(has_arrow(&before, '▼'), "more-below arrow shows initially");
     assert!(!has_arrow(&before, '▲'), "no more-above arrow at the top");
 
-    // Walk focus down to Settings (item index 20 - Make Pane Read-Only,
+    // Walk focus down to Settings (item index 21 - Make Pane Read-Only,
     // Broadcast to This Pane, the workspace section plus both profile rows +
-    // Bind to Host + Save as Layout + Save Workspace as Layout + Open Layout
-    // precede it now); the window must scroll to reveal it.
-    down(&mut app, 20);
+    // Bind to Host + Save as Layout + Save Workspace as Layout + Open Layout,
+    // and Reorder Right-to-Left Text precede it now); the window must scroll
+    // to reveal it.
+    down(&mut app, 21);
     let after = app.render_overlay_rows_for_test(TINY_COLS, TINY_ROWS);
     assert_ne!(
         joined(&before),

@@ -93,7 +93,7 @@ use crate::settings::BindableAction;
 /// `ALL` so every pre-existing accelerator-array index stays stable, and they
 /// never touch the content menu's separator geometry (that surface filters them
 /// out and they compose their own tight sections).
-pub(super) const CONTEXT_MENU_ITEMS: usize = 80;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 82;
 
 /// The arrangement of the tab a menu was opened on, snapshotted at open time.
 /// Selects which of Stack / Float / Tile Panes show (the one already in force
@@ -158,21 +158,22 @@ pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 17;
 pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 26;
 
 /// Body row index of the fifth visual separator (with-selection reference),
-/// between Settings and the launcher section (Connection Manager / Command
+/// between the Settings group and the launcher section (Connection Manager / Command
 /// Palette / Session Replay).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 28;
+pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 29;
 
 /// Total body rows in the **with-selection** single-pane content reference:
-/// thirty visible items plus five separator lines (Close Pane hidden;
+/// thirty-one visible items plus five separator lines (Close Pane hidden;
 /// the pane section carries Make Pane Read-Only and Broadcast to This Pane;
 /// Rename Tab dropped from the content menu; the workspace section adds New /
 /// New with Profile / Rename / Close Workspace, the conditional Bind-to-Host
 /// row, the whole-app Save as Layout, Save Workspace as Layout, Open Layout, and
-/// one separator). Production uses [`ContextMenuUi::body_row_count`] for the
+/// one separator; the Settings group adds Reorder Right-to-Left Text).
+/// Production uses [`ContextMenuUi::body_row_count`] for the
 /// live count.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 35;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 36;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -252,16 +253,17 @@ impl ContextMenuSurface {
 /// Window / Close Tab) sit at body rows 6–9; items 9–12 (splits + Make Pane
 /// Read-Only + Broadcast to This Pane) sit at body rows 11–14, and items 13–14
 /// (Export Scrollback As Text / As HTML) at body rows 15–16; items 15–22
-/// (workspace section) sit at body rows 18–25; Settings (index 23) sits at body
-/// row 27; the launcher items 24–29 sit at body rows 29–34.
+/// (workspace section) sit at body rows 18–25; Reorder Right-to-Left Text and
+/// Settings (indices 23–24) sit at body rows 27–28; the launcher items 25–30
+/// sit at body rows 30–35.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    // With-selection reference: five separators at body rows 5, 10, 17, 26, 28,
-    // so the launcher section (items 24+) shifts by five, Settings (item 23) by
-    // four, the workspace section (items 15-22) by three, the pane section
+    // With-selection reference: five separators at body rows 5, 10, 17, 26, 29,
+    // so the launcher section (items 25+) shifts by five, the Settings group
+    // (items 23-24) by four, the workspace section (items 15-22) by three, the pane section
     // (items 9-14, with the two export rows) by two, and the tab actions
     // (items 5-8) by one.
-    if item_index >= 24 {
+    if item_index >= 25 {
         item_index + 5
     } else if item_index >= 23 {
         item_index + 4
@@ -367,6 +369,9 @@ pub(super) struct ContextMenuSignature {
     /// Whether the focused pane is read-only: selects the Make Read-Only /
     /// Make Writable row, so a toggle must repaint the menu.
     pub(super) pane_read_only: bool,
+    /// Whether bidi reordering is on: selects the checked or unchecked
+    /// Reorder Right-to-Left Text row, so a toggle must repaint the menu.
+    pub(super) bidi_reorder: bool,
     /// Whether the focused pane is a broadcast receiver and whether broadcast
     /// is on: they select the broadcast rows, so a change must repaint.
     pub(super) pane_broadcast: bool,
@@ -449,6 +454,10 @@ pub(super) struct ContextMenuUi {
     /// content-surface open via [`Self::set_pane_read_only`]. Selects which half
     /// of the Make Read-Only / Make Writable pair shows. Reset on every open.
     pane_read_only: bool,
+    /// Whether bidi reordering is on, applied by the App right after a
+    /// content-surface open via [`Self::set_bidi_reorder`]. Selects which half
+    /// of the Reorder Right-to-Left Text pair shows. Reset on every open.
+    bidi_reorder: bool,
     /// Whether the focused pane is a broadcast receiver, applied with
     /// [`Self::set_broadcast`] after a content-surface open. Reset on every
     /// open.

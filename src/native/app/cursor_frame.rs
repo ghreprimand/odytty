@@ -281,8 +281,8 @@ impl App {
         let focused = self.focused;
         let cursor_on = self.cursor_blink.poll(now, cursor_blinking, focused);
         self.update_cursor_easing(now, cursor_on, cursor_blinking);
-        // BIDI test-only gate: the effects run in the focused pane's drawn
-        // columns; identity in shipping builds.
+        // BIDI: the effects run in the focused pane's drawn columns;
+        // identity while reordering is off.
         let effect_cursor = self.bidi_focused_effect_cursor(snapshot.cursor);
         self.advance_cursor_motion_at(now, snapshot, cursor_style, cell, effect_cursor);
         if !cursor_on && (!self.settings.cursor_easing || self.settings.reduced_motion) {

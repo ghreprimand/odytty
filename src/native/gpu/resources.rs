@@ -429,8 +429,8 @@ pub(in crate::native) struct GpuState {
     /// mechanism, which was single-pane only).
     pub(super) row_fade: Option<RowFadeSpec>,
     /// BIDI: display-order placement for the single-pane cell and cursor
-    /// builds. Only the App's test-only gate supplies a map; every shipping
-    /// frame sets `None`, the unchanged logical-column path.
+    /// builds while `bidi_reorder` is on; `None` otherwise, the unchanged
+    /// logical-column path.
     pub(super) bidi_display: Option<crate::grid::BidiDisplayMap>,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
@@ -1293,7 +1293,7 @@ impl GpuState {
     }
 
     /// BIDI: the display map the next single-pane builds draw under (see
-    /// [`Self::bidi_display`]); `None` on every shipping frame.
+    /// [`Self::bidi_display`]); `None` while reordering is off.
     pub(in crate::native) fn set_bidi_display(&mut self, map: Option<crate::grid::BidiDisplayMap>) {
         self.bidi_display = map;
     }

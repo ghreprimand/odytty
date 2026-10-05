@@ -185,7 +185,7 @@ impl App {
 
     /// The screen column the candidate window anchors at: the column the
     /// presented frame drew the cursor cell at. That is the logical column
-    /// unless the test-only bidi display gate reordered the cursor's row.
+    /// unless bidi reordering reordered the cursor's row.
     pub(super) fn ime_anchor_column(&self, cursor: crate::core::Position) -> usize {
         self.bidi_visual_column(CellPoint {
             row: cursor.row,

@@ -162,6 +162,8 @@ impl App {
                 .set_context_menu_command_actions_enabled(command_handle.is_some());
             self.overlay
                 .set_context_menu_pane_read_only(self.active_pane_read_only());
+            self.overlay
+                .set_context_menu_bidi_reorder(self.settings.bidi_reorder);
             self.overlay.set_context_menu_broadcast(
                 self.is_broadcast_receiver(self.sessions.active_id()),
                 self.broadcast_active(),
@@ -373,6 +375,10 @@ impl App {
             OverlayOutcome::ContextMenuToggleReadOnly => {
                 self.flush_pending_overlay_settings();
                 self.toggle_active_pane_read_only();
+            }
+            OverlayOutcome::ContextMenuToggleBidiReorder => {
+                self.flush_pending_overlay_settings();
+                self.toggle_bidi_reorder();
             }
             OverlayOutcome::ContextMenuToggleBroadcast => {
                 self.flush_pending_overlay_settings();

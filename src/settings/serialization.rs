@@ -108,6 +108,7 @@ impl Settings {
             bool_display(self.ligature_ss02).to_owned(),
         );
         values.insert(FONT_ZERO_ENV, bool_display(self.font_zero).to_owned());
+        values.insert(BIDI_REORDER_ENV, bool_display(self.bidi_reorder).to_owned());
         values.insert(
             KITTY_NAMED_TRANSPORTS_ENV,
             bool_display(self.kitty_named_transports).to_owned(),

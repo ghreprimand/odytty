@@ -134,6 +134,11 @@ impl OverlayUi {
         self.context_menu.set_pane_read_only(read_only);
     }
 
+    /// Record whether bidi reordering is on for an open content menu.
+    pub(in crate::native) fn set_context_menu_bidi_reorder(&mut self, on: bool) {
+        self.context_menu.set_bidi_reorder(on);
+    }
+
     /// Record the window, layout, and move facts on an open content, tab, or
     /// empty-strip menu.
     pub(in crate::native) fn set_context_menu_window_actions(
@@ -1029,6 +1034,9 @@ impl OverlayUi {
                     ContextMenuItem::NewTab => OverlayOutcome::ContextMenuNewTab,
                     ContextMenuItem::MakePaneReadOnly | ContextMenuItem::MakePaneWritable => {
                         OverlayOutcome::ContextMenuToggleReadOnly
+                    }
+                    ContextMenuItem::ReorderRtlText | ContextMenuItem::ReorderRtlTextChecked => {
+                        OverlayOutcome::ContextMenuToggleBidiReorder
                     }
                     ContextMenuItem::BroadcastToPane | ContextMenuItem::RemovePaneFromBroadcast => {
                         OverlayOutcome::ContextMenuToggleBroadcast

@@ -67,15 +67,15 @@ pub(in crate::native) struct App {
     /// core revision: theme/default-color changes, atlas/font changes, and
     /// other settings that make identical snapshots build different vertices.
     pub(super) presentation_epoch: u64,
-    /// Test-only bidi display gate for the single-pane frame and pointer
-    /// (see `bidi_gate`). No setting or flag reaches it.
+    /// Test override that turns bidi display reordering on without the
+    /// `bidi_reorder` setting (see `bidi_gate`).
     #[cfg(test)]
     pub(super) bidi_display_for_test: bool,
-    /// The content map the last gated single-pane frame presented.
-    #[cfg(test)]
+    /// The content map the last single-pane frame presented while bidi
+    /// reordering was on; `None` otherwise.
     pub(super) bidi_frame_map: Option<crate::grid::BidiDisplayMap>,
-    /// The content map each pane of the last gated split frame presented.
-    #[cfg(test)]
+    /// The content map each pane of the last split frame presented while bidi
+    /// reordering was on; empty otherwise.
     pub(super) bidi_pane_maps: Vec<(SessionToken, crate::grid::BidiDisplayMap)>,
     /// SH2 status-gutter invalidation epoch. Bumped when the core reports prompt
     /// marks changed while the status gutter is enabled, so a pure OSC 133
@@ -731,9 +731,7 @@ impl App {
             presentation_epoch: 0,
             #[cfg(test)]
             bidi_display_for_test: false,
-            #[cfg(test)]
             bidi_frame_map: None,
-            #[cfg(test)]
             bidi_pane_maps: Vec::new(),
             prompt_marks_epoch: 0,
             grid,

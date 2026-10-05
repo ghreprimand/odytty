@@ -340,8 +340,8 @@ copying, selection, search, cursor placement, and wide-cell behavior retain
 their ordinary semantics. Latin/operator runs enable OpenType `calt` and
 `liga` together; optional stylistic sets `ss01` and `ss02` are off by default
 (`ss01 = on` / `ODYTTY_LIGATURE_SS01=on`, and likewise for `ss02`). Arabic
-joining is shaped in **logical left-to-right cell order** - not bidi
-reordering; RTL visual layout remains deferred. Unsupported fonts and runs
+joining is shaped in **logical left-to-right cell order** unless bidirectional
+reordering is on (below). Unsupported fonts and runs
 render through the normal per-cell path. Set `ligatures = off` in Settings or
 configuration, or `ODYTTY_LIGATURES=off` for one launch, to restore scalar
 rendering; the setting reloads live.
@@ -362,13 +362,29 @@ Glyphs drawn from symbol-fallback, symbol-map, or color emoji faces are
 unaffected. Stylistic sets other than `ss01`/`ss02` and raw OpenType feature
 tags are not exposed.
 
+Bidirectional text is an opt-in display setting. `bidi_reorder = on`
+(Settings > Rendering > Bidirectional text, the right-click **Reorder
+Right-to-Left Text** toggle, or `ODYTTY_BIDI_REORDER=on`) draws right-to-left
+runs such as Hebrew and Arabic in display order on the primary screen, with a
+left-to-right paragraph level. It is off by default and applies live; the menu
+toggle affects the running window, and Save in Settings persists it. Arabic
+joining runs are then shaped right to left, and mirrored brackets draw their
+mirrored glyphs. Cells, cursor addressing and movement, selection, copy,
+search, scrollback export, and mouse reports stay logical: a selection that
+crosses a direction boundary can show as separate segments on screen, and
+copy returns the logical text. The pointer, hyperlink hover, and cursor
+effects follow the cells as drawn. The alternate screen used by full-screen
+programs is never reordered, there are no right-to-left paragraph levels,
+complex-script shaping is not included, and image placements are not
+reordered.
+
 The support boundary is explicit:
 
 | Surface | Current support | Standing position |
 | --- | --- | --- |
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
-| Arabic | Contextual joining forms in logical left-to-right cell order; combining-marked cells stay on the monochrome path | More joining-script coverage that requires no visual reordering is a candidate; this is not bidirectional layout |
-| Full Unicode bidirectional layout | Not supported | Outside the current overlay model. Correct support first requires line-level logical-to-visual mapping shared by rendering, hit testing, cursor movement, selection, damage tracking, and copy semantics |
+| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; combining-marked cells stay on the monochrome path | More joining-script coverage is a candidate; harakat inside joining runs are not yet shaped |
+| Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen, right-to-left paragraph levels, and complex-script shaping are not reordered |
 | Complex Indic/Brahmic shaping | Not supported | Northern Indic source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping; other script groups keep their prior rules |
 | Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |

@@ -1018,6 +1018,11 @@ pub struct Settings {
     /// [`Self::ligatures`]. Only `zero` is exposed: no stylistic sets or raw
     /// feature tags. Cell metrics are unchanged.
     pub font_zero: bool,
+    /// Bidirectional display reordering on the primary screen, with a
+    /// left-to-right paragraph level. Off by default. The alternate screen is
+    /// never reordered; cells, cursor addressing, selection, copy, search, and
+    /// protocol values stay logical.
+    pub bidi_reorder: bool,
     /// Whether Kitty graphics may read file, temporary-file, and POSIX
     /// shared-memory transports named by terminal output. Off by default;
     /// direct and chunked-inline graphics remain available.
@@ -1541,6 +1546,7 @@ impl Default for Settings {
             ligature_ss01: DEFAULT_LIGATURE_SS01,
             ligature_ss02: DEFAULT_LIGATURE_SS02,
             font_zero: DEFAULT_FONT_ZERO,
+            bidi_reorder: DEFAULT_BIDI_REORDER,
             kitty_named_transports: false,
             secure_keyboard_input: false,
             key_bindings: Vec::new(),

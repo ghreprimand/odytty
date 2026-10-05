@@ -1441,9 +1441,10 @@ fn context_menu_without_path_has_no_file_outcomes() {
     // Tab row; the pane section adds Make Pane Read-Only, Broadcast to This
     // Pane, and the two scrollback export rows; the workspace section adds
     // New/New with Profile/Rename/Close + Bind to Host + Save as Layout +
-    // Save Workspace as Layout + Open Layout); Manage Sessions is index 28
-    // (Detach & switch is last at 29).
-    for _ in 0..28 {
+    // Save Workspace as Layout + Open Layout; the Settings group adds
+    // Reorder Right-to-Left Text); Manage Sessions is index 29 (Detach &
+    // switch is last at 30).
+    for _ in 0..29 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(
@@ -1456,10 +1457,11 @@ fn context_menu_without_path_has_no_file_outcomes() {
 #[test]
 fn context_menu_keyboard_shortcuts_opens_key_bindings() {
     // F3: the "Keyboard Shortcuts" launcher item (first after Settings,
-    // visible index 24 single-pane with a selection - Make Pane Read-Only,
+    // visible index 25 single-pane with a selection - Make Pane Read-Only,
     // Broadcast to This Pane, the workspace section plus both profile rows +
     // Bind to Host + Save as Layout + Save Workspace as Layout + Open Layout
-    // shift the launcher block down by eleven) activates
+    // and Reorder Right-to-Left Text shift the launcher block down by
+    // twelve) activates
     // the key-remap editor via the same OpenKeyBindings outcome the settings
     // "keybinds" row emits.
     let mut overlay = OverlayUi::default();
@@ -1474,7 +1476,7 @@ fn context_menu_keyboard_shortcuts_opens_key_bindings() {
         None,
         std::array::from_fn(|_| None),
     );
-    for _ in 0..24 {
+    for _ in 0..25 {
         overlay.handle_input(OverlayInput::Down);
     }
     assert_eq!(

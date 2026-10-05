@@ -18,6 +18,7 @@ impl Default for ContextMenuUi {
             multi_workspace: false,
             bound_workspace: false,
             pane_read_only: false,
+            bidi_reorder: false,
             pane_broadcast: false,
             broadcast_active: false,
             workspace_count: 0,
@@ -111,6 +112,7 @@ impl ContextMenuUi {
         self.multi_workspace = multi_workspace;
         self.bound_workspace = bound_workspace;
         self.pane_read_only = false;
+        self.bidi_reorder = false;
         self.pane_broadcast = false;
         self.broadcast_active = false;
         self.window_actions = WindowMenuActions::default();
@@ -168,6 +170,7 @@ impl ContextMenuUi {
         self.multi_workspace = false;
         self.bound_workspace = false;
         self.pane_read_only = false;
+        self.bidi_reorder = false;
         self.pane_broadcast = false;
         self.broadcast_active = false;
         self.window_actions = WindowMenuActions::default();
@@ -213,6 +216,7 @@ impl ContextMenuUi {
         self.multi_workspace = false;
         self.bound_workspace = false;
         self.pane_read_only = false;
+        self.bidi_reorder = false;
         self.pane_broadcast = false;
         self.broadcast_active = false;
         self.window_actions = WindowMenuActions::default();
@@ -273,6 +277,12 @@ impl ContextMenuUi {
     /// so exactly one of Make Pane Read-Only / Make Pane Writable shows.
     pub(in crate::native) fn set_pane_read_only(&mut self, read_only: bool) {
         self.pane_read_only = read_only;
+    }
+
+    /// Record whether bidi reordering is on for a content-surface menu, so
+    /// the Reorder Right-to-Left Text row shows checked or unchecked.
+    pub(in crate::native) fn set_bidi_reorder(&mut self, on: bool) {
+        self.bidi_reorder = on;
     }
 
     /// Record the broadcast state for a content-surface menu: whether the
@@ -378,6 +388,7 @@ impl ContextMenuUi {
             ContextMenuItem::SplitRows => true,
             ContextMenuItem::ClosePane => true,
             ContextMenuItem::MakePaneReadOnly | ContextMenuItem::MakePaneWritable => true,
+            ContextMenuItem::ReorderRtlText | ContextMenuItem::ReorderRtlTextChecked => true,
             ContextMenuItem::BroadcastToPane
             | ContextMenuItem::RemovePaneFromBroadcast
             | ContextMenuItem::StopBroadcast => true,

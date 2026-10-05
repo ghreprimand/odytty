@@ -1973,7 +1973,9 @@ release-authentication boundary. Version 0.16.0 and earlier lack update info.
 - Kitty `I=` addressing on display (`a=p`) and delete (`d=n`/`d=N`) commands,
   and the `S=`/`O=` partial-read keys
 
-- Full bidi and complex-script reordering
+- Bidirectional reordering beyond the bounded `bidi_reorder` setting:
+  right-to-left paragraph levels, the alternate screen, and complex-script
+  reordering
 
 - Open-ended font-feature selection beyond the bounded supported set
 
@@ -2305,7 +2307,7 @@ OdyTTY is a Linux-first Rust application built around these primary crates:
 | `ab_glyph_rasterizer` | Coverage rasterization of normal-text outlines |
 | `swash` | Emoji discovery, shaping, and color-font probing |
 | `unicode-width` | Terminal cell widths |
-| `unicode-bidi` | UAX #9 levels for the headless bidi display plan, which only test-only rendering gates use; built without its bundled Unicode 16.0.0 tables |
+| `unicode-bidi` | UAX #9 levels for the bidi display plan the renderer uses while `bidi_reorder` is on; built without its bundled Unicode 16.0.0 tables |
 | `arboard` | Clipboard integration |
 | `rustix` | Unix PTY and termios access |
 | `png` | PNG decoding for Kitty `f=100` |
@@ -2414,6 +2416,23 @@ toggle re-derives the body faces and rebuilds the glyph atlas and shape-plan
 cache through the text-options seam. Symbol fallback, symbol-map override, and
 color-glyph faces are unaffected. Other stylistic sets beyond `ss01`/`ss02`
 and raw feature tags are not exposed.
+
+#### Bidirectional Text
+
+`bidi_reorder` (default off; `ODYTTY_BIDI_REORDER`; Settings > Rendering >
+Bidirectional text; the right-click Reorder Right-to-Left Text toggle, shown
+with a check mark while on) draws right-to-left runs in display order. Each
+frame of the primary screen plans a display map from the visible rows and the
+soft-wrapped paragraph above them, with the paragraph level forced to left to
+right and the plan's row and owner caps; an over-cap paragraph keeps the
+identity layout. The alternate screen is never planned. Rows an overlay writes
+text into, the tab bar, the rail, and split-pane chrome draw in logical order.
+The map is presentation only: cells, the cursor position, selection
+endpoints, copy, search, scrollback export, and every protocol value stay
+logical. The pointer, mouse reports, hyperlink hover, the input method
+anchor, and cursor effects map through the presented map, so a report names
+the logical cell drawn under the pointer. The setting applies live and joins
+the frame cache key; with it off, no map is planned and frames are unchanged.
 
 #### Wide-Glyph Wrap Padding
 

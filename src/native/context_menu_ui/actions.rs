@@ -67,6 +67,13 @@ pub(in crate::native) enum ContextMenuItem {
     /// Empty the broadcast receiver set. Content surface only, shown while
     /// broadcast is on. Default chord `Ctrl+Shift+X`.
     StopBroadcast,
+    /// Turn bidirectional display reordering on (`bidi_reorder`). Content
+    /// surface only, shown unchecked while reordering is off; the pair's other
+    /// half is [`Self::ReorderRtlTextChecked`]. No default chord.
+    ReorderRtlText,
+    /// Turn bidirectional display reordering off. Content surface only, shown
+    /// with a check mark while reordering is on.
+    ReorderRtlTextChecked,
     /// Open the settings panel (always enabled, D-IN2-SETTINGS).
     Settings,
     /// Open the key-remap editor overlay directly (F3). Always enabled; same
@@ -346,6 +353,10 @@ impl ContextMenuItem {
         Self::SaveAllLayout,
         Self::SaveAsLayout,
         Self::OpenLayout,
+        // The display toggle pair sits in the Settings group, right above
+        // Settings; exactly one half is visible.
+        Self::ReorderRtlText,
+        Self::ReorderRtlTextChecked,
         Self::Settings,
         Self::KeyboardShortcuts,
         Self::ConnectionManager,
@@ -488,7 +499,7 @@ impl ContextMenuItem {
             | Self::NavDuplicate
             | Self::NavMove
             | Self::NavClose => 3,
-            Self::Settings => 4,
+            Self::ReorderRtlText | Self::ReorderRtlTextChecked | Self::Settings => 4,
             Self::KeyboardShortcuts
             | Self::ConnectionManager
             | Self::CommandPalette
@@ -574,6 +585,8 @@ impl ContextMenuItem {
             Self::BroadcastToPane => "Broadcast to This Pane",
             Self::RemovePaneFromBroadcast => "Remove Pane from Broadcast",
             Self::StopBroadcast => "Stop Broadcast",
+            Self::ReorderRtlText => "Reorder Right-to-Left Text",
+            Self::ReorderRtlTextChecked => "\u{2713} Reorder Right-to-Left Text",
             Self::Settings => "Settings",
             Self::KeyboardShortcuts => "Keyboard Shortcuts",
             Self::ConnectionManager => "Connection Manager",
@@ -679,6 +692,9 @@ impl ContextMenuItem {
             // Detach & switch is pointer-only (no global chord); skip the
             // flat-table lookup.
             | Self::DetachSwitch
+            // The bidi reordering pair has no default chord.
+            | Self::ReorderRtlText
+            | Self::ReorderRtlTextChecked
             // Workspace actions have no default chord (rail / menu / palette
             // cover them; ODP-5).
             | Self::NewWorkspace

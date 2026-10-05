@@ -138,8 +138,8 @@ pub(in crate::native) struct PaneRender<'a> {
     /// offsets cannot stand in for this flag: they are `0.0` for single-row
     /// bands, which would silently un-mark the strip.
     pub(in crate::native) chrome: bool,
-    /// BIDI test-only gate: this content pane's display map. `None` for chrome
-    /// strips and on every shipping frame, which keeps the vertices unchanged.
+    /// BIDI: this content pane's display map. `None` for chrome strips and
+    /// while reordering is off, which keeps the vertices unchanged.
     pub(in crate::native) bidi: Option<&'a crate::grid::BidiDisplayMap>,
 }
 
@@ -189,7 +189,7 @@ pub(in crate::native) struct CursorStreakVertex {
 }
 
 /// The screen column `snapshot`'s cursor cell is drawn at: its visual column
-/// under the test-only bidi display map, the logical column without one. The
+/// under the bidi display map, the logical column without one. The
 /// cursor block, its aura, and the follower all place through this, so the
 /// effects stay registered with the block.
 fn drawn_cursor_column(snapshot: &Snapshot, bidi: Option<&grid::BidiDisplayMap>) -> usize {
@@ -235,7 +235,7 @@ pub(in crate::native) fn build_cursor_streak_instance(
 }
 
 /// The follower instance for `snapshot`, placed against the cursor's drawn
-/// column under `bidi` (`None` on every shipping frame).
+/// column under `bidi` (`None` while reordering is off).
 pub(in crate::native) fn build_cursor_streak_instance_with_bidi(
     snapshot: &Snapshot,
     cell: atlas::CellSize,
@@ -400,7 +400,7 @@ pub(in crate::native) fn build_cursor_glow_instance(
 }
 
 /// [`build_cursor_glow_instance`] with the aura placed at the cursor's drawn
-/// column under `bidi` (`None` on every shipping frame).
+/// column under `bidi` (`None` while reordering is off).
 #[allow(clippy::too_many_arguments)]
 pub(in crate::native) fn build_cursor_glow_instance_with_bidi(
     snapshot: &Snapshot,

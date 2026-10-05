@@ -171,6 +171,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "ligatures",
             "ss01",
             "ss02",
+            "bidi_reorder",
             "kitty_named_transports",
             "text_gamma",
             "text_brightness",

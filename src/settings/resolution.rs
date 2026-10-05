@@ -525,6 +525,12 @@ impl Settings {
             DEFAULT_FONT_ZERO,
             &mut warn,
         );
+        let bidi_reorder = parse_bool_setting(
+            get(BIDI_REORDER_ENV).as_deref(),
+            BIDI_REORDER_ENV,
+            DEFAULT_BIDI_REORDER,
+            &mut warn,
+        );
         let kitty_named_transports = parse_bool_setting(
             get(KITTY_NAMED_TRANSPORTS_ENV).as_deref(),
             KITTY_NAMED_TRANSPORTS_ENV,
@@ -1041,6 +1047,7 @@ impl Settings {
             ligature_ss01,
             ligature_ss02,
             font_zero,
+            bidi_reorder,
             kitty_named_transports,
             secure_keyboard_input,
             key_bindings,

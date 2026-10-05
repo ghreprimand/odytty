@@ -292,6 +292,11 @@ impl ContextMenuUi {
             .filter(|item| {
                 !matches!(item, ContextMenuItem::MakePaneWritable) || self.pane_read_only
             })
+            // Bidi reordering pair: exactly one row shows, checked while on.
+            .filter(|item| !matches!(item, ContextMenuItem::ReorderRtlText) || !self.bidi_reorder)
+            .filter(|item| {
+                !matches!(item, ContextMenuItem::ReorderRtlTextChecked) || self.bidi_reorder
+            })
             // Broadcast pair: exactly one row shows, keyed to whether the
             // focused pane is a receiver; Stop Broadcast shows only while on.
             .filter(|item| {

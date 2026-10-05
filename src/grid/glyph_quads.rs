@@ -69,7 +69,7 @@ pub fn build_color_glyph_vertices_with_origin_into(
     );
 }
 
-/// Shared color-glyph build. `bidi` (test-only entry point) moves each run to
+/// Shared color-glyph build. `bidi` (set while `bidi_reorder` is on) moves each run to
 /// the visual columns of the cells it covers; `None` keeps logical columns.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn color_glyph_vertices_core(

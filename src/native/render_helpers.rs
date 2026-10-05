@@ -347,8 +347,8 @@ pub(super) struct RenderContentSignature {
     /// transitions reclassify to a Full rebuild. `default()` (not revealed) is a
     /// frame-to-frame constant, so the pinned / no-autohide path is unchanged.
     pub(super) rail_overlay: RailOverlaySignature,
-    /// BIDI test-only gate: the content map's placement hash, so a frame whose
-    /// placement alone changes rebuilds. `None` on every shipping frame, a
+    /// BIDI: the content map's placement hash, so a frame whose placement
+    /// alone changes rebuilds. `None` while reordering is off, a
     /// frame-to-frame constant that leaves the cache decision unchanged.
     pub(super) bidi_placement: Option<u64>,
 }

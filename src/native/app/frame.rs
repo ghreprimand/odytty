@@ -479,9 +479,9 @@ impl App {
                     let image_uploads =
                         image_uploads_for_visible(&terminal, &visible_graphics, &cached_image_ids);
                     let snapshot = terminal.snapshot_with_scrollback(offset);
-                    // BIDI test-only gate: the content map plus the snapshot
-                    // it was planned from (overlay rows reset below). `None`
-                    // in every shipping build.
+                    // BIDI: the content map plus the snapshot it was
+                    // planned from (overlay rows reset below). `None` while
+                    // reordering is off and on the alternate screen.
                     let bidi_plan = self
                         .bidi_content_map(&terminal, &snapshot, offset)
                         .map(|map| (map, snapshot.clone()));
@@ -539,8 +539,8 @@ impl App {
                 // and the blink phase / logical cursor move. Both no-op to
                 // the identity while their knobs are off.
                 self.update_cursor_easing(now, cursor_on, cursor_blinking);
-                // BIDI test-only gate: the effects advance in drawn columns
-                // (the planned visual column); identity in shipping builds.
+                // BIDI: the effects advance in drawn columns (the planned
+                // visual column); identity while reordering is off.
                 let advanced_cursor = super::bidi_gate::effect_cursor(
                     bidi_plan.as_ref().map(|(map, _)| map),
                     snapshot.cursor,
@@ -585,7 +585,7 @@ impl App {
                     now,
                 );
                 self.paint_single_pane_cells(&mut snapshot, &ctx, &visible_buttons, ambiguous_wide);
-                // BIDI test-only gate: overlay-painted rows draw in logical
+                // BIDI: overlay-painted rows draw in logical
                 // order; the pointer maps through the presented content map.
                 // The cursor effects settle on the final drawn cursor, which
                 // the trail reads from `ctx` and the next frame compares.
@@ -654,7 +654,7 @@ impl App {
                 let (snapshot, tab_bar_quads, mut cursor_comparison) =
                     self.prepare_single_pane_snapshots(snapshot, cursor_visible, cell);
                 // The next frame's glide compares drawn cells; the logical
-                // cursor itself in shipping builds.
+                // cursor itself while reordering is off.
                 cursor_comparison.cursor = effect_cursor;
                 overlays.extend(tab_bar_quads);
                 // R3 call-site parity + A2 cache observability: compute
@@ -766,7 +766,7 @@ impl App {
                 let chrome_pin_geom = self.chrome_pin_geom(snapshot.dimensions.columns);
                 let tab_bar_row_offset = self.tab_bar_row_offset();
                 let tab_bar_col_offset = self.tab_bar_col_offset();
-                // BIDI test-only gate: chrome rows and columns stay in
+                // BIDI: chrome rows and columns stay in
                 // identity layout around the content map.
                 let bidi_frame = bidi_content.map(|map| {
                     map.embedded(

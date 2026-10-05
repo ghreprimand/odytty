@@ -52,8 +52,8 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Surface | Current support | Standing position |
 | --- | --- | --- |
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
-| Arabic | Contextual joining forms in logical left-to-right cell order; combining-marked cells stay on the monochrome path | More joining-script coverage that requires no visual reordering is a candidate; this is not bidirectional layout |
-| Full Unicode bidirectional layout | Not supported | Outside the current overlay model. Correct support first requires line-level logical-to-visual mapping shared by rendering, hit testing, cursor movement, selection, damage tracking, and copy semantics |
+| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; combining-marked cells stay on the monochrome path | More joining-script coverage is a candidate; harakat inside joining runs are not yet shaped |
+| Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen, right-to-left paragraph levels, and complex-script shaping are not reordered |
 | Complex Indic/Brahmic shaping | Not supported | Northern Indic source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping; other script groups keep their prior rules |
 | Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |
@@ -103,8 +103,9 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
   byte-identically, pinned by atlas fixtures on the bundled JetBrains Mono
   (which has `zero`) and Victor Mono (which does not).
 - **Arabic contextual joining forms.** Compatible Arabic runs are shaped with
-  `Script::Arabic` under **logical left-to-right cell order** (explicitly not
-  bidi reordering). OpenType init/medi/fina/isol (and length-changing joining
+  `Script::Arabic` under **logical left-to-right cell order**, or right to
+  left in display order while `bidi_reorder` is on (see Bidirectional
+  layout). OpenType init/medi/fina/isol (and length-changing joining
   ligatures such as lam-alef) become `LigatureRun` overlays clipped to their
   source-cell spans. Selection, copy, search, and cursor addressing still
   report the logical characters in cell order. Cells that carry combining
@@ -130,24 +131,27 @@ cells.
 
 ## Standing scope boundaries
 
-### Full Unicode bidirectional layout
+### Bidirectional layout
 
-Full BiDi is not supported, and no visual reordering is shipped.
-Right-to-left input is stored and drawn in logical cell order. Arabic
-joining forms are shaped within that order; cells are not reordered into visual
-reading order.
+Bidirectional display reordering is a bounded, opt-in setting:
+`bidi_reorder` (Settings > Rendering > Bidirectional text, the right-click
+**Reorder Right-to-Left Text** toggle, or `ODYTTY_BIDI_REORDER=on`), off by
+default. While it is on, the primary screen draws right-to-left runs (Hebrew,
+Arabic) in display order with a left-to-right paragraph level. With it off,
+right-to-left input is stored and drawn in logical cell order, exactly as
+before; Arabic joining forms are then shaped within that order. The menu
+toggle applies to the running window; Save in Settings persists it.
 
-Correct support would require a line-level Unicode Bidirectional Algorithm pass
-and a stable, reversible logical-cell-to-visual-position map. Rendering, hit
-testing, cursor movement, selection, search highlighting, damage tracking,
-wide-cell handling, and copy behavior would all have to use that map. Acceptance
-would require Unicode BiDi conformance data plus mixed-direction terminal tests
-covering isolates, numbers, cursor navigation, rectangular and linear
-selection, reflow, scrollback, and logical-order copy. Until those prerequisites
-exist together, partial visual reordering is rejected because it would make
-what the user sees disagree with terminal addressing and copied text.
+The setting changes presentation only. Cells, cursor addressing and movement,
+selection endpoints, copy, search results, scrollback export, and every
+terminal protocol value stay logical. Plain limits: the alternate screen
+(full-screen programs) is never reordered; the paragraph level is always left
+to right, with no right-to-left paragraphs; complex-script shaping is not
+included; a mirrored character without a Unicode mirroring counterpart draws
+unmirrored; block-selection export is not reordered or specially handled;
+image placements are not reordered.
 
-The first prerequisite exists as a headless module, `src/core/bidi`: for one
+The plan comes from a headless module, `src/core/bidi`: for one
 wrapped logical line it resolves UAX #9 levels with the paragraph level forced
 to left to right, applies the line rules to each physical row, and returns
 reversible owner-to-visual-span and visual-column-to-owner maps with
@@ -161,7 +165,7 @@ controls (embeddings, overrides, isolates, LRM, RLM, and ALM) can be passed as
 width-0 owners that keep their logical position, take part in level
 resolution, and cover no visual column.
 
-A test-only rendering seam draws a snapshot through those plans. It treats each
+The renderer draws a snapshot through those plans. It treats each
 run of soft-wrapped rows as one paragraph and draws every cell at its visual
 column; a wide cell keeps its lead and continuation cells together. A mirrored
 character in right-to-left text draws its Unicode 17.0.0 Bidi_Mirroring_Glyph
@@ -180,7 +184,7 @@ viewport, up to the plan's row and owner caps; a longer paragraph keeps the
 identity layout, as any over-cap paragraph does. A mirrored character with no
 mirroring counterpart (U+2211, for example) draws unmirrored.
 
-Behind a second test-only gate, the live frame draws its content grid in
+While the setting is on, the live frame draws its content grid in
 display order, and each pane of a split tab plans its own map. Tab-bar and
 rail cells stay in logical order, and so does any row an overlay draws text
 over. The cursor stays on its logical cell and draws at that cell's visual
@@ -208,8 +212,7 @@ history scroll position, in a session restored from a snapshot, and for
 output delivered in any split of reads, cells are placed exactly as in a
 terminal that shows the same rows directly. Scrollback export stays in
 logical order. Image placements are not part of the plan. The plan is not
-cached between frames. Only the test suite reaches either gate: no setting, menu, or flag
-enables them, so on-screen display and behavior are unchanged.
+cached between frames.
 
 ### Complex Indic and Brahmic shaping
 

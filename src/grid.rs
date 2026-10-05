@@ -816,8 +816,8 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
     selection_opacity: f32,
-    // BIDI: display-order placement; only test-only gates pass a map, and
-    // `None` is the unchanged logical-column path.
+    // BIDI: display-order placement while `bidi_reorder` is on; `None` is the
+    // unchanged logical-column path.
     bidi: Option<&BidiDisplayMap>,
 ) {
     build_cells_core(
@@ -867,8 +867,8 @@ pub fn build_cell_vertices_with_ligatures_selection_and_row_fade_into(
     chrome_pin: ChromePin,
     selection_opacity: f32,
     row_fade: RowFade,
-    // BIDI: display-order placement; only test-only gates pass a map, and
-    // `None` is the unchanged logical-column path.
+    // BIDI: display-order placement while `bidi_reorder` is on; `None` is the
+    // unchanged logical-column path.
     bidi: Option<&BidiDisplayMap>,
 ) {
     build_cells_core(
@@ -941,9 +941,9 @@ fn build_cells_core(
     chrome_pin: ChromePin,
     selection_opacity: f32,
     row_fade: RowFade,
-    // BIDI: display-order placement. Only the test-only entry point passes a
-    // map; `None`, and every row the map leaves in identity layout, take the
-    // unchanged logical-column path.
+    // BIDI: display-order placement while `bidi_reorder` is on. `None`, and
+    // every row the map leaves in identity layout, take the unchanged
+    // logical-column path.
     bidi: Option<&BidiDisplayMap>,
 ) {
     let cols = snapshot.dimensions.columns;
@@ -1380,9 +1380,8 @@ fn build_cells_core(
     }
 }
 
-/// BIDI test-only seam: the cell build in display order under `bidi`, at the
-/// identity origin with every other effect at its inert value. No production
-/// path, setting, or flag reaches display-order rendering.
+/// BIDI test seam: the cell build in display order under `bidi`, at the
+/// identity origin with every other effect at its inert value.
 #[cfg(test)]
 pub(crate) fn build_cell_vertices_with_bidi_into(
     out: &mut Vec<Vertex>,
@@ -1497,7 +1496,8 @@ pub fn append_cursor_vertices_with_origin(
 /// [`append_cursor_vertices_with_origin`] under an optional bidi display map:
 /// the cursor stays on its logical cell and draws at that cell's visual
 /// column, with a mirrored cell's presentation glyph under a block cursor.
-/// Only test-only gates pass a map; `None` is the unchanged path.
+/// A map is passed only while `bidi_reorder` is on; `None` is the unchanged
+/// path.
 pub fn append_cursor_vertices_with_origin_and_bidi(
     out: &mut Vec<Vertex>,
     snapshot: &Snapshot,

@@ -54,8 +54,8 @@ struct OwnedPaneRender {
     /// Outer rectangles of the floating panes painted above this one, cut out
     /// of everything this pane draws. Empty outside a floating tab.
     occluders: Vec<[f32; 4]>,
-    /// BIDI test-only gate: this pane's session, plan, and the snapshot it was
-    /// planned from; always `None` in a shipping build.
+    /// BIDI: this pane's session, plan, and the snapshot it was planned from;
+    /// `None` while reordering is off and on the alternate screen.
     bidi: Option<(SessionToken, (crate::grid::BidiDisplayMap, Snapshot))>,
 }
 use crate::graphics::VisiblePlacement;
@@ -977,7 +977,7 @@ impl App {
             // each visible pane here. No-op when this window is not in a picker.
             self.paint_merge_numeral_cells(&mut pane.snapshot);
         }
-        // BIDI test-only gate: overlay-painted rows draw in logical order; the
+        // BIDI: overlay-painted rows draw in logical order; the
         // pointer maps through the focused pane's presented map.
         let pane_bidi: Vec<Option<(SessionToken, crate::grid::BidiDisplayMap)>> = panes_owned
             .iter_mut()

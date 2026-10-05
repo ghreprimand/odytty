@@ -47,6 +47,11 @@ ss02 = off
 # the font designs it). Off by default; fonts without it render unchanged and
 # cell size never changes.
 font_zero = off
+# Bidirectional text: draw right-to-left runs (Hebrew, Arabic) in display order
+# on the primary screen, with a left-to-right paragraph level. Off by default.
+# The alternate screen is never reordered; copy, search, cursor addressing, and
+# mouse reports stay logical.
+bidi_reorder = off
 symbol_fallback = on
 # symbol_font = auto
 # symbol_map = U+E000-U+F8FF=Symbols Nerd Font

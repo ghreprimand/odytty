@@ -42,6 +42,8 @@ pub const LIGATURE_SS01_ENV: &str = "ODYTTY_LIGATURE_SS01";
 pub const LIGATURE_SS02_ENV: &str = "ODYTTY_LIGATURE_SS02";
 /// Alternate zero (`font_zero`): the body font's OpenType `zero` feature.
 pub const FONT_ZERO_ENV: &str = "ODYTTY_FONT_ZERO";
+/// Bidirectional display reordering (`bidi_reorder`).
+pub const BIDI_REORDER_ENV: &str = "ODYTTY_BIDI_REORDER";
 pub const KITTY_NAMED_TRANSPORTS_ENV: &str = "ODYTTY_KITTY_NAMED_TRANSPORTS";
 /// Process-wide secure keyboard entry. Honored on macOS only. On Windows and
 /// Linux the key is accepted and ignored.
@@ -202,6 +204,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     LIGATURE_SS01_ENV,
     LIGATURE_SS02_ENV,
     FONT_ZERO_ENV,
+    BIDI_REORDER_ENV,
     KITTY_NAMED_TRANSPORTS_ENV,
     SECURE_KEYBOARD_INPUT_ENV,
     KEYBINDS_ENV,
@@ -763,6 +766,13 @@ pub const DEFAULT_LIGATURE_SS02: bool = false;
 /// default. Independent of the ligature switch. A face without a `zero`
 /// lookup renders unchanged, and cell width, height, and baseline never move.
 pub const DEFAULT_FONT_ZERO: bool = false;
+
+/// Bidirectional display reordering (`ODYTTY_BIDI_REORDER`): when on, the
+/// primary screen draws right-to-left runs in display order with a
+/// left-to-right paragraph level. The alternate screen is never reordered.
+/// Cells, cursor addressing, selection, copy, search, and every protocol value
+/// stay logical. Off by default.
+pub const DEFAULT_BIDI_REORDER: bool = false;
 
 /// Themed window border (`ODYTTY_WINDOW_BORDER`, ID4): when on, a thin border in
 /// the theme `border` role color is drawn around the grid, framing the terminal

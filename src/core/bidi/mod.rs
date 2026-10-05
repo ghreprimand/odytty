@@ -2,9 +2,9 @@
 //! Headless bidirectional display plans for one wrapped logical line.
 //!
 //! This module computes the visual arrangement the Unicode Bidirectional
-//! Algorithm (UAX #9) gives one terminal paragraph. Only a test-only rendering
-//! seam ([`crate::grid::BidiDisplayMap`]) consumes it; it changes no shipped
-//! display, input, selection, or stored cell. Terminal semantics
+//! Algorithm (UAX #9) gives one terminal paragraph. The display map
+//! ([`crate::grid::BidiDisplayMap`]) consumes it while the `bidi_reorder`
+//! setting is on; it changes no input, selection, or stored cell. Terminal semantics
 //! stay logical: the plan is a derived, immutable presentation map.
 //!
 //! The contract:

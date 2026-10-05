@@ -1,95 +1,98 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Test-only bidi display gate for the live frame, its pointer, and the
-//! mouse reports the pointer sends.
+//! Bidirectional display reordering for the live frame, its pointer, and the
+//! mouse reports the pointer sends (`bidi_reorder`, off by default).
 //!
-//! While a test sets `bidi_display_for_test`, the single-pane frame and each
-//! content pane of a split frame plan a [`BidiDisplayMap`] for their content
-//! grid (with the paragraph context above the viewport), reset every row an
-//! overlay painter changed back to the identity layout, and hand the map to
-//! the renderer. The single-pane map is placed inside the decorated frame, so
-//! chrome stays in identity layout; split chrome strips never take a map. The
-//! pointer maps a content cell under the pointer to the logical cell drawn
-//! there through the focused content map, so selection, hover, and every
-//! cell-encoded mouse report address logical cells. An SGR-pixel report moves
-//! by whole cells onto the logical cell and keeps its offset inside the cell.
-//! The cursor effects (slide, trail, follower, and aura) run in drawn columns,
-//! so they start and end where the cursor block is drawn. Cursor, selection,
-//! search, copy, and every terminal protocol value stay logical.
+//! While the setting is on, the single-pane frame and each content pane of a
+//! split frame showing the primary screen plan a [`BidiDisplayMap`] for their
+//! content grid (with the paragraph context above the viewport and a
+//! left-to-right paragraph level), reset every row an overlay painter changed
+//! back to the identity layout, and hand the map to the renderer. The
+//! alternate screen is never planned. The single-pane map is placed inside the
+//! decorated frame, so chrome stays in identity layout; split chrome strips
+//! never take a map. The pointer maps a content cell under the pointer to the
+//! logical cell drawn there through the focused content map, so selection,
+//! hover, and every cell-encoded mouse report address logical cells. An
+//! SGR-pixel report moves by whole cells onto the logical cell and keeps its
+//! offset inside the cell. The cursor effects (slide, trail, follower, and
+//! aura) run in drawn columns, so they start and end where the cursor block is
+//! drawn. Cursor, selection, search, copy, and every terminal protocol value
+//! stay logical.
 //!
-//! No setting, flag, env var, or menu reaches the gate: in a shipping build
-//! every method here returns the identity answer. Platform-neutral.
+//! With the setting off every method here returns the identity answer and no
+//! map is planned. Platform-neutral.
 
 use super::*;
 use crate::core::Snapshot;
 use crate::grid::BidiDisplayMap;
 
 impl App {
+    /// Whether frames plan a bidi display map: the `bidi_reorder` setting, or
+    /// the test override.
+    pub(super) fn bidi_reorder_on(&self) -> bool {
+        #[cfg(test)]
+        if self.bidi_display_for_test {
+            return true;
+        }
+        self.settings.bidi_reorder
+    }
+
+    /// Flip `bidi_reorder` live (the right-click Reorder Right-to-Left Text
+    /// row), through the same apply path as a Settings edit. Not written to
+    /// odytty.conf; Settings > Rendering > Bidirectional text with Save
+    /// persists it.
+    pub(super) fn toggle_bidi_reorder(&mut self) {
+        let mut settings = self.settings.clone();
+        settings.bidi_reorder = !settings.bidi_reorder;
+        self.apply_overlay_settings(settings);
+    }
+
     /// The display map for the single-pane content grid `snapshot` at
-    /// scrollback `offset`, or `None` while the test-only gate is off, in a
-    /// multi-pane tab (see [`Self::bidi_pane_plan`]), or in a shipping build.
+    /// scrollback `offset`, or `None` while reordering is off, on the
+    /// alternate screen, or in a multi-pane tab (see [`Self::bidi_pane_plan`]).
     pub(super) fn bidi_content_map(
         &self,
         terminal: &crate::core::Terminal,
         snapshot: &Snapshot,
         offset: usize,
     ) -> Option<BidiDisplayMap> {
-        #[cfg(test)]
-        if self.bidi_display_for_test && self.sessions.active_is_single_pane() {
-            return Some(plan_content_map(terminal, snapshot, offset));
-        }
-        let _ = (terminal, snapshot, offset);
-        None
+        (self.bidi_reorder_on() && self.sessions.active_is_single_pane())
+            .then(|| plan_content_map(terminal, snapshot, offset))
+            .flatten()
     }
 
     /// Record the map the presented single-pane frame used for its content
     /// grid, after overlay rows were reset. The pointer maps through it.
     pub(super) fn set_bidi_frame_map(&mut self, map: Option<BidiDisplayMap>) {
-        #[cfg(test)]
-        {
-            self.bidi_frame_map = map;
-        }
-        #[cfg(not(test))]
-        let _ = map;
+        self.bidi_frame_map = map;
     }
 
     /// The plan for one split pane's content grid `snapshot` at scrollback
     /// `offset`, with a copy of the snapshot it was planned from so rows an
-    /// overlay painter changes can be reset. `None` while the test-only gate
-    /// is off and in a shipping build.
+    /// overlay painter changes can be reset. `None` while reordering is off
+    /// and on the alternate screen.
     pub(super) fn bidi_pane_plan(
         &self,
         terminal: &crate::core::Terminal,
         snapshot: &Snapshot,
         offset: usize,
     ) -> Option<(BidiDisplayMap, Snapshot)> {
-        #[cfg(test)]
-        if self.bidi_display_for_test {
-            return Some((
-                plan_content_map(terminal, snapshot, offset),
-                snapshot.clone(),
-            ));
+        if !self.bidi_reorder_on() {
+            return None;
         }
-        let _ = (terminal, snapshot, offset);
-        None
+        plan_content_map(terminal, snapshot, offset).map(|map| (map, snapshot.clone()))
     }
 
     /// Record the maps each content pane of the presented split frame used,
     /// after overlay rows were reset. The pointer maps through the focused
     /// pane's map.
     pub(super) fn set_bidi_pane_maps(&mut self, maps: Vec<(SessionToken, BidiDisplayMap)>) {
-        #[cfg(test)]
-        {
-            self.bidi_pane_maps = maps;
-        }
-        #[cfg(not(test))]
-        let _ = maps;
+        self.bidi_pane_maps = maps;
     }
 
     /// The content map of the focused content grid: the single-pane frame
     /// map, or the focused pane's map in a split tab.
-    #[cfg(test)]
     fn bidi_focused_map(&self) -> Option<&BidiDisplayMap> {
-        if !self.bidi_display_for_test {
+        if !self.bidi_reorder_on() {
             return None;
         }
         if self.sessions.active_is_single_pane() {
@@ -103,9 +106,8 @@ impl App {
     }
 
     /// The logical content cell drawn at the focused content cell `point` the
-    /// pointer is over. Identity unless the test-only gate built a map.
+    /// pointer is over. Identity unless the presented frame planned a map.
     pub(super) fn bidi_logical_point(&self, point: CellPoint) -> CellPoint {
-        #[cfg(test)]
         if let Some(map) = self.bidi_focused_map() {
             return CellPoint {
                 row: point.row,
@@ -116,9 +118,8 @@ impl App {
     }
 
     /// The screen column the presented frame drew the focused content cell
-    /// `point` at. Identity unless the test-only gate built a map.
+    /// `point` at. Identity unless the presented frame planned a map.
     pub(super) fn bidi_visual_column(&self, point: CellPoint) -> usize {
-        #[cfg(test)]
         if let Some(map) = self.bidi_focused_map() {
             return map.visual_column(point.row, point.column);
         }
@@ -128,13 +129,12 @@ impl App {
     /// Move a 1-based grid-relative SGR-pixel report coordinate onto the
     /// logical cell drawn under it, keeping its offset inside the cell, so a
     /// pixel report addresses the same cell the cell-encoded reports name.
-    /// Identity unless the test-only gate built a map.
+    /// Identity unless the presented frame planned a map.
     pub(super) fn bidi_logical_report_px(
         &self,
         (px, py): (usize, usize),
         cell: CellSize,
     ) -> (usize, usize) {
-        #[cfg(test)]
         if let Some(map) = self.bidi_focused_map() {
             let width = (cell.width as usize).max(1);
             let height = (cell.height as usize).max(1);
@@ -144,14 +144,13 @@ impl App {
             let logical = map.logical_column(row, visual);
             return (logical * width + x % width + 1, py);
         }
-        let _ = cell;
         (px, py)
     }
 }
 
 /// The cell the cursor effects (slide, trail, follower, and aura) move
 /// between: the screen cell `map` draws the logical `cursor` at. Identity
-/// without a map, which is every shipping frame.
+/// without a map, which is every frame while reordering is off.
 pub(super) fn effect_cursor(map: Option<&BidiDisplayMap>, cursor: Position) -> Position {
     map.map_or(cursor, |map| Position {
         row: cursor.row,
@@ -204,9 +203,8 @@ impl App {
 
     /// The drawn cell of the focused pane's logical `cursor` in a split tab,
     /// through the map its presented frame uses. Identity unless the
-    /// test-only gate built a map.
+    /// presented frame planned a map.
     pub(super) fn bidi_focused_effect_cursor(&self, cursor: Position) -> Position {
-        #[cfg(test)]
         if let Some(map) = self.bidi_focused_map() {
             return effect_cursor(Some(map), cursor);
         }
@@ -227,13 +225,16 @@ pub(super) fn finish_bidi_plan(
 }
 
 /// Plan the content map from the terminal's soft-wrap flags and the
-/// paragraph context above the viewport.
-#[cfg(test)]
+/// paragraph context above the viewport. `None` on the alternate screen,
+/// which is never reordered.
 pub(super) fn plan_content_map(
     terminal: &crate::core::Terminal,
     snapshot: &Snapshot,
     offset: usize,
-) -> BidiDisplayMap {
+) -> Option<BidiDisplayMap> {
+    if terminal.on_alternate_screen() {
+        return None;
+    }
     use crate::grid::{BidiParagraphContext, max_bidi_context_rows};
     let wrapped: Vec<bool> = terminal
         .visible_search_rows(offset)
@@ -246,7 +247,9 @@ pub(super) fn plan_content_map(
         rows: rows.into_iter().map(|row| row.cells).collect(),
         overflow,
     };
-    BidiDisplayMap::plan_with_context(snapshot, &wrapped, &context)
+    Some(BidiDisplayMap::plan_with_context(
+        snapshot, &wrapped, &context,
+    ))
 }
 
 #[cfg(test)]
@@ -265,7 +268,7 @@ impl App {
     /// manifest, reset overlay rows, settle the effects, paint the trail, and
     /// record the presented map and the next frame's cursor comparison. Only
     /// the GPU hand-off and chrome decoration are skipped (no headless GPU).
-    /// Honors the gate as set: with it off every step is the shipping one.
+    /// Honors reordering as set: with it off every step is the off path.
     pub(in crate::native) fn present_bidi_frame_for_test(
         &mut self,
         now: Instant,
@@ -340,7 +343,17 @@ impl App {
         self.bidi_frame_map.as_ref()
     }
 
-    /// Test seam: turn the display gate on or off without presenting a frame.
+    /// Test seam: apply `settings` through the Settings edit path.
+    pub(in crate::native) fn apply_overlay_settings_for_test(&mut self, settings: Settings) {
+        self.apply_overlay_settings(settings);
+    }
+
+    /// Test seam: the live `bidi_reorder` setting value.
+    pub(in crate::native) fn bidi_reorder_setting_for_test(&self) -> bool {
+        self.settings.bidi_reorder
+    }
+
+    /// Test seam: turn the test override on or off without presenting a frame.
     pub(in crate::native) fn set_bidi_display_for_test(&mut self, on: bool) {
         self.bidi_display_for_test = on;
     }

@@ -473,8 +473,8 @@ impl LigatureShaper {
         let arabic = run_text.text.chars().any(is_arabic_joining_base);
         let (off, on) = if arabic {
             // Joining forms vs cmap defaults (typically isolated). Live runs
-            // pass LTR: cells stay in logical order. The test-only bidi seam
-            // passes RTL for a right-to-left level run; swash still reports
+            // pass LTR: cells stay in logical order. With bidi reordering on,
+            // the renderer passes RTL for a right-to-left level run; swash still reports
             // clusters in logical order, and placement maps them visually.
             (
                 shape_run(

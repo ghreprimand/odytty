@@ -112,6 +112,9 @@ pub(in crate::native) enum OverlayOutcome {
     /// Toggle the focused pane's read-only mode (Make Pane Read-Only / Make
     /// Pane Writable). The menu has closed itself.
     ContextMenuToggleReadOnly,
+    /// Turn bidi display reordering on or off (Reorder Right-to-Left Text).
+    /// The menu has closed itself.
+    ContextMenuToggleBidiReorder,
     /// Add the focused pane to the broadcast receivers or remove it (Broadcast
     /// to This Pane / Remove Pane from Broadcast). The menu has closed itself.
     ContextMenuToggleBroadcast,

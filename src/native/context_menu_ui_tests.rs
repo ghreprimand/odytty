@@ -257,10 +257,10 @@ fn focus_cycles_with_wrap() {
     // (Rename Tab dropped), the two splits + Make Pane Read-Only, New/New
     // with Profile/Rename/Close
     // Workspace + Bind to Host (unbound) + Save as Layout + Save Workspace as
-    // Layout + Open Layout, Settings, and the six launcher items (Close Pane
-    // hidden single-pane).
+    // Layout + Open Layout, Reorder Right-to-Left Text, Settings, and the six
+    // launcher items (Close Pane hidden single-pane).
     assert_eq!(m.focused, m.item_count() - 1);
-    assert_eq!(m.item_count(), 30);
+    assert_eq!(m.item_count(), 31);
     m.handle_input(OverlayInput::Down);
     assert_eq!(m.focused, 0);
     m.handle_input(OverlayInput::Down);
@@ -375,9 +375,10 @@ fn settings_always_activates() {
     // With no selection Settings sits at body row 21 (2 editing anchors +
     // sep + 4 tab actions + sep + 2 splits + Make Pane Read-Only + sep + 9
     // workspace (incl. both profile rows + Bind to Host + Save as Layout +
-    // Save Workspace as Layout + Open Layout) + sep = 21).
+    // Save Workspace as Layout + Open Layout) + sep + Reorder Right-to-Left
+    // Text = 25).
     assert_eq!(
-        m.handle_press(24, m.body_row_count(), PointerButton::Left),
+        m.handle_press(25, m.body_row_count(), PointerButton::Left),
         ContextMenuOutcome::Activate(ContextMenuItem::Settings)
     );
 }
@@ -389,12 +390,12 @@ fn single_pane_menu_hides_close_pane() {
     // 24 items / 29 body rows - Paste/Select All · New Tab/New Tab with
     // Profile/New Window/Close Tab · the two splits + Make Pane Read-Only · New/New with Profile/
     // Rename/Close Workspace + Bind to Host (unbound) + Save as Layout +
-    // Save Workspace as Layout + Open Layout · Settings · the six launcher
-    // items.
+    // Save Workspace as Layout + Open Layout · Reorder Right-to-Left Text +
+    // Settings · the six launcher items.
     let m = menu(false, false);
-    assert_eq!(m.item_count(), 27);
+    assert_eq!(m.item_count(), 28);
     let rows = m.rows();
-    assert_eq!(rows.len(), 32);
+    assert_eq!(rows.len(), 33);
     assert!(
         !rows.iter().any(|r| matches!(
             r,
@@ -438,29 +439,30 @@ fn single_pane_menu_hides_close_pane() {
     );
     assert_eq!(rows[22], item("Open Layout\u{2026}", false, true));
     assert_eq!(rows[23], ContextMenuRow::Separator);
+    assert_eq!(rows[24], item("Reorder Right-to-Left Text", false, true));
     assert_eq!(
-        rows[24],
+        rows[25],
         item("Settings", false, true),
-        "Settings sits at body row 22 (no selection, workspace + bind + layout)"
+        "Settings sits at body row 25 (no selection, workspace + bind + layout)"
     );
-    assert_eq!(rows[25], ContextMenuRow::Separator);
-    assert_eq!(rows[26], item("Keyboard Shortcuts", false, true));
-    assert_eq!(rows[27], item("Connection Manager", false, true));
-    assert_eq!(rows[28], item("Command Palette", false, true));
-    assert_eq!(rows[29], item("Session Replay", false, true));
-    assert_eq!(rows[30], item("Manage Sessions", false, true));
-    assert_eq!(rows[31], item("Detach & switch", false, true));
+    assert_eq!(rows[26], ContextMenuRow::Separator);
+    assert_eq!(rows[27], item("Keyboard Shortcuts", false, true));
+    assert_eq!(rows[28], item("Connection Manager", false, true));
+    assert_eq!(rows[29], item("Command Palette", false, true));
+    assert_eq!(rows[30], item("Session Replay", false, true));
+    assert_eq!(rows[31], item("Manage Sessions", false, true));
+    assert_eq!(rows[32], item("Detach & switch", false, true));
 }
 
 #[test]
 fn no_path_menu_hides_the_file_section() {
     // C3: with no resolved path under the click, the four file items are
-    // absent and the layout is the 32-row single-pane content menu (no
+    // absent and the layout is the 33-row single-pane content menu (no
     // selection). This is the no-file-section guarantee.
     let m = menu(false, false);
-    assert_eq!(m.item_count(), 27);
+    assert_eq!(m.item_count(), 28);
     let rows = m.rows();
-    assert_eq!(rows.len(), 32);
+    assert_eq!(rows.len(), 33);
     for label in ["Open", "Copy Path", "Copy File", "Reveal in File Manager"] {
         assert!(
             !rows.iter().any(|r| matches!(
@@ -806,11 +808,11 @@ fn multi_pane_menu_shows_close_pane_in_the_split_section() {
     // Host + Save as Layout + Save Workspace as Layout + Open Layout ·
     // Settings · six launchers.
     let m = multipane_menu();
-    assert_eq!(m.item_count(), 30);
+    assert_eq!(m.item_count(), 31);
     let rows = m.rows();
     assert_eq!(
         rows.len(),
-        36,
+        37,
         "one more row than the single-pane content menu"
     );
     assert_eq!(rows[8], item("Split Right", false, true));
@@ -849,18 +851,19 @@ fn multi_pane_menu_shows_close_pane_in_the_split_section() {
     );
     assert_eq!(rows[26], item("Open Layout\u{2026}", false, true));
     assert_eq!(rows[27], ContextMenuRow::Separator);
+    assert_eq!(rows[28], item("Reorder Right-to-Left Text", false, true));
     assert_eq!(
-        rows[28],
+        rows[29],
         item("Settings", false, true),
-        "Settings sits at body row 28 in the multi-pane content menu"
+        "Settings sits at body row 29 in the multi-pane content menu"
     );
-    assert_eq!(rows[29], ContextMenuRow::Separator);
-    assert_eq!(rows[30], item("Keyboard Shortcuts", false, true));
-    assert_eq!(rows[31], item("Connection Manager", false, true));
-    assert_eq!(rows[32], item("Command Palette", false, true));
-    assert_eq!(rows[33], item("Session Replay", false, true));
-    assert_eq!(rows[34], item("Manage Sessions", false, true));
-    assert_eq!(rows[35], item("Detach & switch", false, true));
+    assert_eq!(rows[30], ContextMenuRow::Separator);
+    assert_eq!(rows[31], item("Keyboard Shortcuts", false, true));
+    assert_eq!(rows[32], item("Connection Manager", false, true));
+    assert_eq!(rows[33], item("Command Palette", false, true));
+    assert_eq!(rows[34], item("Session Replay", false, true));
+    assert_eq!(rows[35], item("Manage Sessions", false, true));
+    assert_eq!(rows[36], item("Detach & switch", false, true));
 }
 
 #[test]
@@ -876,13 +879,13 @@ fn multi_pane_close_pane_activates_on_press() {
 #[test]
 fn multi_pane_focus_wraps_through_all_items() {
     // Up from item 0 wraps to the last visible item (Detach & switch, index
-    // 24), proving Close Pane is in the focus cycle only when multi-pane and
+    // 30), proving Close Pane is in the focus cycle only when multi-pane and
     // the workspace + launcher items extend the cycle.
     let mut m = multipane_menu();
     assert_eq!(m.focused, 0);
     m.handle_input(OverlayInput::Up);
-    assert_eq!(m.focused, 29);
-    assert_eq!(m.item_count(), 30);
+    assert_eq!(m.focused, 30);
+    assert_eq!(m.item_count(), 31);
 }
 
 #[test]
@@ -1106,7 +1109,8 @@ fn rows_report_label_focus_enabled() {
     );
     assert_eq!(rows[25], item("Open Layout\u{2026}", false, true));
     assert_eq!(rows[26], ContextMenuRow::Separator);
-    assert_eq!(rows[27], item("Settings", false, true));
+    assert_eq!(rows[27], item("Reorder Right-to-Left Text", false, true));
+    assert_eq!(rows[28], item("Settings", false, true));
 }
 
 #[test]
@@ -1730,12 +1734,15 @@ fn body_row_mapping_is_consistent() {
     assert_eq!(body_row_to_item(18), Some(15));
     assert_eq!(item_to_body_row(22), 25);
     assert_eq!(body_row_to_item(25), Some(22));
-    // Settings (23) shifts past the first four separators.
+    // The Settings group (23-24: Reorder Right-to-Left Text, Settings)
+    // shifts past the first four separators.
     assert_eq!(item_to_body_row(23), 27);
     assert_eq!(body_row_to_item(27), Some(23));
-    // A launcher item (24) shifts past all five separators.
-    assert_eq!(item_to_body_row(24), 29);
-    assert_eq!(body_row_to_item(29), Some(24));
+    assert_eq!(item_to_body_row(24), 28);
+    assert_eq!(body_row_to_item(28), Some(24));
+    // A launcher item (25) shifts past all five separators.
+    assert_eq!(item_to_body_row(25), 30);
+    assert_eq!(body_row_to_item(30), Some(25));
 }
 
 // ── ODP-2C connection-row surface composition ──────────────────────────

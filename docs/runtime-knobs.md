@@ -128,6 +128,7 @@ environment variable was not set at startup.
 | `ss01` | `ODYTTY_LIGATURE_SS01` | `on`, `off` | `off` |
 | `ss02` | `ODYTTY_LIGATURE_SS02` | `on`, `off` | `off` |
 | `font_zero` | `ODYTTY_FONT_ZERO` | `on`, `off` | `off` |
+| `bidi_reorder` | `ODYTTY_BIDI_REORDER` | `on`, `off` | `off` |
 | `kitty_named_transports` | `ODYTTY_KITTY_NAMED_TRANSPORTS` | `on`, `off` | `off` |
 | `geometric_boxdraw` | `ODYTTY_GEOMETRIC_BOXDRAW` | `on`, `off` | `on` |
 | `box_thickness` | `ODYTTY_BOX_THICKNESS` | Float, `0.5..=3.0` | `1.0` |
