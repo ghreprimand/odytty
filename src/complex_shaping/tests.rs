@@ -155,6 +155,19 @@ const GROUPS: &[Group] = &[
         owner_floor: 20,
         changed_notes: thai_lao_tibetan::STRUCTURAL,
     },
+    Group {
+        name: "sinhala",
+        reference: include_str!("../../tests/fixtures/fonts/s5b/sinhala/reference.tsv"),
+        faces: &[(
+            "Sinhala-subset.ttf",
+            include_bytes!("../../tests/fixtures/fonts/s5b/sinhala/Sinhala-subset.ttf"),
+        )],
+        count: 8,
+        known_diffs: &[],
+        // The ZWNJ control splits into two owners.
+        owner_floor: 7,
+        changed_notes: &["zwj", "split-vowel", "conjunct"],
+    },
 ];
 
 fn face(name: &str) -> FontHandle {
@@ -340,18 +353,12 @@ fn classifier_enables_exactly_the_enabled_groups() {
         '\u{0C15}',
         '\u{0C95}',
         '\u{0D15}',
+        '\u{0D9A}',
     ] {
         assert!(owner_is_eligible(&Cell::new(ch, attrs)), "{ch:?}");
     }
     // Latin, Arabic, emoji, box drawing, and later stage groups stay out.
-    for ch in [
-        'a',
-        '\u{0628}',
-        '\u{1F600}',
-        '\u{2500}',
-        '\u{0D9A}',
-        '\u{11103}',
-    ] {
+    for ch in ['a', '\u{0628}', '\u{1F600}', '\u{2500}', '\u{11103}'] {
         assert!(!owner_is_eligible(&Cell::new(ch, attrs)), "{ch:?}");
     }
     // A retained scalar from outside the group keeps the per-cell path.

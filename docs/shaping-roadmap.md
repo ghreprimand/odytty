@@ -33,9 +33,9 @@ source ranges, width and cache identity retain the selector. Capability probes
 and live rendering share this seam; flag, modifier and ZWJ inputs are unchanged.
 
 Listed VS16 bases and recognized emoji modifier, keycap, flag, and RGI ZWJ
-sequences use two-cell owners. Other script groups remain pending. Northern
-and southern Indic owners are shaped with the font (see Complex Indic and Brahmic shaping
-below); the other groups' font-backed shaping remains pending.
+sequences use two-cell owners. Northern and southern Indic, Sinhala, Khmer, Myanmar, Thai, Lao, and Tibetan
+owners are shaped with the font (see Complex Indic and Brahmic shaping
+below); Chakma, Javanese, Grantha, and Tai Tham shaping remains pending.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 
@@ -67,10 +67,11 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Northern and southern Indic shaping | With `ligatures` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
 | Khmer/Myanmar shaping | With `ligatures` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
 | Thai/Lao/Tibetan shaping | With `ligatures` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |
-| Other complex Indic/Brahmic shaping | Not supported | Sinhala, Chakma, Javanese, Grantha, and Tai Tham owners keep the per-cell path |
+| Sinhala shaping | With `ligatures` on, Sinhala owners are shaped with the font (ZWJ conjunct requests, pre-base and split vowels) and fitted inside their one or two cells by the same rule | Shaping never crosses owners; ZWNJ breaks ownership; widths and logical copy stay unchanged |
+| Other complex Indic/Brahmic shaping | Not supported | Chakma, Javanese, Grantha, and Tai Tham owners keep the per-cell path |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping |
 | Southern Indic terminal widths | Tamil, Telugu, Kannada, and Malayalam spacing signs and virama-linked consonants share bounded two-cell owners | Tamil width units can cross grapheme boundaries; font-backed shaping remains within each owner |
-| Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
+| Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed shaping stays inside each owner |
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed shaping is the separate Khmer/Myanmar shaping row |
 | Additional measured script widths | Chakma, Javanese, Grantha, and Tai Tham spacing signs and measured linked consonants share bounded two-cell owners | Chakma U+11134 links directly but keeps separate owners with ZWJ; Javanese/Grantha viramas alone keep one cell; font-backed complex-script reordering remains unsupported |
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
@@ -288,12 +289,15 @@ Thai, Lao, and Tibetan owners take it as well: SARA AM decomposition,
 tone-mark and descender alternates, stacked tone and vowel marks, and
 precomposed Tibetan subjoined stacks come from the font.
 
+Sinhala owners use the same path for ZWJ conjunct requests and pre-base
+and split vowels. The ZWNJ control keeps separate owners.
+
 Licensed fixtures (OFL subsets of the Noto faces) carry HarfBuzz 14.5.1
 references for all 49 northern and 33 southern Indic samples; all but one
 match exactly. Bengali
 ka, virama, ra shapes differently in `harfrust` 0.8.4, and the fixtures keep
 that difference as an asserted known difference rather than a conformance
-claim. Every Khmer, Myanmar, Thai, Lao, and Tibetan sample matches exactly. Sinhala, Chakma, Javanese, Grantha,
+claim. Every Khmer, Myanmar, Thai, Lao, and Tibetan sample matches exactly. All eight Sinhala samples match exactly. Chakma, Javanese, Grantha,
 and Tai Tham owners keep the per-cell path until their own
 classifier stage and fixtures land.
 

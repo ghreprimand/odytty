@@ -53,7 +53,7 @@ fn classifier_enables_thai_lao_and_tibetan() {
         assert!(owner_is_eligible(&Cell::new(ch, attrs)), "{ch:?}");
     }
     // Later stage groups stay out.
-    for ch in ['\u{0D9A}', '\u{11103}'] {
+    for ch in ['\u{11103}', '\u{A984}', '\u{11315}', '\u{1A20}'] {
         assert!(!owner_is_eligible(&Cell::new(ch, attrs)), "{ch:?}");
     }
     let mut stack = Cell::new('\u{0F66}', attrs);
