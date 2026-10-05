@@ -179,10 +179,6 @@ impl FontHandle {
         })
     }
 
-    /// Outline `glyph` at its scale and position, or `None` when the face has no
-    /// drawable outline for it. Mirrors `ab_glyph::Font::outline_glyph`; the
-    /// returned handle answers [`OutlinedGlyph::px_bounds`] and
-    /// [`OutlinedGlyph::draw`].
     /// Pixels per font unit at the uniform pixel scale `px`, the factor
     /// [`Self::outline_glyph`] applies (px over ascent minus descent). Zero
     /// when the face's vertical metrics are degenerate.
@@ -198,6 +194,10 @@ impl FontHandle {
         }
     }
 
+    /// Outline `glyph` at its scale and position, or `None` when the face has no
+    /// drawable outline for it. Mirrors `ab_glyph::Font::outline_glyph`; the
+    /// returned handle answers [`OutlinedGlyph::px_bounds`] and
+    /// [`OutlinedGlyph::draw`].
     pub fn outline_glyph(&self, glyph: Glyph) -> Option<OutlinedGlyph> {
         let raw = self.raw_outline(glyph.id)?;
         let legacy = raw.bounds?;

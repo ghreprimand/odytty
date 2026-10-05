@@ -209,26 +209,38 @@ pub fn resolve_font_family(query: &str, dirs: &[PathBuf]) -> Option<FontFamilyMa
 /// itself names italic (`"BoldItalic"`) only matches the italic face, so the
 /// non-italic preference is moot there.
 pub fn resolve_font_weight_face(family: &str, weight: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+    resolve_font_weight_faces(family, weight, dirs)
+        .into_iter()
+        .next()
+}
+
+/// Every weight face [`resolve_font_weight_face`] would consider, best first:
+/// by score, then in scan order. The first entry is its answer. The loader
+/// tries these in order, so a best match that fails to load falls through to
+/// the next candidate before the regular face is used.
+pub fn resolve_font_weight_faces(family: &str, weight: &str, dirs: &[PathBuf]) -> Vec<PathBuf> {
     let family_target = normalize_family(family);
     let weight_target = normalize_family(weight);
     if family_target.is_empty() || weight_target.is_empty() {
-        return None;
+        return Vec::new();
     }
-    let files = collect_font_files(dirs);
-    let mut best: Option<(i32, PathBuf)> = None;
-    for f in &files {
-        let stem = normalize_family(&file_stem(f));
-        // Must carry both the family and the requested weight term.
-        if !stem.contains(&family_target) || !stem.contains(&weight_target) {
-            continue;
-        }
-        // Prefer a non-italic face for a pure weight request (strong weight),
-        // then the closest (shortest) stem so "Light" beats "ExtraLight".
-        let (_, italic) = variant_flags(&stem);
-        let score = if italic { 0 } else { 1000 } - stem.len() as i32;
-        if best.as_ref().is_none_or(|(s, _)| score > *s) {
-            best = Some((score, f.clone()));
-        }
-    }
-    best.map(|(_, path)| path)
+    let mut scored: Vec<(i32, PathBuf)> = collect_font_files(dirs)
+        .into_iter()
+        .filter_map(|f| {
+            let stem = normalize_family(&file_stem(&f));
+            // Must carry both the family and the requested weight term.
+            if !stem.contains(&family_target) || !stem.contains(&weight_target) {
+                return None;
+            }
+            // Prefer a non-italic face for a pure weight request (strong
+            // weight), then the closest (shortest) stem so "Light" beats
+            // "ExtraLight".
+            let (_, italic) = variant_flags(&stem);
+            Some((if italic { 0 } else { 1000 } - stem.len() as i32, f))
+        })
+        .collect();
+    // Stable and descending: equal scores keep scan order, so the first entry
+    // is the earliest best-scoring file, as before.
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    scored.into_iter().map(|(_, path)| path).collect()
 }

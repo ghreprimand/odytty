@@ -2360,6 +2360,20 @@ leads, the bundled faces guarantee the out-of-the-box path never depends on
 host-installed Nerd fonts, and a host-discovered face can extend coverage at the
 tail.
 
+Every host-discovered face in this chain, the color-emoji face, and a
+configured `font_weight` face is chosen from a ranked candidate list rather
+than a single best match: a candidate that fails to load (unreadable, over
+the font-file size cap, or not a font) falls through to the next one, up to
+eight load attempts. The host Nerd face ranks the dedicated Symbols Nerd Font
+first; each Linux or Windows static-tail hint tries its matching files in
+scan order and still adds nothing when its first match is a face an earlier
+hint already loaded; color emoji tries fontconfig's answer on Linux, then
+files named after a known color-emoji face, then other COLR/CPAL faces; a
+weight face that never loads leaves the regular face in place. The body
+family's regular and style faces are exempt: they are chosen only among
+faces whose metadata was already read and parsed. The runtime per-codepoint
+query already tried fontconfig's candidates in order.
+
 `symbol_map` per-range overrides and the settings toggle remain in effect.
 `--show-config` reports the live `symbol_fallback` state and the resolved
 `symbol_font_source` as the full chain, joined with ` > ` (e.g.
@@ -2523,7 +2537,8 @@ the existing coverage atlas.
 Emoji cells sample source pixels directly and are never tinted by SGR
 foreground color. Linux font discovery probes fontconfig for Noto Color Emoji;
 directory scanning recognizes Noto Color Emoji, Apple Color Emoji, stock
-Windows Segoe UI Emoji (`seguiemj.ttf`), and other parseable COLR/CPAL faces.
+Windows Segoe UI Emoji (`seguiemj.ttf`), and other parseable COLR/CPAL faces,
+and a candidate that fails to load falls through to the next.
 Rasterization prefers existing CBDT/CBLC or sbix bitmap strikes, then static
 COLR/CPAL v0 layers, then COLR v1 Paint graphs. The v1 evaluator covers solid
 fills, gradients, transforms, clips, and composites while the earlier paths

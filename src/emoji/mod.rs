@@ -200,6 +200,72 @@ pub(crate) fn discover_noto_color_emoji_with_inventory(
     discover_with_fontconfig().or_else(|| discover_noto_color_emoji_in_inventory(inventory))
 }
 
+/// Most color-emoji candidate faces tried to load before color emoji is
+/// given up, matching the symbol resolver's candidate bound.
+const MAX_EMOJI_FONT_CANDIDATES: usize = 8;
+
+/// The first color-emoji face that actually loads: fontconfig's answer on
+/// Linux, then [`load_color_emoji_font_in_inventory`]. Discovery used to stop
+/// at the first match even when that file failed to load (too large, unreadable,
+/// or not a font), leaving the session without color emoji while another
+/// installed face would have worked.
+pub(crate) fn load_color_emoji_font_with_inventory(
+    inventory: &crate::text::FontFileInventory,
+) -> Option<EmojiFont> {
+    load_color_emoji_font_after(discover_with_fontconfig(), inventory)
+}
+
+/// [`load_color_emoji_font_with_inventory`] with fontconfig's answer passed
+/// in, so the fall-through is testable without a host fontconfig.
+fn load_color_emoji_font_after(
+    fontconfig: Option<EmojiFontMatch>,
+    inventory: &crate::text::FontFileInventory,
+) -> Option<EmojiFont> {
+    if let Some(found) = &fontconfig
+        && let Ok(font) = EmojiFont::load_face(found.path.clone(), found.face_index)
+    {
+        return Some(font);
+    }
+    let failed = fontconfig.map(|found| found.path);
+    load_color_emoji_font_excluding(inventory, failed.as_deref())
+}
+
+/// The first loadable color-emoji face under `inventory`: files named after a
+/// known color-emoji face in inventory order, then any other file with a
+/// COLR/CPAL table, at most [`MAX_EMOJI_FONT_CANDIDATES`] load attempts in all.
+#[cfg(test)]
+pub(crate) fn load_color_emoji_font_after_for_test(
+    fontconfig: Option<EmojiFontMatch>,
+    inventory: &crate::text::FontFileInventory,
+) -> Option<EmojiFont> {
+    load_color_emoji_font_after(fontconfig, inventory)
+}
+
+#[cfg(test)]
+pub(crate) fn load_color_emoji_font_in_inventory(
+    inventory: &crate::text::FontFileInventory,
+) -> Option<EmojiFont> {
+    load_color_emoji_font_excluding(inventory, None)
+}
+
+fn load_color_emoji_font_excluding(
+    inventory: &crate::text::FontFileInventory,
+    skip: Option<&Path>,
+) -> Option<EmojiFont> {
+    let files = inventory.files();
+    let named = files
+        .iter()
+        .filter(|path| is_color_emoji_name(&normalized_stem(path)));
+    let probed = files
+        .iter()
+        .filter(|path| !is_color_emoji_name(&normalized_stem(path)) && has_colr_cpal(path));
+    named
+        .chain(probed)
+        .filter(|path| Some(path.as_path()) != skip)
+        .take(MAX_EMOJI_FONT_CANDIDATES)
+        .find_map(|path| EmojiFont::load_face(path.clone(), 0).ok())
+}
+
 pub(crate) fn discover_noto_color_emoji_in_inventory(
     inventory: &crate::text::FontFileInventory,
 ) -> Option<EmojiFontMatch> {

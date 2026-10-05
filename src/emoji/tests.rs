@@ -121,6 +121,54 @@ fn directory_discovery_accepts_a_generic_colr_cpal_face() {
 }
 
 #[test]
+fn discovery_falls_through_unloadable_color_faces_to_one_that_loads() {
+    // Two faces named after platform color-emoji fonts fail to load; a third
+    // file that only carries COLR/CPAL tables is the first one that works.
+    let root = unique_temp_dir("odytty-emoji-fallthrough");
+    std::fs::create_dir_all(&root).expect("create temp font dir");
+    std::fs::write(root.join("NotoColorEmoji.ttf"), b"not a real font").expect("write marker");
+    std::fs::write(root.join("seguiemj.ttf"), b"not a real font either").expect("write marker");
+    let generic = root.join("GenericEmoji.ttf");
+    std::fs::copy(fixture_font("color-emoji-colr-v1.ttf"), &generic)
+        .expect("copy generic COLR fixture");
+
+    let inventory = crate::text::FontFileInventory::new(vec![root.clone()]);
+    let font = super::load_color_emoji_font_in_inventory(&inventory)
+        .expect("a loadable color face is found past the broken ones");
+    assert_eq!(font.path(), generic.as_path());
+
+    // A named face that loads still wins over a generic COLR face.
+    let named = root.join("AppleColorEmoji.ttf");
+    std::fs::copy(fixture_font("color-emoji-colr-v0.ttf"), &named).expect("copy named fixture");
+    let inventory = crate::text::FontFileInventory::new(vec![root.clone()]);
+    let font = super::load_color_emoji_font_in_inventory(&inventory).expect("named face loads");
+    assert_eq!(font.path(), named.as_path());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn an_unloadable_fontconfig_answer_falls_through_to_the_inventory() {
+    let root = unique_temp_dir("odytty-emoji-fontconfig-fallthrough");
+    std::fs::create_dir_all(&root).expect("create temp font dir");
+    let broken = root.join("NotoColorEmoji.ttf");
+    std::fs::write(&broken, b"not a real font").expect("write marker");
+    let inventory_face = root.join("seguiemj.ttf");
+    std::fs::copy(fixture_font("color-emoji-colr-v1.ttf"), &inventory_face)
+        .expect("copy color fixture");
+    let answer = super::EmojiFontMatch {
+        path: broken,
+        source: super::EmojiFontSource::Fontconfig,
+        face_index: 0,
+    };
+    let inventory = crate::text::FontFileInventory::new(vec![root.clone()]);
+    let font = super::load_color_emoji_font_after_for_test(Some(answer), &inventory)
+        .expect("the inventory supplies a face after fontconfig's fails");
+    assert_eq!(font.path(), inventory_face.as_path());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn color_emoji_name_matches_known_platform_faces() {
     // Known faces match regardless of separators/case, including Windows'
     // shortened stock filename; an ordinary monospace family does not.

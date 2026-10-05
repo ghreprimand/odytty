@@ -18,6 +18,9 @@ use crate::ligature::LigatureFonts;
 use crate::native::options::{NativeError, NativeOptions};
 use crate::text::{self, FontStyle};
 
+/// Most weight faces tried before the regular face is used.
+const MAX_WEIGHT_FACE_CANDIDATES: usize = 8;
+
 #[derive(Debug, Clone)]
 pub(in crate::native) struct StyleFonts {
     regular: Arc<FontHandle>,
@@ -65,6 +68,21 @@ impl StyleFonts {
         font_family: &str,
         font_weight: &str,
     ) -> Result<Self, NativeError> {
+        Self::load_from_dirs(
+            font_path,
+            font_family,
+            font_weight,
+            &text::font_search_dirs(),
+        )
+    }
+
+    /// [`Self::load_from`] over explicit font roots, so tests stay hermetic.
+    fn load_from_dirs(
+        font_path: Option<&Path>,
+        font_family: &str,
+        font_weight: &str,
+        dirs: &[PathBuf],
+    ) -> Result<Self, NativeError> {
         if font_path.is_none() && text::is_bundled_font_family(font_family) {
             return Self::load_bundled(font_family, font_weight);
         }
@@ -75,21 +93,31 @@ impl StyleFonts {
         } else {
             let family = font_family.trim();
             let weight = font_weight.trim();
-            match text::resolve_font_weight_face(family, weight, &text::font_search_dirs()) {
-                Some(path) => match text::load_font_at(&path) {
-                    Ok(font) => font,
+            let candidates = text::resolve_font_weight_faces(family, weight, dirs);
+            // A best match that fails to load falls through to the next
+            // candidate (bounded) before the regular face is used.
+            let loaded = candidates
+                .iter()
+                .take(MAX_WEIGHT_FACE_CANDIDATES)
+                .find_map(|path| match text::load_font_at(path) {
+                    Ok(font) => Some(font),
                     Err(err) => {
-                        tracing::warn!(
-                            "font_weight: {err}; falling back to the regular face for {family:?} {weight:?}"
-                        );
-                        text::load_font_with_path(font_path)
-                            .map_err(|err| NativeError::Text(err.to_string()))?
+                        tracing::warn!("font_weight: {err}; trying the next {weight:?} face");
+                        None
                     }
-                },
+                });
+            match loaded {
+                Some(font) => font,
                 None => {
-                    tracing::warn!(
-                        "font_weight: no {weight:?} face found for family {family:?}; using the regular face"
-                    );
+                    if candidates.is_empty() {
+                        tracing::warn!(
+                            "font_weight: no {weight:?} face found for family {family:?}; using the regular face"
+                        );
+                    } else {
+                        tracing::warn!(
+                            "font_weight: no {weight:?} face for family {family:?} loaded; using the regular face"
+                        );
+                    }
                     text::load_font_with_path(font_path)
                         .map_err(|err| NativeError::Text(err.to_string()))?
                 }
@@ -99,7 +127,7 @@ impl StyleFonts {
 
         // BOLD INVARIANT: bold/italic discovery always uses the PLAIN family so
         // SGR bold contrasts with the chosen base weight (never "Light Bold").
-        if let Some(matched) = text::resolve_font_family(font_family, &text::font_search_dirs()) {
+        if let Some(matched) = text::resolve_font_family(font_family, dirs) {
             if let Some(font) = matched.bold.as_deref().and_then(load_optional_style_font) {
                 fonts.bold = Arc::new(font);
             }
@@ -402,6 +430,29 @@ mod tests {
     fn bundled_regular_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf")
+    }
+
+    #[test]
+    fn weight_face_falls_through_an_unloadable_best_match() {
+        // "Bold" ranks TestMono-Bold first (shorter stem) and TestMono-SemiBold
+        // second. The best match is not a font; the second loads.
+        let dir = startup_fixture_dir();
+        std::fs::write(dir.join("TestMono-Bold.ttf"), b"not a font").expect("write broken face");
+        let semibold = dir.join("TestMono-SemiBold.ttf");
+        std::fs::copy(bundled_regular_path(), &semibold).expect("copy loadable face");
+        let ranked =
+            text::resolve_font_weight_faces("TestMono", "Bold", std::slice::from_ref(&dir));
+        assert_eq!(ranked, [dir.join("TestMono-Bold.ttf"), semibold.clone()]);
+        let fonts =
+            StyleFonts::load_from_dirs(None, "TestMono", "Bold", std::slice::from_ref(&dir))
+                .expect("fonts load");
+        let expected = std::fs::read(&semibold).expect("read loadable face");
+        assert_eq!(
+            fonts.regular.as_slice(),
+            expected.as_slice(),
+            "the next weight candidate is used, not the regular fallback"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -14,10 +14,7 @@ use crate::atlas::CellSize;
 use crate::core::Snapshot;
 use crate::grid::ColorGlyphRun;
 
-use super::{
-    ColorGlyphAtlas, ColorGlyphId, ColorGlyphKey, EmojiFont, discover_noto_color_emoji,
-    discover_noto_color_emoji_with_inventory,
-};
+use super::{ColorGlyphAtlas, ColorGlyphId, ColorGlyphKey, EmojiFont};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmojiPresentation {
@@ -34,15 +31,14 @@ pub struct EmojiRasterizer {
 
 impl EmojiRasterizer {
     pub fn discover() -> Self {
-        let font = discover_noto_color_emoji()
-            .and_then(|found| EmojiFont::load_face(found.path, found.face_index).ok());
-        Self::new(font)
+        let inventory = crate::text::FontFileInventory::new(crate::text::font_search_dirs());
+        Self::discover_with_inventory(&inventory)
     }
 
+    /// The first color-emoji face that loads (see
+    /// [`super::load_color_emoji_font_with_inventory`]).
     pub(crate) fn discover_with_inventory(inventory: &crate::text::FontFileInventory) -> Self {
-        let font = discover_noto_color_emoji_with_inventory(inventory)
-            .and_then(|found| EmojiFont::load_face(found.path, found.face_index).ok());
-        Self::new(font)
+        Self::new(super::load_color_emoji_font_with_inventory(inventory))
     }
 
     pub fn new(font: Option<EmojiFont>) -> Self {

@@ -109,20 +109,7 @@ pub(super) fn linux_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFontSo
 fn linux_symbol_fallback_faces_in_inventory(
     inventory: &FontFileInventory,
 ) -> Vec<(SymbolFontSource, FontHandle)> {
-    let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for hint in LINUX_SYMBOL_FALLBACK_HINTS {
-        if let Some(path) = inventory
-            .files()
-            .iter()
-            .find(|f| normalize_family(&file_stem(f)).contains(hint))
-            && seen.insert(path.clone())
-            && let Ok(font) = load_font_at(path)
-        {
-            out.push((SymbolFontSource::Host(path.clone()), font));
-        }
-    }
-    out
+    hinted_fallback_faces(inventory, LINUX_SYMBOL_FALLBACK_HINTS)
 }
 
 /// Windows symbol-fallback tail: normalized **filename-stem** hints for the
@@ -165,17 +152,37 @@ pub(super) fn windows_symbol_fallback_faces(
 fn windows_symbol_fallback_faces_in_inventory(
     inventory: &FontFileInventory,
 ) -> Vec<(SymbolFontSource, FontHandle)> {
+    hinted_fallback_faces(inventory, WINDOWS_SYMBOL_FALLBACK_HINTS)
+}
+
+/// Shared body of the Linux and Windows static symbol tails: for each hint, in
+/// priority order, the first file whose normalized stem contains it,
+/// de-duplicated by path across hints: a hint whose first match an earlier
+/// hint already loaded adds nothing. A matching file that fails to load falls
+/// through to the hint's next match instead of dropping the hint, trying at
+/// most [`MAX_SYMBOL_FONT_CANDIDATES`] files per hint.
+#[cfg(any(windows, all(unix, not(target_os = "macos"))))]
+fn hinted_fallback_faces(
+    inventory: &FontFileInventory,
+    hints: &[&str],
+) -> Vec<(SymbolFontSource, FontHandle)> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for hint in WINDOWS_SYMBOL_FALLBACK_HINTS {
-        if let Some(path) = inventory
+    for hint in hints {
+        let matches = inventory
             .files()
             .iter()
-            .find(|f| normalize_family(&file_stem(f)).contains(hint))
-            && seen.insert(path.clone())
-            && let Ok(font) = load_font_at(path)
-        {
-            out.push((SymbolFontSource::Host(path.clone()), font));
+            .filter(|f| normalize_family(&file_stem(f)).contains(hint))
+            .take(MAX_SYMBOL_FONT_CANDIDATES);
+        for path in matches {
+            if seen.contains(path) {
+                break;
+            }
+            if let Ok(font) = load_font_at(path) {
+                seen.insert(path.clone());
+                out.push((SymbolFontSource::Host(path.clone()), font));
+                break;
+            }
         }
     }
     out
@@ -265,9 +272,8 @@ pub fn resolve_symbol_font_with_source(
     }
     // Last resort (bundled asset absent, e.g. `--no-default-features`): a
     // host-discovered symbol/Nerd face.
-    if let Some(path) = resolve_symbol_font_path_in(dirs)
-        && let Ok(font) = load_font_at(&path)
-    {
+    let inventory = FontFileInventory::new(dirs.to_vec());
+    if let Some((path, font)) = load_host_symbol_font(&inventory) {
         return (SymbolFontSource::Host(path), Some(font));
     }
     (SymbolFontSource::None, None)
@@ -330,9 +336,7 @@ pub(crate) fn resolve_symbol_fonts_with_inventory(
 
     // Host-discovered symbol/Nerd face: extends coverage for any glyph the
     // bundled faces lack, and is the sole source under `--no-default-features`.
-    if let Some(path) = resolve_symbol_font_path_in_inventory(inventory)
-        && let Ok(font) = load_font_at(&path)
-    {
+    if let Some((path, font)) = load_host_symbol_font(inventory) {
         sources.push(SymbolFontSource::Host(path));
         fonts.push(font);
     }
@@ -567,12 +571,12 @@ const FC_RECORD_FORMAT: &str = "%{file}\t%{index}";
 #[cfg(all(unix, not(target_os = "macos")))]
 const FC_RECORD_FORMAT_NL: &str = "%{file}\t%{index}\n";
 
-/// Upper bound on faces tried for one missing codepoint.
+/// Upper bound on faces tried for one missing codepoint, for the host Nerd
+/// face, and per static-tail hint.
 ///
 /// A host can report a great many covering faces -- one 162-face collection does
 /// on the development workstation -- and each attempt parses a font. A single
 /// cache miss must cost a bounded number of parses, not one per installed face.
-#[cfg(all(unix, not(target_os = "macos")))]
 const MAX_SYMBOL_FONT_CANDIDATES: usize = 8;
 
 /// First `max` distinct entries of `items`, preserving order.
@@ -628,31 +632,53 @@ pub fn resolve_symbol_font_source(
 /// pass a hermetic fixture directory. Prefers the dedicated "Symbols Nerd Font"
 /// face (hint index 0) over a general patched "* Nerd Font" face.
 pub fn resolve_symbol_font_in(dirs: &[PathBuf]) -> Option<FontHandle> {
-    resolve_symbol_font_path_in(dirs).and_then(|path| load_font_at(&path).ok())
+    let inventory = FontFileInventory::new(dirs.to_vec());
+    load_host_symbol_font(&inventory).map(|(_, font)| font)
 }
 
 /// The path of the best host-discovered symbol / Nerd font under `dirs`, or
 /// `None`. The path-returning core of [`resolve_symbol_font_in`]: prefers the
 /// dedicated "Symbols Nerd Font" face (hint index 0) over a general patched
-/// "* Nerd Font" face. Exposed so [`resolve_symbol_font_with_source`] can label
-/// the resolved host file without re-scanning.
+/// "* Nerd Font" face. This is the preferred file whether or not it loads;
+/// the resolvers load candidates in this order and fall through past a file
+/// that fails.
 pub fn resolve_symbol_font_path_in(dirs: &[PathBuf]) -> Option<PathBuf> {
     let inventory = FontFileInventory::new(dirs.to_vec());
     resolve_symbol_font_path_in_inventory(&inventory)
 }
 
 fn resolve_symbol_font_path_in_inventory(inventory: &FontFileInventory) -> Option<PathBuf> {
-    let mut best: Option<(usize, PathBuf)> = None;
-    for f in inventory.files() {
-        let stem = normalize_family(&file_stem(f));
-        if let Some(rank) = SYMBOL_FONT_HINTS.iter().position(|h| stem.contains(h)) {
-            // Lower rank == stronger hint; first file at the best rank wins.
-            if best.as_ref().is_none_or(|(r, _)| rank < *r) {
-                best = Some((rank, f.clone()));
-            }
-        }
-    }
-    best.map(|(_, path)| path)
+    host_symbol_font_paths(inventory).into_iter().next()
+}
+
+/// Every host symbol / Nerd font under `inventory` in preference order: by
+/// hint rank (lower is stronger), then inventory order. The first entry is
+/// [`resolve_symbol_font_path_in_inventory`]'s answer.
+fn host_symbol_font_paths(inventory: &FontFileInventory) -> Vec<PathBuf> {
+    let mut ranked: Vec<(usize, &PathBuf)> = inventory
+        .files()
+        .iter()
+        .filter_map(|f| {
+            let stem = normalize_family(&file_stem(f));
+            SYMBOL_FONT_HINTS
+                .iter()
+                .position(|h| stem.contains(h))
+                .map(|rank| (rank, f))
+        })
+        .collect();
+    // Stable: equal ranks keep inventory order.
+    ranked.sort_by_key(|(rank, _)| *rank);
+    ranked.into_iter().map(|(_, path)| path.clone()).collect()
+}
+
+/// The first host symbol / Nerd font that loads, trying at most
+/// [`MAX_SYMBOL_FONT_CANDIDATES`] in [`host_symbol_font_paths`] order. A best
+/// match that fails to load no longer hides every other installed Nerd face.
+fn load_host_symbol_font(inventory: &FontFileInventory) -> Option<(PathBuf, FontHandle)> {
+    host_symbol_font_paths(inventory)
+        .into_iter()
+        .take(MAX_SYMBOL_FONT_CANDIDATES)
+        .find_map(|path| load_font_at(&path).ok().map(|font| (path, font)))
 }
 
 /// Test window onto [`symbol_font_candidates`], so a test can ask the same
