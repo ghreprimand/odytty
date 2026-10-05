@@ -9,8 +9,8 @@ spacing signs and virama-linked consonants share bounded two-cell source owners.
 Sinhala, Khmer, and Myanmar dependent signs and linked consonants use the same bounded policy.
 Chakma, Javanese, Grantha, and Tai Tham add bounded spacing-sign and linked-consonant owners.
 Khmer U+17A4 and U+17D8 occupy one cell in either ambiguous-width mode. With
-programming ligatures on, Devanagari, Bengali, Gurmukhi, Gujarati, and Odia
-owners are shaped with the font (conjuncts, reph, and reordered vowel signs)
+programming ligatures on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia,
+Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, and reordered vowel signs)
 and fitted inside their cells. Complex-script shaping for the other script
 groups remains unsupported.
 Unicode 17 listed VS16 bases, supported emoji ZWJ sequences, skin tones,
@@ -269,7 +269,7 @@ do not cover every GPU, compositor, IME, font, or hardware configuration.
 
 Linux is the primary target. macOS and Windows are supported, shipped, and
 blocking CI targets. Known gaps include Windows detached and resumable session
-hosting, complex-script shaping outside the northern Indic group, and
+hosting, complex-script shaping outside the northern and southern Indic groups, and
 right-to-left paragraph levels and
 alternate-screen reordering (bidirectional display reordering is an opt-in,
 off-by-default setting for the primary screen).

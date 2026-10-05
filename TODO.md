@@ -10,7 +10,7 @@ Wide-glyph wrap padding is distinguished from logical source spaces through
 eager and lazy reflow, search, selection/copy, export, and snapshot restore.
 Bounded source ownership and northern Indic, Tamil, Telugu, Kannada, and
 Malayalam, Sinhala, Khmer, Myanmar, Chakma, Javanese, Grantha, and Tai Tham
-width units are implemented. Unicode 17 bounded emoji sequence widths are implemented. Northern Indic
+width units are implemented. Unicode 17 bounded emoji sequence widths are implemented. Northern and southern Indic
 owners are shaped with the font while programming ligatures are on. Further
 script groups and standalone format-control retention remain pending.
 Unattached width-zero format controls and selectors occupy zero columns and
@@ -713,7 +713,9 @@ not a stretch goal.
         Gujarati, and Odia width owners shaped with `harfrust` 0.8.4 and
         fitted inside their cells, against licensed HarfBuzz reference
         fixtures with one asserted known difference.
-  - [ ] Owner shaping for southern Indic, Sinhala, Khmer/Myanmar,
+  - [x] Southern Indic owner shaping: Tamil, Telugu, Kannada, and Malayalam,
+        with bounded fitting and licensed HarfBuzz reference fixtures.
+  - [ ] Owner shaping for Sinhala, Khmer/Myanmar,
         Thai/Lao/Tibetan, and Chakma, Javanese, Grantha, and Tai Tham.
   - [x] Shaping-run infrastructure: grapheme-cluster grouping, byte-to-column
         anchoring, and compatible-run boundary detection (combining marks,

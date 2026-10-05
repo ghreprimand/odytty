@@ -2394,7 +2394,7 @@ bold-italic by composing both. Real faces always take precedence; synthesis
 activates only for genuinely absent slots. The ordinary path remains one base
 glyph, plus any resident combining marks, rasterized into its cell or two-cell
 slot. Default programming
-ligatures and northern Indic owner shaping use the bounded, cell-preserving
+ligatures and northern and southern Indic owner shaping use the bounded, cell-preserving
 designs recorded below; complex-text shaping beyond them remains outside this
 terminal-grid model.
 
@@ -2496,7 +2496,7 @@ including independent vowels. ZWJ preserves the virama link; ZWNJ prevents the n
 Gurmukhi, Tamil, Sinhala, Chakma, and Grantha terminal width units can cross an extended-grapheme boundary; width
 ownership is distinct from segmentation. Khmer U+17A4 and U+17D8 are explicit
 one-cell scalar compatibility cases in both ambiguous-width modes. Other script groups retain their prior rules. Font-backed shaping of
-northern Indic owners is presentation only, is described with the renderer's
+northern and southern Indic owners is presentation only, is described with the renderer's
 mark rules below, and never changes these widths. The source bound remains seventeen scalars per owner, with lossless
 bounded-owner overflow. Unicode fixtures exercise bounded northern and southern
 Indic, Sinhala, Khmer, and Myanmar property subsets, plus bounded northern and Khmer/Myanmar GraphemeBreakTest subsets. No full

@@ -746,7 +746,7 @@ pub const MAX_NEW_OUTPUT_FADE_MS: f32 = 1000.0;
 
 /// Programming ligatures (`ODYTTY_LIGATURES`): contextual `calt` plus standard
 /// `liga` on eligible Latin/operator runs, plus Arabic joining when the active
-/// face covers Arabic, plus northern Indic owner shaping
+/// face covers Arabic, plus northern and southern Indic owner shaping
 /// (`crate::complex_shaping`). On by default; `off` performs no shaping and preserves
 /// the scalar atlas/geometry output exactly. Optional stylistic sets ride
 /// [`LIGATURE_SS01_ENV`] / [`LIGATURE_SS02_ENV`] (both off by default).

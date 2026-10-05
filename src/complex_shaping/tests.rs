@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Owner-run shaping against the licensed northern Indic fixtures in
-//! `tests/fixtures/fonts/s5b/northern-indic/` (OFL subsets of the Noto
+//! Owner-run shaping against the licensed enabled-group fixtures in
+//! `tests/fixtures/fonts/s5b/` (OFL subsets of the Noto
 //! faces, with HarfBuzz references; see the fixture README).
 //!
 //! Pixel oracle: the production path (owner classification, face selection,
@@ -20,9 +20,6 @@ use crate::grid::{
 use crate::selection::{CellPoint, SelectionRange, selected_text};
 
 const PX: f32 = 28.0;
-const GROUP: &str = "northern-indic";
-const REFERENCE: &str = include_str!("../../tests/fixtures/fonts/s5b/northern-indic/reference.tsv");
-const KNOWN_DIFF: &str = "known-diff:harfrust-0.8.4-vs-harfbuzz-14.5";
 const FACES: &[(&str, &[u8])] = &[
     (
         "Devanagari-subset.ttf",
@@ -46,11 +43,67 @@ const FACES: &[(&str, &[u8])] = &[
     ),
 ];
 
+struct Group {
+    name: &'static str,
+    reference: &'static str,
+    faces: &'static [(&'static str, &'static [u8])],
+    count: usize,
+    known_diffs: &'static [&'static str],
+    owner_floor: usize,
+    changed_notes: &'static [&'static str],
+}
+const GROUPS: &[Group] = &[
+    Group {
+        name: "northern-indic",
+        reference: include_str!("../../tests/fixtures/fonts/s5b/northern-indic/reference.tsv"),
+        faces: FACES,
+        count: 49,
+        known_diffs: &["known-diff:harfrust-0.8.4-vs-harfbuzz-14.5;below-base-ra"],
+        owner_floor: 40,
+        changed_notes: &["reph", "conjunct", "pre-base-matra", "conjunct-pre-base"],
+    },
+    Group {
+        name: "southern-indic",
+        reference: include_str!("../../tests/fixtures/fonts/s5b/southern-indic/reference.tsv"),
+        faces: &[
+            (
+                "Tamil-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/southern-indic/Tamil-subset.ttf"),
+            ),
+            (
+                "Telugu-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/southern-indic/Telugu-subset.ttf"),
+            ),
+            (
+                "Kannada-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/southern-indic/Kannada-subset.ttf"),
+            ),
+            (
+                "Malayalam-subset.ttf",
+                include_bytes!(
+                    "../../tests/fixtures/fonts/s5b/southern-indic/Malayalam-subset.ttf"
+                ),
+            ),
+        ],
+        count: 33,
+        known_diffs: &[],
+        owner_floor: 24,
+        changed_notes: &[
+            "conjunct",
+            "reph",
+            "pre-base-matra",
+            "split-vowel",
+            "below-base-i",
+        ],
+    },
+];
+
 fn face(name: &str) -> FontHandle {
-    let bytes = FACES
+    let bytes = GROUPS
         .iter()
+        .flat_map(|group| group.faces.iter())
         .find(|(file, _)| *file == name)
-        .unwrap_or_else(|| panic!("{name} is not a {GROUP} fixture face"))
+        .unwrap_or_else(|| panic!("{name} is not an enabled fixture face"))
         .1;
     FontHandle::try_from_vec(bytes.to_vec()).expect("fixture face parses")
 }
@@ -107,15 +160,19 @@ where
 /// Parse the group's references with the agreed loader rules: eight
 /// tab-separated columns, equal array lengths, and a font from the group.
 fn rows() -> Vec<Row> {
+    group_rows(&GROUPS[0])
+}
+
+fn group_rows(group: &Group) -> Vec<Row> {
     let mut out = Vec::new();
-    for line in REFERENCE.lines() {
+    for line in group.reference.lines() {
         if line.starts_with('#') || line.starts_with("font\t") || line.is_empty() {
             continue;
         }
         let fields: Vec<&str> = line.split('\t').collect();
         assert_eq!(fields.len(), 8, "column count: {line}");
         assert!(
-            FACES.iter().any(|(file, _)| *file == fields[0]),
+            group.faces.iter().any(|(file, _)| *file == fields[0]),
             "font outside the group: {line}"
         );
         let text = fields[1]
@@ -176,39 +233,41 @@ fn shape_raw(face: &FontHandle, text: &str) -> Vec<(u32, u32, i32, i32, i32)> {
 }
 
 #[test]
-fn harfrust_matches_every_northern_reference_except_the_recorded_difference() {
-    let rows = rows();
-    assert_eq!(rows.len(), 49);
-    let mut mismatches = Vec::new();
-    for row in &rows {
-        let expected: Vec<_> = (0..row.glyphs.len())
-            .map(|i| {
-                (
-                    u32::from(row.glyphs[i]),
-                    row.clusters[i],
-                    row.x_offset[i],
-                    row.y_offset[i],
-                    row.x_advance[i],
-                )
-            })
-            .collect();
-        let face = face(&row.font);
-        if shape_raw(&face, &row.text) != expected {
-            mismatches.push(row.note.clone());
+fn harfrust_matches_every_enabled_reference_except_recorded_differences() {
+    for group in GROUPS {
+        let rows = group_rows(group);
+        assert_eq!(rows.len(), group.count, "{}", group.name);
+        let mut mismatches = Vec::new();
+        for row in &rows {
+            let expected: Vec<_> = (0..row.glyphs.len())
+                .map(|i| {
+                    (
+                        u32::from(row.glyphs[i]),
+                        row.clusters[i],
+                        row.x_offset[i],
+                        row.y_offset[i],
+                        row.x_advance[i],
+                    )
+                })
+                .collect();
+            let face = face(&row.font);
+            if shape_raw(&face, &row.text) != expected {
+                mismatches.push(row.note.clone());
+            }
+            let data = shaper_data(&face).unwrap();
+            let placed = shape_owner(&face, &data, &row.text).expect("clean shaping result");
+            if !row.known_diff() {
+                assert_eq!(placed, row.placed(), "{row:?}");
+            }
         }
-        let data = shaper_data(&face).unwrap();
-        let placed = shape_owner(&face, &data, &row.text).expect("clean shaping result");
-        if !row.known_diff() {
-            assert_eq!(placed, row.placed(), "{row:?}");
-        }
+        // The recorded engine-version difference is asserted, never skipped: a
+        // shaper change that fixes or worsens it fails here.
+        assert_eq!(mismatches, group.known_diffs, "{}", group.name);
     }
-    // The recorded engine-version difference is asserted, never skipped: a
-    // shaper change that fixes or worsens it fails here.
-    assert_eq!(mismatches, vec![format!("{KNOWN_DIFF};below-base-ra")]);
 }
 
 #[test]
-fn classifier_enables_exactly_the_northern_indic_group() {
+fn classifier_enables_exactly_the_enabled_groups() {
     let attrs = crate::core::Attrs::default();
     for ch in [
         '\u{0915}',
@@ -218,6 +277,10 @@ fn classifier_enables_exactly_the_northern_indic_group() {
         '\u{0B15}',
         '\u{A8F2}',
         '\u{11B00}',
+        '\u{0B95}',
+        '\u{0C15}',
+        '\u{0C95}',
+        '\u{0D15}',
     ] {
         assert!(owner_is_eligible(&Cell::new(ch, attrs)), "{ch:?}");
     }
@@ -227,7 +290,6 @@ fn classifier_enables_exactly_the_northern_indic_group() {
         '\u{0628}',
         '\u{1F600}',
         '\u{2500}',
-        '\u{0B95}',
         '\u{0D9A}',
         '\u{1780}',
         '\u{0E01}',
@@ -427,51 +489,59 @@ fn oracle_run(
 #[test]
 fn production_frames_equal_the_reference_run_and_differ_from_the_per_cell_path() {
     let _guard = crate::test_lock::render_globals_lock();
-    let mut compared = 0;
-    let mut changed = Vec::new();
-    for row in rows().iter().filter(|row| !row.known_diff()) {
-        let font = face(&row.font);
-        let snapshot = terminal(&row.text, 4).snapshot();
-        let Some(span) = single_owner(&snapshot) else {
-            continue;
-        };
-        assert_eq!(snapshot.cells[0].grapheme(), row.text);
-        let mut atlas = GlyphAtlas::build(&font, PX);
-        ensure_cells(&mut atlas, &font, &snapshot);
-        let per_cell = frame(&snapshot, &atlas, &[]);
-        let mut shaper = ComplexShaper::new();
-        let runs = shaper.build_runs(true, &snapshot, &Fonts(font.clone()), &mut atlas, &[]);
-        assert_eq!(runs.len(), 1, "{row:?}");
-        assert_eq!((runs[0].start, runs[0].end), (0, span));
-        let production = frame(&snapshot, &atlas, &runs);
-        let oracle = oracle_run(&mut atlas, &font, true, &row.placed(), 0, span);
-        assert_eq!(production, frame(&snapshot, &atlas, &[oracle]), "{row:?}");
-        // No ink leaves the owner's span.
-        let blank = frame(&terminal("", 4).snapshot(), &atlas, &[]);
-        assert_eq!(
-            production.columns(span..4),
-            blank.columns(span..4),
-            "{row:?}"
-        );
-        if production != per_cell {
-            changed.push(row.note.clone());
+    for group in GROUPS {
+        let mut compared = 0;
+        let mut changed = Vec::new();
+        for row in group_rows(group).iter().filter(|row| !row.known_diff()) {
+            let font = face(&row.font);
+            let snapshot = terminal(&row.text, 4).snapshot();
+            let Some(span) = single_owner(&snapshot) else {
+                continue;
+            };
+            assert_eq!(snapshot.cells[0].grapheme(), row.text);
+            let mut atlas = GlyphAtlas::build(&font, PX);
+            ensure_cells(&mut atlas, &font, &snapshot);
+            let per_cell = frame(&snapshot, &atlas, &[]);
+            let mut shaper = ComplexShaper::new();
+            let runs = shaper.build_runs(true, &snapshot, &Fonts(font.clone()), &mut atlas, &[]);
+            assert_eq!(runs.len(), 1, "{row:?}");
+            assert_eq!((runs[0].start, runs[0].end), (0, span));
+            let production = frame(&snapshot, &atlas, &runs);
+            let oracle = oracle_run(&mut atlas, &font, true, &row.placed(), 0, span);
+            assert_eq!(production, frame(&snapshot, &atlas, &[oracle]), "{row:?}");
+            // No ink leaves the owner's span.
+            let blank = frame(&terminal("", 4).snapshot(), &atlas, &[]);
+            assert_eq!(
+                production.columns(span..4),
+                blank.columns(span..4),
+                "{row:?}"
+            );
+            if production != per_cell {
+                changed.push(row.note.clone());
+            }
+            compared += 1;
         }
-        compared += 1;
-    }
-    assert!(compared >= 40, "{compared} single-owner samples");
-    for note in ["reph", "conjunct", "pre-base-matra", "conjunct-pre-base"] {
         assert!(
-            changed.iter().any(|changed| changed == note),
-            "{note} draws differently from the per-cell path: {changed:?}"
+            compared >= group.owner_floor,
+            "{}: {compared} single-owner samples",
+            group.name
         );
+        for note in group.changed_notes {
+            assert!(
+                changed.iter().any(|changed| changed == *note),
+                "{note} draws differently from the per-cell path: {changed:?}"
+            );
+        }
+        if group.name == "northern-indic" {
+            let structural = changed
+                .iter()
+                .filter(|note| {
+                    note.contains("reph") || note.contains("conjunct") || note.contains("pre-base")
+                })
+                .count();
+            assert!(structural >= 12, "{changed:?}");
+        }
     }
-    let structural = changed
-        .iter()
-        .filter(|note| {
-            note.contains("reph") || note.contains("conjunct") || note.contains("pre-base")
-        })
-        .count();
-    assert!(structural >= 12, "{changed:?}");
 }
 
 #[test]
@@ -683,4 +753,60 @@ fn joiners_need_no_glyph_and_missing_scalars_never_shape() {
     // A face missing a scalar shapes it to .notdef, which never draws.
     let data = shaper_data(&latin).unwrap();
     assert_eq!(shape_owner(&latin, &data, "\u{0915}\u{094D}\u{0937}"), None);
+}
+
+#[test]
+fn enabled_groups_preserve_copy_fallback_off_and_bidi_owner_spans() {
+    let _guard = crate::test_lock::render_globals_lock();
+    for group in GROUPS {
+        for row in group_rows(group) {
+            let mut term = terminal(&row.text, 8);
+            let snapshot = term.snapshot();
+            let Some(span) = single_owner(&snapshot) else {
+                continue;
+            };
+            let range = SelectionRange {
+                start: CellPoint { row: 0, column: 0 },
+                end: CellPoint { row: 0, column: 7 },
+            };
+            assert_eq!(selected_text(&snapshot, range).trim_end(), row.text);
+            let primary = latin_face();
+            let fallback = Arc::new(face(&row.font));
+            let mut atlas = GlyphAtlas::build(&primary, PX);
+            let mut shaper = ComplexShaper::new();
+            let fonts = Fonts(primary);
+            assert!(
+                shaper
+                    .build_runs(true, &snapshot, &fonts, &mut atlas, &[])
+                    .is_empty()
+            );
+            atlas.set_fallback_fonts(vec![fallback]);
+            shaper.clear(); // Font configuration changes invalidate settled face decisions.
+            let runs = shaper.build_runs(true, &snapshot, &fonts, &mut atlas, &[]);
+            assert_eq!(runs.len(), 1, "{row:?}");
+            assert_eq!((runs[0].start, runs[0].end), (0, span));
+            assert!(
+                shaper
+                    .build_runs(false, &snapshot, &fonts, &mut atlas, &[])
+                    .is_empty()
+            );
+            assert_eq!(term.snapshot(), snapshot);
+            term.resize(10, 1);
+            term.resize(8, 1);
+            assert_eq!(selected_text(&term.snapshot(), range).trim_end(), row.text);
+            let mixed = terminal(&format!("\u{05d0}\u{05d1}{}", row.text), 8);
+            let mixed_snapshot = mixed.snapshot();
+            let wrapped: Vec<_> = mixed
+                .visible_search_rows(0)
+                .iter()
+                .map(|r| r.wrapped)
+                .collect();
+            let map = BidiDisplayMap::plan(&mixed_snapshot, &wrapped);
+            let runs = shaper.build_runs(true, &mixed_snapshot, &fonts, &mut atlas, &[]);
+            assert_eq!(runs.len(), 1, "{row:?}");
+            assert_eq!((runs[0].start, runs[0].end), (2, 2 + span));
+            let visual: Vec<_> = (2..2 + span).map(|c| map.visual_column(0, c)).collect();
+            assert_eq!(visual, (2..2 + span).collect::<Vec<_>>());
+        }
+    }
 }
