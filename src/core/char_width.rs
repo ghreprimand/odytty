@@ -5,7 +5,8 @@
 //! Ambiguous is one column. Wide mode is
 //! [`unicode_width::UnicodeWidthChar::width_cjk`]: Ambiguous is two columns,
 //! and the crate's other East Asian-context rules apply. No second width
-//! table is kept here.
+//! table is kept here. Khmer U+17A4 and U+17D8 use explicit one-cell
+//! compatibility overrides in both modes.
 //!
 //! These call sites measure overlay chrome, not the terminal grid, and stay
 //! on `UnicodeWidthChar::width`:
@@ -24,6 +25,11 @@ use unicode_width::UnicodeWidthChar;
 /// Columns `ch` occupies. `None` from the crate (controls) becomes 1, matching
 /// the historical `print_char` fallback. Combining marks stay 0.
 pub(crate) fn char_display_width(ch: char, ambiguous_wide: bool) -> usize {
+    // Frozen Khmer scalar compatibility widths, independent of mark absorption.
+    // Source and reconstructed/history owners share the one-cell policy.
+    if matches!(ch, '\u{17a4}' | '\u{17d8}') {
+        return 1;
+    }
     let measured = if ambiguous_wide {
         UnicodeWidthChar::width_cjk(ch)
     } else {
@@ -49,7 +55,7 @@ pub(crate) fn thai_lao_spacing_extension(base: char, next: char) -> bool {
 }
 
 /// Width of a retained owner. Script-specific additions stay bounded here;
-/// Northern/southern Indic and Sinhala width units are bounded; emoji policy is unchanged.
+/// Indic, Sinhala, Khmer, and Myanmar width units are bounded; emoji policy is unchanged.
 pub(crate) fn owner_display_width(base: char, extensions: &[char], ambiguous_wide: bool) -> usize {
     if super::indic::has_two_cell_footprint(base, extensions)
         || extensions

@@ -309,9 +309,9 @@ mod tests {
     }
     #[test]
     fn replay_frames_preserve_extended_owners_and_logical_text() {
-        let mut terminal = crate::core::Terminal::new(8, 4);
+        let mut terminal = crate::core::Terminal::new(8, 5);
         let source = format!(
-            "\u{301}\u{e01}\u{e33}\u{915}\u{93e}\u{995}\u{9cd}\u{9b7}\u{b95}\u{bbe}\u{c15}\u{c4d}\u{c15}\u{c41}\u{c95}\u{cc0}\u{d15}\u{d4d}\u{d15}\u{d3f}\u{d9a}\u{dca}\u{200d}\u{d9a}A{}",
+            "\u{301}\u{e01}\u{e33}\u{915}\u{93e}\u{995}\u{9cd}\u{9b7}\u{b95}\u{bbe}\u{c15}\u{c4d}\u{c15}\u{c41}\u{c95}\u{cc0}\u{d15}\u{d4d}\u{d15}\u{d3f}\u{d9a}\u{dca}\u{200d}\u{d9a}\u{1780}\u{17d2}\u{1780}\u{1000}\u{1039}\u{1000}\u{17a4}\u{17d8}A{}",
             "\u{301}".repeat(40)
         );
         terminal.advance(source.as_bytes());

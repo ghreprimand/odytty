@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Bounded northern/southern Indic and Sinhala width units, using Unicode 17 properties.
+//! Bounded Indic, Sinhala, Khmer, and Myanmar width units, using Unicode 17 properties.
 //! Gurmukhi, Tamil, and Sinhala width units can cross a UAX #29 break.
 //! This module does not shape glyphs or change other script groups.
 mod data;
@@ -20,7 +20,8 @@ fn is_extend(ch: char) -> bool {
         .is_some_and(|&(start, _, _)| start <= cp)
 }
 
-/// A spacing mark or virama-linked consonant extends its same-script owner.
+/// A spacing mark or virama/invisible-stacker-linked consonant extends its same-script owner.
+/// Khmer/Myanmar also use InCB Consonant, including linked independent vowels.
 /// Zero-width extensions already take the common streaming path.
 pub(super) fn extends(base: char, extensions: &[char], next: char) -> bool {
     let sid = script(data::BASES, base);

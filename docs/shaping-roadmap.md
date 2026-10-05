@@ -54,10 +54,11 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen, right-to-left paragraph levels, and complex-script shaping are not reordered |
-| Complex Indic/Brahmic shaping | Not supported | Northern/southern Indic and Sinhala source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
+| Complex Indic/Brahmic shaping | Not supported | Northern/southern Indic, Sinhala, Khmer, and Myanmar source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping |
 | Southern Indic terminal widths | Tamil, Telugu, Kannada, and Malayalam spacing signs and virama-linked consonants share bounded two-cell owners | Tamil width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
+| Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed complex-script reordering remains unsupported |
 | Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |
 | SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Planned for v0.17.0. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
 
@@ -240,7 +241,7 @@ require several source characters to form one cluster, glyphs to reorder around
 the cluster, and marks to attach at positions that do not correspond to their
 source cells.
 
-Northern/southern Indic and Sinhala source ownership now exist in the terminal model. Font-backed
+Northern/southern Indic, Sinhala, Khmer, and Myanmar source ownership now exist in the terminal model. Font-backed
 shaping still requires a reversible mapping between each owner's logical source
 and its reordered glyphs. The mapping would need to survive editing, erase, resize,
 reflow, scrollback, selection, search, cursor movement, snapshot, and transcript

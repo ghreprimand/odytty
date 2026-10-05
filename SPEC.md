@@ -2481,17 +2481,19 @@ disappeared and now occupy one cell, without an invented base.
 The default 32 MiB snapshot section budget bounds the visible grid by 91 bytes
 per maximum-size encoded cell instead of 43, allowing about 368,000 cells.
 Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and
-Malayalam, and Sinhala use Unicode 17.0.0 Script,
+Malayalam, Sinhala, Khmer, and Myanmar use Unicode 17.0.0 Script,
 General_Category, and Indic_Syllabic_Category data. A same-script spacing mark
-following a measured letter or a virama-linked consonant promotes its owner
+following a measured letter or a virama/invisible-stacker-linked consonant promotes its owner
 to two cells. Further joined consonants remain within those two cells.
-ZWJ preserves the virama link; ZWNJ prevents the next consonant from joining.
+Khmer and Myanmar also accept linked Unicode InCB Consonant scalars,
+including independent vowels. ZWJ preserves the virama link; ZWNJ prevents the next consonant from joining.
 Gurmukhi, Tamil, and Sinhala terminal width units can cross an extended-grapheme boundary; width
-ownership is distinct from segmentation. Other script groups and emoji widths
+ownership is distinct from segmentation. Khmer U+17A4 and U+17D8 are explicit
+one-cell scalar compatibility cases in both ambiguous-width modes. Other script groups and emoji widths
 retain their prior rules. No font-backed complex-script glyph reordering is
 provided. The source bound remains seventeen scalars per owner, with lossless
 bounded-owner overflow. Unicode fixtures exercise bounded northern and southern
-Indic and Sinhala property subsets, plus the northern GraphemeBreakTest subset. No full
+Indic, Sinhala, Khmer, and Myanmar property subsets, plus bounded northern and Khmer/Myanmar GraphemeBreakTest subsets. No full
 grapheme conformance is claimed.
 
 Zero-width combining marks remain stored with their base cell in arrival order.

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Unicode width occupancy: a measured surface, not an assumed one.
 //!
-//! `print_char` asks `char_display_width` once per scalar, with no lookahead.
+//! Terminal ownership uses bounded script extensions; emoji still follows
+//! independent scalar widths on this surface.
 //! The default policy is the narrow table (`UnicodeWidthChar::width`). Wide
 //! mode uses `UnicodeWidthChar::width_cjk` and is covered separately. This
 //! file records what the default produces for a representative sample, including cases that disagree with
-//! Unicode grapheme-cluster width (VS15/VS16, ZWJ emoji, Khmer table outliers).
+//! Unicode grapheme-cluster width (VS15/VS16 and ZWJ emoji). Khmer scalar
+//! compatibility cases now assert their frozen one-cell expected widths.
 //! Known-divergent rows assert the *current* occupancy so a future change
 //! cannot silently retcon the number; they also assert it is not the Unicode
 //! expected value, so a real fix has to promote the row rather than leave a
@@ -32,56 +34,24 @@ fn cell_at(input: &str, column: usize) -> odytty::core::Cell {
     terminal.screen().cell(0, column).expect("column in range")
 }
 
-/// U+17A4 / U+17D8: unicode-width 0.2.2 table values, not combining absorption.
-///
-/// `print_char` only attaches when `width == 0`. These scalars are width 2 and
-/// 3 in the crate OdyTTY uses, so they consume columns and leave combining
-/// empty. A following ASCII letter is not swallowed into the Khmer cell.
-///
-/// The ucs-detect report listed measured 3 for U+17A4 and 2 for U+17D8; the
-/// crate's own docs and tests are the other way around (QAA=2, BEYYAL=3). This
-/// test pins occupancy against the crate, which is what `print_char` reads.
+/// U+17A4 / U+17D8 use the frozen one-cell compatibility widths.
+/// Following ASCII remains a separate owner rather than a swallowed follower.
 #[test]
-fn khmer_qaa_and_beyyal_are_unicode_width_table_values_not_absorption() {
-    let qaa = '\u{17A4}'; // KHMER INDEPENDENT VOWEL QAA
-    let beyyal = '\u{17D8}'; // KHMER SIGN BEYYAL
-
-    // QAA: one lead cell, one wide spacer. Following 'X' is its own cell,
-    // not a combining mark on the Khmer.
-    let mut qaa_term = Terminal::new(80, 1);
-    qaa_term.advance("\u{17A4}X".as_bytes());
-    let qaa_lead = qaa_term.screen().cell(0, 0).unwrap();
-    let qaa_next = qaa_term.screen().cell(0, 1).unwrap();
-    let qaa_x = qaa_term.screen().cell(0, 2).unwrap();
-    assert_eq!(qaa_lead.ch, qaa);
-    assert!(qaa_lead.combining().is_empty());
-    assert_eq!(qaa_lead.grapheme(), "\u{17A4}");
-    assert!(
-        qaa_next.wide_continuation,
-        "width 2 writes a continuation spacer; not a swallowed follower"
-    );
-    assert_eq!(qaa_x.ch, 'X');
-    assert!(qaa_x.combining().is_empty());
-    assert_eq!(qaa_term.screen().cursor(), Position { row: 0, column: 3 });
-
-    // BEYYAL: width 3 advances the cursor by 3 but only width==2 writes a
-    // spacer, so columns 1 and 2 stay blank. Following 'X' lands at column 3.
-    let mut bey_term = Terminal::new(80, 1);
-    bey_term.advance("\u{17D8}X".as_bytes());
-    let bey_lead = bey_term.screen().cell(0, 0).unwrap();
-    let bey_c1 = bey_term.screen().cell(0, 1).unwrap();
-    let bey_c2 = bey_term.screen().cell(0, 2).unwrap();
-    let bey_x = bey_term.screen().cell(0, 3).unwrap();
-    assert_eq!(bey_lead.ch, beyyal);
-    assert!(bey_lead.combining().is_empty());
-    assert_eq!(bey_lead.grapheme(), "\u{17D8}");
-    assert_eq!(bey_c1.ch, ' ');
-    assert!(!bey_c1.wide_continuation);
-    assert!(bey_c1.combining().is_empty());
-    assert_eq!(bey_c2.ch, ' ');
-    assert!(!bey_c2.wide_continuation);
-    assert_eq!(bey_x.ch, 'X');
-    assert_eq!(bey_term.screen().cursor(), Position { row: 0, column: 4 });
+fn khmer_qaa_and_beyyal_use_one_cell_without_absorbing_ascii() {
+    for ch in ['\u{17a4}', '\u{17d8}'] {
+        let mut terminal = Terminal::new(80, 1);
+        terminal.advance(format!("{ch}X").as_bytes());
+        let lead = terminal.screen().cell(0, 0).unwrap();
+        let next = terminal.screen().cell(0, 1).unwrap();
+        assert_eq!(lead.ch, ch);
+        assert_eq!(lead.grapheme(), ch.to_string());
+        assert!(lead.combining().is_empty());
+        assert!(!lead.wide_continuation);
+        assert_eq!(next.ch, 'X');
+        assert!(next.combining().is_empty());
+        assert!(!next.wide_continuation);
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 2 });
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -131,18 +101,12 @@ fn cases() -> &'static [Case] {
         Case {
             name: "khmer_qaa_u17a4",
             input: "\u{17A4}",
-            expect: WidthExpect::KnownDivergent {
-                unicode: 1,
-                odytty: 2,
-            },
+            expect: WidthExpect::Conforming { width: 1 },
         },
         Case {
             name: "khmer_beyyal_u17d8",
             input: "\u{17D8}",
-            expect: WidthExpect::KnownDivergent {
-                unicode: 1,
-                odytty: 3,
-            },
+            expect: WidthExpect::Conforming { width: 1 },
         },
         // WHITE SMILING FACE is width 1; VS16 requests emoji presentation
         // (width 2). Independent lookup: 1 + 0 = 1.
