@@ -564,7 +564,7 @@ fn generated_wide_padding_is_not_exported_as_source_text() {
 fn extended_source_owners_survive_plain_and_html_export() {
     // Project-authored script samples, under the project license.
     let text = format!(
-        "\u{301}abc\u{e01}\u{e33}\u{f40}\u{f90}\u{f72}\u{915}\u{93e}\u{995}\u{9cd}\u{9b7}\u{b95}\u{bbe}\u{c15}\u{c4d}\u{c15}\u{c41}\u{c95}\u{cc0}\u{d15}\u{d4d}\u{d15}\u{d3f}A{}Z",
+        "\u{301}abc\u{e01}\u{e33}\u{f40}\u{f90}\u{f72}\u{915}\u{93e}\u{995}\u{9cd}\u{9b7}\u{b95}\u{bbe}\u{c15}\u{c4d}\u{c15}\u{c41}\u{c95}\u{cc0}\u{d15}\u{d4d}\u{d15}\u{d3f}\u{d9a}\u{dca}\u{200d}\u{d9a}A{}Z",
         "\u{301}".repeat(40)
     );
     let mut terminal = crate::core::Terminal::new(4, 24);

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Bounded northern and southern Indic terminal width units, using Unicode 17 properties.
-//! Gurmukhi and Tamil virama sequences use a terminal width unit across a UAX #29 break.
+//! Bounded northern/southern Indic and Sinhala width units, using Unicode 17 properties.
+//! Gurmukhi, Tamil, and Sinhala width units can cross a UAX #29 break.
 //! This module does not shape glyphs or change other script groups.
 mod data;
 

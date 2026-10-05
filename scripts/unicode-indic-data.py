@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Generate bounded G1/G2 tables and conformance fixtures from Unicode 17.0.0 UCD.
+"""Generate bounded G1/G2/G3 tables and conformance fixtures from Unicode 17.0.0 UCD.
 
 Usage: unicode-indic-data.py <directory holding UnicodeData.txt, Scripts.txt,
 IndicSyllabicCategory.txt, DerivedCoreProperties.txt, GraphemeBreakProperty.txt,
@@ -14,7 +14,8 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 G1 = ('Devanagari', 'Bengali', 'Gurmukhi', 'Gujarati', 'Oriya')
 G2 = ('Tamil', 'Telugu', 'Kannada', 'Malayalam')
-NAMES = G1 + G2
+G3 = ('Sinhala',)
+NAMES = G1 + G2 + G3
 
 def properties(path):
     out = {}
@@ -96,6 +97,16 @@ def main():
             sid = G2.index(scripts[cp]) + 1
             data.append(f'{cp:04X};{sid};{cats.get(cp,"Cn")};{isc.get(cp,"Other")};{gcb.get(cp,"Other")};{incb.get(cp,"None")}')
     (fixture / 'G2-properties.txt').write_text('\n'.join(data) + '\n')
+    data = ['# Unicode 17.0.0 G3 properties; Unicode-3.0, see LICENSE-UNICODE.txt.',
+            '# Scripts: 1 Sinhala.',
+            '# Columns: scalar;script-id;General_Category;Indic_Syllabic_Category;GCB;DerivedCoreProperties final assignment.']
+    for name in ('Scripts.txt', 'UnicodeData.txt', 'IndicSyllabicCategory.txt', 'DerivedCoreProperties.txt', 'GraphemeBreakProperty.txt'):
+        data.append(f'# {name} SHA-256: {hashlib.sha256((source / name).read_bytes()).hexdigest()}')
+    for cp in sorted(scope):
+        if scripts[cp] in G3:
+            data.append(f'{cp:04X};1;{cats.get(cp,"Cn")};{isc.get(cp,"Other")};{gcb.get(cp,"Other")};{incb.get(cp,"None")}')
+    (fixture / 'G3-properties.txt').write_text('\n'.join(data) + '\n')
+
 
 if __name__ == '__main__':
     main()
