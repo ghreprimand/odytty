@@ -230,9 +230,6 @@ fn load_color_emoji_font_after(
     load_color_emoji_font_excluding(inventory, failed.as_deref())
 }
 
-/// The first loadable color-emoji face under `inventory`: files named after a
-/// known color-emoji face in inventory order, then any other file with a
-/// COLR/CPAL table, at most [`MAX_EMOJI_FONT_CANDIDATES`] load attempts in all.
 #[cfg(test)]
 pub(crate) fn load_color_emoji_font_after_for_test(
     fontconfig: Option<EmojiFontMatch>,
@@ -248,6 +245,10 @@ pub(crate) fn load_color_emoji_font_in_inventory(
     load_color_emoji_font_excluding(inventory, None)
 }
 
+/// The first loadable color-emoji face under `inventory`, skipping `skip`:
+/// files named after a known color-emoji face in inventory order, then any
+/// other file with a COLR/CPAL table, at most [`MAX_EMOJI_FONT_CANDIDATES`]
+/// load attempts in all.
 fn load_color_emoji_font_excluding(
     inventory: &crate::text::FontFileInventory,
     skip: Option<&Path>,
@@ -609,14 +610,11 @@ fn normalized_stem(path: &Path) -> String {
         .collect()
 }
 
+/// Whether face 0 of `path` carries both COLR and CPAL tables, the same answer
+/// [`color_formats`] gives for [`ColorGlyphFormat::ColrCpal`], read from the
+/// table directory alone so probing a host font never reads the whole file.
 fn has_colr_cpal(path: &Path) -> bool {
-    let Ok(data) = crate::font_file::read_font_file(path) else {
-        return false;
-    };
-    let Some(font) = FontRef::from_index(&data, 0) else {
-        return false;
-    };
-    color_formats(font).contains(&ColorGlyphFormat::ColrCpal)
+    crate::font_file::face0_has_tables(path, &[*b"COLR", *b"CPAL"])
 }
 
 /// Family-name normalization for the fontconfig result; gated with its sole

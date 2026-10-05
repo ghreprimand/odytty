@@ -610,3 +610,129 @@ fn first_system_font() -> Option<&'static Path> {
     .map(Path::new)
     .find(|path| path.is_file())
 }
+
+/// The answer the COLR/CPAL probe gave when it parsed the whole file.
+fn parsed_colr_cpal(bytes: &[u8]) -> bool {
+    FontRef::from_index(bytes, 0)
+        .is_some_and(|font| color_formats(font).contains(&ColorGlyphFormat::ColrCpal))
+}
+
+/// Byte offset of the table record for `tag` in a single-face sfnt.
+fn record_offset(bytes: &[u8], tag: &[u8; 4]) -> Option<usize> {
+    let count = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+    (0..count)
+        .map(|index| 12 + index * 16)
+        .find(|&at| &bytes[at..at + 4] == tag)
+}
+
+/// `bytes` re-wrapped as a one-face TrueType collection with every table
+/// offset shifted past the collection header.
+fn as_collection(bytes: &[u8], declared_faces: u32) -> Vec<u8> {
+    const HEADER: usize = 16;
+    let mut out = Vec::with_capacity(bytes.len() + HEADER);
+    out.extend_from_slice(b"ttcf");
+    out.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+    out.extend_from_slice(&declared_faces.to_be_bytes());
+    out.extend_from_slice(&(HEADER as u32).to_be_bytes());
+    out.extend_from_slice(bytes);
+    let count = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+    for index in 0..count {
+        let at = HEADER + 12 + index * 16 + 8;
+        let offset = u32::from_be_bytes(out[at..at + 4].try_into().unwrap());
+        out[at..at + 4].copy_from_slice(&(offset + HEADER as u32).to_be_bytes());
+    }
+    out
+}
+
+/// Well-formed fonts plus malformed variants of each, covering truncation,
+/// out-of-file table ranges, an unsorted directory, a wrong magic, an inflated
+/// table count, and collection wrapping.
+fn colr_probe_corpus() -> Vec<(String, Vec<u8>)> {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let sources = [
+        fixture_font("color-emoji-colr-v0.ttf"),
+        fixture_font("color-emoji-colr-v1.ttf"),
+        fixture_font("color-emoji-sbix.ttf"),
+        fixture_font("bidi-mixed.ttf"),
+        manifest.join("assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"),
+        manifest.join("assets/fonts/victor-mono/VictorMono-Regular.otf"),
+    ];
+    let mut corpus = vec![("empty".to_string(), Vec::new())];
+    for source in sources {
+        let name = source.file_name().unwrap().to_string_lossy().into_owned();
+        let bytes = std::fs::read(&source).expect("read probe fixture");
+        let mut push = |label: &str, variant: Vec<u8>| {
+            corpus.push((format!("{name}/{label}"), variant));
+        };
+        push("original", bytes.clone());
+        push("magic-only", bytes[..4].to_vec());
+        push("header-only", bytes[..12].to_vec());
+        push("half-directory", bytes[..12 + 24].to_vec());
+        push("half-file", bytes[..bytes.len() / 2].to_vec());
+        let mut magic = bytes.clone();
+        magic[..4].copy_from_slice(b"wOFF");
+        push("wrong-magic", magic);
+        let mut inflated = bytes.clone();
+        inflated[4..6].copy_from_slice(&u16::MAX.to_be_bytes());
+        push("inflated-count", inflated);
+        if let Some(at) = record_offset(&bytes, b"COLR") {
+            let mut past_end = bytes.clone();
+            past_end[at + 8..at + 12].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
+            push("colr-past-end", past_end);
+            let mut overflow = bytes.clone();
+            overflow[at + 8..at + 16].copy_from_slice(&[0xff; 8]);
+            push("colr-range-overflow", overflow);
+            let mut unsorted = bytes.clone();
+            let first: [u8; 16] = unsorted[12..28].try_into().unwrap();
+            let colr: [u8; 16] = unsorted[at..at + 16].try_into().unwrap();
+            unsorted[12..28].copy_from_slice(&colr);
+            unsorted[at..at + 16].copy_from_slice(&first);
+            push("unsorted-directory", unsorted);
+        }
+        push("collection", as_collection(&bytes, 1));
+        push("collection-no-faces", as_collection(&bytes, 0));
+        let mut bad_face = as_collection(&bytes, 1);
+        let past_end = bad_face.len() as u32;
+        bad_face[12..16].copy_from_slice(&past_end.to_be_bytes());
+        push("collection-face-past-end", bad_face);
+    }
+    corpus
+}
+
+#[test]
+fn colr_cpal_directory_probe_matches_the_parsed_font_answer() {
+    let root = unique_temp_dir("odytty-colr-directory-probe");
+    std::fs::create_dir_all(&root).expect("create probe dir");
+    let mut accepted = Vec::new();
+    for (index, (label, bytes)) in colr_probe_corpus().into_iter().enumerate() {
+        let path = root.join(format!("probe-{index}.ttf"));
+        std::fs::write(&path, &bytes).expect("write probe variant");
+        let expected = parsed_colr_cpal(&bytes);
+        assert_eq!(
+            super::has_colr_cpal(&path),
+            expected,
+            "directory probe disagrees with the parsed font for {label}"
+        );
+        if expected {
+            accepted.push(label);
+        }
+    }
+    // The corpus must exercise both answers, including a collection face.
+    assert!(
+        accepted
+            .iter()
+            .any(|label| label.ends_with("colr-v0.ttf/original")),
+        "accepted: {accepted:?}"
+    );
+    assert!(
+        accepted.iter().any(|label| label.ends_with("/collection")),
+        "accepted: {accepted:?}"
+    );
+    assert!(
+        !accepted
+            .iter()
+            .any(|label| label.starts_with("JetBrainsMono")),
+        "accepted: {accepted:?}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

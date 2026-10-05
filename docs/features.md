@@ -341,7 +341,10 @@ their ordinary semantics. Latin/operator runs enable OpenType `calt` and
 `liga` together; optional stylistic sets `ss01` and `ss02` are off by default
 (`ss01 = on` / `ODYTTY_LIGATURE_SS01=on`, and likewise for `ss02`). Arabic
 joining is shaped in **logical left-to-right cell order** unless bidirectional
-reordering is on (below). Arabic letters carrying harakat (fatha, kasra,
+reordering is on (below). In logical order each letter takes the contextual
+form its typed neighbors give it, but the letters sit left to right, so their
+connecting strokes face away from each other and a word does not draw as one
+connected shape; with reordering on it does. Arabic letters carrying harakat (fatha, kasra,
 shadda, and the other Arabic nonspacing marks) stay in their joining run, and
 the marks are drawn where the font's mark positioning places them. Unsupported
 fonts and runs

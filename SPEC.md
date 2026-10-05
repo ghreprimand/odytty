@@ -2539,8 +2539,11 @@ the existing coverage atlas.
 Emoji cells sample source pixels directly and are never tinted by SGR
 foreground color. Linux font discovery probes fontconfig for Noto Color Emoji;
 directory scanning recognizes Noto Color Emoji, Apple Color Emoji, stock
-Windows Segoe UI Emoji (`seguiemj.ttf`), and other parseable COLR/CPAL faces,
-and a candidate that fails to load falls through to the next.
+Windows Segoe UI Emoji (`seguiemj.ttf`), and other COLR/CPAL faces,
+and a candidate that fails to load falls through to the next. A file not named
+after a known color-emoji face is checked for COLR and CPAL through its first
+face's table directory only (size ceiling, sfnt or collection magic, and each
+table's byte range inside the file), not by reading the whole file.
 Rasterization prefers existing CBDT/CBLC or sbix bitmap strikes, then static
 COLR/CPAL v0 layers, then COLR v1 Paint graphs. The v1 evaluator covers solid
 fills, gradients, transforms, clips, and composites while the earlier paths

@@ -320,6 +320,125 @@ fn over_limit(found: u64, limit: u64) -> io::Error {
     )
 }
 
+/// Whether face 0 of the font at `path` lists every table in `tags`, reading
+/// only its header and table directory rather than the whole file.
+///
+/// Discovery probes host files for color tables (COLR/CPAL) before choosing
+/// one to load; reading each candidate in full cost up to the font-file
+/// ceiling per file. This answers the same question the parsed-font check
+/// answered (`swash::FontRef::from_index(data, 0)` then a table lookup for each
+/// tag) from at most the header plus `u16::MAX` sixteen-byte records:
+///
+/// - the target must be a regular file no larger than [`MAX_FONT_FILE_BYTES`];
+/// - the magic must be an sfnt version (`0x00010000`, `OTTO`, `true`) or
+///   `ttcf`, and a collection must declare at least one face whose directory
+///   offset holds an sfnt version;
+/// - each tag is found by the same binary search over the directory, so an
+///   unsorted directory answers exactly as the parser did, and the table's
+///   byte range must lie inside the file.
+///
+/// Any read error or malformed value answers `false`, as before.
+pub(crate) fn face0_has_tables(path: &Path, tags: &[[u8; 4]]) -> bool {
+    let Ok(file_len) = regular_file_len(path) else {
+        return false;
+    };
+    if file_len > MAX_FONT_FILE_BYTES {
+        return false;
+    }
+    let Ok(mut file) = open_for_read(path) else {
+        return false;
+    };
+    reader_face0_has_tables(&mut file, file_len, tags).unwrap_or(false)
+}
+
+/// sfnt versions the parser accepts for a face's table directory.
+const SFNT_VERSIONS: [[u8; 4]; 3] = [[0, 1, 0, 0], *b"OTTO", *b"true"];
+
+fn reader_face0_has_tables<R: Read + Seek>(
+    reader: &mut R,
+    file_len: u64,
+    tags: &[[u8; 4]],
+) -> io::Result<bool> {
+    let mut magic = [0u8; 4];
+    reader.seek(SeekFrom::Start(0))?;
+    reader.read_exact(&mut magic)?;
+    let face_offset = if SFNT_VERSIONS.contains(&magic) {
+        0
+    } else if magic == TTC_TAG {
+        // ttcf header: tag(4) version(4) numFonts(4) then the face offsets.
+        reader.seek(SeekFrom::Start(8))?;
+        if read_be_u32(reader)? == 0 {
+            return Ok(false);
+        }
+        let offset = read_be_u32(reader)? as u64;
+        reader.seek(SeekFrom::Start(offset))?;
+        reader.read_exact(&mut magic)?;
+        if !SFNT_VERSIONS.contains(&magic) {
+            return Ok(false);
+        }
+        offset
+    } else {
+        return Ok(false);
+    };
+    reader.seek(SeekFrom::Start(face_offset + 4))?;
+    let mut count = [0u8; 2];
+    reader.read_exact(&mut count)?;
+    let num_tables = u16::from_be_bytes(count) as u64;
+    let directory_start = face_offset + SFNT_HEADER_BYTES;
+    let directory_end = directory_start + num_tables * TABLE_RECORD_BYTES;
+    // Only the records inside the file are readable; a binary-search probe
+    // past them fails just as the parser's bounds-checked read did.
+    let readable = directory_end.min(file_len).saturating_sub(directory_start);
+    let mut directory = vec![0u8; readable as usize];
+    reader.seek(SeekFrom::Start(directory_start))?;
+    reader.read_exact(&mut directory)?;
+    Ok(tags
+        .iter()
+        .all(|tag| directory_has_table(&directory, num_tables as usize, *tag, file_len)))
+}
+
+/// The parser's binary search over the table records, then its range check.
+fn directory_has_table(directory: &[u8], num_tables: usize, tag: [u8; 4], file_len: u64) -> bool {
+    let wanted = u32::from_be_bytes(tag);
+    let (mut low, mut high) = (0usize, num_tables);
+    while low < high {
+        let middle = (low + high) / 2;
+        // A record cut short by the end of the file still compares by its tag,
+        // as the parser's stream read does; only a match needs the full record.
+        let base = middle * 16;
+        let Some(found) = be_u32_at(directory, base) else {
+            return false;
+        };
+        match wanted.cmp(&found) {
+            std::cmp::Ordering::Less => high = middle,
+            std::cmp::Ordering::Greater => low = middle + 1,
+            std::cmp::Ordering::Equal => {
+                let (Some(start), Some(length)) = (
+                    be_u32_at(directory, base + 8),
+                    be_u32_at(directory, base + 12),
+                ) else {
+                    return false;
+                };
+                return start
+                    .checked_add(length)
+                    .is_some_and(|end| u64::from(end) <= file_len);
+            }
+        }
+    }
+    false
+}
+
+fn be_u32_at(bytes: &[u8], at: usize) -> Option<u32> {
+    let word = bytes.get(at..at.checked_add(4)?)?;
+    Some(u32::from_be_bytes([word[0], word[1], word[2], word[3]]))
+}
+
+fn read_be_u32<R: Read>(reader: &mut R) -> io::Result<u32> {
+    let mut buf = [0u8; 4];
+    reader.read_exact(&mut buf)?;
+    Ok(u32::from_be_bytes(buf))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,5 +705,53 @@ mod tests {
         symlink(&target, &link).expect("create font symlink");
         assert_eq!(read_bounded(&link, 16).expect("read linked font"), b"font");
         fs::remove_dir_all(dir).expect("remove temp directory");
+    }
+
+    /// Counts the bytes read through it.
+    struct CountingReader<R> {
+        inner: R,
+        read: u64,
+    }
+
+    impl<R: Read> Read for CountingReader<R> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = self.inner.read(buf)?;
+            self.read += n as u64;
+            Ok(n)
+        }
+    }
+
+    impl<R: Seek> Seek for CountingReader<R> {
+        fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+            self.inner.seek(pos)
+        }
+    }
+
+    #[test]
+    fn table_probe_reads_only_the_header_and_directory() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/fonts/color-emoji-colr-v1.ttf");
+        let mut bytes = fs::read(fixture).expect("read COLR fixture");
+        let num_tables = u16::from_be_bytes([bytes[4], bytes[5]]) as u64;
+        // Trailing bytes stand in for the rest of a large font file.
+        bytes.resize(bytes.len() + 4 * 1024 * 1024, 0);
+        let file_len = bytes.len() as u64;
+        let mut reader = CountingReader {
+            inner: io::Cursor::new(bytes),
+            read: 0,
+        };
+        let found = reader_face0_has_tables(&mut reader, file_len, &[*b"COLR", *b"CPAL"])
+            .expect("probe reads");
+        assert!(found);
+        // Magic, table count, and the records: nothing past the directory.
+        assert_eq!(reader.read, 4 + 2 + num_tables * TABLE_RECORD_BYTES);
+    }
+
+    #[test]
+    fn table_probe_rejects_targets_the_whole_file_read_rejected() {
+        let dir = temp_dir("probe-targets");
+        assert!(!face0_has_tables(&dir, &[*b"COLR"]));
+        assert!(!face0_has_tables(&dir.join("missing.ttf"), &[*b"COLR"]));
+        let _ = fs::remove_dir_all(dir);
     }
 }
