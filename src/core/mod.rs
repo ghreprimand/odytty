@@ -22,6 +22,7 @@ mod char_width;
 mod encoding;
 mod graphics_routing;
 mod hyperlink;
+mod indic;
 mod input_region;
 mod iterm2;
 mod kitty;

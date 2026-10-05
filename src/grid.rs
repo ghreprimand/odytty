@@ -1261,14 +1261,14 @@ fn build_cells_core(
                 push_cell_glyph(out, [x0, y0, decoration_y0], bounds, fg, seam, clip);
             }
 
-            // Zero-width combining marks stored on the cell draw over the base
+            // Retained extension scalars stored on the cell draw over the base
             // glyph at the same cell origin: each mark rasterized with a
             // one-cell pen anchor so its (left-hanging) ink lands on the base
             // cell (`combining_mark_quad`, which never yields the tofu box).
             // Marks draw even over a space base (a mark can attach to one) and
             // follow the base glyph's seam-clipping rule. Wide bases and
             // stacked multi-mark clusters render at the same single-cell
-            // anchor — a bounded approximation, not full mark positioning.
+            // anchor, a bounded approximation rather than full mark positioning.
             if !cell.attrs.hidden()
                 && cell_draws_combining_marks(cell.ch)
                 && !color_coverage.covers(row, col)

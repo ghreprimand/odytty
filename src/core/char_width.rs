@@ -49,11 +49,12 @@ pub(crate) fn thai_lao_spacing_extension(base: char, next: char) -> bool {
 }
 
 /// Width of a retained owner. Script-specific additions stay bounded here;
-/// Indic conjuncts and emoji sequences retain their existing scalar policy.
+/// Northern Indic width units are bounded; emoji policy is unchanged.
 pub(crate) fn owner_display_width(base: char, extensions: &[char], ambiguous_wide: bool) -> usize {
-    if extensions
-        .iter()
-        .any(|&c| thai_lao_spacing_extension(base, c))
+    if super::indic::has_two_cell_footprint(base, extensions)
+        || extensions
+            .iter()
+            .any(|&c| thai_lao_spacing_extension(base, c))
     {
         2
     } else {

@@ -10,7 +10,8 @@ impl Screen {
         };
         let cell = self.rows[owner.row][owner.column];
         let spacing = super::super::char_width::thai_lao_spacing_extension(cell.ch, ch);
-        if scalar_width != 0 && !spacing {
+        let indic = super::super::indic::extends(cell.ch, cell.combining(), ch);
+        if scalar_width != 0 && !spacing && !indic {
             return false;
         }
         let mut extended = cell;

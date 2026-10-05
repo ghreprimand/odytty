@@ -21,8 +21,11 @@ extensions beyond that bound start new owners without synthetic source text.
 Controls, cursor movement, edits, hard breaks, and resize terminate extension;
 SGR preserves it. Thai/Lao consonant plus SARA AM extends to a two-cell owner.
 Tone marks, Tibetan subjoined letters, and pre-base vowels retain their prior
-widths. This storage substrate does not add Indic conjunct widths, emoji
-sequence widths, or font-backed complex-script shaping.
+widths. Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing marks and
+virama-linked consonants share bounded two-cell owners, using Unicode 17.0.0
+properties. ZWJ preserves a link; ZWNJ ends consonant joining. Gurmukhi width
+ownership can cross a Unicode extended-grapheme boundary. Other script groups,
+emoji sequence widths, and font-backed complex-script shaping remain pending.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 
@@ -51,7 +54,8 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order; combining-marked cells stay on the monochrome path | More joining-script coverage that requires no visual reordering is a candidate; this is not bidirectional layout |
 | Full Unicode bidirectional layout | Not supported | Outside the current overlay model. Correct support first requires line-level logical-to-visual mapping shared by rendering, hit testing, cursor movement, selection, damage tracking, and copy semantics |
-| Complex Indic/Brahmic shaping | Not supported | Outside the current fixed-cell overlay model. Correct support requires grapheme-cluster ownership plus reordered glyph placement that remains reversible to logical cells |
+| Complex Indic/Brahmic shaping | Not supported | Northern Indic source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
+| Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping; other script groups keep their prior rules |
 | Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |
 | SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Planned for v0.17.0. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
 
@@ -209,9 +213,9 @@ require several source characters to form one cluster, glyphs to reorder around
 the cluster, and marks to attach at positions that do not correspond to their
 source cells.
 
-Support would require grapheme-cluster ownership in the terminal presentation
-model and a reversible mapping between each cluster's logical source cells and
-its reordered glyphs. The mapping would need to survive editing, erase, resize,
+Northern Indic source ownership now exists in the terminal model. Font-backed
+shaping still requires a reversible mapping between each owner's logical source
+and its reordered glyphs. The mapping would need to survive editing, erase, resize,
 reflow, scrollback, selection, search, cursor movement, snapshot, and transcript
 export. Acceptance would require script-specific shaping conformance fixtures
 and cell-by-cell semantic tests across those operations. Adding isolated

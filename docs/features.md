@@ -369,7 +369,8 @@ The support boundary is explicit:
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order; combining-marked cells stay on the monochrome path | More joining-script coverage that requires no visual reordering is a candidate; this is not bidirectional layout |
 | Full Unicode bidirectional layout | Not supported | Outside the current overlay model. Correct support first requires line-level logical-to-visual mapping shared by rendering, hit testing, cursor movement, selection, damage tracking, and copy semantics |
-| Complex Indic/Brahmic shaping | Not supported | Outside the current fixed-cell overlay model. Correct support requires grapheme-cluster ownership plus reordered glyph placement that remains reversible to logical cells |
+| Complex Indic/Brahmic shaping | Not supported | Northern Indic source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
+| Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping; other script groups keep their prior rules |
 | Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |
 | SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Deferred implementation work, not a cell-model conflict. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
 
@@ -391,7 +392,11 @@ Cursor movement, controls, edits, hard breaks, and resize terminate extension;
 SGR preserves it. Thai/Lao consonant plus SARA AM owns two cells. Tone marks,
 Tibetan subjoined letters, and pre-base-vowel positions keep their prior widths.
 Snapshot v5 preserves these scalars, the extension boundary, and pending wrap.
-Indic conjunct and emoji sequence widths remain separate work.
+Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing marks and
+virama-linked consonants share bounded two-cell owners. ZWJ preserves a virama
+link; ZWNJ breaks it. This is terminal ownership, including across Gurmukhi
+extended-grapheme boundaries. Other script groups and emoji widths keep their
+prior rules. Complex-script glyph shaping and reordering remain unsupported.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 

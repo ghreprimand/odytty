@@ -2447,7 +2447,17 @@ eligible owner they extend its source text. Ordinary leading marks previously
 disappeared and now occupy one cell, without an invented base.
 The default 32 MiB snapshot section budget bounds the visible grid by 91 bytes
 per maximum-size encoded cell instead of 43, allowing about 368,000 cells.
-Indic conjunct and emoji sequence width changes are separate work.
+Devanagari, Bengali, Gurmukhi, Gujarati, and Odia use Unicode 17.0.0 Script,
+General_Category, and Indic_Syllabic_Category data. A same-script spacing mark
+following a measured letter or a virama-linked consonant promotes its owner
+to two cells. Further joined consonants remain within those two cells.
+ZWJ preserves the virama link; ZWNJ prevents the next consonant from joining.
+Gurmukhi terminal width units can cross an extended-grapheme boundary; width
+ownership is distinct from segmentation. Other script groups and emoji widths
+retain their prior rules. No font-backed complex-script glyph reordering is
+provided. The source bound remains seventeen scalars per owner, with lossless
+bounded-owner overflow. Unicode fixtures exercise a defined G1 subset, not
+full grapheme conformance.
 
 Zero-width combining marks remain stored with their base cell in arrival order.
 The monochrome renderer draws resident marks over that base and suppresses a

@@ -507,7 +507,7 @@ const INLINE_COMBINING: usize = 2;
 pub struct Cell {
     /// Base character of the cell's grapheme cluster. Width 1, or width 2 for a
     /// wide lead; a `wide_continuation` spacer carries `' '`. The renderer draws
-    /// this glyph; zero-width combining marks attached to it are read via
+    /// this glyph; retained extension scalars attached to it are read via
     /// [`Cell::combining`] / [`Cell::grapheme`].
     pub ch: char,
     pub attrs: Attrs,

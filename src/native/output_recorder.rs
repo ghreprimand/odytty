@@ -310,7 +310,10 @@ mod tests {
     #[test]
     fn replay_frames_preserve_extended_owners_and_logical_text() {
         let mut terminal = crate::core::Terminal::new(8, 3);
-        let source = format!("\u{301}\u{e01}\u{e33}A{}", "\u{301}".repeat(40));
+        let source = format!(
+            "\u{301}\u{e01}\u{e33}\u{915}\u{93e}\u{995}\u{9cd}\u{9b7}A{}",
+            "\u{301}".repeat(40)
+        );
         terminal.advance(source.as_bytes());
         let mut recorder = OutputRecorder::default();
         recorder.record(terminal.snapshot());
