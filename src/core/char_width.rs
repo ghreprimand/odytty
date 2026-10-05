@@ -55,9 +55,10 @@ pub(crate) fn thai_lao_spacing_extension(base: char, next: char) -> bool {
 }
 
 /// Width of a retained owner. Script-specific additions stay bounded here;
-/// Indic, Sinhala, Khmer, and Myanmar width units are bounded; emoji policy is unchanged.
+/// Indic, Sinhala, Khmer, and Myanmar width units are bounded; recognized emoji sequences share the same bounded seam.
 pub(crate) fn owner_display_width(base: char, extensions: &[char], ambiguous_wide: bool) -> usize {
-    if super::indic::has_two_cell_footprint(base, extensions)
+    if super::emoji_width::has_two_cell_footprint(base, extensions)
+        || super::indic::has_two_cell_footprint(base, extensions)
         || extensions
             .iter()
             .any(|&c| thai_lao_spacing_extension(base, c))

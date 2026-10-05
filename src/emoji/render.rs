@@ -370,6 +370,15 @@ fn cluster_candidate(snapshot: &Snapshot, row: usize, column: usize) -> Option<C
     let cell = &snapshot.cells[idx];
     let text = cell.grapheme();
 
+    // Source-owned emoji clusters are already bounded to their real cells.
+    // Legacy cross-cell assembly must not merge two adjacent flag owners.
+    if crate::core::emoji_owner_is_two_cells(cell.ch, cell.combining()) {
+        return Some(ClusterCandidate {
+            text,
+            covered_columns: cell_display_width(snapshot, row, column),
+        });
+    }
+
     if is_keycap_sequence(&text) {
         return Some(ClusterCandidate {
             text,
@@ -569,6 +578,20 @@ fn is_default_emoji_presentation(ch: char) -> bool {
 mod hot_path_tests {
     use super::*;
     use crate::core::{Attrs, Cell};
+
+    #[test]
+    fn adjacent_source_owned_flags_keep_separate_color_candidates() {
+        let mut terminal = crate::core::Terminal::new(12, 2);
+        let first = "\u{1f1fa}\u{1f1f8}";
+        let second = "\u{1f1ec}\u{1f1e7}";
+        terminal.advance(format!("{first}{second}").as_bytes());
+        let snapshot = terminal.snapshot();
+        for (column, expected) in [(0, first), (2, second)] {
+            let candidate = cluster_candidate(&snapshot, 0, column).unwrap();
+            assert_eq!(candidate.text, expected);
+            assert_eq!(candidate.covered_columns, 2);
+        }
+    }
 
     #[test]
     fn ascii_cells_bypass_grapheme_assembly() {

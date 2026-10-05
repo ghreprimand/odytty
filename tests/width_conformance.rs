@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Unicode width occupancy: a measured surface, not an assumed one.
 //!
-//! Terminal ownership uses bounded script extensions; emoji still follows
-//! independent scalar widths on this surface.
+//! Terminal ownership uses bounded script and recognized emoji extensions.
 //! The default policy is the narrow table (`UnicodeWidthChar::width`). Wide
 //! mode uses `UnicodeWidthChar::width_cjk` and is covered separately. This
 //! file records what the default produces for a representative sample, including cases that disagree with
-//! Unicode grapheme-cluster width (VS15/VS16 and ZWJ emoji). Khmer scalar
+//! Unicode grapheme-cluster width (the preserved VS15 policy). Khmer scalar
 //! compatibility cases now assert their frozen one-cell expected widths.
 //! Known-divergent rows assert the *current* occupancy so a future change
 //! cannot silently retcon the number; they also assert it is not the Unicode
 //! expected value, so a real fix has to promote the row rather than leave a
 //! green-but-wrong pass.
 //!
-//! Flag pairs (RI+RI) occupy 2 columns by arithmetic coincidence (1+1) with
-//! the same no-clustering root cause. They are not a conforming pass.
+//! Flag pairs (RI+RI) now occupy one two-cell source owner; lone RI remains
+//! one cell as a deliberate compatibility policy.
 //!
 //! Windows: pure core `Terminal` storage. No PTY, no GPU, no platform branch.
 
@@ -60,9 +59,6 @@ enum WidthExpect {
     Conforming { width: usize },
     /// Occupancy is recorded and is *not* the Unicode expected width.
     KnownDivergent { unicode: usize, odytty: usize },
-    /// Occupancy matches the Unicode number by adding independent widths, not
-    /// by clustering. Not a conforming pass.
-    Coincident { width: usize },
 }
 
 struct Case {
@@ -109,14 +105,11 @@ fn cases() -> &'static [Case] {
             expect: WidthExpect::Conforming { width: 1 },
         },
         // WHITE SMILING FACE is width 1; VS16 requests emoji presentation
-        // (width 2). Independent lookup: 1 + 0 = 1.
+        // (width 2). The retained source owner promotes to two cells.
         Case {
             name: "vs16_on_text_default_smiley",
             input: "\u{263A}\u{FE0F}",
-            expect: WidthExpect::KnownDivergent {
-                unicode: 2,
-                odytty: 1,
-            },
+            expect: WidthExpect::Conforming { width: 2 },
         },
         // GRINNING FACE is width 2; VS15 requests text presentation (width 1).
         // Independent lookup: 2 + 0 = 2.
@@ -128,21 +121,17 @@ fn cases() -> &'static [Case] {
                 odytty: 2,
             },
         },
-        // Family ZWJ sequence: each emoji is width 2, ZWJ is 0; sum 6, cluster 2.
+        // Listed family ZWJ sequence shares one two-cell owner.
         Case {
             name: "zwj_family_man_woman_girl",
             input: "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
-            expect: WidthExpect::KnownDivergent {
-                unicode: 2,
-                odytty: 6,
-            },
+            expect: WidthExpect::Conforming { width: 2 },
         },
-        // US flag: two regional indicators. 1+1=2 matches the clustered width
-        // without ever pairing them.
+        // US flag: paired regional indicators share one two-cell owner.
         Case {
-            name: "ri_flag_us_coincident",
+            name: "ri_flag_us",
             input: "\u{1F1FA}\u{1F1F8}",
-            expect: WidthExpect::Coincident { width: 2 },
+            expect: WidthExpect::Conforming { width: 2 },
         },
     ]
 }
@@ -171,44 +160,32 @@ fn width_conformance_sample_is_measured_not_assumed() {
                     case.name
                 );
             }
-            WidthExpect::Coincident { width } => {
-                assert_eq!(
-                    got, width,
-                    "{}: coincident occupancy drifted (got {got}, want {width})",
-                    case.name
-                );
-            }
         }
     }
 }
 
-/// Flag pairs occupy 2 columns as two independent width-1 cells, not a cluster.
+/// Flag pairs retain both indicators in one two-cell source owner.
 #[test]
-fn ri_flag_pair_is_two_independent_cells_not_a_cluster() {
+fn ri_flag_pair_is_one_two_cell_source_owner() {
     let input = "\u{1F1FA}\u{1F1F8}";
     assert_eq!(occupancy(input), 2);
     let left = cell_at(input, 0);
     let right = cell_at(input, 1);
-    assert_eq!(left.ch, '\u{1F1FA}');
-    assert_eq!(right.ch, '\u{1F1F8}');
-    assert!(left.combining().is_empty());
-    assert!(right.combining().is_empty());
+    assert_eq!(left.grapheme(), input);
+    assert_eq!(left.combining(), &['\u{1F1F8}']);
     assert!(!left.wide_continuation);
-    assert!(!right.wide_continuation);
-    assert_eq!(left.grapheme(), "\u{1F1FA}");
-    assert_eq!(right.grapheme(), "\u{1F1F8}");
+    assert!(right.wide_continuation);
+    assert!(right.combining().is_empty());
 }
 
-/// VS16 on a text-default scalar attaches (width 0) but does not promote
-/// occupancy from 1 to 2.
+/// Listed VS16 promotes a text-default scalar to a two-cell source owner.
 #[test]
-fn vs16_does_not_promote_a_text_default_scalar_to_emoji_width() {
+fn vs16_promotes_a_listed_text_default_scalar_to_emoji_width() {
     let input = "\u{263A}\u{FE0F}";
-    assert_eq!(occupancy(input), 1);
+    assert_eq!(occupancy(input), 2);
     let cell = cell_at(input, 0);
-    // VS16 is width 0, so it *does* attach as combining — that is still not
-    // emoji-width promotion. Occupancy stays 1.
     assert_eq!(cell.ch, '\u{263A}');
     assert_eq!(cell.combining(), &['\u{FE0F}']);
+    assert!(cell_at(input, 1).wide_continuation);
     assert_eq!(occupancy("\u{263A}"), 1);
 }

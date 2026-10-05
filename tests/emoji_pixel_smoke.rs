@@ -171,35 +171,21 @@ fn over_premul(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
 }
 
 #[test]
-fn audit_multi_codepoint_clusters_are_split_in_the_grid_before_color_stitching() {
-    let skin = snapshot_for("\u{1F44D}\u{1F3FD}", 8);
-    assert_eq!(skin.cells[0].grapheme(), "\u{1F44D}");
-    assert!(skin.cells[1].wide_continuation);
-    assert_eq!(skin.cells[2].grapheme(), "\u{1F3FD}");
-    assert!(skin.cells[3].wide_continuation);
-
-    let flag = snapshot_for("\u{1F1FA}\u{1F1F8}", 8);
-    assert_eq!(flag.cells[0].grapheme(), "\u{1F1FA}");
-    assert_eq!(flag.cells[1].grapheme(), "\u{1F1F8}");
-    assert!(!flag.cells[1].wide_continuation);
-
-    let keycap = snapshot_for("1\u{FE0F}\u{20E3}", 4);
-    assert_eq!(keycap.cells[0].ch, '1');
-    assert_eq!(keycap.cells[0].combining(), &['\u{FE0F}', '\u{20E3}']);
-    assert_eq!(keycap.cells[0].grapheme(), "1\u{FE0F}\u{20E3}");
-
-    let family = snapshot_for(
+fn multi_codepoint_clusters_keep_source_ownership_before_color_rendering() {
+    for text in [
+        "\u{1F44D}\u{1F3FD}",
+        "\u{1F1FA}\u{1F1F8}",
+        "1\u{FE0F}\u{20E3}",
         "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
-        16,
-    );
-    assert_eq!(family.cells[0].grapheme(), "\u{1F468}\u{200D}");
-    assert!(family.cells[1].wide_continuation);
-    assert_eq!(family.cells[2].grapheme(), "\u{1F469}\u{200D}");
-    assert!(family.cells[3].wide_continuation);
-    assert_eq!(family.cells[4].grapheme(), "\u{1F467}\u{200D}");
-    assert!(family.cells[5].wide_continuation);
-    assert_eq!(family.cells[6].grapheme(), "\u{1F466}");
-    assert!(family.cells[7].wide_continuation);
+    ] {
+        let snapshot = snapshot_for(text, 16);
+        assert_eq!(snapshot.cells[0].grapheme(), text);
+        assert!(!snapshot.cells[0].wide_continuation);
+        assert!(snapshot.cells[1].wide_continuation);
+        assert!(snapshot.cells[1].combining().is_empty());
+        assert_eq!(snapshot.cells[2].grapheme(), " ");
+        assert!(!snapshot.cells[2].wide_continuation);
+    }
 }
 
 #[test]
@@ -255,11 +241,11 @@ fn vs15_stays_coverage_vs16_enters_color_path() {
 
 #[test]
 fn multi_codepoint_clusters_render_as_one_cluster_keyed_color_glyph() {
-    assert_one_cluster_run("\u{1F44D}\u{1F3FD}", 4);
+    assert_one_cluster_run("\u{1F44D}\u{1F3FD}", 2);
     assert_one_cluster_run("\u{1F1FA}\u{1F1F8}", 2);
     assert_one_cluster_run(
         "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
-        8,
+        2,
     );
 }
 
@@ -275,7 +261,7 @@ fn keycap_cluster_is_color_when_resolved_and_visible_fallback_otherwise() {
 
     if let Some(run) = runs.first() {
         assert_eq!(runs.len(), 1);
-        assert_eq!(run.covered_columns, 1);
+        assert_eq!(run.covered_columns, 2);
         assert!(matches!(run.key.glyph_id, ColorGlyphId::Cluster(_)));
     } else {
         let mut vertices = Vec::<Vertex>::new();

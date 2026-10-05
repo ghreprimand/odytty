@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Project-authored emoji fixtures. Pure terminal-core checks on all platforms.
-//! Ignored regressions specify deliberate G7 behavior without changing the
-//! current scalar-width baseline. VS15 and unpaired RI remain compatibility
+//! Regressions specify bounded G7 sequence width and retained logical source. VS15 and unpaired RI remain compatibility
 //! controls. These deliberately differ from the frozen wcwidth 0.9.1
 //! reference: it gives U+231A U+FE0E width 1 and a standalone RI width 2.
 //! OdyTTY preserves non-demotion (watch width 2) and standalone RI width 1.
@@ -180,32 +179,26 @@ macro_rules! emoji_case {
         mod $name {
             use super::*;
             #[test]
-            #[ignore = "G7: emoji cluster must own two cells"]
             fn cell_ownership_and_cursor() {
                 ownership($text);
             }
             #[test]
-            #[ignore = "G7: cluster extension across every UTF-8 split"]
             fn every_utf8_split() {
                 streaming($text);
             }
             #[test]
-            #[ignore = "G7: promotion and extension at pending wrap"]
             fn right_edge_pending_wrap() {
                 right_edge($text);
             }
             #[test]
-            #[ignore = "G7: edits clear the whole emoji owner"]
             fn overwrite_and_erase_cluster() {
                 overwrite_and_erase($text);
             }
             #[test]
-            #[ignore = "G7: logical copy and search map to the emoji owner"]
             fn logical_copy_search_and_reflow() {
                 logical_copy_and_search($text);
             }
             #[test]
-            #[ignore = "G7: snapshot retains emoji owner and scalars"]
             fn snapshot_roundtrip() {
                 roundtrip($text);
             }
@@ -290,5 +283,157 @@ fn keycap_without_vs16_retains_one_cell_and_logical_text() {
             restored.search(text, SearchOptions::case_sensitive()).len(),
             1
         );
+    }
+}
+
+const UNICODE_SEQUENCES: &str = include_str!("fixtures/unicode-emoji/G7-sequences.txt");
+
+#[test]
+fn unicode_17_sequences_own_two_cells_in_both_ambiguous_modes() {
+    let mut counts = std::collections::BTreeMap::new();
+    for row in UNICODE_SEQUENCES.lines().filter(|l| !l.starts_with('#')) {
+        let (source, kind) = row.split_once(';').unwrap();
+        let text: String = source
+            .split_whitespace()
+            .map(|cp| char::from_u32(u32::from_str_radix(cp, 16).unwrap()).unwrap())
+            .collect();
+        *counts.entry(kind).or_insert(0) += 1;
+        for wide in [false, true] {
+            let mut t = Terminal::new(24, 3);
+            t.set_ambiguous_wide(wide);
+            t.advance(text.as_bytes());
+            owner(&t, 0, 0, &text);
+            assert_eq!(t.screen().cursor().column, 2, "{row}");
+        }
+    }
+    assert_eq!(counts.values().sum::<usize>(), 2921);
+    assert!(
+        include_str!("fixtures/unicode-emoji/LICENSE-UNICODE.txt").contains("UNICODE LICENSE V3")
+    );
+}
+
+#[test]
+fn snapshot_continuation_and_history_projection_keep_source_sequences() {
+    for text in [
+        "\u{2764}\u{fe0f}",
+        "\u{1f469}\u{200d}\u{1f4bb}",
+        "\u{1f44d}\u{1f3fd}",
+        "1\u{fe0f}\u{20e3}",
+        "\u{1f1fa}\u{1f1f8}",
+    ] {
+        for split in (0..=text.len()).filter(|&n| text.is_char_boundary(n)) {
+            let mut t = Terminal::new(8, 3);
+            t.advance(&text.as_bytes()[..split]);
+            let envelope = SnapshotEnvelope::from_terminal(&t, SnapshotCaptureLimits::default());
+            let mut t = Terminal::from_snapshot_envelope(
+                &SnapshotEnvelope::decode(
+                    &envelope.encode().unwrap(),
+                    SnapshotEnvelopeCaps::default(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            t.advance(&text.as_bytes()[split..]);
+            owner(&t, 0, 0, text);
+            for _ in 0..8 {
+                t.advance(b"\r\n");
+            }
+            for columns in [3, 9, 4, 12] {
+                t.resize(columns, 3);
+                assert_eq!(t.search(text, SearchOptions::case_sensitive()).len(), 1);
+            }
+        }
+    }
+}
+
+#[test]
+fn invalid_sequences_and_independent_emoji_keep_separate_owners() {
+    for text in [
+        "A\u{fe0f}",
+        "A\u{200d}\u{1f4bb}",
+        "\u{1f469}\u{200d}A",
+        "A\u{1f3fd}",
+        "\u{1f469}\u{1f4bb}",
+    ] {
+        let mut t = Terminal::new(24, 2);
+        t.advance(text.as_bytes());
+        let copied: String = t
+            .snapshot()
+            .cells
+            .iter()
+            .filter(|c| !c.wide_continuation)
+            .map(|c| c.grapheme())
+            .collect();
+        assert_eq!(copied.trim_end(), text);
+        if text.starts_with('A') {
+            assert!(!t.screen().cell(0, 1).unwrap().wide_continuation);
+        }
+        if text == "A\u{fe0f}" {
+            assert_eq!(t.screen().cursor().column, 1);
+        }
+    }
+    let mut t = Terminal::new(16, 2);
+    t.advance("\u{1f1fa}\u{1f1f8}\u{1f1ec}".as_bytes());
+    owner(&t, 0, 0, "\u{1f1fa}\u{1f1f8}");
+    assert_eq!(t.screen().cell(0, 2).unwrap().grapheme(), "\u{1f1ec}");
+    assert_eq!(t.screen().cursor().column, 3);
+}
+
+#[test]
+fn control_barriers_and_overflow_do_not_merge_stale_emoji() {
+    for control in [
+        "\r", "\x1b[1G", "\x1b[@", "\x1b[P", "\x1b[X", "\x1b[K", "\n",
+    ] {
+        let mut t = Terminal::new(24, 3);
+        t.advance("\u{1f469}\u{200d}".as_bytes());
+        t.advance(control.as_bytes());
+        let at = t.screen().cursor();
+        t.advance("\u{1f4bb}".as_bytes());
+        assert_eq!(
+            t.screen().cell(at.row, at.column).unwrap().grapheme(),
+            "\u{1f4bb}"
+        );
+    }
+    let text = format!("\u{1f469}\u{200d}\u{1f4bb}{}", "\u{301}".repeat(60));
+    let mut t = Terminal::new(100, 2);
+    t.advance(text.as_bytes());
+    let snapshot = t.snapshot();
+    assert!(
+        snapshot
+            .cells
+            .iter()
+            .all(|c| c.grapheme().chars().count() <= 17)
+    );
+    let source: String = snapshot
+        .cells
+        .iter()
+        .filter(|c| !c.wide_continuation)
+        .map(|c| c.grapheme())
+        .collect();
+    assert_eq!(source.trim_end(), text);
+}
+
+#[test]
+fn insertion_sgr_and_cursor_reports_agree_with_sequence_owners() {
+    for text in [
+        "\u{2764}\u{fe0f}",
+        "\u{1f469}\u{200d}\u{1f4bb}",
+        "\u{1f44d}\u{1f3fd}",
+        "1\u{fe0f}\u{20e3}",
+        "\u{1f1fa}\u{1f1f8}",
+    ] {
+        let mut t = Terminal::new(16, 2);
+        t.advance(b"LR\x1b[2G\x1b[4h");
+        for scalar in text.chars() {
+            t.advance(scalar.to_string().as_bytes());
+            t.advance(b"\x1b[31m");
+        }
+        assert_eq!(t.screen().cell(0, 0).unwrap().ch, 'L');
+        owner(&t, 0, 1, text);
+        assert_eq!(t.screen().cell(0, 3).unwrap().ch, 'R');
+        t.advance(b"\x1b[6n");
+        assert_eq!(t.take_host_output(), b"\x1b[1;4R");
+        t.advance(b"\x1b[4l\x1b[2G\x1b[2P");
+        assert_eq!(t.screen().plain_text().trim_end(), "LR");
     }
 }

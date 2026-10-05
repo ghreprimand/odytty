@@ -2489,12 +2489,24 @@ Khmer and Myanmar also accept linked Unicode InCB Consonant scalars,
 including independent vowels. ZWJ preserves the virama link; ZWNJ prevents the next consonant from joining.
 Gurmukhi, Tamil, and Sinhala terminal width units can cross an extended-grapheme boundary; width
 ownership is distinct from segmentation. Khmer U+17A4 and U+17D8 are explicit
-one-cell scalar compatibility cases in both ambiguous-width modes. Other script groups and emoji widths
-retain their prior rules. No font-backed complex-script glyph reordering is
+one-cell scalar compatibility cases in both ambiguous-width modes. Other script groups retain their prior rules. No font-backed complex-script glyph reordering is
 provided. The source bound remains seventeen scalars per owner, with lossless
 bounded-owner overflow. Unicode fixtures exercise bounded northern and southern
 Indic, Sinhala, Khmer, and Myanmar property subsets, plus bounded northern and Khmer/Myanmar GraphemeBreakTest subsets. No full
 grapheme conformance is claimed.
+
+Emoji width ownership uses pinned Unicode 17 emoji data. Listed emoji-style
+VS16 bases promote to two cells. Modifier bases with one skin-tone modifier
+(optionally preceded by VS16), VS16 keycaps, regional-indicator pairs, and
+listed fully qualified RGI ZWJ sequences share one two-cell source owner.
+Non-RGI joins and malformed sequences keep separate owners. VS15 does not
+demote existing widths; standalone regional indicators remain one cell, and
+keycaps without VS16 remain one cell. These compatibility choices differ from
+the frozen wcwidth reference. Ordinary trailing combining marks do not undo
+an already established width. The seventeen-scalar bound, lossless overflow,
+streaming extension, control barriers, logical copy/search and reflow rules
+apply to emoji owners. Renderer cluster assembly respects owned spans and
+does not combine adjacent flag owners. Font coverage cannot change grid width.
 
 Zero-width combining marks remain stored with their base cell in arrival order.
 The monochrome renderer draws resident marks over that base and suppresses a
@@ -2638,8 +2650,9 @@ visible.
 
 ### Fourth Emoji Increment
 
-The live color path reconstructs bounded multi-codepoint
-emoji clusters from the snapshot before shaping. Flags are assembled from
+The live color path shapes source-owned multi-codepoint emoji clusters within
+their actual grid span. For legacy snapshots with independent component cells,
+it still reconstructs bounded clusters before shaping. Flags are assembled from
 adjacent regional indicators, skin-tone sequences from the base emoji plus
 modifier cell, keycaps from the base cell's VS16/keycap combining marks, and
 ZWJ chains from successive cells whose graphemes carry trailing ZWJ marks. A

@@ -9,6 +9,9 @@ spacing signs and virama-linked consonants share bounded two-cell source owners.
 Sinhala, Khmer, and Myanmar dependent signs and linked consonants use the same bounded policy.
 Khmer U+17A4 and U+17D8 occupy one cell in either ambiguous-width mode. Complex-script glyph reordering remains
 unsupported.
+Unicode 17 listed VS16 bases, supported emoji ZWJ sequences, skin tones,
+VS16 keycaps, and regional-indicator pairs share two-cell source owners.
+VS15 does not demote; standalone regional indicators and bare keycaps stay one cell.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 

@@ -21,11 +21,13 @@ extensions beyond that bound start new owners without synthetic source text.
 Controls, cursor movement, edits, hard breaks, and resize terminate extension;
 SGR preserves it. Thai/Lao consonant plus SARA AM extends to a two-cell owner.
 Tone marks, Tibetan subjoined letters, and pre-base vowels retain their prior
-widths. Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing marks and
-virama-linked consonants share bounded two-cell owners, using Unicode 17.0.0
-properties. ZWJ preserves a link; ZWNJ ends consonant joining. Gurmukhi width
-ownership can cross a Unicode extended-grapheme boundary. Other script groups,
-emoji sequence widths, and font-backed complex-script shaping remain pending.
+widths. Northern and southern Indic, Sinhala, Khmer, and Myanmar spacing
+signs and linked consonants share bounded two-cell owners using Unicode 17
+properties. ZWJ preserves a link; ZWNJ ends consonant joining. Gurmukhi,
+Tamil, and Sinhala width units can cross extended-grapheme boundaries.
+Listed VS16 bases and recognized emoji modifier, keycap, flag, and RGI ZWJ
+sequences use two-cell owners. Other script groups and font-backed
+complex-script shaping remain pending.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 
@@ -59,7 +61,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Southern Indic terminal widths | Tamil, Telugu, Kannada, and Malayalam spacing signs and virama-linked consonants share bounded two-cell owners | Tamil width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed complex-script reordering remains unsupported |
-| Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |
+| Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
 | SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Planned for v0.17.0. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
 
 ## What the overlay model supports
@@ -267,23 +269,17 @@ surface is implemented and tested, SVG-only glyphs use monochrome fallback.
 
 ## Tractable candidate work
 
-Sequence-aware grid width for extended grapheme clusters is candidate work,
-not part of the deferred model-level scope. The terminal currently asks
-`unicode-width` for each codepoint without lookahead. Consequently VS16 does
-not promote a text-default scalar from one column to two, VS15 does not demote
-an emoji-default scalar from two columns to one, and a ZWJ emoji sequence can
-consume the sum of its component widths instead of one cluster width. The color
-renderer can still reconstruct and draw those sequences as one glyph, which is
-why rendering support and width correctness must be stated separately.
+Sequence-aware width uses bounded source ownership without cross-cell visual
+reordering. Unicode 17 listed VS16 bases promote to two cells. Modifier-base
+skin tones, VS16 keycaps, regional-indicator pairs, and fully qualified RGI
+ZWJ sequences share two-cell owners. The color renderer uses the same owned
+span; glyph coverage remains font-dependent. Unrecognized continuations start
+separate owners. Other extended-grapheme sequences still need bounded width
+rules before making a general cluster-width claim.
 
-Fixing width needs sequence-aware arithmetic and cell ownership, but no
-cross-cell visual reordering. It is therefore sequenced after the cell and
-scrollback storage work rather than grouped with BiDi or conjunct shaping.
-Standalone regional indicators are a separate ecosystem decision:
-`unicode-width` and Python `wcwidth` disagree on their scalar width. A regional
-indicator pair currently totals two columns by independent scalar arithmetic,
-not because the grid recognizes a flag cluster. The standalone disagreement is
-recorded as a compatibility judgment call, not an OdyTTY defect.
+VS15 deliberately does not demote. Standalone regional indicators remain one
+cell and keycaps without VS16 remain one cell. These choices differ from the
+frozen Python wcwidth reference; they are explicit compatibility limits.
 
 Other candidates that fit the anchored overlay model are:
 

@@ -397,7 +397,7 @@ The support boundary is explicit:
 | Southern Indic terminal widths | Tamil, Telugu, Kannada, and Malayalam spacing signs and virama-linked consonants share bounded two-cell owners | Tamil width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed complex-script reordering remains unsupported |
-| Emoji cluster rendering | VS15/VS16 presentation, flags, keycaps, skin tones, and common ZWJ clusters are reconstructed for the color-glyph renderer | Rendering support does not yet make grid width cluster-aware; sequence-aware width is tractable follow-up work |
+| Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
 | SVG-in-OpenType | Not supported; SVG-only glyphs use monochrome fallback | Deferred implementation work, not a cell-model conflict. It requires a bounded, non-networked SVG raster path and portable fixtures before enablement |
 
 A partial BiDi or complex-script approximation is not planned: visual order
@@ -418,11 +418,13 @@ Cursor movement, controls, edits, hard breaks, and resize terminate extension;
 SGR preserves it. Thai/Lao consonant plus SARA AM owns two cells. Tone marks,
 Tibetan subjoined letters, and pre-base-vowel positions keep their prior widths.
 Snapshot v5 preserves these scalars, the extension boundary, and pending wrap.
-Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing marks and
-virama-linked consonants share bounded two-cell owners. ZWJ preserves a virama
-link; ZWNJ breaks it. This is terminal ownership, including across Gurmukhi
-extended-grapheme boundaries. Other script groups and emoji widths keep their
-prior rules. Complex-script glyph shaping and reordering remain unsupported.
+Northern and southern Indic, Sinhala, Khmer, and Myanmar spacing signs and
+linked consonants share bounded two-cell owners. ZWJ preserves a link; ZWNJ
+breaks it. Terminal width ownership can cross grapheme boundaries and does not
+provide font-backed complex-script glyph reordering. Listed VS16 bases,
+modifier-base skin tones, VS16 keycaps, regional-indicator pairs, and fully
+qualified RGI ZWJ sequences share two-cell source owners. Other script groups
+keep their prior rules.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 
@@ -494,21 +496,20 @@ Segoe UI Emoji and other parseable COLR/CPAL faces. The shared raster and atlas
 logic is platform-neutral.
 
 Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
-supported by the color-glyph renderer. This is presentation support, not a
-claim that the terminal grid computes sequence width: grid occupancy is still
-assigned per codepoint, so VS15, VS16, and ZWJ sequences can occupy the wrong
-number of columns even when they draw as one color glyph. Text-default symbols
-stay on the monochrome fallback path, missing color glyphs fall back there
-instead of becoming tofu, and emoji pixels are not SGR-tinted. Cluster coverage
-is bounded by the host font: stock Windows Segoe UI Emoji ships no
-regional-indicator flag glyphs, so flag clusters on a stock Windows install
-render as the visible letter fallback - the same behavior as native Windows
-applications - rather than a color flag.
+supported by the color-glyph renderer. Unicode 17 listed VS16 bases, supported
+modifier-base skin tones, VS16 keycaps, regional-indicator pairs, and fully
+qualified RGI ZWJ sequences also share bounded two-cell grid owners. Width is
+independent of color-font coverage. Unrecognized continuations start separate
+owners. VS15 does not demote; standalone regional indicators and keycaps
+without VS16 stay one cell. Those compatibility choices differ from the
+frozen Python wcwidth reference.
 
-Regional-indicator pairs currently total two columns by independent scalar
-arithmetic, not because the grid recognizes a flag cluster. The separate
-`unicode-width` versus Python `wcwidth` disagreement for a standalone regional
-indicator is an ecosystem compatibility decision, not an OdyTTY defect.
+Text-default symbols stay on the monochrome fallback path, missing color
+glyphs fall back there instead of becoming tofu, and emoji pixels are not
+SGR-tinted. Cluster coverage is bounded by the host font: stock Windows
+Segoe UI Emoji ships no regional-indicator flag glyphs, so flag clusters
+use visible coverage fallback rather than a color flag. Adjacent source-owned
+flags retain separate two-cell render spans.
 
 Source preference is bitmap strike, then COLR v0, then COLR v1. The first two
 paths retain their established byte output; v1 is attempted only when they do
