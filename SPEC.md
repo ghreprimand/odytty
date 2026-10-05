@@ -2483,19 +2483,29 @@ disappeared and now occupy one cell, without an invented base.
 The default 32 MiB snapshot section budget bounds the visible grid by 91 bytes
 per maximum-size encoded cell instead of 43, allowing about 368,000 cells.
 Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and
-Malayalam, Sinhala, Khmer, and Myanmar use Unicode 17.0.0 Script,
+Malayalam, Sinhala, Khmer, Myanmar, Chakma, Javanese, Grantha, and Tai Tham
+use Unicode 17.0.0 Script,
 General_Category, and Indic_Syllabic_Category data. A same-script spacing mark
 following a measured letter or a virama/invisible-stacker-linked consonant promotes its owner
 to two cells. Further joined consonants remain within those two cells.
 Khmer and Myanmar also accept linked Unicode InCB Consonant scalars,
 including independent vowels. ZWJ preserves the virama link; ZWNJ prevents the next consonant from joining.
-Gurmukhi, Tamil, and Sinhala terminal width units can cross an extended-grapheme boundary; width
+Gurmukhi, Tamil, Sinhala, Chakma, and Grantha terminal width units can cross an extended-grapheme boundary; width
 ownership is distinct from segmentation. Khmer U+17A4 and U+17D8 are explicit
 one-cell scalar compatibility cases in both ambiguous-width modes. Other script groups retain their prior rules. No font-backed complex-script glyph reordering is
 provided. The source bound remains seventeen scalars per owner, with lossless
 bounded-owner overflow. Unicode fixtures exercise bounded northern and southern
 Indic, Sinhala, Khmer, and Myanmar property subsets, plus bounded northern and Khmer/Myanmar GraphemeBreakTest subsets. No full
 grapheme conformance is claimed.
+
+Chakma, Javanese, Grantha, and Tai Tham use bounded same-script spacing-sign
+and linked-consonant owners. Chakma U+11134 (Pure_Killer) has an explicit direct
+consonant-link exception. With intervening ZWJ it keeps prior separate owners;
+this sequence remains outside the measured-width corrections. Javanese and
+Grantha Mc viramas do not promote the base on their own: a following linked
+consonant promotes the complete source unit to two cells. The other measured
+G6 virama/invisible-stacker links preserve ZWJ and break at ZWNJ. No other
+Pure_Killer category or unmeasured script is collapsed into a source owner.
 
 Emoji width ownership uses pinned Unicode 17 emoji data. Listed emoji-style
 VS16 bases promote to two cells. Modifier bases with one skin-tone modifier

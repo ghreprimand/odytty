@@ -564,7 +564,7 @@ fn generated_wide_padding_is_not_exported_as_source_text() {
 fn extended_source_owners_survive_plain_and_html_export() {
     // Project-authored script samples, under the project license.
     let text = format!(
-        "\u{301}abc\u{e01}\u{e33}\u{f40}\u{f90}\u{f72}\u{915}\u{93e}\u{995}\u{9cd}\u{9b7}\u{b95}\u{bbe}\u{c15}\u{c4d}\u{c15}\u{c41}\u{c95}\u{cc0}\u{d15}\u{d4d}\u{d15}\u{d3f}\u{d9a}\u{dca}\u{200d}\u{d9a}\u{1780}\u{17d2}\u{1780}\u{1000}\u{1039}\u{1000}\u{17a4}\u{17d8}\u{2764}\u{fe0f}\u{1f469}\u{200d}\u{1f4bb}\u{1f44d}\u{1f3fd}1\u{fe0f}\u{20e3}\u{1f1fa}\u{1f1f8}A{}Z",
+        "\u{301}abc\u{e01}\u{e33}\u{f40}\u{f90}\u{f72}\u{915}\u{93e}\u{995}\u{9cd}\u{9b7}\u{b95}\u{bbe}\u{c15}\u{c4d}\u{c15}\u{c41}\u{c95}\u{cc0}\u{d15}\u{d4d}\u{d15}\u{d3f}\u{d9a}\u{dca}\u{200d}\u{d9a}\u{1780}\u{17d2}\u{1780}\u{1000}\u{1039}\u{1000}\u{17a4}\u{17d8}\u{11107}\u{11134}\u{11107}\u{a98f}\u{a9c0}\u{a98f}\u{11315}\u{1134d}\u{11315}\u{1a20}\u{1a60}\u{1a20}\u{2764}\u{fe0f}\u{1f469}\u{200d}\u{1f4bb}\u{1f44d}\u{1f3fd}1\u{fe0f}\u{20e3}\u{1f1fa}\u{1f1f8}A{}Z",
         "\u{301}".repeat(40)
     );
     let mut terminal = crate::core::Terminal::new(4, 24);

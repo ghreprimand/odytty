@@ -7,6 +7,7 @@ marks or overflow extensions. Thai/Lao SARA AM shares a two-cell owner with its
 preceding consonant. Northern Indic and Tamil, Telugu, Kannada, and Malayalam
 spacing signs and virama-linked consonants share bounded two-cell source owners.
 Sinhala, Khmer, and Myanmar dependent signs and linked consonants use the same bounded policy.
+Chakma, Javanese, Grantha, and Tai Tham add bounded spacing-sign and linked-consonant owners.
 Khmer U+17A4 and U+17D8 occupy one cell in either ambiguous-width mode. Complex-script glyph reordering remains
 unsupported.
 Unicode 17 listed VS16 bases, supported emoji ZWJ sequences, skin tones,

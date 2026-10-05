@@ -395,11 +395,12 @@ The support boundary is explicit:
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen, right-to-left paragraph levels, and complex-script shaping are not reordered |
-| Complex Indic/Brahmic shaping | Not supported | Northern/southern Indic, Sinhala, Khmer, and Myanmar source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
+| Complex Indic/Brahmic shaping | Not supported | Measured script source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping |
 | Southern Indic terminal widths | Tamil, Telugu, Kannada, and Malayalam spacing signs and virama-linked consonants share bounded two-cell owners | Tamil width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed complex-script reordering remains unsupported |
+| Additional measured script widths | Chakma, Javanese, Grantha, and Tai Tham spacing signs and measured linked consonants share bounded two-cell owners | Chakma U+11134 links directly but keeps separate owners with ZWJ; Javanese/Grantha viramas alone keep one cell; font-backed complex-script reordering remains unsupported |
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
 | SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, or reference-expansion limits, and documents with patterns or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
 
@@ -421,9 +422,10 @@ Cursor movement, controls, edits, hard breaks, and resize terminate extension;
 SGR preserves it. Thai/Lao consonant plus SARA AM owns two cells. Tone marks,
 Tibetan subjoined letters, and pre-base-vowel positions keep their prior widths.
 Snapshot v5 preserves these scalars, the extension boundary, and pending wrap.
-Northern and southern Indic, Sinhala, Khmer, and Myanmar spacing signs and
-linked consonants share bounded two-cell owners. ZWJ preserves a link; ZWNJ
-breaks it. Terminal width ownership can cross grapheme boundaries and does not
+Northern and southern Indic, Sinhala, Khmer, Myanmar, Chakma, Javanese,
+Grantha, and Tai Tham spacing signs and
+linked consonants share bounded two-cell owners. ZWJ preserves virama/stacker
+links, while Chakma U+11134 keeps prior separate owners with ZWJ. ZWNJ breaks it. Terminal width ownership can cross grapheme boundaries and does not
 provide font-backed complex-script glyph reordering. Listed VS16 bases,
 modifier-base skin tones, VS16 keycaps, regional-indicator pairs, and fully
 qualified RGI ZWJ sequences share two-cell source owners. Other script groups

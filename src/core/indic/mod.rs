@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Bounded Indic, Sinhala, Khmer, and Myanmar width units, using Unicode 17 properties.
-//! Gurmukhi, Tamil, and Sinhala width units can cross a UAX #29 break.
+//! Bounded measured script width units, using Unicode 17 properties.
+//! Gurmukhi, Tamil, Sinhala, Chakma, and Grantha units can cross a UAX #29 break.
 //! This module does not shape glyphs or change other script groups.
 mod data;
 
@@ -20,7 +20,8 @@ fn is_extend(ch: char) -> bool {
         .is_some_and(|&(start, _, _)| start <= cp)
 }
 
-/// A spacing mark or virama/invisible-stacker-linked consonant extends its same-script owner.
+/// A spacing sign or measured linked consonant extends its same-script owner.
+/// Chakma U+11134 is a bounded Pure_Killer exception for direct consonant links.
 /// Khmer/Myanmar also use InCB Consonant, including linked independent vowels.
 /// Zero-width extensions already take the common streaming path.
 pub(super) fn extends(base: char, extensions: &[char], next: char) -> bool {
@@ -50,7 +51,20 @@ pub(super) fn extends(base: char, extensions: &[char], next: char) -> bool {
                 return false;
             }
             linker = true;
-        } else if ch == '\u{200d}' || is_extend(ch) {
+        } else if ch == '\u{200d}' {
+            // U+11134 is Chakma Pure_Killer, not a virama. Its frozen direct
+            // consonant sequence is bounded here; ZWJ keeps the prior split.
+            if script(data::LINKERS, '\u{11134}') == sid
+                && extensions
+                    .iter()
+                    .rev()
+                    .find(|&&scalar| script(data::LINKERS, scalar) != 0)
+                    == Some(&'\u{11134}')
+            {
+                return false;
+            }
+            continue;
+        } else if is_extend(ch) {
             continue;
         } else {
             return linker && script(data::CONSONANTS, ch) == sid;
