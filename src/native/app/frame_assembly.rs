@@ -6,6 +6,82 @@
 use super::*;
 
 impl App {
+    /// The single-pane frame's cell-paint manifest: every overlay painter
+    /// that writes into the content snapshot, in paint precedence order.
+    /// Shared by the frame and its headless test seam so both paint the same
+    /// cells (the bidi gate resets every row whose text this changes).
+    pub(super) fn paint_single_pane_cells(
+        &mut self,
+        snapshot: &mut Snapshot,
+        ctx: &super::overlay_registry::OverlayCtx,
+        visible_buttons: &[crate::core::SnapshotButton],
+        ambiguous_wide: bool,
+    ) {
+        self.paint_selection_cells(snapshot, ctx);
+        self.paint_search_cells(snapshot, ctx);
+        // Button Protocol B2: program-defined button chips.
+        // `visible_buttons` is empty on the gate-off / no-button
+        // path, so this is a no-op there and the frame stays
+        // byte-identical. Painted at the content layer, BEFORE
+        // the overlay panel and the transient UI slots below,
+        // so an open panel fully occludes any chip under it
+        // (chips once painted last and bled through overlays).
+        // The point-chip content-end scan also depends on this
+        // spot: it must read terminal content, not panel cells.
+        button_chip::paint_button_cells(snapshot, visible_buttons, self.hovered_button_key());
+        self.paint_overlay_cells(snapshot, ctx);
+        self.paint_hyperlink_cells(snapshot, ctx);
+        self.paint_hints_cells(snapshot, ctx);
+        self.paint_copy_mode_cells(snapshot, ctx);
+        self.paint_rename_tab_cells(snapshot);
+        // IME pre-edit: paint the in-progress composition inline
+        // at the cursor; empty on the no-composition path.
+        self.paint_ime_preedit_cells(snapshot, ambiguous_wide);
+        // Transient status or OSC 52 consent banner across the
+        // top of the grid; empty on the idle path.
+        self.paint_open_notice_cells(snapshot);
+        let attention = &self.sessions.active().attention;
+        self.paint_pane_attention_cell(
+            snapshot,
+            attention.progress,
+            attention.unread,
+            attention.completed,
+            attention.failed,
+        );
+        super::read_only::paint_read_only_label(snapshot, self.active_pane_read_only());
+        super::secure_input::paint_secure_input_label(snapshot, self.secure_input_held);
+        super::broadcast_input::paint_broadcast_label(
+            snapshot,
+            self.broadcast_label_for(self.sessions.active_id(), true)
+                .as_ref(),
+            self.active_pane_read_only(),
+        );
+        // UX-A (Phase 11): the open-modifier armed underline on the
+        // hovered path or URL span, then the transient bottom-left
+        // click hint. Both no-op (byte-identical) off their gates:
+        // the underline needs the open modifier (Ctrl, or Cmd on
+        // macOS) and an enabled hovered path or URL; the hint needs
+        // to be shown.
+        self.paint_armed_path_underline_cells(snapshot);
+        self.paint_click_hint_cells(snapshot);
+        // Static centered feedback for bounded window-level gestures
+        // such as Ctrl+wheel font zoom. No-op at rest.
+        self.paint_transient_hud_cells(snapshot);
+        // v0.15.0 D keyboard window merge: the temporary numeral badge
+        // this window paints while it is a candidate in an open merge
+        // target picker. Written into the grid snapshot so it shows on
+        // every platform without compositor cooperation. No-op at rest.
+        self.paint_merge_numeral_cells(snapshot);
+    }
+
+    /// The hovered button chip's `(row, start_col)` key, shared by the chip
+    /// painter and the chip render-cache fragment.
+    pub(super) fn hovered_button_key(&self) -> Option<(usize, usize)> {
+        self.hovered_button
+            .as_ref()
+            .map(|hit| (hit.row, hit.start_col))
+    }
+
     /// SCROLL-CHROME-BOUNCE: the composited-chrome geometry to hand the GPU so it
     /// pins the tab bar / rail against the sub-row scroll glide. `decorated_cols`
     /// is the tab-chrome-decorated snapshot's column count (the coordinate space

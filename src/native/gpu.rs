@@ -93,8 +93,12 @@ pub(super) use types::{
 pub(super) use types::{
     CursorGlowInstance, CursorGlowVertex, CursorStreakInstance, CursorStreakVertex,
     accumulate_pane_color_glyphs, append_cursor_glow_vertices, append_cursor_streak_vertices,
-    build_cursor_glow_instance, build_cursor_streak_instance, quads_excluding,
-    rail_overlay_chrome_pin, retained_cursor_effects,
+    quads_excluding, rail_overlay_chrome_pin, retained_cursor_effects,
+};
+#[cfg(test)]
+pub(super) use types::{
+    build_cursor_glow_instance, build_cursor_glow_instance_with_bidi, build_cursor_streak_instance,
+    build_cursor_streak_instance_with_bidi,
 };
 
 // `cursor_glow_falloff` and `wallpaper_edge_wash_quads` were already gated to

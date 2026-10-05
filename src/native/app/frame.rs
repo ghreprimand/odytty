@@ -539,8 +539,19 @@ impl App {
                 // and the blink phase / logical cursor move. Both no-op to
                 // the identity while their knobs are off.
                 self.update_cursor_easing(now, cursor_on, cursor_blinking);
-                self.update_cursor_motion(now, &snapshot, cell);
-                self.update_cursor_streak(now, &snapshot, cursor_style, cell);
+                // BIDI test-only gate: the effects advance in drawn columns
+                // (the planned visual column); identity in shipping builds.
+                let advanced_cursor = super::bidi_gate::effect_cursor(
+                    bidi_plan.as_ref().map(|(map, _)| map),
+                    snapshot.cursor,
+                );
+                self.advance_cursor_motion_at(
+                    now,
+                    &mut snapshot,
+                    cursor_style,
+                    cell,
+                    advanced_cursor,
+                );
                 // Blink off-phase hard-hide — skipped while easing is on,
                 // where the precomputed alpha carries the fade instead (so
                 // easing does not double-hide).
@@ -573,75 +584,25 @@ impl App {
                     snapshot.cursor_visible,
                     now,
                 );
-                self.paint_selection_cells(&mut snapshot, &ctx);
-                self.paint_search_cells(&mut snapshot, &ctx);
-                // Button Protocol B2: program-defined button chips.
-                // `visible_buttons` is empty on the gate-off / no-button
-                // path, so this is a no-op there and the frame stays
-                // byte-identical. Painted at the content layer — BEFORE
-                // the overlay panel and the transient UI slots below —
-                // so an open panel fully occludes any chip under it
-                // (chips once painted last and bled through overlays).
-                // The point-chip content-end scan also depends on this
-                // spot: it must read terminal content, not panel cells.
-                let hovered_button_key = self
-                    .hovered_button
-                    .as_ref()
-                    .map(|hit| (hit.row, hit.start_col));
-                button_chip::paint_button_cells(
-                    &mut snapshot,
-                    &visible_buttons,
-                    hovered_button_key,
+                self.paint_single_pane_cells(&mut snapshot, &ctx, &visible_buttons, ambiguous_wide);
+                // BIDI test-only gate: overlay-painted rows draw in logical
+                // order; the pointer maps through the presented content map.
+                // The cursor effects settle on the final drawn cursor, which
+                // the trail reads from `ctx` and the next frame compares.
+                let bidi_content = bidi_plan.map(|(mut map, planned)| {
+                    map.reset_rows_changed_between(&planned, &snapshot);
+                    map
+                });
+                let effect_cursor = self.settle_bidi_cursor_effects(
+                    advanced_cursor,
+                    bidi_content.as_ref(),
+                    snapshot.cursor,
                 );
-                self.paint_overlay_cells(&mut snapshot, &ctx);
-                self.paint_hyperlink_cells(&mut snapshot, &ctx);
-                self.paint_hints_cells(&mut snapshot, &ctx);
-                self.paint_copy_mode_cells(&mut snapshot, &ctx);
-                self.paint_rename_tab_cells(&mut snapshot);
-                // IME pre-edit: paint the in-progress composition inline
-                // at the cursor; empty on the no-composition path.
-                self.paint_ime_preedit_cells(&mut snapshot, ambiguous_wide);
-                // Transient status or OSC 52 consent banner across the
-                // top of the grid; empty on the idle path.
-                self.paint_open_notice_cells(&mut snapshot);
-                let attention = &self.sessions.active().attention;
-                self.paint_pane_attention_cell(
-                    &mut snapshot,
-                    attention.progress,
-                    attention.unread,
-                    attention.completed,
-                    attention.failed,
-                );
-                super::read_only::paint_read_only_label(
-                    &mut snapshot,
-                    self.active_pane_read_only(),
-                );
-                super::secure_input::paint_secure_input_label(
-                    &mut snapshot,
-                    self.secure_input_held,
-                );
-                super::broadcast_input::paint_broadcast_label(
-                    &mut snapshot,
-                    self.broadcast_label_for(self.sessions.active_id(), true)
-                        .as_ref(),
-                    self.active_pane_read_only(),
-                );
-                // UX-A (Phase 11): the open-modifier armed underline on the
-                // hovered path or URL span, then the transient bottom-left
-                // click hint. Both no-op (byte-identical) off their gates:
-                // the underline needs the open modifier (Ctrl, or Cmd on
-                // macOS) and an enabled hovered path or URL; the hint needs
-                // to be shown.
-                self.paint_armed_path_underline_cells(&mut snapshot);
-                self.paint_click_hint_cells(&mut snapshot);
-                // Static centered feedback for bounded window-level gestures
-                // such as Ctrl+wheel font zoom. No-op at rest.
-                self.paint_transient_hud_cells(&mut snapshot);
-                // v0.15.0 D keyboard window merge: the temporary numeral badge
-                // this window paints while it is a candidate in an open merge
-                // target picker. Written into the grid snapshot so it shows on
-                // every platform without compositor cooperation. No-op at rest.
-                self.paint_merge_numeral_cells(&mut snapshot);
+                let ctx = super::overlay_registry::OverlayCtx {
+                    cursor: effect_cursor,
+                    ..ctx
+                };
+                self.set_bidi_frame_map(bidi_content.clone());
                 // Frame-overlay quad manifest: scroll indicator, then the
                 // SH2 status gutter, then the no-op new slots.
                 let mut overlays: Vec<SolidQuad> = Vec::new();
@@ -690,15 +651,11 @@ impl App {
                     ],
                 );
                 let cursor_visible = snapshot.cursor_visible;
-                // BIDI test-only gate: overlay-painted rows draw in logical
-                // order; the pointer maps through the presented content map.
-                let bidi_content = bidi_plan.map(|(mut map, planned)| {
-                    map.reset_rows_changed_between(&planned, &snapshot);
-                    map
-                });
-                self.set_bidi_frame_map(bidi_content.clone());
-                let (snapshot, tab_bar_quads, cursor_comparison) =
+                let (snapshot, tab_bar_quads, mut cursor_comparison) =
                     self.prepare_single_pane_snapshots(snapshot, cursor_visible, cell);
+                // The next frame's glide compares drawn cells; the logical
+                // cursor itself in shipping builds.
+                cursor_comparison.cursor = effect_cursor;
                 overlays.extend(tab_bar_quads);
                 // R3 call-site parity + A2 cache observability: compute
                 // the live cursor params ONCE so focus, animation key,
@@ -754,7 +711,7 @@ impl App {
                             // / invalidate / scroll re-keys the frame.
                             buttons: button_chip::buttons_overlay_signature(
                                 &visible_buttons,
-                                hovered_button_key,
+                                self.hovered_button_key(),
                             ),
                             // v0.15.0 D keyboard merge target badge: Inert at
                             // rest so the composite stays constant on the

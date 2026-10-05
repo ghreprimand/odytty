@@ -229,3 +229,95 @@ impl App {
         true
     }
 }
+
+/// Crop pane-local solid effects to the pane's at-rest grid rectangle. Cursor
+/// glow and trail can extend beyond their cell; this keeps them from crossing a
+/// row or column divider while preserving their original color and stacking.
+fn clip_solid_quads_to_rect(quads: &mut Vec<SolidQuad>, clip: [f32; 4]) {
+    for quad in quads.iter_mut() {
+        quad.rect[0] = quad.rect[0].max(clip[0]);
+        quad.rect[1] = quad.rect[1].max(clip[1]);
+        quad.rect[2] = quad.rect[2].min(clip[2]);
+        quad.rect[3] = quad.rect[3].min(clip[3]);
+    }
+    quads.retain(|quad| quad.rect[0] < quad.rect[2] && quad.rect[1] < quad.rect[3]);
+}
+
+impl App {
+    /// Soonest frame-paced cursor-effect deadline for the focused pane. Both
+    /// render branches consume this pair; background panes stay parked.
+    pub(super) fn focused_cursor_animation_deadline(&self) -> Option<Instant> {
+        if self.settings.reduced_motion {
+            return None;
+        }
+        [
+            self.cursor_ease_deadline,
+            self.cursor_slide_deadline,
+            self.cursor_streak_wake_deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    }
+
+    /// Advance and paint the focused split pane's cursor consumer for one
+    /// coherent frame. Background panes never call this method, so their parked
+    /// timers cannot enter the wake set. Returned quads are attached to the
+    /// focused `PaneRender` and inherit its GPU clip.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn advance_focused_multipane_cursor(
+        &mut self,
+        now: Instant,
+        snapshot: &mut Snapshot,
+        cursor_style: crate::core::CursorStyle,
+        cursor_blinking: bool,
+        cell: CellSize,
+        origin: [f32; 2],
+        clip_rect: [f32; 4],
+        viewport_offset: usize,
+        scrollback_len: usize,
+    ) -> Vec<SolidQuad> {
+        let base_cursor_visible = snapshot.cursor_visible;
+        let focused = self.focused;
+        let cursor_on = self.cursor_blink.poll(now, cursor_blinking, focused);
+        self.update_cursor_easing(now, cursor_on, cursor_blinking);
+        // BIDI test-only gate: the effects run in the focused pane's drawn
+        // columns; identity in shipping builds.
+        let effect_cursor = self.bidi_focused_effect_cursor(snapshot.cursor);
+        self.advance_cursor_motion_at(now, snapshot, cursor_style, cell, effect_cursor);
+        if !cursor_on && (!self.settings.cursor_easing || self.settings.reduced_motion) {
+            snapshot.cursor_visible = false;
+        }
+
+        let mut ctx = self.overlay_ctx(
+            scrollback_len,
+            cell,
+            effect_cursor,
+            snapshot.cursor_visible,
+            now,
+        );
+        ctx.viewport_offset = viewport_offset;
+        ctx.grid = snapshot.dimensions;
+        let mut effects = Vec::new();
+        self.paint_cursor_trail_quads(&ctx, &mut effects);
+        let pad = ctx.window_padding.as_f32();
+        let translate = [origin[0] - pad, origin[1] - pad];
+        for quad in &mut effects {
+            quad.rect[0] += translate[0];
+            quad.rect[1] += translate[1];
+            quad.rect[2] += translate[0];
+            quad.rect[3] += translate[1];
+        }
+        clip_solid_quads_to_rect(&mut effects, clip_rect);
+
+        let mut presented = snapshot.clone();
+        presented.cursor_visible = base_cursor_visible;
+        let mut comparison = crate::native::session::CursorComparison::of(&presented);
+        comparison.cursor = effect_cursor;
+        self.last_cursor_comparison_snapshot = Some(comparison);
+        self.last_presented_snapshot = Some(presented);
+        self.last_presented_cursor_style = cursor_style;
+        self.last_presented_cursor_blinking = cursor_blinking;
+        effects
+    }
+}

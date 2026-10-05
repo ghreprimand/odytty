@@ -188,21 +188,31 @@ pub(in crate::native) struct CursorStreakVertex {
     pub(in crate::native) clip_rect: [f32; 4],
 }
 
+/// The screen column `snapshot`'s cursor cell is drawn at: its visual column
+/// under the test-only bidi display map, the logical column without one. The
+/// cursor block, its aura, and the follower all place through this, so the
+/// effects stay registered with the block.
+fn drawn_cursor_column(snapshot: &Snapshot, bidi: Option<&grid::BidiDisplayMap>) -> usize {
+    let column = snapshot.cursor.column;
+    bidi.map_or(column, |map| map.visual_column(snapshot.cursor.row, column))
+}
+
 fn cursor_streak_source_rect(
     snapshot: &Snapshot,
     cell: atlas::CellSize,
     origin: [f32; 2],
     request: CursorStreakRequest,
+    bidi: Option<&grid::BidiDisplayMap>,
 ) -> Option<[f32; 4]> {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
     if cols == 0 || rows == 0 || cell.width == 0 || cell.height == 0 {
         return None;
     }
-    let decoration_col = snapshot
-        .cursor
-        .column
-        .saturating_sub(request.destination.column) as f32;
+    // The follower's destination is in drawn (effect) columns, so the
+    // decoration offset compares it with the drawn cursor column.
+    let decoration_col =
+        drawn_cursor_column(snapshot, bidi).saturating_sub(request.destination.column) as f32;
     let decoration_row = snapshot.cursor.row.saturating_sub(request.destination.row) as f32;
     let dx = origin[0] + decoration_col * cell.width as f32;
     let dy = origin[1] + decoration_row * cell.height as f32;
@@ -214,16 +224,29 @@ fn cursor_streak_source_rect(
     ])
 }
 
+#[cfg(test)]
 pub(in crate::native) fn build_cursor_streak_instance(
     snapshot: &Snapshot,
     cell: atlas::CellSize,
     origin: [f32; 2],
     request: CursorStreakRequest,
 ) -> Option<CursorStreakInstance> {
+    build_cursor_streak_instance_with_bidi(snapshot, cell, origin, request, None)
+}
+
+/// The follower instance for `snapshot`, placed against the cursor's drawn
+/// column under `bidi` (`None` on every shipping frame).
+pub(in crate::native) fn build_cursor_streak_instance_with_bidi(
+    snapshot: &Snapshot,
+    cell: atlas::CellSize,
+    origin: [f32; 2],
+    request: CursorStreakRequest,
+    bidi: Option<&grid::BidiDisplayMap>,
+) -> Option<CursorStreakInstance> {
     if !snapshot.cursor_visible {
         return None;
     }
-    let source_rect = cursor_streak_source_rect(snapshot, cell, origin, request)?;
+    let source_rect = cursor_streak_source_rect(snapshot, cell, origin, request, bidi)?;
     if source_rect[0] >= source_rect[2] || source_rect[1] >= source_rect[3] {
         return None;
     }
@@ -349,6 +372,7 @@ fn intersect_rect(rect: [f32; 4], clip: [f32; 4]) -> Option<[f32; 4]> {
 
 /// Resolve one cursor aura from the exact live cursor inputs. This is the only
 /// instance builder used by Full, CursorOnly, and multi-pane updates.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(in crate::native) fn build_cursor_glow_instance(
     snapshot: &Snapshot,
@@ -360,6 +384,35 @@ pub(in crate::native) fn build_cursor_glow_instance(
     content_alpha: f32,
     request: CursorGlowRequest,
     follower: Option<CursorStreakRequest>,
+) -> Option<CursorGlowInstance> {
+    build_cursor_glow_instance_with_bidi(
+        snapshot,
+        cell,
+        cursor_style,
+        origin,
+        params,
+        scale,
+        content_alpha,
+        request,
+        follower,
+        None,
+    )
+}
+
+/// [`build_cursor_glow_instance`] with the aura placed at the cursor's drawn
+/// column under `bidi` (`None` on every shipping frame).
+#[allow(clippy::too_many_arguments)]
+pub(in crate::native) fn build_cursor_glow_instance_with_bidi(
+    snapshot: &Snapshot,
+    cell: atlas::CellSize,
+    cursor_style: CursorStyle,
+    origin: [f32; 2],
+    params: CursorRenderParams,
+    scale: f32,
+    content_alpha: f32,
+    request: CursorGlowRequest,
+    follower: Option<CursorStreakRequest>,
+    bidi: Option<&grid::BidiDisplayMap>,
 ) -> Option<CursorGlowInstance> {
     let cursor_alpha = follower.map_or(params.alpha, |follower| follower.alpha);
     if !snapshot.cursor_visible || !params.focused || cursor_alpha <= 0.0 {
@@ -376,12 +429,16 @@ pub(in crate::native) fn build_cursor_glow_instance(
         return None;
     }
 
-    let col = snapshot.cursor.column.min(cols - 1) as f32;
-    let row = snapshot.cursor.row.min(rows - 1) as f32;
+    // Clamp first, then place at the clamped cell's drawn column, exactly as
+    // the cursor block does.
+    let row_index = snapshot.cursor.row.min(rows - 1);
+    let col_index = snapshot.cursor.column.min(cols - 1);
+    let col = bidi.map_or(col_index, |map| map.visual_column(row_index, col_index)) as f32;
+    let row = row_index as f32;
     let x0 = origin[0] + col * cell_w + params.offset[0];
     let y0 = origin[1] + row * cell_h + params.offset[1];
     let source_rect = follower
-        .and_then(|follower| cursor_streak_source_rect(snapshot, cell, origin, follower))
+        .and_then(|follower| cursor_streak_source_rect(snapshot, cell, origin, follower, bidi))
         .unwrap_or_else(|| match cursor_style {
             CursorStyle::Block => [x0, y0, x0 + cell_w, y0 + cell_h],
             CursorStyle::Underline => grid::cursor_underline_rect(x0, y0, cell_w, cell_h),

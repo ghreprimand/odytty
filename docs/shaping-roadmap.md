@@ -190,9 +190,15 @@ follows the logical cell under the pointer. The input method candidate window
 anchors at the screen column the cursor cell is drawn at. The single-pane
 frame cache key includes the placement, so a placement change alone redraws.
 Selection and search highlights draw on the visual cells of their logical
-cells. Copy, search results, and cursor addressing stay logical. Cursor
-effects, click hints, button chips, resize, replay, and export are not yet
-mapped. Only the test suite reaches either gate: no setting, menu, or flag
+cells. The cursor slide, trail, follower, and aura move between the screen
+cells the cursor is drawn at, so a move on a reordered line animates as the
+same screen move on an unreordered one. A frame whose overlay writes text into
+the cursor's row draws that row in logical order and snaps the cursor effects
+instead of gliding. The open-modifier underline, link hover, and button chips
+address logical cells through the pointer; underlines and chip fills draw on
+the visual cells of their logical cells, while a chip pill cap or the click
+hint writes text, so its row draws in logical order. Copy, search results, and
+cursor addressing stay logical. Resize, replay, and export are not yet mapped. Only the test suite reaches either gate: no setting, menu, or flag
 enables them, so on-screen display and behavior are unchanged.
 
 ### Complex Indic and Brahmic shaping

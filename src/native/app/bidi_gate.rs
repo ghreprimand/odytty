@@ -12,8 +12,9 @@
 //! there through the focused content map, so selection, hover, and every
 //! cell-encoded mouse report address logical cells. An SGR-pixel report moves
 //! by whole cells onto the logical cell and keeps its offset inside the cell.
-//! Cursor, selection, search, copy, and every terminal protocol value stay
-//! logical.
+//! The cursor effects (slide, trail, follower, and aura) run in drawn columns,
+//! so they start and end where the cursor block is drawn. Cursor, selection,
+//! search, copy, and every terminal protocol value stay logical.
 //!
 //! No setting, flag, env var, or menu reaches the gate: in a shipping build
 //! every method here returns the identity answer. Platform-neutral.
@@ -148,6 +149,71 @@ impl App {
     }
 }
 
+/// The cell the cursor effects (slide, trail, follower, and aura) move
+/// between: the screen cell `map` draws the logical `cursor` at. Identity
+/// without a map, which is every shipping frame.
+pub(super) fn effect_cursor(map: Option<&BidiDisplayMap>, cursor: Position) -> Position {
+    map.map_or(cursor, |map| Position {
+        row: cursor.row,
+        column: map.visual_column(cursor.row, cursor.column),
+    })
+}
+
+impl App {
+    /// Advance the cursor slide and the large-jump follower for this frame in
+    /// drawn columns: the snapshot cursor is moved to `effect` for the two
+    /// updates and restored, so a glide starts and ends where the cursor block
+    /// is drawn. With no map `effect` is the logical cursor and this is
+    /// exactly the two updates.
+    pub(super) fn advance_cursor_motion_at(
+        &mut self,
+        now: Instant,
+        snapshot: &mut Snapshot,
+        style: crate::core::CursorStyle,
+        cell: CellSize,
+        effect: Position,
+    ) {
+        let logical = snapshot.cursor;
+        snapshot.cursor = effect;
+        self.update_cursor_motion(now, snapshot, cell);
+        self.update_cursor_streak(now, snapshot, style, cell);
+        snapshot.cursor = logical;
+    }
+
+    /// The single-pane frame advances its cursor effects from the plan made
+    /// before the overlay painters ran. An overlay that writes text into the
+    /// cursor's row returns that row to identity, so the final `map` can draw
+    /// the cursor at a different column than `advanced`. The effects then snap
+    /// (no glide, no follower) rather than draw away from the block. Returns
+    /// the drawn cursor for the trail and the next frame's comparison.
+    pub(super) fn settle_bidi_cursor_effects(
+        &mut self,
+        advanced: Position,
+        map: Option<&BidiDisplayMap>,
+        cursor: Position,
+    ) -> Position {
+        let drawn = effect_cursor(map, cursor);
+        if drawn != advanced {
+            self.cursor_slide_start = None;
+            self.cursor_slide_deadline = None;
+            self.cursor_anim_offset = [0.0, 0.0];
+            self.clear_cursor_streak();
+        }
+        drawn
+    }
+
+    /// The drawn cell of the focused pane's logical `cursor` in a split tab,
+    /// through the map its presented frame uses. Identity unless the
+    /// test-only gate built a map.
+    pub(super) fn bidi_focused_effect_cursor(&self, cursor: Position) -> Position {
+        #[cfg(test)]
+        if let Some(map) = self.bidi_focused_map() {
+            return effect_cursor(Some(map), cursor);
+        }
+        cursor
+    }
+}
+
 /// The finished map of one pane: its plan with every row the overlay painters
 /// changed since planning reset to the identity layout.
 pub(super) fn finish_bidi_plan(
@@ -190,16 +256,83 @@ impl App {
     /// painted in a headless test), so pointer tests run without a GPU.
     pub(in crate::native) fn present_bidi_frame_map_for_test(&mut self) {
         self.bidi_display_for_test = true;
-        let map = {
+        let _ = self.present_bidi_frame_for_test(Instant::now());
+    }
+
+    /// Test seam: run the single-pane frame's cell and cursor-effect steps
+    /// for the current viewport at `now`, in the frame's order and through
+    /// its helpers: plan, advance the cursor effects, paint the cell
+    /// manifest, reset overlay rows, settle the effects, paint the trail, and
+    /// record the presented map and the next frame's cursor comparison. Only
+    /// the GPU hand-off and chrome decoration are skipped (no headless GPU).
+    /// Honors the gate as set: with it off every step is the shipping one.
+    pub(in crate::native) fn present_bidi_frame_for_test(
+        &mut self,
+        now: Instant,
+    ) -> BidiFrameProbe {
+        let cell = self.test_cell.unwrap_or(CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        });
+        let (mut snapshot, scrollback_len, cursor_style, visible_buttons, ambiguous_wide, plan) = {
             let terminal = crate::native::lock_recover(&self.terminal);
-            let offset = self
-                .viewport
-                .offset()
-                .min(terminal.screen().scrollback_len());
+            let scrollback_len = terminal.screen().scrollback_len();
+            let offset = self.viewport.offset().min(scrollback_len);
             let snapshot = terminal.snapshot_with_scrollback(offset);
-            self.bidi_content_map(&terminal, &snapshot, offset)
+            let plan = self
+                .bidi_content_map(&terminal, &snapshot, offset)
+                .map(|map| (map, snapshot.clone()));
+            (
+                snapshot,
+                scrollback_len,
+                terminal.cursor_style(),
+                terminal.visible_button_spans(offset),
+                terminal.ambiguous_wide(),
+                plan,
+            )
+        };
+        let advanced = effect_cursor(plan.as_ref().map(|(map, _)| map), snapshot.cursor);
+        self.advance_cursor_motion_at(now, &mut snapshot, cursor_style, cell, advanced);
+        let ctx = self.overlay_ctx(
+            scrollback_len,
+            cell,
+            snapshot.cursor,
+            snapshot.cursor_visible,
+            now,
+        );
+        self.paint_single_pane_cells(&mut snapshot, &ctx, &visible_buttons, ambiguous_wide);
+        let map = plan.map(|(mut map, planned)| {
+            map.reset_rows_changed_between(&planned, &snapshot);
+            map
+        });
+        let effect_cursor =
+            self.settle_bidi_cursor_effects(advanced, map.as_ref(), snapshot.cursor);
+        let ctx = super::overlay_registry::OverlayCtx {
+            cursor: effect_cursor,
+            ..ctx
         };
         self.set_bidi_frame_map(map);
+        let mut trail = Vec::new();
+        self.paint_cursor_trail_quads(&ctx, &mut trail);
+        let streak = self.cursor_streak_request(
+            now,
+            [
+                0.0,
+                0.0,
+                snapshot.dimensions.columns as f32 * cell.width as f32,
+                snapshot.dimensions.rows as f32 * cell.height as f32,
+            ],
+        );
+        let mut comparison = crate::native::session::CursorComparison::of(&snapshot);
+        comparison.cursor = effect_cursor;
+        self.last_cursor_comparison_snapshot = Some(comparison);
+        BidiFrameProbe {
+            params: self.cursor_render_params(),
+            painted: snapshot,
+            streak,
+            trail,
+        }
     }
 
     /// Test seam: the content map the pointer currently maps through.
@@ -239,4 +372,15 @@ impl App {
     ) -> (usize, usize) {
         self.bidi_logical_report_px(px, cell)
     }
+}
+
+/// What [`App::present_bidi_frame_for_test`] presented: the content snapshot
+/// after the cell manifest, the live cursor parameters, the follower request,
+/// and the trail quads.
+#[cfg(test)]
+pub(in crate::native) struct BidiFrameProbe {
+    pub(in crate::native) painted: Snapshot,
+    pub(in crate::native) params: CursorRenderParams,
+    pub(in crate::native) streak: Option<crate::native::gpu::CursorStreakRequest>,
+    pub(in crate::native) trail: Vec<SolidQuad>,
 }

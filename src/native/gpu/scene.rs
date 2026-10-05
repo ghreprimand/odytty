@@ -31,8 +31,8 @@ use super::types::{
 };
 use super::types::{
     accumulate_pane_color_glyphs, append_cursor_glow_vertices, append_cursor_streak_vertices,
-    build_cursor_glow_instance, build_cursor_streak_instance, pane_chrome_pin, quads_excluding,
-    rail_overlay_chrome_pin, retained_cursor_effects, row_fade_view,
+    build_cursor_glow_instance_with_bidi, build_cursor_streak_instance_with_bidi, pane_chrome_pin,
+    quads_excluding, rail_overlay_chrome_pin, retained_cursor_effects, row_fade_view,
 };
 
 /// Apply the synthetic-styles kill switch to a font set's natural synthesis
@@ -660,7 +660,7 @@ impl GpuState {
             }
             if pane.focused {
                 cursor_glow_instance = pane.cursor_glow.and_then(|request| {
-                    build_cursor_glow_instance(
+                    build_cursor_glow_instance_with_bidi(
                         pane.snapshot,
                         self.atlas.cell,
                         pane.cursor_style,
@@ -670,14 +670,16 @@ impl GpuState {
                         self.window_bg_alpha,
                         request,
                         pane.cursor_streak,
+                        pane.bidi,
                     )
                 });
                 cursor_streak_instance = pane.cursor_streak.and_then(|request| {
-                    build_cursor_streak_instance(
+                    build_cursor_streak_instance_with_bidi(
                         pane.snapshot,
                         self.atlas.cell,
                         pane.origin,
                         request,
+                        pane.bidi,
                     )
                 });
                 retained_cursor_overlays.extend_from_slice(pane.overlays);
@@ -1398,7 +1400,7 @@ impl GpuState {
         follower: Option<CursorStreakRequest>,
     ) {
         let instance = request.and_then(|request| {
-            build_cursor_glow_instance(
+            build_cursor_glow_instance_with_bidi(
                 snapshot,
                 self.atlas.cell,
                 cursor_style,
@@ -1408,6 +1410,7 @@ impl GpuState {
                 self.window_bg_alpha,
                 request,
                 follower,
+                self.bidi_display.as_ref(),
             )
         });
         self.write_cursor_glow_instance(instance);
@@ -1420,7 +1423,13 @@ impl GpuState {
         request: Option<CursorStreakRequest>,
     ) {
         let instance = request.and_then(|request| {
-            build_cursor_streak_instance(snapshot, self.atlas.cell, origin, request)
+            build_cursor_streak_instance_with_bidi(
+                snapshot,
+                self.atlas.cell,
+                origin,
+                request,
+                self.bidi_display.as_ref(),
+            )
         });
         self.write_cursor_streak_instance(instance);
     }

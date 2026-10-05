@@ -93,6 +93,8 @@ mod automation_host;
 mod background_ui;
 mod bell;
 mod bidi_gate;
+#[cfg(test)]
+pub(in crate::native) use bidi_gate::BidiFrameProbe;
 pub(in crate::native) mod button_chip;
 mod chrome_geometry;
 mod chrome_present;
