@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Bounded northern Indic terminal width units, using Unicode 17 properties.
-//! Gurmukhi virama sequences use a terminal width unit across a UAX #29 break.
+//! Bounded northern and southern Indic terminal width units, using Unicode 17 properties.
+//! Gurmukhi and Tamil virama sequences use a terminal width unit across a UAX #29 break.
 //! This module does not shape glyphs or change other script groups.
 mod data;
 
@@ -58,7 +58,7 @@ pub(super) fn extends(base: char, extensions: &[char], next: char) -> bool {
     false
 }
 
-/// A spacing mark or retained conjunct promotes a measured G1 base to two
+/// A spacing mark or retained conjunct promotes a measured Indic base to two
 /// cells, regardless of further linked consonants. Nonspacing marks add zero.
 pub(super) fn has_two_cell_footprint(base: char, extensions: &[char]) -> bool {
     let sid = script(data::BASES, base);

@@ -4,8 +4,8 @@ Published release: **v0.16.1**.
 
 Development text storage retains bounded source clusters without dropping ordinary leading
 marks or overflow extensions. Thai/Lao SARA AM shares a two-cell owner with its
-preceding consonant. Northern Indic spacing signs and virama-linked consonants
-share bounded two-cell source owners. Complex-script glyph reordering remains
+preceding consonant. Northern Indic and Tamil, Telugu, Kannada, and Malayalam
+spacing signs and virama-linked consonants share bounded two-cell source owners. Complex-script glyph reordering remains
 unsupported.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.

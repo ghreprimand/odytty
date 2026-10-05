@@ -8,8 +8,8 @@ deferrals, and unmet evidence. Release corrections are listed in the
 
 Wide-glyph wrap padding is distinguished from logical source spaces through
 eager and lazy reflow, search, selection/copy, export, and snapshot restore.
-Bounded source ownership and northern Indic width units are implemented.
-Further script groups and standalone format-control retention remain pending.
+Bounded source ownership and northern Indic, Tamil, Telugu, Kannada, and
+Malayalam width units are implemented. Further script groups and standalone format-control retention remain pending.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 

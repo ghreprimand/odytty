@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Generate bounded G1 tables and conformance fixtures from Unicode 17.0.0 UCD.
+"""Generate bounded G1/G2 tables and conformance fixtures from Unicode 17.0.0 UCD.
 
 Usage: unicode-indic-data.py <directory holding UnicodeData.txt, Scripts.txt,
 IndicSyllabicCategory.txt, DerivedCoreProperties.txt, GraphemeBreakProperty.txt,
@@ -12,7 +12,9 @@ import hashlib
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-NAMES = ('Devanagari', 'Bengali', 'Gurmukhi', 'Gujarati', 'Oriya')
+G1 = ('Devanagari', 'Bengali', 'Gurmukhi', 'Gujarati', 'Oriya')
+G2 = ('Tamil', 'Telugu', 'Kannada', 'Malayalam')
+NAMES = G1 + G2
 
 def properties(path):
     out = {}
@@ -68,6 +70,8 @@ def main():
     for name in ('Scripts.txt', 'IndicSyllabicCategory.txt', 'DerivedCoreProperties.txt', 'UnicodeData.txt'):
         data.append(f'# {name} SHA-256: {hashlib.sha256((source / name).read_bytes()).hexdigest()}')
     for cp, sid in sorted(scope.items()):
+        if scripts[cp] not in G1:
+            continue
         data.append(f'{cp:04X};{sid};{cats.get(cp,"Cn")};{isc.get(cp,"Other")};{incb.get(cp,"None")}')
     (fixture / 'G1-properties.txt').write_text('\n'.join(data) + '\n')
     original = source / 'GraphemeBreakTest.txt'
@@ -77,9 +81,21 @@ def main():
         if not body:
             continue
         cps = [int(x, 16) for x in body.split() if x not in ('÷', '×')]
-        if cps[0] in groups['BASES'] and all(cp in scope or cp in (0x200c, 0x200d, 0x308) for cp in cps):
+        if scripts.get(cps[0]) in G1 and cps[0] in groups['BASES'] and all(scripts.get(cp) in G1 or cp in (0x200c, 0x200d, 0x308) for cp in cps):
             lines.append(line)
     (fixture / 'GraphemeBreakTest-G1.txt').write_text('\n'.join(lines) + '\n')
+    # Fixture ids are local to the bounded script group, independent of the
+    # production table ids. Preserve the G2 property corpus and source hashes.
+    data = ['# Unicode 17.0.0 G2 properties; Unicode-3.0, see LICENSE-UNICODE.txt.',
+            '# Scripts: 1 Tamil, 2 Telugu, 3 Kannada, 4 Malayalam.',
+            '# Columns: scalar;script-id;General_Category;Indic_Syllabic_Category;GCB;DerivedCoreProperties final assignment.']
+    for name in ('Scripts.txt', 'UnicodeData.txt', 'IndicSyllabicCategory.txt', 'DerivedCoreProperties.txt', 'GraphemeBreakProperty.txt'):
+        data.append(f'# {name} SHA-256: {hashlib.sha256((source / name).read_bytes()).hexdigest()}')
+    for cp in sorted(scope):
+        if scripts[cp] in G2:
+            sid = G2.index(scripts[cp]) + 1
+            data.append(f'{cp:04X};{sid};{cats.get(cp,"Cn")};{isc.get(cp,"Other")};{gcb.get(cp,"Other")};{incb.get(cp,"None")}')
+    (fixture / 'G2-properties.txt').write_text('\n'.join(data) + '\n')
 
 if __name__ == '__main__':
     main()
