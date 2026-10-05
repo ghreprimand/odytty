@@ -1,0 +1,37 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; LTR; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Tamil-subset.ttf	U+0B95 U+0BCA	7,2,5	0,0,0	0,0,0	0,0,0	901,825,640	split-vowel
+Tamil-subset.ttf	U+0B95 U+0BCD U+0BB7	13	0	0	0	1851	conjunct
+Tamil-subset.ttf	U+0B95 U+0BC8	8,2	0,0	0,0	0,0	1160,825	vowel-sign-ai
+Tamil-subset.ttf	U+0B95 U+0BBF	2,18	0,0	0,0	0,0	825,262	vowel-sign-i
+Tamil-subset.ttf	U+0B95 U+0BCC	7,2,12	0,0,0	0,0,0	0,0,0	901,825,1070	split-vowel
+Tamil-subset.ttf	U+0B95 U+0BCD U+200D U+0BB7	14,1,4	0,0,9	0,0,0	0,0,0	825,0,1345	zwj
+Tamil-subset.ttf	U+0B95 U+0BCD U+200C U+0BB7	14,1,4	0,6,9	0,0,0	0,0,0	825,0,1345	zwnj
+Tamil-subset.ttf	U+0B95 U+0BBE	2,5	0,0	0,0	0,0	825,640	plain-control
+Tamil-subset.ttf	U+0B95 U+0BC6	7,2	0,0	0,0	0,0	901,825	plain-control
+Telugu-subset.ttf	U+0C15 U+0C4D U+0C37	10	0	0	0	522	conjunct
+Telugu-subset.ttf	U+0C15 U+0C4A	27	0	0	0	772	split-vowel
+Telugu-subset.ttf	U+0C30 U+0C4D U+0C15	3,53	0,0	0,0	0,0	580,483	reph
+Telugu-subset.ttf	U+0C15 U+0C4D U+0C15 U+0C3F	19,53	0,0	0,0	0,0	522,483	below-base-i
+Telugu-subset.ttf	U+0C15 U+0C4D U+200D U+0C37	11,1,4	0,0,9	0,0,0	0,0,0	522,0,713	zwj
+Telugu-subset.ttf	U+0C15 U+0C4D U+200C U+0C37	11,1,4	0,6,9	0,0,0	0,0,0	522,0,713	zwnj
+Telugu-subset.ttf	U+0C15 U+0C3E	15	0	0	0	867	plain-control
+Telugu-subset.ttf	U+0C15 U+0C46	23	0	0	0	522	plain-control
+Kannada-subset.ttf	U+0C95 U+0CCD U+0CB7	82	0	0	0	574	conjunct
+Kannada-subset.ttf	U+0CB0 U+0CCD U+0C95	6,23	0,0	0,0	0,0	574,567	reph
+Kannada-subset.ttf	U+0C95 U+0CCA	71,12	0,0	0,0	0,0	574,746	split-vowel
+Kannada-subset.ttf	U+0C95 U+0CBF	68	0	0	0	574	pre-base-matra
+Kannada-subset.ttf	U+0C95 U+0CCD U+200D U+0CB7	65,8	0,9	0,0	0,0	887,801	zwj
+Kannada-subset.ttf	U+0C95 U+0CCD U+200C U+0CB7	65,1,8	0,6,9	0,0,0	0,0,0	887,0,801	zwnj
+Kannada-subset.ttf	U+0C95 U+0CBE	62,9	0,0	0,0	0,0	574,449	plain-control
+Kannada-subset.ttf	U+0C95 U+0CC6	71	0	0	0	574	plain-control
+Malayalam-subset.ttf	U+0D15 U+0D4D U+0D37	16	0	0	0	1696	conjunct
+Malayalam-subset.ttf	U+0D15 U+0D4A	6,2,5	0,0,0	0,0,0	0,0,0	715,1038,504	split-vowel
+Malayalam-subset.ttf	U+0D30 U+0D4D U+0D15	3,8,2	0,0,6	0,0,0	0,0,0	736,0,1038	ra-prefix
+Malayalam-subset.ttf	U+0D15 U+0D4D U+0D15	15	0	0	0	1506	conjunct
+Malayalam-subset.ttf	U+0D15 U+0D46	6,2	0,0	0,0	0,0	715,1038	plain-control
+Malayalam-subset.ttf	U+0D15 U+0D4D U+200D U+0D37	2,8,1,4	0,0,0,9	0,0,0,0	0,0,0,0	1038,0,0,1149	zwj
+Malayalam-subset.ttf	U+0D15 U+0D4D U+200C U+0D37	2,8,1,4	0,0,6,9	0,0,0,0	0,0,0,0	1038,0,0,1149	zwnj
+Malayalam-subset.ttf	U+0D15 U+0D3E	2,5	0,0	0,0	0,0	1038,504	plain-control

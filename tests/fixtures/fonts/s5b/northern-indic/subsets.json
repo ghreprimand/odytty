@@ -1,0 +1,121 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Devanagari-subset.ttf",
+      "subset_sha256": "e32080e7289298be768d20cc31bb44b83fe16b937bddc653aeba3eda16d511a7",
+      "subset_bytes": 25740,
+      "glyph_count": 111,
+      "units_per_em": 1000,
+      "reference_rows": 13,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0902",
+        "U+0915",
+        "U+0926",
+        "U+0927",
+        "U+0930",
+        "U+0936",
+        "U+0937",
+        "U+0939",
+        "U+093E",
+        "U+093F",
+        "U+0943",
+        "U+0947",
+        "U+094D",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansDevanagari-Regular.ttf --unicodes=U+0020,U+0902,U+0915,U+0926,U+0927,U+0930,U+0936,U+0937,U+0939,U+093E,U+093F,U+0943,U+0947,U+094D,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=northern-indic/Devanagari-subset.ttf"
+    },
+    {
+      "font": "Bengali-subset.ttf",
+      "subset_sha256": "2a3bc03d9c5fd389c543c03e1b042a50781df9001c4d20d56a776c86f30bb1f7",
+      "subset_bytes": 12136,
+      "glyph_count": 53,
+      "units_per_em": 1000,
+      "reference_rows": 9,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0995",
+        "U+09B0",
+        "U+09B7",
+        "U+09BE",
+        "U+09BF",
+        "U+09C7",
+        "U+09CB",
+        "U+09CD",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansBengali-Regular.ttf --unicodes=U+0020,U+0995,U+09B0,U+09B7,U+09BE,U+09BF,U+09C7,U+09CB,U+09CD,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=northern-indic/Bengali-subset.ttf"
+    },
+    {
+      "font": "Gurmukhi-subset.ttf",
+      "subset_sha256": "fc4eb5d62de69c5fc041404776d16c7617f349d5083db49ffe600bf5be2ec192",
+      "subset_bytes": 4376,
+      "glyph_count": 19,
+      "units_per_em": 1000,
+      "reference_rows": 9,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0A15",
+        "U+0A30",
+        "U+0A39",
+        "U+0A3E",
+        "U+0A3F",
+        "U+0A40",
+        "U+0A4B",
+        "U+0A4D",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansGurmukhi-Regular.ttf --unicodes=U+0020,U+0A15,U+0A30,U+0A39,U+0A3E,U+0A3F,U+0A40,U+0A4B,U+0A4D,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=northern-indic/Gurmukhi-subset.ttf"
+    },
+    {
+      "font": "Gujarati-subset.ttf",
+      "subset_sha256": "7082ed5c1b7795251c5b1d9b06117ddb3de6232ddc46b7a56840fe8c34260fdd",
+      "subset_bytes": 9800,
+      "glyph_count": 44,
+      "units_per_em": 1000,
+      "reference_rows": 9,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0A95",
+        "U+0AB0",
+        "U+0AB7",
+        "U+0ABE",
+        "U+0ABF",
+        "U+0AC7",
+        "U+0ACB",
+        "U+0ACD",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansGujarati-Regular.ttf --unicodes=U+0020,U+0A95,U+0AB0,U+0AB7,U+0ABE,U+0ABF,U+0AC7,U+0ACB,U+0ACD,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=northern-indic/Gujarati-subset.ttf"
+    },
+    {
+      "font": "Odia-subset.ttf",
+      "subset_sha256": "12b294e54a5dbfb797f11024bfb35d1b98c393ac0b32e54bdc81a3291919a703",
+      "subset_bytes": 10120,
+      "glyph_count": 63,
+      "units_per_em": 1000,
+      "reference_rows": 9,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0B15",
+        "U+0B30",
+        "U+0B37",
+        "U+0B3E",
+        "U+0B3F",
+        "U+0B47",
+        "U+0B4B",
+        "U+0B4D",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansOriya-Regular.ttf --unicodes=U+0020,U+0B15,U+0B30,U+0B37,U+0B3E,U+0B3F,U+0B47,U+0B4B,U+0B4D,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=northern-indic/Odia-subset.ttf"
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Thai-subset.ttf",
+      "subset_sha256": "fe1882c1546492d6f69ab806fead8d4f383b6891a3b54b9b00381a270540b9d4",
+      "subset_bytes": 4816,
+      "glyph_count": 24,
+      "units_per_em": 1000,
+      "reference_rows": 8,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0E01",
+        "U+0E0D",
+        "U+0E1B",
+        "U+0E30",
+        "U+0E32",
+        "U+0E33",
+        "U+0E34",
+        "U+0E38",
+        "U+0E48",
+        "U+0E4D",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansThai-Regular.ttf --unicodes=U+0020,U+0E01,U+0E0D,U+0E1B,U+0E30,U+0E32,U+0E33,U+0E34,U+0E38,U+0E48,U+0E4D,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=thai-lao-tibetan/Thai-subset.ttf"
+    },
+    {
+      "font": "Lao-subset.ttf",
+      "subset_sha256": "e480cd9fa6c257c9010b7ab958a4e1b7fc7e4b5f0405ab61e435cee6a59ba733",
+      "subset_bytes": 4200,
+      "glyph_count": 19,
+      "units_per_em": 1000,
+      "reference_rows": 7,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0E81",
+        "U+0E9B",
+        "U+0EB0",
+        "U+0EB2",
+        "U+0EB3",
+        "U+0EB4",
+        "U+0EC8",
+        "U+0ECD",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansLao-Regular.ttf --unicodes=U+0020,U+0E81,U+0E9B,U+0EB0,U+0EB2,U+0EB3,U+0EB4,U+0EC8,U+0ECD,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=thai-lao-tibetan/Lao-subset.ttf"
+    },
+    {
+      "font": "Tibetan-subset.ttf",
+      "subset_sha256": "b595ceb32061e39c1e25f4c9d71e054c8af1493305f2d5dd8534a8b0dc7f0020",
+      "subset_bytes": 17092,
+      "glyph_count": 62,
+      "units_per_em": 1000,
+      "reference_rows": 7,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0F40",
+        "U+0F66",
+        "U+0F72",
+        "U+0F74",
+        "U+0F7C",
+        "U+0F90",
+        "U+0FB1",
+        "U+0FB5",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSerifTibetan-Regular.ttf --unicodes=U+0020,U+0F40,U+0F66,U+0F72,U+0F74,U+0F7C,U+0F90,U+0FB1,U+0FB5,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=thai-lao-tibetan/Tibetan-subset.ttf"
+    }
+  ]
+}

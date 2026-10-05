@@ -1,0 +1,49 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Khmer-subset.ttf",
+      "subset_sha256": "3ca39c77bdaa1ae67f5d9e008f1a8cfe934b3e7f26e92d6ad169957961a56345",
+      "subset_bytes": 4824,
+      "glyph_count": 17,
+      "units_per_em": 1000,
+      "reference_rows": 8,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1780",
+        "U+179A",
+        "U+17B6",
+        "U+17BE",
+        "U+17C1",
+        "U+17D2",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansKhmer-Regular.ttf --unicodes=U+0020,U+1780,U+179A,U+17B6,U+17BE,U+17C1,U+17D2,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=khmer-myanmar/Khmer-subset.ttf"
+    },
+    {
+      "font": "Myanmar-subset.ttf",
+      "subset_sha256": "37ea46c5f90d3d6c5968b5b62af8458727e82c634d8947f3fda02f10be9444ca",
+      "subset_bytes": 6992,
+      "glyph_count": 34,
+      "units_per_em": 1000,
+      "reference_rows": 9,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1000",
+        "U+1004",
+        "U+102B",
+        "U+102C",
+        "U+102D",
+        "U+1031",
+        "U+1039",
+        "U+103A",
+        "U+103C",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansMyanmar-Regular.ttf --unicodes=U+0020,U+1000,U+1004,U+102B,U+102C,U+102D,U+1031,U+1039,U+103A,U+103C,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=khmer-myanmar/Myanmar-subset.ttf"
+    }
+  ]
+}

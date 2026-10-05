@@ -1,0 +1,12 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; LTR; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Sinhala-subset.ttf	U+0D9A U+0DCA U+200D U+0DC2	6	0	0	0	1424	zwj
+Sinhala-subset.ttf	U+0D9A U+0DD9	12,2	0,0	0,0	0,0	631,1007	plain-control
+Sinhala-subset.ttf	U+0D9A U+0DDC	12,2,8	0,0,0	0,0,0	0,0,0	631,1007,338	split-vowel
+Sinhala-subset.ttf	U+0DC1 U+0DCA U+200D U+0DBB U+0DD3	4,17,10	0,0,0	0,-865,-748	0,0,0	915,0,0	zwj
+Sinhala-subset.ttf	U+0D9A U+0DCA U+0D9A	2,7,2	0,0,6	0,-315,0	0,0,0	1007,0,1007	conjunct
+Sinhala-subset.ttf	U+0D9A U+0DCA U+200D U+200D U+0DC2	2,7,1,1,5	0,0,0,0,12	0,-315,0,0,0	0,0,0,0,0	1007,0,0,0,830	zwj
+Sinhala-subset.ttf	U+0D9A U+0DCA U+200C U+200D U+0DC2	2,7,1,1,5	0,0,6,6,12	0,-315,0,0,0	0,0,0,0,0	1007,0,0,0,830	zwj;zwnj
+Sinhala-subset.ttf	U+0D9A U+0DCF	2,8	0,0	0,0	0,0	1007,338	plain-control

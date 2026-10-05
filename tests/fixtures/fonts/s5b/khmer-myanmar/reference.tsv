@@ -1,0 +1,21 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; LTR; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Khmer-subset.ttf	U+1780 U+17D2 U+1780	2,10	0,0	0,-2	0,-26	636,0	coeng-stack
+Khmer-subset.ttf	U+1780 U+17BE	8,2,5	0,0,0	0,0,-23	0,0,-29	288,636,0	split-vowel
+Khmer-subset.ttf	U+1780 U+17D2 U+179A	11,2	0,0	0,0	0,0	287,636	below-base-ro
+Khmer-subset.ttf	U+1780 U+17C1	8,2	0,0	0,0	0,0	288,636	plain-control
+Khmer-subset.ttf	U+1780 U+17D2 U+179A U+17C1	8,11,2	0,0,0	0,0,0	0,0,0	288,287,636	coeng-pre-base
+Khmer-subset.ttf	U+1780 U+17D2 U+200D U+1780	2,9,1,2	0,0,0,9	0,0,0,0	0,0,0,0	636,0,0,636	zwj
+Khmer-subset.ttf	U+1780 U+17D2 U+200C U+1780	2,9,1,2	0,0,6,9	0,0,0,0	0,0,0,0	636,0,0,636	zwnj
+Khmer-subset.ttf	U+1780 U+17B6	13	0	0	0	924	plain-control
+Myanmar-subset.ttf	U+1000 U+1039 U+1000	2,18	0,0	0,-235	0,0	1124,0	stacker
+Myanmar-subset.ttf	U+1000 U+1031	25,2	0,0	0,0	0,0	618,1124	pre-base-vowel
+Myanmar-subset.ttf	U+1000 U+103C	9,2	0,0	0,0	0,0	229,1124	medial-ra
+Myanmar-subset.ttf	U+1000 U+1031 U+102C	25,2,23	0,0,0	0,0,0	0,0,0	618,1124,455	split-vowel
+Myanmar-subset.ttf	U+1004 U+103A U+1039 U+1000	2,8	0,0	0,-1	0,0	1124,0	kinzi
+Myanmar-subset.ttf	U+1000 U+1039 U+200D U+1000	2,26,1,2	0,0,0,9	0,-12,0,0	0,-24,0,0	1124,0,0,1124	zwj
+Myanmar-subset.ttf	U+1000 U+1039 U+200C U+1000	2,26,1,2	0,0,6,9	0,-12,0,0	0,-24,0,0	1124,0,0,1124	zwnj
+Myanmar-subset.ttf	U+1000 U+102B	2,22	0,0	0,0	0,0	1124,267	plain-control
+Myanmar-subset.ttf	U+1000 U+102D	2,24	0,0	0,-27	0,0	1124,0	plain-control

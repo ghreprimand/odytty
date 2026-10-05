@@ -1,0 +1,29 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Sinhala-subset.ttf",
+      "subset_sha256": "2329b4dfe39b95198a0ba4761476d4fa02557864e516c4aed7c46c3638fd57bf",
+      "subset_bytes": 7160,
+      "glyph_count": 26,
+      "units_per_em": 1000,
+      "reference_rows": 8,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0D9A",
+        "U+0DBB",
+        "U+0DC1",
+        "U+0DC2",
+        "U+0DCA",
+        "U+0DCF",
+        "U+0DD3",
+        "U+0DD9",
+        "U+0DDC",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansSinhala-Regular.ttf --unicodes=U+0020,U+0D9A,U+0DBB,U+0DC1,U+0DC2,U+0DCA,U+0DCF,U+0DD3,U+0DD9,U+0DDC,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=sinhala/Sinhala-subset.ttf"
+    }
+  ]
+}

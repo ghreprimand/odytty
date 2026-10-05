@@ -1,0 +1,85 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Chakma-subset.ttf",
+      "subset_sha256": "9ff135a1d392c7eb91792b97673960ba3bac3b7b3acbd426c3713734fafc9ce5",
+      "subset_bytes": 3600,
+      "glyph_count": 15,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+200C",
+        "U+200D",
+        "U+11107",
+        "U+11127",
+        "U+11128",
+        "U+1112C",
+        "U+11134"
+      ],
+      "subset_command": "pyftsubset source/NotoSansChakma-Regular.ttf --unicodes=U+0020,U+200C,U+200D,U+11107,U+11127,U+11128,U+1112C,U+11134 --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=g6/Chakma-subset.ttf"
+    },
+    {
+      "font": "Javanese-subset.ttf",
+      "subset_sha256": "604fca81402b4033d98b0ff2c2c95c5f06e758f77dd0930ffaa9c23ba6e35720",
+      "subset_bytes": 4948,
+      "glyph_count": 17,
+      "units_per_em": 1000,
+      "reference_rows": 8,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+200C",
+        "U+200D",
+        "U+A98F",
+        "U+A9B4",
+        "U+A9B6",
+        "U+A9BA",
+        "U+A9BF",
+        "U+A9C0"
+      ],
+      "subset_command": "pyftsubset source/NotoSansJavanese-Regular.ttf --unicodes=U+0020,U+200C,U+200D,U+A98F,U+A9B4,U+A9B6,U+A9BA,U+A9BF,U+A9C0 --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=g6/Javanese-subset.ttf"
+    },
+    {
+      "font": "Grantha-subset.ttf",
+      "subset_sha256": "f655a0fb348ebf094b87b5f407c3ab8b6198478ea8337ec63032d240c2820285",
+      "subset_bytes": 12668,
+      "glyph_count": 39,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+200C",
+        "U+200D",
+        "U+11315",
+        "U+11337",
+        "U+1133E",
+        "U+11347",
+        "U+1134B",
+        "U+1134D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansGrantha-Regular.ttf --unicodes=U+0020,U+200C,U+200D,U+11315,U+11337,U+1133E,U+11347,U+1134B,U+1134D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=g6/Grantha-subset.ttf"
+    },
+    {
+      "font": "TaiTham-subset.ttf",
+      "subset_sha256": "ec10227324287687d492fe99223d029c5386ab0cb694c6d7782a156d1d8c73c7",
+      "subset_bytes": 3840,
+      "glyph_count": 17,
+      "units_per_em": 1000,
+      "reference_rows": 7,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1A20",
+        "U+1A55",
+        "U+1A60",
+        "U+1A63",
+        "U+1A65",
+        "U+1A6E",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansTaiTham-Regular.ttf --unicodes=U+0020,U+1A20,U+1A55,U+1A60,U+1A63,U+1A65,U+1A6E,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=g6/TaiTham-subset.ttf"
+    }
+  ]
+}

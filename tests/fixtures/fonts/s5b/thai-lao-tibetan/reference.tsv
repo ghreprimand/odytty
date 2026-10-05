@@ -1,0 +1,26 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; LTR; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Thai-subset.ttf	U+0E01 U+0E33	1,7,11	0,0,0	0,-2,0	0,0,0	600,0,406	sara-am
+Thai-subset.ttf	U+0E1B U+0E48	9,5	0,0	0,1	0,0	605,0	tone-stack
+Thai-subset.ttf	U+0E0D U+0E38	23,15	0,0	0,-10	0,0	891,0	below-base-vowel
+Thai-subset.ttf	U+0E1B U+0E34 U+0E48	9,14,6	0,0,0	0,0,-138	0,0,-59	605,0,0	tone-vowel-stack
+Thai-subset.ttf	U+0E01 U+0E33 U+200D	1,7,11,19	0,0,0,0	0,-2,0,0	0,0,0,0	600,0,406,0	zwj
+Thai-subset.ttf	U+0E01 U+0E33 U+200C	1,7,11,19	0,0,0,6	0,-2,0,0	0,0,0,0	600,0,406,0	zwnj
+Thai-subset.ttf	U+0E01 U+0E30	1,10	0,3	0,0	0,0	600,338	plain-control
+Thai-subset.ttf	U+0E01 U+0E34	1,13	0,0	0,-2	0,0	600,0	plain-control
+Lao-subset.ttf	U+0E81 U+0EB3	4,11,7	0,0,0	0,-307,0	0,0,0	614,0,324	sara-am
+Lao-subset.ttf	U+0E81 U+0EC8	4,13	0,0	0,-230	0,0	614,0	tone
+Lao-subset.ttf	U+0E9B U+0EB4 U+0EC8	5,9,15	0,0,0	0,-644,-374	0,0,0	616,0,0	tone-vowel-stack
+Lao-subset.ttf	U+0E81 U+0EB3 U+200D	4,11,7,1	0,0,0,0	0,-307,0,0	0,0,0,0	614,0,324,0	zwj
+Lao-subset.ttf	U+0E81 U+0EB3 U+200C	4,11,7,1	0,0,0,6	0,-307,0,0	0,0,0,0	614,0,324,0	zwnj
+Lao-subset.ttf	U+0E81 U+0EB0	4,6	0,3	0,0	0,0	614,372	plain-control
+Lao-subset.ttf	U+0E81 U+0EB4	4,8	0,0	0,-582	0,0	614,0	plain-control
+Tibetan-subset.ttf	U+0F40 U+0FB5	4	0	0	0	704	subjoined-stack
+Tibetan-subset.ttf	U+0F66 U+0F90	17	0	0	0	675	subjoined-stack
+Tibetan-subset.ttf	U+0F40 U+0F72	2,27	0,0	0,-614	0,0	704,0	plain-control
+Tibetan-subset.ttf	U+0F66 U+0F90 U+0FB1 U+0F7C	19,29	0,0	0,-702	0,0	675,0	stacked-vowel
+Tibetan-subset.ttf	U+0F40 U+0FB5 U+200D	4,1	0,0	0,0	0,0	704,0	zwj
+Tibetan-subset.ttf	U+0F40 U+0FB5 U+200C	4,1	0,6	0,0	0,0	704,0	zwnj
+Tibetan-subset.ttf	U+0F40 U+0F74	11	0	0	0	704	plain-control

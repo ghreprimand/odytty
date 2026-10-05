@@ -1,0 +1,96 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Tamil-subset.ttf",
+      "subset_sha256": "6593378eaa6e41161cfd6f4df56aa4572f49568002434a9a680180092d70b6ff",
+      "subset_bytes": 4692,
+      "glyph_count": 21,
+      "units_per_em": 1000,
+      "reference_rows": 9,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0B95",
+        "U+0BB7",
+        "U+0BBE",
+        "U+0BBF",
+        "U+0BC6",
+        "U+0BC8",
+        "U+0BCA",
+        "U+0BCC",
+        "U+0BCD",
+        "U+0BD7",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansTamil-Regular.ttf --unicodes=U+0020,U+0B95,U+0BB7,U+0BBE,U+0BBF,U+0BC6,U+0BC8,U+0BCA,U+0BCC,U+0BCD,U+0BD7,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=southern-indic/Tamil-subset.ttf"
+    },
+    {
+      "font": "Telugu-subset.ttf",
+      "subset_sha256": "5dc808a8a09ac4a8bc1fa5e4f62f91dd9dac3325ee2b9620ee6059d326be33fb",
+      "subset_bytes": 8696,
+      "glyph_count": 55,
+      "units_per_em": 1000,
+      "reference_rows": 8,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0C15",
+        "U+0C30",
+        "U+0C37",
+        "U+0C3E",
+        "U+0C3F",
+        "U+0C46",
+        "U+0C4A",
+        "U+0C4D",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansTelugu-Regular.ttf --unicodes=U+0020,U+0C15,U+0C30,U+0C37,U+0C3E,U+0C3F,U+0C46,U+0C4A,U+0C4D,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=southern-indic/Telugu-subset.ttf"
+    },
+    {
+      "font": "Kannada-subset.ttf",
+      "subset_sha256": "a6d0ae3c621df39bff15c7526024c3ba892c17820c92d74644176c5ab2e893f3",
+      "subset_bytes": 56996,
+      "glyph_count": 210,
+      "units_per_em": 1000,
+      "reference_rows": 8,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0C95",
+        "U+0CB0",
+        "U+0CB7",
+        "U+0CBE",
+        "U+0CBF",
+        "U+0CC2",
+        "U+0CC6",
+        "U+0CCA",
+        "U+0CCD",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansKannada-Regular.ttf --unicodes=U+0020,U+0C95,U+0CB0,U+0CB7,U+0CBE,U+0CBF,U+0CC2,U+0CC6,U+0CCA,U+0CCD,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=southern-indic/Kannada-subset.ttf"
+    },
+    {
+      "font": "Malayalam-subset.ttf",
+      "subset_sha256": "ed5f013fe6215e20fff55c2d3777c76e91a1a1ec3edb09d6a8d46294ef5cea8e",
+      "subset_bytes": 4992,
+      "glyph_count": 20,
+      "units_per_em": 1000,
+      "reference_rows": 8,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0D15",
+        "U+0D30",
+        "U+0D37",
+        "U+0D3E",
+        "U+0D46",
+        "U+0D4A",
+        "U+0D4D",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansMalayalam-Regular.ttf --unicodes=U+0020,U+0D15,U+0D30,U+0D37,U+0D3E,U+0D46,U+0D4A,U+0D4D,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=southern-indic/Malayalam-subset.ttf"
+    }
+  ]
+}

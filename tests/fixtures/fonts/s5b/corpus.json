@@ -1,0 +1,2026 @@
+{
+  "provenance": "Project-authored scalar sequences; no copied prose.",
+  "faces": [
+    {
+      "group": "northern-indic",
+      "script": "devanagari",
+      "script_tag": "Deva",
+      "font": "Devanagari-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Devanagari Fixture",
+      "release_url": "https://github.com/notofonts/devanagari/releases/download/NotoSansDevanagari-v2.007/NotoSansDevanagari-v2.007.zip",
+      "archive_sha256": "820c7da45b1e63562cb41c0a8cac5d9a4202312043a3a040ed1325857ef469b1",
+      "source_member": "NotoSansDevanagari/hinted/ttf/NotoSansDevanagari-Regular.ttf",
+      "source_sha256": "4e3c66638958c3e2ab5d37f47a8deb89fffeb7be9985c665a519bbc7ba762313",
+      "source_filename": "NotoSansDevanagari-Regular.ttf",
+      "source_family": "NotoSansDevanagari",
+      "cases": [
+        {
+          "id": "devanagari-1",
+          "codepoints": [
+            "U+0915",
+            "U+094D",
+            "U+0937"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "devanagari-2",
+          "codepoints": [
+            "U+0930",
+            "U+094D",
+            "U+0915"
+          ],
+          "note": "reph"
+        },
+        {
+          "id": "devanagari-3",
+          "codepoints": [
+            "U+0915",
+            "U+093F"
+          ],
+          "note": "pre-base-matra"
+        },
+        {
+          "id": "devanagari-4",
+          "codepoints": [
+            "U+0915",
+            "U+094D",
+            "U+0937",
+            "U+093F"
+          ],
+          "note": "conjunct-pre-base"
+        },
+        {
+          "id": "devanagari-5",
+          "codepoints": [
+            "U+0926",
+            "U+094D",
+            "U+0927"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "devanagari-6",
+          "codepoints": [
+            "U+0936",
+            "U+094D",
+            "U+0930"
+          ],
+          "note": "below-base-ra"
+        },
+        {
+          "id": "devanagari-7",
+          "codepoints": [
+            "U+0915",
+            "U+094D",
+            "U+200D",
+            "U+0937"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "devanagari-8",
+          "codepoints": [
+            "U+0915",
+            "U+094D",
+            "U+200C",
+            "U+0937"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "devanagari-9",
+          "codepoints": [
+            "U+0939",
+            "U+0943"
+          ],
+          "note": "below-base-vowel"
+        },
+        {
+          "id": "devanagari-10",
+          "codepoints": [
+            "U+0930",
+            "U+094D",
+            "U+0915",
+            "U+093F",
+            "U+0902"
+          ],
+          "note": "reph-pre-base-anusvara"
+        },
+        {
+          "id": "devanagari-11",
+          "codepoints": [
+            "U+0915",
+            "U+094D",
+            "U+0930"
+          ],
+          "note": "below-base-ra"
+        },
+        {
+          "id": "devanagari-12",
+          "codepoints": [
+            "U+0915",
+            "U+093E"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "devanagari-13",
+          "codepoints": [
+            "U+0915",
+            "U+0947"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Devanagari-OFL.txt",
+      "license_sha256": "2fc8248c8a907cb845b1317c824b975109e4e4a89bc917810575c1fd1d11861f",
+      "required_scalars": [
+        "U+0020",
+        "U+0902",
+        "U+0915",
+        "U+0926",
+        "U+0927",
+        "U+0930",
+        "U+0936",
+        "U+0937",
+        "U+0939",
+        "U+093E",
+        "U+093F",
+        "U+0943",
+        "U+0947",
+        "U+094D",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "a216f6f8d85c7228093e0ee5e258d9d377e6671f68acb4db1930b29583d0f331",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "northern-indic",
+      "script": "bengali",
+      "script_tag": "Beng",
+      "font": "Bengali-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Bengali Fixture",
+      "release_url": "https://github.com/notofonts/bengali/releases/download/NotoSansBengali-v3.011/NotoSansBengali-v3.011.zip",
+      "archive_sha256": "2aca24bf71665e66c32e14862ee58857dd8b8b07b6321ec7c96f3121ad6683b1",
+      "source_member": "NotoSansBengali/hinted/ttf/NotoSansBengali-Regular.ttf",
+      "source_sha256": "b55c62ee531e3214da6c0701daecea89a52ba42db7d8206b92e6b51f397a3193",
+      "source_filename": "NotoSansBengali-Regular.ttf",
+      "source_family": "NotoSansBengali",
+      "cases": [
+        {
+          "id": "bengali-1",
+          "codepoints": [
+            "U+0995",
+            "U+09CD",
+            "U+09B7"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "bengali-2",
+          "codepoints": [
+            "U+09B0",
+            "U+09CD",
+            "U+0995"
+          ],
+          "note": "reph"
+        },
+        {
+          "id": "bengali-3",
+          "codepoints": [
+            "U+0995",
+            "U+09BF"
+          ],
+          "note": "pre-base-matra"
+        },
+        {
+          "id": "bengali-4",
+          "codepoints": [
+            "U+0995",
+            "U+09CB"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "bengali-5",
+          "codepoints": [
+            "U+0995",
+            "U+09CD",
+            "U+09B0"
+          ],
+          "note": "known-diff:harfrust-0.8.4-vs-harfbuzz-14.5;below-base-ra"
+        },
+        {
+          "id": "bengali-6",
+          "codepoints": [
+            "U+0995",
+            "U+09C7"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "bengali-7",
+          "codepoints": [
+            "U+0995",
+            "U+09CD",
+            "U+200D",
+            "U+09B7"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "bengali-8",
+          "codepoints": [
+            "U+0995",
+            "U+09CD",
+            "U+200C",
+            "U+09B7"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "bengali-9",
+          "codepoints": [
+            "U+0995",
+            "U+09BE"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Bengali-OFL.txt",
+      "license_sha256": "f3ad80e1db16c6d3e13347f0e1aabfe9d353c502643bb4cdc295eb1e62051818",
+      "required_scalars": [
+        "U+0020",
+        "U+0995",
+        "U+09B0",
+        "U+09B7",
+        "U+09BE",
+        "U+09BF",
+        "U+09C7",
+        "U+09CB",
+        "U+09CD",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "754f0e221aa7d5a915489f3bf1f20fe53ddc35ab2834a4d91656d78f9622de70",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "northern-indic",
+      "script": "gurmukhi",
+      "script_tag": "Guru",
+      "font": "Gurmukhi-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Gurmukhi Fixture",
+      "release_url": "https://github.com/notofonts/gurmukhi/releases/download/NotoSansGurmukhi-v2.004/NotoSansGurmukhi-v2.004.zip",
+      "archive_sha256": "a55ee5ee831ce3a4bb73bdc46bd0a02db6eb9445c370a0afbc529379ed8cea52",
+      "source_member": "NotoSansGurmukhi/hinted/ttf/NotoSansGurmukhi-Regular.ttf",
+      "source_sha256": "658d0207da305a1411c539a8b0bbeda64d4146e54fb4827facddb890b6b90d74",
+      "source_filename": "NotoSansGurmukhi-Regular.ttf",
+      "source_family": "NotoSansGurmukhi",
+      "cases": [
+        {
+          "id": "gurmukhi-1",
+          "codepoints": [
+            "U+0A15",
+            "U+0A3F"
+          ],
+          "note": "pre-base-matra"
+        },
+        {
+          "id": "gurmukhi-2",
+          "codepoints": [
+            "U+0A15",
+            "U+0A4D",
+            "U+0A30"
+          ],
+          "note": "below-base-ra"
+        },
+        {
+          "id": "gurmukhi-3",
+          "codepoints": [
+            "U+0A15",
+            "U+0A4B"
+          ],
+          "note": "vowel-sign-o"
+        },
+        {
+          "id": "gurmukhi-4",
+          "codepoints": [
+            "U+0A15",
+            "U+0A4D",
+            "U+0A39"
+          ],
+          "note": "below-base-ha"
+        },
+        {
+          "id": "gurmukhi-5",
+          "codepoints": [
+            "U+0A15",
+            "U+0A4D",
+            "U+200D",
+            "U+0A30"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "gurmukhi-6",
+          "codepoints": [
+            "U+0A15",
+            "U+0A4D",
+            "U+200C",
+            "U+0A30"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "gurmukhi-7",
+          "codepoints": [
+            "U+0A15",
+            "U+0A3E"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "gurmukhi-8",
+          "codepoints": [
+            "U+0A15",
+            "U+0A40"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "gurmukhi-9",
+          "codepoints": [
+            "U+0A30",
+            "U+0A4D",
+            "U+0A15"
+          ],
+          "note": "ra-link-control:no-reph-formation"
+        }
+      ],
+      "license_member": "../OFL.txt",
+      "license_file": "Gurmukhi-OFL.txt",
+      "license_sha256": "62571e5021f5bff51f6b4d83493d79547d239f1b44699684ab00bc084bd6116d",
+      "required_scalars": [
+        "U+0020",
+        "U+0A15",
+        "U+0A30",
+        "U+0A39",
+        "U+0A3E",
+        "U+0A3F",
+        "U+0A40",
+        "U+0A4B",
+        "U+0A4D",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "3f7451b7e2c8381be0c5712f7b0dd5c2d75fe787ae16a99f18b7fa45627a0fde",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "northern-indic",
+      "script": "gujarati",
+      "script_tag": "Gujr",
+      "font": "Gujarati-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Gujarati Fixture",
+      "release_url": "https://github.com/notofonts/gujarati/releases/download/NotoSansGujarati-v2.106/NotoSansGujarati-v2.106.zip",
+      "archive_sha256": "a4ff1dd03a4998ba08ee7ee43be2aca7594a884982049e48c25ccc48991474ed",
+      "source_member": "NotoSansGujarati/hinted/ttf/NotoSansGujarati-Regular.ttf",
+      "source_sha256": "9b5a7aaeeb649a2e75a49d8b006a1f87db1b61c0df3b001609f4e0725d88dbf6",
+      "source_filename": "NotoSansGujarati-Regular.ttf",
+      "source_family": "NotoSansGujarati",
+      "cases": [
+        {
+          "id": "gujarati-1",
+          "codepoints": [
+            "U+0A95",
+            "U+0ACD",
+            "U+0AB7"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "gujarati-2",
+          "codepoints": [
+            "U+0AB0",
+            "U+0ACD",
+            "U+0A95"
+          ],
+          "note": "reph"
+        },
+        {
+          "id": "gujarati-3",
+          "codepoints": [
+            "U+0A95",
+            "U+0ABF"
+          ],
+          "note": "pre-base-matra"
+        },
+        {
+          "id": "gujarati-4",
+          "codepoints": [
+            "U+0A95",
+            "U+0ACD",
+            "U+0AB0"
+          ],
+          "note": "below-base-ra"
+        },
+        {
+          "id": "gujarati-5",
+          "codepoints": [
+            "U+0A95",
+            "U+0ACD",
+            "U+200D",
+            "U+0AB7"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "gujarati-6",
+          "codepoints": [
+            "U+0A95",
+            "U+0ACD",
+            "U+200C",
+            "U+0AB7"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "gujarati-7",
+          "codepoints": [
+            "U+0A95",
+            "U+0ABE"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "gujarati-8",
+          "codepoints": [
+            "U+0A95",
+            "U+0AC7"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "gujarati-9",
+          "codepoints": [
+            "U+0A95",
+            "U+0ACB"
+          ],
+          "note": "split-vowel"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Gujarati-OFL.txt",
+      "license_sha256": "b25f23c638e39ced81d210d761e09470a461edd05152cdc083affb2e4a28cd2c",
+      "required_scalars": [
+        "U+0020",
+        "U+0A95",
+        "U+0AB0",
+        "U+0AB7",
+        "U+0ABE",
+        "U+0ABF",
+        "U+0AC7",
+        "U+0ACB",
+        "U+0ACD",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "c0b88977aa18b5e4fd05d646d560da89fde61b6581fa4507cb00dd90bd1bf7d4",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "northern-indic",
+      "script": "oriya",
+      "script_tag": "Orya",
+      "font": "Odia-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Odia Fixture",
+      "release_url": "https://github.com/notofonts/oriya/releases/download/NotoSansOriya-v2.007/NotoSansOriya-v2.007.zip",
+      "archive_sha256": "025b637e2d391f422ae12f4eb365876ce3b195283025ababb74ecf6baae35442",
+      "source_member": "NotoSansOriya/hinted/ttf/NotoSansOriya-Regular.ttf",
+      "source_sha256": "a16645d056017927406546aa78e4ce15e782fd8783467267b75450453d007415",
+      "source_filename": "NotoSansOriya-Regular.ttf",
+      "source_family": "NotoSansOriya",
+      "cases": [
+        {
+          "id": "oriya-1",
+          "codepoints": [
+            "U+0B15",
+            "U+0B4D",
+            "U+0B37"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "oriya-2",
+          "codepoints": [
+            "U+0B30",
+            "U+0B4D",
+            "U+0B15"
+          ],
+          "note": "reph"
+        },
+        {
+          "id": "oriya-3",
+          "codepoints": [
+            "U+0B15",
+            "U+0B3F"
+          ],
+          "note": "pre-base-matra"
+        },
+        {
+          "id": "oriya-4",
+          "codepoints": [
+            "U+0B15",
+            "U+0B4B"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "oriya-5",
+          "codepoints": [
+            "U+0B15",
+            "U+0B47"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "oriya-6",
+          "codepoints": [
+            "U+0B15",
+            "U+0B4D",
+            "U+200D",
+            "U+0B37"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "oriya-7",
+          "codepoints": [
+            "U+0B15",
+            "U+0B4D",
+            "U+200C",
+            "U+0B37"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "oriya-8",
+          "codepoints": [
+            "U+0B15",
+            "U+0B3E"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "oriya-9",
+          "codepoints": [
+            "U+0B15",
+            "U+0B4D",
+            "U+0B30"
+          ],
+          "note": "below-base-ra"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Odia-OFL.txt",
+      "license_sha256": "858e736e24e64958a31abb9f02f90dcf7048cac401d418538b5e384d2bf45ee1",
+      "required_scalars": [
+        "U+0020",
+        "U+0B15",
+        "U+0B30",
+        "U+0B37",
+        "U+0B3E",
+        "U+0B3F",
+        "U+0B47",
+        "U+0B4B",
+        "U+0B4D",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "c90ff15ade263a49148e35af34e9c177c6d56881e81260b29f10123e9e227eca",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "southern-indic",
+      "script": "tamil",
+      "script_tag": "Taml",
+      "font": "Tamil-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Tamil Fixture",
+      "release_url": "https://github.com/notofonts/tamil/releases/download/NotoSansTamil-v2.004/NotoSansTamil-v2.004.zip",
+      "archive_sha256": "f8284e0f200a7f29a439b4ec88280d864b2b31f8479111c5b658ba6da38b3005",
+      "source_member": "NotoSansTamil/hinted/ttf/NotoSansTamil-Regular.ttf",
+      "source_sha256": "3c0a186feb3c63c7f6d63e1511dcdc144e745ae09b98e217c83f3e317974f6f9",
+      "source_filename": "NotoSansTamil-Regular.ttf",
+      "source_family": "NotoSansTamil",
+      "cases": [
+        {
+          "id": "tamil-1",
+          "codepoints": [
+            "U+0B95",
+            "U+0BCA"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "tamil-2",
+          "codepoints": [
+            "U+0B95",
+            "U+0BCD",
+            "U+0BB7"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "tamil-3",
+          "codepoints": [
+            "U+0B95",
+            "U+0BC8"
+          ],
+          "note": "vowel-sign-ai"
+        },
+        {
+          "id": "tamil-4",
+          "codepoints": [
+            "U+0B95",
+            "U+0BBF"
+          ],
+          "note": "vowel-sign-i"
+        },
+        {
+          "id": "tamil-5",
+          "codepoints": [
+            "U+0B95",
+            "U+0BCC"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "tamil-6",
+          "codepoints": [
+            "U+0B95",
+            "U+0BCD",
+            "U+200D",
+            "U+0BB7"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "tamil-7",
+          "codepoints": [
+            "U+0B95",
+            "U+0BCD",
+            "U+200C",
+            "U+0BB7"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "tamil-8",
+          "codepoints": [
+            "U+0B95",
+            "U+0BBE"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "tamil-9",
+          "codepoints": [
+            "U+0B95",
+            "U+0BC6"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "../OFL.txt",
+      "license_file": "Tamil-OFL.txt",
+      "license_sha256": "68d71f0905104e5831d1fb427aee96c210cd39a3d6ac1cff30e6d8bcf41f5d18",
+      "required_scalars": [
+        "U+0020",
+        "U+0B95",
+        "U+0BB7",
+        "U+0BBE",
+        "U+0BBF",
+        "U+0BC6",
+        "U+0BC8",
+        "U+0BCA",
+        "U+0BCC",
+        "U+0BCD",
+        "U+0BD7",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "f8ff8ce7d0a81bf8d5e121c635ef027250c531f2fd37d5988b8dd6e45f19d7f1",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "southern-indic",
+      "script": "telugu",
+      "script_tag": "Telu",
+      "font": "Telugu-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Telugu Fixture",
+      "release_url": "https://github.com/notofonts/telugu/releases/download/NotoSansTelugu-v2.005/NotoSansTelugu-v2.005.zip",
+      "archive_sha256": "3553e00ca341dc06f4a143c604dd93a1342553169b5a06dc8b0ff50ab6eba0a2",
+      "source_member": "NotoSansTelugu/hinted/ttf/NotoSansTelugu-Regular.ttf",
+      "source_sha256": "b274780b69d1d23fe84b55e809a152cb2ac5306d33864b1f87622f6971871aae",
+      "source_filename": "NotoSansTelugu-Regular.ttf",
+      "source_family": "NotoSansTelugu",
+      "cases": [
+        {
+          "id": "telugu-1",
+          "codepoints": [
+            "U+0C15",
+            "U+0C4D",
+            "U+0C37"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "telugu-2",
+          "codepoints": [
+            "U+0C15",
+            "U+0C4A"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "telugu-3",
+          "codepoints": [
+            "U+0C30",
+            "U+0C4D",
+            "U+0C15"
+          ],
+          "note": "reph"
+        },
+        {
+          "id": "telugu-4",
+          "codepoints": [
+            "U+0C15",
+            "U+0C4D",
+            "U+0C15",
+            "U+0C3F"
+          ],
+          "note": "below-base-i"
+        },
+        {
+          "id": "telugu-5",
+          "codepoints": [
+            "U+0C15",
+            "U+0C4D",
+            "U+200D",
+            "U+0C37"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "telugu-6",
+          "codepoints": [
+            "U+0C15",
+            "U+0C4D",
+            "U+200C",
+            "U+0C37"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "telugu-7",
+          "codepoints": [
+            "U+0C15",
+            "U+0C3E"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "telugu-8",
+          "codepoints": [
+            "U+0C15",
+            "U+0C46"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Telugu-OFL.txt",
+      "license_sha256": "241a00fc8fdac5fe1a4acb96a84de0db38cde0234260c08de2ee931fd0491253",
+      "required_scalars": [
+        "U+0020",
+        "U+0C15",
+        "U+0C30",
+        "U+0C37",
+        "U+0C3E",
+        "U+0C3F",
+        "U+0C46",
+        "U+0C4A",
+        "U+0C4D",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "481c72a8f1b4f645a7e6b10326be41b2da2c15cb470ff48a07fab773eed00102",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "southern-indic",
+      "script": "kannada",
+      "script_tag": "Knda",
+      "font": "Kannada-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Kannada Fixture",
+      "release_url": "https://github.com/notofonts/kannada/releases/download/NotoSansKannada-v2.006/NotoSansKannada-v2.006.zip",
+      "archive_sha256": "902b1b92018f7c96862d68d0a39ef03b978203cd4c3f55d6760f597657b51c44",
+      "source_member": "NotoSansKannada/hinted/ttf/NotoSansKannada-Regular.ttf",
+      "source_sha256": "9ad74dc64838c6855b96f671fc08e425a58921b9d0c71712ea79c328a27e6e38",
+      "source_filename": "NotoSansKannada-Regular.ttf",
+      "source_family": "NotoSansKannada",
+      "cases": [
+        {
+          "id": "kannada-1",
+          "codepoints": [
+            "U+0C95",
+            "U+0CCD",
+            "U+0CB7"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "kannada-2",
+          "codepoints": [
+            "U+0CB0",
+            "U+0CCD",
+            "U+0C95"
+          ],
+          "note": "reph"
+        },
+        {
+          "id": "kannada-3",
+          "codepoints": [
+            "U+0C95",
+            "U+0CCA"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "kannada-4",
+          "codepoints": [
+            "U+0C95",
+            "U+0CBF"
+          ],
+          "note": "pre-base-matra"
+        },
+        {
+          "id": "kannada-5",
+          "codepoints": [
+            "U+0C95",
+            "U+0CCD",
+            "U+200D",
+            "U+0CB7"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "kannada-6",
+          "codepoints": [
+            "U+0C95",
+            "U+0CCD",
+            "U+200C",
+            "U+0CB7"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "kannada-7",
+          "codepoints": [
+            "U+0C95",
+            "U+0CBE"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "kannada-8",
+          "codepoints": [
+            "U+0C95",
+            "U+0CC6"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Kannada-OFL.txt",
+      "license_sha256": "8fba3ea63088bade25827dda5328650f4360466c27a25eafa9183eb772805b10",
+      "required_scalars": [
+        "U+0020",
+        "U+0C95",
+        "U+0CB0",
+        "U+0CB7",
+        "U+0CBE",
+        "U+0CBF",
+        "U+0CC2",
+        "U+0CC6",
+        "U+0CCA",
+        "U+0CCD",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "e01ae2ea75d7bc6fccb13c48a2f442b32e4bc4be46810fb52a4a1a095320801a",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "southern-indic",
+      "script": "malayalam",
+      "script_tag": "Mlym",
+      "font": "Malayalam-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Malayalam Fixture",
+      "release_url": "https://github.com/notofonts/malayalam/releases/download/NotoSansMalayalam-v2.104/NotoSansMalayalam-v2.104.zip",
+      "archive_sha256": "2ebd31e79f2893025d659def7784e0ec3557e7ff9ac105adcc82d35782913bf2",
+      "source_member": "NotoSansMalayalam/hinted/ttf/NotoSansMalayalam-Regular.ttf",
+      "source_sha256": "c08de7fa8d032a5d6a4d120fb82c78cec60b362a4e73fa26360d89759ff2a7f9",
+      "source_filename": "NotoSansMalayalam-Regular.ttf",
+      "source_family": "NotoSansMalayalam",
+      "cases": [
+        {
+          "id": "malayalam-1",
+          "codepoints": [
+            "U+0D15",
+            "U+0D4D",
+            "U+0D37"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "malayalam-2",
+          "codepoints": [
+            "U+0D15",
+            "U+0D4A"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "malayalam-3",
+          "codepoints": [
+            "U+0D30",
+            "U+0D4D",
+            "U+0D15"
+          ],
+          "note": "ra-prefix"
+        },
+        {
+          "id": "malayalam-4",
+          "codepoints": [
+            "U+0D15",
+            "U+0D4D",
+            "U+0D15"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "malayalam-5",
+          "codepoints": [
+            "U+0D15",
+            "U+0D46"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "malayalam-6",
+          "codepoints": [
+            "U+0D15",
+            "U+0D4D",
+            "U+200D",
+            "U+0D37"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "malayalam-7",
+          "codepoints": [
+            "U+0D15",
+            "U+0D4D",
+            "U+200C",
+            "U+0D37"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "malayalam-8",
+          "codepoints": [
+            "U+0D15",
+            "U+0D3E"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "../OFL.txt",
+      "license_file": "Malayalam-OFL.txt",
+      "license_sha256": "b2bdf33722893f383420c2619c4837893dfdafb658fa832900dbdb9710e81fed",
+      "required_scalars": [
+        "U+0020",
+        "U+0D15",
+        "U+0D30",
+        "U+0D37",
+        "U+0D3E",
+        "U+0D46",
+        "U+0D4A",
+        "U+0D4D",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "1df18163a0bf60f02131401ba1609df90051f40c4047684dda1c8a2e9586f7f2",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "sinhala",
+      "script": "sinhala",
+      "script_tag": "Sinh",
+      "font": "Sinhala-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Sinhala Fixture",
+      "release_url": "https://github.com/notofonts/sinhala/releases/download/NotoSansSinhala-v3.000/NotoSansSinhala-v3.000.zip",
+      "archive_sha256": "25b2c787e0b34b82ccedce026e6519cc535394a6bd8520d5a1df45c233807d8a",
+      "source_member": "NotoSansSinhala/hinted/ttf/NotoSansSinhala-Regular.ttf",
+      "source_sha256": "9e32612d47004552f3125e78648a9e2e7899a216ccd3cefbb93a9b5f4c809feb",
+      "source_filename": "NotoSansSinhala-Regular.ttf",
+      "source_family": "NotoSansSinhala",
+      "cases": [
+        {
+          "id": "sinhala-1",
+          "codepoints": [
+            "U+0D9A",
+            "U+0DCA",
+            "U+200D",
+            "U+0DC2"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "sinhala-2",
+          "codepoints": [
+            "U+0D9A",
+            "U+0DD9"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "sinhala-3",
+          "codepoints": [
+            "U+0D9A",
+            "U+0DDC"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "sinhala-4",
+          "codepoints": [
+            "U+0DC1",
+            "U+0DCA",
+            "U+200D",
+            "U+0DBB",
+            "U+0DD3"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "sinhala-5",
+          "codepoints": [
+            "U+0D9A",
+            "U+0DCA",
+            "U+0D9A"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "sinhala-6",
+          "codepoints": [
+            "U+0D9A",
+            "U+0DCA",
+            "U+200D",
+            "U+200D",
+            "U+0DC2"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "sinhala-7",
+          "codepoints": [
+            "U+0D9A",
+            "U+0DCA",
+            "U+200C",
+            "U+200D",
+            "U+0DC2"
+          ],
+          "note": "zwj;zwnj"
+        },
+        {
+          "id": "sinhala-8",
+          "codepoints": [
+            "U+0D9A",
+            "U+0DCF"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Sinhala-OFL.txt",
+      "license_sha256": "67d0b8caa88c3fbf370033daae75d522b52e252d37c2788ba3b81b38549c3dca",
+      "required_scalars": [
+        "U+0020",
+        "U+0D9A",
+        "U+0DBB",
+        "U+0DC1",
+        "U+0DC2",
+        "U+0DCA",
+        "U+0DCF",
+        "U+0DD3",
+        "U+0DD9",
+        "U+0DDC",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "2d6f7c43bce61f4b1919379f901bc613484f5285f520b6d29bb7c1f31b17e841",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "khmer-myanmar",
+      "script": "khmer",
+      "script_tag": "Khmr",
+      "font": "Khmer-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Khmer Fixture",
+      "release_url": "https://github.com/notofonts/khmer/releases/download/NotoSansKhmer-v2.004/NotoSansKhmer-v2.004.zip",
+      "archive_sha256": "19382ca97d62febea1c735ebee35a5aa4f03beca9b6ea6f6d86b7a7a0025a688",
+      "source_member": "NotoSansKhmer/hinted/ttf/NotoSansKhmer-Regular.ttf",
+      "source_sha256": "e66675f2082788f0511a714bef5a1748928294b38c8e286a96ea73a864b5e605",
+      "source_filename": "NotoSansKhmer-Regular.ttf",
+      "source_family": "NotoSansKhmer",
+      "cases": [
+        {
+          "id": "khmer-1",
+          "codepoints": [
+            "U+1780",
+            "U+17D2",
+            "U+1780"
+          ],
+          "note": "coeng-stack"
+        },
+        {
+          "id": "khmer-2",
+          "codepoints": [
+            "U+1780",
+            "U+17BE"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "khmer-3",
+          "codepoints": [
+            "U+1780",
+            "U+17D2",
+            "U+179A"
+          ],
+          "note": "below-base-ro"
+        },
+        {
+          "id": "khmer-4",
+          "codepoints": [
+            "U+1780",
+            "U+17C1"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "khmer-5",
+          "codepoints": [
+            "U+1780",
+            "U+17D2",
+            "U+179A",
+            "U+17C1"
+          ],
+          "note": "coeng-pre-base"
+        },
+        {
+          "id": "khmer-6",
+          "codepoints": [
+            "U+1780",
+            "U+17D2",
+            "U+200D",
+            "U+1780"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "khmer-7",
+          "codepoints": [
+            "U+1780",
+            "U+17D2",
+            "U+200C",
+            "U+1780"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "khmer-8",
+          "codepoints": [
+            "U+1780",
+            "U+17B6"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Khmer-OFL.txt",
+      "license_sha256": "f4eeb765e93996dce10e3db9f8244d64c2052ac6eecb490f0888a2c96e19b483",
+      "required_scalars": [
+        "U+0020",
+        "U+1780",
+        "U+179A",
+        "U+17B6",
+        "U+17BE",
+        "U+17C1",
+        "U+17D2",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "be0407f060aea48787ff9e75d8d3aedef70aef113b3ce9aca26fdaacd10b1870",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "khmer-myanmar",
+      "script": "myanmar",
+      "script_tag": "Mymr",
+      "font": "Myanmar-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Myanmar Fixture",
+      "release_url": "https://github.com/notofonts/myanmar/releases/download/NotoSansMyanmar-v2.107/NotoSansMyanmar-v2.107.zip",
+      "archive_sha256": "c4995ee97f1f267b46cf83734dbf18a3cfd431e387b6fe38e90279546f260c4b",
+      "source_member": "NotoSansMyanmar/hinted/ttf/NotoSansMyanmar-Regular.ttf",
+      "source_sha256": "fafce4db400bc0b214907ccdbfb0ad2f18a57bfefd08c8a571830b84088cf2fc",
+      "source_filename": "NotoSansMyanmar-Regular.ttf",
+      "source_family": "NotoSansMyanmar",
+      "cases": [
+        {
+          "id": "myanmar-1",
+          "codepoints": [
+            "U+1000",
+            "U+1039",
+            "U+1000"
+          ],
+          "note": "stacker"
+        },
+        {
+          "id": "myanmar-2",
+          "codepoints": [
+            "U+1000",
+            "U+1031"
+          ],
+          "note": "pre-base-vowel"
+        },
+        {
+          "id": "myanmar-3",
+          "codepoints": [
+            "U+1000",
+            "U+103C"
+          ],
+          "note": "medial-ra"
+        },
+        {
+          "id": "myanmar-4",
+          "codepoints": [
+            "U+1000",
+            "U+1031",
+            "U+102C"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "myanmar-5",
+          "codepoints": [
+            "U+1004",
+            "U+103A",
+            "U+1039",
+            "U+1000"
+          ],
+          "note": "kinzi"
+        },
+        {
+          "id": "myanmar-6",
+          "codepoints": [
+            "U+1000",
+            "U+1039",
+            "U+200D",
+            "U+1000"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "myanmar-7",
+          "codepoints": [
+            "U+1000",
+            "U+1039",
+            "U+200C",
+            "U+1000"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "myanmar-8",
+          "codepoints": [
+            "U+1000",
+            "U+102B"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "myanmar-9",
+          "codepoints": [
+            "U+1000",
+            "U+102D"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "../OFL.txt",
+      "license_file": "Myanmar-OFL.txt",
+      "license_sha256": "c000d317288b00ee3c2bb72f30c57367df29fd9dc31c83bf6e362e21e9178680",
+      "required_scalars": [
+        "U+0020",
+        "U+1000",
+        "U+1004",
+        "U+102B",
+        "U+102C",
+        "U+102D",
+        "U+1031",
+        "U+1039",
+        "U+103A",
+        "U+103C",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "246a75859267af7da466823969d2e2b407ed8455ee5f74f4c8d63d8783be9b57",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "thai-lao-tibetan",
+      "script": "thai",
+      "script_tag": "Thai",
+      "font": "Thai-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Thai Fixture",
+      "release_url": "https://github.com/notofonts/thai/releases/download/NotoSansThai-v2.002/NotoSansThai-v2.002.zip",
+      "archive_sha256": "af889cc673fc714060ce5e4e088fbad32aa4c0571a19958efeaff128a22da485",
+      "source_member": "NotoSansThai/hinted/ttf/NotoSansThai-Regular.ttf",
+      "source_sha256": "61cf814eec46b294d6ea4401ac295d0cecd5207bd2331dcc5a15e7301d30ee44",
+      "source_filename": "NotoSansThai-Regular.ttf",
+      "source_family": "NotoSansThai",
+      "cases": [
+        {
+          "id": "thai-1",
+          "codepoints": [
+            "U+0E01",
+            "U+0E33"
+          ],
+          "note": "sara-am"
+        },
+        {
+          "id": "thai-2",
+          "codepoints": [
+            "U+0E1B",
+            "U+0E48"
+          ],
+          "note": "tone-stack"
+        },
+        {
+          "id": "thai-3",
+          "codepoints": [
+            "U+0E0D",
+            "U+0E38"
+          ],
+          "note": "below-base-vowel"
+        },
+        {
+          "id": "thai-4",
+          "codepoints": [
+            "U+0E1B",
+            "U+0E34",
+            "U+0E48"
+          ],
+          "note": "tone-vowel-stack"
+        },
+        {
+          "id": "thai-5",
+          "codepoints": [
+            "U+0E01",
+            "U+0E33",
+            "U+200D"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "thai-6",
+          "codepoints": [
+            "U+0E01",
+            "U+0E33",
+            "U+200C"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "thai-7",
+          "codepoints": [
+            "U+0E01",
+            "U+0E30"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "thai-8",
+          "codepoints": [
+            "U+0E01",
+            "U+0E34"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Thai-OFL.txt",
+      "license_sha256": "96ac951c8caddd87d8a66fe0d02342127696131d3e935ce4a936dc68cf032e33",
+      "required_scalars": [
+        "U+0020",
+        "U+0E01",
+        "U+0E0D",
+        "U+0E1B",
+        "U+0E30",
+        "U+0E32",
+        "U+0E33",
+        "U+0E34",
+        "U+0E38",
+        "U+0E48",
+        "U+0E4D",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "2e98fd23a52d253db8612cd5942c8f2ff4111b21d2367050fdca91d8ccc374a0",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "thai-lao-tibetan",
+      "script": "lao",
+      "script_tag": "Laoo",
+      "font": "Lao-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Lao Fixture",
+      "release_url": "https://github.com/notofonts/lao/releases/download/NotoSansLao-v2.003/NotoSansLao-v2.003.zip",
+      "archive_sha256": "5a87c31b1a40ef8147c1e84437e5f0ceba2d4dbbfc0b56a65821ad29870da8c0",
+      "source_member": "NotoSansLao/hinted/ttf/NotoSansLao-Regular.ttf",
+      "source_sha256": "0a86e5e1ccfe34ca78c43fac6829dc751b42bcc469272a9a55325aae587bfbe7",
+      "source_filename": "NotoSansLao-Regular.ttf",
+      "source_family": "NotoSansLao",
+      "cases": [
+        {
+          "id": "lao-1",
+          "codepoints": [
+            "U+0E81",
+            "U+0EB3"
+          ],
+          "note": "sara-am"
+        },
+        {
+          "id": "lao-2",
+          "codepoints": [
+            "U+0E81",
+            "U+0EC8"
+          ],
+          "note": "tone"
+        },
+        {
+          "id": "lao-3",
+          "codepoints": [
+            "U+0E9B",
+            "U+0EB4",
+            "U+0EC8"
+          ],
+          "note": "tone-vowel-stack"
+        },
+        {
+          "id": "lao-4",
+          "codepoints": [
+            "U+0E81",
+            "U+0EB3",
+            "U+200D"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "lao-5",
+          "codepoints": [
+            "U+0E81",
+            "U+0EB3",
+            "U+200C"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "lao-6",
+          "codepoints": [
+            "U+0E81",
+            "U+0EB0"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "lao-7",
+          "codepoints": [
+            "U+0E81",
+            "U+0EB4"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Lao-OFL.txt",
+      "license_sha256": "ebcff42e1896007c11337ed8b53460d21322126c9b83994cc7ecfc7b1b2aed8b",
+      "required_scalars": [
+        "U+0020",
+        "U+0E81",
+        "U+0E9B",
+        "U+0EB0",
+        "U+0EB2",
+        "U+0EB3",
+        "U+0EB4",
+        "U+0EC8",
+        "U+0ECD",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "a42993999944845fb5af693ea678a372a053db1f0981d55e911dcfa9d330f279",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "thai-lao-tibetan",
+      "script": "tibetan",
+      "script_tag": "Tibt",
+      "font": "Tibetan-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Tibetan Fixture",
+      "release_url": "https://github.com/notofonts/tibetan/releases/download/NotoSerifTibetan-v2.103/NotoSerifTibetan-v2.103.zip",
+      "archive_sha256": "4fba4a43cd61e68bc5b3a496f708ebce2c1937df02f2c8e81c4272b2b060a896",
+      "source_member": "NotoSerifTibetan/hinted/ttf/NotoSerifTibetan-Regular.ttf",
+      "source_sha256": "ee97bf3dc56e813651db734c9f35f8f1d41e7e31acf5f7d893e64ad22b292446",
+      "source_filename": "NotoSerifTibetan-Regular.ttf",
+      "source_family": "NotoSerifTibetan",
+      "cases": [
+        {
+          "id": "tibetan-1",
+          "codepoints": [
+            "U+0F40",
+            "U+0FB5"
+          ],
+          "note": "subjoined-stack"
+        },
+        {
+          "id": "tibetan-2",
+          "codepoints": [
+            "U+0F66",
+            "U+0F90"
+          ],
+          "note": "subjoined-stack"
+        },
+        {
+          "id": "tibetan-3",
+          "codepoints": [
+            "U+0F40",
+            "U+0F72"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "tibetan-4",
+          "codepoints": [
+            "U+0F66",
+            "U+0F90",
+            "U+0FB1",
+            "U+0F7C"
+          ],
+          "note": "stacked-vowel"
+        },
+        {
+          "id": "tibetan-5",
+          "codepoints": [
+            "U+0F40",
+            "U+0FB5",
+            "U+200D"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "tibetan-6",
+          "codepoints": [
+            "U+0F40",
+            "U+0FB5",
+            "U+200C"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "tibetan-7",
+          "codepoints": [
+            "U+0F40",
+            "U+0F74"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "../OFL.txt",
+      "license_file": "Tibetan-OFL.txt",
+      "license_sha256": "6c8280e26922d337989d0f4ab6498cf4e7251b9f2f023efe611db0d9b4f58d86",
+      "required_scalars": [
+        "U+0020",
+        "U+0F40",
+        "U+0F66",
+        "U+0F72",
+        "U+0F74",
+        "U+0F7C",
+        "U+0F90",
+        "U+0FB1",
+        "U+0FB5",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "0077789fc3cb20f358278ba4c6437eb14ade97d4d3e3281eaa42853efcd9dc8b",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "g6",
+      "script": "chakma",
+      "script_tag": "Cakm",
+      "font": "Chakma-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Chakma Fixture",
+      "release_url": "https://github.com/notofonts/chakma/releases/download/NotoSansChakma-v2.003/NotoSansChakma-v2.003.zip",
+      "archive_sha256": "18bcea554ee3457ccf9c26cd6aa498392b792510abc3a7e8405d31e24e003e1b",
+      "source_member": "NotoSansChakma/hinted/ttf/NotoSansChakma-Regular.ttf",
+      "source_sha256": "60ce1d029e35b432dd68cc9f6c94f69bd84d8c97f28f06130186606dd2c3325d",
+      "source_filename": "NotoSansChakma-Regular.ttf",
+      "source_family": "NotoSansChakma",
+      "cases": [
+        {
+          "id": "chakma-1",
+          "codepoints": [
+            "U+11107",
+            "U+11134",
+            "U+11107"
+          ],
+          "note": "stacker"
+        },
+        {
+          "id": "chakma-2",
+          "codepoints": [
+            "U+11107",
+            "U+11128"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "chakma-3",
+          "codepoints": [
+            "U+11107",
+            "U+1112C"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "chakma-4",
+          "codepoints": [
+            "U+11107",
+            "U+11134",
+            "U+200D",
+            "U+11107"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "chakma-5",
+          "codepoints": [
+            "U+11107",
+            "U+11134",
+            "U+200C",
+            "U+11107"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "chakma-6",
+          "codepoints": [
+            "U+11107",
+            "U+11127"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "../OFL.txt",
+      "license_file": "Chakma-OFL.txt",
+      "license_sha256": "dd3cacf4330016b227d716dbeef229f3e1d60d52632ef5993b4bd8cc8b53f2d3",
+      "required_scalars": [
+        "U+0020",
+        "U+200C",
+        "U+200D",
+        "U+11107",
+        "U+11127",
+        "U+11128",
+        "U+1112C",
+        "U+11134"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "4f95be0c30353cefed3d98051bb6762754893267ddbe123783cf92e8aa6f787f",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "g6",
+      "script": "javanese",
+      "script_tag": "Java",
+      "font": "Javanese-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Javanese Fixture",
+      "release_url": "https://github.com/notofonts/javanese/releases/download/NotoSansJavanese-v2.005/NotoSansJavanese-v2.005.zip",
+      "archive_sha256": "3d096aeee4dc607a91e7568785595643cb5fde4a0b7c9c7f13a762c48d37a0cf",
+      "source_member": "NotoSansJavanese/hinted/ttf/NotoSansJavanese-Regular.ttf",
+      "source_sha256": "81fdea70d379989bafea65eae5a6a96144991b437415744716a49a56f09f747a",
+      "source_filename": "NotoSansJavanese-Regular.ttf",
+      "source_family": "NotoSansJavanese",
+      "cases": [
+        {
+          "id": "javanese-1",
+          "codepoints": [
+            "U+A98F",
+            "U+A9C0",
+            "U+A98F"
+          ],
+          "note": "stacker"
+        },
+        {
+          "id": "javanese-2",
+          "codepoints": [
+            "U+A98F",
+            "U+A9BA"
+          ],
+          "note": "pre-base-vowel"
+        },
+        {
+          "id": "javanese-3",
+          "codepoints": [
+            "U+A98F",
+            "U+A9BF"
+          ],
+          "note": "cakra"
+        },
+        {
+          "id": "javanese-4",
+          "codepoints": [
+            "U+A98F",
+            "U+A9BA",
+            "U+A9B4"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "javanese-5",
+          "codepoints": [
+            "U+A98F",
+            "U+A9C0",
+            "U+200D",
+            "U+A98F"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "javanese-6",
+          "codepoints": [
+            "U+A98F",
+            "U+A9C0",
+            "U+200C",
+            "U+A98F"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "javanese-7",
+          "codepoints": [
+            "U+A98F",
+            "U+A9B4"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "javanese-8",
+          "codepoints": [
+            "U+A98F",
+            "U+A9B6"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Javanese-OFL.txt",
+      "license_sha256": "489cb05c6df86bc4339603f9c6658820662bf1c0ab516ce4f33031b7942b6c68",
+      "required_scalars": [
+        "U+0020",
+        "U+200C",
+        "U+200D",
+        "U+A98F",
+        "U+A9B4",
+        "U+A9B6",
+        "U+A9BA",
+        "U+A9BF",
+        "U+A9C0"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "8a5665bd3b16a64f953b24a71f12e298f5233be8a4ed17424129c5524a397892",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "g6",
+      "script": "grantha",
+      "script_tag": "Gran",
+      "font": "Grantha-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Grantha Fixture",
+      "release_url": "https://github.com/notofonts/grantha/releases/download/NotoSansGrantha-v2.005/NotoSansGrantha-v2.005.zip",
+      "archive_sha256": "a66a6cb8acd222363ea980308360fb6b30d29c27f147e4d664316c34fd08549f",
+      "source_member": "NotoSansGrantha/hinted/ttf/NotoSansGrantha-Regular.ttf",
+      "source_sha256": "41dd39f2f16e9539751c732f8d276079b98277bec2ea5945232a7ac594198000",
+      "source_filename": "NotoSansGrantha-Regular.ttf",
+      "source_family": "NotoSansGrantha",
+      "cases": [
+        {
+          "id": "grantha-1",
+          "codepoints": [
+            "U+11315",
+            "U+1134D",
+            "U+11337"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "grantha-2",
+          "codepoints": [
+            "U+11315",
+            "U+11347"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "grantha-3",
+          "codepoints": [
+            "U+11315",
+            "U+1134B"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "grantha-4",
+          "codepoints": [
+            "U+11315",
+            "U+1134D",
+            "U+200D",
+            "U+11337"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "grantha-5",
+          "codepoints": [
+            "U+11315",
+            "U+1134D",
+            "U+200C",
+            "U+11337"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "grantha-6",
+          "codepoints": [
+            "U+11315",
+            "U+1133E"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "OFL.txt",
+      "license_file": "Grantha-OFL.txt",
+      "license_sha256": "13f6f25c053a5ccd7264e1266869fc634e4a8a8c7adaaa7ffc9c469512911644",
+      "required_scalars": [
+        "U+0020",
+        "U+200C",
+        "U+200D",
+        "U+11315",
+        "U+11337",
+        "U+1133E",
+        "U+11347",
+        "U+1134B",
+        "U+1134D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "57ddd5a347bbe5f83d47a5a63679af4a3eb7f609f5a3d5c059ad12fd1fa29e21",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    },
+    {
+      "group": "g6",
+      "script": "taitham",
+      "script_tag": "Lana",
+      "font": "TaiTham-subset.ttf",
+      "fixture_family": "OdyTTY Shaping TaiTham Fixture",
+      "release_url": "https://github.com/notofonts/tai-tham/releases/download/NotoSansTaiTham-v2.002/NotoSansTaiTham-v2.002.zip",
+      "archive_sha256": "12eb024bab33c9b8deeb823cf96107219719ed519f62cbe3f58295722113baea",
+      "source_member": "NotoSansTaiTham/hinted/ttf/NotoSansTaiTham-Regular.ttf",
+      "source_sha256": "b94134811a2f8c26631a728837bb72f74dad87402810fc46b34c310312a6b369",
+      "source_filename": "NotoSansTaiTham-Regular.ttf",
+      "source_family": "NotoSansTaiTham",
+      "cases": [
+        {
+          "id": "taitham-1",
+          "codepoints": [
+            "U+1A20",
+            "U+1A60",
+            "U+1A20"
+          ],
+          "note": "stacker"
+        },
+        {
+          "id": "taitham-2",
+          "codepoints": [
+            "U+1A20",
+            "U+1A6E"
+          ],
+          "note": "pre-base-vowel"
+        },
+        {
+          "id": "taitham-3",
+          "codepoints": [
+            "U+1A20",
+            "U+1A55"
+          ],
+          "note": "medial"
+        },
+        {
+          "id": "taitham-4",
+          "codepoints": [
+            "U+1A20",
+            "U+1A60",
+            "U+200D",
+            "U+1A20"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "taitham-5",
+          "codepoints": [
+            "U+1A20",
+            "U+1A60",
+            "U+200C",
+            "U+1A20"
+          ],
+          "note": "zwnj"
+        },
+        {
+          "id": "taitham-6",
+          "codepoints": [
+            "U+1A20",
+            "U+1A63"
+          ],
+          "note": "plain-control"
+        },
+        {
+          "id": "taitham-7",
+          "codepoints": [
+            "U+1A20",
+            "U+1A65"
+          ],
+          "note": "plain-control"
+        }
+      ],
+      "license_member": "../OFL.txt",
+      "license_file": "TaiTham-OFL.txt",
+      "license_sha256": "0985a3bb0df116b69b26cc312ebfae6e970fcf41a24c93741f28ca68c9d058c8",
+      "required_scalars": [
+        "U+0020",
+        "U+1A20",
+        "U+1A55",
+        "U+1A60",
+        "U+1A63",
+        "U+1A65",
+        "U+1A6E",
+        "U+200C",
+        "U+200D"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "8cf7ad1fbb6cd4a3b1596f813d6e0d57f919f612a72c2e2603506489f9dbebc6",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained."
+    }
+  ]
+}

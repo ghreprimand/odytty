@@ -1,0 +1,31 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; LTR; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Chakma-subset.ttf	U+11107 U+11134 U+11107	5,13,5	0,0,8	0,-271,0	0,-60,0	988,0,988	stacker
+Chakma-subset.ttf	U+11107 U+11128	5,7	0,0	0,136	0,-189	988,0	plain-control
+Chakma-subset.ttf	U+11107 U+1112C	8,5	0,0	0,0	0,0	379,988	split-vowel
+Chakma-subset.ttf	U+11107 U+11134 U+200D U+11107	5,13,1,5	0,0,0,11	0,-271,0,0	0,-60,0,0	988,0,0,988	zwj
+Chakma-subset.ttf	U+11107 U+11134 U+200C U+11107	5,13,1,5	0,0,8,11	0,-271,0,0	0,-60,0,0	988,0,0,988	zwnj
+Chakma-subset.ttf	U+11107 U+11127	5,6	0,0	0,100	0,-127	988,0	plain-control
+Javanese-subset.ttf	U+A98F U+A9C0 U+A98F	4,14	0,0	0,-1	0,0	1221,0	stacker
+Javanese-subset.ttf	U+A98F U+A9BA	7,4	0,0	0,0	0,0	677,1221	pre-base-vowel
+Javanese-subset.ttf	U+A98F U+A9BF	12	0	0	0	1465	cakra
+Javanese-subset.ttf	U+A98F U+A9BA U+A9B4	7,4,5	0,0,0	0,0,0	0,0,0	677,1221,413	split-vowel
+Javanese-subset.ttf	U+A98F U+A9C0 U+200D U+A98F	4,11,1,4	0,0,0,9	0,0,0,0	0,0,0,0	1221,391,0,1221	zwj
+Javanese-subset.ttf	U+A98F U+A9C0 U+200C U+A98F	4,11,1,4	0,0,6,9	0,0,0,0	0,0,0,0	1221,391,0,1221	zwnj
+Javanese-subset.ttf	U+A98F U+A9B4	4,5	0,0	0,0	0,0	1221,413	plain-control
+Javanese-subset.ttf	U+A98F U+A9B6	4,6	0,0	0,-42	0,10	1221,0	plain-control
+Grantha-subset.ttf	U+11315 U+1134D U+11337	5,27,15	0,0,0	0,0,-101	0,0,-60	1145,0,0	conjunct
+Grantha-subset.ttf	U+11315 U+11347	9,5	0,0	0,0	0,0	906,1145	plain-control
+Grantha-subset.ttf	U+11315 U+1134B	9,5,8	0,0,0	0,0,-685	0,0,0	906,1830,0	split-vowel
+Grantha-subset.ttf	U+11315 U+1134D U+200D U+11337	23,38,6	0,0,11	0,0,0	0,0,0	1145,0,1369	zwj
+Grantha-subset.ttf	U+11315 U+1134D U+200C U+11337	23,1,6	0,8,11	0,0,0	0,0,0	1145,0,1369	zwnj
+Grantha-subset.ttf	U+11315 U+1133E	5,8	0,0	0,-685	0,0	1830,0	plain-control
+TaiTham-subset.ttf	U+1A20 U+1A60 U+1A20	5,10	0,0	0,0	0,0	1058,0	stacker
+TaiTham-subset.ttf	U+1A20 U+1A6E	3	0	0	0	1611	pre-base-vowel
+TaiTham-subset.ttf	U+1A20 U+1A55	1	0	0	0	1307	medial
+TaiTham-subset.ttf	U+1A20 U+1A60 U+200D U+1A20	5,10,12	0,0,0	0,0,0	0,0,0	1058,0,0	zwj
+TaiTham-subset.ttf	U+1A20 U+1A60 U+200C U+1A20	5,15,12,5	0,0,6,9	0,0,0,0	0,0,0,0	1058,0,0,1058	zwnj
+TaiTham-subset.ttf	U+1A20 U+1A63	5,7	0,0	0,0	0,0	1058,565	plain-control
+TaiTham-subset.ttf	U+1A20 U+1A65	5,16	0,0	0,0	0,0	1058,0	plain-control
