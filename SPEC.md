@@ -2508,7 +2508,9 @@ consonant-link exception. With intervening ZWJ it keeps prior separate owners;
 this sequence remains outside the measured-width corrections. Javanese and
 Grantha Mc viramas do not promote the base on their own: a following linked
 consonant promotes the complete source unit to two cells. The other measured
-G6 virama/invisible-stacker links preserve ZWJ and break at ZWNJ. No other
+G6 virama/invisible-stacker links preserve ZWJ and break at ZWNJ. A Tai Tham
+spacing sign retained before SAKOT (U+1A60) does not end the stacker's
+consonant scan; other scripts keep a retained spacing sign as that boundary. No other
 Pure_Killer category or unmeasured script is collapsed into a source owner.
 
 Emoji width ownership uses pinned Unicode 17 emoji data. Listed emoji-style

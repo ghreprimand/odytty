@@ -25,7 +25,8 @@ widths. Northern and southern Indic, Sinhala, Khmer, Myanmar, Chakma, Javanese,
 Grantha, and Tai Tham spacing
 signs and linked consonants share bounded two-cell owners using Unicode 17
 properties. ZWJ preserves virama/stacker links; Chakma U+11134 keeps prior
-separate owners with ZWJ. ZWNJ ends consonant joining. Gurmukhi,
+separate owners with ZWJ. A Tai Tham spacing sign before SAKOT stays in the
+owner. ZWNJ ends consonant joining. Gurmukhi,
 Tamil, Sinhala, Chakma, and Grantha width units can cross extended-grapheme boundaries.
 Exact VS16 keycaps omit an unmapped selector only from color shaping so an unmapped
 selector cannot block a present base-plus-enclosing-keycap ligature. Logical
@@ -332,6 +333,17 @@ rules before making a general cluster-width claim.
 VS15 deliberately does not demote. Standalone regional indicators remain one
 cell and keycaps without VS16 remain one cell. These choices differ from the
 frozen Python wcwidth reference; they are explicit compatibility limits.
+
+A Tai Tham medial or spacing vowel sign written before SAKOT (U+1A60) stays
+inside its consonant's owner, so the stacked consonant joins that owner
+instead of starting a new one. Other scripts still end consonant linking at a
+retained spacing sign. Two frozen `ucs-detect` corpus rows keep three cells
+where the wcwidth reference reports two: a Tai Tham sequence that starts with
+the dependent vowel U+1A63 and a Malayalam sequence that starts with the chillu
+U+0D7B. OdyTTY links a virama or stacker only back to a same-script consonant
+in its linking table, which includes neither a dependent vowel nor a chillu
+(a dead consonant), so each keeps a separate leading owner. These
+are deliberate differences from the reference, not passes.
 
 Other candidates that fit the anchored overlay model are:
 

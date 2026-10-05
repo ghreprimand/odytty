@@ -15,7 +15,8 @@ terminal redraw streams. Run `cargo test --locked --test indic_width_g6`.
 The terminal width units can cross a grapheme boundary. Chakma U+11134
 Pure_Killer is a bounded direct-consonant exception; with intervening ZWJ,
 prior separate ownership remains. Javanese and Grantha Mc viramas do not
-promote the base without a following consonant. No other Pure_Killer category
+promote the base without a following consonant. A Tai Tham spacing sign
+before SAKOT stays inside the owner (`tests/residual_width.rs`). No other Pure_Killer category
 or unmeasured script is collapsed. The Unicode 17 GraphemeBreakTest filter
 contains zero rows starting with these scripts and containing only the same
 script, ZWJ, ZWNJ, or U+0308. These property fixtures do not claim full grapheme

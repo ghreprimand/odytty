@@ -429,7 +429,8 @@ Snapshot v5 preserves these scalars, the extension boundary, and pending wrap.
 Northern and southern Indic, Sinhala, Khmer, Myanmar, Chakma, Javanese,
 Grantha, and Tai Tham spacing signs and
 linked consonants share bounded two-cell owners. ZWJ preserves virama/stacker
-links, while Chakma U+11134 keeps prior separate owners with ZWJ. ZWNJ breaks it. Terminal width ownership can cross grapheme boundaries and does not
+links, while Chakma U+11134 keeps prior separate owners with ZWJ. A Tai Tham
+spacing sign before SAKOT stays in the owner. ZWNJ breaks it. Terminal width ownership can cross grapheme boundaries and does not
 itself shape glyphs; complex-script owner shaping is the separate
 presentation layer in the table above. Listed VS16 bases,
 modifier-base skin tones, VS16 keycaps, regional-indicator pairs, and fully

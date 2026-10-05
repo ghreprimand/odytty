@@ -66,11 +66,23 @@ pub(super) fn extends(base: char, extensions: &[char], next: char) -> bool {
             continue;
         } else if is_extend(ch) {
             continue;
+        } else if linker && retains_sign_before_stacker(sid, ch) {
+            // Tai Tham spellings place a medial or spacing vowel sign before
+            // U+1A60 SAKOT; the stack still belongs to the earlier consonant.
+            continue;
         } else {
             return linker && script(data::CONSONANTS, ch) == sid;
         }
     }
     false
+}
+
+/// A retained Tai Tham spacing sign followed, after zero-width marks, by SAKOT
+/// stays inside the owner during the reverse linker scan. Other scripts keep a
+/// retained spacing sign as the scan boundary: the frozen conformance corpus
+/// shows no failure of this shape for them, so they are not widened here.
+fn retains_sign_before_stacker(sid: u8, ch: char) -> bool {
+    script(data::LINKERS, '\u{1a60}') == sid && script(data::SPACING, ch) == sid
 }
 
 /// A spacing mark or retained conjunct promotes a measured Indic base to two
