@@ -1002,6 +1002,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "harfrust"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d12c7c642d4ce8c2e784b4751a6634bd89583912265add4a679a8882d123fbcd"
+dependencies = [
+ "bitflags 2.13.1",
+ "bytemuck",
+ "read-fonts 0.39.2",
+ "smallvec",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1736,6 +1748,7 @@ dependencies = [
  "flate2",
  "futures-lite",
  "getrandom 0.3.4",
+ "harfrust",
  "image",
  "libc",
  "objc2 0.5.2",

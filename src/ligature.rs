@@ -615,6 +615,7 @@ impl LigatureShaper {
                                 span_cells,
                                 anchor_cell,
                                 mark_offset: glyph.mark_offset,
+                                cluster: false,
                             },
                             source_cells: cluster_cells(glyph, span.end),
                         })
@@ -878,6 +879,7 @@ fn whole_run_overlay(
                     span_cells,
                     anchor_cell,
                     mark_offset: glyph.mark_offset,
+                    cluster: false,
                 },
                 source_cells: cluster_cells(glyph, cell_count),
             })

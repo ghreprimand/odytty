@@ -72,12 +72,16 @@ pub mod fallback;
 
 mod allocation;
 mod build;
+mod cluster;
 mod insertion;
 mod lookup;
 mod ownership;
 mod raster;
 mod upload;
 
+pub use cluster::{
+    CLUSTER_MIN_SCALE, ClusterFace, ClusterFit, ClusterGlyph, cluster_fit, face_maps_all,
+};
 pub use raster::set_stem_darken;
 #[cfg(test)]
 pub(crate) use raster::stem_darken_strength_for_test;
@@ -642,6 +646,12 @@ pub struct ShapedGlyphKey {
     /// placed it. `[0, 0]` for every other glyph, which keeps their pen at
     /// `anchor_cell` exactly as before.
     pub mark_offset: [i16; 2],
+    /// A whole complex-script owner run rasterized into one span slot by
+    /// [`GlyphAtlas::ensure_cluster`]. `face_fingerprint` then hashes the
+    /// face, the placed glyph run, and the style source, and `glyph_id`,
+    /// `anchor_cell`, and `mark_offset` are zero. Such a key is never
+    /// rasterized by [`GlyphAtlas::ensure_shaped`].
+    pub cluster: bool,
 }
 
 /// Integer pixel metrics for one monospace cell.

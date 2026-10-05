@@ -118,6 +118,12 @@ impl FontHandle {
         &self.bytes
     }
 
+    /// Face index of this handle within [`Self::as_slice`].
+    #[inline]
+    pub fn face_index(&self) -> u32 {
+        self.index
+    }
+
     /// Reparse the borrowed face. skrifa font construction is cheap (it reads
     /// the table directory); higher-level collections are built on demand by the
     /// individual accessors.

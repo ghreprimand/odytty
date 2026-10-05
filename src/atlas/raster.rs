@@ -256,6 +256,51 @@ pub(super) fn rasterize_glyph_id(
     synth: SynthTransform,
     fit: Option<CellFit>,
 ) -> Option<GlyphInk> {
+    if glyph_id.0 == 0 {
+        return None;
+    }
+    rasterize_glyph_run(
+        font,
+        pen,
+        &[RunGlyph {
+            id: glyph_id,
+            x: anchor_x,
+            baseline: pen.baseline,
+        }],
+        data,
+        width,
+        subpixel,
+        region,
+        synth,
+        fit,
+    )
+}
+
+/// One glyph of a run drawn into a single slot: its pen x relative to the
+/// cell's inner left edge and its own baseline, both in atlas pixels.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct RunGlyph {
+    pub(super) id: GlyphId,
+    pub(super) x: f32,
+    pub(super) baseline: f32,
+}
+
+/// Rasterize every glyph of `glyphs` into one slot at `pen.px`, max-combining
+/// coverage, then filter and measure the slot once. A one-glyph run is
+/// exactly [`rasterize_glyph_id`]. `pen.baseline` stays the synthetic-italic
+/// shear origin for every glyph; `fit` applies only to a one-glyph run.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn rasterize_glyph_run(
+    font: &FontHandle,
+    pen: Pen,
+    glyphs: &[RunGlyph],
+    data: &mut [u8],
+    width: u32,
+    subpixel: SubpixelMode,
+    region: SlotRegion,
+    synth: SynthTransform,
+    fit: Option<CellFit>,
+) -> Option<GlyphInk> {
     let SlotRegion {
         origin,
         cell,
@@ -263,9 +308,8 @@ pub(super) fn rasterize_glyph_id(
     } = region;
     let (ox, oy) = origin;
     let scale = PxScale::from(pen.px);
-    if glyph_id.0 == 0 {
-        return None;
-    }
+    let fit = fit.filter(|_| glyphs.len() == 1);
+    let glyph_id = glyphs.first()?.id;
     // Stem-darkening strength is read once per glyph; `0.0` (the default) makes
     // `apply_stem_darken` an identity so coverage is byte-identical to before.
     let stem = stem_darken_strength();
@@ -326,15 +370,17 @@ pub(super) fn rasterize_glyph_id(
     let mut min_y = i32::MAX;
     let mut max_x = i32::MIN;
     let mut max_y = i32::MIN;
-    let mut draw_sample = |shift_x: f32, channel: Option<usize>| {
+    let mut draw_sample = |run_glyph: &RunGlyph, shift_x: f32, channel: Option<usize>| {
         // Fitted symbol glyphs re-outline at the scaled pen size on baseline 0
         // (the fit origin supplies absolute placement); text glyphs use the body
         // scale on `pen.baseline` exactly as before.
         let (use_scale, pos_y) = match fit_placement {
             Some(fp) => (fp.scale, 0.0),
-            None => (scale, pen.baseline),
+            None => (scale, run_glyph.baseline),
         };
-        let glyph = glyph_id.with_scale_and_position(use_scale, point(anchor_x + shift_x, pos_y));
+        let glyph = run_glyph
+            .id
+            .with_scale_and_position(use_scale, point(run_glyph.x + shift_x, pos_y));
         let Some(outline) = font.outline_glyph(glyph) else {
             return;
         };
@@ -394,17 +440,19 @@ pub(super) fn rasterize_glyph_id(
             }
         });
     };
-    match subpixel {
-        SubpixelMode::Off => draw_sample(0.0, None),
-        SubpixelMode::Rgb => {
-            draw_sample(-1.0 / 3.0, Some(0));
-            draw_sample(0.0, Some(1));
-            draw_sample(1.0 / 3.0, Some(2));
-        }
-        SubpixelMode::Bgr => {
-            draw_sample(-1.0 / 3.0, Some(2));
-            draw_sample(0.0, Some(1));
-            draw_sample(1.0 / 3.0, Some(0));
+    for run_glyph in glyphs.iter().filter(|glyph| glyph.id.0 != 0) {
+        match subpixel {
+            SubpixelMode::Off => draw_sample(run_glyph, 0.0, None),
+            SubpixelMode::Rgb => {
+                draw_sample(run_glyph, -1.0 / 3.0, Some(0));
+                draw_sample(run_glyph, 0.0, Some(1));
+                draw_sample(run_glyph, 1.0 / 3.0, Some(2));
+            }
+            SubpixelMode::Bgr => {
+                draw_sample(run_glyph, -1.0 / 3.0, Some(2));
+                draw_sample(run_glyph, 0.0, Some(1));
+                draw_sample(run_glyph, 1.0 / 3.0, Some(0));
+            }
         }
     }
 

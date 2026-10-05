@@ -189,6 +189,10 @@ impl GlyphAtlas {
         if let Some(&slot) = self.shaped.get(&key) {
             return self.shaped_bounds(slot);
         }
+        // A cluster key names a placed run only `ensure_cluster` can draw.
+        if key.cluster {
+            return None;
+        }
         let span = u32::from(key.span_cells);
         let slot = self.allocate_slots(span)?;
         let origin = slot_offset(slot, self.cols, self.cell);

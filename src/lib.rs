@@ -9,6 +9,7 @@ pub mod automation;
 pub(crate) mod bounded_io;
 pub mod boxdraw;
 pub mod color;
+pub mod complex_shaping;
 pub mod connection_hosts;
 pub mod core;
 pub mod cvd;

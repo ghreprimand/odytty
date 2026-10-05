@@ -1975,8 +1975,10 @@ release-authentication boundary. Version 0.16.0 and earlier lack update info.
   and the `S=`/`O=` partial-read keys
 
 - Bidirectional reordering beyond the bounded `bidi_reorder` setting:
-  right-to-left paragraph levels, the alternate screen, and complex-script
-  reordering
+  right-to-left paragraph levels and the alternate screen
+
+- Complex-script shaping for script groups the owner-run classifier does not
+  enable, and shaping across owner boundaries
 
 - Open-ended font-feature selection beyond the bounded supported set
 
@@ -2392,8 +2394,9 @@ bold-italic by composing both. Real faces always take precedence; synthesis
 activates only for genuinely absent slots. The ordinary path remains one base
 glyph, plus any resident combining marks, rasterized into its cell or two-cell
 slot. Default programming
-ligatures use the bounded, cell-preserving design recorded below; broader
-complex-text shaping remains outside this terminal-grid model.
+ligatures and northern Indic owner shaping use the bounded, cell-preserving
+designs recorded below; complex-text shaping beyond them remains outside this
+terminal-grid model.
 
 #### Programming Ligatures
 
@@ -2492,8 +2495,9 @@ Khmer and Myanmar also accept linked Unicode InCB Consonant scalars,
 including independent vowels. ZWJ preserves the virama link; ZWNJ prevents the next consonant from joining.
 Gurmukhi, Tamil, Sinhala, Chakma, and Grantha terminal width units can cross an extended-grapheme boundary; width
 ownership is distinct from segmentation. Khmer U+17A4 and U+17D8 are explicit
-one-cell scalar compatibility cases in both ambiguous-width modes. Other script groups retain their prior rules. No font-backed complex-script glyph reordering is
-provided. The source bound remains seventeen scalars per owner, with lossless
+one-cell scalar compatibility cases in both ambiguous-width modes. Other script groups retain their prior rules. Font-backed shaping of
+northern Indic owners is presentation only, is described with the renderer's
+mark rules below, and never changes these widths. The source bound remains seventeen scalars per owner, with lossless
 bounded-owner overflow. Unicode fixtures exercise bounded northern and southern
 Indic, Sinhala, Khmer, and Myanmar property subsets, plus bounded northern and Khmer/Myanmar GraphemeBreakTest subsets. No full
 grapheme conformance is claimed.
@@ -2528,6 +2532,28 @@ joining run of two or more cells are drawn instead by the shaping overlay at
 the font's mark-positioned offsets, and only when the text font maps every
 mark on that cell; the monochrome path does not draw them again (see
 [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md)).
+
+With programming ligatures on, each Devanagari, Bengali, Gurmukhi, Gujarati,
+or Odia width owner is shaped on its own with `harfrust` 0.8.4 (left to right,
+script from the content, no language, cluster level 0) and drawn as one
+overlay over exactly its one or two cells. The base scalar must belong to one
+of those scripts, and every retained scalar to one of them or be ZWJ, ZWNJ, or
+a Vedic Extensions mark. The shaping face is the first that maps every scalar:
+a `symbol_map` override for the base, the style face, then the fallback chain
+and runtime resolver for the base. Glyphs keep their shaped pen positions; the
+run's ink box is centered in the span when it fits, otherwise scaled uniformly
+to fit with a floor of 0.6, and clipped at the span edges below that floor.
+Vertical overflow beyond the glyph slot margin scales the same way. Ink never
+leaves the owner's span horizontally. Style faces keep synthetic bold and
+italic; fallback faces draw without synthesis, as on the scalar path. An owner
+without a covering face, with a pending runtime answer, with `.notdef` in its
+shaped result, or whose slot does not fit in a full atlas keeps the per-cell
+path for that frame. Backgrounds, decorations, selection, search highlights,
+the cursor block (which redraws the per-cell glyphs, as it does under a Latin
+ligature), copy, search, and widths stay cell-owned. Runs never cross owners.
+Bengali ka, virama, ra shapes differently from HarfBuzz 14.5 in `harfrust`
+0.8.4; that difference is recorded in the fixtures and kept out of
+conformance claims.
 Wrapped and rectangular selection copy the base followed by those stored marks.
 
 ### Store Cell Attributes Compactly

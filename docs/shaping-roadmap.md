@@ -33,8 +33,9 @@ source ranges, width and cache identity retain the selector. Capability probes
 and live rendering share this seam; flag, modifier and ZWJ inputs are unchanged.
 
 Listed VS16 bases and recognized emoji modifier, keycap, flag, and RGI ZWJ
-sequences use two-cell owners. Other script groups and font-backed
-complex-script shaping remain pending.
+sequences use two-cell owners. Other script groups remain pending. Northern
+Indic owners are shaped with the font (see Complex Indic and Brahmic shaping
+below); the other groups' font-backed shaping remains pending.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 
@@ -63,7 +64,8 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen, right-to-left paragraph levels, and complex-script shaping are not reordered |
-| Complex Indic/Brahmic shaping | Not supported | Measured script source ownership is bounded; font-backed reordered glyph placement that remains reversible to logical cells is still required |
+| Northern Indic shaping | With `ligatures` on, Devanagari, Bengali, Gurmukhi, Gujarati, and Odia owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
+| Other complex Indic/Brahmic shaping | Not supported | Southern Indic, Sinhala, Khmer, Myanmar, Thai, Lao, Tibetan, Chakma, Javanese, Grantha, and Tai Tham owners keep the per-cell path |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping |
 | Southern Indic terminal widths | Tamil, Telugu, Kannada, and Malayalam spacing signs and virama-linked consonants share bounded two-cell owners | Tamil width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed complex-script reordering remains unsupported |
@@ -181,8 +183,8 @@ The setting changes presentation only. Cells, cursor addressing and movement,
 selection endpoints, copy, search results, scrollback export, and every
 terminal protocol value stay logical. Plain limits: the alternate screen
 (full-screen programs) is never reordered; the paragraph level is always left
-to right, with no right-to-left paragraphs; complex-script shaping is not
-included; a mirrored character without a Unicode mirroring counterpart draws
+to right, with no right-to-left paragraphs; shaped northern Indic owners stay
+on their own cells; a mirrored character without a Unicode mirroring counterpart draws
 unmirrored; block-selection export is not reordered or specially handled;
 image placements are not reordered.
 
@@ -251,19 +253,37 @@ cached between frames.
 
 ### Complex Indic and Brahmic shaping
 
-Complex Indic/Brahmic shaping is outside the current fixed-cell
-overlay model and has no approximate fallback claim. Correct conjuncts can
-require several source characters to form one cluster, glyphs to reorder around
-the cluster, and marks to attach at positions that do not correspond to their
-source cells.
+Correct conjuncts can require several source characters to form one cluster,
+glyphs to reorder around the cluster, and marks to attach at positions that do
+not correspond to their source cells. The retained width owner makes that
+tractable without a per-glyph cell mapping: every source scalar of a conjunct,
+reph, or split vowel already lives in one owner of one or two cells, so the
+owner is the shaping unit and its cells are the only place its glyphs may
+draw. Editing, erase, resize, reflow, scrollback, selection, search, cursor
+movement, snapshot, and export keep operating on owners and never see glyphs.
 
-Northern/southern Indic, Sinhala, Khmer, and Myanmar source ownership now exist in the terminal model. Font-backed
-shaping still requires a reversible mapping between each owner's logical source
-and its reordered glyphs. The mapping would need to survive editing, erase, resize,
-reflow, scrollback, selection, search, cursor movement, snapshot, and transcript
-export. Acceptance would require script-specific shaping conformance fixtures
-and cell-by-cell semantic tests across those operations. Adding isolated
-OpenType script tags to the existing overlay is not sufficient.
+Northern Indic owners (Devanagari, Bengali, Gurmukhi, Gujarati, and Odia) are
+shaped that way while `ligatures` is on. Each owner is shaped on its own with
+`harfrust` 0.8.4, the HarfBuzz project's Rust port; `swash`, which shapes the
+Latin, Arabic, and emoji paths, does not form reph and mishandles ZWJ/ZWNJ
+requests in these scripts. The face is the first that maps every scalar: a
+`symbol_map` override, the style face, then the fallback chain and runtime
+resolver. Shaped glyphs keep their pen positions; the run is centered in the
+owner's span when it fits, otherwise scaled uniformly to fit down to a 0.6
+floor, then clipped at the span edges. An owner with no covering face, a
+pending runtime answer, a `.notdef` result, or no atlas room keeps the
+per-cell path. A stray mark that starts an owner is shaped with a dotted
+circle when the face has one. The cursor block redraws per-cell glyphs, as it
+does under a Latin ligature. Shaping never crosses owners. Display reordering
+leaves left-to-right owners on their own cells.
+
+Licensed fixtures (OFL subsets of the Noto faces) carry HarfBuzz 14.5.1
+references for every northern Indic sample; all but one match exactly. Bengali
+ka, virama, ra shapes differently in `harfrust` 0.8.4, and the fixtures keep
+that difference as an asserted known difference rather than a conformance
+claim. Southern Indic, Sinhala, Khmer, Myanmar, Thai, Lao, Tibetan, Chakma,
+Javanese, Grantha, and Tai Tham owners keep the per-cell path until their own
+classifier stage and fixtures land.
 
 ### SVG-in-OpenType
 
@@ -325,7 +345,7 @@ because it is a script-tagged feature application on that same overlay model in
 logical cell order.
 
 Sequence-aware width follows the cell-storage work because it changes cluster
-ownership without requiring visual reordering. Full complex-script shaping and
-BiDi remain outside the overlay model because they require a reversible mapping
-between logical terminal cells and a different visual order. SVG-in-OpenType is
+ownership without requiring visual reordering. Owner-run shaping follows it,
+because the owner bounds every glyph a cluster can draw. BiDi display order is
+a separate opt-in plan over the same logical cells. SVG-in-OpenType is
 independent of that sequence.

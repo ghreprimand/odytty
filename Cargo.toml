@@ -48,6 +48,13 @@ flate2 = "1.1.9"
 # already present transitively; declaring it makes the security boundary and
 # its supported-platform backend contract direct and auditable.
 getrandom = "0.3.4"
+# Complex-script shaping for retained width owners (`src/complex_shaping`).
+# MIT, `forbid(unsafe_code)`, the HarfBuzz project's Rust port. 0.8.4 reads
+# fonts through `read-fonts` 0.39, the same parser `skrifa` already brings, so
+# no second font parser enters the build. Used only for the script groups the
+# classifier enables; Latin ligatures, Arabic joining, and emoji stay on swash.
+# Default features keep `std`; the optional `libm` path stays off.
+harfrust = "=0.8.4"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 png = "0.18.1"
 pollster = "0.4.0"

@@ -10,8 +10,9 @@ Wide-glyph wrap padding is distinguished from logical source spaces through
 eager and lazy reflow, search, selection/copy, export, and snapshot restore.
 Bounded source ownership and northern Indic, Tamil, Telugu, Kannada, and
 Malayalam, Sinhala, Khmer, Myanmar, Chakma, Javanese, Grantha, and Tai Tham
-width units are implemented. Unicode 17 bounded emoji sequence widths are implemented. Further script groups
-and standalone format-control retention remain pending.
+width units are implemented. Unicode 17 bounded emoji sequence widths are implemented. Northern Indic
+owners are shaped with the font while programming ligatures are on. Further
+script groups and standalone format-control retention remain pending.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 
@@ -706,8 +707,14 @@ not a stretch goal.
 - [x] Ship grid-preserving contextual ligatures behind a live setting
       (ASCII graphics plus a curated non-ASCII operator allowlist, with
       `calt`+`liga` on Latin/operator runs). Explicit optional `ss01`/`ss02`
-      (off by default); open-ended `ssXX` and full complex-script shaping
-      remain deferred; see [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md).
+      (off by default); open-ended `ssXX` remains deferred; see
+      [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md).
+  - [x] Northern Indic owner shaping: Devanagari, Bengali, Gurmukhi,
+        Gujarati, and Odia width owners shaped with `harfrust` 0.8.4 and
+        fitted inside their cells, against licensed HarfBuzz reference
+        fixtures with one asserted known difference.
+  - [ ] Owner shaping for southern Indic, Sinhala, Khmer/Myanmar,
+        Thai/Lao/Tibetan, and Chakma, Javanese, Grantha, and Tai Tham.
   - [x] Shaping-run infrastructure: grapheme-cluster grouping, byte-to-column
         anchoring, and compatible-run boundary detection (combining marks,
         mixed styles, color-glyph/ZWJ coverage, and wide cells never merge

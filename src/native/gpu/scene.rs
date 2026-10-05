@@ -518,6 +518,7 @@ impl GpuState {
                 &runs,
             );
             self.ensure_ligature_glyphs(&mut ligature_runs);
+            self.add_complex_runs(pane.snapshot, &runs, &mut ligature_runs);
             pane_runs.push(runs);
             pane_ligature_runs.push(ligature_runs);
         }
@@ -986,6 +987,7 @@ impl GpuState {
             &color_glyph_runs,
         );
         self.ensure_ligature_glyphs(&mut ligature_runs);
+        self.add_complex_runs(snapshot, &color_glyph_runs, &mut ligature_runs);
         // F4-P3: the revealed rail overlay strip's mono glyphs must join the
         // atlas before any texture refresh, alongside the terminal snapshot's.
         if let Some(rail) = rail_overlay.as_ref() {
@@ -1181,6 +1183,24 @@ impl GpuState {
                 .iter()
                 .all(|glyph| self.atlas.contains_shaped(glyph.key))
         });
+    }
+
+    /// Shape the snapshot's complex-script owners into resident cluster
+    /// slots and merge their overlays into `runs` in row-major order.
+    fn add_complex_runs(
+        &mut self,
+        snapshot: &Snapshot,
+        color_runs: &[ColorGlyphRun],
+        runs: &mut Vec<LigatureRun>,
+    ) {
+        let complex = self.complex_shaper.build_runs(
+            self.ligatures_enabled,
+            snapshot,
+            &self.fonts,
+            &mut self.atlas,
+            color_runs,
+        );
+        crate::complex_shaping::merge_runs(runs, complex);
     }
 
     /// Ensure the F4-P3 rail auto-hide overlay strip's mono glyphs are in the

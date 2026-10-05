@@ -14,6 +14,7 @@ use crate::text::FontHandle;
 use wgpu::util::DeviceExt;
 
 use crate::atlas;
+use crate::complex_shaping::{ComplexShaper, merge_runs};
 use crate::core::{CursorStyle, Snapshot};
 use crate::emoji::{ColorGlyphAtlas, EmojiRasterizer};
 use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, CursorRenderParams, SolidQuad, Vertex};
@@ -439,6 +440,9 @@ pub(in crate::native) struct GpuState {
     pub(super) emoji_rasterizer: EmojiRasterizer,
     /// Bounded row-plan cache for ASCII contextual shaping.
     pub(super) ligature_shaper: LigatureShaper,
+    /// Owner-run shaping for complex-script width owners; cleared with the
+    /// atlas because its presentations name atlas cluster slots.
+    pub(super) complex_shaper: ComplexShaper,
     /// Fonts used to populate the atlas dynamic region for regular and styled
     /// glyphs. Missing style faces intentionally fall back to the regular font.
     pub(super) fonts: StyleFonts,
@@ -909,6 +913,15 @@ impl GpuState {
                 .iter()
                 .all(|glyph| atlas.contains_shaped(glyph.key))
         });
+        let mut complex_shaper = ComplexShaper::new();
+        let initial_complex_runs = complex_shaper.build_runs(
+            ligatures_enabled,
+            initial_snapshot,
+            &fonts,
+            &mut atlas,
+            &initial_color_glyph_runs,
+        );
+        merge_runs(&mut initial_ligature_runs, initial_complex_runs);
         if atlas.take_dirty() {
             atlas_texture = create_atlas_texture(&device, &queue, &atlas);
             bind_group = create_atlas_bind_group(
@@ -1122,6 +1135,7 @@ impl GpuState {
             color_glyph_atlas,
             emoji_rasterizer,
             ligature_shaper,
+            complex_shaper,
             fonts,
             font_size_px: options.font_size_px,
             scale,
@@ -1204,6 +1218,7 @@ impl GpuState {
         let _ = atlas.take_dirty();
         self.atlas = atlas;
         self.ligature_shaper.clear();
+        self.complex_shaper.clear();
         self.refresh_atlas_texture();
         self.color_glyph_atlas = ColorGlyphAtlas::new(self.atlas.cell);
         self.color_glyph_atlas
