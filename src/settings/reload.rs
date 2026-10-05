@@ -174,6 +174,15 @@ impl SettingsReloader {
         }
     }
 
+    /// Re-read the config file this reloader watches, with the startup env
+    /// snapshot, as the background poll does. An explicit Save calls this
+    /// right after writing, so the settings it applies come from the exact file
+    /// it wrote and the exact env precedence startup used, never from a path
+    /// re-derived from the live process environment.
+    pub fn load_now(&self) -> SettingsReloadOutcome {
+        self.load_changed_config()
+    }
+
     fn load_changed_config(&self) -> SettingsReloadOutcome {
         let Some(path) = self.path.as_deref() else {
             return SettingsReloadOutcome::Unchanged;

@@ -153,20 +153,42 @@ impl App {
         match write_settings_changes_to_path(path, changes) {
             Ok(result) => {
                 // BUG 2 (FONT-SAVE-CORRECTNESS): a Save must also apply LIVE, not
-                // only at restart. Re-read the just-written config as startup does
-                // (`Settings::from_env`, same path + env) and route it through the
-                // shared reload seam — no duplicated reload logic. Idempotent: a
-                // live-previewed value and the later background poll both no-op.
+                // only at restart. Re-read the just-written file through the
+                // reloader (the path written above, startup env precedence) and
+                // route it through the shared reload seam, with no duplicated
+                // reload logic. Idempotent: a live-previewed value and the later
+                // background poll both no-op.
                 // Apply before notifying the overlay: pickers return to Settings
                 // on success, and rebasing while their mode is still active keeps
                 // the panel's displayed config token aligned with the new theme.
                 if result.changed > 0 {
-                    let reloaded = Settings::from_env();
-                    self.apply_overlay_settings(reloaded);
+                    self.apply_saved_config();
                 }
                 Ok(result.changed)
             }
             Err(error) => Err(error.to_string()),
+        }
+    }
+
+    /// Apply the config file a Save just wrote. The reloader re-reads the
+    /// same path the write targeted, with the env snapshot taken at startup,
+    /// so the applied settings always describe the saved file. Re-deriving the
+    /// path from the live environment could read a different file (or none)
+    /// and replace the saved edits with that file's values. A file that
+    /// vanished or became unreadable between the write and the re-read keeps
+    /// the current settings; the background poll reports it as usual.
+    fn apply_saved_config(&mut self) {
+        match self.settings_reloader.load_now() {
+            SettingsReloadOutcome::Reloaded { settings, warnings } => {
+                for warning in warnings {
+                    tracing::warn!(warning = %warning, "config save notice");
+                }
+                self.apply_overlay_settings(settings);
+            }
+            SettingsReloadOutcome::Unchanged | SettingsReloadOutcome::Deleted => {}
+            SettingsReloadOutcome::Unreadable { message } => {
+                tracing::warn!(message = %message, "saved config re-read failed");
+            }
         }
     }
 
@@ -494,8 +516,7 @@ impl App {
                 // already names it, so always re-read before closing the builder.
                 // This also replaces preview-only color state and stale config
                 // metadata with the canonical saved theme in one transition.
-                let reloaded = Settings::from_env();
-                self.apply_overlay_settings(reloaded);
+                self.apply_saved_config();
                 self.overlay
                     .theme_builder_save_succeeded(&saved_name, &path, result.changed)
             }
