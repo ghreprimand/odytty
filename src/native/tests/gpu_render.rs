@@ -1515,6 +1515,7 @@ fn render_sig() -> RenderSignature {
                 secure_input: OverlayFragment::Inert,
             },
             rail_overlay: crate::native::render_helpers::RailOverlaySignature::default(),
+            bidi_placement: None,
         },
         cursor: CursorRenderSignature {
             visible: true,
@@ -1560,6 +1561,21 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
     pty_output.content.terminal_revision += 1;
     assert_eq!(
         RenderSignature::update_from(Some(&base), &pty_output),
+        GeometryUpdate::Full
+    );
+
+    // BIDI test-only gate: a placement change alone rebuilds; the shipping
+    // `None` stays a constant.
+    let mut placed = base.clone();
+    placed.content.bidi_placement = Some(1);
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &placed),
+        GeometryUpdate::Full
+    );
+    let mut replaced = placed.clone();
+    replaced.content.bidi_placement = Some(2);
+    assert_eq!(
+        RenderSignature::update_from(Some(&placed), &replaced),
         GeometryUpdate::Full
     );
 

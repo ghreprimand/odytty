@@ -770,6 +770,9 @@ impl App {
                         // reveal / hide / hover / switch rebuilds the
                         // frame. `default()` (not revealed) is constant.
                         rail_overlay: self.rail_overlay_render_signature(cell),
+                        bidi_placement: bidi_content
+                            .as_ref()
+                            .map(crate::grid::BidiDisplayMap::placement_hash),
                     },
                     cursor: CursorRenderSignature {
                         visible: snapshot.cursor_visible,

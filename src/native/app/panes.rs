@@ -54,6 +54,9 @@ struct OwnedPaneRender {
     /// Outer rectangles of the floating panes painted above this one, cut out
     /// of everything this pane draws. Empty outside a floating tab.
     occluders: Vec<[f32; 4]>,
+    /// BIDI test-only gate: this pane's session, plan, and the snapshot it was
+    /// planned from; always `None` in a shipping build.
+    bidi: Option<(SessionToken, (crate::grid::BidiDisplayMap, Snapshot))>,
 }
 use crate::graphics::VisiblePlacement;
 use crate::native::gpu::{OverlayTop, PaneRender, PanelFrameQuads, RailOverlay};
@@ -510,7 +513,9 @@ impl App {
     /// lands under the actual click.
     pub(super) fn active_pane_pointer_cell_at(&self, x_px: f64, y_px: f64) -> Option<CellPoint> {
         let (rect, cell) = self.focused_pane_inner_rect()?;
-        pane_relative_cell(rect, cell, x_px, y_px)
+        // BIDI: the logical cell drawn under the pointer; identity outside the
+        // test-only display gate.
+        pane_relative_cell(rect, cell, x_px, y_px).map(|point| self.bidi_logical_point(point))
     }
 
     /// Whether the cached window pointer lies inside any split leaf's actual
@@ -712,9 +717,10 @@ impl App {
     /// single-pane rebuild's GPU hand-off but assembles one [`PaneRender`] per
     /// visible pane and calls [`GpuState::update_from_panes`].
     pub(super) fn rebuild_multipane(&mut self) {
-        // BIDI: the test-only display gate is single-pane only; never let a
-        // single-pane map outlive a switch to a split tab.
+        // BIDI: the split frame plans per-pane maps below; never let a
+        // single-pane map, or a previous split frame's maps, outlive it.
         self.set_bidi_frame_map(None);
+        self.set_bidi_pane_maps(Vec::new());
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_bidi_display(None);
         }
@@ -847,6 +853,7 @@ impl App {
             // 0.0 unless a lane is actively offsetting this pane — no stale leak.
             let frac_px = session.scroll_frac_offset;
             let snapshot = terminal.snapshot_with_scrollback(render_offset);
+            let bidi = self.bidi_pane_plan(&terminal, &snapshot, render_offset);
             let cursor_style = terminal.cursor_style();
             let cursor_blinking = terminal.cursor_blinking();
             let is_focused = *token == focused;
@@ -984,6 +991,7 @@ impl App {
                 glide_clip: clip,
                 content_clip,
                 occluders,
+                bidi: bidi.map(|plan| (*token, plan)),
             });
         }
 
@@ -1056,6 +1064,17 @@ impl App {
             // each visible pane here. No-op when this window is not in a picker.
             self.paint_merge_numeral_cells(&mut pane.snapshot);
         }
+        // BIDI test-only gate: overlay-painted rows draw in logical order; the
+        // pointer maps through the focused pane's presented map.
+        let pane_bidi: Vec<Option<(SessionToken, crate::grid::BidiDisplayMap)>> = panes_owned
+            .iter_mut()
+            .map(|pane| {
+                let (token, plan) = pane.bidi.take()?;
+                super::bidi_gate::finish_bidi_plan(Some(plan), &pane.snapshot)
+                    .map(|map| (token, map))
+            })
+            .collect();
+        self.set_bidi_pane_maps(pane_bidi.iter().flatten().cloned().collect());
         #[cfg(test)]
         {
             self.multipane_chrome_rows_for_test = panes_owned
@@ -1237,6 +1256,7 @@ impl App {
                 // COLORED-BG-FLOOR EXEMPT: chrome strip — band fills stay under
                 // `tab_panel_strength`'s opacity contract.
                 chrome: true,
+                bidi: None,
             });
         }
         // Inactive-pane dimming: the focused pane is never dimmed (`0.0`), the
@@ -1265,6 +1285,7 @@ impl App {
                 // COLORED-BG-FLOOR: terminal content — colored backgrounds float
                 // to the knob's alpha under a translucent window.
                 chrome: false,
+                bidi: pane_bidi[idx].as_ref().map(|(_, map)| map),
             });
         }
 

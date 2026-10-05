@@ -606,7 +606,7 @@ impl GpuState {
                 // SELECTION-OPACITY: this pane's selected cells draw at the
                 // independent selection strength (`1.0` = fully opaque default).
                 self.selection_build_opacity(),
-                None,
+                pane.bidi,
             );
             let bg = background_vertex_count(pane.snapshot).min(pane_buf.len() as u32) as usize;
             // PANE-SUBCELL-CLIP: when this pane is mid sub-cell glide, its origin
@@ -683,13 +683,14 @@ impl GpuState {
                 retained_cursor_overlays.extend_from_slice(pane.overlays);
                 retained_cursor_glow = pane.cursor_glow;
                 retained_cursor_streak = pane.cursor_streak;
-                grid::append_cursor_vertices_with_origin(
+                grid::append_cursor_vertices_with_origin_and_bidi(
                     &mut tail,
                     pane.snapshot,
                     &self.atlas,
                     pane.cursor_style,
                     pane.origin,
                     cursor_params,
+                    pane.bidi,
                 );
             }
             // The pane's own overlays (selection / search) and cursor ride its

@@ -123,6 +123,10 @@ impl App {
                 gpu.window_padding(),
             )
         };
+        // BIDI: a reordered row reports the logical cell drawn under the
+        // pointer, as the cell encodings do; identity outside the test-only
+        // display gate.
+        let (px, py) = self.bidi_logical_report_px((px, py), cell);
         let mods = MouseModifiers {
             // Shift stays reserved for local selection while reporting is active,
             // matching the cell path's modifier policy.

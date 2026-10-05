@@ -201,6 +201,7 @@ mod cvd_wiring;
 // App-route file-drop tests use Unix paths and Unix shell quoting. Windows
 // refuses insertion at PtySession::file_drop_shell (src/pty/windows.rs); its
 // quoting coverage is the platform-neutral unit suite in native::tests::file_drop.
+mod bidi_input;
 mod bidi_pointer;
 mod broadcast_input;
 #[cfg(unix)]

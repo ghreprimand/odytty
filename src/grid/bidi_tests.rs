@@ -817,3 +817,19 @@ fn search_reports_logical_columns_on_reordered_rows() {
     assert_eq!((hits[0].start.column, hits[0].end.column), (4, 7));
     assert!(display_map(&terminal).row_is_reordered(0));
 }
+
+#[test]
+fn placement_hash_tracks_placement_alone() {
+    let mixed = display_map(&terminal("ab \u{05D0}\u{05D1}\u{05D2} xy", 12, 2));
+    let latin = display_map(&terminal("ab cde xy", 12, 2));
+    let identity = BidiDisplayMap::identity(12, 2);
+    assert_eq!(latin.placement_hash(), identity.placement_hash());
+    assert_ne!(mixed.placement_hash(), identity.placement_hash());
+    assert_eq!(
+        mixed.placement_hash(),
+        display_map(&terminal("ab \u{05D0}\u{05D1}\u{05D2} xy", 12, 2)).placement_hash()
+    );
+    let mut reset = mixed.clone();
+    reset.reset_row(0);
+    assert_eq!(reset.placement_hash(), identity.placement_hash());
+}

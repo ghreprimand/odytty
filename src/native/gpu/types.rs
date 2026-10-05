@@ -138,6 +138,9 @@ pub(in crate::native) struct PaneRender<'a> {
     /// offsets cannot stand in for this flag: they are `0.0` for single-row
     /// bands, which would silently un-mark the strip.
     pub(in crate::native) chrome: bool,
+    /// BIDI test-only gate: this content pane's display map. `None` for chrome
+    /// strips and on every shipping frame, which keeps the vertices unchanged.
+    pub(in crate::native) bidi: Option<&'a crate::grid::BidiDisplayMap>,
 }
 
 /// Per-frame request for the analytic cursor aura. Geometry is rebuilt from the

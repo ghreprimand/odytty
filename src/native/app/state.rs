@@ -74,6 +74,9 @@ pub(in crate::native) struct App {
     /// The content map the last gated single-pane frame presented.
     #[cfg(test)]
     pub(super) bidi_frame_map: Option<crate::grid::BidiDisplayMap>,
+    /// The content map each pane of the last gated split frame presented.
+    #[cfg(test)]
+    pub(super) bidi_pane_maps: Vec<(SessionToken, crate::grid::BidiDisplayMap)>,
     /// SH2 status-gutter invalidation epoch. Bumped when the core reports prompt
     /// marks changed while the status gutter is enabled, so a pure OSC 133
     /// status transition (which need not move the terminal render revision)
@@ -730,6 +733,8 @@ impl App {
             bidi_display_for_test: false,
             #[cfg(test)]
             bidi_frame_map: None,
+            #[cfg(test)]
+            bidi_pane_maps: Vec::new(),
             prompt_marks_epoch: 0,
             grid,
             modifiers: Modifiers::default(),

@@ -53,7 +53,7 @@ pub struct BidiParagraphContext {
 }
 
 /// Visual placement of every cell of one snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BidiDisplayMap {
     columns: usize,
     rows: usize,
@@ -310,6 +310,16 @@ impl BidiDisplayMap {
                 self.reset_row(row);
             }
         }
+    }
+
+    /// A hash of the complete placement (dimensions, visual columns, levels,
+    /// and mirrors) for render-cache keys: a row whose placement alone changes
+    /// changes the hash.
+    pub fn placement_hash(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Whether any row differs from the identity layout.

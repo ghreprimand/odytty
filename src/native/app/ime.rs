@@ -174,12 +174,23 @@ impl App {
             .ok()
             .map(|terminal| terminal.snapshot().cursor)
             .unwrap_or_default();
-        let x = pad + chrome_dx as f32 + cursor.column as f32 * cell.width as f32;
+        let column = self.ime_anchor_column(cursor);
+        let x = pad + chrome_dx as f32 + column as f32 * cell.width as f32;
         let y = pad + chrome_dy as f32 + cursor.row as f32 * cell.height as f32;
         window.set_ime_cursor_area(
             PhysicalPosition::new(x, y),
             PhysicalSize::new(cell.width, cell.height),
         );
+    }
+
+    /// The screen column the candidate window anchors at: the column the
+    /// presented frame drew the cursor cell at. That is the logical column
+    /// unless the test-only bidi display gate reordered the cursor's row.
+    pub(super) fn ime_anchor_column(&self, cursor: crate::core::Position) -> usize {
+        self.bidi_visual_column(CellPoint {
+            row: cursor.row,
+            column: cursor.column,
+        })
     }
 
     /// Render-cache fragment: the live pre-edit string while composing (changes
