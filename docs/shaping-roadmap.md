@@ -170,11 +170,24 @@ Pixel fixtures use a project-authored font. They compare each mixed-direction
 line against the unchanged renderer drawing the hand-ordered visual string,
 covering Hebrew with Latin and digits, a mirrored bracket pair, wide cells, a
 ligature across a direction boundary, Arabic lam-alef joining, and color glyphs.
-Known limits of the seam: paragraphs that begin in scrollback resolve from
-their visible rows only, and a mirrored character with no mirroring counterpart
-(U+2211, for example) draws unmirrored. Only the test suite reaches this seam:
-no setting, menu, or flag enables it. Nothing hit-tests, moves the cursor,
-selects, or copies through it, so on-screen display and behavior are unchanged.
+A paragraph that begins above the visible rows is resolved together with
+the soft-wrapped rows above it, from scrollback or the screen above a scrolled
+viewport, up to the plan's row and owner caps; a longer paragraph keeps the
+identity layout, as any over-cap paragraph does. A mirrored character with no
+mirroring counterpart (U+2211, for example) draws unmirrored.
+
+Behind a second test-only gate, the live single-pane frame draws its content
+grid in display order. Tab-bar and rail cells stay in logical order, and so
+does any row an overlay draws text over. The cursor stays on its logical cell
+and draws at that cell's visual column. The pointer over a screen column
+addresses the logical cell drawn there, so a drag selects logical cells,
+which can appear as separate segments on screen when the selection crosses
+a direction boundary. Selection and search highlights draw on the visual
+cells of their logical cells. Copy, search results, and cursor addressing
+stay logical. Split panes, mouse reports to applications, the input method
+editor, cursor effects, hyperlink hover, the frame cache key, resize, replay,
+and export are not yet mapped. Only the test suite reaches either gate: no setting,
+menu, or flag enables them, so on-screen display and behavior are unchanged.
 
 ### Complex Indic and Brahmic shaping
 

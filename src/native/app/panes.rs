@@ -712,6 +712,12 @@ impl App {
     /// single-pane rebuild's GPU hand-off but assembles one [`PaneRender`] per
     /// visible pane and calls [`GpuState::update_from_panes`].
     pub(super) fn rebuild_multipane(&mut self) {
+        // BIDI: the test-only display gate is single-pane only; never let a
+        // single-pane map outlive a switch to a split tab.
+        self.set_bidi_frame_map(None);
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.set_bidi_display(None);
+        }
         let Some((cell, padding, (surface_w, surface_h), cached_pane_ids)) =
             self.multipane_frame_inputs()
         else {

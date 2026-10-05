@@ -1838,6 +1838,7 @@ fn selection_test_vertices(
         None,
         crate::grid::ChromePin::NONE,
         selection_opacity,
+        None,
     );
     verts
 }
@@ -3229,6 +3230,7 @@ fn build_with_fade(snapshot: &Snapshot, atlas: &GlyphAtlas, fade: RowFade) -> Ve
         ChromePin::NONE,
         1.0,
         fade,
+        None,
     );
     out
 }
@@ -3260,6 +3262,7 @@ fn row_fade_inert_and_all_ones_are_byte_identical() {
         None,
         ChromePin::NONE,
         1.0,
+        None,
     );
     let inert = build_with_fade(&snapshot, &atlas, RowFade::NONE);
     assert_eq!(plain, inert, "RowFade::NONE is byte-identical");
@@ -3524,6 +3527,7 @@ fn colored_floor_vertices(
         None,
         pin,
         1.0,
+        None,
     );
     verts
 }
@@ -3670,6 +3674,7 @@ fn colored_bg_floor_exempts_chrome_selection_and_forced_opaque_cells() {
         }),
         crate::grid::ChromePin::NONE,
         1.0,
+        None,
     );
     assert!(
         (bg_alpha(&overlay_verts, 2) - 1.0).abs() < 1e-6,
@@ -3705,6 +3710,7 @@ fn brightness_vertices(
         ChromePin::NONE,
         1.0,
         fade,
+        None,
     );
     out
 }

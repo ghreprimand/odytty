@@ -67,6 +67,13 @@ pub(in crate::native) struct App {
     /// core revision: theme/default-color changes, atlas/font changes, and
     /// other settings that make identical snapshots build different vertices.
     pub(super) presentation_epoch: u64,
+    /// Test-only bidi display gate for the single-pane frame and pointer
+    /// (see `bidi_gate`). No setting or flag reaches it.
+    #[cfg(test)]
+    pub(super) bidi_display_for_test: bool,
+    /// The content map the last gated single-pane frame presented.
+    #[cfg(test)]
+    pub(super) bidi_frame_map: Option<crate::grid::BidiDisplayMap>,
     /// SH2 status-gutter invalidation epoch. Bumped when the core reports prompt
     /// marks changed while the status gutter is enabled, so a pure OSC 133
     /// status transition (which need not move the terminal render revision)
@@ -719,6 +726,10 @@ impl App {
             sessions,
             navigator_recently_closed: VecDeque::new(),
             presentation_epoch: 0,
+            #[cfg(test)]
+            bidi_display_for_test: false,
+            #[cfg(test)]
+            bidi_frame_map: None,
             prompt_marks_epoch: 0,
             grid,
             modifiers: Modifiers::default(),

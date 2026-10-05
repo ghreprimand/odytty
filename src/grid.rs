@@ -28,7 +28,7 @@ mod glyph_quads;
 mod model;
 
 pub use background::{BackgroundTreatment, BackgroundTreatmentParams, MAX_BG_TREATMENT_DARKEN};
-pub use bidi::BidiDisplayMap;
+pub use bidi::{BidiDisplayMap, BidiParagraphContext, max_bidi_context_rows};
 pub use clipping::VClip;
 pub(crate) use clipping::{
     clip_quads_to_rect, clip_quads_vertical, extend_first_row_bg_to_top, subtract_rects_from_quads,
@@ -816,6 +816,9 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
     selection_opacity: f32,
+    // BIDI: display-order placement; only test-only gates pass a map, and
+    // `None` is the unchanged logical-column path.
+    bidi: Option<&BidiDisplayMap>,
 ) {
     build_cells_core(
         out,
@@ -833,7 +836,7 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
         chrome_pin,
         selection_opacity,
         RowFade::NONE,
-        None,
+        bidi,
     );
 }
 
@@ -864,6 +867,9 @@ pub fn build_cell_vertices_with_ligatures_selection_and_row_fade_into(
     chrome_pin: ChromePin,
     selection_opacity: f32,
     row_fade: RowFade,
+    // BIDI: display-order placement; only test-only gates pass a map, and
+    // `None` is the unchanged logical-column path.
+    bidi: Option<&BidiDisplayMap>,
 ) {
     build_cells_core(
         out,
@@ -881,7 +887,7 @@ pub fn build_cell_vertices_with_ligatures_selection_and_row_fade_into(
         chrome_pin,
         selection_opacity,
         row_fade,
-        None,
+        bidi,
     );
 }
 
@@ -1465,6 +1471,7 @@ pub fn append_cursor_vertices(
         cursor_style,
         [0.0, 0.0],
         CursorRenderParams::default(),
+        None,
     );
 }
 
@@ -1475,6 +1482,30 @@ pub fn append_cursor_vertices_with_origin(
     cursor_style: CursorStyle,
     origin: [f32; 2],
     params: CursorRenderParams,
+) {
+    append_cursor_vertices_with_origin_and_bidi(
+        out,
+        snapshot,
+        atlas,
+        cursor_style,
+        origin,
+        params,
+        None,
+    );
+}
+
+/// [`append_cursor_vertices_with_origin`] under an optional bidi display map:
+/// the cursor stays on its logical cell and draws at that cell's visual
+/// column, with a mirrored cell's presentation glyph under a block cursor.
+/// Only test-only gates pass a map; `None` is the unchanged path.
+pub fn append_cursor_vertices_with_origin_and_bidi(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+    origin: [f32; 2],
+    params: CursorRenderParams,
+    bidi: Option<&BidiDisplayMap>,
 ) {
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
@@ -1487,6 +1518,7 @@ pub fn append_cursor_vertices_with_origin(
         cursor_style,
         origin,
         params,
+        bidi,
     );
 }
 
@@ -1572,6 +1604,7 @@ fn push_cursor(
     style: CursorStyle,
     origin: [f32; 2],
     params: CursorRenderParams,
+    bidi: Option<&BidiDisplayMap>,
 ) {
     if !snapshot.cursor_visible || params.follower_active {
         return;
@@ -1598,8 +1631,22 @@ fn push_cursor(
         std::mem::swap(&mut fg, &mut bg);
     }
 
+    // BIDI: the cursor addresses its logical cell and draws at that cell's
+    // visual column. `None` keeps the logical column.
+    let visual_col = bidi.map_or(col, |map| map.visual_column(row, col));
+    // A mirrored cell presents its mirror glyph, as in the content pass; a
+    // mirror missing from the atlas falls back to the stored character.
+    let glyph_ch = bidi
+        .and_then(|map| map.mirrored_char(row, col))
+        .filter(|&mirror| {
+            atlas
+                .glyph_quad_styled(font_style_for_attrs(&cell.attrs), mirror)
+                .is_some()
+        })
+        .unwrap_or(cell.ch);
+
     // VE4-slide: additive sub-cell shift. Default `[0.0, 0.0]` ⇒ identity.
-    let x0 = origin[0] + col as f32 * cell_w + params.offset[0];
+    let x0 = origin[0] + visual_col as f32 * cell_w + params.offset[0];
     let y0 = origin[1] + row as f32 * cell_h + params.offset[1];
 
     match style {
@@ -1646,7 +1693,7 @@ fn push_cursor(
             if !cell.attrs.hidden()
                 && cell_draws_base_glyph(cell.ch)
                 && let Some(bounds) =
-                    atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
+                    atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), glyph_ch)
             {
                 push_glyph_quad(out, x0, y0, bounds, glyph_color);
             }

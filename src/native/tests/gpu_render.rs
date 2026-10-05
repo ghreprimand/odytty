@@ -1194,6 +1194,7 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
         origin,
         &[],
         params,
+        None,
     );
 
     let mut cursor_only = Vec::new();
@@ -1205,6 +1206,7 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
         origin,
         &[],
         params,
+        None,
     );
 
     assert_eq!(&full[cell_vertices..], cursor_only.as_slice());
@@ -1270,6 +1272,7 @@ fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
         origin,
         &[],
         params,
+        None,
     );
 
     let mut cursor_only = Vec::new();
@@ -1281,6 +1284,7 @@ fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
         origin,
         &[],
         params,
+        None,
     );
 
     assert_eq!(&full[cell_vertices..], cursor_only.as_slice());
@@ -1334,6 +1338,7 @@ fn full_rebuild_cursor_layer_matches_cursor_only_when_unfocused() {
         origin,
         &[],
         params,
+        None,
     );
 
     let mut cursor_only = Vec::new();
@@ -1345,6 +1350,7 @@ fn full_rebuild_cursor_layer_matches_cursor_only_when_unfocused() {
         origin,
         &[],
         params,
+        None,
     );
 
     assert_eq!(&full[cell_vertices..], cursor_only.as_slice());

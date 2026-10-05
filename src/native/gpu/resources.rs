@@ -428,6 +428,10 @@ pub(in crate::native) struct GpuState {
     /// multi-pane path passes `RowFade::NONE` (parity with the prior overlay
     /// mechanism, which was single-pane only).
     pub(super) row_fade: Option<RowFadeSpec>,
+    /// BIDI: display-order placement for the single-pane cell and cursor
+    /// builds. Only the App's test-only gate supplies a map; every shipping
+    /// frame sets `None`, the unchanged logical-column path.
+    pub(super) bidi_display: Option<crate::grid::BidiDisplayMap>,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(in crate::native) atlas: GlyphAtlas,
@@ -1113,6 +1117,7 @@ impl GpuState {
             window_bg_alpha: 1.0,
             overlay_opaque_region: None,
             row_fade: None,
+            bidi_display: None,
             atlas,
             color_glyph_atlas,
             emoji_rasterizer,
@@ -1285,6 +1290,12 @@ impl GpuState {
     /// `RowFade::NONE` path). A cheap store — read on the next update.
     pub(in crate::native) fn set_row_fade(&mut self, fade: Option<RowFadeSpec>) {
         self.row_fade = fade;
+    }
+
+    /// BIDI: the display map the next single-pane builds draw under (see
+    /// [`Self::bidi_display`]); `None` on every shipping frame.
+    pub(in crate::native) fn set_bidi_display(&mut self, map: Option<crate::grid::BidiDisplayMap>) {
+        self.bidi_display = map;
     }
 
     /// TRANSPARENCY: whether the configured swapchain can present a transparent

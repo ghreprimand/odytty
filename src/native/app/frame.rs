@@ -429,6 +429,7 @@ impl App {
                     visible_buttons,
                     image_uploads,
                     ambiguous_wide,
+                    bidi_plan,
                 ) = {
                     // NF21-6: bell + prompt-marks latches are drained
                     // in the about-to-wait maintenance sweep (over the
@@ -478,6 +479,12 @@ impl App {
                     let image_uploads =
                         image_uploads_for_visible(&terminal, &visible_graphics, &cached_image_ids);
                     let snapshot = terminal.snapshot_with_scrollback(offset);
+                    // BIDI test-only gate: the content map plus the snapshot
+                    // it was planned from (overlay rows reset below). `None`
+                    // in every shipping build.
+                    let bidi_plan = self
+                        .bidi_content_map(&terminal, &snapshot, offset)
+                        .map(|map| (map, snapshot.clone()));
                     let cursor_style = terminal.cursor_style();
                     let cursor_blinking = terminal.cursor_blinking();
                     let terminal_revision = terminal.render_revision();
@@ -494,6 +501,7 @@ impl App {
                         visible_buttons,
                         image_uploads,
                         ambiguous_wide,
+                        bidi_plan,
                     )
                 };
                 let pane_dims_reconciled = {
@@ -682,6 +690,13 @@ impl App {
                     ],
                 );
                 let cursor_visible = snapshot.cursor_visible;
+                // BIDI test-only gate: overlay-painted rows draw in logical
+                // order; the pointer maps through the presented content map.
+                let bidi_content = bidi_plan.map(|(mut map, planned)| {
+                    map.reset_rows_changed_between(&planned, &snapshot);
+                    map
+                });
+                self.set_bidi_frame_map(bidi_content.clone());
                 let (snapshot, tab_bar_quads, cursor_comparison) =
                     self.prepare_single_pane_snapshots(snapshot, cursor_visible, cell);
                 overlays.extend(tab_bar_quads);
@@ -791,6 +806,16 @@ impl App {
                 let chrome_pin_geom = self.chrome_pin_geom(snapshot.dimensions.columns);
                 let tab_bar_row_offset = self.tab_bar_row_offset();
                 let tab_bar_col_offset = self.tab_bar_col_offset();
+                // BIDI test-only gate: chrome rows and columns stay in
+                // identity layout around the content map.
+                let bidi_frame = bidi_content.map(|map| {
+                    map.embedded(
+                        snapshot.dimensions.columns,
+                        snapshot.dimensions.rows,
+                        tab_bar_row_offset,
+                        tab_bar_col_offset,
+                    )
+                });
                 // F4-P1 unified tab panel + seam: background-segment quads
                 // behind the tab chrome. Empty when the bar is hidden /
                 // panel off / seam off, so the plain path is unchanged.
@@ -872,6 +897,7 @@ impl App {
                     gpu.set_window_bg_alpha(win_bg_alpha);
                     gpu.set_overlay_opaque_region(overlay_opaque_region);
                     gpu.set_row_fade(row_fade_spec);
+                    gpu.set_bidi_display(bidi_frame);
                     match update {
                         GeometryUpdate::Full => {
                             gpu.update_image_layer(

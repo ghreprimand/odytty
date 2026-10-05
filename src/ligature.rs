@@ -1673,6 +1673,7 @@ mod tests {
                                 None,
                                 ChromePin::NONE,
                                 opacity,
+                                None,
                             );
                             assert_eq!(
                                 glyph_geometry(&selected_vertices),

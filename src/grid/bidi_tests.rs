@@ -492,3 +492,328 @@ fn soft_wrapped_rows_resolve_as_one_paragraph() {
     assert_eq!(map.visual_column(1, 1), 0);
     assert_eq!(map.visual_column(1, 2), 2);
 }
+
+// ----- S3a: paragraph context, inverse map, embedding, cursor, selection -----
+
+/// One soft-wrapped paragraph over three 6-column rows. The paragraph level is
+/// left to right, so the rows above matter where neutrals resolve between
+/// strong characters across a row boundary: row 1 opens with " ." between
+/// gimel (row 0) and dalet, so those neutrals are right to left only when row
+/// 0 takes part in resolution.
+const PARAGRAPH: &str = "ab \u{05D0}\u{05D1}\u{05D2} .\u{05D3}\u{05D4}xyab \u{05D1}x";
+
+fn context_of(terminal: &Terminal) -> BidiParagraphContext {
+    let columns = terminal.snapshot().dimensions.columns;
+    let (rows, overflow) = terminal.paragraph_context_rows(0, max_bidi_context_rows(columns));
+    BidiParagraphContext {
+        rows: rows.into_iter().map(|row| row.cells).collect(),
+        overflow,
+    }
+}
+
+fn wrapped_flags(terminal: &Terminal) -> Vec<bool> {
+    terminal
+        .visible_search_rows(0)
+        .iter()
+        .map(|row| row.wrapped)
+        .collect()
+}
+
+#[test]
+fn paragraph_opening_in_scrollback_places_visible_rows_as_the_whole_paragraph() {
+    // Tall: all three rows visible. Short: the Hebrew row scrolled into
+    // history, so the visible rows start with Latin text.
+    let tall = terminal(PARAGRAPH, 6, 3);
+    let whole = display_map(&tall);
+    let short = terminal(PARAGRAPH, 6, 2);
+    let context = context_of(&short);
+    assert_eq!(context.rows.len(), 1, "row 0 opens the paragraph");
+    assert!(!context.overflow);
+    let with_context =
+        BidiDisplayMap::plan_with_context(&short.snapshot(), &wrapped_flags(&short), &context);
+    let without = display_map(&short);
+    for row in 0..2 {
+        for column in 0..6 {
+            assert_eq!(
+                with_context.visual_column(row, column),
+                whole.visual_column(row + 1, column),
+                "row {row} column {column}"
+            );
+            assert_eq!(
+                with_context.level(row, column),
+                whole.level(row + 1, column)
+            );
+        }
+    }
+    assert_ne!(
+        without, with_context,
+        "without row 0 the leading neutrals resolve left to right"
+    );
+}
+
+#[test]
+fn paragraph_context_stops_at_hard_breaks_and_the_alternate_screen() {
+    let hard = terminal("\u{05D0}\u{05D1}\r\nab cx\r\nxy", 6, 2);
+    assert_eq!(context_of(&hard), BidiParagraphContext::default());
+    let mut alt = terminal(PARAGRAPH, 6, 2);
+    alt.advance(b"\x1b[?1049h");
+    assert_eq!(context_of(&alt), BidiParagraphContext::default());
+    // The context is bounded by the requested row count.
+    let short = terminal(PARAGRAPH, 6, 2);
+    let (rows, overflow) = short.paragraph_context_rows(0, 0);
+    assert!(
+        rows.is_empty() && overflow,
+        "one wrapped row exceeds a zero cap"
+    );
+}
+
+#[test]
+fn context_overflow_keeps_only_the_first_paragraph_in_identity_layout() {
+    let terminal = terminal("ab \u{05D0}\u{05D1}\r\nab \u{05D0}\u{05D1}", 8, 2);
+    let snapshot = terminal.snapshot();
+    let overflow = BidiParagraphContext {
+        rows: Vec::new(),
+        overflow: true,
+    };
+    let map = BidiDisplayMap::plan_with_context(&snapshot, &wrapped_flags(&terminal), &overflow);
+    assert!(!map.row_is_reordered(0), "over-cap paragraph is identity");
+    assert!(map.row_is_reordered(1), "later paragraphs still plan");
+    assert!(max_bidi_context_rows(80) <= crate::core::MAX_BIDI_PARAGRAPH_ROWS);
+    assert!(max_bidi_context_rows(80) * 20 <= crate::core::MAX_BIDI_PARAGRAPH_OWNERS);
+}
+
+#[test]
+fn logical_column_inverts_visual_column_on_every_cell() {
+    for (text, cols, rows) in [
+        ("ab \u{05D0}\u{05D1} 12 \u{05D2}\u{05D3}.", 16, 1),
+        ("\u{754C}\u{05D0}\u{3001}\u{05D1}x", 10, 1),
+        ("\u{05D0}\u{05D1} (\u{05D2}\u{05D3}) \u{05D4}", 12, 1),
+        (PARAGRAPH, 6, 3),
+    ] {
+        let map = display_map(&terminal(text, cols, rows));
+        assert!(!map.is_identity(), "{text:?}");
+        for row in 0..rows {
+            let mut seen = vec![false; cols];
+            for column in 0..cols {
+                let visual = map.visual_column(row, column);
+                assert_eq!(map.logical_column(row, visual), column, "{text:?}");
+                assert!(!seen[visual], "{text:?}: visual columns are a permutation");
+                seen[visual] = true;
+            }
+        }
+    }
+}
+
+#[test]
+fn embedded_map_keeps_chrome_cells_in_identity_layout() {
+    let content = display_map(&terminal("ab \u{05D0}\u{05D1}", 6, 1));
+    let frame = content.embedded(9, 3, 1, 3);
+    for row in [0, 2] {
+        assert!(!frame.row_is_reordered(row));
+        for column in 0..9 {
+            assert_eq!(frame.visual_column(row, column), column);
+        }
+    }
+    for column in 0..3 {
+        assert_eq!(frame.visual_column(1, column), column, "rail columns");
+    }
+    for column in 0..6 {
+        assert_eq!(
+            frame.visual_column(1, column + 3),
+            content.visual_column(0, column) + 3
+        );
+        assert_eq!(
+            frame.logical_column(1, column + 3),
+            content.logical_column(0, column) + 3
+        );
+    }
+    assert!(frame.row_is_reordered(1));
+    // A content grid that does not fit yields the identity frame.
+    assert!(content.embedded(5, 1, 0, 0).is_identity());
+}
+
+#[test]
+fn overlay_painted_rows_reset_to_identity() {
+    let terminal = terminal("ab \u{05D0}\u{05D1}\r\nab \u{05D0}\u{05D1}", 8, 2);
+    let planned = terminal.snapshot();
+    let mut map = display_map(&terminal);
+    let mut painted = planned.clone();
+    painted.cells[8].ch = 'M';
+    map.reset_rows_changed_between(&planned, &painted);
+    assert!(
+        !map.row_is_reordered(1),
+        "the painted row reads in logical order"
+    );
+    assert!(
+        map.row_is_reordered(0),
+        "untouched rows keep their placement"
+    );
+}
+
+#[test]
+fn production_entry_with_a_map_matches_the_seam_and_none_matches_production() {
+    let (mut atlas, fonts) = setup();
+    let terminal = terminal("ab \u{05D0}\u{05D1} (\u{05D2}\u{05D3}) 12", 16, 1);
+    let snapshot = terminal.snapshot();
+    let map = display_map(&terminal);
+    let runs = LigatureShaper::new().build_runs_bidi(&snapshot, &fonts, &[], &map);
+    ensure_runs(&mut atlas, &fonts, &runs);
+    let mut seam = Vec::new();
+    build_cell_vertices_with_bidi_into(&mut seam, &snapshot, &atlas, &[], &runs, &map);
+    let live = |bidi: Option<&BidiDisplayMap>| {
+        let mut out = Vec::new();
+        build_cell_vertices_with_ligatures_selection_and_row_fade_into(
+            &mut out,
+            &snapshot,
+            &atlas,
+            &[],
+            &runs,
+            0.0,
+            [0.0, 0.0],
+            BackgroundTreatmentParams::default(),
+            1.0,
+            1.0,
+            1.0,
+            None,
+            ChromePin::NONE,
+            1.0,
+            RowFade::NONE,
+            bidi,
+        );
+        out
+    };
+    assert_eq!(live(Some(&map)), seam);
+    let mut production = Vec::new();
+    build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+        &mut production,
+        &snapshot,
+        &atlas,
+        &[],
+        &runs,
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        1.0,
+        1.0,
+        None,
+        ChromePin::NONE,
+    );
+    assert_eq!(live(None), production);
+}
+
+fn cursor_vertices(
+    text: &str,
+    cols: usize,
+    cursor_column: usize,
+    style: CursorStyle,
+    focused: bool,
+    bidi: bool,
+) -> Vec<Vertex> {
+    let (atlas, _) = setup();
+    let mut terminal = Terminal::new(cols, 1);
+    terminal.advance(text.as_bytes());
+    terminal.advance(format!("\x1b[1;{}H", cursor_column + 1).as_bytes());
+    let snapshot = terminal.snapshot();
+    let map = display_map(&terminal);
+    let params = CursorRenderParams {
+        focused,
+        ..CursorRenderParams::default()
+    };
+    let mut out = Vec::new();
+    append_cursor_vertices_with_origin_and_bidi(
+        &mut out,
+        &snapshot,
+        &atlas,
+        style,
+        [0.0, 0.0],
+        params,
+        bidi.then_some(&map),
+    );
+    out
+}
+
+#[test]
+fn cursor_draws_its_logical_cell_at_the_visual_column() {
+    // Logical "ab אב (גד)": the cursor on alef (column 3) draws where the
+    // visual-order string holds alef, and a cursor on "(" (column 6) shows
+    // the mirrored glyph the content pass draws there.
+    let logical = "ab \u{05D0}\u{05D1} (\u{05D2}\u{05D3})";
+    let visual = "ab (\u{05D3}\u{05D2}) \u{05D1}\u{05D0}";
+    let map = display_map(&terminal(logical, 12, 1));
+    for (column, style, focused) in [
+        (3, CursorStyle::Block, true),
+        (3, CursorStyle::Block, false),
+        (6, CursorStyle::Block, true),
+        (4, CursorStyle::Underline, true),
+        (9, CursorStyle::Bar, true),
+        (11, CursorStyle::Block, true),
+    ] {
+        let visual_column = map.visual_column(0, column);
+        assert_eq!(
+            cursor_vertices(logical, 12, column, style, focused, true),
+            cursor_vertices(visual, 12, visual_column, style, focused, false),
+            "cursor at logical {column} ({style:?}) draws at visual {visual_column}"
+        );
+    }
+    // Without a map the cursor stays at its logical column.
+    assert_eq!(
+        cursor_vertices(logical, 12, 3, CursorStyle::Block, true, false),
+        cursor_vertices(logical, 12, 3, CursorStyle::Block, true, false)
+    );
+    assert_ne!(
+        cursor_vertices(logical, 12, 3, CursorStyle::Block, true, true),
+        cursor_vertices(logical, 12, 3, CursorStyle::Block, true, false)
+    );
+}
+
+#[test]
+fn logical_selection_highlights_the_visual_cells_of_its_logical_cells() {
+    use crate::selection::{CellPoint, SelectionRange, apply_highlight, selected_text};
+    let text = "ab \u{05D0}\u{05D1}\u{05D2} xy";
+    let (atlas, _) = setup();
+    let terminal = terminal(text, 12, 1);
+    let map = display_map(&terminal);
+    // Logical columns 1..=4: "b", space, alef, bet.
+    let range = SelectionRange {
+        start: CellPoint { row: 0, column: 1 },
+        end: CellPoint { row: 0, column: 4 },
+    };
+    let render = |selected: bool| {
+        let mut snapshot = terminal.snapshot();
+        if selected {
+            apply_highlight(&mut snapshot, range, None);
+        }
+        let mut verts = Vec::new();
+        build_cell_vertices_with_bidi_into(&mut verts, &snapshot, &atlas, &[], &[], &map);
+        composite(&snapshot, &atlas, &verts)
+    };
+    let (plain, highlighted) = (render(false), render(true));
+    let changed: Vec<usize> = (0..12)
+        .filter(|&visual| {
+            plain.block(0, visual..visual + 1) != highlighted.block(0, visual..visual + 1)
+        })
+        .collect();
+    let mut expected: Vec<usize> = (1..=4).map(|column| map.visual_column(0, column)).collect();
+    expected.sort_unstable();
+    assert_eq!(changed, expected, "highlight follows the logical cells");
+    assert_ne!(
+        expected,
+        (expected[0]..expected[0] + 4).collect::<Vec<_>>(),
+        "the selection is split on screen across the direction boundary"
+    );
+    // Copy stays logical.
+    assert_eq!(
+        selected_text(&terminal.snapshot(), range),
+        "b \u{05D0}\u{05D1}"
+    );
+}
+
+#[test]
+fn search_reports_logical_columns_on_reordered_rows() {
+    use crate::core::SearchOptions;
+    let terminal = terminal("ab \u{05D0}\u{05D1}\u{05D2} xy", 12, 1);
+    let hits = terminal.search("\u{05D1}\u{05D2} x", SearchOptions::default());
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].start.column, hits[0].end.column), (4, 7));
+    assert!(display_map(&terminal).row_is_reordered(0));
+}

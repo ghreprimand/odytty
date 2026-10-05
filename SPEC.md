@@ -2305,7 +2305,7 @@ OdyTTY is a Linux-first Rust application built around these primary crates:
 | `ab_glyph_rasterizer` | Coverage rasterization of normal-text outlines |
 | `swash` | Emoji discovery, shaping, and color-font probing |
 | `unicode-width` | Terminal cell widths |
-| `unicode-bidi` | UAX #9 levels for the headless bidi display plan, which only a test-only rendering seam uses; built without its bundled Unicode 16.0.0 tables |
+| `unicode-bidi` | UAX #9 levels for the headless bidi display plan, which only test-only rendering gates use; built without its bundled Unicode 16.0.0 tables |
 | `arboard` | Clipboard integration |
 | `rustix` | Unix PTY and termios access |
 | `png` | PNG decoding for Kitty `f=100` |

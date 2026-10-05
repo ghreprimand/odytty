@@ -103,6 +103,7 @@ pub(super) fn background_vertex_count(snapshot: &Snapshot) -> u32 {
 /// Append the overlays and live cursor parameters shared by Full and
 /// CursorOnly rebuilds. Keeping this layer in one builder prevents the two GPU
 /// paths from diverging when cursor animation parameters change.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::native) fn append_cursor_layer_vertices(
     out: &mut Vec<Vertex>,
     snapshot: &Snapshot,
@@ -111,12 +112,21 @@ pub(in crate::native) fn append_cursor_layer_vertices(
     origin: [f32; 2],
     overlays: &[SolidQuad],
     params: CursorRenderParams,
+    bidi: Option<&grid::BidiDisplayMap>,
 ) {
     out.reserve(overlays.len() * grid::INSTANCES_PER_QUAD);
     for &overlay in overlays {
         grid::push_solid_quad(out, overlay);
     }
-    grid::append_cursor_vertices_with_origin(out, snapshot, atlas, cursor_style, origin, params);
+    grid::append_cursor_vertices_with_origin_and_bidi(
+        out,
+        snapshot,
+        atlas,
+        cursor_style,
+        origin,
+        params,
+        bidi,
+    );
 }
 
 /// PANE-SUBCELL-CLIP: the number of background quads the snapshot's FIRST row
@@ -596,6 +606,7 @@ impl GpuState {
                 // SELECTION-OPACITY: this pane's selected cells draw at the
                 // independent selection strength (`1.0` = fully opaque default).
                 self.selection_build_opacity(),
+                None,
             );
             let bg = background_vertex_count(pane.snapshot).min(pane_buf.len() as u32) as usize;
             // PANE-SUBCELL-CLIP: when this pane is mid sub-cell glide, its origin
@@ -1016,6 +1027,7 @@ impl GpuState {
             // VE4 new-output fade: freshly arrived rows ramp their text ink in;
             // `RowFade::NONE` (off / settled) is the byte-identical plain path.
             row_fade_view(row_fade_spec.as_ref()),
+            self.bidi_display.as_ref(),
         );
         self.color_glyph_runs = color_glyph_runs;
         let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);
@@ -1095,6 +1107,7 @@ impl GpuState {
             cursor_origin,
             overlays,
             cursor_params,
+            self.bidi_display.as_ref(),
         );
         self.rebuild_cursor_glow(
             snapshot,
@@ -1333,6 +1346,7 @@ impl GpuState {
             origin,
             overlays,
             params,
+            self.bidi_display.as_ref(),
         );
         self.rebuild_cursor_glow(
             snapshot,

@@ -430,6 +430,17 @@ impl Terminal {
         self.screen.visible_search_rows(offset_rows)
     }
 
+    /// The soft-wrapped rows above the viewport at `offset_rows` that open its
+    /// top paragraph, and whether that paragraph reaches past `max_rows`; see
+    /// [`Screen::paragraph_context_rows`].
+    pub fn paragraph_context_rows(
+        &self,
+        offset_rows: usize,
+        max_rows: usize,
+    ) -> (Vec<VisibleRow>, bool) {
+        self.screen.paragraph_context_rows(offset_rows, max_rows)
+    }
+
     /// Apply a decoded Phase 2 snapshot envelope into this terminal model.
     ///
     /// The parser is reset because the snapshot format stores terminal state,

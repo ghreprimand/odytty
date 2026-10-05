@@ -92,6 +92,7 @@ mod automation;
 mod automation_host;
 mod background_ui;
 mod bell;
+mod bidi_gate;
 pub(in crate::native) mod button_chip;
 mod chrome_geometry;
 mod chrome_present;

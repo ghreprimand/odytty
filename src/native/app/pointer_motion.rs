@@ -525,9 +525,13 @@ impl App {
         // no terminal cell and must not clamp into the backing 1x1 PTY grid.
         // Single-pane keeps the established window-origin mapping exactly.
         let point = if self.sessions.active_is_single_pane() {
-            Some(selection::cell_at_physical_with_padding(
-                x_px, y_px, cell, self.grid, padding,
-            ))
+            // BIDI: the logical cell drawn under the pointer; identity outside
+            // the test-only display gate.
+            Some(
+                self.bidi_logical_point(selection::cell_at_physical_with_padding(
+                    x_px, y_px, cell, self.grid, padding,
+                )),
+            )
         } else {
             self.active_pane_pointer_cell()
         };

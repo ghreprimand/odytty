@@ -1112,4 +1112,50 @@ impl Screen {
             })
             .collect()
     }
+
+    /// The soft-wrapped physical rows directly above the visible viewport at
+    /// scrollback `offset_rows` that open the paragraph its top row belongs
+    /// to, top to bottom, plus whether that paragraph reaches further up than
+    /// `max_rows`. Empty when the row above the viewport ends with a hard line
+    /// break, there is no row above, or the live alternate screen is shown. Bounded: at most `max_rows + 1` rows
+    /// above the viewport are projected. Pure; never panics.
+    pub fn paragraph_context_rows(
+        &self,
+        offset_rows: usize,
+        max_rows: usize,
+    ) -> (Vec<VisibleRow>, bool) {
+        let columns = self.dimensions.columns;
+        let scrollback_len = self.scrollback.physical_len(columns);
+        let offset = offset_rows.min(scrollback_len);
+        // Rows above the viewport are the scrollback rows before the window
+        // start, `scrollback_len - offset`.
+        // The live alternate screen has no rows above it: its top row never
+        // continues stored primary history.
+        let above = if offset == 0 && self.primary_screen.is_some() {
+            0
+        } else {
+            scrollback_len - offset
+        };
+        let wanted = above.min(max_rows.saturating_add(1));
+        if wanted == 0 {
+            return (Vec::new(), false);
+        }
+        let mut tail = self.scrollback.physical_tail(columns, offset + wanted);
+        tail.truncate(tail.len().saturating_sub(offset));
+        let continuing = tail.iter().rev().take_while(|line| line.wrapped).count();
+        let overflow = continuing > max_rows;
+        let start = tail.len() - continuing.min(max_rows);
+        let rows = if overflow {
+            Vec::new()
+        } else {
+            tail[start..]
+                .iter()
+                .map(|line| VisibleRow {
+                    cells: line.cells.clone(),
+                    wrapped: line.wrapped,
+                })
+                .collect()
+        };
+        (rows, overflow)
+    }
 }
