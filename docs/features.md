@@ -368,8 +368,9 @@ Right-to-Left Text** toggle, or `ODYTTY_BIDI_REORDER=on`) draws right-to-left
 runs such as Hebrew and Arabic in display order on the primary screen, with a
 left-to-right paragraph level. It is off by default and applies live; the menu
 toggle affects the running window, and Save in Settings persists it. Arabic
-joining runs are then shaped right to left, and mirrored brackets draw their
-mirrored glyphs. Cells, cursor addressing and movement, selection, copy,
+joining runs are then shaped right to left, programming ligatures form only
+within one direction (a `->` inside right-to-left text draws as separate,
+mirrored characters), and mirrored brackets draw their mirrored glyphs. Cells, cursor addressing and movement, selection, copy,
 search, scrollback export, and mouse reports stay logical: a selection that
 crosses a direction boundary can show as separate segments on screen, and
 copy returns the logical text. The pointer, hyperlink hover, and cursor

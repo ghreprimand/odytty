@@ -510,7 +510,7 @@ impl GpuState {
             let runs = self
                 .emoji_rasterizer
                 .build_color_glyph_runs(pane.snapshot, &mut self.color_glyph_atlas);
-            let mut ligature_runs = self.build_ligature_runs(pane.snapshot, &runs);
+            let mut ligature_runs = self.build_ligature_runs(pane.snapshot, &runs, pane.bidi);
             ensure_snapshot_glyphs_excluding_color_runs(
                 &mut self.atlas,
                 &self.fonts,
@@ -974,7 +974,11 @@ impl GpuState {
             &mut self.color_glyph_atlas,
             &mut color_glyph_runs,
         );
-        let mut ligature_runs = self.build_ligature_runs(snapshot, &color_glyph_runs);
+        // BIDI: shaping follows the same display map the cell build draws with.
+        let bidi = self.bidi_display.take();
+        let mut ligature_runs =
+            self.build_ligature_runs(snapshot, &color_glyph_runs, bidi.as_ref());
+        self.bidi_display = bidi;
         ensure_snapshot_glyphs_excluding_color_runs(
             &mut self.atlas,
             &self.fonts,
@@ -1149,8 +1153,11 @@ impl GpuState {
         &mut self,
         snapshot: &Snapshot,
         color_runs: &[ColorGlyphRun],
+        bidi: Option<&grid::BidiDisplayMap>,
     ) -> Vec<LigatureRun> {
-        self.ligature_shaper.build_runs_with_features(
+        // BIDI: a reordered row shapes per level run, matching the display
+        // map the cell build places it with; logical-order rows are unchanged.
+        self.ligature_shaper.build_runs_with_features_and_bidi(
             self.ligatures_enabled,
             snapshot,
             &self.fonts,
@@ -1160,6 +1167,7 @@ impl GpuState {
                 ss02: self.ligature_ss02,
                 zero: self.font_zero,
             },
+            bidi,
         )
     }
 

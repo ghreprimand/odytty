@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Pixel fixtures for the test-only bidi rendering seam.
+//! Pixel fixtures for bidi display-order rendering.
 //!
 //! Every frame is composited on the CPU from the real vertex builder and the
 //! real atlas, with the synthetic `tests/fixtures/fonts/bidi-mixed.ttf` face
@@ -170,7 +170,7 @@ fn production_frame(text: &str, cols: usize, rows: usize) -> Frame {
     production_frame_with(text, cols, rows, true)
 }
 
-/// The test-only seam: display order, directional ligature runs.
+/// Display order with the frame's directional ligature runs.
 fn bidi_frame(text: &str, cols: usize, rows: usize) -> (Frame, Vec<Vertex>, BidiDisplayMap) {
     let (mut atlas, fonts) = setup();
     let terminal = terminal(text, cols, rows);
@@ -647,6 +647,51 @@ fn overlay_painted_rows_reset_to_identity() {
     assert!(
         map.row_is_reordered(0),
         "untouched rows keep their placement"
+    );
+}
+
+#[test]
+fn frame_shaping_under_a_map_follows_levels_and_never_reuses_a_logical_plan() {
+    // The frame's shaper is long-lived: the same row is shaped first with
+    // reordering off, then on. The arrow ligature forms in logical order but
+    // must not survive into the reordered row, where it sits at level 1.
+    let (mut atlas, fonts) = setup();
+    let logical = "\u{05D0}->\u{05D1}";
+    let terminal = terminal(logical, 8, 1);
+    let snapshot = terminal.snapshot();
+    let map = display_map(&terminal);
+    assert!(map.row_is_reordered(0));
+    let mut shaper = LigatureShaper::new();
+    let frame_runs = |shaper: &mut LigatureShaper, bidi: Option<&BidiDisplayMap>| {
+        shaper.build_runs_with_features_and_bidi(
+            true,
+            &snapshot,
+            &fonts,
+            &[],
+            crate::ligature::LatinShapingFeatures::default(),
+            bidi,
+        )
+    };
+    let off = frame_runs(&mut shaper, None);
+    assert!(
+        off.iter().any(|run| (run.start, run.end) == (1, 3)),
+        "the arrow ligature forms in logical order: {off:?}"
+    );
+    let on = frame_runs(&mut shaper, Some(&map));
+    assert!(
+        on.is_empty(),
+        "no ligature inside right-to-left text: {on:?}"
+    );
+    assert_eq!(shaper.cached_rows(), 2, "one plan per level vector");
+    // Off again reuses the logical plan unchanged.
+    assert_eq!(frame_runs(&mut shaper, None), off);
+    assert_eq!(shaper.shape_calls(), 2);
+    ensure_runs(&mut atlas, &fonts, &on);
+    let mut verts = Vec::new();
+    build_cell_vertices_with_bidi_into(&mut verts, &snapshot, &atlas, &[], &on, &map);
+    assert!(
+        composite(&snapshot, &atlas, &verts) == production_frame("\u{05D1}<-\u{05D0}", 8, 1),
+        "the frame draws mirrored scalars in display order"
     );
 }
 

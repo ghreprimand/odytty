@@ -46,7 +46,9 @@
 //! right / left joining letters plus tatweel). Default plain-ASCII rendering
 //! stays byte-identical; allowlisted scalars and Arabic letters only join
 //! compatible runs when present. Arabic runs are shaped with `Script::Arabic`
-//! in **logical LTR cell order** - joining forms only, not bidi reordering.
+//! in **logical LTR cell order** - joining forms only. On a row the
+//! `bidi_reorder` display map reorders, runs split at every level change and
+//! shape per level run (see the `bidi` submodule).
 //! Latin/operator runs enable OpenType `calt` and `liga` together; optional
 //! stylistic sets `ss01` and `ss02` are off by default and gated by
 //! [`LatinShapingFeatures`]. Open-ended `ssXX` beyond those two tags is out of
@@ -64,14 +66,13 @@ use swash::shape::{Direction, ShapeContext};
 use swash::text::{Codepoint as _, JoiningType, Script};
 use swash::{FontRef, GlyphId};
 
-#[cfg(test)]
 mod bidi;
 #[cfg(test)]
 mod zero_tests;
 
 use crate::atlas::{FontStyle, ShapedGlyphKey};
 use crate::core::{Cell, Snapshot};
-use crate::grid::{ColorGlyphRun, ColorRunCoverage, font_style_for_attrs};
+use crate::grid::{BidiDisplayMap, ColorGlyphRun, ColorRunCoverage, font_style_for_attrs};
 
 /// Maximum number of exact row plans retained by the live renderer.
 pub const LIGATURE_ROW_CACHE_CAPACITY: usize = 512;
@@ -244,11 +245,21 @@ struct RelativeRun {
 struct RowKey {
     cells: Vec<Cell>,
     color_glyphs: Vec<bool>,
+    /// Resolved bidi level of every cell on a reordered row; empty for a row
+    /// drawn in logical order. Level runs decide shaping segments, so a row
+    /// shaped under one level vector never serves another.
+    levels: Vec<u8>,
 }
 
 impl RowKey {
-    fn matches(&self, cells: &[Cell], row: usize, coverage: &ColorRunCoverage) -> bool {
-        if self.cells != cells {
+    fn matches(
+        &self,
+        cells: &[Cell],
+        row: usize,
+        coverage: &ColorRunCoverage,
+        levels: &[u8],
+    ) -> bool {
+        if self.cells != cells || self.levels != levels {
             return false;
         }
         if coverage.is_empty() {
@@ -364,6 +375,31 @@ impl LigatureShaper {
         color_runs: &[ColorGlyphRun],
         latin_features: LatinShapingFeatures,
     ) -> Vec<LigatureRun> {
+        self.build_runs_with_features_and_bidi(
+            enabled,
+            snapshot,
+            fonts,
+            color_runs,
+            latin_features,
+            None,
+        )
+    }
+
+    /// [`Self::build_runs_with_features`] under an optional bidi display map.
+    ///
+    /// Rows the map leaves in logical order shape exactly as without a map.
+    /// A reordered row splits each compatible run at every level change and
+    /// shapes each level run in its own direction (see the `bidi` module).
+    /// Plans for reordered rows are cached under their level vector.
+    pub fn build_runs_with_features_and_bidi<F: LigatureFonts>(
+        &mut self,
+        enabled: bool,
+        snapshot: &Snapshot,
+        fonts: &F,
+        color_runs: &[ColorGlyphRun],
+        latin_features: LatinShapingFeatures,
+        bidi: Option<&BidiDisplayMap>,
+    ) -> Vec<LigatureRun> {
         if !enabled {
             return Vec::new();
         }
@@ -378,18 +414,19 @@ impl LigatureShaper {
         let coverage = ColorRunCoverage::new(color_runs, cols, snapshot.dimensions.rows);
         let mut output = Vec::new();
         for (row, cells) in snapshot.cells.chunks(cols).enumerate() {
-            let fingerprint = row_fingerprint(cells, row, &coverage);
+            let levels = bidi::row_levels(bidi, row, cells.len());
+            let fingerprint = row_fingerprint(cells, row, &coverage, &levels);
             let cached = self.entries.get(&fingerprint).and_then(|bucket| {
                 bucket
                     .iter()
-                    .find(|(key, _)| key.matches(cells, row, &coverage))
+                    .find(|(key, _)| key.matches(cells, row, &coverage, &levels))
                     .map(|(_, plan)| Arc::clone(plan))
             });
             let plan = if let Some(plan) = cached {
                 plan
             } else {
                 self.shape_calls += 1;
-                let plan = Arc::new(self.shape_row(cells, fonts, row, &coverage));
+                let plan = Arc::new(self.shape_row(cells, fonts, row, &coverage, &levels));
                 if self.entry_count == LIGATURE_ROW_CACHE_CAPACITY
                     && let Some((oldest_fingerprint, oldest_key)) = self.fifo.pop_front()
                 {
@@ -416,6 +453,7 @@ impl LigatureShaper {
                             .map(|(column, _)| coverage.covers(row, column))
                             .collect()
                     },
+                    levels,
                 });
                 self.fifo.push_back((fingerprint, Arc::clone(&key)));
                 self.entries
@@ -441,7 +479,11 @@ impl LigatureShaper {
         fonts: &F,
         row: usize,
         coverage: &ColorRunCoverage,
+        levels: &[u8],
     ) -> RowPlan {
+        if !levels.is_empty() {
+            return self.shape_row_levels(cells, fonts, row, coverage, levels);
+        }
         let mut runs = Vec::new();
         for (start, end, style) in compatible_run_bounds(cells, row, coverage) {
             if end - start < 2 {
@@ -670,7 +712,7 @@ fn font_style_index(style: FontStyle) -> usize {
     }
 }
 
-fn row_fingerprint(cells: &[Cell], row: usize, coverage: &ColorRunCoverage) -> u64 {
+fn row_fingerprint(cells: &[Cell], row: usize, coverage: &ColorRunCoverage, levels: &[u8]) -> u64 {
     // Candidate lookup only. `RowKey::matches` exactly verifies every cell and
     // color-glyph bit before accepting a cached plan, so collisions can cost a
     // bucket scan but can never reuse incorrect presentation data.
@@ -690,6 +732,11 @@ fn row_fingerprint(cells: &[Cell], row: usize, coverage: &ColorRunCoverage) -> u
             fingerprint ^= value;
             fingerprint = fingerprint.wrapping_mul(0x0000_0100_0000_01b3);
         }
+    }
+    // Logical-order rows carry no levels, so their fingerprint is unchanged.
+    for &level in levels {
+        fingerprint ^= u64::from(level) | (1 << 40);
+        fingerprint = fingerprint.wrapping_mul(0x0000_0100_0000_01b3);
     }
     fingerprint
 }
