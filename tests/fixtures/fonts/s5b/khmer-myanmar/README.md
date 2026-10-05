@@ -23,13 +23,13 @@ The generator verifies each source hash, runs the exact subsetting commands belo
 - Source member: `NotoSansKhmer/hinted/ttf/NotoSansKhmer-Regular.ttf`
 - Source face SHA256: `e66675f2082788f0511a714bef5a1748928294b38c8e286a96ea73a864b5e605`
 - License: Khmer-OFL.txt
-- Subset SHA256: `3ca39c77bdaa1ae67f5d9e008f1a8cfe934b3e7f26e92d6ad169957961a56345`
-- Glyphs: 17; references: 8; units per em: 1000.
+- Subset SHA256: `08344151046297cfd2c8c16720bb1181181825296cfccb437fc85e7a5ea0ec93`
+- Glyphs: 18; references: 9; units per em: 1000.
 
 Subsetting stage, followed by the generator name-table rename:
 
 ```sh
-pyftsubset source/NotoSansKhmer-Regular.ttf --unicodes=U+0020,U+1780,U+179A,U+17B6,U+17BE,U+17C1,U+17D2,U+200C,U+200D '--layout-features=*' --no-hinting --no-glyph-names --no-recalc-timestamp '--name-IDs=*' '--name-languages=*' --output-file=khmer-myanmar/Khmer-subset.ttf
+pyftsubset source/NotoSansKhmer-Regular.ttf --unicodes=U+0020,U+1780,U+179A,U+17B6,U+17BE,U+17C1,U+17D2,U+200C,U+200D,U+25CC --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=khmer-myanmar/Khmer-subset.ttf
 ```
 
 ## Myanmar-subset.ttf
@@ -40,10 +40,14 @@ pyftsubset source/NotoSansKhmer-Regular.ttf --unicodes=U+0020,U+1780,U+179A,U+17
 - Source face SHA256: `fafce4db400bc0b214907ccdbfb0ad2f18a57bfefd08c8a571830b84088cf2fc`
 - License: Myanmar-OFL.txt
 - Subset SHA256: `37ea46c5f90d3d6c5968b5b62af8458727e82c634d8947f3fda02f10be9444ca`
-- Glyphs: 34; references: 9; units per em: 1000.
+- Glyphs: 34; references: 10; units per em: 1000.
 
 Subsetting stage, followed by the generator name-table rename:
 
 ```sh
-pyftsubset source/NotoSansMyanmar-Regular.ttf --unicodes=U+0020,U+1000,U+1004,U+102B,U+102C,U+102D,U+1031,U+1039,U+103A,U+103C,U+200C,U+200D '--layout-features=*' --no-hinting --no-glyph-names --no-recalc-timestamp '--name-IDs=*' '--name-languages=*' --output-file=khmer-myanmar/Myanmar-subset.ttf
+pyftsubset source/NotoSansMyanmar-Regular.ttf --unicodes=U+0020,U+1000,U+1004,U+102B,U+102C,U+102D,U+1031,U+1039,U+103A,U+103C,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=khmer-myanmar/Myanmar-subset.ttf
 ```
+
+## Stray-mark coverage
+
+Khmer retains U+25CC so the lone U+17C1 reference inserts a dotted circle. Myanmar deliberately omits U+25CC so the lone U+1031 reference remains one glyph. The upstream Myanmar face maps U+25CC; for only the no-circle reference, the generator compares with a temporary source copy with that cmap mapping removed. All existing rows and the Khmer stray-mark row compare with the untouched source face. Glyph renumbering preserves existing glyph outlines, advances, offsets and UTF-8 clusters.

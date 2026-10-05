@@ -19,6 +19,9 @@ use crate::grid::{
 };
 use crate::selection::{CellPoint, SelectionRange, selected_text};
 
+mod fallback_chain;
+mod khmer_myanmar;
+
 const PX: f32 = 28.0;
 const FACES: &[(&str, &[u8])] = &[
     (
@@ -94,6 +97,36 @@ const GROUPS: &[Group] = &[
             "pre-base-matra",
             "split-vowel",
             "below-base-i",
+        ],
+    },
+    Group {
+        name: "khmer-myanmar",
+        reference: include_str!("../../tests/fixtures/fonts/s5b/khmer-myanmar/reference.tsv"),
+        faces: &[
+            (
+                "Khmer-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/khmer-myanmar/Khmer-subset.ttf"),
+            ),
+            (
+                "Myanmar-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/khmer-myanmar/Myanmar-subset.ttf"),
+            ),
+        ],
+        count: 19,
+        known_diffs: &[],
+        // The two ZWNJ rows split into two owners.
+        owner_floor: 17,
+        changed_notes: &[
+            "coeng-stack",
+            "below-base-ro",
+            "coeng-pre-base",
+            "split-vowel",
+            "stacker",
+            "pre-base-vowel",
+            "medial-ra",
+            "kinzi",
+            "stray-mark-dotted-circle",
+            "stray-mark-no-circle",
         ],
     },
 ];
@@ -291,7 +324,6 @@ fn classifier_enables_exactly_the_enabled_groups() {
         '\u{1F600}',
         '\u{2500}',
         '\u{0D9A}',
-        '\u{1780}',
         '\u{0E01}',
         '\u{11103}',
     ] {

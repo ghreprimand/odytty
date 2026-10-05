@@ -4,11 +4,11 @@
   "faces": [
     {
       "font": "Khmer-subset.ttf",
-      "subset_sha256": "3ca39c77bdaa1ae67f5d9e008f1a8cfe934b3e7f26e92d6ad169957961a56345",
-      "subset_bytes": 4824,
-      "glyph_count": 17,
+      "subset_sha256": "08344151046297cfd2c8c16720bb1181181825296cfccb437fc85e7a5ea0ec93",
+      "subset_bytes": 5324,
+      "glyph_count": 18,
       "units_per_em": 1000,
-      "reference_rows": 8,
+      "reference_rows": 9,
       "unicode_repertoire": [
         "U+0020",
         "U+1780",
@@ -18,9 +18,10 @@
         "U+17C1",
         "U+17D2",
         "U+200C",
-        "U+200D"
+        "U+200D",
+        "U+25CC"
       ],
-      "subset_command": "pyftsubset source/NotoSansKhmer-Regular.ttf --unicodes=U+0020,U+1780,U+179A,U+17B6,U+17BE,U+17C1,U+17D2,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=khmer-myanmar/Khmer-subset.ttf"
+      "subset_command": "pyftsubset source/NotoSansKhmer-Regular.ttf --unicodes=U+0020,U+1780,U+179A,U+17B6,U+17BE,U+17C1,U+17D2,U+200C,U+200D,U+25CC --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=khmer-myanmar/Khmer-subset.ttf"
     },
     {
       "font": "Myanmar-subset.ttf",
@@ -28,7 +29,7 @@
       "subset_bytes": 6992,
       "glyph_count": 34,
       "units_per_em": 1000,
-      "reference_rows": 9,
+      "reference_rows": 10,
       "unicode_repertoire": [
         "U+0020",
         "U+1000",

@@ -2394,7 +2394,7 @@ bold-italic by composing both. Real faces always take precedence; synthesis
 activates only for genuinely absent slots. The ordinary path remains one base
 glyph, plus any resident combining marks, rasterized into its cell or two-cell
 slot. Default programming
-ligatures and northern and southern Indic owner shaping use the bounded, cell-preserving
+ligatures and complex-script owner shaping use the bounded, cell-preserving
 designs recorded below; complex-text shaping beyond them remains outside this
 terminal-grid model.
 
@@ -2496,7 +2496,7 @@ including independent vowels. ZWJ preserves the virama link; ZWNJ prevents the n
 Gurmukhi, Tamil, Sinhala, Chakma, and Grantha terminal width units can cross an extended-grapheme boundary; width
 ownership is distinct from segmentation. Khmer U+17A4 and U+17D8 are explicit
 one-cell scalar compatibility cases in both ambiguous-width modes. Other script groups retain their prior rules. Font-backed shaping of
-northern and southern Indic owners is presentation only, is described with the renderer's
+enabled owner groups is presentation only, is described with the renderer's
 mark rules below, and never changes these widths. The source bound remains seventeen scalars per owner, with lossless
 bounded-owner overflow. Unicode fixtures exercise bounded northern and southern
 Indic, Sinhala, Khmer, and Myanmar property subsets, plus bounded northern and Khmer/Myanmar GraphemeBreakTest subsets. No full
@@ -2533,10 +2533,14 @@ the font's mark-positioned offsets, and only when the text font maps every
 mark on that cell; the monochrome path does not draw them again (see
 [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md)).
 
-With programming ligatures on, each Devanagari, Bengali, Gurmukhi, Gujarati,
-or Odia width owner is shaped on its own with `harfrust` 0.8.4 (left to right,
+With programming ligatures on, each width owner of an enabled script group is
+shaped on its own with `harfrust` 0.8.4 (left to right,
 script from the content, no language, cluster level 0) and drawn as one
-overlay over exactly its one or two cells. The base scalar must belong to one
+overlay over exactly its one or two cells. The enabled groups are
+Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and
+Malayalam;
+Khmer and Myanmar.
+The base scalar must belong to one
 of those scripts, and every retained scalar to one of them or be ZWJ, ZWNJ, or
 a Vedic Extensions mark. The shaping face is the first that maps every scalar:
 a `symbol_map` override for the base, the style face, then the fallback chain
@@ -2553,7 +2557,9 @@ the cursor block (which redraws the per-cell glyphs, as it does under a Latin
 ligature), copy, search, and widths stay cell-owned. Runs never cross owners.
 Bengali ka, virama, ra shapes differently from HarfBuzz 14.5 in `harfrust`
 0.8.4; that difference is recorded in the fixtures and kept out of
-conformance claims.
+conformance claims. Khmer and Myanmar fixtures match HarfBuzz 14.5 exactly.
+A stray mark that starts an owner is shaped with a dotted circle when the
+shaping face maps U+25CC and alone otherwise.
 Wrapped and rectangular selection copy the base followed by those stored marks.
 
 ### Store Cell Attributes Compactly

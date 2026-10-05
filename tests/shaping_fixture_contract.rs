@@ -109,6 +109,30 @@ fn subset_faces_parse_and_reference_clusters_use_utf8_byte_boundaries() {
         );
     }
     assert_eq!(FIXTURES.len(), 19);
-    assert_eq!(rows, 156);
+    assert_eq!(rows, 158);
     assert_eq!(known_differences, 1);
+}
+
+#[test]
+fn stray_mark_fixtures_cover_circle_and_no_circle_faces() {
+    for (name, circle) in [("Khmer-subset.ttf", true), ("Myanmar-subset.ttf", false)] {
+        let fixture = FIXTURES
+            .iter()
+            .find(|fixture| fixture.name == name)
+            .unwrap();
+        let font = FontHandle::try_from_vec(fixture.bytes.to_vec()).unwrap();
+        assert_eq!(font.glyph_id('\u{25cc}').0 != 0, circle);
+        let note = if circle {
+            "stray-mark-dotted-circle"
+        } else {
+            "stray-mark-no-circle"
+        };
+        let row = fixture
+            .references
+            .lines()
+            .find(|line| line.ends_with(note))
+            .unwrap();
+        let fields: Vec<_> = row.split('\t').collect();
+        assert_eq!(fields[2].split(',').count(), if circle { 2 } else { 1 });
+    }
 }

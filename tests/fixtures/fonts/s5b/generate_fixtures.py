@@ -29,6 +29,9 @@ def repertoire(face):
         points.update(map(ord, text))
         points.update(map(ord, unicodedata.normalize("NFKD", text)))
     declared = {int(value[2:], 16) for value in face["required_scalars"]}
+    # Khmer intentionally retains the shaper-inserted dotted circle.
+    if face["script"] == "khmer" and 0x25CC in declared:
+        points.add(0x25CC)
     if points != declared:
         raise ValueError("normalization repertoire differs from the frozen corpus")
     return points
@@ -101,6 +104,19 @@ def make_face(face, sources, output):
     for case in face["cases"]:
         text = "".join(chr(cp) for cp in codepoints(case))
         before = shape(source, text, face["script_tag"])
+        # A no-circle fixture intentionally lacks the upstream circle mapping.
+        # Match that declared coverage in an isolated source copy for this case;
+        # all ordinary rows still compare with the untouched source face.
+        if case["note"] == "stray-mark-no-circle":
+            if 0x25CC in final.getBestCmap():
+                raise ValueError("no-circle fixture unexpectedly maps U+25CC")
+            with tempfile.TemporaryDirectory(prefix="odytty-shape-coverage-") as temp:
+                limited = TTFont(source, recalcTimestamp=False)
+                for table in limited["cmap"].tables:
+                    table.cmap.pop(0x25CC, None)
+                limited_path = Path(temp) / face["source_filename"]
+                limited.save(limited_path)
+                before = shape(limited_path, text, face["script_tag"])
         after = shape(output, text, face["script_tag"])
         mapped = [dict(g, g=new_ids[original_names[g["g"]]]) for g in before]
         if mapped != after:

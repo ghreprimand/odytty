@@ -1233,6 +1233,13 @@
             "U+17B6"
           ],
           "note": "plain-control"
+        },
+        {
+          "id": "khmer-stray-mark",
+          "codepoints": [
+            "U+17C1"
+          ],
+          "note": "stray-mark-dotted-circle"
         }
       ],
       "license_member": "OFL.txt",
@@ -1247,7 +1254,8 @@
         "U+17C1",
         "U+17D2",
         "U+200C",
-        "U+200D"
+        "U+200D",
+        "U+25CC"
       ],
       "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
       "source_license_sha256": "be0407f060aea48787ff9e75d8d3aedef70aef113b3ce9aca26fdaacd10b1870",
@@ -1345,6 +1353,13 @@
             "U+102D"
           ],
           "note": "plain-control"
+        },
+        {
+          "id": "myanmar-stray-mark",
+          "codepoints": [
+            "U+1031"
+          ],
+          "note": "stray-mark-no-circle"
         }
       ],
       "license_member": "../OFL.txt",

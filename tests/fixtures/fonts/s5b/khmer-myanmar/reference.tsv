@@ -10,6 +10,7 @@ Khmer-subset.ttf	U+1780 U+17D2 U+179A U+17C1	8,11,2	0,0,0	0,0,0	0,0,0	288,287,63
 Khmer-subset.ttf	U+1780 U+17D2 U+200D U+1780	2,9,1,2	0,0,0,9	0,0,0,0	0,0,0,0	636,0,0,636	zwj
 Khmer-subset.ttf	U+1780 U+17D2 U+200C U+1780	2,9,1,2	0,0,6,9	0,0,0,0	0,0,0,0	636,0,0,636	zwnj
 Khmer-subset.ttf	U+1780 U+17B6	13	0	0	0	924	plain-control
+Khmer-subset.ttf	U+17C1	8,17	0,0	0,0	0,0	288,635	stray-mark-dotted-circle
 Myanmar-subset.ttf	U+1000 U+1039 U+1000	2,18	0,0	0,-235	0,0	1124,0	stacker
 Myanmar-subset.ttf	U+1000 U+1031	25,2	0,0	0,0	0,0	618,1124	pre-base-vowel
 Myanmar-subset.ttf	U+1000 U+103C	9,2	0,0	0,0	0,0	229,1124	medial-ra
@@ -19,3 +20,4 @@ Myanmar-subset.ttf	U+1000 U+1039 U+200D U+1000	2,26,1,2	0,0,0,9	0,-12,0,0	0,-24,
 Myanmar-subset.ttf	U+1000 U+1039 U+200C U+1000	2,26,1,2	0,0,6,9	0,-12,0,0	0,-24,0,0	1124,0,0,1124	zwnj
 Myanmar-subset.ttf	U+1000 U+102B	2,22	0,0	0,0	0,0	1124,267	plain-control
 Myanmar-subset.ttf	U+1000 U+102D	2,24	0,0	0,-27	0,0	1124,0	plain-control
+Myanmar-subset.ttf	U+1031	25	0	0	0	618	stray-mark-no-circle

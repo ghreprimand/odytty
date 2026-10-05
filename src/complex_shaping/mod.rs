@@ -48,7 +48,8 @@ mod tests;
 /// Script blocks whose owners are shaped. Stage 2 enables the northern and
 /// southern Indic groups: Devanagari (with Devanagari Extended and Extended-A), Bengali,
 /// Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam.
-/// Later stages append their groups here.
+/// Stage 4 enables Khmer (with Khmer Symbols) and Myanmar (with Myanmar
+/// Extended-A and Extended-B). Later stages append their groups here.
 pub const STAGE_RANGES: &[(u32, u32)] = &[
     (0x0900, 0x097F),   // Devanagari
     (0x0980, 0x09FF),   // Bengali
@@ -61,6 +62,11 @@ pub const STAGE_RANGES: &[(u32, u32)] = &[
     (0x0D00, 0x0D7F),   // Malayalam
     (0xA8E0, 0xA8FF),   // Devanagari Extended
     (0x11B00, 0x11B5F), // Devanagari Extended-A
+    (0x1000, 0x109F),   // Myanmar
+    (0x1780, 0x17FF),   // Khmer
+    (0x19E0, 0x19FF),   // Khmer Symbols
+    (0xA9E0, 0xA9FF),   // Myanmar Extended-B
+    (0xAA60, 0xAA7F),   // Myanmar Extended-A
 ];
 
 /// Most distinct owner texts kept shaped per face; the cache clears when full.

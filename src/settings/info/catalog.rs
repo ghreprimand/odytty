@@ -340,7 +340,7 @@ impl Settings {
                 env: LIGATURES_ENV,
                 name: "Programming ligatures",
                 value: bool_display(self.ligatures).to_owned(),
-                description: "Shapes eligible Latin/operator runs with the font's calt and liga features, and Arabic joining forms in logical cell order when the face covers Arabic, and draws Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owner forms inside their cells. On by default. Grid cells, cursor positions, selection, and copied text stay unchanged; unsupported fonts keep scalar glyphs. Optional ss01/ss02 ride separate settings.",
+                description: "Shapes eligible Latin/operator runs with the font's calt and liga features, and Arabic joining forms in logical cell order when the face covers Arabic, and draws Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam, Khmer, and Myanmar owner forms inside their cells. On by default. Grid cells, cursor positions, selection, and copied text stay unchanged; unsupported fonts keep scalar glyphs. Optional ss01/ss02 ride separate settings.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
