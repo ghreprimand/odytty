@@ -202,7 +202,13 @@ instead of gliding. The open-modifier underline, link hover, and button chips
 address logical cells through the pointer; underlines and chip fills draw on
 the visual cells of their logical cells, while a chip pill cap or the click
 hint writes text, so its row draws in logical order. Copy, search results, and
-cursor addressing stay logical. Resize, replay, and export are not yet mapped. Only the test suite reaches either gate: no setting, menu, or flag
+cursor addressing stay logical. The map is planned for every frame from the
+rows on screen and the paragraph above them, so after a width change, at any
+history scroll position, in a session restored from a snapshot, and for
+output delivered in any split of reads, cells are placed exactly as in a
+terminal that shows the same rows directly. Scrollback export stays in
+logical order. Image placements are not part of the plan. The plan is not
+cached between frames. Only the test suite reaches either gate: no setting, menu, or flag
 enables them, so on-screen display and behavior are unchanged.
 
 ### Complex Indic and Brahmic shaping

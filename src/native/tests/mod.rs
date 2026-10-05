@@ -203,6 +203,7 @@ mod cvd_wiring;
 // quoting coverage is the platform-neutral unit suite in native::tests::file_drop.
 mod bidi_effects;
 mod bidi_input;
+mod bidi_lifecycle;
 mod bidi_pointer;
 mod broadcast_input;
 #[cfg(unix)]
