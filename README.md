@@ -2,43 +2,7 @@
 
 Published release: **v0.16.1**.
 
-Development text storage retains bounded source clusters without dropping ordinary leading
-marks or overflow extensions. Thai/Lao SARA AM shares a two-cell owner with its
-preceding consonant. Northern Indic and Tamil, Telugu, Kannada, and Malayalam
-spacing signs and virama-linked consonants share bounded two-cell source owners.
-Sinhala, Khmer, and Myanmar dependent signs and linked consonants use the same bounded policy.
-Chakma, Javanese, Grantha, and Tai Tham add bounded spacing-sign and linked-consonant owners.
-Khmer U+17A4 and U+17D8 occupy one cell in either ambiguous-width mode. With
-programming ligatures on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia,
-Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, and reordered vowel signs)
-and fitted inside their cells. Khmer and Myanmar owners (coeng stacks,
-medials, kinzi, and pre-base vowels) are shaped the same way, as are Thai,
-Lao, and Tibetan owners (stacked tone marks and subjoined stacks).
-Complex-script shaping for the other script
-groups remains unsupported.
-Unicode 17 listed VS16 bases, supported emoji ZWJ sequences, skin tones,
-VS16 keycaps, and regional-indicator pairs share two-cell source owners.
-VS15 does not demote; standalone regional indicators and bare keycaps stay one cell.
-VS16 keycaps use the font's base-plus-enclosing-keycap color ligature when present.
-Unattached width-zero format controls and selectors occupy zero columns and
-are still not retained. They extend source text when an eligible owner exists.
-
-Current development work is tracked in [TODO.md](TODO.md). Generated wide-glyph
-wrap padding stays separate from logical text through resize, search, copy, and
-export. Version 0.16.0
-adds [read-only panes](docs/features.md#make-a-pane-read-only),
-[scrollback export](docs/features.md#export-scrollback) as text or
-sanitized HTML, guarded [broadcast input](docs/features.md#broadcast-input)
-to explicitly chosen panes, [moving tabs and panes between windows](docs/features.md#move-tabs-and-panes-between-windows),
-[stacked and floating pane layouts](docs/features.md#stacked-and-floating-pane-layouts),
-and [secure keyboard input](docs/features.md#secure-keyboard-input) on macOS.
-East Asian Ambiguous characters follow
-[`ambiguous_width`](docs/features.md#ambiguous-character-width) (`narrow` by
-default, or `wide`). On Windows, a window's first shells stay suspended until
-the live grid reaches ConPTY, with a five-second backstop that can start one
-earlier. The palette also refuses control-bearing history and directory
-entries instead of sending hidden input. Release evidence and historical corrections are listed
-in the [release index](docs/releases/README.md).
+**A from-scratch, GPU-rendered Rust terminal with an Odyssey visual identity.**
 
 [Website](https://odytty.unfinished-works.com) |
 [Latest release](https://github.com/ghreprimand/odytty/releases/latest) |
@@ -50,13 +14,11 @@ in the [release index](docs/releases/README.md).
 
 ![OdyTTY rendering a colorized git graph, project tree, and truecolor gradients under the default Odyssey theme with bloom](assets/demo.png)
 
-**A from-scratch, GPU-rendered Rust terminal with an Odyssey visual identity.**
-
 OdyTTY owns the terminal path from the PTY through escape parsing, terminal
-state, text layout, and shaders. It combines that foundation with readable GPU
-text, tabs and panes, inline media, in-app configuration, accessibility
-controls, and optional visual effects. It is Linux-first, with packaged macOS
-Apple Silicon and Windows releases, and runs independently of OdysseyOS.
+state, text layout, and shaders, and adds readable GPU text, tabs and panes,
+inline media, in-app configuration, accessibility controls, and optional visual
+effects on top. It is Linux-first, ships packaged macOS Apple Silicon and
+Windows releases, and runs independently of OdysseyOS.
 
 ## Install
 
@@ -74,19 +36,12 @@ any shell (bash, zsh, or fish):
 curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
 ```
 
-The script detects apt-get or dnf and installs the matching signature-verified
-package. A system that has dpkg but not apt-get, and every other x86_64
-system, gets the portable binary tarball. It downloads the
-latest release, authenticates `SHA256SUMS` with the pinned OdyTTY release key,
-and checks the artifact before installing. Verification is automatic: if
-`minisign` is not already present the script installs it from your package
-manager first (append ` -s -- --insecure-skip-signature` to skip verification
-instead). To review the installer before running it, use the
-[manual verified path](docs/install.md#linux).
-
-The one-line command executes a script from mutable `master` before authenticating
-it. Its artifact verification does not authenticate that initial script; the
-manual path verifies the versioned installer itself before execution.
+The script installs the matching apt or dnf package, or the portable binary
+tarball on other x86_64 systems, after authenticating `SHA256SUMS` with the
+pinned release key (it installs `minisign` first if needed). That check does
+not cover the installer script itself, which the one-line form fetches from
+mutable `master`; the [manual verified path](docs/install.md#linux) verifies the
+versioned installer before execution.
 
 Arch users can install `odytty` from the AUR with `paru -S odytty` or
 `yay -S odytty`. Direct `.deb`, `.rpm`, AppImage, binary-tarball, and source
@@ -167,167 +122,59 @@ sessions.
 
 ## Highlights
 
-- **Owned terminal foundation:** OdyTTY implements its PTY integration,
-  DEC/xterm parser, bounded terminal model, input mapping, render geometry, and
-  shaders. Unix systems use the Unix backend and Windows uses ConPTY.
+- **Owned terminal foundation:** PTY integration (Unix backend and Windows
+  ConPTY), DEC/xterm parser, bounded terminal model, input mapping, render
+  geometry, and shaders are OdyTTY's own.
 - **GPU text and inline media:** bundled and system fonts, fallback chains,
-  HiDPI rebuilds, color emoji where a supported color font is available, Kitty
-  graphics, and Sixel share the `wgpu` renderer.
-- **Daily terminal interaction:** Kitty keyboard support, broad mouse modes,
-  IME, search, selection and copy mode, bracketed paste, hyperlinks, clickable
-  paths, prompt navigation, keyboard hints, and transient resize and zoom
-  feedback. With bracketed paste disabled, multiline or control-bearing source
-  text is held behind a bounded escaped preview with original line/byte counts
-  and explicit Paste, reversible Paste as One Line when available, or Cancel.
-  Safe single-line and child-enabled bracketed paste retain their existing byte
-  path; shells and editors such as Fish commonly enable that protected mode
-  themselves. `warn_on_risky_paste = off` is an advanced global opt-out. See
-  [Paste safety](docs/features.md#paste-safety) for the exact trigger matrix.
-  Complete, current OSC 133 command ranges also expose output-only or
-  prompt-inclusive select/copy, output-scoped search, failed-command
-  navigation, and explicit bounded plain-text export. Missing, partial, or
-  stale shell integration disables these actions instead of guessing.
-  Bounded OSC 9/777 notifications, OSC 9;4 progress, one-shot command-finish
-  notification, and pane activity/silence/bell/process/failure monitors use
-  transient pane-owned state and generic OdyTTY wording. See
-  [`docs/notifications.md`](docs/notifications.md).
-- **Workspaces and remote work:** tabs, resizable panes, named workspaces,
-  layouts, restore, Unix managed and detached sessions, an SSH connection
-  manager, connection reuse, optional `tmux` persistence, and an on-demand
-  searchable Session Navigator with bounded metadata, confirmed close actions,
-  a process-lifetime fresh-shell reopen history, and an optional redacted preview.
+  HiDPI rebuilds, color emoji where a color font is available, Kitty graphics,
+  and Sixel share the `wgpu` renderer.
+- **International text:** Unicode 17 terminal widths for Indic, Southeast
+  Asian, and emoji sequences, font shaping for the enabled script groups, and
+  opt-in bidirectional display; see the [feature reference](docs/features.md)
+  and [shaping roadmap](docs/shaping-roadmap.md#current-support-boundary).
+- **Daily terminal interaction:** Kitty keyboard, mouse modes, IME, search,
+  selection and copy mode, hyperlinks, clickable paths, [paste
+  safety](docs/features.md#paste-safety), and [shell
+  integration](docs/features.md#shell-integration) prompt and command-output
+  actions, with [notifications](docs/notifications.md) and pane monitors.
+- **Workspaces and remote work:** tabs, panes, named workspaces, layouts,
+  restore, [named launch profiles](docs/profiles.md), Unix detached sessions,
+  an SSH connection manager, optional `tmux` persistence, and a searchable
+  Session Navigator.
 - **Configuration without ceremony:** a live settings panel, command palette,
-  font and theme pickers, 145 built-in themes, user themes, a theme builder
-  with sliders and click-to-edit hex values (including capture of a pane's live
-  colors into a new theme),
-  backgrounds, transparency, bloom, CRT, and retro effects. Config-file editing
-  remains available with hot reload.
-- **Accessibility and privacy:** contrast controls, color-vision modes,
-  dimming, motion controls, a configurable bell, and bounded notification
-  presentation. OdyTTY has no telemetry,
-  analytics, crash reporting, account, cloud sync, or update ping; network
-  actions are explicit and user-initiated.
+  145 built-in themes, user themes and a theme builder, backgrounds,
+  transparency, and bloom, CRT, and retro effects, with config-file hot reload.
+- **Accessibility and privacy:** contrast, color-vision, dimming, and motion
+  controls. No telemetry, analytics, crash reporting, account, cloud sync, or
+  update ping; network actions are explicit and user-initiated.
 
-Read the [feature reference](docs/features.md) for supported protocols,
-workflows, settings, and platform-specific behavior.
+## Status
 
-## Status And Scope
+OdyTTY is a broad pre-1.0 terminal. The published v0.16.x line adds read-only
+panes, broadcast input, moving tabs and panes between windows, stacked and
+floating layouts, scrollback export, and AppImage update information; see the
+[release notes](docs/releases/README.md). In development for the next release:
+see [TODO.md](TODO.md) and the [full roadmap](docs/full-build-roadmap.md).
 
-OdyTTY is a broad pre-1.0 terminal. Version 0.16.1 is the published
-release, adding AppImage update information to the v0.16.0 workflows. On macOS, an untouched window's idle CPU returns to about zero. The cause was a per-tick
-event-loop proxy clone that re-woke the macOS run loop, present since
-v0.15.0. On Linux and Windows the clones were cheap and showed no spin; the
-per-tick clone is removed there too, with no idle-CPU claim. See the
-[v0.15.8 release notes](docs/releases/0.15.8.md). Version 0.15.7 prevents
-Wayland windows from stopping updating after returning from a hidden workspace,
-and keeps workspace autosave working after the primary window is merged into
-another window; see the
-[v0.15.7 release notes](docs/releases/0.15.7.md). Version 0.15.6 fixes a
-v0.15.5 regression in which long cursor moves paused partway through their
-glide, and makes overflowing right-click menus scroll predictably; see the
-[v0.15.6 release notes](docs/releases/0.15.6.md). Version 0.15.5 is a
-maintenance and reliability patch over v0.15.0: normal-text font parsing moves to
-the maintained Fontations `skrifa` library with unchanged sampled rendering, and
-two Wayland fixes cover repaint recovery after a lost frame callback and a
-focused-idle CPU loop; see the
-[v0.15.5 release notes](docs/releases/0.15.5.md). Version 0.15.0 added a
-dedicated quick terminal, an owner-scoped local automation endpoint and control
-CLI, confirm-first external file drop, keyboard-first window merging, and the
-Electric Blue theme, while preserving the existing terminal-input and
-remote-upload security boundaries. The four v0.15.0 features are summarized above
-and detailed in the [feature reference](docs/features.md) and the
-[v0.15.0 release notes](docs/releases/0.15.0.md). It builds on v0.14.0's named
-launch profiles, external palette following, and unified Session Navigator; the
-[named profiles guide](docs/profiles.md) covers profiles, and the release index
-above records every published version.
+- **Linux:** the primary target; Wayland first, X11 supported.
+- **macOS:** Apple Silicon releases; Intel Macs use the source build.
+- **Windows:** x86_64 releases through Scoop or the portable zip.
 
-None of v0.15.0, v0.15.5, v0.15.6, v0.15.7, or v0.15.8 optimizes rendering
-throughput, terminal storage, GPU allocation, or presentation timing (the
-v0.15.7 present-mode change prevents a stall and is not a speed change; the
-v0.15.8 change repairs a macOS idle-CPU loop and is not a throughput change),
-so they carry
-forward rather than relabel the v0.12.0 performance evidence. The v0.15.5 font change was compared before and
-after on one Linux workstation (benchmark rows, warm startup, and idle memory)
-without a new cross-terminal comparison.
+Known gaps include the following:
 
-That preregistered v0.12.0 W6 run records 89.0 MB current and 130.7 MB peak
-memory on the benchmark environment, down 68.9 and 60.1 percent respectively
-from the prior OdyTTY result and below Kitty and Ghostty in both memory
-measures. Idle CPU remains in the same low band as Kitty and Alacritty.
-Separately classified software-endpoint results, memory composition, and
-scrollback scaling are published alongside W6 without pooling their evidence
-classes; W7's four-hour memory-growth workload remains explicitly deferred.
+- Windows detached and resumable session hosting.
+- Complex-script shaping for script groups not yet enabled.
+- Right-to-left paragraph levels and alternate-screen bidirectional
+  reordering (reordering is an opt-in, off-by-default setting for the primary
+  screen).
 
-The tagged v0.15.0 release passed blocking Linux, macOS, and Windows CI,
-release publication, signed checksums for all assets, and seven byte-identical
-always-latest/version-pinned alias pairs, with Scoop, Homebrew, and AUR
-propagation. Hands-on acceptance of the quick terminal, automation, file drop,
-and window merge was performed on Linux (native Hyprland and Wayland, and nested
-KWin), Windows, and macOS; rows that need hardware not available here are
-recorded as such. These results do not imply exhaustive device or application
-coverage. Full evidence and limitations are recorded in the [release
-guide](docs/release.md). The full benchmark results remain in
-[docs/benchmark-results.md](docs/benchmark-results.md); carried-forward results
-do not cover every GPU, compositor, IME, font, or hardware configuration.
-
-Linux is the primary target. macOS and Windows are supported, shipped, and
-blocking CI targets. Known gaps include Windows detached and resumable session
-hosting, complex-script shaping outside the northern and southern Indic,
-Khmer/Myanmar, and Thai/Lao/Tibetan groups, and
-right-to-left paragraph levels and
-alternate-screen reordering (bidirectional display reordering is an opt-in,
-off-by-default setting for the primary screen).
-The [v0.13.0 foundation contract](docs/v0.13.0-foundation.md) records the
-security, architecture, platform, and measurement boundaries carried forward
-from v0.13.0. Named launch profiles have a versioned on-disk foundation and a settings Profile
-Manager for local create/edit/import/export/delete. The editor exposes the
-complete profile schema, including bounded launch and switching lists, visual
-settings, cursor/effect overrides, saved layout, and platform applicability
-([schema, precedence, and migration](docs/v0.14.0-profiles-foundation.md));
-launch routing, restoration, palette selection, and opt-in auto-switch are
-wired. Plain `+` / New Tab / New Workspace stay one-click on the effective
-default profile; an adjacent chevron and the context menus open a lazy
-searchable profile chooser. Profile Manager sets an explicit global default
-(`default_launch_profile`) that a workspace binding can override; without one,
-startup and new tabs use the built-in System Default and never scan the
-profile directory.
-[External palette following](docs/v0.14.0-external-palette.md) is an optional
-opt-in that applies a complete local palette file through the existing theme
-seam without delaying ordinary startup. See
-[current work](TODO.md) and the
-[full roadmap](docs/full-build-roadmap.md) for later milestones.
-
-Version 0.15.0 adds four features and the `odyssey-electric-blue` preset. A
-dedicated quick terminal is summoned by a per-platform global shortcut, retains
-its hidden session, never duplicates on repeated summons, and registers only
-after an ordinary frame; placement on tiling Wayland compositors is
-compositor-controlled. An opt-in, owner-scoped local automation endpoint and an
-`odytty control` CLI list and focus windows, workspaces, tabs, and panes, open
-profiles, create tabs, splits, and workspaces, and rename, without terminal
-input, content reads, or any network listener; Linux and macOS use owner-private
-sockets and Windows uses an owner-DACL named pipe. External file drop inserts
-paths through the confirm-first, shell-quoted paste-safety policy and never
-appends Enter, with native Wayland delivery through a companion data device that
-requests copy only and performs no file operation, and an explicit Windows
-refusal. Keyboard-first window merge and pull move tabs, panes, PTYs, and attach
-handles between same-process windows through numbered in-window targets, closing
-the source only after success. Electric Blue is added without changing the
-default theme or any effect setting. Device acceptance was performed on Linux
-(native Hyprland/Wayland and nested KWin), Windows, and macOS. See the
-[v0.15.0 contracts](docs/v0.15.0-foundation.md),
-[release notes](docs/releases/0.15.0.md),
-[theme reference](docs/themes.md#electric-blue), and
-[acceptance checklists](docs/acceptance/v0.15.0.md).
-
-The terminal core and visual experience layer are deliberately separate.
-See the [ownership boundary](SPEC.md#ownership-boundary),
+Performance evidence is in the [published benchmarks](docs/benchmark-results.md).
+The terminal core and visual layer are deliberately separate; see the
+[ownership boundary](SPEC.md#ownership-boundary),
 [module map](CONTRIBUTING.md#module-map), and
-[visual pipeline](docs/visual-architecture.md) for the architecture.
+[visual pipeline](docs/visual-architecture.md).
 
 ## Build And Test
-
-Release preparation requires matching versioned notes and includes their short
-summary and canonical link above the download and verification instructions.
 
 OdyTTY pins Rust 1.96 as its verified minimum supported version. The repository
 toolchain file selects it automatically when Rust is managed by `rustup`.
@@ -340,21 +187,17 @@ cargo fmt --check
 
 The default test suite is bounded and deterministic. Blocking CI adds Clippy,
 platform builds, a locked fuzz-target API check, and a production-file architecture
-guard; scheduled lanes run deeper fuzzing, Miri, and sanitizers. Miri required
-filters and diagnostic probes run in separate, bounded jobs. See the
+guard; scheduled lanes run deeper fuzzing, Miri, and sanitizers. See the
 [contribution guide](CONTRIBUTING.md#test-battery) for the complete test battery,
 platform gates, and pre-commit checks.
 
-The project's maturity evidence is public and reproducible: the
+Public maturity evidence: the
 [compatibility corpus](docs/compatibility/corpus.md) turns conformance,
 real-application, differential, parser, and fuzz findings into permanent
-regressions; the [pinned vttest runner](docs/compatibility/vttest.md) records
-conformance results; the [fuzzing](fuzz/parser_graphics/README.md) and
-[mutation-testing](docs/mutation-testing.md) campaigns exercise hostile and
-fault-injected paths; and the
-[published benchmarks](docs/benchmark-results.md) follow a preregistered
-protocol. These are stronger claims than an unmeasured user-count proxy, while
-still not replacing wider third-party soak exposure.
+regressions; the [pinned vttest runner](docs/compatibility/vttest.md),
+[fuzzing](fuzz/parser_graphics/README.md), and
+[mutation testing](docs/mutation-testing.md) cover conformance and hostile
+paths. None of this replaces wider third-party soak exposure.
 
 ## Documentation
 
@@ -375,7 +218,7 @@ still not replacing wider third-party soak exposure.
 
 ## Contributing, Security, And License
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for what
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for what
 lands easily, the test requirements, the Developer Certificate of Origin, and
 the public-repository safety rules. Use the structured
 [bug-report](https://github.com/ghreprimand/odytty/issues/new?template=bug_report.yml),

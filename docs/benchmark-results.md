@@ -30,6 +30,16 @@ separate result pools.
 | Sessions executed | SE: 2026-08-27, 17:34-20:31 UTC. W6: 2026-08-27 21:14 to 2026-08-28 01:12 UTC. |
 | Outcome | W6 `complete`: 0 failures, 0 invalid samples, 0 deviations, 0 incomplete reasons. SE: all 40 warmups and 240 measured attempts passed. |
 
+None of v0.15.0, v0.15.5, v0.15.6, v0.15.7, or v0.15.8 optimizes rendering
+throughput, terminal storage, GPU allocation, or presentation timing, so they
+carry forward this v0.12.0 evidence rather than relabel it. The v0.15.7
+present-mode change prevents a stall and the v0.15.8 change repairs a macOS
+idle-CPU loop; neither is a throughput change. The v0.15.5 font-parsing change
+was compared before and after on one Linux workstation (benchmark rows, warm
+startup, and idle memory) without a new cross-terminal comparison.
+Carried-forward results do not cover every GPU, compositor, IME, font, or
+hardware configuration.
+
 ## How the run was produced
 
 The protocol makes the plan tamper-evident and the execution fail-closed;
