@@ -13,6 +13,7 @@ unsupported.
 Unicode 17 listed VS16 bases, supported emoji ZWJ sequences, skin tones,
 VS16 keycaps, and regional-indicator pairs share two-cell source owners.
 VS15 does not demote; standalone regional indicators and bare keycaps stay one cell.
+VS16 keycaps use the font's base-plus-enclosing-keycap color ligature when present.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 

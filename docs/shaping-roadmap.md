@@ -27,6 +27,11 @@ signs and linked consonants share bounded two-cell owners using Unicode 17
 properties. ZWJ preserves virama/stacker links; Chakma U+11134 keeps prior
 separate owners with ZWJ. ZWNJ ends consonant joining. Gurmukhi,
 Tamil, Sinhala, Chakma, and Grantha width units can cross extended-grapheme boundaries.
+Exact VS16 keycaps omit an unmapped selector only from color shaping so an unmapped
+selector cannot block a present base-plus-enclosing-keycap ligature. Logical
+source ranges, width and cache identity retain the selector. Capability probes
+and live rendering share this seam; flag, modifier and ZWJ inputs are unchanged.
+
 Listed VS16 bases and recognized emoji modifier, keycap, flag, and RGI ZWJ
 sequences use two-cell owners. Other script groups and font-backed
 complex-script shaping remain pending.

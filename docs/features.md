@@ -509,6 +509,11 @@ owners. VS15 does not demote; standalone regional indicators and keycaps
 without VS16 stay one cell. Those compatibility choices differ from the
 frozen Python wcwidth reference.
 
+VS16 keycaps resolve the font's base-plus-enclosing-keycap color ligature
+when present. The selector remains in logical text and cluster identity;
+missing ligatures retain visible fallback. This shared path applies on Linux
+Wayland, Linux X11, macOS, and Windows.
+
 Text-default symbols stay on the monochrome fallback path, missing color
 glyphs fall back there instead of becoming tofu, and emoji pixels are not
 SGR-tinted. Cluster coverage is bounded by the host font: stock Windows

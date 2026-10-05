@@ -1261,6 +1261,8 @@ a floor; surpassing it is the standing ambition.
         foreground tint.
   - [x] Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 presentation,
         wide-cell placement, and graceful no-font degradation.
+  - [x] VS16 keycap color-ligature resolution with a portable authored font,
+        full source ranges, and flag/modifier/ZWJ sibling regression coverage.
   - [x] Emoji clusters: flags, keycaps, skin-tone modifiers, ZWJ
         sequences; regression fixtures per category; defined fallback for
         unsupported clusters.

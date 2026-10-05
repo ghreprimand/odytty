@@ -9,6 +9,7 @@
 
 mod color_atlas;
 mod colr1;
+mod keycap;
 mod render;
 mod svg;
 
@@ -365,7 +366,7 @@ pub fn probe_cluster_resolution(font: &EmojiFont, text: &str) -> FallbackOutcome
         .direction(Direction::LeftToRight)
         .size(EMOJI_PROBE_SIZE)
         .build();
-    shaper.add_str(text);
+    keycap::add_emoji_text(&mut shaper, font_ref, text);
     let mut glyph_ids: Vec<GlyphId> = Vec::new();
     shaper.shape_with(|cluster| {
         glyph_ids.extend(cluster.glyphs.iter().map(|glyph| glyph.id));
@@ -422,7 +423,7 @@ pub fn probe_font(font: &EmojiFont) -> EmojiProbeReport {
                 .direction(Direction::LeftToRight)
                 .size(EMOJI_PROBE_SIZE)
                 .build();
-            shaper.add_str(sequence.text);
+            keycap::add_emoji_text(&mut shaper, font_ref, sequence.text);
 
             let mut clusters = Vec::new();
             let mut glyph_ids = Vec::new();

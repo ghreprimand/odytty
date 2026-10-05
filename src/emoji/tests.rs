@@ -736,3 +736,113 @@ fn colr_cpal_directory_probe_matches_the_parsed_font_answer() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn authored_color_keycap_and_sibling_ligatures_resolve() {
+    let font = EmojiFont::load(fixture_font("color-keycap.ttf")).expect("load authored fixture");
+    for text in [
+        "1\u{FE0F}\u{20E3}",
+        "\u{1F1FA}\u{1F1F8}",
+        "\u{1F44D}\u{1F3FD}",
+        "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
+    ] {
+        assert_eq!(
+            probe_cluster_resolution(&font, text),
+            super::FallbackOutcome::Resolved,
+            "{text:?}"
+        );
+        let mut rasterizer = EmojiRasterizer::from_font(font.clone());
+        let mut terminal = Terminal::new(4, 1);
+        terminal.advance(text.as_bytes());
+        let mut atlas = ColorGlyphAtlas::new(cell());
+        let runs = rasterizer.build_color_glyph_runs(&terminal.snapshot(), &mut atlas);
+        assert_eq!(runs.len(), 1, "{text:?}");
+        assert_eq!(runs[0].covered_columns, 2);
+        assert!(
+            atlas
+                .data
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|px| px[0] > 0 && px[1] == 0 && px[3] > 0)
+        );
+    }
+}
+
+#[test]
+fn authored_color_keycaps_keep_selector_source_ranges_and_logical_text() {
+    let font = EmojiFont::load(fixture_font("color-keycap.ttf")).expect("load fixture");
+    for base in "#*0123456789".chars() {
+        let text = format!("{base}\u{fe0f}\u{20e3}");
+        assert_eq!(
+            probe_cluster_resolution(&font, &text),
+            super::FallbackOutcome::Resolved
+        );
+        let mut terminal = Terminal::new(4, 1);
+        terminal.advance(text.as_bytes());
+        let snapshot = terminal.snapshot();
+        assert_eq!(snapshot.cells[0].grapheme(), text);
+        assert!(snapshot.cells[1].wide_continuation);
+        let mut atlas = ColorGlyphAtlas::new(cell());
+        let mut rasterizer = EmojiRasterizer::from_font(font.clone());
+        let runs = rasterizer.build_color_glyph_runs(&snapshot, &mut atlas);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].covered_columns, 2);
+    }
+    let report = probe_font(&font);
+    let keycap = report
+        .sequences
+        .iter()
+        .find(|s| s.name == "keycap-one")
+        .expect("keycap metadata");
+    assert_eq!(keycap.glyph_ids.len(), 1);
+    assert_eq!(keycap.clusters.len(), 1);
+    assert_eq!(keycap.clusters[0].source, 0..7);
+}
+
+#[test]
+fn keycap_shaping_does_not_accept_missing_or_unrelated_clusters() {
+    let font = EmojiFont::load(fixture_font("color-keycap.ttf")).expect("load fixture");
+    for text in [
+        "1",
+        "1\u{fe0f}",
+        "A\u{fe0f}\u{20e3}",
+        "1\u{fe0f}\u{20e3}X",
+        "\u{1f1fa}\u{1f1fa}",
+        "\u{1f44d}\u{1f3fb}",
+    ] {
+        assert_eq!(
+            probe_cluster_resolution(&font, text),
+            super::FallbackOutcome::MissingGlyph,
+            "{text:?}"
+        );
+    }
+    let mut terminal = Terminal::new(4, 1);
+    terminal.advance("1\u{20e3}".as_bytes());
+    let snapshot = terminal.snapshot();
+    assert!(!snapshot.cells[1].wide_continuation);
+    let mut rasterizer = EmojiRasterizer::from_font(font);
+    let mut atlas = ColorGlyphAtlas::new(cell());
+    assert!(
+        rasterizer
+            .build_color_glyph_runs(&snapshot, &mut atlas)
+            .is_empty()
+    );
+}
+
+#[test]
+fn mapped_keycap_selector_keeps_explicit_font_substitution() {
+    let font = EmojiFont::load(fixture_font("color-keycap-mapped-vs.ttf")).expect("load fixture");
+    let text = "1\u{fe0f}\u{20e3}";
+    assert_eq!(
+        probe_cluster_resolution(&font, text),
+        super::FallbackOutcome::Resolved
+    );
+    let mut terminal = Terminal::new(4, 1);
+    terminal.advance(text.as_bytes());
+    let mut rasterizer = EmojiRasterizer::from_font(font);
+    let mut atlas = ColorGlyphAtlas::new(cell());
+    let runs = rasterizer.build_color_glyph_runs(&terminal.snapshot(), &mut atlas);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].covered_columns, 2);
+}

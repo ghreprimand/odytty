@@ -281,7 +281,7 @@ fn shape_glyphs(
         .direction(Direction::LeftToRight)
         .size(px_size as f32)
         .build();
-    shaper.add_str(text);
+    super::keycap::add_emoji_text(&mut shaper, font, text);
 
     let mut glyphs = Vec::new();
     shaper.shape_with(|cluster| {

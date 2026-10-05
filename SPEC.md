@@ -2683,6 +2683,16 @@ foreground should be suppressed. If shaping or color bitmap rasterization does
 not resolve, no cluster run is emitted; the existing per-cell coverage/color
 fallback remains visible.
 
+Exact digit, `#`, or `*` plus VS16 plus U+20E3 keycaps omit an unmapped VS16 only
+from the color shaping input, matching the pictographic emoji selector path.
+This prevents an unmapped selector from blocking the font's keycap ligature.
+Mapped selectors retain their existing font substitution. Probe diagnostics
+and live rendering use the same input seam and retain the
+original source byte range. Logical text, two-cell ownership, cache identity,
+and monochrome fallback remain unchanged. Missing ligatures still fall back.
+The shared path applies on Linux Wayland, Linux X11, macOS, and Windows;
+color coverage depends on the selected font.
+
 ### Bound Emoji Atlas Capacity
 
 `ColorGlyphAtlas` capacity is bounded and
