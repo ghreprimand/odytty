@@ -14,7 +14,7 @@ fn classifier_enables_khmer_and_myanmar() {
         assert!(owner_is_eligible(&Cell::new(ch, attrs)), "{ch:?}");
     }
     // Later stage groups stay out.
-    for ch in ['\u{0D9A}', '\u{0E01}', '\u{0F40}', '\u{11103}'] {
+    for ch in ['\u{0D9A}', '\u{11103}'] {
         assert!(!owner_is_eligible(&Cell::new(ch, attrs)), "{ch:?}");
     }
     let mut stack = Cell::new('\u{1780}', attrs);

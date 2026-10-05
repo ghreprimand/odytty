@@ -39,7 +39,7 @@ synthetic_styles = on
 # Contextual programming ligatures are on by default. Logical cells, selection,
 # and copied text remain unchanged; set this to off for scalar rendering. The
 # same switch gates complex-script owner shaping (northern and southern Indic
-# conjuncts and reph, Khmer and Myanmar stacks).
+# conjuncts and reph, Khmer, Myanmar, Thai, Lao, and Tibetan stacks).
 ligatures = on
 # Optional OpenType stylistic sets for fonts that provide them. Both are off by
 # default and affect presentation only.

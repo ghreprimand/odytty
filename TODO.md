@@ -11,7 +11,7 @@ eager and lazy reflow, search, selection/copy, export, and snapshot restore.
 Bounded source ownership and northern Indic, Tamil, Telugu, Kannada, and
 Malayalam, Sinhala, Khmer, Myanmar, Chakma, Javanese, Grantha, and Tai Tham
 width units are implemented. Unicode 17 bounded emoji sequence widths are implemented. Northern and southern Indic,
-Khmer, and Myanmar
+Khmer, Myanmar, Thai, Lao, and Tibetan
 owners are shaped with the font while programming ligatures are on. Further
 script groups and standalone format-control retention remain pending.
 Unattached width-zero format controls and selectors occupy zero columns and
@@ -718,6 +718,9 @@ not a stretch goal.
         with bounded fitting and licensed HarfBuzz reference fixtures.
   - [x] Khmer and Myanmar owner shaping: coeng stacks, below-base ro,
         pre-base and split vowels, medial ra, kinzi, and stacker forms,
+        matching every licensed HarfBuzz reference fixture.
+  - [x] Thai, Lao, and Tibetan owner shaping: SARA AM decomposition,
+        tone-mark alternates and stacking, and precomposed subjoined stacks,
         matching every licensed HarfBuzz reference fixture.
   - [ ] Owner shaping for Sinhala,
         Thai/Lao/Tibetan, and Chakma, Javanese, Grantha, and Tai Tham.

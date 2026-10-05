@@ -21,6 +21,7 @@ use crate::selection::{CellPoint, SelectionRange, selected_text};
 
 mod fallback_chain;
 mod khmer_myanmar;
+mod thai_lao_tibetan;
 
 const PX: f32 = 28.0;
 const FACES: &[(&str, &[u8])] = &[
@@ -128,6 +129,31 @@ const GROUPS: &[Group] = &[
             "stray-mark-dotted-circle",
             "stray-mark-no-circle",
         ],
+    },
+    Group {
+        name: "thai-lao-tibetan",
+        reference: include_str!("../../tests/fixtures/fonts/s5b/thai-lao-tibetan/reference.tsv"),
+        faces: &[
+            (
+                "Thai-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/thai-lao-tibetan/Thai-subset.ttf"),
+            ),
+            (
+                "Lao-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/thai-lao-tibetan/Lao-subset.ttf"),
+            ),
+            (
+                "Tibetan-subset.ttf",
+                include_bytes!(
+                    "../../tests/fixtures/fonts/s5b/thai-lao-tibetan/Tibetan-subset.ttf"
+                ),
+            ),
+        ],
+        count: 22,
+        known_diffs: &[],
+        // The Thai and Lao SARA A controls: the spacing vowel is its own owner.
+        owner_floor: 20,
+        changed_notes: thai_lao_tibetan::STRUCTURAL,
     },
 ];
 
@@ -324,7 +350,6 @@ fn classifier_enables_exactly_the_enabled_groups() {
         '\u{1F600}',
         '\u{2500}',
         '\u{0D9A}',
-        '\u{0E01}',
         '\u{11103}',
     ] {
         assert!(!owner_is_eligible(&Cell::new(ch, attrs)), "{ch:?}");
