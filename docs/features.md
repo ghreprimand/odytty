@@ -960,7 +960,8 @@ Drag the rail's inner edge to adjust its width.
 | `right` | Pins the rail on the right |
 
 **Drag a rail slot** to reorder workspaces. A bright rule marks the destination;
-release drops the slot, while `Esc` cancels without changing the order.
+release drops the slot, while `Esc` or a dialog that opens during the drag
+cancels without changing the order.
 
 A short press that stays below the drag threshold remains a normal workspace
 switch. Auto-hide keeps the rail revealed throughout a drag, and the shared
@@ -1257,11 +1258,13 @@ attach list says it is already open elsewhere.
 Drag a tab from the horizontal strip at least 16 physical pixels beyond a
 window edge to show **New window**, then release to move that tab and its panes
 into a new window. Its terminal sessions, PTYs, history, images and selection
-stay intact. Escape or focus loss cancels; returning inside the window keeps
+stay intact. Escape, focus loss, or a dialog that opens during the drag, such
+as the close confirmation, cancels; returning inside the window keeps
 ordinary tab reorder. A lone tab can tear out, closing its empty source window.
 The command palette, right-click menu and merge picker remain available; their
 existing lone-tab refusal is unchanged. Dragging individual panes out is
-unsupported.
+unsupported, and so is dragging a workspace out of the rail: a rail slot drag
+only reorders workspaces.
 
 Placement follows the platform:
 

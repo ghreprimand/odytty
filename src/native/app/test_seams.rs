@@ -2465,6 +2465,32 @@ impl App {
         self.top_tab_drag.map(|drag| (drag.armed, drag.drop_idx))
     }
 
+    /// Test seam (TOP-TAB-DRAG): the active workspace's tabs in strip order.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_tokens_for_test(
+        &self,
+    ) -> Vec<crate::native::session::SessionToken> {
+        (0..self.sessions.tab_count())
+            .filter_map(|idx| self.sessions.token_at_position(idx))
+            .collect()
+    }
+
+    /// Test seam: report a running foreground job in every headless session.
+    #[cfg(test)]
+    pub(in crate::native) fn set_foreground_jobs_running_for_test(&self) {
+        for session in self.sessions.iter() {
+            if let Some(headless) = session.headless_session() {
+                headless.set_foreground_job(crate::pty::ForegroundJob::Running);
+            }
+        }
+    }
+
+    /// Test seam: the window's `CloseRequested` handler.
+    #[cfg(test)]
+    pub(in crate::native) fn request_window_close_for_test(&mut self) {
+        self.on_close_requested();
+    }
+
     /// Frame-level top-strip geometry probe. Returns the hit slot, drop index,
     /// insertion boundary, and hit-slot start in window pixels.
     #[cfg(test)]

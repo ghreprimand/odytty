@@ -1263,10 +1263,13 @@ scope rather than silently inheriting deferred work from a prior release.
   attach dedup spans the process. A horizontal-strip tab drag at least 16
   physical pixels beyond a surface edge shows a New window badge. Releasing
   there reparents that tab, including its panes, into a new window without
-  spawning a shell. Escape or focus loss cancels; returning inside keeps tab
+  spawning a shell. Escape, focus loss, or a dialog that opens mid-drag
+  cancels, and a left press arriving while a tab or workspace drag is still
+  recorded ends that drag uncommitted; returning inside keeps tab
   reorder. A lone tab can tear out and transfers the saved-layout role when
   its source closes; the menu's lone-tab refusal remains unchanged. Pane
-  tear-out is unsupported. X11, macOS, and Windows position the new window at
+  tear-out is unsupported, and workspace rail slot drags only reorder
+  workspaces. X11, macOS, and Windows position the new window at
   the global release point, clamping its origin to the monitor under it.
   Hyprland queries the global cursor, monitor and workspace on release and
   places the new window there through bounded IPC, tiled. The client is

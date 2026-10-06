@@ -216,6 +216,9 @@ impl App {
         // of the keyboard `if self.overlay.is_open()` guard. Shift and
         // the TUI mouse mode are not consulted here.
         if self.overlay.is_open() {
+            // An overlay opened mid-drag owns this button event; the chrome
+            // gesture it interrupted ends uncommitted, clearing its badge.
+            self.cancel_chrome_drags();
             self.handle_overlay_pointer_button(state, button);
             return;
         }
@@ -225,6 +228,7 @@ impl App {
         // the button to its caret/selection handler (F4-RENAME-MOUSE); copy-mode
         // still swallows silently.
         if self.modal_captures_pointer() {
+            self.cancel_chrome_drags();
             if self.rename_state.is_some() {
                 self.handle_rename_pointer_button(state, button);
             }
@@ -237,20 +241,25 @@ impl App {
         // cannot rely on `current_chrome_hit`). Motion is handled in
         // `update_pointer_cell`; Escape cancels via the key path. Placed above the
         // seam/divider/tab-hit routing so a mid-drag release never leaks into
-        // those paths.
+        // those paths. A left PRESS while a gesture is still recorded means its
+        // release was lost (an overlay consumed it, or the platform never
+        // delivered it): the stale gesture ends without committing and the
+        // press routes normally, as a divider gesture does above.
         if self.rail_ws_drag.is_some() && button == WinitMouseButton::Left {
             if state == ElementState::Released {
                 self.finish_workspace_drag();
+                return;
             }
-            return;
+            let _ = self.cancel_workspace_drag();
         }
         // TOP-TAB-DRAG: like the rail gesture, an in-flight tab press owns the
         // left button until release, even when the pointer leaves the strip.
         if self.top_tab_drag.is_some() && button == WinitMouseButton::Left {
             if state == ElementState::Released {
                 self.finish_top_tab_drag();
+                return;
             }
-            return;
+            let _ = self.cancel_top_tab_drag();
         }
         // Preserve ownership of an in-flight seam drag before resolving a new
         // junction press. This keeps releases routed to the gesture that armed.
@@ -1437,6 +1446,13 @@ impl App {
         }
         self.apply_cursor_icon(CursorIcon::Default);
         self.invalidate_chrome_drag_frame();
+    }
+
+    /// End both chrome drag gestures without committing, before a modal
+    /// opens that would otherwise receive their release.
+    pub(super) fn cancel_chrome_drags(&mut self) {
+        let _ = self.cancel_workspace_drag();
+        let _ = self.cancel_top_tab_drag();
     }
 
     pub(super) fn cancel_top_tab_drag(&mut self) -> bool {

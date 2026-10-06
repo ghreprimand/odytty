@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Project-authored pointer and tab ownership regression fixtures.
 use super::*;
+use crate::native::pty::UserEvent;
+use crate::native::session::SessionToken;
 
 fn app() -> App {
     let settings = Settings {
@@ -126,4 +128,160 @@ fn requesting_an_inactive_tab_tear_out_keeps_the_sources_active_identity() {
         original,
         "queuing an inactive tab move must not activate it in the source"
     );
+}
+
+fn two_tab_app() -> (App, SessionToken, SessionToken) {
+    let mut app = app();
+    let first = app.active_session_token_for_test();
+    app.push_headless_session_for_test(
+        Arc::new(Mutex::new(Terminal::new(80, 24))),
+        crate::native::test_support::headless_writer(),
+        Dimensions::new(80, 24),
+    );
+    let tokens = app.tab_tokens_for_test();
+    assert_eq!(tokens.len(), 2);
+    (app, first, tokens[1])
+}
+
+fn tab_slot_x(app: &App, index: usize) -> f64 {
+    let x = (0..640)
+        .find(|x| {
+            app.top_chrome_geometry_probe_for_test(f64::from(*x), 8.0, 1)
+                .is_some_and(|(hit, _, _, _)| hit == index)
+        })
+        .expect("tab slot");
+    f64::from(x) + 1.0
+}
+
+/// Fails before the fix: the close confirmation left the gesture live, so its
+/// badge stayed on screen and the next click anywhere was swallowed as the
+/// stale drag's release, reordering the tab.
+#[test]
+fn a_close_confirmation_mid_drag_cancels_the_gesture_and_a_later_click_moves_nothing() {
+    let (mut app, first, second) = two_tab_app();
+    app.set_foreground_jobs_running_for_test();
+    app.set_pointer_px_for_test(12.0, 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(tab_slot_x(&app, 1) + 200.0, 8.0);
+    assert_eq!(app.top_tab_drag_for_test().map(|drag| drag.0), Some(true));
+    app.pointer_move_for_test(-60.0, -80.0);
+    assert!(app.tear_out_visual_for_test().0, "armed outside the window");
+    app.request_window_close_for_test();
+    assert!(app.confirm_close_open_for_test());
+    assert_eq!(
+        app.top_tab_drag_for_test(),
+        None,
+        "the dialog ends the drag"
+    );
+    let (badge, glyphs) = app.tear_out_visual_for_test();
+    assert!(!badge && !glyphs.contains("New window"), "no stuck badge");
+    app.mouse_left_release_for_test();
+    app.close_overlay_for_test();
+    app.pointer_move_for_test(300.0, 200.0);
+    app.mouse_left_press_for_test();
+    app.mouse_left_release_for_test();
+    assert!(app.take_move_request().is_none());
+    assert_eq!(app.tab_tokens_for_test(), vec![first, second]);
+}
+
+/// Sibling of the tab gesture: the workspace rail drag ends on the same close
+/// confirmation instead of reordering workspaces on the next click.
+#[test]
+fn a_close_confirmation_mid_drag_cancels_a_workspace_rail_drag() {
+    let mut app = app();
+    app.set_workspace_rail_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    for _ in 0..2 {
+        app.push_headless_workspace_for_test(
+            Arc::new(Mutex::new(Terminal::new(80, 24))),
+            crate::native::test_support::headless_writer(),
+            Dimensions::new(80, 24),
+        );
+    }
+    app.set_foreground_jobs_running_for_test();
+    let before = app.active_workspace_index_for_test();
+    app.set_pointer_px_for_test(12.0, 24.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(12.0, 140.0);
+    assert_eq!(app.rail_ws_drag_for_test().map(|drag| drag.0), Some(true));
+    app.request_window_close_for_test();
+    assert!(app.confirm_close_open_for_test());
+    assert_eq!(
+        app.rail_ws_drag_for_test(),
+        None,
+        "the dialog ends the drag"
+    );
+    app.mouse_left_release_for_test();
+    app.close_overlay_for_test();
+    app.pointer_move_for_test(400.0, 200.0);
+    app.mouse_left_press_for_test();
+    app.mouse_left_release_for_test();
+    assert_eq!(app.active_workspace_index_for_test(), before);
+    assert_eq!(app.rail_ws_drag_for_test(), None);
+}
+
+#[test]
+fn the_dragged_tab_exiting_mid_drag_ends_the_gesture_without_a_move() {
+    let (mut app, first, second) = two_tab_app();
+    app.set_pointer_px_for_test(tab_slot_x(&app, 1), 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(-40.0, -40.0);
+    assert!(app.tear_out_visual_for_test().0);
+    app.clear_needs_rebuild_for_test();
+    let _ = app.dispatch_user_event_for_test(UserEvent::ShellExited { session: second });
+    assert_eq!(app.top_tab_drag_for_test(), None);
+    assert!(!app.tear_out_visual_for_test().0, "no stuck badge");
+    assert!(app.needs_rebuild_for_test(), "the cleared badge repaints");
+    app.mouse_left_release_for_test();
+    assert!(app.take_move_request().is_none());
+    assert_eq!(app.tab_tokens_for_test(), vec![first]);
+}
+
+#[test]
+fn another_tab_exiting_mid_drag_ends_the_gesture_without_a_stale_reorder() {
+    let (mut app, first, second) = two_tab_app();
+    app.push_headless_session_for_test(
+        Arc::new(Mutex::new(Terminal::new(80, 24))),
+        crate::native::test_support::headless_writer(),
+        Dimensions::new(80, 24),
+    );
+    let third = app.tab_tokens_for_test()[2];
+    app.set_pointer_px_for_test(tab_slot_x(&app, 2), 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(2.0, 8.0);
+    assert_eq!(
+        app.top_tab_drag_for_test(),
+        Some((true, 1)),
+        "armed, inserting before the middle tab"
+    );
+    app.clear_needs_rebuild_for_test();
+    let _ = app.dispatch_user_event_for_test(UserEvent::ShellExited { session: first });
+    assert_eq!(app.top_tab_drag_for_test(), None);
+    assert!(app.needs_rebuild_for_test());
+    app.mouse_left_release_for_test();
+    assert!(app.take_move_request().is_none());
+    assert_eq!(app.tab_tokens_for_test(), vec![second, third]);
+}
+
+/// Fails before the fix: any overlay that opens mid-drag without the pointer
+/// reset kept the gesture and its badge alive after taking the release.
+#[test]
+fn an_overlay_taking_the_release_ends_the_gesture_and_its_badge() {
+    let (mut app, first, second) = two_tab_app();
+    app.set_pointer_px_for_test(12.0, 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(-60.0, -80.0);
+    assert!(app.tear_out_visual_for_test().0);
+    app.open_confirm_close_for_test();
+    let epoch = app.presentation_epoch_for_test();
+    app.mouse_left_release_for_test();
+    assert_eq!(app.top_tab_drag_for_test(), None);
+    assert!(!app.tear_out_visual_for_test().0, "no stuck badge");
+    assert_ne!(
+        app.presentation_epoch_for_test(),
+        epoch,
+        "the badge repaints away"
+    );
+    assert!(app.take_move_request().is_none());
+    assert_eq!(app.tab_tokens_for_test(), vec![first, second]);
 }

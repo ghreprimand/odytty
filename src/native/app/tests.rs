@@ -2387,3 +2387,74 @@ fn watchdog_record_classes_are_mutually_exclusive_per_episode() {
         "a latched callback-outstanding episode never also emits the classic record"
     );
 }
+
+fn headless_chrome_drag_app() -> App {
+    let settings = Settings {
+        always_show_tab_bar: true,
+        ..Settings::default()
+    };
+    let (mut app, _) = crate::native::test_support::headless_app_with(
+        NativeOptions::default(),
+        crate::core::Dimensions::new(80, 24),
+        settings,
+    );
+    app.set_test_cell_for_test(CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    });
+    app.set_test_surface_for_test(640, 384, WindowPadding::ZERO);
+    for _ in 0..2 {
+        app.push_headless_session_for_test(
+            Arc::new(Mutex::new(crate::core::Terminal::new(80, 24))),
+            crate::native::test_support::headless_writer(),
+            crate::core::Dimensions::new(80, 24),
+        );
+    }
+    app
+}
+
+/// Fails before the fix: a press while a chrome drag survives a lost release
+/// was swallowed as that drag's own press, and its release then committed the
+/// stale gesture (a tab reorder here) far from where it started.
+#[test]
+fn a_press_after_a_lost_tab_drag_release_ends_the_stale_gesture() {
+    let mut app = headless_chrome_drag_app();
+    let tokens = app.tab_tokens_for_test();
+    let mut drag = TopTabDrag::new(0, 12.0, 8.0);
+    assert!(drag.update_arm(-60.0, -80.0));
+    drag.drop_idx = 3;
+    drag.tear_out = true;
+    drag.origin_token = tokens.first().copied();
+    app.top_tab_drag = Some(drag);
+    app.pointer_move_for_test(300.0, 200.0);
+    app.mouse_left_press_for_test();
+    assert_eq!(app.top_tab_drag, None, "the new press ends the stale drag");
+    app.mouse_left_release_for_test();
+    assert!(app.take_move_request().is_none());
+    assert_eq!(app.tab_tokens_for_test(), tokens, "no stale reorder");
+}
+
+/// Sibling of the tab case for the workspace rail drag.
+#[test]
+fn a_press_after_a_lost_rail_drag_release_ends_the_stale_gesture() {
+    let mut app = headless_chrome_drag_app();
+    for _ in 0..2 {
+        app.push_headless_workspace_for_test(
+            Arc::new(Mutex::new(crate::core::Terminal::new(80, 24))),
+            crate::native::test_support::headless_writer(),
+            crate::core::Dimensions::new(80, 24),
+        );
+    }
+    app.rename_workspace_for_test(0, "a");
+    let names = app.workspace_names_for_test();
+    let mut drag = RailWorkspaceDrag::new(0, 12.0, 24.0);
+    assert!(drag.update_arm(12.0, 140.0));
+    drag.drop_idx = 3;
+    app.rail_ws_drag = Some(drag);
+    app.pointer_move_for_test(400.0, 200.0);
+    app.mouse_left_press_for_test();
+    assert_eq!(app.rail_ws_drag, None, "the new press ends the stale drag");
+    app.mouse_left_release_for_test();
+    assert_eq!(app.workspace_names_for_test(), names, "no stale reorder");
+}
