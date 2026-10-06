@@ -104,8 +104,17 @@ rejected with an explicit error response; incomplete state is cleared.
   the text layer; zero/positive-z placements render above it. The full render
   order is: background cell colors → negative-z images → glyphs → non-negative-z
   images. Placements with equal z-index keep transmission order.
-- **`C=1`** — suppress cursor movement after `a=T`/`a=p`. Default (`C=0` or
-  absent): cursor moves to the row below the image at column 0.
+- **`C=`** - cursor movement policy after `a=T`/`a=p`. Default (`C=0` or
+  absent): the cursor moves right by the placement's columns and down by its
+  rows less one, so it sits just after the image on the image's last row. As
+  in kitty, a column at or past the right edge wraps to column 0 of the next
+  row, an overshoot past the bottom margin scrolls the region by that many
+  lines, and the cursor is then clamped to the screen (to the margins when
+  origin mode is set and the image ended inside them). `C=1` leaves the cursor
+  where it was. Virtual (`U=1`) and relative (`P=`) placements never move the
+  cursor. Because the image extent is clamped to the screen when it is placed,
+  an image taller than the rows left below the cursor ends on the bottom row
+  and does not scroll the screen to make room.
 
 ### Quiet modes
 
@@ -178,7 +187,7 @@ rides every transport and format still images use, chunked transfer included.
 more frames, `s=3` runs and loops; `c=` makes a frame current; `r=` with `z=`
 sets one frame's gap; `v=` sets the loop count (`v=1` is infinite). `a=c`
 composes a rectangle from one frame onto another. `d=f` / `d=F` requires an
-image id and deletes the single frame named by `r=` (the root by default), with
+image address (`i=` or `I=`) and deletes the single frame named by `r=` (the root by default), with
 the following frame promoted when the root is removed. If only the root
 remains, lowercase is a no-op and uppercase removes the image and placements.
 
@@ -277,6 +286,9 @@ payload it would have carried is compressed.
   unsupported rather than silently deleting something else.
 - **`S=` and `O=` file size/offset keys**, which read part of a file or
   shared-memory segment rather than all of it.
+- **Relative placements (`P=`, `Q=`, `H=`, `V=`).** The parent keys are not
+  honored: the image is placed at the cursor like any other placement, and the
+  cursor does not move, as the protocol requires for a relative placement.
 
 ---
 

@@ -563,7 +563,7 @@ platforms.
 
 | Protocol | Supported surface |
 | --- | --- |
-| Kitty graphics | Still-image actions `t`, `T`, `p`, `d`, and `q`, plus animation frame/control/composition actions `f`, `a`, and `c`; raw RGB, raw RGBA, and PNG data; direct and chunked-inline transports; opt-in file, temporary-file, and Unix POSIX shared-memory transports; image and placement ids; z-index; crop; cell scaling; pixel offsets; and Unicode placeholders (`U=1` virtual placements resolved from U+10EEEE placeholder cells) |
+| Kitty graphics | Still-image actions `t`, `T`, `p`, `d`, and `q`, plus animation frame/control/composition actions `f`, `a`, and `c`; raw RGB, raw RGBA, and PNG data; direct and chunked-inline transports; opt-in file, temporary-file, and Unix POSIX shared-memory transports; image and placement ids; z-index; crop; cell scaling; pixel offsets; the `C=` cursor movement policy; and Unicode placeholders (`U=1` virtual placements resolved from U+10EEEE placeholder cells) |
 | Sixel | DEC/xterm data language, RGB/HLS color introducers, repeat, raster attributes, transparency, VT340 palette, and DECSDM |
 | iTerm2 inline images | `OSC 1337 ; File=` with `inline`, `size`, `width`, `height` (cell / `px` / `%` / `auto` units), and `preserveAspectRatio`; PNG, JPEG, and WebP containers; cursor advances below the image. Payloads are bounded by the 128 KiB OSC cap (~96 KiB of encoded file bytes) and an over-cap command is rejected whole. `inline=0` downloads are never honored — no escape sequence writes files. |
 

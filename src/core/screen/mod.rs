@@ -1544,9 +1544,7 @@ impl Screen {
             self.kitty_named_transports_enabled,
         );
         if let Some((row, column)) = outcome.cursor {
-            self.cursor.row = row;
-            self.cursor.column = column;
-            self.pending_wrap = false;
+            self.apply_kitty_cursor_advance(row, column);
         }
         if outcome.dirty || outcome.cursor.is_some() {
             self.mark_dirty();

@@ -62,6 +62,8 @@ mod iterm2_tests;
 #[cfg(test)]
 mod kitty_animation_tests;
 #[cfg(test)]
+mod kitty_cursor_tests;
+#[cfg(test)]
 mod kitty_delete_tests;
 #[cfg(test)]
 mod kitty_tests;

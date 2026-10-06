@@ -93,7 +93,7 @@ fn base64_decoder_accepts_padded_and_unpadded_payloads() {
 }
 
 #[test]
-fn kitty_rgba_transmit_and_display_places_at_cursor_without_moving_by_default() {
+fn kitty_rgba_transmit_and_display_places_at_cursor_and_moves_past_it_by_default() {
     let mut t = Terminal::new(20, 4);
     t.advance(b"\x1b[2;4H");
     t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,c=2,r=1,i=42", &rgba_2x1()));
@@ -105,9 +105,11 @@ fn kitty_rgba_transmit_and_display_places_at_cursor_without_moving_by_default() 
     assert_eq!(visible[0].column, 3);
     assert_eq!(visible[0].display_columns, 2);
     assert_eq!(visible[0].display_rows, 1);
+    // Default policy: right by the placement's columns, down by its rows less
+    // one.
     assert_eq!(
         t.screen().cursor(),
-        crate::core::Position { row: 1, column: 3 }
+        crate::core::Position { row: 1, column: 5 }
     );
     assert_eq!(t.take_host_output(), b"\x1b_Gi=42;OK\x1b\\");
 
@@ -257,13 +259,14 @@ fn kitty_intermediate_chunk_append_enforces_pending_budget() {
 }
 
 #[test]
-fn kitty_cursor_moves_only_when_c_flag_requests_it() {
+fn kitty_cursor_stays_put_when_c_flag_is_one() {
     let mut t = Terminal::new(20, 4);
     t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,r=2,C=1", &rgba_2x1()));
 
+    assert_eq!(t.visible_graphics(0).len(), 1);
     assert_eq!(
         t.screen().cursor(),
-        crate::core::Position { row: 2, column: 0 }
+        crate::core::Position { row: 0, column: 0 }
     );
 }
 
@@ -594,8 +597,8 @@ fn kitty_alt_screen_placements_are_isolated() {
 }
 
 // ---------------------------------------------------------------------------
-// K3: placement surface — placement ids, z-index, source crop, cell scaling,
-// pixel offset, a=p display, animation/placeholder out-of-scope.
+// K3: placement surface: placement ids, z-index, source crop, cell scaling,
+// pixel offset, and a=p display.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1081,8 +1084,8 @@ fn kitty_unknown_compression_scheme_is_refused_not_ignored() {
 
 #[test]
 fn kitty_hostile_ratio_zlib_is_refused_at_the_store_budget() {
-    // Bound under test: decompress_payload caps inflate at
-    // ImageStoreLimits.max_decoded_bytes via Read::take(max+1). A tiny store
+    // Bound under test: decompress_payload inflates incrementally and refuses
+    // output past ImageStoreLimits.max_decoded_bytes. A tiny store
     // makes the refusal observable without a 64 MiB fixture: 1024 zero bytes
     // compress to a handful of bytes, expand past 64, and must not land an
     // image. Pass is refusal + empty store, not merely no-panic.

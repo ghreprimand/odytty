@@ -46,6 +46,8 @@ struct PendingTransmission {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct KittyOutcome {
     pub dirty: bool,
+    /// Cursor advance target `(row, column)` after a placement, before the
+    /// screen wraps, scrolls, and clamps it.
     pub cursor: Option<(usize, usize)>,
     pub response: Vec<u8>,
 }
@@ -74,7 +76,14 @@ pub(super) struct ControlData {
     pub(super) height: Option<u32>,
     pub(super) display_columns: Option<usize>,
     pub(super) display_rows: Option<usize>,
+    /// Cursor movement policy (`C=`). Absent or `0` leaves the cursor after the
+    /// placed image; `1` leaves it where it was.
     pub(super) cursor_movement: Option<u32>,
+    /// Parent image id of a relative placement (`P=`). Relative placement is
+    /// not implemented (the image is placed at the cursor); the key is read
+    /// only because the protocol forbids a relative placement from moving the
+    /// cursor.
+    pub(super) parent_image: Option<u32>,
     pub(super) quiet: Option<u32>,
     /// Delete specifier (`d=`): a/A/i/I/c/C/p/P
     pub(super) delete_specifier: Option<char>,
@@ -452,6 +461,7 @@ fn merge_final_chunk_control(base: &mut ControlData, final_chunk: ControlData) {
     base.quiet = final_chunk.quiet.or(base.quiet);
     base.placement_id = final_chunk.placement_id.or(base.placement_id);
     base.cursor_movement = final_chunk.cursor_movement.or(base.cursor_movement);
+    base.parent_image = final_chunk.parent_image.or(base.parent_image);
 }
 
 /// Success outcome for a command that neither moves the cursor nor needs a
@@ -493,8 +503,9 @@ fn process_frame_command(
         .ok_or(KittyError::FrameNotFound)?;
 
     let mut control = command.control.clone();
-    // A frame command's format defaults to 32-bit RGBA, as the protocol's
-    // control-data reference specifies for every transmission command.
+    // A frame command's format defaults to 32-bit RGBA, the protocol's
+    // documented default. Still transmissions keep requiring an explicit `f=`
+    // (see `validate_supported_control`).
     if control.format.is_none() {
         control.format = Some(32);
     }
@@ -883,8 +894,11 @@ fn process_display_command(
 }
 
 /// Build and apply a placement from the control data for a resolved stored
-/// image. Returns whether the scene changed and the optional new cursor
-/// position (when `C=1` is absent and the default cursor-advance applies).
+/// image. Returns whether the scene changed and, under the default cursor
+/// policy, the cursor advance target: the anchor column plus the placement's
+/// columns, and the anchor row plus its rows less one. The target column can
+/// equal the screen width; the screen wraps, scrolls, and clamps it (see
+/// `Screen::apply_kitty_cursor_advance`).
 #[allow(clippy::too_many_arguments)]
 fn place_image(
     graphics: &mut ImageScene,
@@ -952,14 +966,17 @@ fn place_image(
     .with_protocol_ids(effective_image_id, control.placement_id);
 
     let placed = graphics.place(request).is_some();
-    let cursor = if control.cursor_movement == Some(1) {
-        let row = cursor_row
-            .saturating_add(display_rows)
-            .min(screen_rows.saturating_sub(1));
-        Some((row, 0))
-    } else {
-        None
-    };
+    // kitty `handle_put_command`: unless `C=1` or the placement is relative,
+    // the cursor moves right by the placement's columns and down by its rows
+    // less one. Both extents are already clamped to the screen above, so the
+    // target stays within one column of the right edge and on screen.
+    let relative = control.parent_image.is_some_and(|id| id != 0);
+    let cursor = (placed && control.cursor_movement != Some(1) && !relative).then(|| {
+        (
+            cursor_row.saturating_add(display_rows.saturating_sub(1)),
+            cursor_col.saturating_add(display_columns),
+        )
+    });
     (placed, cursor)
 }
 
@@ -1409,6 +1426,7 @@ fn parse_control(control: &[u8]) -> Result<ControlData, KittyError> {
                 parsed.frame_target = parse_u32(value);
             }
             "C" => parsed.cursor_movement = parse_u32(value),
+            "P" => parsed.parent_image = parse_u32(value),
             "q" => parsed.quiet = parse_u32(value),
             "d" => parsed.delete_specifier = parse_char(value),
             "x" => parsed.x = parse_u32(value),

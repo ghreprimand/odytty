@@ -177,8 +177,8 @@ pub(super) fn process_compose(
     Ok(changed)
 }
 
-/// `d=f` / `d=F` - delete one selected frame. The image id is mandatory and
-/// `r=` defaults to the root. Uppercase removes the whole image only when it
+/// `d=f` / `d=F` - delete one selected frame. An image address (`i=` or `I=`)
+/// is mandatory and `r=` defaults to the root. Uppercase removes the whole image only when it
 /// has no extra frame data left.
 pub(super) fn delete_frame(
     graphics: &mut ImageScene,

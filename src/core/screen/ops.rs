@@ -230,6 +230,38 @@ impl Screen {
         self.mark_dirty();
     }
 
+    /// Move the cursor to a Kitty placement's advance target the way kitty's
+    /// `screen_handle_graphics_command` finishes a put: a column at or past the
+    /// right edge wraps to the start of the next row, a row past the bottom
+    /// margin scrolls the region by the overshoot (feeding scrollback exactly
+    /// as a linefeed there would), and the cursor is then clamped to the
+    /// screen, or to the margins when origin mode is set and the target row was
+    /// inside them.
+    pub(super) fn apply_kitty_cursor_advance(&mut self, row: usize, column: usize) {
+        let (top, bottom) = self.effective_region();
+        let in_margins = (top..=bottom).contains(&row);
+        let (mut row, mut column) = (row, column);
+        if column >= self.dimensions.columns {
+            column = 0;
+            row = row.saturating_add(1);
+        }
+        if row > bottom {
+            for _ in 0..(row - bottom).min(self.dimensions.rows) {
+                self.cursor.row = bottom;
+                self.line_feed();
+            }
+        }
+        let (low, high) = if in_margins && self.origin_mode {
+            (top, bottom)
+        } else {
+            (0, self.dimensions.rows - 1)
+        };
+        self.cursor.row = row.clamp(low, high);
+        self.cursor.column = column.min(self.dimensions.columns - 1);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
     /// Active vertical scroll margins. Falls back to the full screen when no
     /// explicit DECSTBM region is set (the standard behaviour for RI/IL/DL).
     pub(super) fn effective_region(&self) -> (usize, usize) {
