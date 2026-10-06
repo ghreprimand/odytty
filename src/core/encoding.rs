@@ -199,7 +199,8 @@ fn encode_mouse_urxvt(
 /// `utf8` false (default protocol) each value must fit in a single byte, so a
 /// coordinate above 223 makes the report unrepresentable and the whole event is
 /// dropped (`None`). With `utf8` true (mode 1005) values are encoded as UTF-8,
-/// extending the range to U+07FF.
+/// extending the range to U+07FF. Coordinates too large for the conversion
+/// itself are dropped the same way, on both axes.
 fn encode_mouse_legacy(
     button: MouseButton,
     kind: MouseEventKind,
@@ -209,8 +210,10 @@ fn encode_mouse_legacy(
     utf8: bool,
 ) -> Option<Vec<u8>> {
     let cb = 32 + legacy_cb(button, kind, mod_bits);
-    let cx = 32 + column as u32;
-    let cy = 32 + row as u32;
+    // Convert with checks: a coordinate that does not fit the wire value is
+    // unrepresentable, never truncated into an alias of a small cell.
+    let cx = u32::try_from(column).ok()?.checked_add(32)?;
+    let cy = u32::try_from(row).ok()?.checked_add(32)?;
 
     let mut out = vec![0x1b, b'[', b'M'];
     push_legacy_value(&mut out, cb as u32, utf8)?;
