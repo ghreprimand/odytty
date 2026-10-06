@@ -98,8 +98,9 @@ pub(super) fn dcs_put(capture: &mut DcsCapture, byte: u8) {
 /// - DECSDM off (default): cursor moves to the row below the image, column 0.
 /// - DECSDM on: cursor stays at its current position (image anchors at cursor).
 ///
-/// Decode errors never disturb terminal state — the payload is dropped and
-/// the error is counted in `stats`.
+/// Decode and store-insertion errors never disturb terminal state: the payload
+/// is dropped, the error is counted in `stats`, and `None` is returned so the
+/// cursor and its pending-wrap state stay as they were.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn dcs_unhook(
     capture: DcsCapture,
@@ -130,8 +131,10 @@ pub(super) fn dcs_unhook(
     let image = match decode_sixel(payload, background) {
         Ok(img) => img,
         Err(_e) => {
+            // No image was placed: report no cursor change, so the caller
+            // leaves the cursor and its pending-wrap state untouched.
             stats.sixel_decode_errors += 1;
-            return Some((cursor_row, cursor_col));
+            return None;
         }
     };
 
@@ -140,7 +143,7 @@ pub(super) fn dcs_unhook(
         Ok(ins) => ins,
         Err(_e) => {
             stats.sixel_decode_errors += 1;
-            return Some((cursor_row, cursor_col));
+            return None;
         }
     };
 

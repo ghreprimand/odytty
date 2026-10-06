@@ -430,6 +430,11 @@ DECSDM controls cursor behavior after a Sixel image is displayed.
 DECSDM resets to off on `RIS` and `DECSTR` along with all other resettable
 terminal modes.
 
+A Sixel stream that fails to decode, or whose image the store refuses, places
+nothing and leaves the cursor exactly as it was, including a pending wrap at
+the right edge, so the next printed character lands where it would have
+without the stream.
+
 ---
 
 ## iTerm2 inline images

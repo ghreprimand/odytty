@@ -187,8 +187,9 @@ pub(in crate::core) fn derive_input_region(
     }
 
     // Heuristic right edge on the last input row (§2.4): rightmost non-blank,
-    // non-continuation cell, maxed with the cell just left of the cursor when
-    // the cursor sits on that row. Stored EXCLUSIVE. Only feeds
+    // non-continuation cell extended through its continuation cells, maxed
+    // with the cell just left of the cursor when the cursor sits on that row.
+    // Stored EXCLUSIVE. Only feeds
     // RightEdgeUnknown; a single-row region whose heuristic end falls left of
     // the input start means "no editable content" => None (pre-existing
     // fail-safe).
@@ -200,7 +201,15 @@ pub(in crate::core) fn derive_input_region(
         .find(|(_, cell)| {
             !cell.wide_continuation && (cell.ch != ' ' || !cell.combining().is_empty())
         })
-        .map(|(column, _)| column);
+        .map(|(column, _)| {
+            // A wide owner's continuation cells belong to it: the exclusive
+            // edge must not fall between a lead and its continuation.
+            let continuation = end_row_cells[column + 1..]
+                .iter()
+                .take_while(|cell| cell.wide_continuation)
+                .count();
+            column + continuation
+        });
     let cursor_end = if cursor.row == end_visible {
         cursor.column.saturating_sub(1)
     } else {
