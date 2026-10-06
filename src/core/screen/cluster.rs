@@ -94,6 +94,13 @@ impl Screen {
     }
 
     fn print_owner(&mut self, cell: Cell, width: usize) {
+        // A grid too narrow for a pair degrades a wide owner to one column,
+        // the same fallback reflow applies, instead of wrapping it forever.
+        let width = if self.dimensions.columns < 2 {
+            width.min(1)
+        } else {
+            width
+        };
         let ch = cell.ch;
         self.last_graphic_char = Some(ch);
         // The shell applied output: a width-changing resize that follows can

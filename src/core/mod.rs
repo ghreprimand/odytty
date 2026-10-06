@@ -76,6 +76,8 @@ mod parser_oracle_tests;
 #[cfg(test)]
 mod placeholder_tests;
 #[cfg(test)]
+mod prompt_boundary_tests;
+#[cfg(test)]
 mod scrollback_bounds_tests;
 #[cfg(test)]
 mod scrollback_tests;

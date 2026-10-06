@@ -679,12 +679,42 @@ impl Scrollback {
         self.ensure_cache(width);
         let cache = self.cache.borrow();
         let mut out = Vec::new();
+        let mut scratch = Vec::new();
         for (line, &start) in self.lines.iter().zip(cache.row_starts.iter()) {
             if let Some(kind) = line.prompt_mark {
+                let kind = self.projected_mark(line, kind, width, &mut scratch);
                 out.push((start - cache.base_row, kind));
             }
         }
         out
+    }
+
+    /// `kind`, a mark of `line`, as the projection at `width` stamps it: a
+    /// command-end boundary is re-expressed at that layout. Marks without a
+    /// boundary need no walk.
+    fn projected_mark(
+        &self,
+        line: &LogicalLine,
+        kind: PromptKind,
+        width: usize,
+        scratch: &mut Vec<Line>,
+    ) -> PromptKind {
+        if kind.boundary_offset().is_none() {
+            return kind;
+        }
+        scratch.clear();
+        project_line_into(
+            line.counting_view(),
+            width,
+            line.open,
+            NO_ROWS,
+            scratch,
+            self.ambiguous_wide,
+        );
+        scratch
+            .first()
+            .and_then(|row| row.prompt_mark)
+            .unwrap_or(kind)
     }
 
     /// The prompt mark at absolute physical row `row`, if any.
@@ -700,7 +730,9 @@ impl Scrollback {
             // A continuation row, which never carries a mark.
             return None;
         }
-        self.lines.get(line_index).and_then(|line| line.prompt_mark)
+        let line = self.lines.get(line_index)?;
+        let kind = line.prompt_mark?;
+        Some(self.projected_mark(line, kind, width, &mut Vec::new()))
     }
 
     /// Append one physical row that has just scrolled off the visible grid.
@@ -726,7 +758,9 @@ impl Scrollback {
             self.retained_cells += last.cells.len() - offset;
             last.open = wrapped;
             if last.prompt_mark.is_none() {
-                last.prompt_mark = row.prompt_mark;
+                // An adopted command-end boundary was measured from this row;
+                // it moves into the line's flat-cell space with the cells.
+                last.prompt_mark = row.prompt_mark.map(|kind| shift_boundary(kind, offset));
             }
             // Button spans arrive in row-local columns; offset them into the
             // logical line's flat-cell space. The per-line cap holds across
@@ -1371,7 +1405,10 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
         } else if current_mark.is_none() {
             // Adopt a mark stamped on a continuation row when the first row
             // carried none (first non-`None` mark in the logical line wins).
-            current_mark = row.prompt_mark;
+            // Its command-end boundary moves into the joined cell space.
+            current_mark = row
+                .prompt_mark
+                .map(|kind| shift_boundary(kind, current.len()));
         }
         // Row-local button spans offset into the joined flat-cell space.
         for span in &row.button_spans {
@@ -1614,6 +1651,12 @@ fn project_line_mode<const MODE: u8>(
         keep -= 1;
     }
     let cells = &cells[..keep];
+    // A command-end boundary in the mark indexes the stored cells, padding
+    // included; it is followed to its projected cell exactly as reflow does.
+    let mark_target = mark
+        .and_then(PromptKind::boundary_offset)
+        .map(|off| (off as usize).min(keep));
+    let mut mark_dest: Option<(usize, usize)> = None;
 
     let blank = Cell::blank();
     // Whether the row being built is inside `window`; re-evaluated each time a
@@ -1660,6 +1703,9 @@ fn project_line_mode<const MODE: u8>(
     while i < cells.len() {
         let cell = cells[i];
         if cell.layout_padding() {
+            if mark_target == Some(i) {
+                mark_dest = Some((out.len(), row_len));
+            }
             i += 1;
             continue;
         }
@@ -1678,6 +1724,15 @@ fn project_line_mode<const MODE: u8>(
             }
             finish_row!(Line::wrapped(std::mem::take(&mut row_cells)));
             produced_any = true;
+        }
+        if mark_target == Some(i)
+            || (unit == 2
+                && mark_target == Some(i + 1)
+                && cells
+                    .get(i + 1)
+                    .is_some_and(|next| next.wide_continuation()))
+        {
+            mark_dest = Some((out.len(), row_len));
         }
 
         if unit == 2 {
@@ -1713,6 +1768,13 @@ fn project_line_mode<const MODE: u8>(
         }
     }
 
+    if mark_target == Some(keep) {
+        mark_dest = Some(if row_len != 0 || !produced_any {
+            (out.len(), row_len)
+        } else {
+            (out.len() - 1, width)
+        });
+    }
     if row_len != 0 || !produced_any {
         while row_len < width {
             emit!(blank);
@@ -1728,9 +1790,15 @@ fn project_line_mode<const MODE: u8>(
         last.wrapped = open;
     }
 
-    // Re-anchor the prompt mark onto this logical line's first physical row.
+    // Re-anchor the prompt mark onto this logical line's first physical row,
+    // with its command-end boundary at this projection's layout.
     if let Some(first) = out.get_mut(first_row) {
-        first.prompt_mark = mark;
+        first.prompt_mark = match (mark, mark_dest) {
+            (Some(kind), Some((row, column))) => Some(kind.with_boundary_offset(
+                super::prompt_marks::relaid_boundary_offset(row - first_row, column, width),
+            )),
+            (kind, _) => kind,
+        };
     }
 
     // Re-anchor button spans onto the produced rows as row-local segments.
@@ -1740,5 +1808,16 @@ fn project_line_mode<const MODE: u8>(
                 line.button_spans.push(span);
             }
         }
+    }
+}
+
+/// `kind` with its command-end boundary moved `by` cells further into its
+/// logical line.
+fn shift_boundary(kind: PromptKind, by: usize) -> PromptKind {
+    match kind.boundary_offset() {
+        Some(offset) => {
+            kind.with_boundary_offset(offset.saturating_add(u32::try_from(by).unwrap_or(u32::MAX)))
+        }
+        None => kind,
     }
 }

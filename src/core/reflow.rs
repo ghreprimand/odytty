@@ -184,7 +184,14 @@ pub(in crate::core) fn reflow_lines_with_options(
         } else if current_mark.is_none() {
             // Adopt a mark stamped on a continuation row when the first row
             // carried none (first non-`None` mark in the logical line wins).
-            current_mark = line.prompt_mark;
+            // Its command-end boundary was measured from that row, so it moves
+            // into the joined line's cell space.
+            current_mark = line.prompt_mark.map(|kind| match kind.boundary_offset() {
+                Some(offset) => kind.with_boundary_offset(
+                    offset.saturating_add(u32::try_from(current.len()).unwrap_or(u32::MAX)),
+                ),
+                None => kind,
+            });
         }
         if idx == cursor_abs_row {
             let column = if options.cursor_pending_wrap {
@@ -266,7 +273,16 @@ pub(in crate::core) fn reflow_lines_with_options(
             row_cells.truncate(new_cols);
             row_cells.resize(new_cols, plain);
             let mut row = Line::unwrapped(row_cells);
-            row.prompt_mark = logical.prompt_mark;
+            // The line keeps its cells up to the cut, so a command-end boundary
+            // keeps its column, clamped to the surviving row.
+            row.prompt_mark = logical
+                .prompt_mark
+                .map(|kind| match kind.boundary_offset() {
+                    Some(offset) => kind.with_boundary_offset(
+                        offset.min(u32::try_from(new_cols).unwrap_or(u32::MAX)),
+                    ),
+                    None => kind,
+                });
             // The line collapsed to one truncated row: clamp its button spans
             // into the surviving columns; spans entirely past the cut drop.
             for span in &logical.button_spans {
@@ -320,6 +336,14 @@ pub(in crate::core) fn reflow_lines_with_options(
         // Where the cursor sits within this logical line's content, clamped to
         // the trimmed length (a cursor past the content lands at end-of-line).
         let cursor_target = logical.cursor_offset.map(|off| off.min(keep));
+        // A command-end boundary in the mark indexes the old layout, padding
+        // included; it is followed to its new cell like the cursor, so dropped
+        // or added padding never moves it onto the next prompt.
+        let mark_target = logical
+            .prompt_mark
+            .and_then(PromptKind::boundary_offset)
+            .map(|off| (off as usize).min(keep));
+        let mut mark_dest: Option<(usize, usize)> = None;
 
         let mut row_cells: Vec<Cell> = Vec::with_capacity(new_cols);
         let mut produced_any = false;
@@ -329,6 +353,9 @@ pub(in crate::core) fn reflow_lines_with_options(
             if cell.layout_padding {
                 if cursor_target == Some(i) {
                     cursor_dest = Some((new_combined.len(), row_cells.len().min(new_cols - 1)));
+                }
+                if mark_target == Some(i) {
+                    mark_dest = Some((new_combined.len(), row_cells.len()));
                 }
                 i += 1;
                 continue;
@@ -357,6 +384,13 @@ pub(in crate::core) fn reflow_lines_with_options(
             // Cursor on a content cell: record its destination before placing.
             if cursor_target == Some(i) {
                 cursor_dest = Some((new_combined.len(), row_cells.len()));
+            }
+            if mark_target == Some(i)
+                || (unit == 2
+                    && mark_target == Some(i + 1)
+                    && cells.get(i + 1).is_some_and(|next| next.wide_continuation))
+            {
+                mark_dest = Some((new_combined.len(), row_cells.len()));
             }
 
             if unit == 2 {
@@ -413,6 +447,13 @@ pub(in crate::core) fn reflow_lines_with_options(
         // last row of this logical line rather than spilling onto a new row, so
         // a full line keeps the cursor at the right edge (pending-wrap), exactly
         // as the pre-reflow grid did.
+        if mark_target == Some(keep) {
+            mark_dest = Some(if !row_cells.is_empty() || !produced_any {
+                (new_combined.len(), row_cells.len())
+            } else {
+                (new_combined.len() - 1, new_cols)
+            });
+        }
         let mut cursor_end_of_content_pending = false;
         if cursor_target == Some(keep) {
             if !row_cells.is_empty() {
@@ -446,9 +487,15 @@ pub(in crate::core) fn reflow_lines_with_options(
             last.wrapped = false;
         }
 
-        // Re-anchor the prompt mark onto this logical line's first physical row.
+        // Re-anchor the prompt mark onto this logical line's first physical row,
+        // with its command-end boundary at the new layout.
         if let Some(first) = new_combined.get_mut(first_row) {
-            first.prompt_mark = logical.prompt_mark;
+            first.prompt_mark = match (logical.prompt_mark, mark_dest) {
+                (Some(kind), Some((row, column))) => Some(kind.with_boundary_offset(
+                    super::prompt_marks::relaid_boundary_offset(row - first_row, column, new_cols),
+                )),
+                (kind, _) => kind,
+            };
         }
 
         // Re-anchor button spans onto the re-wrapped rows as row-local

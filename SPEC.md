@@ -704,7 +704,9 @@ The parser uses the same `dispatch_osc` seam as OSC 7, 8, and 52.
 
 Auxiliary `k=v` fields are accepted and ignored. The `D` status is parsed
 digits-only into `Option<i32>`; absent, non-numeric, or overflowing values
-become `None`, while malformed payloads are consumed without a reply.
+become `None`, while malformed payloads are consumed without a reply. The
+letter must be the whole first field: `AX`, `CX`, or `DX` is not a mark and
+changes no prompt, click-to-position, or edit-region state.
 
 #### Inject Shell Hooks
 

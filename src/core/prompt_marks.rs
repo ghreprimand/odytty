@@ -103,6 +103,62 @@ pub enum PromptKind {
     },
 }
 
+impl PromptKind {
+    /// The command-end cell offset this mark carries inside its logical line,
+    /// when it carries one. The offset indexes the line's cells as laid out at
+    /// one width, layout-padding cells included, so a relayout must remap it
+    /// (see [`PromptKind::with_boundary_offset`]).
+    pub(in crate::core) fn boundary_offset(self) -> Option<u32> {
+        match self {
+            Self::CommandEndAt { logical_offset, .. }
+            | Self::OutputStartAndEndAt { logical_offset, .. } => Some(logical_offset),
+            Self::PromptStartAfterEndAt {
+                end_logical_offset, ..
+            }
+            | Self::PromptStartAfterOutputEndAt {
+                end_logical_offset, ..
+            } => Some(end_logical_offset),
+            _ => None,
+        }
+    }
+
+    /// This mark with its command-end offset replaced; marks without an offset
+    /// are returned unchanged.
+    pub(in crate::core) fn with_boundary_offset(self, offset: u32) -> Self {
+        match self {
+            Self::CommandEndAt { exit, .. } => Self::CommandEndAt {
+                exit,
+                logical_offset: offset,
+            },
+            Self::OutputStartAndEndAt { exit, .. } => Self::OutputStartAndEndAt {
+                exit,
+                logical_offset: offset,
+            },
+            Self::PromptStartAfterEndAt { prev_exit, .. } => Self::PromptStartAfterEndAt {
+                prev_exit,
+                end_logical_offset: offset,
+            },
+            Self::PromptStartAfterOutputEndAt { prev_exit, .. } => {
+                Self::PromptStartAfterOutputEndAt {
+                    prev_exit,
+                    end_logical_offset: offset,
+                }
+            }
+            other => other,
+        }
+    }
+}
+
+/// A command-end offset re-expressed at a new layout: the boundary landed at
+/// column `column` of the logical line's `row_offset`-th row of `width` cells.
+pub(in crate::core) fn relaid_boundary_offset(
+    row_offset: usize,
+    column: usize,
+    width: usize,
+) -> u32 {
+    u32::try_from(row_offset.saturating_mul(width).saturating_add(column)).unwrap_or(u32::MAX)
+}
+
 /// Merge a freshly parsed OSC 133 mark into a row's existing mark (SH1 stamps
 /// one mark per physical row).
 ///
@@ -188,12 +244,22 @@ pub(in crate::core) fn merge_mark(existing: Option<PromptKind>, new: PromptKind)
     }
 }
 
+/// The OSC 133 sub-command letter: the first `;`-split part when it is exactly
+/// one byte. A longer first part (`AX`, `CX`, `DX`) is not a sub-command, so
+/// it changes no prompt state.
+pub(in crate::core) fn osc133_code(parts: &[&[u8]]) -> Option<u8> {
+    match parts.first() {
+        Some([code]) => Some(*code),
+        _ => None,
+    }
+}
+
 /// Parse an OSC 133 payload — the `;`-split parts *after* the leading `133` — into
 /// a [`PromptKind`]. Returns `None` for an empty or unrecognized sub-command so
 /// the caller leaves the current row's mark untouched. Never panics on any byte
 /// sequence.
 pub(in crate::core) fn parse_osc133(parts: &[&[u8]]) -> Option<PromptKind> {
-    let letter = parts.first().and_then(|p| p.first()).copied()?;
+    let letter = osc133_code(parts)?;
     match letter {
         b'A' | b'B' => Some(PromptKind::PromptStart),
         b'C' => Some(PromptKind::OutputStart),
@@ -262,7 +328,7 @@ pub enum ClickEvents {
 /// (e.g. `aid=7`) are simply skipped.
 pub(in crate::core) fn parse_click_events(parts: &[&[u8]]) -> Option<ClickEvents> {
     // Only a prompt-start (A/B) carries the click-events directive.
-    let letter = parts.first().and_then(|p| p.first()).copied()?;
+    let letter = osc133_code(parts)?;
     if !matches!(letter, b'A' | b'B') {
         return None;
     }

@@ -629,7 +629,7 @@ impl Screen {
         if let Some(directive) = prompt_marks::parse_click_events(parts) {
             self.click_events_enabled = matches!(directive, prompt_marks::ClickEvents::Enable);
         }
-        let code = parts.first().and_then(|p| p.first()).copied();
+        let code = prompt_marks::osc133_code(parts);
         // OdyTTY-private edit-region report (`133;P;odytty-edit;len;cur[;nl]`,
         // B-DESIGN §3.1): a cooperating shell's line editor publishing its
         // authoritative buffer length + cursor on every redraw. Pure advisory
