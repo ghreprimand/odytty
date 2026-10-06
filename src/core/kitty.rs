@@ -266,7 +266,13 @@ pub(super) fn handle_apc(
     // Capture the quiet level before `command` is consumed; for chunked
     // transmissions the level may live on the FIRST chunk's control data
     // (`state.pending`), since intermediate/final chunks usually carry only
-    // `m=`. Must be read before the error arm clears `state.pending`.
+    // `m=`. A command that aborts the pending transfer is not part of it and
+    // answers at its own level. Must be read before the error arm clears
+    // `state.pending`.
+    let continues_pending = state
+        .pending
+        .as_ref()
+        .is_some_and(|pending| continues_transfer(pending, &command.control));
     let suppress_error_response = command
         .control
         .quiet
@@ -274,6 +280,7 @@ pub(super) fn handle_apc(
             state
                 .pending
                 .as_ref()
+                .filter(|_| continues_pending)
                 .and_then(|pending| pending.control.quiet)
         })
         .is_some_and(|quiet| quiet >= 2);
@@ -335,15 +342,11 @@ fn handle_command(
     // executes normally. Animation-frame chunks are stricter than still-image
     // chunks: every continuation must repeat `a=f`, so a delete or playback
     // control command can never be swallowed as frame payload.
-    if state.pending.as_ref().is_some_and(|pending| {
-        let action = pending.control.action;
-        let continuation = if action == Some('f') {
-            command.control.action == Some('f')
-        } else {
-            command.control.action.is_none() || command.control.action == action
-        };
-        !continuation
-    }) {
+    if state
+        .pending
+        .as_ref()
+        .is_some_and(|pending| !continues_transfer(pending, &command.control))
+    {
         state.pending = None;
     }
 
@@ -426,7 +429,7 @@ fn handle_command(
     // Dispatch by action type.
     match command.control.action {
         Some('d') => process_delete_command(graphics, &command.control, cursor_row, cursor_col),
-        Some('q') => process_query_command(graphics, command, cell_metrics),
+        Some('q') => process_query_command(graphics, command, named_transports_enabled),
         Some('p') => process_display_command(
             graphics,
             command,
@@ -454,6 +457,18 @@ fn handle_command(
             cell_metrics,
             named_transports_enabled,
         ),
+    }
+}
+
+/// Whether `control` continues the pending chunked transfer rather than
+/// aborting it. Animation-frame chunks must repeat `a=f`; still-image chunks
+/// may omit the action or repeat the first chunk's.
+fn continues_transfer(pending: &PendingTransmission, control: &ControlData) -> bool {
+    let action = pending.control.action;
+    if action == Some('f') {
+        control.action == Some('f')
+    } else {
+        control.action.is_none() || control.action == action
     }
 }
 
@@ -933,10 +948,21 @@ fn place_image(
         width: control.source_w.unwrap_or(0),
         height: control.source_h.unwrap_or(0),
     };
-    // Default display extent derives from the visible source region when a crop
-    // is set, otherwise the full image.
-    let effective_w = control.source_w.unwrap_or(width).min(width).max(1);
-    let effective_h = control.source_h.unwrap_or(height).min(height).max(1);
+    // Default display extent derives from the visible source region. A zero or
+    // omitted crop extent means the rest of the image past the crop origin, so
+    // both readings measure from `x`/`y`, not from the image's own edge.
+    let rest_w = width.saturating_sub(source.x);
+    let rest_h = height.saturating_sub(source.y);
+    let effective_w = control
+        .source_w
+        .filter(|w| *w != 0)
+        .map_or(rest_w, |w| w.min(rest_w))
+        .max(1);
+    let effective_h = control
+        .source_h
+        .filter(|h| *h != 0)
+        .map_or(rest_h, |h| h.min(rest_h))
+        .max(1);
     let display_columns =
         display_columns(control, effective_w, cursor_col, screen_cols, cell_metrics);
     let display_rows = display_rows(control, effective_h, cursor_row, screen_rows, cell_metrics);
@@ -1095,16 +1121,21 @@ fn process_delete_command(
 fn process_query_command(
     graphics: &mut ImageScene,
     command: Command,
-    _cell_metrics: CellMetrics,
+    named_transports_enabled: bool,
 ) -> Result<KittyOutcome, KittyError> {
     // Validate the image would be accepted without storing it.
     validate_supported_control(&command.control)?;
     let max_decoded = graphics.store().limits().max_decoded_bytes;
-    let decoded = decode_base64(&command.payload, max_decoded)?;
     // A query must validate exactly what a transmission would accept, so it
-    // decompresses under the same bound rather than handing a compressed
-    // stream to the pixel decoder and reporting a spurious failure.
-    let decoded = decompress_if_requested(&command.control, decoded, max_decoded)?;
+    // reads its medium under the same named-transport permission and
+    // decompresses under the same bound. Treating a path or segment name as
+    // direct pixel bytes would answer for data the query never named.
+    let decoded = resolve_transport_bytes(
+        &command.control,
+        &command.payload,
+        max_decoded,
+        named_transports_enabled,
+    )?;
     // Validate pixel dimensions / format match.
     let _validated = rgba_from_payload(&command.control, decoded, max_decoded)?;
 
@@ -1217,7 +1248,12 @@ fn rgba_from_payload(
             if decoded.len() != expected {
                 return Err(KittyError::InvalidPayload);
             }
+            // The opaque expansion is refused at the decode budget before it
+            // is allocated, the same bound every other decoded image meets.
             let capacity = pixels.checked_mul(4).ok_or(KittyError::PayloadTooLarge)?;
+            if capacity > max_decoded {
+                return Err(KittyError::PayloadTooLarge);
+            }
             let mut rgba = Vec::with_capacity(capacity);
             for rgb in decoded.as_chunks::<3>().0.iter() {
                 rgba.extend_from_slice(rgb);
@@ -1406,47 +1442,59 @@ fn parse_control(control: &[u8]) -> Result<ControlData, KittyError> {
         let key = std::str::from_utf8(&part[..eq]).map_err(|_| KittyError::MalformedControl)?;
         let value =
             std::str::from_utf8(&part[eq + 1..]).map_err(|_| KittyError::MalformedControl)?;
+        // A known key whose value does not parse as its type refuses the whole
+        // command: defaulting it as if it were absent would run a different
+        // command (`a=TT` as a transmit, `t=dd` as direct bytes, `w=x` as the
+        // rest of the image). Keys this terminal does not read stay ignored.
         match key {
-            "a" => parsed.action = parse_char(value),
-            "f" => parsed.format = parse_u32(value),
-            "t" => parsed.transmission = parse_char(value),
-            "m" => parsed.more_chunks = parse_u32(value).unwrap_or(0) != 0,
-            "i" => parsed.image_id = parse_u32(value),
-            "I" => parsed.image_number = parse_u32(value),
-            "o" => parsed.compression = parse_char(value),
-            "p" => parsed.placement_id = parse_u32(value),
-            "s" => parsed.width = parse_u32(value),
-            "v" => parsed.height = parse_u32(value),
+            "a" => parsed.action = Some(strict(parse_char(value))?),
+            "f" => parsed.format = Some(strict(parse_u32(value))?),
+            "t" => parsed.transmission = Some(strict(parse_char(value))?),
+            "m" => parsed.more_chunks = strict(parse_u32(value))? != 0,
+            "i" => parsed.image_id = Some(strict(parse_u32(value))?),
+            "I" => parsed.image_number = Some(strict(parse_u32(value))?),
+            "o" => parsed.compression = Some(strict(parse_char(value))?),
+            "p" => parsed.placement_id = Some(strict(parse_u32(value))?),
+            "s" => parsed.width = Some(strict(parse_u32(value))?),
+            "v" => parsed.height = Some(strict(parse_u32(value))?),
             "c" => {
-                parsed.display_columns = parse_usize(value);
+                parsed.display_columns = Some(strict(parse_usize(value))?);
                 parsed.frame_base = parse_u32(value);
             }
             "r" => {
-                parsed.display_rows = parse_usize(value);
+                parsed.display_rows = Some(strict(parse_usize(value))?);
                 parsed.frame_target = parse_u32(value);
             }
-            "C" => parsed.cursor_movement = parse_u32(value),
-            "P" => parsed.parent_image = parse_u32(value),
-            "q" => parsed.quiet = parse_u32(value),
-            "d" => parsed.delete_specifier = parse_char(value),
-            "x" => parsed.x = parse_u32(value),
-            "y" => parsed.y = parse_u32(value),
-            "w" => parsed.source_w = parse_u32(value),
-            "h" => parsed.source_h = parse_u32(value),
+            "C" => parsed.cursor_movement = Some(strict(parse_u32(value))?),
+            "P" => parsed.parent_image = Some(strict(parse_u32(value))?),
+            "q" => parsed.quiet = Some(strict(parse_u32(value))?),
+            "d" => parsed.delete_specifier = Some(strict(parse_char(value))?),
+            "x" => parsed.x = Some(strict(parse_u32(value))?),
+            "y" => parsed.y = Some(strict(parse_u32(value))?),
+            "w" => parsed.source_w = Some(strict(parse_u32(value))?),
+            "h" => parsed.source_h = Some(strict(parse_u32(value))?),
             "X" => {
                 parsed.offset_x = parse_i32(value);
                 parsed.upper_x = parse_u32(value);
+                strict(parsed.offset_x.map(drop).or(parsed.upper_x.map(drop)))?;
             }
             "Y" => {
                 parsed.offset_y = parse_i32(value);
                 parsed.upper_y = parse_u32(value);
+                strict(parsed.offset_y.map(drop).or(parsed.upper_y.map(drop)))?;
             }
-            "z" => parsed.z_index = parse_i32(value),
-            "U" => parsed.unicode_placeholder = parse_u32(value),
+            "z" => parsed.z_index = Some(strict(parse_i32(value))?),
+            "U" => parsed.unicode_placeholder = Some(strict(parse_u32(value))?),
             _ => {}
         }
     }
     Ok(parsed)
+}
+
+/// A known control key's parsed value, or `MalformedControl` when the value did
+/// not parse.
+fn strict<T>(value: Option<T>) -> Result<T, KittyError> {
+    value.ok_or(KittyError::MalformedControl)
 }
 
 fn parse_u32(value: &str) -> Option<u32> {

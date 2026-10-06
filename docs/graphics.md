@@ -30,7 +30,7 @@ default `z=0` therefore places an image above text.
 | `T`  | Transmit and display — store and place at cursor | ✅ supported |
 | `p`  | Display a previously transmitted image (by `i=`) without re-sending pixels | ✅ supported |
 | `d`  | Delete placements (see delete specifiers below) | ✅ supported |
-| `q`  | Query — validate control data and payload, no storage | ✅ supported |
+| `q`  | Query - validate control data and payload, no storage; the payload is read through its `t=` medium under the same named-transport gate as a transmission, so a `t=t` query also deletes its temporary file | ✅ supported |
 | `f`  | Animation - transmit frame data for an existing image | ✅ supported |
 | `a`  | Animation - control playback (state, current frame, gap, loops) | ✅ supported |
 | `c`  | Animation - compose a rectangle of one frame onto another | ✅ supported |
@@ -39,10 +39,15 @@ The `U=1` key on `a=T` / `a=p` creates a *virtual placement* for Unicode
 placeholder display instead of placing at the cursor; see the placeholder
 section below.
 
+A key this terminal reads whose value does not parse as that key's type (such
+as `a=TT`, `t=dd`, `o=zz`, `w=x`, or a number past its range) refuses the whole
+command without a response, instead of treating the key as absent. Keys
+OdyTTY does not read are ignored.
+
 | `f=` | Format | Status |
 |------|--------|--------|
 | `32` | Raw RGBA (4 bytes/pixel, base64-encoded) | ✅ supported |
-| `24` | Raw RGB (3 bytes/pixel, expanded to RGBA internally) | ✅ supported |
+| `24` | Raw RGB (3 bytes/pixel, expanded to RGBA internally; the expanded size must fit the decoded-image budget) | ✅ supported |
 | `100` | PNG still image — grayscale, grayscale+alpha, RGB, and RGBA color types; 16-bit samples normalized to 8-bit | ✅ supported |
 
 Any format may additionally be zlib-compressed with `o=z` — see
@@ -69,7 +74,10 @@ container formats.
 Large payloads can be split across multiple APC commands using `m=1` (more
 chunks follow) and `m=0` (final chunk). OdyTTY accumulates chunks under a
 96 MiB encoded-payload cap. If the cap is exceeded the transmission is
-rejected with an explicit error response; incomplete state is cleared.
+rejected with an explicit error response; incomplete state is cleared. A
+command that does not continue the transfer (a different action, or anything
+but `a=f` during a frame transfer) abandons it and runs on its own, answering
+at its own `q=` level rather than the abandoned transfer's.
 
 ### Image ids, placement ids, and display geometry
 
@@ -96,7 +104,7 @@ rejected with an explicit error response; incomplete state is cleared.
   source crop when set, otherwise the full image) and the current cell size.
 - **`x=`/`y=`/`w=`/`h=`** — source-rectangle crop, in pixels, into the
   transmitted image (left, top, width, height). A zero or omitted width/height
-  means "use the rest of the image." On a placement command these are pixel
+  means "use the rest of the image" past `x=`/`y=`. On a placement command these are pixel
   coordinates; on a delete command (`d=p`/`d=P`) `x=`/`y=` are instead cell
   coordinates.
 - **`X=`/`Y=`** — pixel offset of the image within its anchor cell.
