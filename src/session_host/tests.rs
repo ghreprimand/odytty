@@ -785,3 +785,74 @@ impl Drop for TempDir {
         let _ = fs::remove_dir_all(&self.path);
     }
 }
+
+#[test]
+fn reattach_restores_shaped_emoji_and_bidi_rows_cell_for_cell() {
+    // A shaped Devanagari owner, Hebrew, the family ZWJ cluster, a Khmer
+    // owner, and a Latin ligature, written by the child after attach and
+    // restored from the reattach snapshot.
+    let text = "\u{0915}\u{094D}\u{0937} \u{05D0}\u{05D1} \
+                \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466} \
+                \u{1780}\u{17D2}\u{1780}\u{17C1} a->bEND";
+    let octal: String = text.bytes().map(|byte| format!("\\{byte:03o}")).collect();
+    let temp = TempDir::new("sh-script");
+    let config = host_config(
+        temp.path(),
+        "scripts",
+        &format!("read x; printf '{octal}'; sleep 2"),
+        Duration::from_millis(500),
+    );
+    let socket_path = config.runtime_paths().expect("runtime paths").socket;
+    let host = thread::spawn(move || run_host(config));
+
+    wait_for_socket(&socket_path);
+    let mut client = SessionHostClient::connect(&socket_path, "scripts").expect("attach");
+    let _ = expect_snapshot(&mut client);
+    client.send_input(b"\n").expect("release the child");
+    wait_for_output(&mut client, "END");
+    client.detach().expect("detach");
+    drop(client);
+
+    thread::sleep(Duration::from_millis(100));
+    let mut reattached = SessionHostClient::connect(&socket_path, "scripts").expect("reattach");
+    let snapshot = expect_snapshot(&mut reattached);
+    let decoded =
+        SnapshotEnvelope::decode(&snapshot, SnapshotEnvelopeCaps::default()).expect("snapshot");
+    let restored = Terminal::from_snapshot_envelope(&decoded).expect("restore");
+    reattached.detach().expect("detach reattached");
+    drop(reattached);
+    let exit = join_within(host, "session-host thread").expect("host exits cleanly");
+    assert_eq!(exit.reason, HostExitReason::DetachedIdleTimeout);
+
+    let mut expected = Terminal::new(80, 24);
+    expected.advance(text.as_bytes());
+    let expected = expected.snapshot();
+    let restored_snapshot = restored.snapshot();
+    let row = (0..24)
+        .find(|&row| {
+            restored_snapshot.cells[row * 80..(row + 1) * 80]
+                .iter()
+                .any(|cell| cell.ch == '\u{0915}')
+        })
+        .expect("the written row is restored");
+    assert_eq!(
+        restored_snapshot.cells[row * 80..(row + 1) * 80],
+        expected.cells[..80],
+        "the restored row matches a local terminal cell for cell"
+    );
+    let range = crate::selection::SelectionRange {
+        start: crate::selection::CellPoint { row, column: 0 },
+        end: crate::selection::CellPoint { row, column: 79 },
+    };
+    assert_eq!(
+        crate::selection::selected_text(&restored_snapshot, range).trim_end(),
+        text
+    );
+    let wrapped: Vec<bool> = restored
+        .visible_search_rows(0)
+        .iter()
+        .map(|row| row.wrapped)
+        .collect();
+    let map = crate::grid::BidiDisplayMap::plan(&restored_snapshot, &wrapped);
+    assert!(map.row_is_reordered(row), "the Hebrew pair still reorders");
+}

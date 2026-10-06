@@ -395,8 +395,10 @@ crosses a direction boundary can show as separate segments on screen, and
 copy returns the logical text. The pointer, hyperlink hover, and cursor
 effects follow the cells as drawn. The alternate screen used by full-screen
 programs is never reordered, there are no right-to-left paragraph levels,
-shaped complex-script owners stay on their own cells, and image placements
-are not reordered.
+and image placements are not reordered. A shaped complex-script owner is
+never split: inside a right-to-left isolate it moves as one unit, keeps its
+cells adjacent and in order, and draws its shaped glyphs across their visual
+columns.
 
 The support boundary is explicit:
 

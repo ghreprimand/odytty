@@ -290,7 +290,9 @@ pending runtime answer, a `.notdef` result, or no atlas room keeps the
 per-cell path. A stray mark that starts an owner is shaped with a dotted
 circle when the face maps U+25CC, and alone otherwise. The cursor block redraws per-cell glyphs, as it
 does under a Latin ligature. Shaping never crosses owners. Display reordering
-leaves left-to-right owners on their own cells.
+never splits an owner: a left-to-right owner inside a right-to-left isolate
+moves as one unit, keeps its cells adjacent and in order, and its shaped run
+draws whole at their visual columns.
 
 Khmer and Myanmar owners take the same path: coeng stacks, below-base ro,
 pre-base and split vowels, medial ra, kinzi, and stacker forms come from the
