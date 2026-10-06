@@ -7,7 +7,7 @@
 use super::*;
 // Used by the shm-segment test helpers below.
 use std::ffi::CString;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
@@ -42,12 +42,60 @@ fn simple_base64(data: &[u8]) -> String {
     out
 }
 
-/// Write a 2×2 RGBA image (16 bytes) to a temp file, return path.
-fn write_test_rgba_file(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir();
-    let path = dir.join(name);
-    let rgba = [0xFF_u8; 16]; // 2×2 white opaque
-    std::fs::write(&path, rgba).unwrap();
+/// Own an exclusively created directory and all fixture paths inside it.
+struct FixtureDir(std::path::PathBuf);
+
+impl FixtureDir {
+    fn new() -> Self {
+        let fixture = Self(crate::test_dirs::fresh_temp_dir("kt"));
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fixture.0, std::fs::Permissions::from_mode(0o700)).unwrap();
+        fixture
+    }
+
+    fn join(&self, name: &str) -> std::path::PathBuf {
+        self.0.join(name)
+    }
+}
+
+impl Drop for FixtureDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+struct OwnedPath {
+    path: std::path::PathBuf,
+    _directory: FixtureDir,
+}
+
+impl OwnedPath {
+    fn new(name: &str) -> Self {
+        let directory = FixtureDir::new();
+        Self {
+            path: directory.join(name),
+            _directory: directory,
+        }
+    }
+}
+
+impl std::ops::Deref for OwnedPath {
+    type Target = std::path::Path;
+    fn deref(&self) -> &Self::Target {
+        &self.path
+    }
+}
+
+impl AsRef<std::path::Path> for OwnedPath {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+/// Write a 2×2 RGBA image inside an owned directory.
+fn write_test_rgba_file(name: &str) -> OwnedPath {
+    let path = OwnedPath::new(name);
+    std::fs::write(&path, [0xFF_u8; 16]).unwrap();
     path
 }
 
@@ -98,50 +146,141 @@ fn kitty_file_transmit_only(path: &str, format: u32, id: u32) -> Vec<u8> {
     format!("\x1b_Ga=t,t=f,f={format},s=2,v=2,i={id};{path_b64}\x1b\\").into_bytes()
 }
 
-/// Create a POSIX shm segment with the given data.
-///
-/// Populated via `mmap` (after `ftruncate` sizes the object), which is the only
-/// portable way: `read()`/`write()` on a POSIX shm fd return ENXIO ("Device not
-/// configured") on macOS, where shm objects are mmap-only. The production `t=s`
-/// reader (`read_shm_transport`) mirrors this with an `mmap` read, so both ends
-/// are cross-platform and these tests run on Linux and macOS alike.
-fn create_shm(name: &str, data: &[u8]) {
-    let c_name = CString::new(name).unwrap();
-    let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
-    assert!(fd >= 0, "shm_open failed for test setup: {name}");
-    let rc = unsafe { libc::ftruncate(fd, data.len() as libc::off_t) };
-    assert!(rc == 0, "ftruncate failed for test setup: {name}");
-    let addr = unsafe {
-        libc::mmap(
-            std::ptr::null_mut(),
-            data.len(),
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_SHARED,
-            fd,
-            0,
-        )
-    };
-    assert!(
-        addr != libc::MAP_FAILED,
-        "mmap failed for test setup: {name}"
-    );
-    unsafe {
-        std::ptr::copy_nonoverlapping(data.as_ptr(), addr as *mut u8, data.len());
-        libc::munmap(addr, data.len());
-        libc::close(fd);
+/// A POSIX shm object owned only after successful exclusive creation.
+struct OwnedShmFixture {
+    name: CString,
+    fd: OwnedFd,
+}
+
+impl Drop for OwnedShmFixture {
+    fn drop(&mut self) {
+        // SAFETY: this name belongs to the successful exclusive creation.
+        unsafe {
+            libc::shm_unlink(self.name.as_ptr());
+        }
     }
 }
 
-/// Cleanup a shm segment (best-effort).
-fn cleanup_shm(name: &str) {
-    let c_name = CString::new(name).unwrap();
-    unsafe {
-        libc::shm_unlink(c_name.as_ptr());
+impl OwnedShmFixture {
+    fn try_create_name(name: CString) -> std::io::Result<Self> {
+        // SAFETY: a valid name; O_EXCL refuses every existing object.
+        let fd = unsafe {
+            libc::shm_open(
+                name.as_ptr(),
+                libc::O_CREAT | libc::O_EXCL | libc::O_RDWR | libc::O_CLOEXEC,
+                0o600,
+            )
+        };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: successful shm_open transfers this descriptor exactly once.
+        Ok(Self {
+            name,
+            fd: unsafe { OwnedFd::from_raw_fd(fd) },
+        })
     }
+
+    fn create(data: &[u8]) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let name = CString::new(format!(
+            "/oktt-{:x}-{:x}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ))
+        .unwrap();
+        let fixture = Self::try_create_name(name)
+            .expect("unavailable-apparatus: exclusive shm fixture creation");
+        let length = libc::off_t::try_from(data.len()).expect("bounded fixture length");
+        // SAFETY: owned descriptor and checked length. The guard already exists.
+        assert_eq!(
+            unsafe { libc::ftruncate(fixture.fd.as_raw_fd(), length) },
+            0
+        );
+        if data.is_empty() {
+            return fixture;
+        }
+        // POSIX shm on macOS is mmap-only, so do not write through its fd.
+        // SAFETY: the owned object has exactly the required mapping length.
+        let addr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                data.len(),
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fixture.fd.as_raw_fd(),
+                0,
+            )
+        };
+        assert_ne!(addr, libc::MAP_FAILED, "map owned shm fixture");
+        // SAFETY: a valid mapping with data.len() bytes and distinct source.
+        // No operation between the copy and munmap can panic.
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), addr.cast::<u8>(), data.len());
+        }
+        // SAFETY: release exactly the mapping above.
+        assert_eq!(unsafe { libc::munmap(addr, data.len()) }, 0);
+        fixture
+    }
+
+    fn name(&self) -> &str {
+        self.name.to_str().unwrap()
+    }
+}
+
+#[test]
+fn fixture_collision_preserves_existing_shm_bytes() {
+    let fixture = OwnedShmFixture::create(&[0xA5; 16]);
+    let collision = OwnedShmFixture::try_create_name(fixture.name.clone());
+    assert!(matches!(collision, Err(error) if error.raw_os_error() == Some(libc::EEXIST)));
+    assert_eq!(
+        transport::checked_shm_size(fixture.fd.as_raw_fd(), 32),
+        Ok(16)
+    );
+    assert_eq!(
+        transport::read_shm_fd_at_size(fixture.fd.as_raw_fd(), 16, 32).unwrap(),
+        [0xA5; 16]
+    );
+}
+
+#[test]
+fn fixture_panic_unlinks_owned_shm() {
+    let mut name = None;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let fixture = OwnedShmFixture::create(&[0xA5; 16]);
+        name = Some(fixture.name.clone());
+        panic!("project-authored fixture cleanup probe");
+    }));
+    assert!(result.is_err());
+    let name = name.unwrap();
+    // SAFETY: valid name, read-only lookup after the owned fixture was dropped.
+    let fd = unsafe { libc::shm_open(name.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC, 0) };
+    let error = std::io::Error::last_os_error();
+    if fd >= 0 {
+        // SAFETY: close only the descriptor returned by this lookup.
+        drop(unsafe { OwnedFd::from_raw_fd(fd) });
+    }
+    assert_eq!(fd, -1);
+    assert_eq!(error.raw_os_error(), Some(libc::ENOENT));
+}
+
+#[test]
+fn fixture_panic_removes_only_its_owned_directory() {
+    let neighbor = write_test_rgba_file("neighbor.dat");
+    let mut directory = None;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let path = write_test_rgba_file("panic.dat");
+        directory = Some(path._directory.0.clone());
+        panic!("project-authored fixture cleanup probe");
+    }));
+    assert!(result.is_err());
+    assert!(!directory.unwrap().exists());
+    assert_eq!(std::fs::read(&neighbor).unwrap(), [0xFF; 16]);
 }
 
 // ---------------------------------------------------------------------------
-// t=f: File transport — success cases
+// t=f: File transport - success cases
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -149,15 +288,15 @@ fn named_transports_default_off_rejects_before_host_access() {
     let file = write_test_rgba_file("odytty-g25-default-off-file.dat");
     let marked = write_test_rgba_file("tty-graphics-protocol-odytty-g25-default-off.dat");
     let unmarked = write_test_rgba_file("odytty-g25-default-off-temp.dat");
-    let shm_name = format!("/odytty_g25_default_off_{}", std::process::id());
-    create_shm(&shm_name, &[0xFF_u8; 16]);
+    let shm = OwnedShmFixture::create(&[0xFF_u8; 16]);
+    let shm_name = shm.name();
 
     let mut terminal = Terminal::new(80, 24);
     for apc in [
         kitty_file_apc(file.to_str().unwrap(), 32, "i=81"),
         kitty_temp_apc(marked.to_str().unwrap(), 32),
         kitty_temp_apc(unmarked.to_str().unwrap(), 32),
-        kitty_shm_apc(&shm_name, 32, 2, 2),
+        kitty_shm_apc(shm_name, 32, 2, 2),
     ] {
         terminal.advance(&apc);
         let response = String::from_utf8(terminal.take_host_output()).unwrap();
@@ -170,7 +309,7 @@ fn named_transports_default_off_rejects_before_host_access() {
     assert!(file.exists());
     assert!(marked.exists());
     assert!(unmarked.exists());
-    let c_name = CString::new(shm_name.as_str()).unwrap();
+    let c_name = CString::new(shm_name).unwrap();
     let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_RDONLY, 0) };
     assert!(fd >= 0, "a denied t=s request must not unlink the name");
     unsafe { libc::close(fd) };
@@ -178,7 +317,6 @@ fn named_transports_default_off_rejects_before_host_access() {
     std::fs::remove_file(file).ok();
     std::fs::remove_file(marked).ok();
     std::fs::remove_file(unmarked).ok();
-    cleanup_shm(&shm_name);
 }
 
 #[test]
@@ -205,7 +343,7 @@ fn file_transport_rgba_2x2() {
 #[test]
 fn file_transport_png() {
     let png_data = make_2x2_png();
-    let dir = std::env::temp_dir();
+    let dir = FixtureDir::new();
     let path = dir.join("odytty_g25_file_png.png");
     std::fs::write(&path, &png_data).unwrap();
 
@@ -244,7 +382,7 @@ fn file_transport_with_image_id() {
 }
 
 // ---------------------------------------------------------------------------
-// t=f: File transport — security rejections
+// t=f: File transport - security rejections
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -257,21 +395,19 @@ fn file_transport_rejects_outside_tmp() {
 
 #[test]
 fn file_transport_rejects_home_ssh() {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
-    let ssh_path = format!("{home}/.ssh/id_rsa");
+    let ssh_path = "/odytty-fixture-outside-temp/.ssh/id_rsa";
     let mut t = named_transport_terminal();
-    let apc = kitty_file_apc(&ssh_path, 32, "");
+    let apc = kitty_file_apc(ssh_path, 32, "");
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "~/.ssh rejected");
 }
 
 #[test]
 fn file_transport_rejects_symlink() {
-    let dir = std::env::temp_dir();
+    let dir = FixtureDir::new();
     let real = dir.join("odytty_g25_real_for_link.dat");
     let link = dir.join("odytty_g25_symlink.dat");
     std::fs::write(&real, [0xFF_u8; 16]).unwrap();
-    let _ = std::fs::remove_file(&link);
     #[cfg(unix)]
     std::os::unix::fs::symlink(&real, &link).unwrap();
 
@@ -286,8 +422,7 @@ fn file_transport_rejects_symlink() {
 
 #[test]
 fn file_transport_rejects_nonexistent() {
-    let path = std::env::temp_dir().join("odytty_g25_nonexistent_9f3c.dat");
-    let _ = std::fs::remove_file(&path);
+    let path = OwnedPath::new("absent.dat");
     let mut t = named_transport_terminal();
     let apc = kitty_file_apc(path.to_str().unwrap(), 32, "");
     t.advance(&apc);
@@ -337,7 +472,7 @@ fn file_and_temp_transports_reject_fifo_without_blocking() {
     use std::process::Command;
     use std::time::{Duration, Instant};
 
-    let path = std::env::temp_dir().join(format!(
+    let path = OwnedPath::new(&format!(
         "tty-graphics-protocol-odytty-kitty-fifo-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
@@ -352,7 +487,7 @@ fn file_and_temp_transports_reject_fifo_without_blocking() {
         .arg("--exact")
         .arg("core::kitty_transport_tests::fifo_transport_child_rejects_without_deleting")
         .arg("--nocapture")
-        .env("ODYTTY_KITTY_FIFO_TEST_PATH", &path)
+        .env("ODYTTY_KITTY_FIFO_TEST_PATH", path.as_os_str())
         .spawn()
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -363,12 +498,10 @@ fn file_and_temp_transports_reject_fifo_without_blocking() {
         if Instant::now() >= deadline {
             child.kill().unwrap();
             child.wait().unwrap();
-            let _ = std::fs::remove_file(&path);
             panic!("FIFO transport subprocess exceeded the bounded rejection window");
         }
         std::thread::sleep(Duration::from_millis(10));
     };
-    let _ = std::fs::remove_file(&path);
     assert!(
         status.success(),
         "FIFO transport subprocess failed: {status}"
@@ -411,11 +544,10 @@ fn temp_transport_rejects_outside_tmp() {
 
 #[test]
 fn temp_transport_rejects_symlink() {
-    let dir = std::env::temp_dir();
+    let dir = FixtureDir::new();
     let real = dir.join("odytty_g25_temp_real.dat");
     let link = dir.join("odytty_g25_temp_link.dat");
     std::fs::write(&real, [0xFF_u8; 16]).unwrap();
-    let _ = std::fs::remove_file(&link);
     #[cfg(unix)]
     std::os::unix::fs::symlink(&real, &link).unwrap();
 
@@ -434,9 +566,8 @@ fn temp_transport_rejects_symlink() {
 
 #[test]
 fn shm_transport_rgba_2x2() {
-    let name = "/odytty_g25_shm_rgba";
-    let rgba = [0xFF_u8; 16]; // 2×2 white
-    create_shm(name, &rgba);
+    let shm = OwnedShmFixture::create(&[0xFF_u8; 16]);
+    let name = shm.name();
 
     let mut t = named_transport_terminal();
     let apc = kitty_shm_apc(name, 32, 2, 2);
@@ -450,14 +581,13 @@ fn shm_transport_rgba_2x2() {
         unsafe {
             libc::close(fd);
         }
-        cleanup_shm(name);
         panic!("shm segment should have been unlinked");
     }
 }
 
 #[test]
 fn shm_reader_rejects_segment_shrunk_after_initial_size_check() {
-    let path = std::env::temp_dir().join("odytty_shm_shrink_regression.dat");
+    let path = OwnedPath::new("shrink.dat");
     let file = std::fs::File::create(&path).unwrap();
     file.set_len(16).unwrap();
     let expected = super::kitty_transport::checked_shm_size(file.as_raw_fd(), 32).unwrap();
@@ -474,34 +604,28 @@ fn shm_reader_rejects_segment_shrunk_after_initial_size_check() {
 
 #[test]
 fn shm_transport_validation_failure_preserves_name() {
-    let name = format!("/odytty_g25_invalid_shm_{}", std::process::id());
-    let c_name = CString::new(name.as_str()).unwrap();
-    let created = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
-    assert!(created >= 0);
-    unsafe { libc::close(created) };
+    let shm = OwnedShmFixture::create(&[]);
+    let name = shm.name();
+    let c_name = CString::new(name).unwrap();
 
     let mut terminal = named_transport_terminal();
-    terminal.advance(&kitty_shm_apc(&name, 32, 2, 2));
+    terminal.advance(&kitty_shm_apc(name, 32, 2, 2));
     assert!(terminal.visible_graphics(0).is_empty());
 
     let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_RDONLY, 0) };
     assert!(fd >= 0, "a rejected t=s object must retain its name");
     unsafe { libc::close(fd) };
-    cleanup_shm(&name);
 }
 
 #[test]
 fn shm_transport_without_leading_slash() {
-    let name_with = "/odytty_g25_shm_noslash";
-    let name_without = "odytty_g25_shm_noslash";
-    let rgba = [0xFF_u8; 16];
-    create_shm(name_with, &rgba);
+    let shm = OwnedShmFixture::create(&[0xFF_u8; 16]);
+    let name_without = shm.name().strip_prefix('/').unwrap();
 
     let mut t = named_transport_terminal();
     let apc = kitty_shm_apc(name_without, 32, 2, 2);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1, "shm without / works");
-    cleanup_shm(name_with);
 }
 
 #[test]
@@ -527,7 +651,10 @@ fn shm_transport_rejects_nested_slash() {
 #[test]
 fn shm_transport_nonexistent() {
     let mut t = named_transport_terminal();
-    let apc = kitty_shm_apc("/odytty_g25_nonexistent_shm", 32, 2, 2);
+    let shm = OwnedShmFixture::create(&[]);
+    let name = shm.name().to_owned();
+    drop(shm);
+    let apc = kitty_shm_apc(&name, 32, 2, 2);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "nonexistent shm rejected");
 }
@@ -587,7 +714,7 @@ fn file_transport_quiet_suppresses_response() {
 
 #[test]
 fn file_transport_rgb_format() {
-    let dir = std::env::temp_dir();
+    let dir = FixtureDir::new();
     let path = dir.join("odytty_g25_rgb.dat");
     let rgb = [0xFF_u8; 12]; // 2×2 RGB (3 bytes per pixel)
     std::fs::write(&path, rgb).unwrap();
@@ -619,20 +746,19 @@ fn file_transport_dimension_mismatch() {
 #[test]
 fn shm_transport_png() {
     let png_data = make_2x2_png();
-    let name = "/odytty_g25_shm_png";
-    create_shm(name, &png_data);
+    let shm = OwnedShmFixture::create(&png_data);
+    let name = shm.name();
 
     let name_b64 = simple_base64(name.as_bytes());
     let apc = format!("\x1b_Ga=T,t=s,f=100;{name_b64}\x1b\\").into_bytes();
     let mut t = named_transport_terminal();
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1, "PNG via shm placed");
-    cleanup_shm(name);
 }
 
 #[test]
 fn temp_transport_deletes_even_on_decode_failure() {
-    let dir = std::env::temp_dir();
+    let dir = FixtureDir::new();
     let path = dir.join("tty-graphics-protocol-odytty-g25-temp-bad.dat");
     // Write garbage that won't decode as 2×2 RGBA.
     std::fs::write(&path, b"not an image").unwrap();
@@ -657,9 +783,9 @@ fn temp_transport_deletes_even_on_decode_failure() {
 use super::kitty_transport as transport;
 use transport::TransportError;
 
-/// A unique path inside the platform temp directory for this test process.
-fn temp_path(tag: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("odytty-transport-{tag}-{}.dat", std::process::id()))
+/// A path inside an exclusively owned scratch directory.
+fn temp_path(tag: &str) -> OwnedPath {
+    OwnedPath::new(tag)
 }
 
 fn path_bytes(path: &std::path::Path) -> Vec<u8> {
@@ -792,7 +918,6 @@ fn file_reader_admission_is_limited_to_the_allowlisted_roots() {
 #[test]
 fn file_reader_distinguishes_symlink_rejection_from_other_open_failures() {
     let missing = temp_path("absent");
-    std::fs::remove_file(&missing).ok();
     assert!(
         matches!(
             transport::read_file_transport(&path_bytes(&missing), 4096),
@@ -834,7 +959,7 @@ fn temp_reader_requires_the_deletion_marker_before_reading_or_deleting() {
     );
     std::fs::remove_file(&unmarked).ok();
 
-    let marked = std::env::temp_dir().join(format!(
+    let marked = OwnedPath::new(&format!(
         "tty-graphics-protocol-odytty-{}.dat",
         std::process::id()
     ));
@@ -847,7 +972,7 @@ fn temp_reader_requires_the_deletion_marker_before_reading_or_deleting() {
 
     // The cap applies to the temp reader too, and a refused read leaves the
     // file in place.
-    let too_big = std::env::temp_dir().join(format!(
+    let too_big = OwnedPath::new(&format!(
         "tty-graphics-protocol-odytty-big-{}.dat",
         std::process::id()
     ));
@@ -881,11 +1006,16 @@ fn shm_name_admission_rejects_only_malformed_names() {
         );
     }
 
+    let single = (b'A'..=b'Z')
+        .find_map(|letter| {
+            OwnedShmFixture::try_create_name(CString::new(vec![b'/', letter]).unwrap()).ok()
+        })
+        .expect("unavailable-apparatus: no exclusively owned one-character shm name");
     // A one-character name is a legal POSIX shm name. It must reach shm_open
     // and fail there (or succeed), never be refused as malformed.
     assert!(
         !matches!(
-            transport::read_shm_transport(b"/Z", 4096),
+            transport::read_shm_transport(single.name.as_bytes(), 4096),
             Err(TransportError::InvalidPath)
         ),
         "a single-character shm name is legal and must not be refused as malformed"
@@ -894,8 +1024,9 @@ fn shm_name_admission_rejects_only_malformed_names() {
 
 #[test]
 fn shm_reader_reports_the_open_failure_rather_than_a_later_stage() {
-    let name = format!("/odytty-transport-absent-{}", std::process::id());
-    cleanup_shm(&name);
+    let shm = OwnedShmFixture::create(&[]);
+    let name = shm.name().to_owned();
+    drop(shm);
     match transport::read_shm_transport(name.as_bytes(), 4096) {
         Err(TransportError::ShmError(message)) => assert!(
             message.contains("shm_open"),
