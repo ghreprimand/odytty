@@ -1254,11 +1254,35 @@ was and a notice says so. The quick terminal never sends or receives a tab or
 pane. A session attached in another window is not attached a second time; the
 attach list says it is already open elsewhere.
 
-Dragging a tab or pane out of a window is not supported on any platform.
-The command palette, the right-click menu rows above, and the merge picker are
-the route everywhere.
-On Wayland the application cannot place the new window, so the compositor
-chooses where it opens.
+Drag a tab from the horizontal strip at least 16 physical pixels beyond a
+window edge to show **New window**, then release to move that tab and its panes
+into a new window. Its terminal sessions, PTYs, history, images and selection
+stay intact. Escape or focus loss cancels; returning inside the window keeps
+ordinary tab reorder. A lone tab can tear out, closing its empty source window.
+The command palette, right-click menu and merge picker remain available; their
+existing lone-tab refusal is unchanged. Dragging individual panes out is
+unsupported.
+
+Placement follows the platform:
+
+| Platform | New-window placement |
+| --- | --- |
+| Linux X11 | Global release point, clamped to the monitor under the cursor. |
+| Linux Hyprland Wayland | The monitor and workspace under the release-time global cursor, tiled through bounded IPC. |
+| Linux KDE Plasma Wayland | The compositor chooses placement. |
+| Linux GNOME Wayland | The compositor chooses placement. |
+| Linux other Wayland | The compositor chooses placement. |
+| macOS | Global release point, clamped to the monitor under the cursor. |
+| Windows | Global release point, clamped to the monitor under the cursor. |
+
+A new-window failure restores the tab to its source. If Hyprland placement is
+unavailable, the tab still moves safely and its new window shows a notice.
+Hyprland placement reads only the current user session's socket, clamps replies
+and deadlines, and targets the new window by creation identity rather than
+focus. No shell command is spawned. Special-workspace names longer than 128
+UTF-8 bytes or containing commas, semicolons, quotes, backslashes, or control
+characters cannot be used for placement. Compositor-driven live follow during the
+drag is unsupported.
 
 ### Control OdyTTY Locally
 

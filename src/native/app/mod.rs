@@ -166,8 +166,11 @@ mod paste;
 pub(in crate::native) mod platform_opener;
 pub(in crate::native) use multi_window::NewWindowRequest;
 pub(in crate::native) use multi_window_host::{AdoptFactory, MultiWindowHost, SiblingFactory};
+#[cfg(target_os = "linux")]
+mod hyprland_tear_out;
 mod pointer;
 mod pointer_motion;
+mod tab_tear_out;
 pub(super) use pointer::ChromeBand;
 pub(super) use pointer::{RailWorkspaceDrag, TopTabDrag};
 pub(crate) mod profile_launch;

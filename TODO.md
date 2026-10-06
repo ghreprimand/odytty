@@ -95,10 +95,9 @@ claim acceptance on other platforms. The release notes are in
       merge picker; sessions keep their PTY, scrollback, images, profile,
       and `--hold` state; an emptied source closes and hands over the saved
       layout role; the quick terminal is excluded; attach dedup spans every
-      window. Drag tear-out is not implemented on any platform;
-      palette actions, right-click menu rows, and the picker are the path
-      everywhere, and on Wayland the
-      application cannot place the new window.
+      window. The commands remain available alongside horizontal tab
+      tear-out in the v0.17.0 development work. Individual pane tear-out
+      remains unsupported.
 - [x] Stacked and floating pane layouts: **Stack Panes**, **Float Panes**, and
       **Tile Panes** from the palette or terminal menu (default stays tiled;
       older layouts load tiled); stacked shows the focused pane full-bleed with the rest alive;

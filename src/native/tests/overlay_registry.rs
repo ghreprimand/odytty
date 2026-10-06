@@ -193,6 +193,7 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
             overlays,
             rail_overlay: crate::native::render_helpers::RailOverlaySignature::default(),
             bidi_placement: None,
+            tab_tear_out: false,
         },
         cursor: CursorRenderSignature {
             visible: true,

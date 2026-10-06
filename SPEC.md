@@ -1256,14 +1256,26 @@ scope rather than silently inheriting deferred work from a prior release.
   timers, applies its presentation policy, and activates the tab. A new
   window is built around the content with no shell spawn and its surface is
   created before it joins the window list; on failure the content returns to
-  its source. Moving a window's only tab to a new window is refused. An
+  its source. The menu refuses moving a window's only tab to a new window. An
   emptied source window is retired and hands its primary autosave role to
   the destination. The quick terminal never sends or receives. The window
   owner shares every window's attached host-session ids with its siblings so
-  attach dedup spans the process. Drag tear-out is not implemented on any
-  platform; palette actions, the right-click menu rows, and the picker are the
-  path everywhere, and on
-  Wayland the application cannot place the new window.
+  attach dedup spans the process. A horizontal-strip tab drag at least 16
+  physical pixels beyond a surface edge shows a New window badge. Releasing
+  there reparents that tab, including its panes, into a new window without
+  spawning a shell. Escape or focus loss cancels; returning inside keeps tab
+  reorder. A lone tab can tear out and transfers the saved-layout role when
+  its source closes; the menu's lone-tab refusal remains unchanged. Pane
+  tear-out is unsupported. X11, macOS, and Windows position the new window at
+  the global release point, clamping its origin to the monitor under it.
+  Hyprland queries the global cursor, monitor and workspace on release and
+  places the new window there through bounded IPC, tiled. The client is
+  identified by its unique initial title and process id, never current focus.
+  Visible special workspaces take precedence over the regular workspace;
+  their selectors are capped at 128 UTF-8 bytes and reject IPC delimiters.
+  Other Wayland compositors, including KDE Plasma and GNOME, choose placement.
+  A refused surface creation restores the tab; unavailable Hyprland placement
+  leaves the tab in its new window and shows a notice.
 - Stacked and floating layouts (v0.16.0): a tab keeps its binary split tree
   as the single source of truth for which panes exist and their stable order,
   and carries an arrangement beside it: tiled (default; the only mode older

@@ -33,12 +33,14 @@ pub(in crate::native) struct MovedHold {
     held_exit: Option<SessionToken>,
 }
 
-/// A request to move content out of this window, captured from the palette
+/// A request to move content out of this window, captured from its UI
 /// and serviced by the window owner after the event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) enum MoveRequest {
     /// Open a new window holding the content.
     NewWindow(MoveScope),
+    /// Pointer tab tear-out; the destination policy is resolved on release.
+    TearOut(super::tab_tear_out::TearOutRelease),
 }
 
 /// Notice shown when a move cannot happen.
@@ -154,7 +156,19 @@ impl App {
         content: MovedContent,
         hold: MovedHold,
     ) {
+        self.restore_after_failed_move_to(content, hold, None);
+    }
+
+    pub(super) fn restore_after_failed_move_to(
+        &mut self,
+        content: MovedContent,
+        hold: MovedHold,
+        active: Option<SessionToken>,
+    ) {
         self.sessions.restore_moved(content);
+        if let Some(active) = active {
+            self.sessions.switch(active);
+        }
         self.adopt_moved_hold(hold);
         if scope_was_pane_reflow(&self.sessions) {
             self.reflow_active_panes_and_redraw();

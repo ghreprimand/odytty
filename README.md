@@ -140,7 +140,7 @@ sessions.
 - **Workspaces and remote work:** tabs, panes, named workspaces, layouts,
   restore, [named launch profiles](docs/profiles.md), Unix detached sessions,
   an SSH connection manager, optional `tmux` persistence, and a searchable
-  Session Navigator.
+  Session Navigator, and tab tear-out into a new window.
 - **Configuration without ceremony:** a live settings panel, command palette,
   145 built-in themes, user themes and a theme builder, backgrounds,
   transparency, and bloom, CRT, and retro effects, with config-file hot reload.

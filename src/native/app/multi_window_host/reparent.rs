@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Moving a tab or a pane between windows of this process: the owner side.
 //!
-//! Two routes, both keyboard and palette driven, on Linux (Wayland and X11),
+//! Window move routes on Linux (Wayland and X11),
 //! macOS, and Windows:
 //!
 //! - **To another window.** The merge picker opens with a move direction and
@@ -14,12 +14,13 @@
 //!   no shell spawn, from its own disjoint token range, and its surface is
 //!   created before it joins the window list. If the surface cannot be
 //!   created, the content goes back to its source exactly as it was and a
-//!   notice says so. Moving a window's only tab to a new window is refused:
+//!   notice says so. Menu requests for a window's only tab are refused:
 //!   it would only recreate the window.
 //!
-//! The quick terminal is never a source or a destination. Drag tear-out is
-//! not part of this path; Wayland cannot position a new surface or report
-//! drops, so the palette is the supported route there.
+//! The quick terminal is never a source or a destination. Horizontal tab
+//! tear-out uses the same transaction with a separate release placement policy.
+//! Its lone-tab path can retire an emptied source; menu requests retain their
+//! existing lone-tab refusal. Placement runs only after the surface opens.
 
 use super::*;
 use crate::native::app::reparent::{MOVE_REFUSED_NOTICE, MoveRequest};
@@ -140,11 +141,38 @@ impl MultiWindowHost {
             })
             .collect();
         for (origin, request) in requests {
-            let MoveRequest::NewWindow(scope) = request;
-            self.move_to_new_window(origin, scope, |app| {
-                app.try_resume_presentation(event_loop)
-                    .map_err(|err| err.to_string())
-            });
+            match request {
+                MoveRequest::NewWindow(scope) => {
+                    self.move_to_new_window(origin, scope, |app| {
+                        app.try_resume_presentation(event_loop)
+                            .map_err(|err| err.to_string())
+                    });
+                }
+                MoveRequest::TearOut(release) => {
+                    self.move_to_new_window_with_tear_out(
+                        origin,
+                        MoveScope::ActiveTab,
+                        true,
+                        Some(release.tab),
+                        |app| {
+                            #[cfg(target_os = "linux")]
+                            app.prepare_tear_out_placement(release.hyprland);
+                            app.try_resume_presentation(event_loop)
+                                .map_err(|err| err.to_string())?;
+                            if let Some(window) = app.window.as_ref() {
+                                super::super::tab_tear_out::place_native(window, release);
+                            }
+                            #[cfg(target_os = "linux")]
+                            app.start_tear_out_placement();
+                            #[cfg(target_os = "linux")]
+                            if release.hyprland_requested && release.hyprland.is_none() {
+                                app.finish_tear_out_placement(false);
+                            }
+                            Ok(())
+                        },
+                    );
+                }
+            }
         }
     }
 
@@ -158,6 +186,17 @@ impl MultiWindowHost {
         scope: MoveScope,
         open: impl FnOnce(&mut App) -> Result<(), String>,
     ) -> bool {
+        self.move_to_new_window_with_tear_out(origin, scope, false, None, open)
+    }
+
+    fn move_to_new_window_with_tear_out(
+        &mut self,
+        origin: ProcessWindowId,
+        scope: MoveScope,
+        allow_sole_tab: bool,
+        target: Option<SessionToken>,
+        open: impl FnOnce(&mut App) -> Result<(), String>,
+    ) -> bool {
         let Some(source_idx) = self.index_of(origin) else {
             return false;
         };
@@ -165,7 +204,7 @@ impl MultiWindowHost {
             self.windows[source_idx].raise_open_notice(QUICK_MOVE_NOTICE.to_owned());
             return false;
         }
-        if self.windows[source_idx].move_empties_window(scope) {
+        if !allow_sole_tab && self.windows[source_idx].move_empties_window(scope) {
             self.windows[source_idx].raise_open_notice(ONLY_CONTENT_NOTICE.to_owned());
             return false;
         }
@@ -174,14 +213,24 @@ impl MultiWindowHost {
             return false;
         };
         let source = &mut self.windows[source_idx];
+        let source_active = source.sessions.active_id();
+        if let Some(target) = target {
+            if !source.sessions.owns_session(target) {
+                return false;
+            }
+            // Arena targeting only: an inactive tab never gains source focus.
+            source.sessions.switch(target);
+        }
         let (content, hold) = match source.detach_for_move(scope) {
             Ok(moved) => moved,
             Err(err) => {
                 tracing::warn!(?err, "move to a new window refused at detach");
+                source.sessions.switch(source_active);
                 source.raise_open_notice(MOVE_REFUSED_NOTICE.to_owned());
                 return false;
             }
         };
+        source.sessions.switch(source_active);
         let tokens = content.tokens();
         let template = content.restore_template();
         let set = WorkspaceSet::adopting(
@@ -196,13 +245,22 @@ impl MultiWindowHost {
             let content = window.workspace_set_mut().release_adopted(template);
             window.release_surface();
             drop(window);
-            self.windows[source_idx].restore_after_failed_move(content, hold);
+            self.windows[source_idx].restore_after_failed_move_to(
+                content,
+                hold,
+                Some(source_active),
+            );
             return false;
         }
         window.adopt_moved_hold(hold);
         window.arrive_moved_sessions(&tokens);
         window.focus_quick_window();
-        self.windows[source_idx].after_move_out(scope);
+        if self.windows[source_idx].after_move_out(scope) {
+            window.adopt_autosave_ownership_from(&mut self.windows[source_idx], Instant::now());
+            let mut retired = self.windows.remove(source_idx);
+            retired.release_surface();
+            self.detach_quick_if_owned(retired.process_window_id());
+        }
         self.windows.push(window);
         self.sync_sibling_counts();
         true
@@ -258,6 +316,109 @@ mod tests {
             .flat_map(|ws| ws.tabs.iter())
             .map(|tab| tab.layout.leaves().iter().map(|token| token.0).collect())
             .collect()
+    }
+
+    #[test]
+    fn a_sole_tab_tear_out_retires_its_source_without_respawning_and_transfers_autosave() {
+        let mut origin = headless();
+        origin.set_primary_instance_for_test(true);
+        let token = origin.active_session_token_for_test();
+        let model = origin.workspace_set().get(token).unwrap().terminal.clone();
+        let id = origin.process_window_id();
+        let mut host = host_of(vec![origin]);
+        assert!(host.move_to_new_window_with_tear_out(
+            id,
+            MoveScope::ActiveTab,
+            true,
+            None,
+            |_| Ok(())
+        ));
+        assert_eq!(host.windows.len(), 1);
+        assert_ne!(host.windows[0].process_window_id(), id);
+        assert!(host.windows[0].autosave_is_primary);
+        assert!(Arc::ptr_eq(
+            &host.windows[0].workspace_set().get(token).unwrap().terminal,
+            &model
+        ));
+    }
+
+    #[test]
+    fn a_refused_sole_tab_tear_out_restores_its_source_and_keeps_the_menu_rule() {
+        let origin = headless();
+        let id = origin.process_window_id();
+        let token = origin.active_session_token_for_test();
+        let mut host = host_of(vec![origin]);
+        assert!(!host.move_to_new_window_with_tear_out(
+            id,
+            MoveScope::ActiveTab,
+            true,
+            None,
+            |_| Err("surface refused".into())
+        ));
+        assert_eq!(host.windows.len(), 1);
+        assert_eq!(host.windows[0].process_window_id(), id);
+        assert!(host.windows[0].owns_session(token));
+        assert!(
+            !host.move_to_new_window(id, MoveScope::ActiveTab, |_| panic!(
+                "menu must refuse sole tab"
+            ))
+        );
+    }
+
+    #[test]
+    fn inactive_tab_tear_out_success_and_rollback_keep_source_focus_and_model_identity() {
+        for succeeds in [true, false] {
+            let mut origin = headless();
+            let active = origin.active_session_token_for_test();
+            let model = terminal();
+            origin.push_headless_session_for_test(
+                model.clone(),
+                crate::native::test_support::headless_writer(),
+                Dimensions::new(80, 24),
+            );
+            let moving = origin.session_token_at_position_for_test(1).unwrap();
+            origin.push_headless_session_for_test(
+                terminal(),
+                crate::native::test_support::headless_writer(),
+                Dimensions::new(80, 24),
+            );
+            assert_eq!(origin.active_session_token_for_test(), active);
+            let id = origin.process_window_id();
+            let mut host = host_of(vec![origin]);
+            assert_eq!(
+                host.move_to_new_window_with_tear_out(
+                    id,
+                    MoveScope::ActiveTab,
+                    true,
+                    Some(moving),
+                    |_| {
+                        if succeeds {
+                            Ok(())
+                        } else {
+                            Err("surface refused".into())
+                        }
+                    }
+                ),
+                succeeds
+            );
+            assert_eq!(host.windows[0].active_session_token_for_test(), active);
+            assert_eq!(host.windows.len(), if succeeds { 2 } else { 1 });
+            let destination = if succeeds {
+                &host.windows[1]
+            } else {
+                &host.windows[0]
+            };
+            assert!(Arc::ptr_eq(
+                &destination.workspace_set().get(moving).unwrap().terminal,
+                &model
+            ));
+            if !succeeds {
+                assert_eq!(
+                    tab_leaves(&host.windows[0]),
+                    vec![vec![0], vec![1], vec![2]]
+                );
+            }
+        }
     }
 
     #[test]

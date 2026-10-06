@@ -351,6 +351,8 @@ pub(super) struct RenderContentSignature {
     /// alone changes rebuilds. `None` while reordering is off, a
     /// frame-to-frame constant that leaves the cache decision unchanged.
     pub(super) bidi_placement: Option<u64>,
+    /// Tab tear-out badge state; repaint both arming and cancellation.
+    pub(super) tab_tear_out: bool,
 }
 
 /// Cache key for the F4-P3 revealed rail overlay. `default()` — not revealed —

@@ -375,3 +375,5 @@ mod audit_snapshot_ownership;
 mod audit_ui_liveness;
 
 mod script_shaping;
+
+mod tab_tear_out;

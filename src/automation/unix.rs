@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use super::dispatch::Submission;
 use super::protocol::{self, ErrorCode, Reply, Request, Response};
 
-mod connection;
+pub(crate) mod connection;
 use connection::{DeadlineStream, connect, peer_is_owner};
 
 const MAX_CLIENTS: usize = 8;

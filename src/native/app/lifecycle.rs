@@ -223,6 +223,10 @@ impl App {
         presentation_active: bool,
     ) -> Option<Instant> {
         [
+            #[cfg(target_os = "linux")]
+            self.pending_tear_out_placement
+                .as_ref()
+                .map(|_| Instant::now() + Duration::from_millis(20)),
             self.deadline,
             presentation_active
                 .then(|| self.resize_debounce.deadline())
@@ -676,6 +680,8 @@ impl App {
     }
 
     pub(super) fn run_about_to_wait_maintenance(&mut self, now: Instant) {
+        #[cfg(target_os = "linux")]
+        self.poll_tear_out_placement();
         // Settle a focus-loss paste cancellation once the event batch that
         // delivered the loss is complete. A same-batch focus regain (Hyprland's
         // leave+enter at drop) has cleared the latch by now, so the drop's
@@ -979,7 +985,7 @@ impl App {
         // matches `WindowAttributes::default()`, so the startup chain is
         // byte-identical when unset.
         let attributes = Window::default_attributes()
-            .with_title(self.options.title.clone())
+            .with_title(self.initial_window_title())
             .with_inner_size(LogicalSize::new(w, h))
             .with_decorations(self.settings.window_decorations)
             // Runtime window/title-bar icon (Windows + X11; a no-op on macOS and

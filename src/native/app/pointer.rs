@@ -34,10 +34,12 @@ pub(in crate::native) enum ChromeBand {
 /// reorder gestures. Below this, press+release remains a plain activation.
 pub(in crate::native) const CHROME_DRAG_THRESHOLD_PX: f64 = 5.0;
 
-/// In-flight drag-to-reorder gesture in the horizontal top tab strip.
+/// In-flight tab reorder or tear-out gesture in the horizontal top strip.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::native) struct TopTabDrag {
     pub(in crate::native) origin_idx: usize,
+    /// Stable tab focus token captured on press, independent of later indices.
+    pub(in crate::native) origin_token: Option<SessionToken>,
     press_x: f64,
     press_y: f64,
     /// Pointer distance from the grabbed slot's leading edge, in pixels.
@@ -46,12 +48,14 @@ pub(in crate::native) struct TopTabDrag {
     pub(in crate::native) pointer_x: f64,
     pub(in crate::native) armed: bool,
     pub(in crate::native) drop_idx: usize,
+    pub(in crate::native) tear_out: bool,
 }
 
 impl TopTabDrag {
     pub(in crate::native) fn new(idx: usize, press_x: f64, press_y: f64) -> Self {
         Self {
             origin_idx: idx,
+            origin_token: None,
             press_x,
             press_y,
             grab_offset_x: 0.0,
@@ -59,6 +63,7 @@ impl TopTabDrag {
             pointer_x: press_x,
             armed: false,
             drop_idx: idx,
+            tear_out: false,
         }
     }
 
@@ -1371,13 +1376,15 @@ impl App {
     }
 
     // -----------------------------------------------------------------------
-    // TOP-TAB-DRAG: drag-to-reorder tabs in the horizontal strip
+    // TOP-TAB-DRAG: tab reorder and tear-out in the horizontal strip
     // -----------------------------------------------------------------------
 
     pub(super) fn begin_top_tab_drag(&mut self, idx: usize) {
         match self.window_pointer_px {
             Some((x, y)) => {
-                self.top_tab_drag = Some(TopTabDrag::new(idx, x, y));
+                let mut drag = TopTabDrag::new(idx, x, y);
+                drag.origin_token = self.sessions.token_at_position(idx);
+                self.top_tab_drag = Some(drag);
                 self.invalidate_chrome_drag_frame();
             }
             None => self.activate_tab(idx),
@@ -1398,6 +1405,7 @@ impl App {
             drag.slot_span_px = span;
         }
         let armed = drag.update_arm(x_px, y_px);
+        drag.tear_out = armed && self.tab_tear_out_at(x_px, y_px);
         let proxy_center_x = x_px - drag.grab_offset_x + drag.slot_span_px / 2.0;
         if armed
             && let Some(insert) = geometry
@@ -1414,10 +1422,15 @@ impl App {
     }
 
     pub(super) fn finish_top_tab_drag(&mut self) {
+        let tear_out = self.tab_tear_out_signature();
         let Some(drag) = self.top_tab_drag.take() else {
             return;
         };
-        if drag.armed {
+        if drag.armed && tear_out {
+            if let Some(token) = drag.origin_token {
+                self.request_tab_tear_out(token);
+            }
+        } else if drag.armed {
             let _ = self.sessions.reorder_tab(drag.origin_idx, drag.drop_idx);
         } else {
             self.activate_tab(drag.origin_idx);

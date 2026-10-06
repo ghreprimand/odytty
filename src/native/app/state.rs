@@ -454,6 +454,8 @@ pub(in crate::native) struct App {
     pub(super) pending_merge_picker: Option<crate::native::merge_picker::MergeDirection>,
     /// A pending "move to a new window" request, drained by the window owner.
     pub(super) pending_move: Option<crate::native::app::reparent::MoveRequest>,
+    #[cfg(target_os = "linux")]
+    pub(super) pending_tear_out_placement: Option<super::hyprland_tear_out::PendingPlacement>,
     /// Whether an open picker that targets (or was opened by) this window
     /// moves a tab or pane rather than merging windows; selects the badge
     /// wording.
@@ -838,6 +840,8 @@ impl App {
             wayland_surface_present_for_test: None,
             pending_merge_picker: None,
             pending_move: None,
+            #[cfg(target_os = "linux")]
+            pending_tear_out_placement: None,
             merge_picker_moves: false,
             peer_attached_sessions: Vec::new(),
             sibling_window_count: 0,

@@ -5,7 +5,7 @@ use super::*;
 use std::os::fd::FromRawFd;
 use std::os::unix::ffi::OsStrExt;
 
-pub(super) fn peer_is_owner(stream: &UnixStream) -> io::Result<()> {
+pub(crate) fn peer_is_owner(stream: &UnixStream) -> io::Result<()> {
     #[cfg(target_os = "linux")]
     let uid = {
         let mut credentials: libc::ucred = unsafe { std::mem::zeroed() };
@@ -44,13 +44,13 @@ pub(super) fn peer_is_owner(stream: &UnixStream) -> io::Result<()> {
     Ok(())
 }
 
-pub(super) struct DeadlineStream {
+pub(crate) struct DeadlineStream {
     stream: UnixStream,
     deadline: Instant,
 }
 
 impl DeadlineStream {
-    pub(super) fn new(stream: UnixStream, timeout: Duration) -> io::Result<Self> {
+    pub(crate) fn new(stream: UnixStream, timeout: Duration) -> io::Result<Self> {
         stream.set_nonblocking(true)?;
         Ok(Self {
             stream,
@@ -168,7 +168,7 @@ impl Write for DeadlineStream {
 
 /// A blocking AF_UNIX connect can wait for a saturated accept queue. Start
 /// nonblocking and poll once against an absolute deadline instead.
-pub(super) fn connect(path: &Path, timeout: Duration) -> io::Result<UnixStream> {
+pub(crate) fn connect(path: &Path, timeout: Duration) -> io::Result<UnixStream> {
     let bytes = path.as_os_str().as_bytes();
     let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
     if bytes.len() >= address.sun_path.len() || bytes.contains(&0) {

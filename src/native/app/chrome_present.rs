@@ -18,6 +18,10 @@ impl TabPanelFrameQuads {
 
 impl App {
     pub(super) fn update_window_title(&mut self) {
+        #[cfg(target_os = "linux")]
+        if self.pending_tear_out_placement.is_some() {
+            return;
+        }
         let Some(window) = self.window.as_ref() else {
             return;
         };
@@ -32,7 +36,19 @@ impl App {
         window.set_title(&title);
     }
 
+    pub(super) fn initial_window_title(&self) -> String {
+        #[cfg(target_os = "linux")]
+        if let Some(placement) = self.pending_tear_out_placement.as_ref() {
+            return placement.identity.clone();
+        }
+        self.options.title.clone()
+    }
+
     pub(super) fn active_window_title(&self) -> String {
+        #[cfg(target_os = "linux")]
+        if let Some(placement) = self.pending_tear_out_placement.as_ref() {
+            return placement.identity.clone();
+        }
         self.terminal
             .lock()
             .ok()
@@ -195,6 +211,17 @@ impl App {
             output
                 .quads
                 .push(geometry.insertion_indicator(drag.drop_idx, drag.origin_idx, accent));
+        }
+        if self.tab_tear_out_signature() {
+            // The reserved strip contains the badge; terminal cells stay untouched.
+            let label = "New window";
+            let start = output.glyphs.len().saturating_sub(label.len() + 1);
+            for (glyph, ch) in output.glyphs.iter_mut().skip(start).zip(label.chars()) {
+                glyph.ch = ch;
+                let (r, g, b) = colors.foreground;
+                glyph.attrs.foreground = Color::Rgb(r, g, b);
+                glyph.attrs.set_bold(true);
+            }
         }
         output
     }

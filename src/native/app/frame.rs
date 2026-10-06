@@ -727,6 +727,7 @@ impl App {
                         // reveal / hide / hover / switch rebuilds the
                         // frame. `default()` (not revealed) is constant.
                         rail_overlay: self.rail_overlay_render_signature(cell),
+                        tab_tear_out: self.tab_tear_out_signature(),
                         bidi_placement: bidi_content
                             .as_ref()
                             .map(crate::grid::BidiDisplayMap::placement_hash),

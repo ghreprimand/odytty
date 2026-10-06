@@ -1516,6 +1516,7 @@ fn render_sig() -> RenderSignature {
             },
             rail_overlay: crate::native::render_helpers::RailOverlaySignature::default(),
             bidi_placement: None,
+            tab_tear_out: false,
         },
         cursor: CursorRenderSignature {
             visible: true,
