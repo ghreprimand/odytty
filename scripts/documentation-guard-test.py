@@ -44,6 +44,20 @@ class DocumentationGuardTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "profiles cannot"):
             guard.check(self.root)
 
+    def test_bulleted_profiles_gap_regression(self):
+        for item in ("Profiles.", "Named launch profiles.", "Windows hosting, profiles, full bidi."):
+            with self.subTest(item=item):
+                self.write("README.md", "Published release: **v0.14.0**.\n\n"
+                           "Known gaps include the following:\n\n- Windows hosting.\n"
+                           f"- Full bidi\n  reordering.\n\n- {item}\n\nNext paragraph.\n")
+                with self.assertRaisesRegex(ValueError, "profiles cannot"):
+                    guard.check(self.root)
+
+    def test_bulleted_gaps_allow_narrow_profile_items(self):
+        self.append("README.md", "Known gaps include the following:\n\n- Windows hosting.\n"
+                    "- Profile auto-switch over SSH.\n\nProfiles are complete.\n\n- Profiles.\n")
+        guard.check(self.root)
+
     def test_published_todo_cannot_still_be_in_progress(self):
         p = self.root / "TODO.md"
         p.write_text(p.read_text().replace("(published)", "(in progress)"))

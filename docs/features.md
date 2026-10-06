@@ -12,6 +12,7 @@ For installation and a shorter overview, start with the
   - [Paste Safety](#paste-safety)
   - [Drop Local File Paths](#drop-local-file-paths)
 - [Text, Emoji, And Graphics](#text-emoji-and-graphics)
+  - [Ligatures, Shaping, And Bidirectional Text](#ligatures-shaping-and-bidirectional-text)
   - [How Text Is Drawn](#how-text-is-drawn)
 - [Tab And Pane Workflow](#tab-and-pane-workflow)
   - [Open, Close, And Switch Tabs](#open-close-and-switch-tabs)
@@ -310,7 +311,7 @@ and clears after one bounded delay without animation.
 | Font sources | Bundled families, system families, and direct font files |
 | Styling | Font-weight variants, synthetic styles, and subpixel antialiasing |
 | Legibility | Optional off-by-default alternate zero (the font's OpenType `zero` feature); no other font features are exposed |
-| Programming ligatures | Default-on `calt`+`liga` for ASCII plus a curated non-ASCII operator allowlist; optional off-by-default `ss01`/`ss02`; Arabic joining forms in logical LTR cell order; grid-aligned source cells |
+| Programming ligatures | Default-on `calt`+`liga` for ASCII plus a curated non-ASCII operator allowlist; optional off-by-default `ss01`/`ss02`; Arabic joining forms; font shaping of the enabled complex-script owners; grid-aligned source cells |
 | Fallback | Per-range symbol maps and bundled Nerd Font v3/v2 faces |
 | Readability | Linear-light color composition, glyph coverage gamma, stem darkening, and minimum-contrast enforcement |
 
@@ -332,12 +333,15 @@ search status line, and the glyph atlas stay on the narrow table, because one
 shared atlas cannot store two slot widths for the same codepoint. IME
 pre-edit follows the pane's policy.
 
+### Ligatures, Shaping, And Bidirectional Text
+
 Fresh profiles enable contextual programming ligatures from the selected text
 font. Shaping runs cover eligible ASCII graphics, a curated allowlist of
-common non-ASCII operators and arrows, and Arabic joining bases, and change
-only presentation: the terminal model keeps one logical character per cell, so
-copying, selection, search, cursor placement, and wide-cell behavior retain
-their ordinary semantics. Latin/operator runs enable OpenType `calt` and
+common non-ASCII operators and arrows, Arabic joining bases, and the width
+owners of the enabled complex-script groups (see the table below), and change
+only presentation: the terminal model's logical cells and source text are
+unchanged, so copying, selection, search, cursor placement, and wide-cell
+behavior retain their ordinary semantics. Latin/operator runs enable OpenType `calt` and
 `liga` together; optional stylistic sets `ss01` and `ss02` are off by default
 (`ss01 = on` / `ODYTTY_LIGATURE_SS01=on`, and likewise for `ss02`). Arabic
 joining is shaped in **logical left-to-right cell order** unless bidirectional
@@ -409,9 +413,9 @@ The support boundary is explicit:
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
 | SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, or reference-expansion limits, and documents with patterns or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
 
-A partial BiDi or complex-script approximation is not planned: visual order
-that disagrees with cursor, selection, search, or copy behavior would weaken
-terminal correctness. The detailed prerequisites, acceptance boundaries, and
+Reordering and owner shaping change presentation only: cursor addressing,
+selection, search, and copy keep the logical text, and no display order or
+shaping is applied outside the bounds above. The detailed prerequisites, acceptance boundaries, and
 measurement are in [the text shaping roadmap](shaping-roadmap.md).
 
 The independent 2026-08-16 review's `ucs-detect` run covered 85 languages and

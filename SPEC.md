@@ -1969,6 +1969,34 @@ checksummed and attested. OdyTTY does not initiate update checks. Update
 tools use zsync for transfer integrity; the signed SHA256SUMS remains the
 release-authentication boundary. Version 0.16.0 and earlier lack update info.
 
+### Named Profiles And External Palette Following
+
+The v0.14.0 named-profile foundation (versioned on-disk schema, local
+catalog, precedence resolver, migration helpers) and settings Profile Manager
+CRUD are documented in `docs/v0.14.0-profiles-foundation.md`. The editor
+exposes every schema field, including bounded list fields through explicit
+add/edit/remove rows and platform applicability through supported enum values.
+Launch routing,
+workspace `launch_profile` binding, per-pane restoration, saved-layout open,
+`--profile` CLI selection, and opt-in host/directory auto-switch follow the
+precedence contract in `docs/v0.13.0-foundation.md`. Plain New Tab / New
+Workspace resolve the workspace `launch_profile`, then the global
+`default_launch_profile` (Profile Manager "Set as Default"), then the
+built-in System Default; the first window applies `--profile`, then the
+global default. A missing or invalid default falls back with a bounded
+warning and never rewrites the saved value; deleting or renaming the profile
+named as the global default clears or rewrites the saved key, and a
+workspace-scoped override naming it is cleared or rewritten to match. The
+adjacent chevron beside `+` and the context-menu "with Profile" rows open a
+lazily loaded searchable chooser. A launched profile applies its bounded
+environment overrides even with no shell or command, falls back to home with a
+notice when its starting directory is missing rather than failing the tab, and
+carries its selected theme as per-session state that survives global theme
+sweeps and drives the window chrome while the pane is active.
+External palette following (opt-in complete local palette file, content-hash
+reload, last-known-good retention) is documented in
+`docs/v0.14.0-external-palette.md`.
+
 ### Out Of Scope
 
 - Kitty `I=` addressing on display (`a=p`) and delete (`d=n`/`d=N`) commands,
@@ -1982,32 +2010,7 @@ release-authentication boundary. Version 0.16.0 and earlier lack update info.
 
 - Open-ended font-feature selection beyond the bounded supported set
 
-- Named profiles: the v0.14.0 foundation (versioned on-disk schema, local
-  catalog, precedence resolver, migration helpers) and settings Profile Manager
-  CRUD are documented in `docs/v0.14.0-profiles-foundation.md`. The editor
-  exposes every schema field, including bounded list fields through explicit
-  add/edit/remove rows and platform applicability through supported enum values.
-  Launch routing,
-  workspace `launch_profile` binding, per-pane restoration, saved-layout open,
-  `--profile` CLI selection, and opt-in host/directory auto-switch follow the
-  precedence contract in `docs/v0.13.0-foundation.md`. Plain New Tab / New
-  Workspace resolve the workspace `launch_profile`, then the global
-  `default_launch_profile` (Profile Manager "Set as Default"), then the
-  built-in System Default; the first window applies `--profile`, then the
-  global default. A missing or invalid default falls back with a bounded
-  warning and never rewrites the saved value; deleting or renaming the profile
-  named as the global default clears or rewrites the saved key, and a
-  workspace-scoped override naming it is cleared or rewritten to match. The
-  adjacent chevron beside `+` and the context-menu "with Profile" rows open a
-  lazily loaded searchable chooser. A launched profile applies its bounded
-  environment overrides even with no shell or command, falls back to home with a
-  notice when its starting directory is missing rather than failing the tab, and
-  carries its selected theme as per-session state that survives global theme
-  sweeps and drives the window chrome while the pane is active.
-  External palette following (opt-in complete local palette file, content-hash
-  reload, last-known-good retention) is documented in
-  `docs/v0.14.0-external-palette.md`.
-  Cross-session multiplexing remains out of scope
+- Cross-session multiplexing
   (panes/splits within a window and Unix detached-session attachment are the
   supported boundaries described above).
 

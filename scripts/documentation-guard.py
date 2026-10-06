@@ -45,6 +45,36 @@ def version_section(todo: str, version: str, state: str) -> str:
     return section
 
 
+def known_gaps(readme: str) -> list[str]:
+    """Return each known-gap entry: the sentence after the phrase and every
+    item of a bulleted list that follows it."""
+    entries = []
+    for match in re.finditer(r"Known gaps include\s*([^.:]*)([.:])", readme, re.I):
+        lead = match[1].strip()
+        if match[2] == ".":
+            entries.append(lead)
+            continue
+        if lead and not re.fullmatch(r"the following|these", lead, re.I):
+            entries.append(lead)
+        rest = readme[match.end():].lstrip("\n")
+        item = None
+        for line in rest.splitlines():
+            bullet = re.match(r"^\s*[-*]\s+(.*)$", line)
+            if bullet:
+                if item is not None:
+                    entries.append(item)
+                item = bullet[1]
+            elif not line.strip():
+                continue
+            elif item is not None and line.startswith(" "):
+                item += " " + line.strip()
+            else:
+                break
+        if item is not None:
+            entries.append(item)
+    return [entry.strip().rstrip(".").strip() for entry in entries]
+
+
 def check(root: Path, release_version: str | None = None) -> None:
     index = read(root, "docs/releases/README.md")
     published = marker(index, "Published release", "docs/releases/README.md")
@@ -64,8 +94,8 @@ def check(root: Path, release_version: str | None = None) -> None:
         raise ValueError("published release notes: version heading mismatch")
     # Narrow regression for listing the entire shipped profile feature as absent.
     if tuple(map(int, published.split('.'))) >= (0, 14, 0):
-        for gaps in re.findall(r"Known gaps include\s+([^.]*)\.", docs["README.md"], re.I):
-            if re.search(r"(?:^|[,;])\s*(?:named\s+)?profiles\s*(?:[,;]|$)", gaps, re.I):
+        for gaps in known_gaps(docs["README.md"]):
+            if re.search(r"(?:^|[,;])\s*(?:named\s+)?(?:launch\s+)?profiles\s*(?:[,;]|$)", gaps, re.I):
                 raise ValueError("README.md: profiles cannot be listed wholesale as a known gap")
     if release_version is not None:
         if not re.fullmatch(VERSION, release_version):

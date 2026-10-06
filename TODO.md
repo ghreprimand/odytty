@@ -1,82 +1,41 @@
-# OdyTTY — TODO
+# OdyTTY TODO
 
 Published release: **v0.16.1**.
 
-The milestones below distinguish published work, active development, explicit
-deferrals, and unmet evidence. Release corrections are listed in the
-[release index](docs/releases/README.md).
+Living delivery record and forward backlog for OdyTTY. Each release section
+below records what shipped in that cycle; historical stage sections preserve
+earlier development. A checked item is delivered at the current head (or at
+the historical milestone its section names). An unchecked item is concrete
+remaining work or an unmet evidence gate. Standing policies and explicit
+non-goals are prose rather than unchecked boxes, so this file does not present
+them as implementation commitments. Longer-range candidates require a
+separately recorded milestone before implementation.
+
+See the [release index](docs/releases/README.md) for every published version
+and its corrections, [`docs/release.md`](docs/release.md) for per-release
+publication evidence, the [`DEVLOG.md`](DEVLOG.md) index for the monthly
+development record, [`SPEC.md`](SPEC.md) for durable decisions, and
+[`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) for the full build
+roadmap.
+
+## v0.17.0: International Text (in development)
 
 Wide-glyph wrap padding is distinguished from logical source spaces through
 eager and lazy reflow, search, selection/copy, export, and snapshot restore.
 Bounded source ownership and northern Indic, Tamil, Telugu, Kannada, and
 Malayalam, Sinhala, Khmer, Myanmar, Chakma, Javanese, Grantha, and Tai Tham
-width units are implemented. Unicode 17 bounded emoji sequence widths are implemented. Northern and southern Indic,
-Khmer, Myanmar, Thai, Lao, Tibetan, Sinhala, Chakma, Javanese, Grantha, and Tai Tham
-owners are shaped with the font while programming ligatures are on. Scripts
-outside the enabled blocks and standalone format-control retention remain
-unsupported.
+width units are implemented, as are Unicode 17 bounded emoji sequence widths.
+Northern and southern Indic, Khmer, Myanmar, Thai, Lao, Tibetan, Sinhala,
+Chakma, Javanese, Grantha, and Tai Tham owners are shaped with the font while
+programming ligatures are on. Scripts outside the enabled blocks and
+standalone format-control retention remain unsupported.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 
+## Release preparation
+
 Dependency maintenance includes the standalone fuzz workspace lockfile and its
 locked API compile check before landing.
-
-Living delivery record and forward backlog for OdyTTY. Historical stage
-sections preserve what shipped in each development cycle; the unchecked items
-identify current future work. See the [`DEVLOG.md`](DEVLOG.md) index for the
-monthly development record, [`SPEC.md`](SPEC.md) for durable decisions, and
-[`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) for the full build
-roadmap.
-
-The v0.10.0 architecture, compatibility, correctness, security, evidence,
-documentation, and release-convergence scope is complete and published, and
-the v0.11.0 external-review response scope (documentation accuracy, release
-signing, color-font and shaping maturity, graphics protocol completeness,
-instanced rendering, theme capture, and the published W6 idle comparison) is
-complete and published on top of it. The v0.12.0 memory, measurement,
-provenance, graphics-gap, and software-endpoint scope is also complete and
-published, including the recorded W6 and SE results and post-release channel
-verification. Version 0.12.1 is the narrow security patch that isolates
-ControlMaster reuse by OpenSSH's effective connection identity and narrows the
-AUR publication workflow to its dedicated secret; publication and bounded
-post-publish checks on the shipped macOS, Windows, and Linux package paths are
-complete. Version 0.12.2 adds the missing CNL/CPL cursor controls used by
-pacman's parallel-download display, with explicit count, margin, pending-wrap,
-and multiline redraw coverage in the platform-neutral core. Its same-commit
-three-platform CI, signed release, provenance, and Homebrew, Scoop, and AUR
-publication gates are complete; a live rerun of the original pacman workload
-is not claimed. Version 0.13.0 publishes the safer-paste, verified command-range
-action, and bounded completion/progress scope recorded below. Its retained
-local gates, exact-commit three-platform CI, signed 16-asset release,
-provenance, clean source build, and Scoop, Homebrew, and AUR publication are
-complete. Native macOS and Windows on-device runtime checks remain explicitly
-unperformed because maintainer hardware was unavailable. Version 0.14.0
-(named profiles, external palette following, security review closure, and the
-Session Navigator) is published. Profile and navigator acceptance,
-release-image testing, blocking CI, signed artifacts, provenance, and package
-propagation are complete. The isolated published-source release build also
-passed on Linux with Rust 1.97.1; no new MSRV claim is made. The v0.15.0
-scope (quick terminal, local automation API, file drop, and keyboard-first
-window merge) is complete on `master` with device acceptance recorded on Linux,
-Windows, and macOS; see the roadmap and
-[`docs/releases/0.15.0.md`](docs/releases/0.15.0.md). Version 0.15.5 is the
-font-maintenance and Wayland reliability patch recorded below; see
-[`docs/releases/0.15.5.md`](docs/releases/0.15.5.md). Version 0.15.6 fixes its
-cursor-glide regression; see
-[`docs/releases/0.15.6.md`](docs/releases/0.15.6.md). Version 0.15.7 prevents
-Wayland window stalls after a hidden workspace and keeps workspace autosave
-after a primary-window merge; see
-[`docs/releases/0.15.7.md`](docs/releases/0.15.7.md). Version 0.15.8 stops
-a macOS idle-CPU loop caused by a per-tick event-loop proxy clone, present since v0.15.0; see
-[`docs/releases/0.15.8.md`](docs/releases/0.15.8.md). Version 0.16.0
-published pane and window workflows; v0.16.1 adds AppImage update information. A checked item is
-delivered at the current head (or at the historical milestone its section names). An unchecked item is concrete remaining work or
-an unmet evidence gate. Standing policies and explicit non-goals are prose
-rather than unchecked boxes, so this file does not present them as
-implementation commitments. Longer-range candidates require a separately
-recorded milestone before implementation.
-
-## Release preparation
 
 - [x] Migrate the Homebrew cask quarantine step to `postflight_steps` for
       Homebrew 7.0 or newer.

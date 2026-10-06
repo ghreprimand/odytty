@@ -122,6 +122,15 @@ The upstream release does not currently publish Nix, Flatpak, or Snap packages.
 A package must not silently change the user's default terminal; it should
 register OdyTTY as available and leave selection to the user.
 
+For v0.12.1, a narrow security patch that isolates ControlMaster reuse by
+OpenSSH's effective connection identity and narrows the AUR publication
+workflow to its dedicated secret, publication and bounded post-publish checks
+on the shipped macOS, Windows, and Linux package paths are complete. For
+v0.12.2, which adds the CNL/CPL cursor controls used by pacman's
+parallel-download display, same-commit three-platform CI, the signed release,
+provenance, and Homebrew, Scoop, and AUR publication are complete; a live
+rerun of the original pacman workload is not claimed.
+
 For v0.13.0, blocking Linux, macOS, and Windows CI passed, but
 maintainer-controlled Windows and macOS hardware was unavailable for native
 install and runtime smoke passes before or after publication. Those checks are
