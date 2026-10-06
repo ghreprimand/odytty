@@ -369,7 +369,7 @@ gpu_graphics_textures={g5} gpu_vertex_buffers={g6}",
     )
 }
 
-/// Append one report line to the temp-dir log. Callers only reach this when
+/// Append one report line to the state-directory log. Callers only reach this when
 /// [`sample_interval`] is `Some`, so the off path costs one atomic load. Any I/O
 /// error is silently ignored — a diagnostic must never perturb the terminal.
 pub fn append_report(report: &MemoryReport) {

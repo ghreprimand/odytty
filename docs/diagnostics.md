@@ -198,15 +198,21 @@ use.
 
 | Gate | Value | Destination | Purpose |
 |---|---|---|---|
-| `ODYTTY_REFLOW_TRACE` | `1` or `true` | `odytty-reflow-trace.log` in the OS temp dir | Permanent passive diagnostic: one geometry/cursor line per terminal resize. |
+| `ODYTTY_REFLOW_TRACE` | `1` or `true` | `odytty-reflow-trace.log` in the state directory listed above | Permanent passive diagnostic: one geometry/cursor line per terminal resize. |
 | `ODYTTY_KEY_EVENT_DIAGNOSTICS` | `1`, `on`, or `true` | `odytty.log` and stderr | Temporary keyboard/IME route trace for compositor-dependent editing-key issues. |
 | `ODYTTY_MEMORY_REPORT` | `1`/`true` (10 s), or a period in seconds (1-3600) | `odytty-memory-report.log` in the state directory listed above | Permanent passive diagnostic: one memory-attribution line per sample, naming what each subsystem holds. |
 
 `ODYTTY_REFLOW_TRACE` costs a single atomic load when off and appends one line
 per resize when on; it records geometry and cursor coordinates only, never cell
-contents, paths, or environment values. It writes to the OS temp directory
-because the Windows GUI build has no visible stderr, so the file is retrieved
-afterward.
+contents, paths, or environment values. It writes a file because the Windows
+GUI build has no visible stderr, so the file is retrieved afterward. The file
+lives in the state directory from the table above, which is owner-private on
+Linux and macOS and protected by its inherited per-user ACL on Windows. On
+Linux and macOS it is opened without following a symlink and without blocking
+on a FIFO, and an object that is not a regular file owned by the current user
+is refused. A refused or failed write skips the trace line and never affects
+the resize. Earlier builds wrote this
+file to the OS temp directory; that location is no longer used.
 
 `ODYTTY_KEY_EVENT_DIAGNOSTICS` records raw logical and physical key identities,
 modifier and press state, IME event shape, and a sampled `backspace-route`
