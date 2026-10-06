@@ -65,6 +65,8 @@ mod kitty_animation_tests;
 mod kitty_delete_tests;
 #[cfg(test)]
 mod kitty_tests;
+#[cfg(test)]
+mod kitty_transport_binding_tests;
 #[cfg(all(test, unix))]
 mod kitty_transport_tests;
 #[cfg(test)]

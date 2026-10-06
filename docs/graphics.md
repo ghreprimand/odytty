@@ -306,19 +306,26 @@ image without separate user action.
 
 The reference Kitty terminal allows `t=f` from any path. OdyTTY intentionally
 accepts only approved temporary roots so that untrusted terminal output cannot
-probe arbitrary local files through this channel — a stricter posture than
+probe arbitrary local files through this channel, a stricter posture than
 Kitty's.
 
-### Symlink rejection (`O_NOFOLLOW`, Unix)
+### Symlink rejection and directory binding
 
 On Unix, files are opened with `O_NOFOLLOW`. A symlink inside `/tmp` pointing to
 `/etc/shadow` or any other file is rejected at the kernel open call, before
-any data is read. This eliminates the TOCTOU race between path validation and
-the `open()` call.
+any data is read. The directory is bound to the object that passed the
+allowlist check: OdyTTY opens the directory, requires its canonical path to
+name that same open directory inside an allowlisted root, and opens the file
+relative to the directory handle. A directory swapped for a link after the
+check therefore cannot redirect the read.
 
-The reference Kitty terminal follows symlinks. OdyTTY rejects them on Unix.
-Windows uses a plain file open after canonical-path allowlist validation and
-does not provide the Unix `O_NOFOLLOW` guarantee.
+On Windows, the file is opened as the reparse point itself and a handle that
+carries the reparse-point attribute is rejected, so a final-component link is
+never followed. The opened handle's own final location, after any directory
+junction or link on the way, must lie inside an allowlisted root before any
+byte is read.
+
+The reference Kitty terminal follows symlinks. OdyTTY rejects them.
 
 ### Regular-file validation (`t=f`, `t=t`)
 
@@ -333,13 +340,25 @@ memory has no Windows surface.
 For `t=t`, the full path must contain the reference protocol's
 `tty-graphics-protocol` marker. A marked temp file is deleted immediately after
 its safe regular-file read, before image decode. Unmarked and rejected objects
-are never deleted.
+are never deleted. Deletion targets only the file that was read: on Unix the
+name is unlinked relative to the admitted directory handle, and only while it
+still names the object that was read; on Windows the open handle itself is
+marked for deletion. If the name was rebound to another object in between, that
+object is kept and the transfer fails with `EPERM:object-changed`. On Unix a
+short window remains between the identity check and the unlink, because POSIX
+has no unlink by descriptor; it is confined to the admitted directory.
 
-### Validated `shm_unlink` (`t=s`, Unix)
+### Identity-checked `shm_unlink` (`t=s`, Unix)
 
-POSIX shared memory objects are opened read-only, bounded, and validated before
-their names are unlinked. An invalid or unreadable object retains its name.
-Windows keeps `t=s` unsupported.
+POSIX shared memory objects are opened read-only and read within the size cap
+before their names are unlinked. An invalid or unreadable object retains its
+name. Before the unlink, the name is reopened and compared with the object that
+was read (device, object number, owner, mode and size); a name rebound to a
+different object is kept and the transfer fails with `EPERM:object-changed`.
+Linux reports a device and object number for shared memory. On a platform that
+reports neither for shared memory, the comparison rests on owner, mode and
+size. The same short window between the check and the unlink remains. Windows
+keeps `t=s` unsupported.
 
 ### Size cap before decode
 
