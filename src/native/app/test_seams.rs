@@ -1422,6 +1422,15 @@ impl App {
         self.settings.tab_rail_autohide
     }
 
+    /// Live text switches after the real Settings input and reload path.
+    #[cfg(test)]
+    pub(in crate::native) fn shaping_switches_for_test(&self) -> crate::ligature::ShapingSwitches {
+        crate::ligature::ShapingSwitches {
+            ligatures: self.settings.ligatures,
+            scripts: self.settings.script_shaping,
+        }
+    }
+
     /// Test seam: the live `font_zero` (alternate zero) setting value.
     #[cfg(test)]
     pub(in crate::native) fn font_zero_setting_for_test(&self) -> bool {

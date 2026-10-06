@@ -118,6 +118,7 @@ impl Settings {
             "subpixel" => subpixel_display(self.subpixel).to_owned(),
             "line_height" => format_float(self.line_height),
             "ligatures" => bool_display(self.ligatures).to_owned(),
+            "script_shaping" => bool_display(self.script_shaping).to_owned(),
             "ss01" => bool_display(self.ligature_ss01).to_owned(),
             "ss02" => bool_display(self.ligature_ss02).to_owned(),
             "font_zero" => bool_display(self.font_zero).to_owned(),

@@ -1001,12 +1001,12 @@ pub struct Settings {
     /// reproduces the historical geometric box-drawing weights byte-identically;
     /// other values scale the rule thickness.
     pub box_thickness: f32,
-    /// Presentation shaping overlays: ASCII `calt`+`liga`, curated operator
-    /// allowlist, and Arabic joining forms in logical LTR cell order (not
-    /// bidi). Enabled by default; logical cells, cursor coordinates, copy, and
-    /// selection remain unchanged. Optional `ss01`/`ss02` ride separate
-    /// settings (off by default).
+    /// Latin/operator `calt` and `liga` presentation overlays. On by default,
+    /// independent of script shaping; logical cell ownership never changes.
     pub ligatures: bool,
+    /// Arabic joining and complex-script owner shaping. On by default,
+    /// independent of programming ligatures; logical cells remain authoritative.
+    pub script_shaping: bool,
     /// Optional OpenType stylistic set `ss01`. Off by default; applies only
     /// while [`Self::ligatures`] is on. No other `ssXX` tags are exposed.
     pub ligature_ss01: bool,
@@ -1543,6 +1543,7 @@ impl Default for Settings {
             line_height: DEFAULT_LINE_HEIGHT,
             box_thickness: DEFAULT_BOX_THICKNESS,
             ligatures: DEFAULT_LIGATURES,
+            script_shaping: DEFAULT_SCRIPT_SHAPING,
             ligature_ss01: DEFAULT_LIGATURE_SS01,
             ligature_ss02: DEFAULT_LIGATURE_SS02,
             font_zero: DEFAULT_FONT_ZERO,

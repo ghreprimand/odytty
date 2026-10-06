@@ -672,7 +672,7 @@ fn a_fallback_face_shapes_owners_the_primary_lacks() {
 }
 
 #[test]
-fn owners_without_a_covering_face_and_ligatures_off_keep_the_per_cell_path() {
+fn owners_without_a_covering_face_and_script_shaping_off_keep_the_per_cell_path() {
     let _guard = crate::test_lock::render_globals_lock();
     let primary = latin_face();
     let snapshot = terminal("\u{0930}\u{094D}\u{0915}", 4).snapshot();

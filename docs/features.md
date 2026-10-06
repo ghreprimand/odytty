@@ -311,7 +311,7 @@ and clears after one bounded delay without animation.
 | Font sources | Bundled families, system families, and direct font files |
 | Styling | Font-weight variants, synthetic styles, and subpixel antialiasing |
 | Legibility | Optional off-by-default alternate zero (the font's OpenType `zero` feature); no other font features are exposed |
-| Programming ligatures | Default-on `calt`+`liga` for ASCII plus a curated non-ASCII operator allowlist; optional off-by-default `ss01`/`ss02`; Arabic joining forms; font shaping of the enabled complex-script owners; grid-aligned source cells |
+| Programming ligatures | Default-on `calt`+`liga` for ASCII plus a curated non-ASCII operator allowlist; optional off-by-default `ss01`/`ss02`; independent of Script shaping; grid-aligned source cells |
 | Fallback | Per-range symbol maps and bundled Nerd Font v3/v2 faces |
 | Readability | Linear-light color composition, glyph coverage gamma, stem darkening, and minimum-contrast enforcement |
 
@@ -335,10 +335,12 @@ pre-edit follows the pane's policy.
 
 ### Ligatures, Shaping, And Bidirectional Text
 
-Fresh profiles enable contextual programming ligatures from the selected text
-font. Shaping runs cover eligible ASCII graphics, a curated allowlist of
-common non-ASCII operators and arrows, Arabic joining bases, and the width
-owners of the enabled complex-script groups (see the table below), and change
+Fresh profiles enable Programming ligatures for Latin/operator runs and the
+independent Script shaping setting for Arabic and the complex-script groups
+listed below. Both rows sit in Settings > Rendering, reachable from the
+right-click Settings item. Shaping runs cover eligible ASCII graphics, a
+curated allowlist of common non-ASCII operators and arrows, Arabic joining
+bases, and the width owners of the enabled complex-script groups, and change
 only presentation: the terminal model's logical cells and source text are
 unchanged, so copying, selection, search, cursor placement, and wide-cell
 behavior retain their ordinary semantics. Latin/operator runs enable OpenType `calt` and
@@ -357,7 +359,11 @@ kasra, shadda, and the other Arabic nonspacing marks) stay in their joining
 run, and the marks are drawn where the font's mark positioning places them.
 Unsupported fonts and runs render through the normal per-cell path. Set
 `ligatures = off` in Settings or configuration, or `ODYTTY_LIGATURES=off` for
-one launch, to restore scalar rendering; the setting reloads live.
+one launch, to restore per-cell Latin/operator rendering. Set `script_shaping =
+off` or `ODYTTY_SCRIPT_SHAPING=off` to restore per-cell Arabic and complex-script
+glyphs. Both settings reload live on Linux Wayland, Linux X11, macOS, and
+Windows. Disabling programming ligatures no longer disables Arabic joining
+or complex-script shaping, which remain on by default.
 
 The alternate zero is a separate legibility control. `font_zero = on`
 (Settings > Fonts > Alternate zero, reachable from the right-click menu's
@@ -399,11 +405,11 @@ The support boundary is explicit:
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen, right-to-left paragraph levels, and complex-script shaping are not reordered |
-| Northern and southern Indic shaping | With `ligatures` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
-| Khmer/Myanmar shaping | With `ligatures` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
-| Thai/Lao/Tibetan shaping | With `ligatures` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |
-| Sinhala shaping | With `ligatures` on, Sinhala owners are shaped with the font (ZWJ conjunct requests, pre-base and split vowels) and fitted inside their one or two cells by the same rule | Shaping never crosses owners; ZWNJ breaks ownership; widths and logical copy stay unchanged |
-| Chakma/Javanese/Grantha/Tai Tham shaping | With `ligatures` on, the four scripts' owners are shaped with the font (stacked and conjunct forms, pre-base and split vowels, cakra and medials) and fitted inside their one or two cells | Shaping never crosses owners; Chakma U+11134 with ZWJ keeps separate owners; widths and logical copy stay unchanged |
+| Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
+| Khmer/Myanmar shaping | With `script_shaping` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
+| Thai/Lao/Tibetan shaping | With `script_shaping` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |
+| Sinhala shaping | With `script_shaping` on, Sinhala owners are shaped with the font (ZWJ conjunct requests, pre-base and split vowels) and fitted inside their one or two cells by the same rule | Shaping never crosses owners; ZWNJ breaks ownership; widths and logical copy stay unchanged |
+| Chakma/Javanese/Grantha/Tai Tham shaping | With `script_shaping` on, the four scripts' owners are shaped with the font (stacked and conjunct forms, pre-base and split vowels, cakra and medials) and fitted inside their one or two cells | Shaping never crosses owners; Chakma U+11134 with ZWJ keeps separate owners; widths and logical copy stay unchanged |
 | Other complex Indic/Brahmic shaping | Not supported | Scripts outside the enabled blocks keep the per-cell path |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping |
 | Southern Indic terminal widths | Tamil, Telugu, Kannada, and Malayalam spacing signs and virama-linked consonants share bounded two-cell owners | Tamil width units can cross grapheme boundaries; font-backed shaping remains within each owner |

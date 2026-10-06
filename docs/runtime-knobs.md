@@ -125,6 +125,7 @@ environment variable was not set at startup.
 | `subpixel` | `ODYTTY_SUBPIXEL` | `off`, `rgb`, `bgr` | `off` |
 | `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` |
 | `ligatures` | `ODYTTY_LIGATURES` | `on`, `off` | `on` |
+| `script_shaping` | `ODYTTY_SCRIPT_SHAPING` | `on`, `off` | `on` |
 | `ss01` | `ODYTTY_LIGATURE_SS01` | `on`, `off` | `off` |
 | `ss02` | `ODYTTY_LIGATURE_SS02` | `on`, `off` | `off` |
 | `font_zero` | `ODYTTY_FONT_ZERO` | `on`, `off` | `off` |

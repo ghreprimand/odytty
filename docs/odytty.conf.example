@@ -36,12 +36,10 @@ text_brightness = 1.0
 stem_darken = 0.7
 subpixel = off
 synthetic_styles = on
-# Contextual programming ligatures are on by default. Logical cells, selection,
-# and copied text remain unchanged; set this to off for scalar rendering. The
-# same switch gates complex-script owner shaping (northern and southern Indic
-# conjuncts and reph, Sinhala forms, Khmer, Myanmar, Thai, Lao, Tibetan,
-# Chakma, Javanese, Grantha, and Tai Tham stacks and vowels).
+# Latin/operator contextual ligatures; independent of script shaping.
 ligatures = on
+# Arabic joining and complex-script owner forms; independent of programming ligatures.
+script_shaping = on
 # Optional OpenType stylistic sets for fonts that provide them. Both are off by
 # default and affect presentation only.
 ss01 = off

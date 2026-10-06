@@ -27,7 +27,8 @@ Malayalam, Sinhala, Khmer, Myanmar, Chakma, Javanese, Grantha, and Tai Tham
 width units are implemented, as are Unicode 17 bounded emoji sequence widths.
 Northern and southern Indic, Khmer, Myanmar, Thai, Lao, Tibetan, Sinhala,
 Chakma, Javanese, Grantha, and Tai Tham owners are shaped with the font while
-programming ligatures are on. Scripts outside the enabled blocks and
+the independent Script shaping setting is on. Programming ligatures affect
+Latin/operator forms only; both settings apply live. Scripts outside the enabled blocks and
 standalone format-control retention remain unsupported.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.

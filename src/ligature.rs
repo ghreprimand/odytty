@@ -45,7 +45,8 @@
 //! ([`SHAPING_OPERATOR_ALLOWLIST`]), and Arabic-script joining bases (dual /
 //! right / left joining letters plus tatweel). Default plain-ASCII rendering
 //! stays byte-identical; allowlisted scalars and Arabic letters only join
-//! compatible runs when present. Arabic runs are shaped with `Script::Arabic`
+//! compatible runs when present. Independent presentation switches gate
+//! Latin/operator forms and Arabic joining. Arabic runs are shaped with `Script::Arabic`
 //! in **logical LTR cell order** - joining forms only. On a row the
 //! `bidi_reorder` display map reorders, runs split at every level change and
 //! shape per level run (see the `bidi` submodule).
@@ -290,6 +291,13 @@ fn same_glyphs(off: &[ShapedGlyph], on: &[ShapedGlyph]) -> bool {
             .all(|(a, b)| a.id == b.id && a.source_start == b.source_start)
 }
 
+/// Independent presentation switches for Latin/operator ligatures and scripts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShapingSwitches {
+    pub ligatures: bool,
+    pub scripts: bool,
+}
+
 /// Deterministic FIFO row-plan cache plus the reusable swash shaping context.
 pub struct LigatureShaper {
     context: ShapeContext,
@@ -299,6 +307,7 @@ pub struct LigatureShaper {
     face_fingerprints: [Option<u64>; 4],
     shape_calls: u64,
     latin_features: LatinShapingFeatures,
+    switches: ShapingSwitches,
 }
 
 impl Default for LigatureShaper {
@@ -317,6 +326,10 @@ impl LigatureShaper {
             face_fingerprints: [None; 4],
             shape_calls: 0,
             latin_features: LatinShapingFeatures::default(),
+            switches: ShapingSwitches {
+                ligatures: true,
+                scripts: true,
+            },
         }
     }
 
@@ -336,7 +349,9 @@ impl LigatureShaper {
     }
 
     /// Build presentation runs for a snapshot using default Latin features
-    /// (`calt`+`liga` on; `ss01`/`ss02` off).
+    /// (`calt`+`liga` on; `ss01`/`ss02` off). `enabled` is an explicit
+    /// combined gate for callers that need both kinds together; the renderer
+    /// uses [`Self::build_runs_with_switches`] for independent settings.
     pub fn build_runs<F: LigatureFonts>(
         &mut self,
         enabled: bool,
@@ -390,12 +405,37 @@ impl LigatureShaper {
         latin_features: LatinShapingFeatures,
         bidi: Option<&BidiDisplayMap>,
     ) -> Vec<LigatureRun> {
-        if !enabled {
+        self.build_runs_with_switches(
+            ShapingSwitches {
+                ligatures: enabled,
+                scripts: enabled,
+            },
+            snapshot,
+            fonts,
+            color_runs,
+            latin_features,
+            bidi,
+        )
+    }
+
+    /// Build runs with independent Latin/operator and Arabic switches.
+    /// A switch change invalidates cached row plans, including bidi levels.
+    pub fn build_runs_with_switches<F: LigatureFonts>(
+        &mut self,
+        switches: ShapingSwitches,
+        snapshot: &Snapshot,
+        fonts: &F,
+        color_runs: &[ColorGlyphRun],
+        latin_features: LatinShapingFeatures,
+        bidi: Option<&BidiDisplayMap>,
+    ) -> Vec<LigatureRun> {
+        if !switches.ligatures && !switches.scripts {
             return Vec::new();
         }
-        if latin_features != self.latin_features {
+        if latin_features != self.latin_features || switches != self.switches {
             self.clear();
             self.latin_features = latin_features;
+            self.switches = switches;
         }
         let cols = snapshot.dimensions.columns;
         // One O(cells / 64 + runs) coverage mask serves the fingerprint,
@@ -503,6 +543,9 @@ impl LigatureShaper {
             return Vec::new();
         };
         let arabic = run_text.text.chars().any(is_arabic_joining_base);
+        if (arabic && !self.switches.scripts) || (!arabic && !self.switches.ligatures) {
+            return Vec::new();
+        }
         let (off, on) = if arabic {
             // Joining forms vs cmap defaults (typically isolated). Live runs
             // pass LTR: cells stay in logical order. With bidi reordering on,

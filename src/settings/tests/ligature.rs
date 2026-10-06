@@ -116,3 +116,43 @@ fn reload_publishes_ligature_switch_without_changing_other_settings() {
     assert!(!current.ligatures);
     assert!(!ligatures_enabled());
 }
+
+#[test]
+fn script_shaping_is_independent_reloadable_and_serialized() {
+    let (default, warnings) = settings_from([]);
+    assert!(default.script_shaping);
+    assert!(warnings.is_empty());
+    let (latin_off, warnings) = settings_from([(LIGATURES_ENV, "off")]);
+    assert!(latin_off.script_shaping);
+    assert!(!latin_off.ligatures);
+    assert!(warnings.is_empty());
+    let (scripts_off, warnings) = settings_from([(SCRIPT_SHAPING_ENV, "off")]);
+    assert!(!scripts_off.script_shaping);
+    assert!(scripts_off.ligatures);
+    assert!(warnings.is_empty());
+    let (mut current, _) = settings_from([]);
+    let (reloaded, warnings) = settings_from_config("script_shaping = off\nligatures = on");
+    assert!(warnings.is_empty());
+    let _globals = crate::test_lock::render_globals_lock();
+    assert!(apply_reloadable_values(&mut current, reloaded));
+    assert!(!current.script_shaping);
+    assert!(!script_shaping_enabled());
+    assert!(ligatures_enabled());
+    let info = current.setting_info();
+    let row = info.iter().find(|row| row.key == "script_shaping").unwrap();
+    assert_eq!(row.env, SCRIPT_SHAPING_ENV);
+    assert_eq!(row.value, "off");
+    assert!(row.reloadable);
+    assert_eq!(
+        row.group,
+        info.iter()
+            .find(|row| row.key == "ligatures")
+            .unwrap()
+            .group
+    );
+    let serialized = current.to_edit_values();
+    assert_eq!(
+        serialized.get(SCRIPT_SHAPING_ENV).map(String::as_str),
+        Some("off")
+    );
+}

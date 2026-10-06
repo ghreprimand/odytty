@@ -38,6 +38,7 @@ pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const LINE_HEIGHT_ENV: &str = "ODYTTY_LINE_HEIGHT";
 pub const BOX_THICKNESS_ENV: &str = "ODYTTY_BOX_THICKNESS";
 pub const LIGATURES_ENV: &str = "ODYTTY_LIGATURES";
+pub const SCRIPT_SHAPING_ENV: &str = "ODYTTY_SCRIPT_SHAPING";
 pub const LIGATURE_SS01_ENV: &str = "ODYTTY_LIGATURE_SS01";
 pub const LIGATURE_SS02_ENV: &str = "ODYTTY_LIGATURE_SS02";
 /// Alternate zero (`font_zero`): the body font's OpenType `zero` feature.
@@ -201,6 +202,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     LINE_HEIGHT_ENV,
     BOX_THICKNESS_ENV,
     LIGATURES_ENV,
+    SCRIPT_SHAPING_ENV,
     LIGATURE_SS01_ENV,
     LIGATURE_SS02_ENV,
     FONT_ZERO_ENV,
@@ -744,13 +746,14 @@ pub const DEFAULT_NEW_OUTPUT_FADE_MS: f32 = 250.0;
 pub const MIN_NEW_OUTPUT_FADE_MS: f32 = 50.0;
 pub const MAX_NEW_OUTPUT_FADE_MS: f32 = 1000.0;
 
-/// Programming ligatures (`ODYTTY_LIGATURES`): contextual `calt` plus standard
-/// `liga` on eligible Latin/operator runs, plus Arabic joining when the active
-/// face covers Arabic, plus complex-script owner shaping
-/// (`crate::complex_shaping`). On by default; `off` performs no shaping and preserves
-/// the scalar atlas/geometry output exactly. Optional stylistic sets ride
-/// [`LIGATURE_SS01_ENV`] / [`LIGATURE_SS02_ENV`] (both off by default).
+/// Programming ligatures (`ODYTTY_LIGATURES`): `calt` and `liga` on eligible
+/// Latin/operator runs. On by default; independent of script shaping.
 pub const DEFAULT_LIGATURES: bool = true;
+
+/// Arabic contextual joining and complex-script owner shaping. On by default;
+/// off restores the per-cell path for these scripts without disabling Latin
+/// programming ligatures.
+pub const DEFAULT_SCRIPT_SHAPING: bool = true;
 
 /// Optional OpenType stylistic set `ss01` (`ODYTTY_LIGATURE_SS01`). Off by
 /// default; only applies while programming ligatures are enabled. No other

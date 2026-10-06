@@ -169,6 +169,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "symbol_map",
             "ambiguous_width",
             "ligatures",
+            "script_shaping",
             "ss01",
             "ss02",
             "bidi_reorder",

@@ -100,6 +100,10 @@ impl Settings {
         values.insert(BOX_THICKNESS_ENV, format_float(self.box_thickness));
         values.insert(LIGATURES_ENV, bool_display(self.ligatures).to_owned());
         values.insert(
+            SCRIPT_SHAPING_ENV,
+            bool_display(self.script_shaping).to_owned(),
+        );
+        values.insert(
             LIGATURE_SS01_ENV,
             bool_display(self.ligature_ss01).to_owned(),
         );

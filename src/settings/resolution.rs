@@ -507,6 +507,12 @@ impl Settings {
             DEFAULT_LIGATURES,
             &mut warn,
         );
+        let script_shaping = parse_bool_setting(
+            get(SCRIPT_SHAPING_ENV).as_deref(),
+            SCRIPT_SHAPING_ENV,
+            DEFAULT_SCRIPT_SHAPING,
+            &mut warn,
+        );
         let ligature_ss01 = parse_bool_setting(
             get(LIGATURE_SS01_ENV).as_deref(),
             LIGATURE_SS01_ENV,
@@ -1044,6 +1050,7 @@ impl Settings {
             line_height,
             box_thickness,
             ligatures,
+            script_shaping,
             ligature_ss01,
             ligature_ss02,
             font_zero,

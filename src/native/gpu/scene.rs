@@ -1159,8 +1159,11 @@ impl GpuState {
     ) -> Vec<LigatureRun> {
         // BIDI: a reordered row shapes per level run, matching the display
         // map the cell build places it with; logical-order rows are unchanged.
-        self.ligature_shaper.build_runs_with_features_and_bidi(
-            self.ligatures_enabled,
+        self.ligature_shaper.build_runs_with_switches(
+            crate::ligature::ShapingSwitches {
+                ligatures: self.ligatures_enabled,
+                scripts: self.script_shaping_enabled,
+            },
             snapshot,
             &self.fonts,
             color_runs,
@@ -1193,8 +1196,11 @@ impl GpuState {
         color_runs: &[ColorGlyphRun],
         runs: &mut Vec<LigatureRun>,
     ) {
-        let complex = self.complex_shaper.build_runs(
-            self.ligatures_enabled,
+        let complex = self.complex_shaper.build_runs_with_switches(
+            crate::ligature::ShapingSwitches {
+                ligatures: self.ligatures_enabled,
+                scripts: self.script_shaping_enabled,
+            },
             snapshot,
             &self.fonts,
             &mut self.atlas,

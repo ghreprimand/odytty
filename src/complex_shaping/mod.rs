@@ -26,8 +26,8 @@
 //! (SYMMAP override, style face, then the fallback chain and runtime
 //! resolver for the base). When none does, when the runtime answer is still
 //! pending, when shaping yields `.notdef`, or when the atlas is full, the
-//! owner keeps the per-cell path unchanged for that frame. The `ligatures`
-//! switch gates this path too: off restores the per-cell path everywhere.
+//! owner keeps the per-cell path unchanged for that frame. The `script_shaping`
+//! switch gates this path: off restores per-cell glyphs for these scripts.
 
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
@@ -233,9 +233,22 @@ impl ComplexShaper {
         self.face_lookups
     }
 
+    /// Production dispatch for the independent script switch. Shared by the
+    /// initial frame and both live single-pane and split-pane frame paths.
+    pub fn build_runs_with_switches<F: LigatureFonts>(
+        &mut self,
+        switches: crate::ligature::ShapingSwitches,
+        snapshot: &Snapshot,
+        fonts: &F,
+        atlas: &mut GlyphAtlas,
+        color_runs: &[ColorGlyphRun],
+    ) -> Vec<LigatureRun> {
+        self.build_runs(switches.scripts, snapshot, fonts, atlas, color_runs)
+    }
+
     /// One overlay per eligible owner of `snapshot`, in row-major order,
     /// each with its cluster slot already resident in `atlas`. Empty while
-    /// `enabled` (the `ligatures` switch) is off.
+    /// `enabled` (the `script_shaping` switch) is off.
     pub fn build_runs<F: LigatureFonts>(
         &mut self,
         enabled: bool,

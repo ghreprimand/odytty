@@ -2405,9 +2405,15 @@ terminal-grid model.
 
 `ligatures` is a default-on presentation setting. Eligible same-style ASCII runs
 are shaped with `swash::ShapeContext` and contextual alternates, while the
-terminal model retains its source owners and fixed cell positions. `ligatures =
-off` performs no shaping and retains the prior scalar atlas and vertex output
-exactly.
+terminal model retains its source owners and fixed cell positions.
+`ligatures = off` restores per-cell Latin/operator glyphs exactly. Arabic
+joining and complex-script owner forms follow the separate default-on
+`script_shaping` setting (`ODYTTY_SCRIPT_SHAPING`). Each setting applies live
+from Settings > Rendering, reachable from the right-click menu. Script shaping
+off restores per-cell glyphs for its scripts. Since v0.11.0, disabling ligatures
+also disabled Arabic joining; this behavior changes so Arabic and complex
+scripts continue shaping unless `script_shaping = off`. Both switches share
+the same paths on Linux Wayland, Linux X11, macOS, and Windows.
 
 The renderer caches deterministic per-row shape plans, bounded to 512 rows, so
 unchanged rows are not reshaped in the render hot loop. Contextual atlas entries
@@ -2532,13 +2538,13 @@ does not combine adjacent flag owners. Font coverage cannot change grid width.
 Zero-width combining marks remain stored with their base cell in arrival order.
 The monochrome renderer draws resident marks over that base and suppresses a
 missing-mark tofu fallback, so a missing font glyph cannot obscure the base.
-With programming ligatures on, Arabic harakat on an Arabic letter inside a
+With script shaping on, Arabic harakat on an Arabic letter inside a
 joining run of two or more cells are drawn instead by the shaping overlay at
 the font's mark-positioned offsets, and only when the text font maps every
 mark on that cell; the monochrome path does not draw them again (see
 [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md)).
 
-With programming ligatures on, each width owner of an enabled script group is
+With script shaping on, each width owner of an enabled script group is
 shaped on its own with `harfrust` 0.8.4 (left to right,
 script from the content, no language, cluster level 0) and drawn as one
 overlay over exactly its one or two cells. The enabled groups are

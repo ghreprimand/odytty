@@ -48,8 +48,7 @@ pub fn geometric_boxdraw_enabled() -> bool {
     GEOMETRIC_BOXDRAW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Process-wide contextual shaping switch. `false` is the exact scalar renderer
-/// path and allocates no shaping cache entries.
+/// Process-wide Latin/operator ligature switch, independent of script shaping.
 static LIGATURES_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(DEFAULT_LIGATURES);
 
@@ -59,6 +58,18 @@ pub fn set_ligatures_enabled(enabled: bool) {
 
 pub fn ligatures_enabled() -> bool {
     LIGATURES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Process-wide Arabic joining and complex-script owner shaping switch.
+static SCRIPT_SHAPING_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(DEFAULT_SCRIPT_SHAPING);
+
+pub fn set_script_shaping_enabled(enabled: bool) {
+    SCRIPT_SHAPING_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn script_shaping_enabled() -> bool {
+    SCRIPT_SHAPING_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Optional OpenType `ss01` stylistic set. Off by default; ignored while the

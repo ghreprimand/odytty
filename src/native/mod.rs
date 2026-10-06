@@ -202,6 +202,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     crate::settings::set_geometric_boxdraw_enabled(settings.geometric_boxdraw);
     // Publish contextual shaping before the GPU renderer is created.
     crate::settings::set_ligatures_enabled(settings.ligatures);
+    crate::settings::set_script_shaping_enabled(settings.script_shaping);
     crate::settings::set_ligature_ss01_enabled(settings.ligature_ss01);
     crate::settings::set_ligature_ss02_enabled(settings.ligature_ss02);
     // Publish the alternate-zero control before the body faces are loaded.

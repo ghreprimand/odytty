@@ -499,6 +499,8 @@ pub(in crate::native) struct GpuState {
     pub(super) geometric_enabled: bool,
     /// Last-applied programming-ligature switch.
     pub(super) ligatures_enabled: bool,
+    /// Last-applied Arabic joining and complex-script shaping switch.
+    pub(super) script_shaping_enabled: bool,
     /// Last-applied optional OpenType `ss01` stylistic set (off by default).
     pub(super) ligature_ss01: bool,
     /// Last-applied optional OpenType `ss02` stylistic set (off by default).
@@ -888,11 +890,15 @@ impl GpuState {
         let initial_color_glyph_runs =
             emoji_rasterizer.build_color_glyph_runs(initial_snapshot, &mut color_glyph_atlas);
         let ligatures_enabled = crate::settings::ligatures_enabled();
+        let script_shaping_enabled = crate::settings::script_shaping_enabled();
         let ligature_ss01 = crate::settings::ligature_ss01_enabled();
         let ligature_ss02 = crate::settings::ligature_ss02_enabled();
         let mut ligature_shaper = LigatureShaper::new();
-        let mut initial_ligature_runs = ligature_shaper.build_runs_with_features(
-            ligatures_enabled,
+        let mut initial_ligature_runs = ligature_shaper.build_runs_with_switches(
+            crate::ligature::ShapingSwitches {
+                ligatures: ligatures_enabled,
+                scripts: script_shaping_enabled,
+            },
             initial_snapshot,
             &fonts,
             &initial_color_glyph_runs,
@@ -901,6 +907,7 @@ impl GpuState {
                 ss02: ligature_ss02,
                 zero: font_zero,
             },
+            None,
         );
         for glyph in initial_ligature_runs
             .iter()
@@ -914,8 +921,11 @@ impl GpuState {
                 .all(|glyph| atlas.contains_shaped(glyph.key))
         });
         let mut complex_shaper = ComplexShaper::new();
-        let initial_complex_runs = complex_shaper.build_runs(
-            ligatures_enabled,
+        let initial_complex_runs = complex_shaper.build_runs_with_switches(
+            crate::ligature::ShapingSwitches {
+                ligatures: ligatures_enabled,
+                scripts: script_shaping_enabled,
+            },
             initial_snapshot,
             &fonts,
             &mut atlas,
@@ -1152,6 +1162,7 @@ impl GpuState {
             synthetic_enabled,
             geometric_enabled,
             ligatures_enabled,
+            script_shaping_enabled,
             ligature_ss01,
             ligature_ss02,
             font_zero,
@@ -1448,11 +1459,14 @@ impl GpuState {
         let geometric_changed = geometric_now != self.geometric_enabled;
         let ligatures_now = crate::settings::ligatures_enabled();
         let ligatures_changed = ligatures_now != self.ligatures_enabled;
+        let scripts_now = crate::settings::script_shaping_enabled();
+        let scripts_changed = scripts_now != self.script_shaping_enabled;
         let ss01_now = crate::settings::ligature_ss01_enabled();
         let ss02_now = crate::settings::ligature_ss02_enabled();
         let font_zero_now = crate::settings::font_zero_enabled();
         let font_zero_changed = font_zero_now != self.font_zero;
         let shaping_features_changed = ligatures_changed
+            || scripts_changed
             || ss01_now != self.ligature_ss01
             || ss02_now != self.ligature_ss02
             || font_zero_changed;
@@ -1529,6 +1543,7 @@ impl GpuState {
         }
         if shaping_features_changed {
             self.ligatures_enabled = ligatures_now;
+            self.script_shaping_enabled = scripts_now;
             self.ligature_ss01 = ss01_now;
             self.ligature_ss02 = ss02_now;
         }

@@ -43,8 +43,8 @@ use super::{
     INTERACTIVE_PATHS_IMAGE_INLINE_ENV, INTERACTIVE_URLS_ENV, KITTY_NAMED_TRANSPORTS_ENV,
     LIGATURE_SS01_ENV, LIGATURE_SS02_ENV, LIGATURES_ENV, LINE_HEIGHT_ENV, NAVIGATOR_PREVIEW_ENV,
     REMOTE_IMAGE_PASTE_ENV, REMOTE_INTEGRATION_ENV, REMOTE_PERSIST_ENV, REMOTE_REUSE_ENV,
-    REMOTE_TMUX_ENV, SECURE_KEYBOARD_INPUT_ENV, SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV,
-    WARN_ON_RISKY_PASTE_ENV,
+    REMOTE_TMUX_ENV, SCRIPT_SHAPING_ENV, SECURE_KEYBOARD_INPUT_ENV, SESSION_REPLAY_ENV,
+    SSH_CONFIG_HOSTS_ENV, WARN_ON_RISKY_PASTE_ENV,
 };
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ConfigValues {
@@ -285,6 +285,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "osc52write" | "allowosc52write" | "clipboardwrite" => Some(OSC52_WRITE_ENV),
         "syntheticstyles" | "synthstyles" | "syntheticfonts" => Some(SYNTHETIC_STYLES_ENV),
         "ligatures" | "programmingligatures" | "calt" => Some(LIGATURES_ENV),
+        "scriptshaping" => Some(SCRIPT_SHAPING_ENV),
         "ligaturesss01" | "ss01" | "stylisticset01" => Some(LIGATURE_SS01_ENV),
         "ligaturesss02" | "ss02" | "stylisticset02" => Some(LIGATURE_SS02_ENV),
         "fontzero" | "zero" | "alternatezero" => Some(FONT_ZERO_ENV),
@@ -459,6 +460,7 @@ pub(crate) fn env_to_config_key(env: &str) -> Option<&'static str> {
         LINE_HEIGHT_ENV => Some("line_height"),
         BOX_THICKNESS_ENV => Some("box_thickness"),
         LIGATURES_ENV => Some("ligatures"),
+        SCRIPT_SHAPING_ENV => Some("script_shaping"),
         LIGATURE_SS01_ENV => Some("ss01"),
         LIGATURE_SS02_ENV => Some("ss02"),
         FONT_ZERO_ENV => Some("font_zero"),

@@ -120,6 +120,7 @@ pub(crate) mod test_lock {
         synthetic_styles: bool,
         geometric_boxdraw: bool,
         ligatures: bool,
+        script_shaping: bool,
         ligature_ss01: bool,
         ligature_ss02: bool,
         font_zero: bool,
@@ -138,6 +139,7 @@ pub(crate) mod test_lock {
                 synthetic_styles: crate::settings::synthetic_styles_enabled(),
                 geometric_boxdraw: crate::settings::geometric_boxdraw_enabled(),
                 ligatures: crate::settings::ligatures_enabled(),
+                script_shaping: crate::settings::script_shaping_enabled(),
                 ligature_ss01: crate::settings::ligature_ss01_enabled(),
                 ligature_ss02: crate::settings::ligature_ss02_enabled(),
                 font_zero: crate::settings::font_zero_enabled(),
@@ -156,6 +158,7 @@ pub(crate) mod test_lock {
             crate::settings::set_synthetic_styles_enabled(self.synthetic_styles);
             crate::settings::set_geometric_boxdraw_enabled(self.geometric_boxdraw);
             crate::settings::set_ligatures_enabled(self.ligatures);
+            crate::settings::set_script_shaping_enabled(self.script_shaping);
             crate::settings::set_ligature_ss01_enabled(self.ligature_ss01);
             crate::settings::set_ligature_ss02_enabled(self.ligature_ss02);
             crate::settings::set_font_zero_enabled(self.font_zero);
@@ -355,6 +358,7 @@ pub(crate) mod test_lock {
             crate::settings::set_synthetic_styles_enabled(false);
             crate::settings::set_geometric_boxdraw_enabled(true);
             crate::settings::set_ligatures_enabled(!crate::settings::ligatures_enabled());
+            crate::settings::set_script_shaping_enabled(!crate::settings::script_shaping_enabled());
             crate::settings::set_ligature_ss01_enabled(true);
             crate::settings::set_ligature_ss02_enabled(true);
             crate::settings::set_font_zero_enabled(true);
