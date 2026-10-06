@@ -183,6 +183,7 @@ fn quick_needs_host_resume(visibility: QuickVisibility, surface_exists: bool) ->
 /// The process multi-window event handler. Owns every live window.
 pub(in crate::native) struct MultiWindowHost {
     pub(super) windows: Vec<App>,
+    live_drag: Option<live_tab_drag::ProvisionalTab>,
     shared: Arc<WatchdogShared>,
     last_seen_frames: u64,
     factory: SiblingFactory,
@@ -286,6 +287,7 @@ impl MultiWindowHost {
     ) -> Self {
         Self {
             windows: vec![primary],
+            live_drag: None,
             shared,
             last_seen_frames: 0,
             factory,
@@ -340,6 +342,7 @@ impl MultiWindowHost {
     /// identity is excluded explicitly so restore safety does not depend on the
     /// quick App merely having been constructed as a secondary.
     pub(in crate::native) fn save_restorable_shape_on_exit(&mut self) {
+        self.cancel_live_tab();
         let quick = &self.quick;
         if let Some(primary) = self.windows.iter_mut().find(|app| {
             app.startup_error.is_none() && quick.window_is_restorable(app.process_window_id())
@@ -556,16 +559,12 @@ impl MultiWindowHost {
     fn refresh(&mut self) {
         self.service_broadcast();
         self.sync_peer_attached_sessions();
-        let total_frames: u64 = self
-            .windows
-            .iter()
-            .map(|app| app.watchdog_state().frames_presented)
-            .sum();
+        let total_frames: u64 = self.windows.iter().map(App::frames_presented).sum();
         if total_frames != self.last_seen_frames {
             self.last_seen_frames = total_frames;
             self.shared.note_present();
         }
-        if let Some(primary) = self.windows.first() {
+        if let Some(primary) = self.windows.iter().find(|app| !app.live_drag_source) {
             self.shared.store_state(&primary.watchdog_state());
         }
     }
@@ -593,6 +592,18 @@ impl MultiWindowHost {
     /// Resolve a window close: remove only that window while siblings remain,
     /// reaping its sessions on the way out; exit the process on the last window.
     fn close_window(&mut self, idx: usize, event_loop: &ActiveEventLoop) {
+        let id = self.windows[idx].process_window_id();
+        if self
+            .live_drag
+            .as_ref()
+            .is_some_and(|drag| drag.contains(id))
+        {
+            self.cancel_live_tab();
+            let Some(index) = self.index_of(id) else {
+                return;
+            };
+            return self.close_window(index, event_loop);
+        }
         match resolve_window_close(self.windows.len(), idx) {
             WindowCloseAction::ExitProcess => event_loop.exit(),
             WindowCloseAction::RemoveWindow(i) => self.remove_closed_window(i),
@@ -610,6 +621,22 @@ impl MultiWindowHost {
     /// terminal is never a survivor for this role (it is summoned, never
     /// restored). Closing a non-primary window changes no ownership.
     fn remove_closed_window(&mut self, i: usize) {
+        if let Some(app) = self.windows.get(i) {
+            let id = app.process_window_id();
+            if self
+                .live_drag
+                .as_ref()
+                .is_some_and(|drag| drag.contains(id))
+            {
+                self.cancel_live_tab();
+                // Cancellation removes only the provisional destination. A
+                // close of that surface has no remaining window to close.
+                let Some(index) = self.index_of(id) else {
+                    return;
+                };
+                return self.remove_closed_window(index);
+            }
+        }
         // Deliver a profile edit made just before the close first.
         self.service_profile_binding_changes();
         if i >= self.windows.len() {
@@ -677,6 +704,9 @@ impl MultiWindowHost {
     /// sibling never keeps a workspace binding to a name that no longer exists.
     /// The primary window persists the updated bindings; others stay in memory.
     fn service_profile_binding_changes(&mut self) {
+        if self.live_drag.is_some() {
+            return;
+        }
         for origin in 0..self.windows.len() {
             let changes = self.windows[origin].take_profile_binding_changes();
             for change in &changes {
@@ -822,6 +852,7 @@ impl MultiWindowHost {
         selected: ProcessWindowId,
         direction: MergeDirection,
     ) {
+        self.cancel_live_tab();
         // "Merge this window into..." moves the origin INTO the selected target;
         // "Pull window ... into this one" moves the selected INTO the origin.
         let (source_id, target_id) = match direction {
@@ -1573,6 +1604,10 @@ fn decode_picker_key(event: &winit::event::KeyEvent) -> Option<PickerKey> {
 }
 
 impl ApplicationHandler<UserEvent> for MultiWindowHost {
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.cancel_live_tab();
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let quick_id = self.quick.identity().map(|identity| identity.window());
         for app in &mut self.windows {
@@ -1590,6 +1625,11 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         window_id: WindowId,
         event: WindowEvent,
     ) {
+        // A late gain cannot extend the bounded focus-classification window.
+        // Ordinary input still captures its logical redirect before cancelling.
+        if matches!(event, WindowEvent::Focused(_)) {
+            self.expire_live_focus(Instant::now());
+        }
         if implies_pending_work(&event) {
             self.shared.note_activity();
         }
@@ -1624,6 +1664,27 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         } else {
             None
         };
+        let input_redirect = self.live_input_redirect(idx, &event);
+        let intercepted = self.route_live_tab_event(idx, &event);
+        if let Some(source) = input_redirect {
+            if let Some(index) = self.index_of(source) {
+                let early = self.windows[index].process_window_event(event_loop, event);
+                if !early && self.windows[index].wants_exit() {
+                    self.close_window(index, event_loop);
+                }
+            }
+            self.refresh();
+            return;
+        }
+        if intercepted {
+            if let Some(index) = window_index_for(&self.windows, window_id)
+                && self.windows[index].wants_exit()
+            {
+                self.close_window(index, event_loop);
+            }
+            self.refresh();
+            return;
+        }
         let redraw_early_exit = self.windows[idx].process_window_event(event_loop, event);
         // Process the native focus loss before hiding. This keeps the existing
         // App handler as the sole cleanup/report authority; the hide path sees
@@ -1638,6 +1699,14 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        // Arena changes and asynchronous dialogs settle provisional custody
+        // before the event routes. PTY output continues at its current owner.
+        if !matches!(
+            event,
+            UserEvent::Redraw { .. } | UserEvent::GlyphFallbackResolved | UserEvent::AutomationWake
+        ) {
+            self.cancel_live_tab();
+        }
         // A PTY pump wake or session event implies a redraw is wanted.
         self.shared.note_activity();
         // v0.15.0 A: a global-shortcut summon is not session-scoped. Drive the
@@ -1669,7 +1738,9 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         }
         if matches!(event, UserEvent::GlyphFallbackResolved) {
             for app in &mut self.windows {
-                app.rebuild_for_resolved_glyph_fallback();
+                if !app.live_drag_source {
+                    app.rebuild_for_resolved_glyph_fallback();
+                }
             }
             self.refresh();
             return;
@@ -1736,6 +1807,9 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         // autoclose deadline fired or a confirmed exit).
         let mut to_close: Vec<usize> = Vec::new();
         for (i, app) in self.windows.iter_mut().enumerate() {
+            if app.live_drag_source {
+                continue;
+            }
             app.run_about_to_wait_maintenance(now);
             let autoclose_fired = app.autoclose_deadline_reached(now);
             if autoclose_fired || app.wants_exit() {
@@ -1766,6 +1840,7 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         }
 
         // Service cross-window requests (may add or remove windows).
+        self.tick_live_tab(Instant::now());
         self.service_new_windows(event_loop);
         self.service_move_requests(event_loop);
         self.service_merge_requests();
@@ -1786,7 +1861,9 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         match self
             .windows
             .iter()
+            .filter(|app| !app.live_drag_source)
             .filter_map(App::next_wake_deadline)
+            .chain(self.live_drag_wake())
             .chain(self.quick_reveal_wake())
             .min()
         {
@@ -1811,6 +1888,7 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
 #[path = "multi_window_host/broadcast.rs"]
 mod broadcast;
 
+mod live_tab_drag;
 #[path = "multi_window_host/reparent.rs"]
 mod reparent;
 pub(in crate::native) use reparent::AdoptFactory;

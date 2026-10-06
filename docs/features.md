@@ -1258,25 +1258,42 @@ attach list says it is already open elsewhere.
 Drag a tab from the horizontal strip at least 16 physical pixels beyond a
 window edge to show **New window**, then release to move that tab and its panes
 into a new window. Its terminal sessions, PTYs, history, images and selection
-stay intact. Escape, focus loss, or a dialog that opens during the drag, such
-as the close confirmation, cancels; returning inside the window keeps
+stay intact. For release-time creation, Escape, source focus loss, or a dialog that opens
+during the drag, such as the close confirmation, cancels; returning inside the window keeps
 ordinary tab reorder. A lone tab can tear out, closing its empty source window.
 The command palette, right-click menu and merge picker remain available; their
 existing lone-tab refusal is unchanged. Dragging individual panes out is
 unsupported, and so is dragging a workspace out of the rail: a rail slot drag
 only reorders workspaces.
 
+`live_tab_drag` (Settings > Layout > Tabs, default on) follows the pointer
+with a provisional window on X11, macOS and Windows. Release commits once.
+Escape, returning to the source strip, a window close or a failed creation
+restores the exact tab order, active identity and pane tree. Focus changes
+within OdyTTY keep custody alive. If no OdyTTY window gains focus within
+150 ms after focus loss, the drag cancels; later loss from the provisional
+window uses the same bound. Cancellation requests source focus only while
+OdyTTY already holds focus. Ordinary input at the source or provisional window
+cancels the preview and routes through the restored source. Returning to the
+strip resumes the held reorder gesture. Source resizing updates the return
+bounds without ending custody. Modifier-only events, synthetic presses and
+automation polling preserve the drag; real key presses and mutating automation
+commands cancel. Release requests focus only while OdyTTY holds focus. A lone
+source stays alive until commit. The provisional surface leaves terminal
+geometry, PTYs, recorders and saved-layout ownership intact until completion.
+Turning the setting off retains creation on release.
+
 Placement follows the platform:
 
 | Platform | New-window placement |
 | --- | --- |
-| Linux X11 | Global release point, clamped to the monitor under the cursor. |
+| Linux X11 | A provisional window follows the pointer with the grabbed tab offset, clamped to the monitor under the cursor. With live tab drag off, the global release point is used. |
 | Linux Hyprland Wayland | The monitor and workspace under the release-time global cursor, tiled through bounded IPC. |
 | Linux KDE Plasma Wayland | The compositor chooses placement. |
 | Linux GNOME Wayland | The compositor chooses placement. |
 | Linux other Wayland | The compositor chooses placement. |
-| macOS | Global release point, clamped to the monitor under the cursor. |
-| Windows | Global release point, clamped to the monitor under the cursor. |
+| macOS | A provisional window follows the pointer with the grabbed tab offset, clamped to the monitor under the cursor. With live tab drag off, the global release point is used. |
+| Windows | A provisional window follows the pointer with the grabbed tab offset, clamped to the monitor under the cursor. With live tab drag off, the global release point is used. |
 
 A new-window failure restores the tab to its source. If Hyprland placement is
 unavailable, the tab still moves safely and its new window shows a notice.
@@ -1284,8 +1301,7 @@ Hyprland placement reads only the current user session's socket, clamps replies
 and deadlines, and targets the new window by creation identity rather than
 focus. No shell command is spawned. Special-workspace names longer than 128
 UTF-8 bytes or containing commas, semicolons, quotes, backslashes, or control
-characters cannot be used for placement. Compositor-driven live follow during the
-drag is unsupported.
+characters cannot be used for placement. Live follow is unsupported on Wayland.
 
 ### Control OdyTTY Locally
 

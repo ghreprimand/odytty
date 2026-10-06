@@ -1224,13 +1224,7 @@ impl App {
         os: OpenerOs,
     ) {
         let was_open = open_modifier_held(self.modifiers, self.super_key, os);
-        self.modifiers = Modifiers {
-            ctrl: state.control_key(),
-            alt: state.alt_key(),
-            shift: state.shift_key(),
-        };
-        self.super_key = state.super_key();
-        key_event_diagnostics::log_modifiers_changed(self.modifiers, self.super_key);
+        self.cache_modifiers(state);
         // UX-A (Phase 11): the open-modifier armed underline (Ctrl on Linux
         // and Windows, Cmd on macOS, via `open_modifier_held`) appears and
         // clears as that modifier toggles while an enabled path or bare URL is
@@ -1246,6 +1240,17 @@ impl App {
                 window.request_redraw();
             }
         }
+    }
+
+    /// Update input metadata without dereferencing a suspended empty arena.
+    pub(super) fn cache_modifiers(&mut self, state: winit::keyboard::ModifiersState) {
+        self.modifiers = Modifiers {
+            ctrl: state.control_key(),
+            alt: state.alt_key(),
+            shift: state.shift_key(),
+        };
+        self.super_key = state.super_key();
+        key_event_diagnostics::log_modifiers_changed(self.modifiers, self.super_key);
     }
 
     /// Handle one `KeyboardInput` event.

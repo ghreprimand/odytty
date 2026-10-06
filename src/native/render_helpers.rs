@@ -353,6 +353,8 @@ pub(super) struct RenderContentSignature {
     pub(super) bidi_placement: Option<u64>,
     /// Tab tear-out badge state; repaint both arming and cancellation.
     pub(super) tab_tear_out: bool,
+    /// Provisional drag custody forces a visible tab strip until completion.
+    pub(super) live_tab_drag: bool,
 }
 
 /// Cache key for the F4-P3 revealed rail overlay. `default()` — not revealed —

@@ -41,7 +41,7 @@ pub(in crate::native) struct TopTabDrag {
     /// Stable tab focus token captured on press, independent of later indices.
     pub(in crate::native) origin_token: Option<SessionToken>,
     press_x: f64,
-    press_y: f64,
+    pub(in crate::native) press_y: f64,
     /// Pointer distance from the grabbed slot's leading edge, in pixels.
     pub(in crate::native) grab_offset_x: f64,
     slot_span_px: f64,
@@ -1347,7 +1347,7 @@ impl App {
         self.rail_seam_drag = false;
         self.tab_bar_seam_drag = false;
         self.rail_ws_drag = None;
-        self.top_tab_drag = None;
+        self.clear_top_tab_drag_for_transition();
         // An open target's press may open an overlay (the image lightbox); the
         // paired release is then consumed by the overlay, so drop the swallow
         // latch here too and never carry it past the overlay.
@@ -1424,6 +1424,14 @@ impl App {
             drag.drop_idx = insert;
         }
         self.top_tab_drag = Some(drag);
+        if drag.tear_out
+            && self.settings.live_tab_drag
+            && !self.is_wayland_client()
+            && self.pending_move.is_none()
+            && let Some(tab) = drag.origin_token
+        {
+            self.pending_move = Some(reparent::MoveRequest::LiveTab(tab));
+        }
         if armed {
             self.apply_cursor_icon(CursorIcon::Grabbing);
             self.invalidate_chrome_drag_frame();
@@ -1431,6 +1439,9 @@ impl App {
     }
 
     pub(super) fn finish_top_tab_drag(&mut self) {
+        if matches!(self.pending_move, Some(reparent::MoveRequest::LiveTab(_))) {
+            self.pending_move = None;
+        }
         let tear_out = self.tab_tear_out_signature();
         let Some(drag) = self.top_tab_drag.take() else {
             return;
@@ -1455,7 +1466,19 @@ impl App {
         let _ = self.cancel_top_tab_drag();
     }
 
+    /// Preserve the release-time path exactly when live following is disabled.
+    pub(super) fn clear_top_tab_drag_for_transition(&mut self) {
+        if self.settings.live_tab_drag {
+            let _ = self.cancel_top_tab_drag();
+        } else {
+            self.top_tab_drag = None;
+        }
+    }
+
     pub(super) fn cancel_top_tab_drag(&mut self) -> bool {
+        if matches!(self.pending_move, Some(reparent::MoveRequest::LiveTab(_))) {
+            self.pending_move = None;
+        }
         if self.top_tab_drag.take().is_none() {
             return false;
         }

@@ -1263,20 +1263,40 @@ scope rather than silently inheriting deferred work from a prior release.
   attach dedup spans the process. A horizontal-strip tab drag at least 16
   physical pixels beyond a surface edge shows a New window badge. Releasing
   there reparents that tab, including its panes, into a new window without
-  spawning a shell. Escape, focus loss, or a dialog that opens mid-drag
-  cancels, and a left press arriving while a tab or workspace drag is still
+  spawning a shell. With release-time creation, Escape, source focus loss, or
+  a dialog that opens mid-drag cancels, and a left press arriving while a tab or workspace drag is still
   recorded ends that drag uncommitted; returning inside keeps tab
   reorder. A lone tab can tear out and transfers the saved-layout role when
   its source closes; the menu's lone-tab refusal remains unchanged. Pane
   tear-out is unsupported, and workspace rail slot drags only reorder
-  workspaces. X11, macOS, and Windows position the new window at
-  the global release point, clamping its origin to the monitor under it.
+  workspaces. On X11, macOS and Windows, the default-on `live_tab_drag`
+  setting creates a provisional window while the pointer is held outside.
+  Its grabbed tab follows the pointer with scale-aware offsets and monitor
+  clamping. The source, including a sole-tab source, survives until release
+  commits once. Escape, returning to the strip, source or destination close,
+  suspension and failed creation roll the move back. Focus loss is classified
+  after the event batch, with a 150 ms bound: a focused OdyTTY window keeps
+  custody alive; no focused process window cancels. A release during a focus
+  gap waits for classification. Cancellation requests source focus only while
+  the process already holds focus. Ordinary input at either custody window
+  cancels first and routes to the restored source.
+  Returning to the strip resumes the held reorder gesture. Source resizing
+  updates the return bounds without ending custody. Modifier-only events,
+  synthetic presses and automation polling preserve the drag; real key
+  presses and mutating automation commands cancel. Release requests focus
+  only while OdyTTY holds process focus.
+  Tab order, source active identity, split tree, terminal objects, PTYs,
+  recorders and autosave ownership survive cancellation. Provisional painting
+  cannot resize terminal grids or claim shape persistence. Setting it off
+  keeps the release-time creation and global release-point placement.
   Hyprland queries the global cursor, monitor and workspace on release and
   places the new window there through bounded IPC, tiled. The client is
   identified by its unique initial title and process id, never current focus.
   Visible special workspaces take precedence over the regular workspace;
   their selectors are capped at 128 UTF-8 bytes and reject IPC delimiters.
   Other Wayland compositors, including KDE Plasma and GNOME, choose placement.
+  Live follow on Wayland remains unsupported. Windows performs no child spawn
+  for either transfer path and keeps ConPTY dimensions unchanged until commit.
   A refused surface creation restores the tab; unavailable Hyprland placement
   leaves the tab in its new window and shows a notice.
 - Stacked and floating layouts (v0.16.0): a tab keeps its binary split tree

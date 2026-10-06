@@ -1205,6 +1205,8 @@ pub struct Settings {
     /// byte-identical to today. A lone tab with a custom name shows the bar
     /// regardless of this setting (F4-NF1).
     pub always_show_tab_bar: bool,
+    /// Follow the pointer with a reversible tab window where supported.
+    pub live_tab_drag: bool,
     /// Which side the workspace rail sits on when it is shown; tabs always
     /// render on the top bar. `Top` (default) places the rail on the left when
     /// it appears; `Left` and `Right` pin the rail to that side. A former
@@ -1589,6 +1591,7 @@ impl Default for Settings {
             wheel_zoom: DEFAULT_WHEEL_ZOOM,
             command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
             always_show_tab_bar: DEFAULT_ALWAYS_SHOW_TAB_BAR,
+            live_tab_drag: true,
             tab_bar_placement: TabBarPlacement::default(),
             workspace_rail: WorkspaceRail::default(),
             tab_rail_width: TabRailWidth::default(),

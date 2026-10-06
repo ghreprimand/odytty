@@ -236,6 +236,10 @@ impl Settings {
             bool_display(self.command_status_gutter).to_owned(),
         );
         values.insert(
+            LIVE_TAB_DRAG_ENV,
+            bool_display(self.live_tab_drag).to_owned(),
+        );
+        values.insert(
             ALWAYS_SHOW_TAB_BAR_ENV,
             bool_display(self.always_show_tab_bar).to_owned(),
         );

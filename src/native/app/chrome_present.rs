@@ -67,7 +67,8 @@ impl App {
         // `always_show_tab_bar` setting, and show a lone tab when it carries a
         // custom name so a named single "workflow" tab is visible (F4 ODP-7 /
         // F4-NF1).
-        self.sessions.tab_count() >= 2
+        self.live_drag_destination
+            || self.sessions.tab_count() >= 2
             || self.settings.always_show_tab_bar
             || self.sessions.lone_tab_has_title_override()
     }

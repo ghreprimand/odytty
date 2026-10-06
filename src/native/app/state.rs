@@ -432,6 +432,8 @@ pub(in crate::native) struct App {
     /// reassigns identity. Single-window behavior is unaffected: it is only read
     /// through cross-window operations that do not exist until a second window
     /// opens.
+    pub(super) live_drag_source: bool,
+    pub(super) live_drag_destination: bool,
     pub(super) process_window_id: crate::native::window_owner::ProcessWindowId,
     /// v0.15.0 C: monotonic incarnation of THIS window's native Wayland surface,
     /// bumped in `try_resume_presentation` each time the surface is (re)created
@@ -698,6 +700,18 @@ impl App {
         settings: Settings,
         settings_reloader: SettingsReloader,
     ) -> Self {
+        Self::new_with_sessions_for_transfer(options, sessions, settings, settings_reloader, false)
+    }
+
+    /// Provisional custody leaves recorder, shell-integration and terminal
+    /// geometry intact until a release commits the transfer.
+    pub(in crate::native) fn new_with_sessions_for_transfer(
+        options: NativeOptions,
+        sessions: WorkspaceSet,
+        settings: Settings,
+        settings_reloader: SettingsReloader,
+        provisional: bool,
+    ) -> Self {
         let grid = options.initial_grid;
         let hold_session = options.hold.then(|| sessions.active_id());
         let theme = settings.theme;
@@ -789,7 +803,7 @@ impl App {
             rail_ws_drag: None,
             top_tab_drag: None,
             // Assume focused at startup; the first `Focused` event corrects it.
-            focused: true,
+            focused: !provisional,
             // Startup counts as a focus gain: the very first click after
             // launch should not fire a button either.
             focus_click_pending: true,
@@ -832,6 +846,8 @@ impl App {
             // unreachable ceiling. A None here would mean the id space is
             // exhausted; reusing an id is never acceptable, so this panics rather
             // than aliasing a live window's identity.
+            live_drag_source: false,
+            live_drag_destination: provisional,
             process_window_id: crate::native::window_owner::next_window_id()
                 .expect("ProcessWindowId space exhausted (2^64 windows); refusing to reuse an id"),
             #[cfg(target_os = "linux")]
@@ -903,7 +919,9 @@ impl App {
         #[cfg(not(test))]
         {
             let onboarding_override = std::env::var_os("ODYTTY_ONBOARDING").is_some();
-            if should_show_onboarding(onboarding_override, app.settings_reloader.config_path()) {
+            if !provisional
+                && should_show_onboarding(onboarding_override, app.settings_reloader.config_path())
+            {
                 app.overlay.open_onboarding();
             }
         }
@@ -911,10 +929,12 @@ impl App {
         // configured `session_replay` state at startup, so a window launched
         // with recording already enabled records from the first output. Off (the
         // default) is a no-op.
-        app.sessions
-            .set_recording_enabled(app.settings.session_replay);
-        app.sessions
-            .set_shell_integration_enabled(app.settings.shell_integration);
+        if !provisional {
+            app.sessions
+                .set_recording_enabled(app.settings.session_replay);
+            app.sessions
+                .set_shell_integration_enabled(app.settings.shell_integration);
+        }
         // The first window establishes the process wish from its settings.
         // A sibling adopts the wish already in force instead of writing the
         // on-disk value back over it.

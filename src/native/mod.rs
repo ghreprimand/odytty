@@ -384,12 +384,15 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // Moving a tab or pane to a new window builds the window around the moved
     // sessions: no shell is spawned, only the window and its settings.
     let adopt_settings = settings.clone();
-    let adopt: app::AdoptFactory = Box::new(move |set| {
-        App::new_with_sessions(
-            NativeOptions::from_settings(&adopt_settings),
+    let adopt: app::AdoptFactory = Box::new(move |set, settings_override| {
+        let provisional = settings_override.is_some();
+        let settings = settings_override.unwrap_or_else(|| adopt_settings.clone());
+        App::new_with_sessions_for_transfer(
+            NativeOptions::from_settings(&settings),
             set,
-            adopt_settings.clone(),
+            settings,
             crate::settings::SettingsReloader::for_current_process(Instant::now()),
+            provisional,
         )
     });
     let mut host = app::MultiWindowHost::new(app, watchdog_shared, factory, adopt);

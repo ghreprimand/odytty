@@ -721,6 +721,12 @@ impl Settings {
             DEFAULT_COMMAND_STATUS_GUTTER,
             &mut warn,
         );
+        let live_tab_drag = parse_bool_setting(
+            get(LIVE_TAB_DRAG_ENV).as_deref(),
+            LIVE_TAB_DRAG_ENV,
+            true,
+            &mut warn,
+        );
         let always_show_tab_bar = parse_bool_setting(
             get(ALWAYS_SHOW_TAB_BAR_ENV).as_deref(),
             ALWAYS_SHOW_TAB_BAR_ENV,
@@ -1096,6 +1102,7 @@ impl Settings {
             wheel_zoom,
             command_status_gutter,
             always_show_tab_bar,
+            live_tab_drag,
             tab_bar_placement,
             workspace_rail,
             tab_rail_width,

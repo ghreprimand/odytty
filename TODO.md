@@ -97,7 +97,12 @@ claim acceptance on other platforms. The release notes are in
       layout role; the quick terminal is excluded; attach dedup spans every
       window. The commands remain available alongside horizontal tab
       tear-out in the v0.17.0 development work. Individual pane tear-out
-      remains unsupported.
+      remains unsupported. The default-on Live tab drag setting follows the
+      pointer on X11, macOS and Windows with reversible provisional custody;
+      cancellation preserves source order, active identity and split ownership.
+      Returning to the strip resumes reorder; source resizing, modifiers and
+      read-only automation polling keep custody alive.
+      Wayland keeps release-time creation without live follow.
 - [x] Stacked and floating pane layouts: **Stack Panes**, **Float Panes**, and
       **Tile Panes** from the palette or terminal menu (default stays tiled;
       older layouts load tiled); stacked shows the focused pane full-bleed with the rest alive;

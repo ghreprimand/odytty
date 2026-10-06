@@ -194,6 +194,7 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
             rail_overlay: crate::native::render_helpers::RailOverlaySignature::default(),
             bidi_placement: None,
             tab_tear_out: false,
+            live_tab_drag: false,
         },
         cursor: CursorRenderSignature {
             visible: true,
@@ -844,5 +845,20 @@ fn cursor_glow_toggle_forces_full_rebuild() {
         RenderSignature::update_from(Some(&off), &on),
         GeometryUpdate::Full,
         "toggling glow on must force a full rebuild"
+    );
+}
+
+#[test]
+fn live_tab_drag_visibility_rekeys_the_render_signature() {
+    let ordinary = render_sig(inert_composite());
+    let mut provisional = ordinary.clone();
+    provisional.content.live_tab_drag = true;
+    assert_eq!(
+        RenderSignature::update_from(Some(&ordinary), &provisional),
+        GeometryUpdate::Full
+    );
+    assert_eq!(
+        RenderSignature::update_from(Some(&provisional), &ordinary),
+        GeometryUpdate::Full
     );
 }

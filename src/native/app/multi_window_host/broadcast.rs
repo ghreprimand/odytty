@@ -46,7 +46,9 @@ impl MultiWindowHost {
             }
         }
         for app in &mut self.windows {
-            app.sync_broadcast_labels();
+            if !app.live_drag_source {
+                app.sync_broadcast_labels();
+            }
         }
     }
 }

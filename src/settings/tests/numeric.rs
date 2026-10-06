@@ -1021,3 +1021,31 @@ fn workspace_rail_side_config_key_round_trips_and_parses() {
         Settings::from_source(|key| config.get(key).cloned(), |_| {}, |_| None, |_| None);
     assert_eq!(settings.tab_bar_placement.rail_side_str(), "right");
 }
+
+#[test]
+fn live_tab_drag_defaults_on_and_round_trips_with_reloadable_settings() {
+    let (default, warnings) = settings_from([]);
+    assert!(default.live_tab_drag);
+    assert!(warnings.is_empty());
+    for (value, expected) in [("on", true), ("off", false)] {
+        let (settings, warnings) = settings_from([(LIVE_TAB_DRAG_ENV, value)]);
+        assert_eq!(settings.live_tab_drag, expected);
+        assert!(warnings.is_empty());
+        assert_eq!(
+            settings
+                .to_edit_values()
+                .get(LIVE_TAB_DRAG_ENV)
+                .map(String::as_str),
+            Some(value)
+        );
+    }
+    assert_eq!(config_key_to_env("live_tab_drag"), Some(LIVE_TAB_DRAG_ENV));
+    assert_eq!(env_to_config_key(LIVE_TAB_DRAG_ENV), Some("live_tab_drag"));
+    let row = default
+        .setting_info()
+        .into_iter()
+        .find(|row| row.key == "live_tab_drag")
+        .expect("setting");
+    assert_eq!(row.group, "Tabs");
+    assert!(row.reloadable);
+}

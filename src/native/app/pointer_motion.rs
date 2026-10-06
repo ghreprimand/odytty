@@ -162,7 +162,7 @@ impl App {
             self.rail_seam_drag = false;
             self.tab_bar_seam_drag = false;
             self.rail_ws_drag = None;
-            self.top_tab_drag = None;
+            self.clear_top_tab_drag_for_transition();
             self.report_button = None;
             // B3: a focus loss strands the latched button press (its release
             // may be delivered to another window); drop it so a later release

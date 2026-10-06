@@ -285,3 +285,40 @@ fn an_overlay_taking_the_release_ends_the_gesture_and_its_badge() {
     assert!(app.take_move_request().is_none());
     assert_eq!(app.tab_tokens_for_test(), vec![first, second]);
 }
+
+#[test]
+fn a_live_tab_drag_requests_a_provisional_window_before_release() {
+    let mut app = app();
+    app.set_pointer_px_for_test(12.0, 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(-60.0, -80.0);
+    assert!(
+        app.take_move_request().is_some(),
+        "live follow must open before release"
+    );
+    app.drive_named_key_for_test(NamedKey::Escape);
+    app.mouse_left_release_for_test();
+    assert!(app.take_move_request().is_none());
+}
+
+#[test]
+fn live_tab_drag_off_keeps_the_release_time_pointer_path() {
+    let settings = Settings {
+        always_show_tab_bar: true,
+        live_tab_drag: false,
+        ..Settings::default()
+    };
+    let (mut app, _) = crate::native::test_support::headless_app_with(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        settings,
+    );
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(640, 384, WindowPadding::ZERO);
+    app.set_pointer_px_for_test(12.0, 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(-60.0, -80.0);
+    assert!(app.take_move_request().is_none());
+    app.mouse_left_release_for_test();
+    assert!(app.take_move_request().is_some());
+}

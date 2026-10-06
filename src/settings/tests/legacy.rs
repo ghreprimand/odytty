@@ -191,6 +191,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "synthetic_styles",
             "geometric_boxdraw",
             "box_thickness",
+            "live_tab_drag",
             "always_show_tab_bar",
             "tab_bar_height",
             "tab_bar_placement",

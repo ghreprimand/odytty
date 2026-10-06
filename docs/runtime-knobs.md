@@ -95,6 +95,7 @@ environment variable was not set at startup.
 | `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `20..=100` (step 5) | `80` |
 | `selection_opacity` | `ODYTTY_SELECTION_OPACITY` | Float, `0.0..=1.5` (step 0.05) | `1.0` |
 | `colored_bg_opacity` | `ODYTTY_COLORED_BG_OPACITY` | Float, `0.0..=1.0` (step 0.05) | `0.9` |
+| `live_tab_drag` | `ODYTTY_LIVE_TAB_DRAG` | `on`, `off` | `on` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
 | `tab_bar_height` | `ODYTTY_TAB_BAR_HEIGHT` | `auto`, or `1..=5` rows | `auto` |
 | `workspace_rail_side` | `ODYTTY_WORKSPACE_RAIL_SIDE` | `left`, `right` | `left` |

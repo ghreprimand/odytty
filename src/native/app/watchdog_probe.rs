@@ -67,7 +67,8 @@ impl App {
             // latched-but-unpresented work as idle/background, not a freeze.
             // A lost device owes no frame: rendering is paused (and logged
             // once), so latched work is not a stall.
-            render_owed: !self.gpu_device_lost
+            render_owed: !self.live_drag_source
+                && !self.gpu_device_lost
                 && (self.frame_owed_since.is_some()
                     || self.should_rebuild_frame()
                     || self.skipped_frame_retry_deadline.is_some()),

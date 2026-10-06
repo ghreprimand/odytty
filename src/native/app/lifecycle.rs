@@ -88,6 +88,9 @@ impl App {
         width_px: u32,
         height_px: u32,
     ) -> bool {
+        if self.live_drag_destination {
+            return false;
+        }
         // Reserve the tab chrome off the grid: rows off the top for the
         // horizontal bar, or columns off the side for the vertical rail (F4-V2).
         // `reserve` is `NONE` when the bar is hidden, so the plain path is
@@ -151,6 +154,9 @@ impl App {
     /// keep an already-correct layout model- and transport-neutral.
     #[cfg(unix)]
     pub(super) fn reconcile_pane_dims_to_window(&mut self) {
+        if self.live_drag_destination {
+            return;
+        }
         let Some(cell) = self.resolved_cell() else {
             return;
         };
@@ -375,7 +381,11 @@ impl App {
     /// Record a fatal startup error and ask the loop to exit.
     pub(super) fn fail(&mut self, event_loop: &ActiveEventLoop, err: NativeError) {
         self.startup_error = Some(err);
-        event_loop.exit();
+        if self.live_drag_destination {
+            self.pending_exit = true;
+        } else {
+            event_loop.exit();
+        }
     }
 
     /// Complete the ordinary local-shell exit policy after reconnect/hold have
@@ -462,7 +472,7 @@ impl App {
         self.rail_seam_drag = false;
         self.tab_bar_seam_drag = false;
         self.rail_ws_drag = None;
-        self.top_tab_drag = None;
+        self.clear_top_tab_drag_for_transition();
         self.prefix_engine.cancel();
         // The confirmation prompt belongs to the old pane. Switching away is
         // an implicit cancel so Enter in the new pane cannot authorize upload.
@@ -711,7 +721,9 @@ impl App {
         // whose stream recovered learns the size without a geometry event.
         self.sessions.retry_backend_resizes(now);
 
-        self.poll_profile_auto_switch();
+        if !self.live_drag_destination {
+            self.poll_profile_auto_switch();
+        }
 
         // NF21-6: drain the bell + prompt-marks-changed latches of EVERY
         // session over the flat arena, so a bell in a background tab / pane /
@@ -948,7 +960,9 @@ impl App {
             }
         }
 
-        self.poll_config_reload(now);
+        if !self.live_drag_destination {
+            self.poll_config_reload(now);
+        }
         self.poll_external_palette_follow(now);
 
         // A stuck Wayland frame callback prevents request_redraw() from
@@ -986,6 +1000,7 @@ impl App {
         // matches `WindowAttributes::default()`, so the startup chain is
         // byte-identical when unset.
         let attributes = Window::default_attributes()
+            .with_active(!self.live_drag_destination)
             .with_title(self.initial_window_title())
             .with_inner_size(LogicalSize::new(w, h))
             .with_decorations(self.settings.window_decorations)
@@ -1053,7 +1068,9 @@ impl App {
         // Push live cell pixel metrics to the terminal core so graphics
         // placements (sixel/kitty) compute the correct cell extent.
         let cell = gpu.cell();
-        if let Ok(mut term) = self.terminal.lock() {
+        if !self.live_drag_destination
+            && let Ok(mut term) = self.terminal.lock()
+        {
             term.set_cell_metrics(cell.width, cell.height);
         }
         self.last_cursor_comparison_snapshot = Some(crate::native::session::CursorComparison::of(

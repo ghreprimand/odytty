@@ -163,6 +163,7 @@ impl Settings {
             "scrollbar_drag" => bool_display(self.scrollbar_drag).to_owned(),
             "wheel_zoom" => bool_display(self.wheel_zoom).to_owned(),
             "command_status_gutter" => bool_display(self.command_status_gutter).to_owned(),
+            "live_tab_drag" => bool_display(self.live_tab_drag).to_owned(),
             "always_show_tab_bar" => bool_display(self.always_show_tab_bar).to_owned(),
             "tab_bar_placement" => self.tab_bar_placement.rail_side_str().to_owned(),
             "workspace_rail" => self.workspace_rail.as_str().to_owned(),

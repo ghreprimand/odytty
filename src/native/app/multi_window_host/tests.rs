@@ -360,10 +360,20 @@ fn a_new_window_adopts_the_wish_and_an_unfocused_release_clears_the_label() {
 pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
     MultiWindowHost {
         windows,
+        live_drag: None,
         shared: WatchdogShared::new(),
         last_seen_frames: 0,
         factory: Box::new(|_| None),
-        adopt: Box::new(adopt_for_test),
+        adopt: Box::new(|set, settings_override| {
+            let provisional = settings_override.is_some();
+            App::new_with_sessions_for_transfer(
+                crate::native::options::NativeOptions::default(),
+                set,
+                settings_override.unwrap_or_default(),
+                crate::settings::SettingsReloader::for_current_process(Instant::now()),
+                provisional,
+            )
+        }),
         picker: None,
         quick: QuickTerminalController::new(QuickTerminalSettings::default()),
         quick_live: Arc::new(Mutex::new(None)),

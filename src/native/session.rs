@@ -37,7 +37,7 @@ pub(super) use lifecycle::SHUTDOWN_REAP_DEADLINE;
 pub(super) use model::{Session, SessionToken, WorkspaceSet};
 pub(super) use persistence::{RestoreReport, RestoredLocalLeaf};
 pub(super) use presentation::CursorComparison;
-pub(super) use reparent::{MoveError, MoveScope, MovedContent};
+pub(super) use reparent::{MoveError, MoveScope, MovedContent, MovedRestore};
 pub(super) use transport::{
     SessionSource, apply_local_backend_caps, seed_initial_working_directory,
 };

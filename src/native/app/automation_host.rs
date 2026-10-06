@@ -14,6 +14,9 @@ use crate::native::quick_terminal::QuickVisibility;
 
 impl MultiWindowHost {
     pub(super) fn service_automation_endpoint(&mut self) {
+        if self.windows.iter().any(|app| app.live_drag_source) {
+            return;
+        }
         let enabled = self
             .windows
             .first()
@@ -105,6 +108,11 @@ impl MultiWindowHost {
                 .is_some_and(App::quick_terminal_enabled);
         if !structural && !request.action.is_read_only() {
             return Reply::Error(ErrorCode::PermissionDenied);
+        }
+        // Read-only polling leaves custody intact. Mutations restore the arenas
+        // before resolving targets, including a temporarily absent source tab.
+        if !request.action.is_read_only() {
+            self.cancel_live_tab();
         }
         match request.action {
             Action::Capabilities => Reply::Capabilities {

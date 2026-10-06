@@ -504,8 +504,9 @@ impl WorkspaceSet {
         }
     }
 
-    /// The active workspace. A set never holds zero workspaces (the last one
-    /// closing exits the app), and `active_ws` is kept in range by every
+    /// The active workspace. An empty provisional tear-out source is suspended
+    /// by its host and must not call this method. Otherwise the last workspace
+    /// closing exits the app, and `active_ws` is kept in range by every
     /// workspace-removing path; the fallback to the first workspace mirrors
     /// `active_focused_token`'s defensive lookup so a stray index can never
     /// panic.

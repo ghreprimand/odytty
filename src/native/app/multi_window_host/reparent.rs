@@ -27,7 +27,7 @@ use crate::native::app::reparent::{MOVE_REFUSED_NOTICE, MoveRequest};
 use crate::native::session::{MoveScope, WorkspaceSet};
 
 /// Builds a window around an adopted session set, with no shell spawn.
-pub(in crate::native) type AdoptFactory = Box<dyn FnMut(WorkspaceSet) -> App>;
+pub(in crate::native) type AdoptFactory = Box<dyn FnMut(WorkspaceSet, Option<Settings>) -> App>;
 
 /// Notice for a move the quick terminal cannot take part in.
 pub(in crate::native) const QUICK_MOVE_NOTICE: &str =
@@ -63,7 +63,7 @@ impl MultiWindowHost {
         }
     }
 
-    fn is_quick_window(&self, id: ProcessWindowId) -> bool {
+    pub(super) fn is_quick_window(&self, id: ProcessWindowId) -> bool {
         self.quick.identity().map(|identity| identity.window()) == Some(id)
     }
 
@@ -75,6 +75,7 @@ impl MultiWindowHost {
         target: ProcessWindowId,
         scope: MoveScope,
     ) {
+        self.cancel_live_tab();
         if self.is_quick_window(origin) || self.is_quick_window(target) {
             if let Some(idx) = self.index_of(origin) {
                 self.windows[idx].raise_open_notice(QUICK_MOVE_NOTICE.to_owned());
@@ -142,6 +143,12 @@ impl MultiWindowHost {
             .collect();
         for (origin, request) in requests {
             match request {
+                MoveRequest::LiveTab(tab) => {
+                    self.begin_live_tab(origin, tab, |app| {
+                        app.try_resume_presentation(event_loop)
+                            .map_err(|err| err.to_string())
+                    });
+                }
                 MoveRequest::NewWindow(scope) => {
                     self.move_to_new_window(origin, scope, |app| {
                         app.try_resume_presentation(event_loop)
@@ -239,7 +246,7 @@ impl MultiWindowHost {
             source.workspace_set(),
             source.workspace_set().event_proxy(),
         );
-        let mut window = (self.adopt)(set);
+        let mut window = (self.adopt)(set, None);
         if let Err(err) = open(&mut window) {
             tracing::warn!(%err, "new window for a moved tab could not open; content restored");
             let content = window.workspace_set_mut().release_adopted(template);

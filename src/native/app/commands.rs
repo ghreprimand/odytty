@@ -1009,6 +1009,10 @@ impl App {
     /// single-pane tab resizes its lone pane to the full content rect, matching
     /// the window-resize path.
     pub(super) fn reflow_active_panes_and_redraw(&mut self) {
+        if self.live_drag_destination {
+            self.request_redraw_now();
+            return;
+        }
         if let Some((content, cell)) = self.multipane_geometry() {
             let pad = self.window_pad_px();
             self.sessions

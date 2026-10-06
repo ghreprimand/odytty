@@ -39,6 +39,8 @@ pub(in crate::native) struct MovedHold {
 pub(in crate::native) enum MoveRequest {
     /// Open a new window holding the content.
     NewWindow(MoveScope),
+    /// Reversible tab window requested by the armed pointer gesture.
+    LiveTab(SessionToken),
     /// Pointer tab tear-out; the destination policy is resolved on release.
     TearOut(super::tab_tear_out::TearOutRelease),
 }
@@ -97,7 +99,7 @@ impl App {
         Ok((content, hold))
     }
 
-    fn active_tab_tokens(&self) -> Vec<SessionToken> {
+    pub(super) fn active_tab_tokens(&self) -> Vec<SessionToken> {
         self.sessions
             .active_layout()
             .map(|layout| layout.leaves())

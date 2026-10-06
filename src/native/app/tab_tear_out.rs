@@ -81,7 +81,7 @@ impl App {
     }
 }
 
-fn global_release(origin: [i32; 2], point: [f64; 2]) -> Option<[i32; 2]> {
+pub(super) fn global_release(origin: [i32; 2], point: [f64; 2]) -> Option<[i32; 2]> {
     let convert = |origin, value: f64| {
         let value = f64::from(origin) + value;
         if !value.is_finite() || value < f64::from(i32::MIN) || value > f64::from(i32::MAX) {
@@ -125,6 +125,49 @@ impl WindowPlacement for NativePlacement<'_> {
 
 pub(super) fn place_native(window: &Window, release: TearOutRelease) {
     place(&mut NativePlacement(window), release);
+}
+
+/// Place a provisional window with a surface-logical grab offset. Native
+/// decoration insets and destination scale are resolved at each frame.
+pub(super) fn follow_native(window: &Window, point: [i32; 2], offset: [f64; 2]) -> bool {
+    let Ok(inner) = window.inner_position() else {
+        return false;
+    };
+    let Ok(outer) = window.outer_position() else {
+        return false;
+    };
+    let scale = window.scale_factor();
+    let offset = [
+        offset[0] * scale + f64::from(inner.x) - f64::from(outer.x),
+        offset[1] * scale + f64::from(inner.y) - f64::from(outer.y),
+    ];
+    let Some(anchor) = global_release(point, [-offset[0], -offset[1]]) else {
+        return false;
+    };
+    place_at(&mut NativePlacement(window), point, anchor)
+}
+
+fn place_at(surface: &mut impl WindowPlacement, point: [i32; 2], anchor: [i32; 2]) -> bool {
+    for (origin, size) in surface.monitors() {
+        if (0..2).all(|axis| {
+            i64::from(point[axis]) >= i64::from(origin[axis])
+                && i64::from(point[axis]) < i64::from(origin[axis]) + i64::from(size[axis])
+        }) {
+            let extent = surface.size();
+            let clamp = |axis: usize| {
+                i64::from(anchor[axis])
+                    .clamp(
+                        i64::from(origin[axis]),
+                        i64::from(origin[axis])
+                            + i64::from(size[axis].saturating_sub(extent[axis])),
+                    )
+                    .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+            };
+            surface.position([clamp(0), clamp(1)]);
+            return true;
+        }
+    }
+    false
 }
 
 fn place(surface: &mut impl WindowPlacement, release: TearOutRelease) {
@@ -232,5 +275,27 @@ mod tests {
         assert_eq!(global_release([-200, 30], [-50.0, 10.0]), Some([-250, 40]));
         assert_eq!(global_release([i32::MAX, 0], [2.0, 0.0]), None);
         assert_eq!(global_release([0, 0], [f64::NAN, 0.0]), None);
+    }
+    #[test]
+    fn live_tab_anchor_clamps_by_pointer_monitor_and_preserves_signed_offsets() {
+        let mut fake = PlacementFake {
+            monitors: vec![([-1600, -900], [1600, 900]), ([0, 0], [1920, 1080])],
+            size: [640, 384],
+            ..Default::default()
+        };
+        assert!(place_at(&mut fake, [-1000, -500], [-1080, -520]));
+        assert!(place_at(&mut fake, [20, 20], [-80, -30]));
+        assert_eq!(fake.placed, vec![[-1080, -520], [0, 0]]);
+        assert!(!place_at(&mut fake, [-1700, 0], [0, 0]));
+        for scale in [0.75, 1.25, 2.0] {
+            let anchor = global_release([-100, 200], [-20.0 * scale, -8.0 * scale]);
+            assert_eq!(
+                anchor,
+                Some([
+                    (-100.0 - 20.0 * scale).round() as i32,
+                    (200.0 - 8.0 * scale).round() as i32
+                ])
+            );
+        }
     }
 }
