@@ -372,7 +372,7 @@ mod tests {
         let cell = marked('a', &offered);
         assert_eq!(cell.combining().len(), MAX_COMBINING);
         let stored = StoredCell::from_cell(&cell);
-        assert_eq!(stored.hydrate(cell.combining()), cell);
+        assert_eq!(stored.hydrate(&offered), cell);
     }
 
     #[test]

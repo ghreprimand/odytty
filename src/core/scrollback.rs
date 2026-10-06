@@ -332,8 +332,9 @@ pub(in crate::core) const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
 /// are dropped from its front (equivalent to that history scrolling away). The
 /// bound is generous (1,048,576 cells, 28 MiB at 28 B per stored cell) so it
 /// never trims realistic content; it exists purely to keep the pathological
-/// no-newline case bounded.
-const MAX_LOGICAL_LINE_CELLS: usize = 1 << 20;
+/// no-newline case bounded. Snapshot restore refuses a scrollback line over
+/// the same ceiling (see `SnapshotTerminalState::validate_logical_line_ceiling`).
+pub(in crate::core) const MAX_LOGICAL_LINE_CELLS: usize = 1 << 20;
 
 /// Average cells per retained logical line that the aggregate cell budget
 /// allows: a store limited to `limit` lines retains at most

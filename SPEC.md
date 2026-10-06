@@ -1179,7 +1179,9 @@ scope rather than silently inheriting deferred work from a prior release.
   before it can grow with line length; the newest line is never evicted by the
   budget and ordinary output never reaches it. A defensive per-line cell
   ceiling (1,048,576 cells) bounds the pathological no-terminator stream
-  (`cat /dev/zero`). A request for a few history rows (the rendered viewport,
+  (`cat /dev/zero`); restoring a session snapshot whose history holds a line
+  over that ceiling, counted in source cells (layout padding and the blank
+  fill of a line's final row are not counted), is refused. A request for a few history rows (the rendered viewport,
   a row lookup, an export range) materializes only those rows of a long
   wrapped line, not the whole line. Live-reloadable; lowering the cap
   trims existing history immediately, and the cap applies to every session

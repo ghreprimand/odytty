@@ -10,7 +10,7 @@ use crate::core::types::Dimensions;
 
 use super::error::SnapshotEnvelopeError;
 use super::model::{
-    SnapshotEnvelope, SnapshotLayoutState, SnapshotMetadata, SnapshotTerminalState,
+    SnapshotCell, SnapshotEnvelope, SnapshotLayoutState, SnapshotMetadata, SnapshotTerminalState,
 };
 
 impl SnapshotEnvelope {
@@ -176,6 +176,54 @@ impl SnapshotTerminalState {
                 {
                     return Err(SnapshotEnvelopeError::InvalidEnum("layout padding", 2));
                 }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SnapshotTerminalState {
+    /// Refuse a scrollback logical line holding more source cells than the
+    /// live store retains in one line (`MAX_LOGICAL_LINE_CELLS`). The live
+    /// store trims an open line back below that ceiling and never extends a
+    /// closed one, so no honest capture exceeds it; restore refuses rather than
+    /// trimming, which would hide a corrupt envelope.
+    ///
+    /// Only scrollback rows count: a line continuing into wrapped visible rows
+    /// is measured by its scrollback part, as the live store holds it. Layout
+    /// padding slots are not source cells, and the blank fill on the final row
+    /// of each run is not either: capture re-projects history at the current
+    /// width, which drops and adds padding and pads the last row to full width,
+    /// so counting those slots would refuse an honest capture taken after a
+    /// width change.
+    pub(in crate::core) fn validate_logical_line_ceiling(
+        &self,
+    ) -> Result<(), SnapshotEnvelopeError> {
+        use crate::core::scrollback::MAX_LOGICAL_LINE_CELLS;
+        let fill = SnapshotCell::from(crate::core::types::Cell::blank());
+        let last = self.scrollback_rows.len().saturating_sub(1);
+        let mut cells = 0usize;
+        for (index, row) in self.scrollback_rows.iter().enumerate() {
+            let ends_run = !row.wrapped || index == last;
+            let counted = if ends_run {
+                let end = row
+                    .cells
+                    .iter()
+                    .rposition(|cell| *cell != fill && !cell.layout_padding)
+                    .map_or(0, |position| position + 1);
+                &row.cells[..end]
+            } else {
+                &row.cells[..]
+            };
+            cells = cells.saturating_add(counted.iter().filter(|c| !c.layout_padding).count());
+            if cells > MAX_LOGICAL_LINE_CELLS {
+                return Err(SnapshotEnvelopeError::LogicalLineTooLarge {
+                    cells,
+                    max: MAX_LOGICAL_LINE_CELLS,
+                });
+            }
+            if !row.wrapped {
+                cells = 0;
             }
         }
         Ok(())

@@ -597,7 +597,9 @@ the most deliberate omissions.
   keep the stream) from a partial-progress timeout (`TruncatedWrite`: the
   stream is desynchronized and tears down visibly), so a stalled host cannot
   silently desynchronize the protocol (`src/session_host/protocol.rs`). Cell and row wire sizes are fixed and
-  bounded (`src/core/snapshot_envelope.rs`).
+  bounded (`src/core/snapshot_envelope.rs`). A restored snapshot whose scrollback holds a
+  logical line over the live per-line ceiling of 2^20 source cells is refused
+  before its history is rebuilt (`src/core/snapshot_envelope/validate.rs`).
 - **Failure behavior:** ownership or type validation failure aborts rather than
   proceeding. A corrupt metadata file causes that one session to list with
   reduced information rather than aborting enumeration.

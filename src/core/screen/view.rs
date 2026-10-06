@@ -392,6 +392,7 @@ impl Screen {
     ) -> Result<(), SnapshotEnvelopeError> {
         envelope.validate_wire_bounds()?;
         restore_validate_terminal_state(&envelope.terminal)?;
+        envelope.terminal.validate_logical_line_ceiling()?;
         envelope.layout.validate(envelope.terminal.dimensions)?;
 
         let columns = envelope.terminal.dimensions.columns;

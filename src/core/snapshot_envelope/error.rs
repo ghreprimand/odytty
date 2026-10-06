@@ -72,6 +72,12 @@ pub enum SnapshotEnvelopeError {
         max: usize,
     },
     CellCapExceeded,
+    /// A scrollback logical line holds more source cells than the live store
+    /// ever retains in one line.
+    LogicalLineTooLarge {
+        cells: usize,
+        max: usize,
+    },
     StringTooLarge {
         len: usize,
         max: usize,
@@ -147,6 +153,10 @@ impl fmt::Display for SnapshotEnvelopeError {
                 write!(f, "snapshot has too many rows: {count} exceeds cap {max}")
             }
             Self::CellCapExceeded => write!(f, "snapshot cell cap exceeded"),
+            Self::LogicalLineTooLarge { cells, max } => write!(
+                f,
+                "snapshot scrollback logical line holds at least {cells} cells, over the {max} a terminal retains"
+            ),
             Self::StringTooLarge { len, max } => {
                 write!(f, "snapshot string too large: {len} exceeds cap {max}")
             }
