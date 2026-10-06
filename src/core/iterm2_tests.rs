@@ -424,9 +424,18 @@ fn iterm2_file_command_does_not_disturb_button_payloads() {
     // The two OSC 1337 families are dispatched independently; a File= command
     // must not consume or corrupt a following Button= definition.
     let mut t = Terminal::new(40, 12);
+    t.set_buttons_enabled(true);
     t.advance(&file_osc("inline=1", &png_rgba(2, 2)));
     t.advance(b"\x1b]1337;Button=type=custom;code=42;icon=star\x07");
     assert_eq!(t.visible_graphics(0).len(), 1);
+    assert_eq!(t.button_entry_count(), 1);
+    let buttons = t.visible_button_spans(0);
+    assert_eq!(buttons.len(), 1);
+    let button = &buttons[0];
+    let hit = t
+        .button_at(0, button.row, button.start_col)
+        .expect("following button remains clickable");
+    assert_eq!(hit.code, 42);
 }
 
 #[test]

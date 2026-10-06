@@ -63,6 +63,31 @@ impl Tally {
     fn total(&self) -> usize {
         self.total.iter().sum()
     }
+
+    fn assert_complete(&self, corpus: &str) {
+        assert!(self.total() > 0, "{corpus}: corpus contains no cases");
+        for direction in [Direction::Ltr, Direction::Rtl, Direction::Auto] {
+            let index = direction.index();
+            assert_eq!(
+                self.passed[index], self.total[index],
+                "{corpus}: failed cases for {direction:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn full_corpus_outcome_rejects_a_failed_direction() {
+    for direction in [Direction::Ltr, Direction::Rtl, Direction::Auto] {
+        let mut tally = Tally::default();
+        tally.record(direction, false);
+        assert!(std::panic::catch_unwind(|| tally.assert_complete("fixture")).is_err());
+    }
+}
+
+#[test]
+fn full_corpus_outcome_rejects_an_empty_file() {
+    assert!(std::panic::catch_unwind(|| Tally::default().assert_complete("fixture")).is_err());
 }
 
 /// Resolved paragraph level, per-scalar line levels, and visual order.
@@ -291,4 +316,6 @@ fn full_unicode_bidi_corpus() {
         class.passed(),
         class.total()
     );
+    character.assert_complete("BidiCharacterTest");
+    class.assert_complete("BidiTest");
 }

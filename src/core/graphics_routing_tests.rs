@@ -314,7 +314,9 @@ fn eviction_removes_oldest_sixel_placements() {
 #[test]
 fn p2_transparent_mode_passes_through() {
     let mut t = Terminal::new(80, 24);
-    let transparent = sixel_dcs("0;1", "#0;2;100;0;0~");
+    // Paint only the first column of a declared two-column raster.
+    let payload = "\"1;1;2;6#0;2;100;0;0~";
+    let transparent = sixel_dcs("0;1", payload);
     t.advance(&transparent);
 
     assert_eq!(t.visible_graphics(0).len(), 1);
@@ -327,6 +329,14 @@ fn p2_transparent_mode_passes_through() {
     assert_eq!(img.rgba[1], 0); // G
     assert_eq!(img.rgba[2], 0); // B
     assert_eq!(img.rgba[3], 255); // A
+    assert_eq!((img.width, img.height), (2, 6));
+    assert_eq!(img.rgba[7], 0, "unpainted pixel remains transparent");
+
+    let mut opaque = Terminal::new(80, 24);
+    opaque.advance(&sixel_dcs("0;0", payload));
+    let placement = &opaque.visible_graphics(0)[0];
+    let image = opaque.graphics().store().get(placement.image_id).unwrap();
+    assert_eq!(image.rgba[7], 255, "opaque sibling fills the same pixel");
 }
 
 // ---------------------------------------------------------------------------

@@ -20,7 +20,8 @@
 //!    image store never exceeds its decoded-byte or image-count caps no matter
 //!    what the stream asks for.
 //! 3. **Parser never wedges.** After any garbage, a trailing known-good
-//!    sequence (`ESC[H ESC[0m ESC[32m` + a printed glyph) still takes effect —
+//!    sequence (origin reset, home, green SGR and a distinct printed glyph)
+//!    still takes effect, so
 //!    the parser returns to ground and keeps processing.
 //! 4. **Text state stays coherent.** A control-only graphics stream never
 //!    corrupts the text grid: plain ASCII printed after it lands in the cells.
@@ -46,9 +47,10 @@
 //! Transport fuzzing uses **safe inputs only**: nonexistent paths, traversal
 //! soup, over-long names, and embedded NULs. The fuzzer never creates files
 //! outside a process-scoped name and never references real `/dev/shm` names
-//! other than ones it created and unlinks itself. The default tier touches no
-//! shm at all; the optional self-created-shm probe lives behind the deep tier
-//! and cleans up after itself.
+//! other than ones it created and unlinks itself. The default tier creates
+//! one exclusively owned small shm fixture on Unix;
+//! the optional deep probe uses the same guarded round trip. Both clean up
+//! through RAII even if an assertion fails.
 
 use crate::core::Terminal;
 use crate::graphics::sixel::{SixelBackground, decode_sixel};
@@ -171,13 +173,26 @@ fn assert_store_bounded(seed: u64, t: &Terminal) {
 /// known-good SGR + printed glyph and confirm it lands in the grid. Panics
 /// carry `seed`.
 fn assert_parser_not_wedged(seed: u64, t: &mut Terminal) {
-    // A sentinel unlikely to collide with prior fuzz output.
-    t.advance(b"\x1b[H\x1b[0m\x1b[32mZ");
-    let snap = t.snapshot();
-    let found = snap.cells.iter().any(|c| c.ch == 'Z');
-    assert!(
-        found,
-        "seed={seed}: parser wedged — sentinel glyph 'Z' never reached the grid"
+    let marker = if t.screen().cell(0, 0).is_some_and(|cell| cell.ch == 'Z') {
+        'Y'
+    } else {
+        'Z'
+    };
+    t.advance(format!("\x1b[?6l\x1b[r\x1b[H\x1b[0m\x1b[32m{marker}").as_bytes());
+    let cell = t.screen().cell(0, 0).expect("sentinel target");
+    assert_eq!(
+        cell.ch, marker,
+        "seed={seed}: recovery missed the target cell"
+    );
+    assert_eq!(
+        cell.attrs.foreground,
+        crate::core::Color::Indexed(2),
+        "seed={seed}: recovery missed SGR"
+    );
+    assert_eq!(
+        (t.screen().cursor().row, t.screen().cursor().column),
+        (0, 1),
+        "seed={seed}: recovery missed cursor movement"
     );
 }
 
@@ -450,7 +465,7 @@ fn fuzz_unsafe_path(rng: &mut FuzzRng) -> Vec<u8> {
 }
 
 #[test]
-fn graphics_fuzz_transport_paths_smoke() {
+fn graphics_fuzz_transport_paths_disabled_smoke() {
     let iters = fuzz_iters();
     for i in 0..iters {
         let seed = fuzz_seed(i, 0x2C9E_F73F_3F4A_7C15, 0x70A7);
@@ -469,6 +484,51 @@ fn graphics_fuzz_transport_paths_smoke() {
         // the parser keeps working regardless.
         assert_store_bounded(seed, &t);
         assert_parser_not_wedged(seed, &mut t);
+    }
+}
+
+struct OwnedTransportDirectory(std::path::PathBuf);
+
+impl Drop for OwnedTransportDirectory {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).expect("remove owned transport directory");
+    }
+}
+
+#[test]
+fn graphics_fuzz_transport_paths_enabled_smoke() {
+    let directory = OwnedTransportDirectory(crate::test_dirs::fresh_temp_dir("gtn"));
+    for i in 0..fuzz_iters() {
+        let seed = fuzz_seed(i, 0x2C9E_F73F_3F4A_7C15, 0x70A8);
+        for transport in ["f", "t", "s"] {
+            let mut t = capped_terminal(20, 4);
+            t.set_kitty_named_transports_enabled(true);
+            // This path can name only a missing child of our exclusive fixture
+            // directory. Its multiple slashes also reject it as a shm name.
+            let path = directory.0.join(format!("missing-{i}"));
+            let path_b64 = b64_encode(path.to_str().expect("fixture path is UTF-8").as_bytes());
+            t.advance(format!("\x1b_Ga=T,t={transport},f=32,s=2,v=2;{path_b64}\x1b\\").as_bytes());
+            let reply = String::from_utf8(t.take_host_output()).expect("ASCII transport reply");
+            assert!(
+                !reply.is_empty(),
+                "seed={seed}: enabled transport must reply"
+            );
+            assert!(
+                !reply.contains("named-transport-disabled"),
+                "seed={seed}: this case must reach the enabled transport route"
+            );
+            assert_eq!(
+                t.graphics().store().len(),
+                0,
+                "seed={seed}: missing transport loaded"
+            );
+            assert!(
+                t.graphics().placements().is_empty(),
+                "seed={seed}: missing transport placed"
+            );
+            assert_store_bounded(seed, &t);
+            assert_parser_not_wedged(seed, &mut t);
+        }
     }
 }
 
@@ -939,36 +999,110 @@ fn run_placeholder_stream(iters: u64) {
 #[test]
 #[ignore = "deep tier; creates and unlinks its own /dev/shm segment"]
 fn graphics_fuzz_self_shm_roundtrip_deep() {
-    use std::ffi::CString;
-    use std::io::Write;
-    use std::os::fd::FromRawFd;
+    assert_owned_shm_roundtrip();
+}
 
-    // A uniquely named segment owned entirely by this test.
-    let name = format!("/odytty-fuzz-{}", std::process::id());
-    let c_name = CString::new(name.clone()).unwrap();
-    let data = [0xFFu8; 16]; // 2x2 RGBA white
-    let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
-    if fd < 0 {
-        eprintln!("skipping: shm_open unavailable in this sandbox");
-        return;
+#[cfg(unix)]
+struct OwnedShmFixture {
+    name: std::ffi::CString,
+    fd: std::os::fd::OwnedFd,
+}
+
+#[cfg(unix)]
+impl Drop for OwnedShmFixture {
+    fn drop(&mut self) {
+        // SAFETY: the name belongs only to the successful O_EXCL creation.
+        unsafe {
+            libc::shm_unlink(self.name.as_ptr());
+        }
     }
-    unsafe {
-        libc::ftruncate(fd, data.len() as libc::off_t);
+}
+
+#[cfg(unix)]
+impl OwnedShmFixture {
+    fn create(data: &[u8]) -> Self {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let name = std::ffi::CString::new(format!(
+            "/ogfx-{:x}-{:x}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ))
+        .unwrap();
+        // SAFETY: valid CString; exclusive creation cannot alter a stale object.
+        let fd = unsafe {
+            libc::shm_open(
+                name.as_ptr(),
+                libc::O_CREAT | libc::O_EXCL | libc::O_RDWR | libc::O_CLOEXEC,
+                0o600,
+            )
+        };
+        assert!(
+            fd >= 0,
+            "unavailable-apparatus: exclusive shm fixture creation failed: {}",
+            std::io::Error::last_os_error()
+        );
+        // SAFETY: successful shm_open transfers this one descriptor to OwnedFd.
+        let fixture = Self {
+            name,
+            fd: unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) },
+        };
+        let length = libc::off_t::try_from(data.len()).expect("bounded fixture length");
+        // SAFETY: owned descriptor and checked small length.
+        assert_eq!(
+            unsafe { libc::ftruncate(fixture.fd.as_raw_fd(), length) },
+            0,
+            "size owned shm fixture"
+        );
+        // SAFETY: owned object was sized for this read/write shared mapping.
+        let address = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                data.len(),
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fixture.fd.as_raw_fd(),
+                0,
+            )
+        };
+        assert_ne!(address, libc::MAP_FAILED, "map owned shm fixture");
+        // SAFETY: the valid mapping contains data.len() bytes; source is a slice
+        // distinct from this new mapping. No panic occurs before unmapping.
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), address.cast::<u8>(), data.len());
+        }
+        // SAFETY: release exactly the mapping created above.
+        assert_eq!(
+            unsafe { libc::munmap(address, data.len()) },
+            0,
+            "unmap owned fixture"
+        );
+        fixture
     }
-    {
-        let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-        file.write_all(&data).unwrap();
-    }
+}
+
+#[cfg(unix)]
+fn assert_owned_shm_roundtrip() {
+    let data = [0xFFu8; 16];
+    let fixture = OwnedShmFixture::create(&data);
     let mut t = capped_terminal(20, 4);
-    let name_b64 = b64_encode(name.as_bytes());
-    let apc = format!("\x1b_Ga=T,t=s,f=32,s=2,v=2;{name_b64}\x1b\\");
-    t.advance(apc.as_bytes());
-    let _ = t.take_host_output();
-    // Cleanup regardless of outcome.
-    unsafe {
-        libc::shm_unlink(c_name.as_ptr());
-    }
+    t.set_kitty_named_transports_enabled(true);
+    let name_b64 = b64_encode(fixture.name.as_bytes());
+    t.advance(format!("\x1b_Ga=T,t=s,f=32,s=2,v=2;{name_b64}\x1b\\").as_bytes());
+    assert_eq!(t.graphics().store().len(), 1);
+    let placements = t.graphics().placements();
+    assert_eq!(placements.len(), 1);
+    let image = t.graphics().store().get(placements[0].image_id).unwrap();
+    assert_eq!((image.width, image.height), (2, 2));
+    assert_eq!(image.rgba, data);
     assert_store_bounded(0, &t);
+}
+
+#[cfg(unix)]
+#[test]
+fn named_shm_fixture_loads_exact_pixels() {
+    assert_owned_shm_roundtrip();
 }
 
 /// Directed extreme-parameter placement soup: huge / overflowing `c=` and `r=`
