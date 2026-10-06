@@ -51,10 +51,11 @@ what character copy/paste reports for that cell.
 The consequence is a real one: OdyTTY's shaping is a presentation overlay on a
 monospace-cell grid, not a full text-shaping engine that can reflow glyph
 advances or cell counts. That covers ASCII contextual ligatures, curated
-operator ligatures, Arabic joining forms in logical cell order, and static
-color glyphs correctly. It does not cover scripts whose correct rendering
-requires reordering or reshaping across cell boundaries (see Standing scope
-boundaries, below).
+operator ligatures, Arabic joining forms, static color glyphs, and font-backed
+shaping inside the enabled complex-script owners. Optional bidirectional
+layout moves whole owners in display order while keeping their cells together.
+Shaping across owner boundaries and scripts outside the enabled groups remain
+outside this model (see Standing scope boundaries, below).
 
 ## Current support boundary
 
@@ -64,7 +65,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | --- | --- | --- |
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
-| Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen, right-to-left paragraph levels, and complex-script shaping are not reordered |
+| Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen and right-to-left paragraph levels are not reordered. Complex-script owners move as whole spans, keeping their cells adjacent and in order |
 | Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
 | Khmer/Myanmar shaping | With `script_shaping` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
 | Thai/Lao/Tibetan shaping | With `script_shaping` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |
@@ -197,9 +198,10 @@ The setting changes presentation only. Cells, cursor addressing and movement,
 selection endpoints, copy, search results, scrollback export, and every
 terminal protocol value stay logical. Plain limits: the alternate screen
 (full-screen programs) is never reordered; the paragraph level is always left
-to right, with no right-to-left paragraphs; shaped complex-script owners stay
-on their own cells; a mirrored character without a Unicode mirroring counterpart draws
-unmirrored; block-selection export is not reordered or specially handled;
+to right, with no right-to-left paragraphs; shaped complex-script owners move
+as whole spans without splitting or changing their internal cell order; a
+mirrored character without a Unicode mirroring counterpart draws unmirrored;
+block-selection export is not reordered or specially handled;
 image placements are not reordered.
 
 The plan comes from a headless module, `src/core/bidi`: for one
