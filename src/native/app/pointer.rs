@@ -1426,7 +1426,7 @@ impl App {
         self.top_tab_drag = Some(drag);
         if drag.tear_out
             && self.settings.live_tab_drag
-            && !self.is_wayland_client()
+            && self.live_tab_transport_supported()
             && self.pending_move.is_none()
             && let Some(tab) = drag.origin_token
         {

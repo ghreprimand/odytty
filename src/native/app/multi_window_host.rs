@@ -1803,6 +1803,8 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         // tick. No-op (one Option check) when no reveal is active.
         self.tick_quick_reveal(now);
 
+        #[cfg(target_os = "linux")]
+        self.service_hyprland_follow(event_loop);
         // Per-window maintenance, collecting windows that want to close (an
         // autoclose deadline fired or a confirmed exit).
         let mut to_close: Vec<usize> = Vec::new();

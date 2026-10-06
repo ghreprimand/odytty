@@ -322,3 +322,34 @@ fn live_tab_drag_off_keeps_the_release_time_pointer_path() {
     app.mouse_left_release_for_test();
     assert!(app.take_move_request().is_some());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn hyprland_follow_arms_through_wayland_pointer_input_before_release() {
+    let _lock = crate::test_lock::test_env_lock();
+    struct Restore(Option<std::ffi::OsString>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            unsafe {
+                match self.0.take() {
+                    Some(value) => std::env::set_var("HYPRLAND_INSTANCE_SIGNATURE", value),
+                    None => std::env::remove_var("HYPRLAND_INSTANCE_SIGNATURE"),
+                }
+            }
+        }
+    }
+    let _restore = Restore(std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE"));
+    unsafe {
+        std::env::set_var("HYPRLAND_INSTANCE_SIGNATURE", "fixture");
+    }
+    let mut app = app();
+    app.set_wayland_surface_present_for_test(true);
+    app.set_pointer_px_for_test(12.0, 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(-60.0, -80.0);
+    assert!(
+        app.take_move_request().is_some(),
+        "Hyprland follow must arm before release"
+    );
+    app.drive_named_key_for_test(NamedKey::Escape);
+}

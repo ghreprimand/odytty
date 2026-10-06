@@ -19,7 +19,8 @@ impl TabPanelFrameQuads {
 impl App {
     pub(super) fn update_window_title(&mut self) {
         #[cfg(target_os = "linux")]
-        if self.pending_tear_out_placement.is_some() {
+        if self.pending_tear_out_placement.is_some() || self.pending_hyprland_follow_title.is_some()
+        {
             return;
         }
         let Some(window) = self.window.as_ref() else {
@@ -38,6 +39,10 @@ impl App {
 
     pub(super) fn initial_window_title(&self) -> String {
         #[cfg(target_os = "linux")]
+        if let Some(title) = self.pending_hyprland_follow_title.as_ref() {
+            return title.clone();
+        }
+        #[cfg(target_os = "linux")]
         if let Some(placement) = self.pending_tear_out_placement.as_ref() {
             return placement.identity.clone();
         }
@@ -45,6 +50,10 @@ impl App {
     }
 
     pub(super) fn active_window_title(&self) -> String {
+        #[cfg(target_os = "linux")]
+        if let Some(title) = self.pending_hyprland_follow_title.as_ref() {
+            return title.clone();
+        }
         #[cfg(target_os = "linux")]
         if let Some(placement) = self.pending_tear_out_placement.as_ref() {
             return placement.identity.clone();

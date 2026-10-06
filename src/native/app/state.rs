@@ -458,6 +458,8 @@ pub(in crate::native) struct App {
     pub(super) pending_move: Option<crate::native::app::reparent::MoveRequest>,
     #[cfg(target_os = "linux")]
     pub(super) pending_tear_out_placement: Option<super::hyprland_tear_out::PendingPlacement>,
+    #[cfg(target_os = "linux")]
+    pub(super) pending_hyprland_follow_title: Option<String>,
     /// Whether an open picker that targets (or was opened by) this window
     /// moves a tab or pane rather than merging windows; selects the badge
     /// wording.
@@ -858,6 +860,8 @@ impl App {
             pending_move: None,
             #[cfg(target_os = "linux")]
             pending_tear_out_placement: None,
+            #[cfg(target_os = "linux")]
+            pending_hyprland_follow_title: None,
             merge_picker_moves: false,
             peer_attached_sessions: Vec::new(),
             sibling_window_count: 0,

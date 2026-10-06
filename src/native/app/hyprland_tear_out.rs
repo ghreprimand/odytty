@@ -6,6 +6,8 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 
+pub(super) mod follow;
+
 const QUERY_BUDGET: Duration = Duration::from_millis(150);
 const PLACEMENT_BUDGET: Duration = Duration::from_secs(3);
 const MAX_REPLY: u64 = 262_144;
@@ -342,7 +344,7 @@ impl App {
 mod tests {
     use super::*;
     use std::collections::VecDeque;
-    struct Fake {
+    pub(super) struct Fake {
         replies: VecDeque<(&'static str, &'static str)>,
         commands: Vec<String>,
     }
@@ -354,14 +356,14 @@ mod tests {
             Ok(response.into())
         }
     }
-    fn fake(replies: &[(&'static str, &'static str)]) -> Fake {
+    pub(super) fn fake(replies: &[(&'static str, &'static str)]) -> Fake {
         Fake {
             replies: replies.iter().copied().collect(),
             commands: Vec::new(),
         }
     }
     // Project-authored, numeric compositor fixtures. No machine/provider identity.
-    const MONITORS: &str = r#"[{"id":0,"x":0,"y":0,"width":1920,"height":1080,"scale":1.25,"transform":0,"activeWorkspace":{"id":2}},{"id":1,"x":1536,"y":0,"width":2560,"height":1440,"scale":1.667,"transform":0,"activeWorkspace":{"id":5}},{"id":3,"x":0,"y":-1080,"width":1920,"height":1080,"scale":1,"transform":0,"activeWorkspace":{"id":7}}]"#;
+    pub(super) const MONITORS: &str = r#"[{"id":0,"x":0,"y":0,"width":1920,"height":1080,"scale":1.25,"transform":0,"activeWorkspace":{"id":2}},{"id":1,"x":1536,"y":0,"width":2560,"height":1440,"scale":1.667,"transform":0,"activeWorkspace":{"id":5}},{"id":3,"x":0,"y":-1080,"width":1920,"height":1080,"scale":1,"transform":0,"activeWorkspace":{"id":7}}]"#;
     #[test]
     fn release_time_global_cursor_selects_mixed_scale_and_negative_monitors() {
         let mut ipc = fake(&[

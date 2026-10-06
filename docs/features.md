@@ -1267,7 +1267,7 @@ unsupported, and so is dragging a workspace out of the rail: a rail slot drag
 only reorders workspaces.
 
 `live_tab_drag` (Settings > Layout > Tabs, default on) follows the pointer
-with a provisional window on X11, macOS and Windows. Release commits once.
+with a provisional window on X11, Hyprland, macOS and Windows. Release commits once.
 Escape, returning to the source strip, a window close or a failed creation
 restores the exact tab order, active identity and pane tree. Focus changes
 within OdyTTY keep custody alive. If no OdyTTY window gains focus within
@@ -1288,7 +1288,7 @@ Placement follows the platform:
 | Platform | New-window placement |
 | --- | --- |
 | Linux X11 | A provisional window follows the pointer with the grabbed tab offset, clamped to the monitor under the cursor. With live tab drag off, the global release point is used. |
-| Linux Hyprland Wayland | The monitor and workspace under the release-time global cursor, tiled through bounded IPC. |
+| Linux Hyprland Wayland | A floating provisional window follows the logical global cursor through bounded IPC. Release tiles it on the cursor monitor and workspace. With live tab drag off, release-time creation and tiling remain unchanged. |
 | Linux KDE Plasma Wayland | The compositor chooses placement. |
 | Linux GNOME Wayland | The compositor chooses placement. |
 | Linux other Wayland | The compositor chooses placement. |
@@ -1301,7 +1301,12 @@ Hyprland placement reads only the current user session's socket, clamps replies
 and deadlines, and targets the new window by creation identity rather than
 focus. No shell command is spawned. Special-workspace names longer than 128
 UTF-8 bytes or containing commas, semicolons, quotes, backslashes, or control
-characters cannot be used for placement. Live follow is unsupported on Wayland.
+characters cannot be used for placement. Follow effects name a unique initial
+title for that surface incarnation; delayed commands cannot target a replacement
+surface. On IPC failure, the floating preview is retired before release-time
+replacement. Its terminal stays in reversible custody until release or cancel.
+A failed replacement restores the source. Live follow remains unsupported on
+other Wayland compositors.
 
 ### Control OdyTTY Locally
 

@@ -7,6 +7,9 @@ use crate::native::app::chrome_geometry::{PxPoint, PxRect};
 use crate::native::app::reparent::MovedHold;
 use crate::native::session::{MoveScope, MovedRestore, WorkspaceSet};
 
+#[cfg(target_os = "linux")]
+mod hyprland;
+
 const FOCUS_SETTLE_BOUND: Duration = Duration::from_millis(150);
 
 const FOLLOW_INTERVAL: Duration = Duration::from_millis(16);
@@ -30,6 +33,10 @@ pub(super) struct ProvisionalTab {
     point: Option<[i32; 2]>,
     next_move: Instant,
     last_placed: Option<[i32; 2]>,
+    #[cfg(target_os = "linux")]
+    hyprland: Option<super::super::hyprland_tear_out::follow::Follow>,
+    #[cfg(target_os = "linux")]
+    follow_dirty: bool,
     focus_deadline: Option<Instant>,
     release_pending: bool,
 }
@@ -78,9 +85,19 @@ impl MultiWindowHost {
             .as_ref()
             .map_or(1.0, |window| window.scale_factor());
         let point = pointer_global(source);
-        if source.window.is_some() && point.is_none() {
+        let hyprland = source.hyprland_live_requested();
+        if !hyprland && source.window.is_some() && point.is_none() {
             return false;
         }
+        #[cfg(target_os = "linux")]
+        let follow_epoch = if hyprland {
+            let Some(epoch) = crate::native::window_owner::next_surface_generation() else {
+                return false;
+            };
+            Some(epoch)
+        } else {
+            None
+        };
         let strip_right_inset = source.resolved_surface().map_or(0.0, |(width, _, _)| {
             (f64::from(width) - strip.x - strip.width).max(0.0)
         });
@@ -101,6 +118,16 @@ impl MultiWindowHost {
         );
         let mut destination = (self.adopt)(set, Some(source.settings.clone()));
         destination.live_drag_destination = true;
+        #[cfg(target_os = "linux")]
+        if hyprland {
+            let epoch = follow_epoch.expect("reserved identity");
+            destination.pending_hyprland_follow_title = Some(format!(
+                "OdyTTY-transfer-{}-{}-{}",
+                std::process::id(),
+                destination.process_window_id().0,
+                epoch
+            ));
+        }
         let id = destination.process_window_id();
         self.live_drag = Some(ProvisionalTab {
             source: origin,
@@ -120,6 +147,10 @@ impl MultiWindowHost {
             point,
             next_move: Instant::now(),
             last_placed: None,
+            #[cfg(target_os = "linux")]
+            hyprland: None,
+            #[cfg(target_os = "linux")]
+            follow_dirty: hyprland,
             focus_deadline: None,
             release_pending: false,
         });
@@ -130,6 +161,16 @@ impl MultiWindowHost {
             tracing::warn!(%error, "provisional tab window could not open");
             self.cancel_live_tab();
             return false;
+        }
+        #[cfg(target_os = "linux")]
+        if hyprland {
+            let app = &self.windows[dest];
+            let follow = super::super::hyprland_tear_out::follow::Follow::start(
+                app.pending_hyprland_follow_title.clone().expect("identity"),
+                app.sessions.event_proxy(),
+                tab,
+            );
+            self.live_drag.as_mut().expect("custody").hyprland = Some(follow);
         }
         self.tick_live_tab(Instant::now());
         self.sync_sibling_counts();
@@ -196,6 +237,15 @@ impl MultiWindowHost {
 
     fn commit_live_tab_with_focus(&mut self, request_focus: impl FnOnce(&App)) -> bool {
         let request_destination_focus = self.process_has_focus();
+        #[cfg(target_os = "linux")]
+        if self
+            .live_drag
+            .as_ref()
+            .and_then(|drag| drag.hyprland.as_ref())
+            .is_some_and(|follow| !follow.ready())
+        {
+            return false;
+        }
         // Flush the final pointer position, even inside the throttle interval.
         if let Some(drag) = self.live_drag.as_mut() {
             drag.next_move = Instant::now();
@@ -411,6 +461,10 @@ impl MultiWindowHost {
                         self.windows[index].window_pointer_px = Some((position.x, position.y));
                         let point = pointer_global(&self.windows[index]);
                         self.live_drag.as_mut().expect("live").point = point;
+                        #[cfg(target_os = "linux")]
+                        {
+                            self.live_drag.as_mut().expect("custody").follow_dirty = true;
+                        }
                     }
                 }
                 WindowEvent::MouseInput {
@@ -418,6 +472,10 @@ impl MultiWindowHost {
                     button: WinitMouseButton::Left,
                     ..
                 } => {
+                    #[cfg(target_os = "linux")]
+                    if self.start_hyprland_release() {
+                        return true;
+                    }
                     if self
                         .live_drag
                         .as_ref()
@@ -444,6 +502,10 @@ impl MultiWindowHost {
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
         ) {
             self.live_drag.as_mut().expect("live").last_placed = None;
+            #[cfg(target_os = "linux")]
+            {
+                self.live_drag.as_mut().expect("custody").follow_dirty = true;
+            }
         }
         // A provisional destination paints/configures, but cannot mutate its
         // arena or receive terminal input before the drag has committed.
@@ -504,6 +566,10 @@ impl MultiWindowHost {
             drag.source_scale = scale;
         }
         drag.strip.width = (f64::from(size.width) - drag.strip.x - drag.strip_right_inset).max(0.0);
+        #[cfg(target_os = "linux")]
+        if drag.hyprland.is_some() {
+            drag.follow_dirty = true;
+        }
         drag.source_configured = true;
         #[cfg(test)]
         {
@@ -517,6 +583,10 @@ impl MultiWindowHost {
 
     pub(super) fn tick_live_tab(&mut self, now: Instant) {
         self.settle_live_focus(now);
+        #[cfg(target_os = "linux")]
+        if self.send_hyprland_frame(now) {
+            return;
+        }
         self.place_live_tab(now);
     }
 
@@ -561,6 +631,15 @@ impl MultiWindowHost {
 
     pub(super) fn live_drag_wake(&self) -> Option<Instant> {
         let drag = self.live_drag.as_ref()?;
+        #[cfg(target_os = "linux")]
+        if drag.hyprland.is_some() {
+            return Some(
+                drag.focus_deadline
+                    .map_or(Instant::now() + Duration::from_millis(20), |deadline| {
+                        deadline.min(Instant::now() + Duration::from_millis(20))
+                    }),
+            );
+        }
         drag.focus_deadline
             .into_iter()
             .chain((drag.point != drag.last_placed).then_some(drag.next_move))
@@ -640,7 +719,7 @@ mod tests {
     use super::*;
     use crate::core::{Dimensions, Terminal};
 
-    fn armed(two_tabs: bool) -> (MultiWindowHost, SessionToken, Arc<Mutex<Terminal>>) {
+    pub(super) fn armed(two_tabs: bool) -> (MultiWindowHost, SessionToken, Arc<Mutex<Terminal>>) {
         let mut app = headless();
         app.settings.always_show_tab_bar = true;
         app.set_test_cell_for_test(crate::text::CellSize {

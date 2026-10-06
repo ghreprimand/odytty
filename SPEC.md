@@ -1269,7 +1269,7 @@ scope rather than silently inheriting deferred work from a prior release.
   reorder. A lone tab can tear out and transfers the saved-layout role when
   its source closes; the menu's lone-tab refusal remains unchanged. Pane
   tear-out is unsupported, and workspace rail slot drags only reorder
-  workspaces. On X11, macOS and Windows, the default-on `live_tab_drag`
+  workspaces. On X11, Hyprland, macOS and Windows, the default-on `live_tab_drag`
   setting creates a provisional window while the pointer is held outside.
   Its grabbed tab follows the pointer with scale-aware offsets and monitor
   clamping. The source, including a sole-tab source, survives until release
@@ -1289,13 +1289,19 @@ scope rather than silently inheriting deferred work from a prior release.
   recorders and autosave ownership survive cancellation. Provisional painting
   cannot resize terminal grids or claim shape persistence. Setting it off
   keeps the release-time creation and global release-point placement.
-  Hyprland queries the global cursor, monitor and workspace on release and
-  places the new window there through bounded IPC, tiled. The client is
+  Hyprland follows the global logical cursor with a floating provisional
+  window through bounded IPC, then tiles it on the release monitor/workspace.
+  Follow effects use a unique surface-incarnation initial title. An IPC failure
+  retires that preview and keeps its terminal in reversible custody until
+  release-time replacement or cancellation, leaving no follow-created floating
+  surface. Release destination is captured before queuing work; failed
+  replacement creation restores the source. With live drag off, the existing
+  release-time tiling path remains unchanged. The client is
   identified by its unique initial title and process id, never current focus.
   Visible special workspaces take precedence over the regular workspace;
   their selectors are capped at 128 UTF-8 bytes and reject IPC delimiters.
   Other Wayland compositors, including KDE Plasma and GNOME, choose placement.
-  Live follow on Wayland remains unsupported. Windows performs no child spawn
+  Other Wayland live follow remains unsupported. Windows performs no child spawn
   for either transfer path and keeps ConPTY dimensions unchanged until commit.
   A refused surface creation restores the tab; unavailable Hyprland placement
   leaves the tab in its new window and shows a notice.

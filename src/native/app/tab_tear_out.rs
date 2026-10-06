@@ -17,6 +17,21 @@ pub(in crate::native) struct TearOutRelease {
 }
 
 impl App {
+    pub(super) fn live_tab_transport_supported(&self) -> bool {
+        !self.is_wayland_client() || self.hyprland_live_requested()
+    }
+
+    pub(super) fn hyprland_live_requested(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            self.is_wayland_client() && std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            false
+        }
+    }
+
     pub(super) fn tab_tear_out_at(&self, x: f64, y: f64) -> bool {
         // winit's current client size is authoritative during a debounced GPU
         // resize. Headless input tests use the same surface geometry seam.
