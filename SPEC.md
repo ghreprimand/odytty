@@ -2543,7 +2543,8 @@ Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and
 Malayalam;
 Khmer and Myanmar;
 Thai, Lao, and Tibetan;
-Sinhala.
+Sinhala;
+Chakma, Javanese, Grantha, and Tai Tham.
 The base scalar must belong to one
 of those scripts, and every retained scalar to one of them or be ZWJ, ZWNJ, or
 a Vedic Extensions mark. The shaping face is the first that maps every scalar:
@@ -2561,7 +2562,8 @@ the cursor block (which redraws the per-cell glyphs, as it does under a Latin
 ligature), copy, search, and widths stay cell-owned. Runs never cross owners.
 Bengali ka, virama, ra shapes differently from HarfBuzz 14.5 in `harfrust`
 0.8.4; that difference is recorded in the fixtures and kept out of
-conformance claims. Khmer, Myanmar, Thai, Lao, Tibetan, and Sinhala fixtures match HarfBuzz 14.5 exactly.
+conformance claims. Khmer, Myanmar, Thai, Lao, Tibetan, Sinhala, Chakma, Javanese, Grantha, and Tai Tham fixtures
+match HarfBuzz 14.5 exactly.
 A stray mark that starts an owner is shaped with a dotted circle when the
 shaping face maps U+25CC and alone otherwise.
 Wrapped and rectangular selection copy the base followed by those stored marks.

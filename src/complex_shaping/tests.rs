@@ -168,6 +168,40 @@ const GROUPS: &[Group] = &[
         owner_floor: 7,
         changed_notes: &["zwj", "split-vowel", "conjunct"],
     },
+    Group {
+        name: "g6",
+        reference: include_str!("../../tests/fixtures/fonts/s5b/g6/reference.tsv"),
+        faces: &[
+            (
+                "Chakma-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/g6/Chakma-subset.ttf"),
+            ),
+            (
+                "Javanese-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/g6/Javanese-subset.ttf"),
+            ),
+            (
+                "Grantha-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/g6/Grantha-subset.ttf"),
+            ),
+            (
+                "TaiTham-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/g6/TaiTham-subset.ttf"),
+            ),
+        ],
+        count: 27,
+        known_diffs: &[],
+        // Four ZWNJ controls and Chakma's ZWJ control keep separate owners.
+        owner_floor: 22,
+        changed_notes: &[
+            "stacker",
+            "split-vowel",
+            "pre-base-vowel",
+            "cakra",
+            "conjunct",
+            "medial",
+        ],
+    },
 ];
 
 fn face(name: &str) -> FontHandle {
@@ -354,11 +388,15 @@ fn classifier_enables_exactly_the_enabled_groups() {
         '\u{0C95}',
         '\u{0D15}',
         '\u{0D9A}',
+        '\u{11103}',
+        '\u{A984}',
+        '\u{11315}',
+        '\u{1A20}',
     ] {
         assert!(owner_is_eligible(&Cell::new(ch, attrs)), "{ch:?}");
     }
-    // Latin, Arabic, emoji, box drawing, and later stage groups stay out.
-    for ch in ['a', '\u{0628}', '\u{1F600}', '\u{2500}', '\u{11103}'] {
+    // Latin, Arabic, emoji, box drawing, and scripts outside the enabled blocks stay out.
+    for ch in ['a', '\u{0628}', '\u{1F600}', '\u{2500}', '\u{10A00}'] {
         assert!(!owner_is_eligible(&Cell::new(ch, attrs)), "{ch:?}");
     }
     // A retained scalar from outside the group keeps the per-cell path.

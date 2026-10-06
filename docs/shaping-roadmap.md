@@ -34,9 +34,9 @@ source ranges, width and cache identity retain the selector. Capability probes
 and live rendering share this seam; flag, modifier and ZWJ inputs are unchanged.
 
 Listed VS16 bases and recognized emoji modifier, keycap, flag, and RGI ZWJ
-sequences use two-cell owners. Northern and southern Indic, Sinhala, Khmer, Myanmar, Thai, Lao, and Tibetan
-owners are shaped with the font (see Complex Indic and Brahmic shaping
-below); Chakma, Javanese, Grantha, and Tai Tham shaping remains pending.
+sequences use two-cell owners. Northern and southern Indic, Sinhala, Khmer,
+Myanmar, Thai, Lao, Tibetan, Chakma, Javanese, Grantha, and Tai Tham owners are
+shaped with the font (see Complex Indic and Brahmic shaping below). Other scripts keep the per-cell path.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 
@@ -69,12 +69,13 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Khmer/Myanmar shaping | With `ligatures` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
 | Thai/Lao/Tibetan shaping | With `ligatures` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |
 | Sinhala shaping | With `ligatures` on, Sinhala owners are shaped with the font (ZWJ conjunct requests, pre-base and split vowels) and fitted inside their one or two cells by the same rule | Shaping never crosses owners; ZWNJ breaks ownership; widths and logical copy stay unchanged |
-| Other complex Indic/Brahmic shaping | Not supported | Chakma, Javanese, Grantha, and Tai Tham owners keep the per-cell path |
+| Chakma/Javanese/Grantha/Tai Tham shaping | With `ligatures` on, the four scripts' owners are shaped with the font (stacked and conjunct forms, pre-base and split vowels, cakra and medials) and fitted inside their one or two cells | Shaping never crosses owners; Chakma U+11134 with ZWJ keeps separate owners; widths and logical copy stay unchanged |
+| Other complex Indic/Brahmic shaping | Not supported | Scripts outside the enabled blocks keep the per-cell path |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping |
 | Southern Indic terminal widths | Tamil, Telugu, Kannada, and Malayalam spacing signs and virama-linked consonants share bounded two-cell owners | Tamil width units can cross grapheme boundaries; font-backed shaping remains within each owner |
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed shaping stays inside each owner |
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed shaping is the separate Khmer/Myanmar shaping row |
-| Additional measured script widths | Chakma, Javanese, Grantha, and Tai Tham spacing signs and measured linked consonants share bounded two-cell owners | Chakma U+11134 links directly but keeps separate owners with ZWJ; Javanese/Grantha viramas alone keep one cell; font-backed complex-script reordering remains unsupported |
+| Additional measured script widths | Chakma, Javanese, Grantha, and Tai Tham spacing signs and measured linked consonants share bounded two-cell owners | Chakma U+11134 links directly but keeps separate owners with ZWJ; Javanese/Grantha viramas alone keep one cell; font-backed shaping stays within each owner |
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
 | SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, or reference-expansion limits, and documents with patterns or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
 
@@ -293,14 +294,18 @@ precomposed Tibetan subjoined stacks come from the font.
 Sinhala owners use the same path for ZWJ conjunct requests and pre-base
 and split vowels. The ZWNJ control keeps separate owners.
 
+Chakma, Javanese, Grantha, and Tai Tham owners take the same path for stacked
+and conjunct forms, pre-base and split vowels, cakra and medials. Shaping
+respects the retained width boundaries, including separate Chakma owners
+when U+11134 is followed by ZWJ.
+
 Licensed fixtures (OFL subsets of the Noto faces) carry HarfBuzz 14.5.1
 references for all 49 northern and 33 southern Indic samples; all but one
 match exactly. Bengali
 ka, virama, ra shapes differently in `harfrust` 0.8.4, and the fixtures keep
 that difference as an asserted known difference rather than a conformance
-claim. Every Khmer, Myanmar, Thai, Lao, and Tibetan sample matches exactly. All eight Sinhala samples match exactly. Chakma, Javanese, Grantha,
-and Tai Tham owners keep the per-cell path until their own
-classifier stage and fixtures land.
+claim. Every Khmer, Myanmar, Thai, Lao, and Tibetan sample matches exactly. All eight Sinhala samples match exactly. All 27 Chakma, Javanese, Grantha, and Tai Tham samples match exactly.
+Scripts outside the enabled blocks keep the per-cell path.
 
 ### SVG-in-OpenType
 

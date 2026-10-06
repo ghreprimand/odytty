@@ -49,8 +49,8 @@ mod tests;
 /// southern Indic groups: Devanagari (with Devanagari Extended and Extended-A), Bengali,
 /// Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam.
 /// Stage 3 enables Sinhala. Stage 4 enables Khmer (with Khmer Symbols) and
-/// Myanmar (with Myanmar Extended-A and Extended-B). Stage 5 enables Thai, Lao, and Tibetan. Later
-/// stages append their groups here.
+/// Myanmar (with Myanmar Extended-A and Extended-B). Stage 5 enables Thai, Lao, and Tibetan.
+/// Stage 6 enables Chakma, Javanese, Grantha, and Tai Tham.
 pub const STAGE_RANGES: &[(u32, u32)] = &[
     (0x0900, 0x097F),   // Devanagari
     (0x0980, 0x09FF),   // Bengali
@@ -72,6 +72,10 @@ pub const STAGE_RANGES: &[(u32, u32)] = &[
     (0x0E00, 0x0E7F),   // Thai
     (0x0E80, 0x0EFF),   // Lao
     (0x0F00, 0x0FFF),   // Tibetan
+    (0x11100, 0x1114F), // Chakma
+    (0xA980, 0xA9DF),   // Javanese
+    (0x11300, 0x1137F), // Grantha
+    (0x1A20, 0x1AAF),   // Tai Tham
 ];
 
 /// Most distinct owner texts kept shaped per face; the cache clears when full.
