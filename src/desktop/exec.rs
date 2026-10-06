@@ -49,7 +49,10 @@ fn file_uri(abs: &str) -> String {
 /// * an unlisted field code (`%z`) or a bare `%` at the end of a token;
 /// * any field code other than `%%` in a token that contains quoted text,
 ///   such as `sh -c "eog %f"` or `"eog "%f`;
-/// * `%F` or `%U` inside a longer token, such as `--files=%F`.
+/// * `%F` or `%U` inside a longer token, such as `--files=%F`;
+/// * no program token, or a program token that is empty or carries any field
+///   code other than `%%` (`Exec=%f`, `Exec=%i %f`, `Exec=viewer%f`): the
+///   selected file must never become, or replace, the program.
 ///
 /// Field-code substitution (per token, after tokenizing):
 /// * `%f` / `%F` -> the bare absolute path (we only ever open one file);
@@ -67,6 +70,9 @@ pub fn exec_to_argv(exec: &str, abs: &str) -> Option<Vec<String>> {
     if tokens.iter().any(refuses_field_codes) {
         return None;
     }
+    // The program is the first token, admitted before any expansion: it must
+    // be nonempty and carry no field code other than `%%`.
+    let program = program_text(tokens.first()?)?;
     let uri = file_uri(abs);
     let mut argv: Vec<String> = Vec::new();
     let mut saw_path = false;
@@ -107,7 +113,29 @@ pub fn exec_to_argv(exec: &str, abs: &str) -> Option<Vec<String>> {
     if !saw_path {
         argv.push(abs.to_owned());
     }
+    // Refuse any mapping that lost or changed the program token.
+    if argv.first() != Some(&program) {
+        return None;
+    }
     Some(argv)
+}
+
+/// The program token's literal text (`%%` unescaped), or `None` when it is
+/// empty or holds any other field code.
+fn program_text(token: &Token) -> Option<String> {
+    let mut out = String::new();
+    let mut chars = token.text.chars();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            out.push(c);
+            continue;
+        }
+        if chars.next() != Some('%') {
+            return None;
+        }
+        out.push('%');
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 /// One `Exec` token and whether any of its text came from a quoted span.
@@ -385,10 +413,49 @@ mod tests {
     }
 
     #[test]
-    fn empty_exec_yields_just_the_path() {
-        // Defensive: an empty Exec (filtered out before this in production) does
-        // not panic; it degrades to a lone path element.
-        assert_eq!(argv_for("", "/x/y.png"), vec!["/x/y.png".to_owned()]);
+    fn empty_exec_is_refused() {
+        // An Exec with no program token (the parser already withholds an empty
+        // Exec from enumeration) is refused rather than degrading to a lone
+        // path element, which would make the selected file the program.
+        assert_eq!(expand("", "/x/y.png"), None);
+        assert_eq!(expand("   ", "/x/y.png"), None);
+    }
+
+    #[test]
+    fn field_codes_in_the_program_position_refuse_the_entry() {
+        for exec in [
+            "%f",
+            "%F",
+            "%u",
+            "%U",
+            "%i %f",
+            "%c %f",
+            "%k",
+            "%i",
+            "viewer%f",
+            "%d viewer %f",
+            "\"\" %f",
+        ] {
+            assert_eq!(expand(exec, "/x/y.png"), None, "{exec}");
+        }
+    }
+
+    #[test]
+    fn a_literal_percent_in_the_program_is_kept() {
+        assert_eq!(
+            expand("view%%er %f", "/x/y.png"),
+            Some(vec!["view%er".to_owned(), "/x/y.png".to_owned()])
+        );
+    }
+
+    #[test]
+    fn the_program_survives_as_argv0_and_the_file_never_takes_its_place() {
+        for exec in ["eog", "eog %f", "eog %i %f", "gimp %U", "\"my viewer\" %u"] {
+            let argv = expand(exec, "/x/y.png").expect(exec);
+            assert!(argv.len() >= 2, "{exec}");
+            assert_ne!(argv[0], "/x/y.png", "{exec}");
+            assert_ne!(argv[0], "file:///x/y.png", "{exec}");
+        }
     }
 
     /// Expansion result, `None` when the entry is refused.

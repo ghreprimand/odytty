@@ -950,7 +950,9 @@ a field code inside a quoted argument (such as `sh -c "eog %f"`), or `%F`/`%U`
 inside a longer argument, is not offered, because the path would otherwise
 reach the launched program as part of a code-bearing argument. An entry the
 Desktop Entry specification makes invalid (an unlisted field code, a literal
-`%` not written as `%%`, or an unterminated quote) is not offered either.
+`%` not written as `%%`, or an unterminated quote) is not offered either, nor
+is one with no program before its arguments or a field code in the program
+position (such as `Exec=%f`), so the file is never run as the program.
 
 If the MIME type cannot be detected or no application handles it, the picker
 opens with an empty-state hint. Closed, the overlay is byte-identical to the

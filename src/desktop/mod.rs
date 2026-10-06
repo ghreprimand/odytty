@@ -172,13 +172,11 @@ pub fn enumerate_open_with(
             continue;
         };
         // An entry whose field codes sit in a refused context (inside quotes,
-        // or `%F`/`%U` inside a longer argument) is not offered.
+        // `%F`/`%U` inside a longer argument, or any code in the program
+        // position) or that has no program token is not offered.
         let Some(argv) = exec_to_argv(exec, abs) else {
             continue;
         };
-        if argv.is_empty() {
-            continue;
-        }
         let name = entry
             .name
             .filter(|n| !n.trim().is_empty())
@@ -199,8 +197,11 @@ fn read_desktop_file(env: &dyn DesktopEnv, data_dirs: &[PathBuf], id: &str) -> O
     // never resolve outside `applications/`. `Path::join` does not normalize, so
     // an id carrying a separator, a `..` component, or an absolute path (e.g. a
     // hostile `mimeapps.list` entry `image/png=../../../../tmp/evil.desktop`)
-    // would otherwise read — and, if launched, run — an arbitrary out-of-tree
-    // file. Reject any such id before it reaches the data ladder.
+    // would otherwise read, and if launched run, an arbitrary out-of-tree
+    // file. The original id is rejected here, and every candidate derived from
+    // it by dash expansion is admitted only when each of its components is a
+    // normal name (see `desktop_relpaths`), so `..-evil.desktop` cannot read
+    // `applications/../evil.desktop` either.
     if !is_safe_desktop_id(id) {
         return None;
     }
@@ -238,6 +239,13 @@ fn is_safe_desktop_id(id: &str) -> bool {
 /// Candidates convert the first `k` dashes to slashes for `k = 0..=n`,
 /// shallowest first (the literal name wins a tie, matching the id-priority
 /// convention).
+///
+/// A derived candidate is produced only while every `/`-separated component
+/// is a nonempty normal name: a dash next to `..` or `.` would derive a parent
+/// or current-directory component, a leading dash an absolute path, and a
+/// doubled or trailing dash an empty component that resolves a different id.
+/// Each later candidate extends the earlier one's components, so the ladder
+/// stops at the first refused form.
 fn desktop_relpaths(id: &str) -> Vec<String> {
     let mut out = vec![id.to_owned()];
     let mut candidate = id.to_owned();
@@ -246,9 +254,24 @@ fn desktop_relpaths(id: &str) -> Vec<String> {
         let at = from + pos;
         candidate.replace_range(at..=at, "/");
         from = at + 1;
+        if !is_contained_relpath(&candidate) {
+            break;
+        }
         out.push(candidate.clone());
     }
     out
+}
+
+/// Whether a derived relative path stays inside `applications/`: every
+/// `/`-separated segment is a nonempty name other than `.` or `..` (checked
+/// on the text, because `Path::components` silently drops an interior `.`),
+/// and the path parses as normal components only (no root or prefix).
+fn is_contained_relpath(rel: &str) -> bool {
+    rel.split('/')
+        .all(|segment| !matches!(segment, "" | "." | ".."))
+        && Path::new(rel)
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
 }
 
 #[cfg(test)]
@@ -516,6 +539,74 @@ mod tests {
         let apps = enumerate_open_with(&probe("image/png"), &env, "/x/a.png");
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].name, "Eye of GNOME");
+    }
+
+    #[test]
+    fn derived_desktop_candidates_admit_only_normal_components() {
+        // A dash next to `..` or `.` derives a parent or current-directory
+        // component, a leading dash an absolute path, and a doubled or
+        // trailing dash an empty component that would resolve a different id;
+        // such candidates are never produced, while the literal name and
+        // every all-normal form still are.
+        assert_eq!(
+            desktop_relpaths("..-outside.desktop"),
+            vec!["..-outside.desktop"]
+        );
+        assert_eq!(
+            desktop_relpaths("kde-..-..-evil.desktop"),
+            vec!["kde-..-..-evil.desktop", "kde/..-..-evil.desktop"]
+        );
+        assert_eq!(
+            desktop_relpaths("a-.-b.desktop"),
+            vec!["a-.-b.desktop", "a/.-b.desktop"]
+        );
+        assert_eq!(
+            desktop_relpaths("a--b.desktop"),
+            vec!["a--b.desktop", "a/-b.desktop"]
+        );
+        assert_eq!(desktop_relpaths("-lead.desktop"), vec!["-lead.desktop"]);
+        assert_eq!(desktop_relpaths("trail-"), vec!["trail-"]);
+        assert_eq!(
+            desktop_relpaths("foo-bar-editor.desktop"),
+            vec![
+                "foo-bar-editor.desktop",
+                "foo/bar-editor.desktop",
+                "foo/bar/editor.desktop"
+            ]
+        );
+        for id in [
+            "..-outside.desktop",
+            "x-..-y.desktop",
+            "-lead.desktop",
+            "trail-",
+            "x-.-y.desktop",
+            "x---y.desktop",
+        ] {
+            for rel in desktop_relpaths(id) {
+                assert!(
+                    Path::new(&rel)
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_)))
+                        && rel.split('/').all(|s| !matches!(s, "" | "." | "..")),
+                    "{id} derived {rel}"
+                );
+            }
+        }
+
+        // Behavioral: a file planted at the parent-directory candidate is
+        // never read.
+        let mut files = HashMap::new();
+        files.insert(
+            PathBuf::from("/data/applications/../outside.desktop"),
+            desktop("Outside", "outside %f"),
+        );
+        let env = MapEnv {
+            config_dirs: vec![],
+            data_dirs: vec![PathBuf::from("/data")],
+            files,
+        };
+        let data_dirs = env.data_dirs();
+        assert!(read_desktop_file(&env, &data_dirs, "..-outside.desktop").is_none());
     }
 
     /// C15: the candidate ladder is literal first, then progressively deeper —

@@ -445,7 +445,10 @@ default-open and reveal remain available there.
 
 Each id resolves to its `.desktop`
 file across the data ladder (user dir wins; a dash-prefixed id `kde-foo.desktop`
-maps to `applications/kde/foo.desktop`). Entries that are not
+maps to `applications/kde/foo.desktop`). The id itself must be a bare name,
+and a dash-derived candidate is read only when every component is a nonempty
+normal name, so an id such as `..-evil.desktop` never reads outside
+`applications/`. Entries that are not
 `Type=Application`, or are `NoDisplay`/`Hidden`/`Terminal=true`, or lack an
 `Exec`, are skipped. `Terminal=true` apps are **excluded in v1** (launching a
 TTY-owning app detached with null stdio misbehaves); revisitable. `TryExec`
@@ -466,7 +469,10 @@ token, is refused before argv construction and not offered: the Desktop Entry
 specification leaves quoted field codes undefined and requires `%F`/`%U` to
 stand alone. An unlisted field code (`%z`), a literal `%` not written as `%%`,
 or an unterminated double quote makes the entry invalid under the same
-specification, and it is refused the same way.
+specification, and it is refused the same way. The first token is the program:
+an entry whose program token is missing or empty, or carries any field code
+other than `%%` (`Exec=%f`, `Exec=%i %f`), is refused, so the selected file can
+never become the program.
 
 The expanded argv flows into the shared C3 `spawn_detached` (argv-only,
 null stdio) — so a path containing spaces, `;`, `$()`, or backticks is one inert
