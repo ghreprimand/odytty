@@ -167,9 +167,9 @@ fn osc_icon_name_only_does_not_change_window_title() {
 }
 
 #[test]
-fn unknown_osc_sequences_are_consumed_without_corruption() {
+fn supported_osc_sequences_are_consumed_without_printing_payloads() {
     let mut terminal = Terminal::new(40, 2);
-    // A spread of OSCs a real shell/editor emits: cwd (7), hyperlink (8),
+    // Supported OSC handlers consume cwd (7), hyperlink (8),
     // colors (10/11), palette (4), clipboard (52), shell integration (133).
     terminal.advance(b"X");
     terminal.advance(b"\x1b]7;file://host/home/user\x07");
@@ -271,15 +271,20 @@ fn osc8_link_refs_survive_resize_reflow() {
     terminal.advance(b"\x1b]8;;https://example.com\x07abcdef");
     terminal.resize(3, 3);
 
-    let linked = terminal
-        .snapshot()
+    let snapshot = terminal.snapshot();
+    let linked = snapshot
         .cells
         .iter()
         .filter(|cell| cell.ch != ' ')
-        .map(|cell| cell.attrs.hyperlink)
         .collect::<Vec<_>>();
-    assert!(!linked.is_empty());
-    assert!(linked.iter().all(|id| id.is_some() && *id == linked[0]));
+    assert_eq!(linked.len(), 6);
+    assert_eq!(
+        linked.iter().map(|cell| cell.ch).collect::<String>(),
+        "abcdef"
+    );
+    let id = linked[0].attrs.hyperlink.expect("registered link");
+    assert!(linked.iter().all(|cell| cell.attrs.hyperlink == Some(id)));
+    assert_eq!(terminal.hyperlink(id).unwrap().uri, "https://example.com");
 }
 
 #[test]

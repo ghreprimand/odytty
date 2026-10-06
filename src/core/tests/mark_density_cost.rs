@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Price Candidate B's admitted regression: a marked cell costs a 28-byte
+//! Compare capacity-inclusive retained storage: a marked cell costs a 28-byte
 //! stored cell plus a sidecar entry, against 92 bytes inline.
 //!
 //! Measures the pathological corpus (every cell carrying marks) at the shipped
 //! 10,000-line default so the break-even density is a number, not an adjective.
-//! The 100k case is ignored-by-default (hundreds of megabytes); 10k scales
-//! linearly with cell count for the ring term.
+//! The 100k case is ignored by default. Extrapolated sizes are estimates,
+//! separate from the allocation counts observed for this corpus.
 //!
 //! Windows: no platform surface. Core storage only.
 
@@ -13,7 +13,7 @@ use super::*;
 use crate::memory_report::ScrollbackBytes;
 use std::mem::size_of;
 
-fn fill_scrollback(lines: usize, marked: bool) -> ScrollbackBytes {
+fn fill_scrollback(lines: usize, marked: bool) -> (ScrollbackBytes, u64) {
     let mut term = Terminal::new(80, 24);
     term.set_scrollback_limit(lines);
     let body = if marked {
@@ -30,19 +30,17 @@ fn fill_scrollback(lines: usize, marked: bool) -> ScrollbackBytes {
         term.advance(body.as_bytes());
         term.advance(b"\r\n");
     }
-    let _ = term.screen().scrollback_len();
-    term.screen().scrollback_bytes()
-}
-
-fn cells_in(lines: usize) -> u64 {
-    lines as u64 * 80
+    let retained_rows = term.screen().scrollback_len();
+    assert_eq!(retained_rows, lines.saturating_sub(23));
+    // Every retained row in this corpus is a closed, full 80-cell ASCII row.
+    (term.screen().scrollback_bytes(), retained_rows as u64 * 80)
 }
 
 /// Pathological (every cell marked) vs mark-free, 10,000 hard-terminated
-/// 80-column lines — the shipped default depth.
+/// 80-column inputs, with 23 content rows remaining in the live grid.
 ///
-/// B wins on unmarked content and loses at 100% marked density. Break-even is
-/// the marked-cell fraction where ring bytes match a 92-byte inline cell.
+/// Capacity-inclusive ring bytes are compared with the same retained-cell
+/// count at 92 bytes inline. Break-even is the corresponding marked fraction.
 #[test]
 fn pathological_mark_density_at_shipped_default() {
     assert_eq!(
@@ -51,24 +49,24 @@ fn pathological_mark_density_at_shipped_default() {
         "live Cell size is the inline baseline"
     );
 
-    let unmarked = fill_scrollback(10_000, false);
-    let marked = fill_scrollback(10_000, true);
-    let n = cells_in(10_000);
+    let (unmarked, n) = fill_scrollback(10_000, false);
+    let (marked, marked_cells) = fill_scrollback(10_000, true);
+    assert_eq!(marked_cells, n);
     let inline = n * size_of::<Cell>() as u64;
     assert!(
         marked.ring > unmarked.ring,
-        "B must charge extra for marks: unmarked={} marked={}",
+        "Stored-cell sidecars must charge extra for marks: unmarked={} marked={}",
         unmarked.ring,
         marked.ring
     );
     assert!(
         unmarked.ring < inline,
-        "unmarked B must beat inline 92-byte cells: ring={} inline={inline}",
+        "unmarked stored cells must beat inline 92-byte cells: ring={} inline={inline}",
         unmarked.ring
     );
     assert!(
         marked.ring > inline,
-        "100% marked B must lose to inline 92-byte cells: ring={} inline={inline}",
+        "100% marked stored cells must lose to inline 92-byte cells: ring={} inline={inline}",
         marked.ring
     );
 
@@ -84,7 +82,7 @@ fn pathological_mark_density_at_shipped_default() {
          bytes_per_cell_unmarked={unmarked_per:.3} extra_per_marked_cell={extra_per:.3} \
          inline_ring_term={inline} marked_minus_inline={} \
          break_even_marked_density={break_even:.4} \
-         scale_100k_unmarked={} scale_100k_marked={}",
+         estimate_100k_unmarked={} estimate_100k_marked={}",
         size_of::<Cell>(),
         unmarked.ring,
         marked.ring,
@@ -111,13 +109,21 @@ fn pathological_mark_density_at_shipped_default() {
 #[test]
 #[ignore = "measurement harness; 100k marked lines is hundreds of megabytes"]
 fn pathological_mark_density_at_100k() {
-    let unmarked = fill_scrollback(100_000, false);
-    let marked = fill_scrollback(100_000, true);
-    let n = cells_in(100_000);
+    let (unmarked, n) = fill_scrollback(100_000, false);
+    let (marked, marked_cells) = fill_scrollback(100_000, true);
+    assert_eq!(marked_cells, n);
     println!(
         "mark-density-100k n_cells={n} ring_unmarked={} ring_marked={} extra={}",
         unmarked.ring,
         marked.ring,
         marked.ring - unmarked.ring,
     );
+}
+
+#[test]
+fn measurement_denominator_counts_only_retained_cells() {
+    for marked in [false, true] {
+        let (_, cells) = fill_scrollback(24, marked);
+        assert_eq!(cells, 80);
+    }
 }

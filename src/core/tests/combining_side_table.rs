@@ -20,7 +20,7 @@ const MARKS: [char; 5] = ['\u{0301}', '\u{0302}', '\u{0303}', '\u{0304}', '\u{03
 fn cluster(base: char, mark_count: usize) -> String {
     let mut s = String::new();
     s.push(base);
-    for mark in MARKS.iter().take(mark_count) {
+    for mark in MARKS.iter().cycle().take(mark_count) {
         s.push(*mark);
     }
     s
@@ -240,14 +240,30 @@ fn every_distinct_live_cluster_remains_readable() {
 #[test]
 fn max_combining_boundary_is_exact_on_adjacent_cells() {
     let mut terminal = Terminal::new(8, 1);
-    for n in 0..=5 {
-        let c = cluster(char::from(b'A' + n as u8), n);
-        terminal.advance(c.as_bytes());
-        let cell = terminal.screen().cell(0, n).unwrap();
-        let kept = n.min(MAX_COMBINING);
-        assert_eq!(cell.combining().len(), kept, "column {n}");
-        assert_eq!(cell.grapheme(), cluster(char::from(b'A' + n as u8), kept));
+    let mut column = 0;
+    for (base, n) in [
+        ('A', MAX_COMBINING - 1),
+        ('B', MAX_COMBINING),
+        ('C', MAX_COMBINING + 1),
+    ] {
+        let offered = cluster(base, n);
+        terminal.advance(offered.as_bytes());
+        assert_eq!(
+            terminal.screen().cell(0, column).unwrap().grapheme(),
+            cluster(base, n.min(MAX_COMBINING))
+        );
+        column += 1;
+        if n > MAX_COMBINING {
+            let overflow = terminal.screen().cell(0, column).unwrap();
+            assert_eq!(
+                overflow.grapheme(),
+                MARKS[MAX_COMBINING % MARKS.len()].to_string()
+            );
+            column += 1;
+        }
     }
+    terminal.advance(b"Z");
+    assert_eq!(terminal.screen().cell(0, column).unwrap().grapheme(), "Z");
 }
 
 #[test]

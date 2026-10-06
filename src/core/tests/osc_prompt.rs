@@ -5,9 +5,8 @@
 //! parsing and its malformed-payload defenses, the poll API + change flag, the
 //! coordinate convention (marks anchored to absolute rows), survival through
 //! scroll-out into scrollback and through a width-changing reflow, RIS reset
-//! semantics, and the load-bearing invariant that the marking sequences are
-//! byte-identical to the same text with the OSC 133 escapes stripped (no grid
-//! write, no host reply, no Snapshot change).
+//! semantics. For the tested plain prompt cycle, OSC 133 metadata leaves the
+//! render snapshot unchanged. Prompt-start margin recovery is tested separately.
 
 use super::*;
 
@@ -216,10 +215,7 @@ fn osc133_payload_does_not_leak_into_grid() {
 
 #[test]
 fn osc133_stream_is_byte_identical_to_stripped_text() {
-    // The load-bearing invariant: feeding a full A…B…C…D;0 prompt cycle produces
-    // a grid byte-identical to feeding the same visible text with every OSC 133
-    // escape stripped. Proven through the render Snapshot, which also confirms
-    // the marks never reach the rendering surface.
+    // For this prompt cycle, OSC 133 metadata leaves the render snapshot unchanged.
     let mut marked = Terminal::new(20, 4);
     marked.advance(&osc133("A"));
     marked.advance(b"prompt$ ");

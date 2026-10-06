@@ -223,10 +223,21 @@ fn deccara_changes_supported_attrs_and_resets_them_individually() {
 fn decrara_double_application_restores_original_attrs() {
     let mut terminal = Terminal::new(4, 2);
 
-    terminal.advance(b"\x1b[2*x\x1b[1;1;2;4;1;4;5;7$r");
+    terminal.advance(b"\x1b[2;3;8;9;38;2;1;2;3;48;5;27;58;5;42mAB\x1b[2*x\x1b[1;1;2;4;1;4;5;7$r");
     let before = all_attrs(&terminal);
 
-    terminal.advance(b"\x1b[1;1;2;4;0$t\x1b[1;1;2;4;0$t");
+    terminal.advance(b"\x1b[1;1;2;4;0$t");
+    let middle = all_attrs(&terminal);
+    for (original, reversed) in before.iter().zip(&middle) {
+        let mut expected = *original;
+        expected.set_bold(false);
+        expected.set_underline_style(UnderlineStyle::None);
+        expected.set_blink(false);
+        expected.set_inverse(false);
+        assert_eq!(*reversed, expected);
+    }
+    assert_ne!(middle, before);
+    terminal.advance(b"\x1b[1;1;2;4;0$t");
 
     let after = all_attrs(&terminal);
     assert_eq!(after, before);

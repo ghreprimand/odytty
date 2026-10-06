@@ -16,10 +16,8 @@ use crate::core::types::MAX_COMBINING;
 use crate::selection::{CellPoint, SelectionRange, selected_text};
 use std::mem::{align_of, size_of};
 
-/// Measured on rustc 1.96 (x86_64). Do not infer alignment from the leading
-/// field: `Attrs` starts with a `u16` but `Color` / `Option<LinkId>` raise it
-/// to 4. The `Cell` comment in `types.rs` claiming 36 bytes predates the
-/// sixteen-slot extension array.
+/// Attrs and Cell retain the tested sizes and alignment on supported targets.
+/// Color and Option<LinkId> require four-byte alignment.
 const _: () = assert!(size_of::<Attrs>() == 20);
 const _: () = assert!(align_of::<Attrs>() == 4);
 const _: () = assert!(size_of::<Cell>() == 92);

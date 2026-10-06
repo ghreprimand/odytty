@@ -177,11 +177,13 @@ fn xtwinops_uses_headless_default_metrics_until_overridden() {
 fn xtwinops_manipulation_and_title_stack_ops_are_ignored() {
     let mut terminal = Terminal::new(10, 4);
 
-    terminal.advance(b"\x1b]2;kept\x07");
+    terminal.advance(b"\x1b]2;kept\x07\x1b[31mAB\r\nCD");
+    let before = terminal.snapshot();
     terminal.advance(b"\x1b[1t\x1b[8;30;100t\x1b[22;0t\x1b[23;0t\x1b[24t");
 
     assert!(terminal.take_host_output().is_empty());
     assert_eq!(terminal.title(), Some("kept"));
+    assert_eq!(terminal.snapshot(), before);
 }
 
 #[test]

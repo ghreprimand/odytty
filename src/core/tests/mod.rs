@@ -29,14 +29,8 @@ mod visible_search_rows;
 mod win32_input;
 mod wrapped_flag_scroll;
 
-/// Public-safe, behavior-neutral fixtures for the v0.13.0 test seams.
-///
-/// These inputs exercise APIs that already ship. They contain no accounts,
-/// hostnames, home-directory fragments, credentials, private endpoints, or
-/// machine-derived clipboard data. Notification/progress fixtures now live in
-/// `osc_notifications`; launch-profile, automation, external-file-drop, and
-/// Windows-registration fixtures remain absent until their production owners
-/// exist.
+/// Project-authored fixtures for paste, prompt and notification test seams.
+/// Other features keep fixtures with their respective production modules.
 pub(crate) mod v013_fixtures {
     use crate::core::PromptKind;
 

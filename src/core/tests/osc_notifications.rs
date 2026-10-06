@@ -53,6 +53,11 @@ fn malformed_and_oversized_requests_are_ignored() {
 fn notification_queue_is_bounded_and_deduplicated() {
     let mut terminal = Terminal::new(80, 24);
     terminal.advance(b"\x1b]9;same\x1b\\\x1b]9;same\x1b\\");
+    let repeated = terminal.take_notifications();
+    assert_eq!(repeated.len(), 1);
+    assert_eq!(repeated[0].body, "same");
+    assert!(terminal.take_notifications().is_empty());
+    let mut terminal = Terminal::new(80, 24);
     for index in 0..(MAX_PENDING_NOTIFICATIONS + 3) {
         terminal.advance(format!("\x1b]9;event-{index}\x1b\\").as_bytes());
     }

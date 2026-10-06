@@ -388,7 +388,7 @@ fn combining_mark_at_line_start_has_its_own_source_owner() {
 #[test]
 fn combining_marks_preserve_bounded_spill_without_panicking() {
     let mut terminal = Terminal::new(6, 1);
-    // Three combining marks on one base cross the two-mark inline threshold.
+    // Three retained marks survive text and snapshot-cell conversion.
     terminal.advance("e\u{0301}\u{0302}\u{0303}".as_bytes());
 
     let cell = terminal.screen().cell(0, 0).unwrap();
