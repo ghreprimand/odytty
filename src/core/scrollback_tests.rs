@@ -1122,7 +1122,7 @@ fn logical_graphemes(rows: &[Line]) -> Vec<String> {
     let mut open = false;
     for row in rows {
         for cell in &row.cells {
-            if cell.wide_continuation {
+            if cell.wide_continuation || cell.layout_padding {
                 continue;
             }
             current.push_str(&cell.grapheme());
@@ -1156,7 +1156,7 @@ fn grapheme_oracle_corpus() -> Vec<String> {
         format!("start{full}end"),
         format!("{overflow}tail"),
         "e\u{0301}a\u{0300}i\u{0302}o\u{0303}u\u{0308}".to_string(),
-        "wide\u{0301}xy".to_string(),
+        "AB\u{6F22}e\u{0301}\u{754C}xy".to_string(),
         format!("mixed{full}rest"),
     ]
 }

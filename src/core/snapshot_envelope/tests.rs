@@ -30,12 +30,15 @@ fn hostile_prompt_mark_count_fails_cleanly_without_over_reserve() {
     let caps = SnapshotEnvelopeCaps::default();
     let max = caps.max_scrollback_rows.saturating_add(caps.max_rows);
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(&(max as u32).to_be_bytes());
+    bytes.extend_from_slice(&(max as u32).to_le_bytes());
     // One truncated mark's worth of payload, nowhere near `max` marks.
     bytes.extend_from_slice(&[0, 0]);
     assert!(
-        decode_prompt_marks(&bytes, caps).is_err(),
-        "a short payload behind a huge count must error"
+        matches!(
+            decode_prompt_marks(&bytes, caps),
+            Err(SnapshotEnvelopeError::UnexpectedEof)
+        ),
+        "a short payload behind an admitted count must fail on a short read"
     );
 
     // An honest small section still decodes.
@@ -230,7 +233,7 @@ fn oversized_title_and_cwd_are_bounded_at_capture_so_reattach_succeeds() {
     let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default())
         .expect("an oversized title/cwd must still decode, truncated");
 
-    let title = decoded.metadata.title.expect("title present");
+    let title = decoded.metadata.title.as_ref().expect("title present");
     assert!(
         title.len() <= DEFAULT_MAX_STRING_BYTES,
         "title bounded to the decode cap"
@@ -242,6 +245,7 @@ fn oversized_title_and_cwd_are_bounded_at_capture_so_reattach_succeeds() {
     let cwd = decoded
         .metadata
         .working_directory
+        .as_ref()
         .expect("working directory present");
     assert!(
         cwd.len() <= DEFAULT_MAX_STRING_BYTES,
@@ -250,6 +254,13 @@ fn oversized_title_and_cwd_are_bounded_at_capture_so_reattach_succeeds() {
     // The grid content survives the reattach that the unbounded string
     // would otherwise have aborted.
     assert_eq!(decoded.terminal.dimensions, Dimensions::new(16, 3));
+    let restored = Terminal::from_snapshot_envelope(&decoded).expect("restore bounded metadata");
+    assert_eq!(restored.snapshot().cells, terminal.snapshot().cells);
+    assert_eq!(restored.screen().cursor(), terminal.screen().cursor());
+    assert_eq!(
+        restored.screen().plain_text(),
+        terminal.screen().plain_text()
+    );
 }
 
 #[test]

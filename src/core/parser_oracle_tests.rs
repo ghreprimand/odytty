@@ -873,3 +873,33 @@ fn oracle_fuzz_structure_aware() {
         fuzz_assert_split(seed, &input, sp);
     }
 }
+
+#[test]
+fn parser_oracle_explicitly_pins_padding_and_dynamic_colors() {
+    // Historical Debug-based hashes remain unchanged. Pin the omitted axes
+    // through their actual fields for this project-authored parser stream.
+    let input = "\x1b]10;rgb:01/02/03\x07AB\u{6F22}";
+    let screen = run_ody(3, 2, &[input.as_bytes()]);
+    let snapshot = screen.snapshot_with_scrollback(0);
+    assert_eq!(
+        snapshot.colors.foreground,
+        crate::core::RgbColor::new(1, 2, 3)
+    );
+    let padding: Vec<_> = snapshot
+        .cells
+        .iter()
+        .map(|cell| cell.layout_padding)
+        .collect();
+    assert_eq!(padding, [false, false, true, false, false, false]);
+    assert_eq!(snapshot.cells[2].ch, ' ');
+    assert_eq!(snapshot.cells[3].ch, '\u{6F22}');
+    assert!(snapshot.cells[4].wide_continuation);
+    for split in 0..=input.len() {
+        let split_screen = run_ody(
+            3,
+            2,
+            &[&input.as_bytes()[..split], &input.as_bytes()[split..]],
+        );
+        assert_screens_match("explicit metadata", &screen, &split_screen);
+    }
+}

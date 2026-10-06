@@ -76,9 +76,21 @@ fn placeholder_cell(image_id: u32, marks: &[usize]) -> String {
 fn diacritic_table_is_sorted_and_round_trips() {
     // The table is binary-searched, so ascending order is a correctness
     // precondition, not a style choice.
-    assert_eq!(diacritic_index('\u{0305}'), Some(0));
-    assert_eq!(diacritic_index('\u{030D}'), Some(1));
-    assert_eq!(diacritic_index('\u{030E}'), Some(2));
+    // Enumerate the public lookup's complete scalar domain, so every compiled
+    // private-table entry must appear exactly once and in increasing order.
+    let recognized: Vec<_> = (0..=0x10FFFF)
+        .filter_map(char::from_u32)
+        .filter_map(|ch| diacritic_index(ch).map(|index| (ch, index)))
+        .collect();
+    assert_eq!(
+        recognized.len(),
+        297,
+        "the complete diacritic table is reachable"
+    );
+    for (expected, &(ch, index)) in recognized.iter().enumerate() {
+        assert_eq!(index, expected, "lookup order at U+{:04X}", u32::from(ch));
+        assert_eq!(diacritic_index(ch), Some(expected));
+    }
     // A combining mark that is deliberately NOT in the set (U+0301 is excluded
     // because it fuses under normalization) must not decode.
     assert_eq!(diacritic_index('\u{0301}'), None);

@@ -221,9 +221,8 @@ fn query_invalid_payload_returns_error() {
 
     let output = t.screen().host_output_bytes();
     let output_str = String::from_utf8_lossy(output);
-    // Should get an error response (not "OK" or contains error keyword)
-    assert!(
-        output_str.contains("invalid") || !output_str.contains(";OK"),
+    assert_eq!(
+        output, b"\x1b_G;invalid-payload\x1b\\",
         "query error: {output_str}"
     );
     assert_eq!(t.graphics().store().len(), 0);
