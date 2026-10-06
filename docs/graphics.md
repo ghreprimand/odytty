@@ -380,6 +380,11 @@ reports neither for shared memory, the comparison rests on owner, mode and
 size. The same short window between the check and the unlink remains. Windows
 keeps `t=s` unsupported.
 
+The segment's size is checked before and after its bytes are copied, and a
+segment resized in between is refused, on Linux and macOS alike. On macOS the
+segment can only be mapped, so the copy runs in a short-lived child process
+that is always reaped, including when a signal interrupts the wait.
+
 ### Size cap before decode
 
 All three file transports enforce the ImageStore limit on the raw read before

@@ -666,6 +666,41 @@ pub(super) fn checked_shm_size(fd: i32, cap: usize) -> Result<usize, TransportEr
     Ok(size)
 }
 
+/// Refuse a segment whose size, re-read by `current`, no longer matches the
+/// size its bytes were copied at. Both shared-memory readers end with this
+/// check, so a segment resized during the copy is refused on every Unix.
+#[cfg(unix)]
+pub(super) fn ensure_size_unchanged(
+    current: Result<usize, TransportError>,
+    expected_size: usize,
+) -> Result<(), TransportError> {
+    if current? != expected_size {
+        return Err(TransportError::ShmError(
+            "shm segment changed size during read".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Reap child `pid` through `wait` (a `waitpid` wrapper), retrying a wait a
+/// signal interrupted, and return its raw status. `None` when the wait fails
+/// for any other reason. Only the macOS reader forks; the helper is also built
+/// for tests on every Unix so its retry is checked everywhere.
+#[cfg(all(unix, any(target_os = "macos", test)))]
+pub(super) fn reap_child(
+    pid: libc::pid_t,
+    mut wait: impl FnMut(libc::pid_t, &mut i32) -> std::io::Result<libc::pid_t>,
+) -> Option<i32> {
+    let mut status = 0_i32;
+    loop {
+        match wait(pid, &mut status) {
+            Ok(reaped) if reaped == pid => return Some(status),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Ok(_) | Err(_) => return None,
+        }
+    }
+}
+
 #[cfg(all(unix, not(target_os = "macos")))]
 pub(super) fn read_shm_fd_at_size(
     fd: i32,
@@ -707,12 +742,38 @@ pub(super) fn read_shm_fd_at_size(
         return Err(TransportError::ShmError(detail));
     }
 
-    if checked_shm_size(fd, cap)? != expected_size {
-        return Err(TransportError::ShmError(
-            "shm segment changed size during read".into(),
-        ));
-    }
+    ensure_size_unchanged(checked_shm_size(fd, cap), expected_size)?;
     Ok(buf)
+}
+
+/// The two calls of the macOS isolated copy whose outcome a test steers:
+/// reaping the copy child, and re-reading the segment size.
+#[cfg(target_os = "macos")]
+pub(super) trait IsolatedCopyOps {
+    /// `waitpid(pid, status, 0)`; an error carries `errno`.
+    fn wait(&mut self, pid: libc::pid_t, status: &mut i32) -> std::io::Result<libc::pid_t>;
+    /// The segment's current size, under `cap`.
+    fn size(&mut self, fd: i32, cap: usize) -> Result<usize, TransportError>;
+}
+
+#[cfg(target_os = "macos")]
+struct SystemCopyOps;
+
+#[cfg(target_os = "macos")]
+impl IsolatedCopyOps for SystemCopyOps {
+    fn wait(&mut self, pid: libc::pid_t, status: &mut i32) -> std::io::Result<libc::pid_t> {
+        // SAFETY: `status` is a valid out-pointer for the call's duration.
+        let reaped = unsafe { libc::waitpid(pid, status, 0) };
+        if reaped < 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(reaped)
+        }
+    }
+
+    fn size(&mut self, fd: i32, cap: usize) -> Result<usize, TransportError> {
+        checked_shm_size(fd, cap)
+    }
 }
 
 /// macOS POSIX shm descriptors are mmap-only. The mapping and copy run in a
@@ -725,7 +786,20 @@ pub(super) fn read_shm_fd_at_size(
     expected_size: usize,
     cap: usize,
 ) -> Result<Vec<u8>, TransportError> {
-    if checked_shm_size(fd, cap)? != expected_size {
+    read_shm_isolated(fd, expected_size, cap, &mut SystemCopyOps)
+}
+
+/// [`read_shm_fd_at_size`] on macOS with its wait and size calls routed
+/// through `ops`. The child is reaped on every path after a successful fork,
+/// and the size is re-read after the copy as on every other Unix.
+#[cfg(target_os = "macos")]
+pub(super) fn read_shm_isolated(
+    fd: i32,
+    expected_size: usize,
+    cap: usize,
+    ops: &mut impl IsolatedCopyOps,
+) -> Result<Vec<u8>, TransportError> {
+    if ops.size(fd, cap)? != expected_size {
         return Err(TransportError::ShmError(
             "shm segment changed size before read".into(),
         ));
@@ -815,14 +889,14 @@ pub(super) fn read_shm_fd_at_size(
         }
     }
     unsafe { libc::close(pipe_fds[0]) };
-    let mut status = 0_i32;
-    let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
+    let status = reap_child(pid, |pid, status| ops.wait(pid, status));
     unsafe { libc::munmap(addr, expected_size) };
-    if waited != pid || status != 0 || offset != expected_size {
+    if status != Some(0) || offset != expected_size {
         return Err(TransportError::ShmError(
             "shm segment changed or failed during isolated copy".into(),
         ));
     }
+    ensure_size_unchanged(ops.size(fd, cap), expected_size)?;
     Ok(buf)
 }
 
