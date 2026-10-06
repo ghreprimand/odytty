@@ -163,11 +163,12 @@ impl Drop for OwnedShmFixture {
 
 impl OwnedShmFixture {
     fn try_create_name(name: CString) -> std::io::Result<Self> {
+        // macOS shm_open rejects flags beyond its documented access and creation flags.
         // SAFETY: a valid name; O_EXCL refuses every existing object.
         let fd = unsafe {
             libc::shm_open(
                 name.as_ptr(),
-                libc::O_CREAT | libc::O_EXCL | libc::O_RDWR | libc::O_CLOEXEC,
+                libc::O_CREAT | libc::O_EXCL | libc::O_RDWR,
                 0o600,
             )
         };
@@ -255,7 +256,7 @@ fn fixture_panic_unlinks_owned_shm() {
     assert!(result.is_err());
     let name = name.unwrap();
     // SAFETY: valid name, read-only lookup after the owned fixture was dropped.
-    let fd = unsafe { libc::shm_open(name.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC, 0) };
+    let fd = unsafe { libc::shm_open(name.as_ptr(), libc::O_RDONLY, 0) };
     let error = std::io::Error::last_os_error();
     if fd >= 0 {
         // SAFETY: close only the descriptor returned by this lookup.

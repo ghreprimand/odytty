@@ -1030,11 +1030,12 @@ impl OwnedShmFixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ))
         .unwrap();
+        // macOS shm_open rejects flags beyond its documented access and creation flags.
         // SAFETY: valid CString; exclusive creation cannot alter a stale object.
         let fd = unsafe {
             libc::shm_open(
                 name.as_ptr(),
-                libc::O_CREAT | libc::O_EXCL | libc::O_RDWR | libc::O_CLOEXEC,
+                libc::O_CREAT | libc::O_EXCL | libc::O_RDWR,
                 0o600,
             )
         };
