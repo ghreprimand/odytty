@@ -2669,7 +2669,11 @@ byte range inside the file), not by reading the whole file. Rasterization
 prefers existing CBDT/CBLC or sbix bitmap strikes, then static COLR/CPAL v0
 layers, then COLR v1 Paint graphs, then SVG-in-OpenType documents. The v1
 evaluator covers solid fills, gradients, transforms, clips, and composites
-while the earlier paths retain byte-identical output. Compatible Segoe glyphs
+while the earlier paths retain byte-identical output. Before either v1
+traversal starts, the glyph's Paint graph is costed once per distinct paint:
+a glyph that would expand past 65,536 paint visits, 2^30 raster pixel passes,
+or 256 MiB of live raster buffers at its slot size uses the monochrome
+fallback. Compatible Segoe glyphs
 leave the monochrome fallback on a stock Windows install. An SVG document is
 used only for a glyph no earlier source draws; its glyph element is fitted into
 the same one- or two-cell color slot. Documents are bounded: 1 MiB raw and

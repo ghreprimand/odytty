@@ -515,7 +515,9 @@ Color emoji uses `swash`, Fontations, and a dedicated premultiplied-RGBA atlas.
 It supports bitmap strikes through Noto Color Emoji (CBDT/CBLC) and Apple Color
 Emoji (sbix), static COLR/CPAL v0 layers, and COLR v1 Paint graphs including
 solid fills, linear/radial/sweep gradients, affine transforms, clipping, and
-the standard composite modes. Directory discovery recognizes stock Windows
+the standard composite modes. A COLR v1 glyph whose Paint graph would exceed
+the fixed visit, pixel-work, or live-buffer budget at its slot size uses the
+monochrome fallback. Directory discovery recognizes stock Windows
 Segoe UI Emoji and other parseable COLR/CPAL faces. The shared raster and atlas
 logic is platform-neutral.
 

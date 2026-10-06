@@ -9,6 +9,7 @@
 
 mod color_atlas;
 mod colr1;
+mod colr1_budget;
 mod keycap;
 mod render;
 mod svg;

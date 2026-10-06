@@ -4,8 +4,10 @@
 //! The established raster-source order remains bitmap strike, then swash's
 //! COLR v0 compositor, then this evaluator. That keeps bitmap and v0 output
 //! byte-identical and uses v1 only when neither established source covers the
-//! glyph. Fontations performs bounded, cycle-checked Paint traversal; this
-//! module maps its callbacks to a small premultiplied-RGBA software canvas.
+//! glyph. Fontations performs depth-bounded, cycle-checked Paint traversal;
+//! `colr1_budget` bounds the total work that traversal can expand to before it
+//! starts, and this module maps its callbacks to a small premultiplied-RGBA
+//! software canvas. Once a callback fails, later callbacks do no work.
 
 use skrifa::color::{
     Brush, ColorGlyphFormat, ColorPainter, ColorStop, CompositeMode, Extend, Transform,
@@ -31,6 +33,13 @@ pub(super) fn render(font_data: &[u8], glyph_id: u16, width: u32, height: u32) -
     let color_glyph = font
         .color_glyphs()
         .get_with_format(glyph_id, ColorGlyphFormat::ColrV1)?;
+    // Aggregate visit, pixel-work and live-buffer budgets are checked before
+    // either traversal starts; an over-budget glyph falls back like any other
+    // failed color glyph.
+    let cost = super::colr1_budget::paint_cost(&font, glyph_id)?;
+    if !super::colr1_budget::admits(cost, width, height) {
+        return None;
+    }
 
     let mut bounds_painter = BoundsPainter::new(font.clone());
     color_glyph
@@ -149,6 +158,9 @@ impl<'a> BoundsPainter<'a> {
     }
 
     fn add_path(&mut self, path: Path) {
+        if self.failed {
+            return;
+        }
         let Some(path) = path.transform(self.current_transform()) else {
             self.failed = true;
             return;
@@ -158,6 +170,9 @@ impl<'a> BoundsPainter<'a> {
     }
 
     fn add_glyph(&mut self, glyph_id: GlyphId) {
+        if self.failed {
+            return;
+        }
         let Some(path) = glyph_path(self.font.clone(), glyph_id) else {
             self.failed = true;
             return;
@@ -258,6 +273,9 @@ impl<'a> RasterPainter<'a> {
     }
 
     fn push_clip_path(&mut self, path: Path) {
+        if self.failed {
+            return;
+        }
         let mut mask = match Mask::new(self.width, self.height) {
             Some(mask) => mask,
             None => {
@@ -362,6 +380,9 @@ impl<'a> RasterPainter<'a> {
     }
 
     fn paint_brush(&mut self, brush: Brush<'_>) {
+        if self.failed {
+            return;
+        }
         let Some(brush) = self.prepared_brush(brush) else {
             return;
         };
@@ -407,6 +428,9 @@ impl<'a> RasterPainter<'a> {
     }
 
     fn merge_layer(&mut self, mode: CompositeMode) {
+        if self.failed {
+            return;
+        }
         if self.layers.len() < 2 {
             self.failed = true;
             return;
@@ -490,6 +514,9 @@ impl ColorPainter for RasterPainter<'_> {
     }
 
     fn push_layer(&mut self, composite_mode: CompositeMode) {
+        if self.failed {
+            return;
+        }
         let Some(pixmap) = Pixmap::new(self.width, self.height) else {
             self.failed = true;
             return;
@@ -745,6 +772,10 @@ fn float_to_u8(value: f32) -> u8 {
 fn multiply_u8(left: u8, right: u8) -> u8 {
     ((u16::from(left) * u16::from(right) + 127) / 255) as u8
 }
+
+#[cfg(test)]
+#[path = "colr1_budget_tests.rs"]
+mod budget_tests;
 
 #[cfg(test)]
 mod tests {

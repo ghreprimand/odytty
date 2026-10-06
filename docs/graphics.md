@@ -654,7 +654,15 @@ COLR v1 Paint graph through Fontations:
 - The v1 evaluator supports solid fills, linear/radial/sweep gradients,
   transforms, clipping, nested color glyphs, and every standard composite
   mode. It writes premultiplied RGBA directly at the atlas-slot dimensions and
-  engages only when the bitmap and v0 paths have no result.
+  engages only when the bitmap and v0 paths have no result. Fontations bounds
+  nesting depth and active-path cycles; total work is bounded before
+  traversal starts by costing the Paint graph once per distinct paint, so a
+  glyph whose shared subgraphs, repeated glyph clips, or layers would exceed
+  65,536 paint visits, 2^30 raster pixel passes, or 256 MiB of live buffers
+  at its slot size falls back to monochrome. Measured against the 4,141
+  glyphs of the COLR v1 Noto Color Emoji subsets served by Google Fonts, none
+  is refused at slot sizes up to 200 by 200 pixels; 2 are refused at 300 by
+  300 and 18 at 512 by 512.
 - The returned image must have `Content::Color`; a monochrome strike causes the
   cell to fall back silently.
 - The rendered image is scaled and centered into the atlas slot using
