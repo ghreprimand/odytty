@@ -460,7 +460,11 @@ substitution are all literal text). Field codes then expand per token: `%f`/`%F`
 element), `%i`/`%c`/`%k` and the deprecated `%d %D %n %N %v %m` are stripped,
 `%%` → literal `%`, and a substring code (`--file=%f`) substitutes in place yet
 stays one element. With no `%f/%F/%u/%U` the path is appended as a trailing
-element.
+element. An entry with any field code other than `%%` in a token that contains
+quoted text (`sh -c "eog %f"`, `"eog "%f`), or with `%F`/`%U` inside a longer
+token, is refused before argv construction and not offered: the Desktop Entry
+specification leaves quoted field codes undefined and requires `%F`/`%U` to
+stand alone.
 
 The expanded argv flows into the shared C3 `spawn_detached` (argv-only,
 null stdio) — so a path containing spaces, `;`, `$()`, or backticks is one inert

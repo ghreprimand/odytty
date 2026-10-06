@@ -171,7 +171,11 @@ pub fn enumerate_open_with(
         let Some(exec) = entry.exec.as_deref() else {
             continue;
         };
-        let argv = exec_to_argv(exec, abs);
+        // An entry whose field codes sit in a refused context (inside quotes,
+        // or `%F`/`%U` inside a longer argument) is not offered.
+        let Some(argv) = exec_to_argv(exec, abs) else {
+            continue;
+        };
         if argv.is_empty() {
             continue;
         }
@@ -582,6 +586,39 @@ mod tests {
         let apps = enumerate_open_with(&probe("image/png"), &env, "/x/a.png");
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].name, "Real");
+    }
+
+    #[test]
+    fn entries_with_refused_field_codes_are_not_offered() {
+        let mut files = HashMap::new();
+        files.insert(
+            PathBuf::from("/data/applications/mimeinfo.cache"),
+            "[MIME Cache]\nimage/png=shell.desktop;list.desktop;plain.desktop;\n".to_owned(),
+        );
+        files.insert(
+            PathBuf::from("/data/applications/shell.desktop"),
+            desktop("Shell", "sh -c \"eog %f\""),
+        );
+        files.insert(
+            PathBuf::from("/data/applications/list.desktop"),
+            desktop("List", "app --files=%F"),
+        );
+        files.insert(
+            PathBuf::from("/data/applications/plain.desktop"),
+            desktop("Plain", "\"/opt/Plain App/run\" %f"),
+        );
+        let env = MapEnv {
+            config_dirs: vec![],
+            data_dirs: vec![PathBuf::from("/data")],
+            files,
+        };
+        let apps = enumerate_open_with(&probe("image/png"), &env, "/x/a.png");
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].name, "Plain");
+        assert_eq!(
+            apps[0].argv,
+            vec!["/opt/Plain App/run".to_owned(), "/x/a.png".to_owned()]
+        );
     }
 
     #[test]

@@ -943,8 +943,11 @@ entries override system ones). Selecting an app launches it on the file. The
 launch is built **per the Desktop-Entry quoting rules, not a shell**: the
 `.desktop` `Exec` is tokenized, `%f`/`%F` expand to the bare path and `%u`/`%U`
 to a `file://` URI as a single argv element, and `%i`/`%c`/`%k` plus the
-deprecated field codes are stripped — so a path containing spaces, `;`, `$()`,
-or backticks is one inert argument, never interpolated.
+deprecated field codes are stripped, so a path containing spaces, `;`, `$()`,
+or backticks is one argument, never interpolated by OdyTTY. An entry that puts
+a field code inside a quoted argument (such as `sh -c "eog %f"`), or `%F`/`%U`
+inside a longer argument, is not offered, because the path would otherwise
+reach the launched program as part of a code-bearing argument.
 
 If the MIME type cannot be detected or no application handles it, the picker
 opens with an empty-state hint. Closed, the overlay is byte-identical to the
