@@ -618,7 +618,15 @@ Session-host foundation status:
   data, cursor position/visibility/style/blink, `SnapshotBasicModes`, dynamic
   colors, OSC title/cwd metadata, prompt marks, scroll region, and tab stops.
   Applying a snapshot resets the parser because in-flight escape/DCS parser
-  state is not serialized.
+  state is not serialized. Restoring into an existing model keeps its
+  host-owned configuration (cell metrics, ambiguous-width policy, scrollback
+  limit, base colors and palette, default cursor, local hostname, button,
+  clipboard-read and named-transport gates, and the resize cursor policy),
+  continues its render revision so the restored state never repeats an earlier
+  revision, and raises the prompt-mark change latch when marks existed before
+  or after. `Terminal::from_snapshot_envelope` validates an owned envelope
+  before allocating a grid of its dimensions, so an invalid envelope returns
+  an error rather than allocating.
 - Deferred sections: graphics / Kitty / Sixel payload state and complete
   dual-buffer alternate-screen restore. v2 records whether the alternate screen
   is active and captures the active grid, but it does not yet serialize both the

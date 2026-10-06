@@ -188,10 +188,33 @@ impl Screen {
     /// trimming any excess immediately. Applies to the active buffer and, when a
     /// TUI is on the alternate screen, the stored primary scrollback as well, so
     /// a live config reload during a full-screen app takes effect on return.
+    ///
+    /// Trimming moves every retained row's absolute coordinate and may discard
+    /// marked history, so it raises the prompt-mark change latch whenever a
+    /// mark existed and history was trimmed.
     pub fn set_scrollback_limit(&mut self, limit: usize) {
+        let had_prompt_marks = self.has_any_prompt_mark();
+        let epochs = (
+            self.scrollback.trim_epoch(),
+            self.primary_screen
+                .as_ref()
+                .map(|stored| stored.scrollback.trim_epoch()),
+        );
         self.scrollback.set_limit(limit);
+        // Trimmed lines surrender their button references at once.
+        self.drain_freed_button_refs();
         if let Some(stored) = self.primary_screen.as_mut() {
             stored.scrollback.set_limit(limit);
+        }
+        let trimmed = epochs
+            != (
+                self.scrollback.trim_epoch(),
+                self.primary_screen
+                    .as_ref()
+                    .map(|stored| stored.scrollback.trim_epoch()),
+            );
+        if had_prompt_marks && trimmed {
+            self.prompt_marks_changed = true;
         }
     }
 
@@ -490,11 +513,18 @@ impl Screen {
     ///
     /// An active alternate screen is left for the application to repaint. The
     /// stored primary is reflowed, matching a width-changing resize.
+    ///
+    /// The reflow is finalized like a resize: the render revision advances,
+    /// the prompt-mark latch is raised when marks exist, button references are
+    /// recounted, and the prompt input anchor is re-derived. A prompt-start
+    /// collapse is not applied, because no shell repaint follows a policy
+    /// change that leaves the PTY size alone.
     pub(crate) fn set_ambiguous_wide(&mut self, wide: bool) {
         self.cluster_owner = None;
         if self.ambiguous_wide == wide {
             return;
         }
+        let had_prompt_marks = self.has_any_prompt_mark();
         self.ambiguous_wide = wide;
         self.scrollback.set_ambiguous_wide(wide);
         let options = super::ResizeOptions {
@@ -535,6 +565,10 @@ impl Screen {
             );
             self.cursor = result.cursor;
             self.pending_wrap = result.pending_wrap;
+            self.reanchor_prompt_input_start(self.dimensions.columns);
         }
+        self.prompt_marks_changed |= had_prompt_marks;
+        self.rebuild_button_refcounts();
+        self.mark_dirty();
     }
 }

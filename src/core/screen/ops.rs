@@ -113,6 +113,7 @@ impl Screen {
             // anticipatory flag is legitimate and reflow depends on it.
             // NF10: region top at row 0 severs the scrollback tail instead.
             self.sever_above(region.top);
+            self.note_prompt_marks_in_rows(region.top, region.bottom);
             let removed = self.rows.remove(region.top);
             self.release_line_buttons(&removed);
             self.rows.insert(
@@ -138,6 +139,10 @@ impl Screen {
     pub(super) fn scroll_up_region_into_scrollback(&mut self) {
         if let Some(region) = self.scroll_region {
             let background = self.current_attrs.background;
+            // Region rows keep their absolute coordinates (the top row joins
+            // scrollback), but footer rows below the region move one further
+            // from the oldest row.
+            self.note_prompt_marks_in_rows(region.bottom + 1, self.rows.len());
             let removed = self.rows.remove(region.top);
             // Primary screen only (guarded by the caller); the row is real
             // history leaving the top, so push it to scrollback exactly as the
@@ -175,6 +180,7 @@ impl Screen {
         // region's first `count` rows are discarded). NF10: at row 0 the
         // predecessor is the scrollback tail.
         self.sever_above(top);
+        self.note_prompt_marks_in_rows(top, bottom);
         for _ in 0..count {
             let removed = self.rows.remove(top);
             self.release_line_buttons(&removed);
@@ -208,6 +214,7 @@ impl Screen {
         // blank instead of its continuation (which was displaced downward).
         // NF10: at row 0 the predecessor is the scrollback tail.
         self.sever_above(top);
+        self.note_prompt_marks_in_rows(top, bottom);
         for _ in 0..count {
             let removed = self.rows.remove(bottom);
             self.release_line_buttons(&removed);
@@ -232,6 +239,16 @@ impl Screen {
         }
     }
 
+    /// Raise the prompt-mark change latch when any live row in
+    /// `[top, bottom]` carries a mark. Called before a line operation that
+    /// discards those rows or moves their absolute coordinates.
+    fn note_prompt_marks_in_rows(&mut self, top: usize, bottom: usize) {
+        let end = bottom.min(self.rows.len().saturating_sub(1));
+        if top <= end && self.rows[top..=end].iter().any(|l| l.prompt_mark.is_some()) {
+            self.prompt_marks_changed = true;
+        }
+    }
+
     /// RI (ESC M): at the top margin, scroll the region down by one; otherwise
     /// move the cursor up one row. Never feeds scrollback.
     pub(super) fn reverse_index(&mut self) {
@@ -245,6 +262,7 @@ impl Screen {
             // row displaced onto the region bottom lost its successor.
             // NF10: at row 0 the predecessor is the scrollback tail.
             self.sever_above(top);
+            self.note_prompt_marks_in_rows(top, bottom);
             let removed = self.rows.remove(bottom);
             self.release_line_buttons(&removed);
             self.rows
@@ -272,6 +290,7 @@ impl Screen {
         // inserted blank instead of its displaced continuation. NF10: at
         // row 0 the predecessor is the scrollback tail.
         self.sever_above(self.cursor.row);
+        self.note_prompt_marks_in_rows(self.cursor.row, bottom);
         for _ in 0..count {
             let removed = self.rows.remove(bottom);
             self.release_line_buttons(&removed);
@@ -307,6 +326,7 @@ impl Screen {
         // scrolls up into the gap as its wrap continuation. NF10: at row 0
         // the predecessor is the scrollback tail.
         self.sever_above(self.cursor.row);
+        self.note_prompt_marks_in_rows(self.cursor.row, bottom);
         for _ in 0..count {
             let removed = self.rows.remove(self.cursor.row);
             self.release_line_buttons(&removed);

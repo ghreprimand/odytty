@@ -224,26 +224,8 @@ impl Screen {
             // editable region. Width-unchanged resizes keep `physical_len`
             // constant, so the cached row stays valid and we skip the recompute
             // (byte-identical fast path).
-            if !width_unchanged && let Some(anchor) = self.active_prompt_input_start {
-                let input_column = anchor.col;
-                let mut row = self.cursor.row.min(self.rows.len().saturating_sub(1));
-                while row > 0 && self.rows[row - 1].wrapped {
-                    row -= 1;
-                }
-                if self
-                    .rows
-                    .get(row)
-                    .and_then(|line| line.prompt_mark)
-                    .is_some()
-                {
-                    let scrollback_rows = self.scrollback.physical_len(dimensions.columns);
-                    // Freshly re-derived for the new width: re-witness the epoch.
-                    self.active_prompt_input_start = Some(ActivePromptInputStart {
-                        row: scrollback_rows + row,
-                        col: input_column,
-                        trim_epoch: self.scrollback.trim_epoch(),
-                    });
-                }
+            if !width_unchanged {
+                self.reanchor_prompt_input_start(dimensions.columns);
             }
         }
 
@@ -361,6 +343,36 @@ impl Screen {
         }
     }
 
+    /// Recompute the OSC 133 `B` input-start anchor after the primary grid was
+    /// rewrapped at `columns`, from the cursor's logical-line start, when the
+    /// cursor still sits on a prompt-marked logical line. Otherwise the anchor
+    /// is left as-is so the editing gate keeps declining. See the resize path
+    /// for the full rationale.
+    pub(super) fn reanchor_prompt_input_start(&mut self, columns: usize) {
+        let Some(anchor) = self.active_prompt_input_start else {
+            return;
+        };
+        let input_column = anchor.col;
+        let mut row = self.cursor.row.min(self.rows.len().saturating_sub(1));
+        while row > 0 && self.rows[row - 1].wrapped {
+            row -= 1;
+        }
+        if self
+            .rows
+            .get(row)
+            .and_then(|line| line.prompt_mark)
+            .is_some()
+        {
+            let scrollback_rows = self.scrollback.physical_len(columns);
+            // Freshly re-derived for the new width: re-witness the epoch.
+            self.active_prompt_input_start = Some(ActivePromptInputStart {
+                row: scrollback_rows + row,
+                col: input_column,
+                trim_epoch: self.scrollback.trim_epoch(),
+            });
+        }
+    }
+
     /// Restore this screen from an owned Phase 2 snapshot envelope.
     ///
     /// The envelope carries active-buffer terminal state only. When it records
@@ -442,10 +454,37 @@ impl Screen {
         // this screen's so no image id/generation pair is ever reissued to a
         // renderer cache that may still hold the old texture.
         restored.graphics.continue_counters_from(&self.graphics);
+        restored.carry_host_configuration_from(self);
+        // Consumers caching the old marks must hear about their removal too.
+        restored.prompt_marks_changed |= self.prompt_marks_changed || self.has_any_prompt_mark();
+        // Continue this screen's revision sequence: the restored state is a
+        // change, so its revision must differ from every earlier one.
+        restored.render_revision = self.render_revision;
         restored.mark_dirty();
 
         *self = restored;
         Ok(())
+    }
+
+    /// Copy host-owned configuration (set by the embedding application, not
+    /// by terminal output and not carried in snapshots) from `host` into a
+    /// freshly built screen, so a restore never silently reverts it.
+    fn carry_host_configuration_from(&mut self, host: &Screen) {
+        self.cell_metrics = host.cell_metrics;
+        self.shell_owns_cursor_on_resize = host.shell_owns_cursor_on_resize;
+        self.default_cursor_style = host.default_cursor_style;
+        self.default_cursor_blink = host.default_cursor_blink;
+        self.base_colors = host.base_colors.clone();
+        self.base_palette = host.base_palette;
+        self.osc52_read_enabled = host.osc52_read_enabled;
+        self.kitty_named_transports_enabled = host.kitty_named_transports_enabled;
+        self.local_hostname = host.local_hostname.clone();
+        self.buttons_enabled = host.buttons_enabled;
+        self.buttons_iterm_compat = host.buttons_iterm_compat;
+        self.buttons_sticky = host.buttons_sticky;
+        self.ambiguous_wide = host.ambiguous_wide;
+        self.scrollback.set_ambiguous_wide(host.ambiguous_wide);
+        self.scrollback.set_limit(host.scrollback.limit());
     }
 
     /// Produce a visible-grid snapshot at a scrollback viewport offset.

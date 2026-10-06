@@ -455,13 +455,15 @@ impl Terminal {
     }
 
     /// Construct a fresh terminal from a decoded Phase 2 snapshot envelope.
+    ///
+    /// The envelope is an owned value that may not have come through the
+    /// byte decoder, so it is validated by the restore before any grid of its
+    /// dimensions is allocated: the terminal starts at 1x1 and the restore
+    /// builds the requested grid only after validation passes.
     pub fn from_snapshot_envelope(
         envelope: &SnapshotEnvelope,
     ) -> Result<Self, SnapshotEnvelopeError> {
-        let mut terminal = Self::new(
-            envelope.terminal.dimensions.columns,
-            envelope.terminal.dimensions.rows,
-        );
+        let mut terminal = Self::new(1, 1);
         terminal.restore_from_envelope(envelope)?;
         Ok(terminal)
     }
