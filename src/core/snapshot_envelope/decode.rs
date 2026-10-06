@@ -18,8 +18,9 @@ use super::compat::{
 };
 use super::error::SnapshotEnvelopeError;
 use super::format::{
-    MAX_PENDING_UTF8_BYTES, SECTION_DYNAMIC_COLORS, SECTION_FLAG_REQUIRED, SECTION_LAYOUT_STATE,
-    SECTION_METADATA, SECTION_PROMPT_MARKS, SECTION_TERMINAL_STATE, SNAPSHOT_MAGIC, SectionHeader,
+    MAX_PENDING_UTF8_BYTES, MIN_CELL_WIRE_BYTES, SECTION_DYNAMIC_COLORS, SECTION_FLAG_REQUIRED,
+    SECTION_LAYOUT_STATE, SECTION_METADATA, SECTION_PROMPT_MARKS, SECTION_TABLE_ENTRY_WIRE_BYTES,
+    SECTION_TERMINAL_STATE, SNAPSHOT_MAGIC, SectionHeader,
 };
 use super::model::{
     SnapshotAttrs, SnapshotBasicModes, SnapshotCell, SnapshotEnvelope, SnapshotLayoutState,
@@ -54,7 +55,12 @@ impl SnapshotEnvelope {
             });
         }
 
-        let mut table = Vec::with_capacity(section_count);
+        // Reserve only the entries the remaining bytes could hold: a declared
+        // count past the input is refused at the first short read, not after a
+        // table-sized allocation.
+        let mut table = Vec::with_capacity(
+            section_count.min(reader.remaining() / SECTION_TABLE_ENTRY_WIRE_BYTES),
+        );
         for _ in 0..section_count {
             let id = reader.read_u16()?;
             let flags = reader.read_u8()?;
@@ -242,13 +248,24 @@ impl SnapshotTerminalState {
         let cursor_style = decode_cursor_style(reader.read_u8()?)?;
         let cursor_blink = reader.read_bool()?;
         let basic_modes = SnapshotBasicModes::decode(&mut reader, format_version)?;
+        // The cell budget is spent row by row as rows are read, so an
+        // over-budget row is refused before its cells are reserved; the total
+        // check below still pins the final count.
+        let mut cell_budget = caps.max_cells;
         let scrollback_rows = read_rows(
             &mut reader,
             dimensions,
             caps.max_scrollback_rows,
             format_version,
+            &mut cell_budget,
         )?;
-        let visible_rows = read_rows(&mut reader, dimensions, caps.max_rows, format_version)?;
+        let visible_rows = read_rows(
+            &mut reader,
+            dimensions,
+            caps.max_rows,
+            format_version,
+            &mut cell_budget,
+        )?;
         if visible_rows.len() != rows {
             return Err(SnapshotEnvelopeError::InvalidVisibleRowCount {
                 count: visible_rows.len(),
@@ -407,6 +424,7 @@ fn read_rows(
     dimensions: Dimensions,
     max_rows: usize,
     format_version: u16,
+    cell_budget: &mut usize,
 ) -> Result<Vec<SnapshotRow>, SnapshotEnvelopeError> {
     let count = reader.read_u32()? as usize;
     if count > max_rows {
@@ -430,7 +448,11 @@ fn read_rows(
                 columns: dimensions.columns,
             });
         }
-        let mut cells = Vec::with_capacity(width);
+        *cell_budget = cell_budget
+            .checked_sub(width)
+            .ok_or(SnapshotEnvelopeError::CellCapExceeded)?;
+        // As for rows: no more cells than the remaining bytes could encode.
+        let mut cells = Vec::with_capacity(width.min(reader.remaining() / MIN_CELL_WIRE_BYTES));
         for _ in 0..width {
             cells.push(SnapshotCell::decode(reader, format_version)?);
         }

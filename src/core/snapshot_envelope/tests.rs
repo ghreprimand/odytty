@@ -9,9 +9,9 @@ use super::encode::{
     encode_sections, encode_sections_for_version,
 };
 use super::format::{
-    MAX_CELL_WIRE_BYTES, ROW_WIRE_OVERHEAD_BYTES, SECTION_DYNAMIC_COLORS, SECTION_FLAG_REQUIRED,
-    SECTION_LAYOUT_STATE, SECTION_METADATA, SECTION_PROMPT_MARKS, SECTION_TERMINAL_STATE,
-    TERMINAL_STATE_PRELUDE_WIRE_BYTES,
+    MAX_CELL_WIRE_BYTES, MIN_CELL_WIRE_BYTES, ROW_WIRE_OVERHEAD_BYTES, SECTION_DYNAMIC_COLORS,
+    SECTION_FLAG_REQUIRED, SECTION_LAYOUT_STATE, SECTION_METADATA, SECTION_PROMPT_MARKS,
+    SECTION_TERMINAL_STATE, TERMINAL_STATE_PRELUDE_WIRE_BYTES,
 };
 use crate::core::prompt_marks::PromptKind;
 use crate::core::screen::Terminal;
@@ -526,6 +526,16 @@ fn maximal_cell_wire_len_is_pinned() {
     let mut out = Vec::new();
     cell.encode(&mut out);
     assert_eq!(out.len(), MAX_CELL_WIRE_BYTES);
+}
+
+#[test]
+fn minimal_cell_wire_len_is_pinned() {
+    // The smallest cell: default attributes, no marks. Decode sizes its row
+    // reservations from this constant.
+    let cell: SnapshotCell = Cell::blank().into();
+    let mut out = Vec::new();
+    cell.encode(&mut out);
+    assert_eq!(out.len(), MIN_CELL_WIRE_BYTES);
 }
 
 #[test]

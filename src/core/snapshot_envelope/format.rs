@@ -29,6 +29,18 @@ pub(super) const MAX_PENDING_UTF8_BYTES: usize = 3;
 /// a wire format change cannot silently drift the budgets derived from it.
 pub const MAX_CELL_WIRE_BYTES: usize = 91;
 
+/// Fewest wire bytes one encoded cell can take: char scalar (4), attribute
+/// flags (2), underline style (1), absent underline color (1), default
+/// foreground (1) and background (1), hyperlink id (4), protected (1),
+/// ownership flags (1), and an empty combining count (1). Decode reserves no
+/// more cells than the remaining bytes could hold at this size. Pinned by
+/// `minimal_cell_wire_len_is_pinned`.
+pub const MIN_CELL_WIRE_BYTES: usize = 17;
+
+/// Wire bytes of one section-table entry: id (2), flags (1), reserved (1),
+/// and payload length (8).
+pub(super) const SECTION_TABLE_ENTRY_WIRE_BYTES: usize = 12;
+
 /// Wire bytes per row beyond its cells: wrapped flag (1) + width prefix (4).
 pub const ROW_WIRE_OVERHEAD_BYTES: usize = 5;
 
