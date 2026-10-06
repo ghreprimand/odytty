@@ -13,11 +13,13 @@ use crate::core::types::{
 };
 
 use super::caps::SnapshotEnvelopeCaps;
-use super::compat::{CHARSET_MODES_MIN_FORMAT_VERSION, is_supported_version};
+use super::compat::{
+    CHARSET_MODES_MIN_FORMAT_VERSION, PRINT_STATE_MIN_FORMAT_VERSION, is_supported_version,
+};
 use super::error::SnapshotEnvelopeError;
 use super::format::{
-    SECTION_DYNAMIC_COLORS, SECTION_FLAG_REQUIRED, SECTION_LAYOUT_STATE, SECTION_METADATA,
-    SECTION_PROMPT_MARKS, SECTION_TERMINAL_STATE, SNAPSHOT_MAGIC, SectionHeader,
+    MAX_PENDING_UTF8_BYTES, SECTION_DYNAMIC_COLORS, SECTION_FLAG_REQUIRED, SECTION_LAYOUT_STATE,
+    SECTION_METADATA, SECTION_PROMPT_MARKS, SECTION_TERMINAL_STATE, SNAPSHOT_MAGIC, SectionHeader,
 };
 use super::model::{
     SnapshotAttrs, SnapshotBasicModes, SnapshotCell, SnapshotEnvelope, SnapshotLayoutState,
@@ -177,6 +179,30 @@ impl SnapshotLayoutState {
         } else {
             None
         };
+        let (print_attrs, print_protected, pending_utf8) =
+            if format_version >= PRINT_STATE_MIN_FORMAT_VERSION {
+                let attrs = SnapshotAttrs::decode(&mut reader)?;
+                let protected = reader.read_bool()?;
+                let len = reader.read_u8()? as usize;
+                if len > MAX_PENDING_UTF8_BYTES {
+                    return Err(SnapshotEnvelopeError::ValueTooLarge {
+                        what: "pending UTF-8 bytes",
+                        value: len,
+                        max: MAX_PENDING_UTF8_BYTES,
+                    });
+                }
+                let mut bytes = Vec::with_capacity(len);
+                for _ in 0..len {
+                    bytes.push(reader.read_u8()?);
+                }
+                (attrs, protected, bytes)
+            } else {
+                (
+                    SnapshotAttrs::from(crate::core::types::Attrs::default()),
+                    false,
+                    Vec::new(),
+                )
+            };
         if reader.remaining() != 0 {
             return Err(SnapshotEnvelopeError::TrailingBytes(reader.remaining()));
         }
@@ -185,6 +211,9 @@ impl SnapshotLayoutState {
             cluster_owner,
             scroll_region,
             tab_stops,
+            print_attrs,
+            print_protected,
+            pending_utf8,
         })
     }
 }

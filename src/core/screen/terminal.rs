@@ -387,7 +387,10 @@ impl Terminal {
     /// Copy layout-affecting terminal state that is not part of the render
     /// [`Snapshot`] surface. See [`Screen::snapshot_layout_state`].
     pub fn snapshot_layout_state(&self) -> SnapshotLayoutState {
-        self.screen.snapshot_layout_state()
+        SnapshotLayoutState {
+            pending_utf8: self.parser.pending_utf8().to_vec(),
+            ..self.screen.snapshot_layout_state()
+        }
     }
 
     pub fn visible_graphics(&self, offset_rows: usize) -> Vec<VisiblePlacement> {
@@ -451,6 +454,10 @@ impl Terminal {
     ) -> Result<(), SnapshotEnvelopeError> {
         self.screen.restore_from_envelope(envelope)?;
         self.parser = OdyParser::new();
+        // Validation admitted only the start of one scalar, so this completes
+        // nothing now and leaves the parser waiting for the rest of it.
+        self.parser
+            .advance(&mut self.screen, &envelope.layout.pending_utf8);
         Ok(())
     }
 

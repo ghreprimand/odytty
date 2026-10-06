@@ -340,6 +340,13 @@ impl Screen {
                 bottom: region.bottom,
             }),
             tab_stops: self.tab_stops.clone(),
+            print_attrs: {
+                let mut attrs = self.current_attrs;
+                attrs.hyperlink = None;
+                crate::core::SnapshotAttrs::from(attrs)
+            },
+            print_protected: self.current_protected,
+            pending_utf8: Vec::new(),
         }
     }
 
@@ -431,6 +438,12 @@ impl Screen {
             bottom: region.bottom,
         });
         restored.tab_stops = envelope.layout.tab_stops.clone();
+        // Output resumed after the snapshot prints with the rendition and
+        // protection in force when it was taken. No link id is restored, as
+        // for the cells.
+        restored.current_attrs = envelope.layout.print_attrs.to_attrs();
+        restored.current_attrs.hyperlink = None;
+        restored.current_protected = envelope.layout.print_protected;
         if envelope.terminal.basic_modes.alternate_screen {
             restored.primary_screen = Some(blank_stored_primary(restored.dimensions));
         }

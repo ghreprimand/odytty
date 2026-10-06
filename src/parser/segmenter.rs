@@ -83,6 +83,12 @@ impl Segmenter {
         self.partial_len = 0;
     }
 
+    /// The leading bytes of the incomplete codepoint carried from a previous
+    /// call; empty when none is pending.
+    pub(crate) fn partial(&self) -> &[u8] {
+        &self.partial_buf[..usize::from(self.partial_len)]
+    }
+
     /// Whether a partial codepoint is pending from a previous call.
     #[inline]
     pub(crate) fn has_partial(&self) -> bool {

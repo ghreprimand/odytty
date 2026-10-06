@@ -86,6 +86,12 @@ impl Default for OdyParser {
 }
 
 impl OdyParser {
+    /// The leading bytes of a UTF-8 scalar an earlier `advance` ended inside,
+    /// at most three; empty when output stopped on a scalar boundary.
+    pub fn pending_utf8(&self) -> &[u8] {
+        self.segmenter.partial()
+    }
+
     /// Create a fresh parser in the Ground state.
     pub fn new() -> Self {
         Self {

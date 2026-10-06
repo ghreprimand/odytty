@@ -1698,13 +1698,17 @@ to search, copy, or scrollback export. Typed spaces at soft-wrap boundaries
 remain logical source text. Eager and lazy reflow preserve this distinction
 on Linux Wayland, Linux X11, macOS, and Windows.
 
-Snapshot format v5 preserves layout-padding provenance and G0/G1 character-set
+Snapshot format v6 preserves layout-padding provenance and G0/G1 character-set
 designation and SO/SI selection, so an ACS box-drawing run survives reattach.
-Formats v1 through v4 remain readable. Formats v1 and v2 restore the power-on
+Formats v1 through v5 remain readable. Formats v1 and v2 restore the power-on
 ASCII character-set state. Formats v1 through v3 restore blanks as logical
 spaces because they carry no padding provenance. Version 4 retains padding;
 versions 1 through 4 restore with the streaming extension boundary disabled.
-Version 5 retains that boundary and pending wrap.
+Version 5 retains that boundary and pending wrap. Version 6 also retains the
+SGR rendition, DECSCA protection, and the leading bytes of a UTF-8 scalar the
+output had not finished, so output resumed after reattach prints with the same
+attributes and a split scalar completes. Older formats restore the default
+rendition with nothing pending. A partial escape sequence is not carried.
 
 On Windows, the Session Navigator lists live local and integrated SSH panes only;
 detached sessions and attach stay unavailable until a Windows detached

@@ -7,7 +7,7 @@
 //! format change cannot drift between producer and consumer.
 
 pub const SNAPSHOT_MAGIC: &[u8; 15] = b"ODYTTY-SNAPSHOT";
-pub const SNAPSHOT_FORMAT_VERSION: u16 = 5;
+pub const SNAPSHOT_FORMAT_VERSION: u16 = 6;
 pub const SNAPSHOT_PROTOCOL_VERSION: u16 = 1;
 
 pub(super) const SECTION_TERMINAL_STATE: u16 = 1;
@@ -16,6 +16,10 @@ pub(super) const SECTION_METADATA: u16 = 3;
 pub(super) const SECTION_PROMPT_MARKS: u16 = 4;
 pub(super) const SECTION_LAYOUT_STATE: u16 = 5;
 pub(super) const SECTION_FLAG_REQUIRED: u8 = 0x01;
+
+/// Most leading bytes of an unfinished UTF-8 scalar a snapshot carries: a
+/// four-byte scalar can stop after its third byte.
+pub(super) const MAX_PENDING_UTF8_BYTES: usize = 3;
 
 /// Worst-case wire bytes for one encoded cell: char scalar (4), attribute
 /// flags (2), underline style (1), optional RGB underline color (1 + 4),

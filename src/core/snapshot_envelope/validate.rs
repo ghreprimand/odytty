@@ -106,6 +106,13 @@ impl SnapshotLayoutState {
             check_u32(owner.column, "cluster owner column")?;
         }
         check_u32(self.tab_stops.len(), "tab stop count")?;
+        if self.pending_utf8.len() > super::format::MAX_PENDING_UTF8_BYTES {
+            return Err(SnapshotEnvelopeError::ValueTooLarge {
+                what: "pending UTF-8 bytes",
+                value: self.pending_utf8.len(),
+                max: super::format::MAX_PENDING_UTF8_BYTES,
+            });
+        }
         Ok(())
     }
     pub(in crate::core) fn validate(
@@ -126,6 +133,14 @@ impl SnapshotLayoutState {
                 bottom: region.bottom,
                 rows: dimensions.rows,
             });
+        }
+        // The pending bytes must be the start of one scalar and nothing else:
+        // anything a later byte could not complete would restore as U+FFFD.
+        if !self.pending_utf8.is_empty()
+            && !std::str::from_utf8(&self.pending_utf8)
+                .is_err_and(|error| error.valid_up_to() == 0 && error.error_len().is_none())
+        {
+            return Err(SnapshotEnvelopeError::InvalidUtf8);
         }
         Ok(())
     }

@@ -121,6 +121,11 @@ impl SnapshotLayoutState {
             }
             None => write_u8(&mut out, 0),
         }
+        // Format v6: the print state resumed output continues from.
+        self.print_attrs.encode(&mut out);
+        write_u8(&mut out, u8::from(self.print_protected));
+        write_u8(&mut out, self.pending_utf8.len() as u8);
+        out.extend_from_slice(&self.pending_utf8);
         out
     }
 }

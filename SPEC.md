@@ -1739,13 +1739,19 @@ scope rather than silently inheriting deferred work from a prior release.
   per-user Unix-domain socket under `$XDG_RUNTIME_DIR/odytty/`, requires a
   `0700` current-user runtime directory, rejects incompatible protocol/snapshot
   versions, sends a current `SnapshotEnvelope` on every attach, streams
-  output/invalidation frames, and reaps the child process. Snapshot format v5
+  output/invalidation frames, and reaps the child process. Snapshot format v6
   retains layout-padding provenance as well as G0/G1 designation and SO/SI
-  selection. Formats v1 through v4 remain readable; v1 and v2 restore the
+  selection. Formats v1 through v5 remain readable; v1 and v2 restore the
   power-on ASCII character-set state. Formats v1 through v3 restore blanks as logical
   spaces because they carry no padding provenance. Version 4 retains padding;
   versions 1 through v4 restore with streaming extension disabled. Version 5
-  retains the extension boundary and pending wrap. The envelope carries cells
+  retains the extension boundary and pending wrap. Version 6 retains the print
+  state output resumes from: the SGR rendition, DECSCA protection, and up to
+  three leading bytes of a UTF-8 scalar the stream had not finished, so a
+  scalar split across the snapshot completes after attach. Versions 1 through
+  5 restore at the default rendition, unprotected, with nothing pending. A
+  snapshot taken inside an escape sequence does not carry the partial sequence.
+  The envelope carries cells
   but not the OSC 8 link table, the button table, or the graphics scene, so a
   restored screen drops those references instead of letting later output
   reuse them: link ids are cleared (the text stays, inert), Kitty Unicode
@@ -2513,7 +2519,7 @@ Typed spaces remain source text, including spaces at a soft-wrap boundary.
 Overwrite and erase replace padding with ordinary content. Insert/delete
 character edits materialize row padding as ordinary blanks; rectangular copy
 materializes padding at the destination. An unattached mark starts a new
-source owner rather than attaching to generated padding. Snapshot format v5 stores ownership flags in
+source owner rather than attaching to generated padding. Snapshot format v5 and later store ownership flags in
 the existing spacer byte and rejects malformed padding at decode.
 The same core policy applies on Linux Wayland, Linux X11, macOS, and Windows.
 
@@ -2526,7 +2532,7 @@ Controls, cursor movement, edits, hard line breaks, and resize terminate the
 streaming extension boundary. SGR preserves it. Thai and Lao SARA AM following
 a consonant extends the preceding owner to two cells; tone marks and Tibetan
 subjoined letters retain their existing widths. Pre-base vowels stay separate.
-Snapshot format v5 retains the extension boundary and pending-wrap state;
+Snapshot format v5 and later retain the extension boundary and pending-wrap state;
 versions 1 through 4 decode with extension disabled and retain their original
 four-extension storage limit. The format caps counts before allocating.
 Unattached width-zero default-ignorable scalars, including format controls and

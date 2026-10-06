@@ -150,9 +150,9 @@ fn from_terminal_encode_bytes_are_pinned() {
     let bytes = envelope.encode().expect("encode");
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     let expected = concat!(
-        "4f44595454592d534e415053484f5405000100030070696e050001000100b900",
+        "4f44595454592d534e415053484f5406000100030070696e050001000100b900",
         "0000000000000200000009010000000000000300000002000000000000000400",
-        "0000040000000000000005000000130000000000000004000000020000000000",
+        "00000400000000000000050000001f0000000000000004000000020000000000",
         "0000020000000100010001000000000000000000000000000002000000000400",
         "0000680000000000000000000000000000000069000000000000000000000000",
         "0000000020000000000000000000000000000000002000000000000000000000",
@@ -167,7 +167,7 @@ fn from_terminal_encode_bytes_are_pinned() {
         "0000000000000000000000000000000000000000000000000000000000000000",
         "0000000000000000000000000000000000000000000000000000000000000000",
         "0000000000000000000000000000000000000000000000000000000000000004",
-        "0000000000000000010000000001000000",
+        "0000000000000000010000000001000000000000000000000000000000",
     );
     assert_eq!(hex, expected);
 }
@@ -215,9 +215,12 @@ fn legacy_v4_restores_scalars_with_extension_disabled() {
     wire[15..17].copy_from_slice(&4u16.to_le_bytes());
     let producer_len = u16::from_le_bytes([wire[19], wire[20]]) as usize;
     let layout_len_at = 23 + producer_len + 4 * 12 + 4;
+    // Strip the version 5 owner and pending-wrap fields (ten bytes) and the
+    // version 6 default print state (twelve bytes).
+    let appended = 10 + 12;
     let len = u64::from_le_bytes(wire[layout_len_at..layout_len_at + 8].try_into().unwrap());
-    wire[layout_len_at..layout_len_at + 8].copy_from_slice(&(len - 10).to_le_bytes());
-    wire.truncate(wire.len() - 10);
+    wire[layout_len_at..layout_len_at + 8].copy_from_slice(&(len - appended).to_le_bytes());
+    wire.truncate(wire.len() - appended as usize);
     let decoded = SnapshotEnvelope::decode(&wire, SnapshotEnvelopeCaps::default()).unwrap();
     assert_eq!(decoded.layout.cluster_owner, None);
     assert!(!decoded.layout.pending_wrap);

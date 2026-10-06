@@ -44,6 +44,15 @@ pub struct SnapshotLayoutState {
     pub pending_wrap: bool,
     pub scroll_region: Option<SnapshotScrollRegion>,
     pub tab_stops: Vec<bool>,
+    /// Rendition (SGR state) the next printed character takes. The link id is
+    /// never carried: the envelope has no link table. Version 6 and later.
+    pub print_attrs: SnapshotAttrs,
+    /// DECSCA protection the next printed character takes. Version 6 and later.
+    pub print_protected: bool,
+    /// Leading bytes of a UTF-8 scalar the output stream had not finished
+    /// when the snapshot was taken, at most three, so output resumed after the
+    /// snapshot completes it. Version 6 and later.
+    pub pending_utf8: Vec<u8>,
 }
 
 impl SnapshotLayoutState {
@@ -53,6 +62,9 @@ impl SnapshotLayoutState {
             pending_wrap: false,
             scroll_region: None,
             tab_stops: default_tab_stops(dimensions.columns),
+            print_attrs: SnapshotAttrs::from(Attrs::default()),
+            print_protected: false,
+            pending_utf8: Vec::new(),
         }
     }
 }
