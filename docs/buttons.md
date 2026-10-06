@@ -74,8 +74,10 @@ OSC 1337 ; Button=type=custom ; code=N [; icon=NAME] ST
 
 This anchors a **point button** at the cursor: there is no label run, and
 OdyTTY renders it as a bounded `icon code` pill one column past the end of the
-line's content (never over program output). The whole painted pill is the
-click target. `icon=` accepts
+line's content (never over program output). Content includes any cell that is
+not visually empty: a glyph, a colored background, a hyperlink, a combining
+mark on a space, or a space that is underlined, struck through or inverse. The
+whole painted pill is the click target. `icon=` accepts
 the SF Symbols identifiers iTerm2 documents (they map onto the semantic icon
 set below). A bare `OSC 1337 ; Button=type=custom ST` with no code invalidates
 all buttons, matching iTerm2. `type=copy` and other `Button=` variants are
@@ -130,9 +132,13 @@ new one. Definitions on the alternate screen are refused (full-screen
 applications have real mouse protocols already).
 
 In-row terminal edits keep button geometry aligned with the cells. Insert and
-delete-character operations move intact spans with their labels; an edit or
-erase that cuts through a label invalidates that span instead of leaving a
-click target over unrelated text. Rectangle copies do not duplicate buttons.
+delete-character operations move intact spans with their labels; an edit,
+erase, or ordinary printed output that overwrites a label cell, including the
+other half of a wide label glyph, removes that span instead of leaving a click
+target over unrelated text. Rectangle copies do not duplicate buttons. A
+button invalidated before its label run ends places no span. Resizing while
+the alternate screen is active keeps the buttons of the stored primary screen
+and its scrollback.
 
 ## Icons
 

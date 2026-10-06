@@ -832,8 +832,12 @@ impl Screen {
                 self.buttons.attach(id);
             }
             // The empty-code form invalidates ALL buttons (iTerm2 semantics);
-            // a Tier 1-only emitter has no narrower spelling.
-            ButtonSignal::InvalidateAll => self.buttons.invalidate_all(),
+            // a Tier 1-only emitter has no narrower spelling. Like the Tier 2
+            // form, it abandons an open run, whose definition it frees.
+            ButtonSignal::InvalidateAll => {
+                self.cancel_button_run();
+                self.buttons.invalidate_all();
+            }
             ButtonSignal::End | ButtonSignal::InvalidateCode(_) | ButtonSignal::Ignored => {}
         }
     }
@@ -877,7 +881,16 @@ impl Screen {
                 self.cancel_button_run();
                 self.buttons.invalidate_all();
             }
-            ButtonSignal::InvalidateCode(code) => self.buttons.invalidate_code(code),
+            ButtonSignal::InvalidateCode(code) => {
+                self.buttons.invalidate_code(code);
+                // An open run's definition with no references yet is freed
+                // outright by the invalidation; the run has nothing to stamp.
+                if let Some(run) = self.active_button_run
+                    && self.buttons.get(run.id).is_none()
+                {
+                    self.active_button_run = None;
+                }
+            }
             ButtonSignal::Ignored => {}
         }
     }
@@ -901,6 +914,10 @@ impl Screen {
         let Some(run) = self.active_button_run.take() else {
             return;
         };
+        if self.buttons.get(run.id).is_none() {
+            // The definition no longer exists; a span would reference nothing.
+            return;
+        }
         let base = self.scrollback.pushed_row_count();
         let width = self.dimensions.columns;
         let end_abs = base + self.cursor.row as u64;
@@ -1038,11 +1055,20 @@ impl Screen {
     /// storage (live rows + scrollback logical lines). The resize/reflow paths
     /// re-project spans wholesale, so incremental accounting is replaced by
     /// this rebuild afterwards. No-op while the table is empty.
+    ///
+    /// While the alternate screen is active, the stored primary rows and the
+    /// primary scrollback remain canonical storage and are counted too, so an
+    /// alternate-screen resize cannot free the entries they still reference.
     pub(super) fn rebuild_button_refcounts(&mut self) {
         if self.buttons.is_empty() {
             // Nothing to rebuild; discard any surrendered references too.
             if self.scrollback.has_freed_button_ids() {
                 self.scrollback.take_freed_button_ids();
+            }
+            if let Some(primary) = self.primary_screen.as_mut()
+                && primary.scrollback.has_freed_button_ids()
+            {
+                primary.scrollback.take_freed_button_ids();
             }
             return;
         }
@@ -1053,6 +1079,13 @@ impl Screen {
         for row in &self.rows {
             ids.extend(row.button_spans.iter().map(|span| span.id));
         }
+        if let Some(primary) = self.primary_screen.as_mut() {
+            primary.scrollback.take_freed_button_ids();
+            primary.scrollback.collect_button_ids(&mut ids);
+            for row in &primary.rows {
+                ids.extend(row.button_spans.iter().map(|span| span.id));
+            }
+        }
         self.buttons.rebuild_refcounts(ids);
     }
 
@@ -1061,19 +1094,36 @@ impl Screen {
     /// orphan survives. A wide glyph is a lead cell (printable, width 2) plus a
     /// `wide_continuation` spacer; overwriting one half must clear the other,
     /// matching xterm. O(1): only the two span boundaries can orphan a partner.
+    ///
+    /// A blanked partner destroys button-label cells outside the overwrite span,
+    /// so its span sidecars are transformed as an overwrite of that one cell.
     fn clear_wide_orphans(&mut self, row: usize, column: usize, width: usize) {
         let columns = self.dimensions.columns;
         let blank = self.current_blank();
         // Left boundary: the first overwritten cell is a continuation whose lead
-        // sits to its left, outside the span — blank the now-orphaned lead.
+        // sits to its left, outside the span: blank the now-orphaned lead.
         if column > 0 && column < columns && self.rows[row][column].wide_continuation {
             self.rows[row][column - 1] = blank;
+            self.transform_row_button_spans(
+                row,
+                RowButtonMutation::Overwrite {
+                    start: column - 1,
+                    end: column,
+                },
+            );
         }
         // Right boundary: the cell just past the span is a continuation whose
-        // lead is the last overwritten cell — blank the orphaned continuation.
+        // lead is the last overwritten cell: blank the orphaned continuation.
         let end = column + width;
         if end < columns && self.rows[row][end].wide_continuation {
             self.rows[row][end] = blank;
+            self.transform_row_button_spans(
+                row,
+                RowButtonMutation::Overwrite {
+                    start: end,
+                    end: end + 1,
+                },
+            );
         }
     }
 

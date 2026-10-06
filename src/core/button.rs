@@ -39,7 +39,7 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
-use super::types::{Cell, Color};
+use super::types::{Cell, Color, UnderlineStyle};
 
 /// Hard cap on button spans carried by a single line. The definition paths
 /// stop accepting new spans on a line past this, so a hostile stream cannot
@@ -192,15 +192,22 @@ pub struct ButtonHit {
     pub len: usize,
 }
 
-/// Whether a cell is blank enough for a point chip to claim: a plain space on
-/// the default background, no hyperlink, and not the spacer of a wide glyph.
-/// Anything else — glyphs, colored runs, linked cells, wide-glyph tails — is
-/// program output the chip must never overdraw.
+/// Whether a cell is visually empty enough for a point chip to claim: a plain
+/// space on the default background with no attached marks, no hyperlink, no
+/// visible decoration (underline of any style, strikethrough, inverse), and
+/// not the spacer of a wide glyph. Anything else, including glyphs, colored or
+/// decorated runs, marked spaces, linked cells and wide-glyph tails, is program
+/// output the chip must never overdraw or claim for clicks.
 fn cell_is_chip_blank(cell: &Cell) -> bool {
     cell.ch == ' '
         && !cell.wide_continuation
+        && cell.combining().is_empty()
         && cell.attrs.background == Color::Default
         && cell.attrs.hyperlink.is_none()
+        && !cell.attrs.underline()
+        && cell.attrs.underline_style == UnderlineStyle::None
+        && !cell.attrs.strikethrough()
+        && !cell.attrs.inverse()
 }
 
 /// One past the last content cell of a row: the first column a point chip may

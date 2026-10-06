@@ -122,6 +122,13 @@ impl Screen {
             for col in c..self.dimensions.columns {
                 self.rows[r][col] = blank;
             }
+            self.transform_row_button_spans(
+                r,
+                RowButtonMutation::Overwrite {
+                    start: c,
+                    end: self.dimensions.columns,
+                },
+            );
             self.rows[r].wrapped = true;
             self.carriage_return();
             self.line_feed();
@@ -140,6 +147,15 @@ impl Screen {
         // Overwriting either half of an existing wide pair must clear its
         // partner so no half-wide orphan survives.
         self.clear_wide_orphans(row, column, width);
+        // Ordinary output over a finished button label destroys it, the same
+        // as an erase over those cells.
+        self.transform_row_button_spans(
+            row,
+            RowButtonMutation::Overwrite {
+                start: column,
+                end: (column + width).min(self.dimensions.columns),
+            },
+        );
         let attrs = cell.attrs;
         self.rows[row][column] = cell;
 
