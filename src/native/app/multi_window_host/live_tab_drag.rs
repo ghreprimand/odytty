@@ -653,26 +653,28 @@ fn key_changes_custody(key: &WinitKey, state: ElementState, synthetic: bool) -> 
     }
     // Keep real non-modifier releases on the existing input route, including
     // negotiated terminal key-up reports. Focus-generated presses are metadata.
-    !(synthetic && state == ElementState::Pressed)
-        && !matches!(
-            key,
-            WinitKey::Named(
-                NamedKey::Shift
-                    | NamedKey::Control
-                    | NamedKey::Alt
-                    | NamedKey::Super
-                    | NamedKey::Meta
-                    | NamedKey::Hyper
-                    | NamedKey::AltGraph
-                    | NamedKey::CapsLock
-                    | NamedKey::Fn
-                    | NamedKey::FnLock
-                    | NamedKey::NumLock
-                    | NamedKey::ScrollLock
-                    | NamedKey::Symbol
-                    | NamedKey::SymbolLock
-            )
+    if synthetic && state == ElementState::Pressed {
+        return false;
+    }
+    !matches!(
+        key,
+        WinitKey::Named(
+            NamedKey::Shift
+                | NamedKey::Control
+                | NamedKey::Alt
+                | NamedKey::Super
+                | NamedKey::Meta
+                | NamedKey::Hyper
+                | NamedKey::AltGraph
+                | NamedKey::CapsLock
+                | NamedKey::Fn
+                | NamedKey::FnLock
+                | NamedKey::NumLock
+                | NamedKey::ScrollLock
+                | NamedKey::Symbol
+                | NamedKey::SymbolLock
         )
+    )
 }
 
 fn ordinary_input(event: &WindowEvent) -> bool {
