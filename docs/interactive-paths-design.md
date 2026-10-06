@@ -464,7 +464,9 @@ element. An entry with any field code other than `%%` in a token that contains
 quoted text (`sh -c "eog %f"`, `"eog "%f`), or with `%F`/`%U` inside a longer
 token, is refused before argv construction and not offered: the Desktop Entry
 specification leaves quoted field codes undefined and requires `%F`/`%U` to
-stand alone.
+stand alone. An unlisted field code (`%z`), a literal `%` not written as `%%`,
+or an unterminated double quote makes the entry invalid under the same
+specification, and it is refused the same way.
 
 The expanded argv flows into the shared C3 `spawn_detached` (argv-only,
 null stdio) — so a path containing spaces, `;`, `$()`, or backticks is one inert

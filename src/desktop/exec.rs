@@ -17,7 +17,9 @@
 //! `sh -c "eog %f"` would hand the path to a shell as code. Field codes inside
 //! a quoted argument are undefined by the Desktop Entry specification, and
 //! `%F`/`%U` may only stand alone, so an entry using either form is refused
-//! before any argv is built.
+//! before any argv is built. The specification also makes an entry with an
+//! unlisted field code, or with a literal `%` not written as `%%`, invalid,
+//! and requires balanced quoting; those entries are refused too.
 //!
 //! Pure and std-only: tested directly by asserting the vector, never spawning.
 
@@ -43,6 +45,8 @@ fn file_uri(abs: &str) -> String {
 ///   are all literal text.
 ///
 /// Refused entries (`None`):
+/// * an unterminated double-quoted span;
+/// * an unlisted field code (`%z`) or a bare `%` at the end of a token;
 /// * any field code other than `%%` in a token that contains quoted text,
 ///   such as `sh -c "eog %f"` or `"eog "%f`;
 /// * `%F` or `%U` inside a longer token, such as `--files=%F`.
@@ -52,7 +56,6 @@ fn file_uri(abs: &str) -> String {
 /// * `%u` / `%U` -> the `file://` URI of that path;
 /// * `%i` `%c` `%k` and the deprecated `%d %D %n %N %v %m` -> stripped;
 /// * `%%` -> a literal `%`, also inside quotes;
-/// * any other `%x` -> stripped (unknown/undefined field code);
 /// * `%f` or `%u` inside a longer unquoted token (`--file=%f`) substitutes in
 ///   place and the token stays ONE argv element;
 /// * a token that expands to nothing (a standalone stripped code like `%i`) is
@@ -60,7 +63,7 @@ fn file_uri(abs: &str) -> String {
 /// * if no `%f/%F/%u/%U` appears anywhere, the bare path is appended as a
 ///   trailing element (matches `xdg-open`/`gio` behaviour for simple entries).
 pub fn exec_to_argv(exec: &str, abs: &str) -> Option<Vec<String>> {
-    let tokens = tokenize(exec);
+    let tokens = tokenize(exec)?;
     if tokens.iter().any(refuses_field_codes) {
         return None;
     }
@@ -88,11 +91,8 @@ pub fn exec_to_argv(exec: &str, abs: &str) -> Option<Vec<String>> {
                 }
                 // Stripped codes (icon / translated-name / desktop-file path and
                 // the deprecated set): contribute nothing.
-                Some('i' | 'c' | 'k' | 'd' | 'D' | 'n' | 'N' | 'v' | 'm') => {}
-                // Unknown/undefined field code: strip it (drop the code char).
-                Some(_) => {}
-                // A trailing bare `%`: drop it.
-                None => {}
+                // Unlisted codes and a trailing bare `%` were refused above.
+                Some(_) | None => {}
             }
         }
         // A token that was purely a stripped field code (`%i`) expands to the
@@ -116,9 +116,9 @@ struct Token {
     quoted: bool,
 }
 
-/// Whether a token uses a field code in a refused context: any code other
-/// than `%%` in a token containing quoted text, or `%F`/`%U` that is not the
-/// whole token.
+/// Whether a token uses a field code the mapper refuses: an unlisted code, a
+/// trailing bare `%`, any code other than `%%` in a token containing quoted
+/// text, or `%F`/`%U` that is not the whole token.
 fn refuses_field_codes(token: &Token) -> bool {
     let mut chars = token.text.chars();
     while let Some(c) = chars.next() {
@@ -126,8 +126,15 @@ fn refuses_field_codes(token: &Token) -> bool {
             continue;
         }
         match chars.next() {
-            Some('%') | None => {}
+            Some('%') => {}
+            None => return true,
             Some(code) => {
+                if !matches!(
+                    code,
+                    'f' | 'F' | 'u' | 'U' | 'i' | 'c' | 'k' | 'd' | 'D' | 'n' | 'N' | 'v' | 'm'
+                ) {
+                    return true;
+                }
                 if token.quoted {
                     return true;
                 }
@@ -142,8 +149,9 @@ fn refuses_field_codes(token: &Token) -> bool {
 
 /// Tokenize a Desktop-Entry `Exec` string into raw tokens, honoring double-quote
 /// grouping and the four reserved in-quote escapes, and recording which tokens
-/// contain quoted text. Pure; no field-code work.
-fn tokenize(exec: &str) -> Vec<Token> {
+/// contain quoted text. `None` when a double-quoted span is never closed. Pure;
+/// no field-code work.
+fn tokenize(exec: &str) -> Option<Vec<Token>> {
     let mut tokens: Vec<Token> = Vec::new();
     let mut cur = String::new();
     let mut in_token = false;
@@ -167,9 +175,13 @@ fn tokenize(exec: &str) -> Vec<Token> {
                 // empty `""` produces an empty token if it stands alone).
                 in_token = true;
                 quoted = true;
+                let mut closed = false;
                 while let Some(q) = chars.next() {
                     match q {
-                        '"' => break,
+                        '"' => {
+                            closed = true;
+                            break;
+                        }
                         '\\' => {
                             // Inside double quotes only `" \ $ \`` are escapable;
                             // a backslash before anything else is literal.
@@ -183,6 +195,9 @@ fn tokenize(exec: &str) -> Vec<Token> {
                         other => cur.push(other),
                     }
                 }
+                if !closed {
+                    return None;
+                }
             }
             other => {
                 in_token = true;
@@ -193,7 +208,7 @@ fn tokenize(exec: &str) -> Vec<Token> {
     if in_token {
         tokens.push(Token { text: cur, quoted });
     }
-    tokens
+    Some(tokens)
 }
 
 #[cfg(test)]
@@ -282,12 +297,18 @@ mod tests {
     }
 
     #[test]
-    fn unknown_field_code_is_stripped() {
-        // `%z` is undefined → stripped, path appended.
-        assert_eq!(
-            argv_for("app %z", "/x/y.png"),
-            vec!["app".to_owned(), "/x/y.png".to_owned()]
-        );
+    fn unlisted_field_codes_and_a_bare_percent_refuse_the_entry() {
+        // The specification makes an entry with an unlisted field code, or a
+        // literal `%` not written as `%%`, invalid.
+        for exec in ["app %z", "app %z %f", "app %", "app --x=50% %f"] {
+            assert_eq!(exec_to_argv(exec, "/x/y.png"), None, "{exec}");
+        }
+    }
+
+    #[test]
+    fn unterminated_quotes_refuse_the_entry() {
+        assert_eq!(exec_to_argv("app \"unfinished", "/x/y.png"), None);
+        assert_eq!(exec_to_argv("app \"a\\\" %f", "/x/y.png"), None);
     }
 
     #[test]

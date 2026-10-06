@@ -58,17 +58,20 @@ pub fn map_macos_app_paths(app_paths: Vec<String>, file_abs: &str) -> Vec<Deskto
 
 /// Human label for a `.app` bundle path: the final path component with a
 /// trailing `.app` removed (`/Applications/Preview.app` → `Preview`). Falls
-/// back to the basename (or the whole path) when stripping would empty it, so
-/// the row always carries a non-empty label.
+/// back to the basename when stripping would empty it, and to the whole path
+/// when the path has no final component (`/`), so the row always carries a
+/// non-empty label.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn macos_app_name(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
     let base = trimmed.rsplit('/').next().unwrap_or(trimmed);
     let stem = base.strip_suffix(".app").unwrap_or(base);
-    if stem.is_empty() {
+    if !stem.is_empty() {
+        stem.to_owned()
+    } else if !base.is_empty() {
         base.to_owned()
     } else {
-        stem.to_owned()
+        path.to_owned()
     }
 }
 

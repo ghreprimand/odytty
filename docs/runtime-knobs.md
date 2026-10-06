@@ -948,7 +948,9 @@ deprecated field codes are stripped, so a path containing spaces, `;`, `$()`,
 or backticks is one argument, never interpolated by OdyTTY. An entry that puts
 a field code inside a quoted argument (such as `sh -c "eog %f"`), or `%F`/`%U`
 inside a longer argument, is not offered, because the path would otherwise
-reach the launched program as part of a code-bearing argument.
+reach the launched program as part of a code-bearing argument. An entry the
+Desktop Entry specification makes invalid (an unlisted field code, a literal
+`%` not written as `%%`, or an unterminated quote) is not offered either.
 
 If the MIME type cannot be detected or no application handles it, the picker
 opens with an empty-state hint. Closed, the overlay is byte-identical to the
