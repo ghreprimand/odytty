@@ -352,7 +352,7 @@ impl<'a> RasterPainter<'a> {
             .map(|stop| {
                 Some(GradientColorStop {
                     offset: stop.offset,
-                    color: self.color(stop.palette_index, stop.alpha)?,
+                    color: linearize_premultiplied(self.color(stop.palette_index, stop.alpha)?),
                 })
             })
             .collect()
@@ -399,6 +399,11 @@ impl<'a> RasterPainter<'a> {
                 let mut point = Point::from_xy(x as f32 + 0.5, y as f32 + 0.5);
                 inverse.map_point(&mut point);
                 let color = brush.sample(point);
+                let color = if matches!(brush, PreparedBrush::Solid(_)) {
+                    color
+                } else {
+                    encode_premultiplied(color)
+                };
                 let rgba = color.map(float_to_u8);
                 let Some(pixel) =
                     PremultipliedColorU8::from_rgba(rgba[0], rgba[1], rgba[2], rgba[3])
@@ -590,10 +595,8 @@ impl PreparedBrush {
                 r1,
                 stops,
                 extend,
-            } => sample_stops(
-                stops,
-                extend_t(radial_parameter(point, *c0, *r0, *c1, *r1), *extend),
-            ),
+            } => radial_parameter(point, *c0, *r0, *c1, *r1)
+                .map_or([0.0; 4], |t| sample_stops(stops, extend_t(t, *extend))),
             Self::Sweep {
                 center,
                 start_angle,
@@ -601,12 +604,18 @@ impl PreparedBrush {
                 stops,
                 extend,
             } => {
-                let angle = -(point.y - center.y).atan2(point.x - center.x).to_degrees();
+                // Skrifa supplies clockwise angles, possibly outside [0, 360).
+                // Wrap the observed ray, preserving its signed interval position.
+                let angle = (-(point.y - center.y).atan2(point.x - center.x).to_degrees())
+                    .rem_euclid(360.0);
                 let span = end_angle - start_angle;
                 let t = if span.abs() <= f32::EPSILON {
-                    1.0
+                    if !matches!(extend, Extend::Pad) {
+                        return [0.0; 4];
+                    }
+                    if angle < *start_angle { 0.0 } else { 1.0 }
                 } else {
-                    (angle - start_angle).rem_euclid(360.0) / span
+                    (angle - start_angle) / span
                 };
                 sample_stops(stops, extend_t(t, *extend))
             }
@@ -614,7 +623,11 @@ impl PreparedBrush {
     }
 }
 
-fn radial_parameter(point: Point, c0: Point, r0: f32, c1: Point, r1: f32) -> f32 {
+// No positive-radius circle means no coverage, independently of extend mode.
+fn radial_parameter(point: Point, c0: Point, r0: f32, c1: Point, r1: f32) -> Option<f32> {
+    if c0 == c1 && r0 == r1 {
+        return None;
+    }
     let qx = point.x - c0.x;
     let qy = point.y - c0.y;
     let dx = c1.x - c0.x;
@@ -624,20 +637,23 @@ fn radial_parameter(point: Point, c0: Point, r0: f32, c1: Point, r1: f32) -> f32
     let b = -2.0 * (qx.mul_add(dx, qy * dy) + r0 * dr);
     let c = qx.mul_add(qx, qy * qy) - r0 * r0;
     if a.abs() <= f32::EPSILON {
-        return if b.abs() <= f32::EPSILON { 0.0 } else { -c / b };
+        if b.abs() <= f32::EPSILON {
+            return None;
+        }
+        let t = -c / b;
+        return (t.is_finite() && r0 + t * dr > 0.0).then_some(t);
     }
     let discriminant = b.mul_add(b, -4.0 * a * c);
     if discriminant < 0.0 {
-        return 0.0;
+        return None;
     }
     let root = discriminant.sqrt();
     let t0 = (-b - root) / (2.0 * a);
     let t1 = (-b + root) / (2.0 * a);
     [t0, t1]
         .into_iter()
-        .filter(|t| (r0 + t * dr) >= 0.0 && t.is_finite())
+        .filter(|t| (r0 + t * dr) > 0.0 && t.is_finite())
         .reduce(f32::max)
-        .unwrap_or(0.0)
 }
 
 fn extend_t(t: f32, extend: Extend) -> f32 {
@@ -682,6 +698,34 @@ fn sample_stops(stops: &[GradientColorStop], t: f32) -> [f32; 4] {
         }
     }
     stops.last().map_or([0.0; 4], |stop| stop.color)
+}
+
+// COLR gradients interpolate premultiplied linear-light RGB. Solid fills
+// and the atlas use premultiplied sRGB, so transfer only gradient colors.
+fn linearize_premultiplied(color: [f32; 4]) -> [f32; 4] {
+    let alpha = color[3];
+    if alpha <= 0.0 {
+        return [0.0; 4];
+    }
+    [
+        crate::color::srgb_to_linear_f32(color[0] / alpha) * alpha,
+        crate::color::srgb_to_linear_f32(color[1] / alpha) * alpha,
+        crate::color::srgb_to_linear_f32(color[2] / alpha) * alpha,
+        alpha,
+    ]
+}
+
+fn encode_premultiplied(color: [f32; 4]) -> [f32; 4] {
+    let alpha = color[3];
+    if alpha <= 0.0 {
+        return [0.0; 4];
+    }
+    [
+        crate::color::linear_to_srgb_f32(color[0] / alpha) * alpha,
+        crate::color::linear_to_srgb_f32(color[1] / alpha) * alpha,
+        crate::color::linear_to_srgb_f32(color[2] / alpha) * alpha,
+        alpha,
+    ]
 }
 
 fn glyph_path(font: FontRef<'_>, glyph_id: GlyphId) -> Option<Path> {
@@ -806,6 +850,10 @@ mod tests {
             Point::from_xy(0.0, 0.0),
             100.0,
         );
-        assert!((value - 0.5).abs() < 0.0001);
+        assert!((value.unwrap() - 0.5).abs() < 0.0001);
     }
 }
+
+#[cfg(test)]
+#[path = "colr1_audit_tests.rs"]
+mod audit_tests;

@@ -2729,7 +2729,12 @@ byte range inside the file), not by reading the whole file. Rasterization
 prefers existing CBDT/CBLC or sbix bitmap strikes, then static COLR/CPAL v0
 layers, then COLR v1 Paint graphs, then SVG-in-OpenType documents. The v1
 evaluator covers solid fills, gradients, transforms, clips, and composites
-while the earlier paths retain byte-identical output. Before either v1
+while the earlier paths retain byte-identical output. Gradient stops interpolate
+in premultiplied linear-light RGB before conversion to the sRGB atlas. Radial
+samples without a positive-radius intersection remain transparent; sweep
+samples retain their signed position within the normalized callback interval
+before pad, repeat, or reflect extension. This evaluator is shared by Linux
+Wayland, Linux X11, macOS, and Windows. Before either v1
 traversal starts, the glyph's Paint graph is costed once per distinct paint:
 a glyph that would expand past 65,536 paint visits, 2^30 raster pixel passes,
 or 256 MiB of live raster buffers at its slot size uses the monochrome
