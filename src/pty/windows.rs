@@ -265,7 +265,12 @@ impl PtySession {
         self.launch_shell
     }
 
-    pub fn spawn_command(dimensions: Dimensions, command: CommandBuilder) -> Result<Self> {
+    pub fn spawn_command(dimensions: Dimensions, mut command: CommandBuilder) -> Result<Self> {
+        // Refuse network/device cwd prefixes before any Win32 spawn call.
+        // This also covers direct CommandBuilder callers and restored state.
+        let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
+        command.current_dir =
+            crate::cwd::spawn_directory(command.current_dir.as_deref(), home.as_deref());
         let launch_shell = crate::shell_integration::ShellKind::from_program(command.program());
         // SAFETY: the whole spawn sequence is a chain of Win32 calls whose
         // ordering and handle ownership rules are documented inline. Every raw

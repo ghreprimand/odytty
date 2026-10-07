@@ -569,6 +569,8 @@ Delivered compatibility work under that policy:
         `take_working_directory_changed` poll flag, and survive RIS. Malformed
         URLs / truncated escapes / `%00` / oversized payloads are ignored
         non-panicking; OSC 7 emits no response and never leaks into the grid.
+        Windows network/device cwd prefixes are refused before filesystem probes
+        and ConPTY child creation; Unix double-slash paths retain local semantics.
         OSC 6 accepted-and-ignored. Native consumers subsequently landed for
         recent-directory history, spawn-directory inheritance, duplicate
         tabs/windows, layouts, persistence, and interactive paths.

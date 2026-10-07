@@ -13,6 +13,7 @@ pub mod complex_shaping;
 pub mod connection_hosts;
 pub mod core;
 pub mod cvd;
+pub(crate) mod cwd;
 pub mod desktop;
 pub mod emoji;
 pub mod external_palette;

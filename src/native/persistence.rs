@@ -970,7 +970,8 @@ pub(crate) struct ResolvedCwd {
 /// sub-ODP 8f). A captured directory that still exists is used as-is; a captured
 /// directory that has since disappeared falls back to `home` and is flagged
 /// stale (for the notice); an unknown (`None`) cwd falls back to `home` quietly.
-/// Never aborts and never touches anything but a single `metadata` probe.
+/// Windows network/device prefixes are refused before metadata probes.
+/// Never aborts and performs at most one `metadata` probe.
 pub(crate) fn resolve_cwd(captured: Option<&str>, home: Option<&Path>) -> ResolvedCwd {
     match captured {
         Some(dir) if is_existing_dir(Path::new(dir)) => ResolvedCwd {
@@ -978,11 +979,15 @@ pub(crate) fn resolve_cwd(captured: Option<&str>, home: Option<&Path>) -> Resolv
             stale: false,
         },
         Some(_) => ResolvedCwd {
-            path: home.map(Path::to_path_buf),
+            path: home
+                .filter(|path| crate::cwd::permitted(path))
+                .map(Path::to_path_buf),
             stale: true,
         },
         None => ResolvedCwd {
-            path: home.map(Path::to_path_buf),
+            path: home
+                .filter(|path| crate::cwd::permitted(path))
+                .map(Path::to_path_buf),
             stale: false,
         },
     }
@@ -992,12 +997,10 @@ pub(crate) fn resolve_cwd(captured: Option<&str>, home: Option<&Path>) -> Resolv
 /// (audit D-1). Unlike [`resolve_cwd`] (the restore path), an unknown cwd stays
 /// `None` -- New Tab / Duplicate / New Window then spawn in the default
 /// directory, the pre-fix behavior -- rather than falling back to home. A
-/// tracked directory that still exists is used as-is; one that does not, or a
-/// non-filesystem path the Windows PowerShell integration can manufacture (a UNC
-/// share parsed to `//srv/share`, a PSDrive parsed to `/HKLM:/...`) or that a
-/// hostile OSC 7 from ordinary output can inject, is a directory `CreateProcessW`
-/// / `posix_spawn` would reject or silently mis-seed, so it falls back to the
-/// user's home. Only a single `metadata` probe; never aborts.
+/// tracked directory that still exists is used as-is; an invalid one falls back
+/// to home. On Windows, network/device prefixes are refused before metadata
+/// probes, including mixed slash/backslash forms. Unix double-slash paths keep
+/// their local semantics. At most one `metadata` probe; never aborts.
 pub(crate) fn validate_interactive_cwd(
     captured: Option<&str>,
     home: Option<&Path>,
@@ -1006,14 +1009,13 @@ pub(crate) fn validate_interactive_cwd(
     if is_existing_dir(Path::new(dir)) {
         Some(PathBuf::from(dir))
     } else {
-        home.map(Path::to_path_buf)
+        home.filter(|path| crate::cwd::permitted(path))
+            .map(Path::to_path_buf)
     }
 }
 
 fn is_existing_dir(path: &Path) -> bool {
-    std::fs::metadata(path)
-        .map(|meta| meta.is_dir())
-        .unwrap_or(false)
+    crate::cwd::existing_dir(path)
 }
 
 /// Whether `path` is an existing directory suitable to seed a PTY spawn's
@@ -1036,6 +1038,7 @@ pub(crate) fn restore_home_dir() -> Option<PathBuf> {
     std::env::var_os(key)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
+        .filter(|path| crate::cwd::permitted(path))
 }
 
 fn opt_str(value: &Option<String>) -> Json {

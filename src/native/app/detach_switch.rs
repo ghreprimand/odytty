@@ -61,8 +61,8 @@ impl App {
     /// the single OSC 7 cwd read helper: the detach/switch dialog seeds it, and
     /// the F1 cwd-inheritance path (new tab / new window / Duplicate Tab) threads
     /// it into the spawn so a new shell starts where the active pane is. Windows:
-    /// OSC 7 drive-letter cwds are already normalized upstream
-    /// (`strip_leading_drive_slash`), so this returns a valid path there too.
+    /// OSC 7 drive-letter cwds are normalized upstream and network/device
+    /// prefixes are refused. Retained advisory metadata still needs validation.
     pub(in crate::native) fn focused_pane_cwd(&self) -> Option<String> {
         self.terminal
             .lock()
@@ -72,15 +72,10 @@ impl App {
 
     /// The focused pane's OSC 7 cwd, VALIDATED for seeding a spawn (audit D-1).
     /// The tracked cwd is attacker-influenceable (any process' output can emit
-    /// OSC 7) and the Windows PowerShell integration can manufacture
-    /// non-filesystem paths (UNC `//srv/share`, PSDrive `/HKLM:/...`); handing
-    /// such a path to New Tab / Duplicate / New Window makes `CreateProcessW`
-    /// receive a bogus `lpCurrentDirectory` (the spawn fails and a new window
-    /// dies with stdio nulled), or silently starts a shell in the wrong dir on
-    /// Unix. Mirror the restore path's discipline
-    /// (`persistence::validate_interactive_cwd`): an existing dir is used as-is,
-    /// a bogus one falls back to home, an unknown cwd stays `None` (default dir,
-    /// unchanged). Windows: `%USERPROFILE%` is the home fallback.
+    /// OSC 7). Windows network/device prefixes are refused before metadata
+    /// probes. An existing local directory is used as-is, a missing or refused
+    /// one falls back to a permitted home, and an unknown cwd stays `None`.
+    /// Unix double-slash paths retain their local semantics.
     pub(in crate::native) fn validated_spawn_cwd(&self) -> Option<std::path::PathBuf> {
         let captured = self.focused_pane_cwd();
         let home = crate::native::persistence::restore_home_dir();

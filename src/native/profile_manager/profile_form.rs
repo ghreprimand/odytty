@@ -433,7 +433,7 @@ impl ProfileManager {
                 .and_then(|base| base.launch.working_directory.as_deref());
             if let Some(dir) = profile.launch.working_directory.as_deref()
                 && Some(dir) != loaded_wd
-                && !std::path::Path::new(dir).is_dir()
+                && !crate::native::persistence::dir_exists_for_spawn(std::path::Path::new(dir))
             {
                 self.error = Some(format!("working directory {dir:?} does not exist"));
                 return ProfileManagerOutcome::Consumed;

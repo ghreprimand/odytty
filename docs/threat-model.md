@@ -489,7 +489,12 @@ the reference implementation.
 - **Validation and caps:** working-directory reporting parses a
   `file://host/path` form, percent-decodes the path, and accepts only an empty
   or local host — a remote host in the field is not resolved or contacted.
-  Drive-letter working directories are handled on Windows. Prompt marks are
+  Drive-letter working directories are handled on Windows. Decoded paths with
+  two leading slash/backslash separators are refused on Windows, including UNC
+  and device forms. The same guard precedes metadata probes for interactive,
+  restored and profile cwds, and ConPTY child creation for direct callers.
+  Fallback home directories also pass the guard. Unix double-slash paths keep
+  their local semantics. Prompt marks are
   bounded by the same string caps as other operating-system commands (B1).
   Snapshot string fields are bounded at `DEFAULT_MAX_STRING_BYTES` = 4096
   (`src/core/snapshot_envelope.rs`).

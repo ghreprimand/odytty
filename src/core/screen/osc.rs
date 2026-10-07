@@ -50,6 +50,9 @@ pub(super) fn osc_string(parts: &[&[u8]]) -> String {
 ///   trailing/truncated `%`) ignores the whole OSC 7 rather than guessing.
 /// - A decoded NUL byte (`%00`) is rejected: NUL can never appear in a valid
 ///   path and accepting it risks truncation bugs downstream.
+/// - Windows network/device paths with two leading separators are ignored,
+///   including percent-encoded and mixed slash/backslash forms. Unix retains
+///   local double-slash paths.
 /// - Surviving non-UTF-8 bytes are replaced lossily so a malformed path can
 ///   never desync the parser.
 pub(super) fn parse_osc7_cwd(parts: &[&[u8]], local_hostname: Option<&str>) -> Option<String> {
@@ -91,6 +94,9 @@ pub(super) fn parse_osc7_cwd(parts: &[&[u8]], local_hostname: Option<&str>) -> O
     // Windows).
     #[cfg(windows)]
     let cwd = strip_leading_drive_slash(cwd);
+    if !crate::cwd::permitted(std::path::Path::new(&cwd)) {
+        return None;
+    }
     Some(cwd)
 }
 

@@ -645,6 +645,11 @@ clicked tab to the selected destination.
 **Duplicate Tab** in the tab menu, or `Ctrl+Shift+D`, opens a fresh shell at the
 active pane's working directory. It does not copy scrollback or the running
 program, and a pane without a tracked directory opens in the default one.
+Windows refuses network/device cwd prefixes before filesystem probes or child
+creation, including restored layouts and profile launches. Refused OSC 7
+reports leave the previous directory unchanged. Invalid spawn directories fall
+back to a local home or the default directory. Unix double-slash paths retain
+their local semantics.
 
 ### Adjust The Tab Bar
 

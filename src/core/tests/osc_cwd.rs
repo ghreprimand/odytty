@@ -276,3 +276,35 @@ fn osc6_is_accepted_and_ignored() {
     assert_eq!(terminal.current_working_directory(), Some("/from7"));
     assert!(terminal.take_host_output().is_empty());
 }
+
+#[cfg(windows)]
+#[test]
+fn osc7_windows_network_and_device_paths_leave_cwd_unchanged() {
+    let mut terminal = Terminal::new(8, 3);
+    terminal.advance(&osc7_bel("file:///C:/fixture"));
+    assert_eq!(terminal.current_working_directory(), Some("C:/fixture"));
+    terminal.take_working_directory_changed();
+    for payload in [
+        "file:////fixture.invalid/share",
+        "file:///%2Ffixture.invalid/share",
+        "file:///%5Cfixture.invalid/share",
+        "file:///%5C%5C?%5CC:%5Cfixture",
+        "file:///%5C%5C.%5Cpipe%5Cfixture",
+    ] {
+        terminal.advance(&osc7_bel(payload));
+        assert_eq!(terminal.current_working_directory(), Some("C:/fixture"));
+        assert!(!terminal.take_working_directory_changed());
+        assert!(terminal.take_host_output().is_empty());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn osc7_unix_double_slash_path_remains_local_metadata() {
+    let mut terminal = Terminal::new(8, 3);
+    terminal.advance(&osc7_bel("file:////fixture/share"));
+    assert_eq!(
+        terminal.current_working_directory(),
+        Some("//fixture/share")
+    );
+}

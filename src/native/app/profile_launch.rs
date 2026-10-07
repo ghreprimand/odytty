@@ -266,7 +266,8 @@ pub(crate) fn profile_picker_entries(
 /// existing notice path can surface it. That warning names the profile only.
 /// The missing directory and the fallback directory are not included, because
 /// every `profile launch notice` site logs this string. An unset or
-/// already-valid cwd is untouched. A single `metadata` probe; never aborts.
+/// already-valid cwd is untouched. Windows network/device prefixes are refused
+/// before any probe. At most one `metadata` probe; never aborts.
 /// Cross-platform: the same
 /// home fallback (`$HOME` / `%USERPROFILE%`) a restored pane uses.
 pub(crate) fn apply_missing_cwd_fallback(effective: &mut EffectiveLaunch) {

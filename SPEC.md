@@ -1609,13 +1609,20 @@ scope rather than silently inheriting deferred work from a prior release.
   stored as advisory string state on the terminal core (`Screen::current_working_directory`,
   `Screen::take_working_directory_changed`). The parser requires the `file://`
   scheme (case-insensitive), splits the authority, and percent-decodes the path.
-  Only an empty host or `localhost` (case-insensitive) is accepted; foreign hosts
-  are ignored rather than stored as misleading local paths — resolving a real
-  hostname would require `gethostname`, a syscall the core deliberately avoids
-  to stay deterministic and filesystem-free. Robustness: non-`file://` URLs,
+  An empty host, `localhost`, or the front end's supplied local hostname is
+  accepted. Matching is case-insensitive and allows short/FQDN forms. Foreign
+  hosts are ignored rather than stored as misleading local paths; the core
+  never resolves hostnames and remains deterministic and filesystem-free.
+  Robustness: non-`file://` URLs,
   missing path, malformed or truncated percent-escapes, and decoded NUL (`%00`)
   all ignore the OSC and leave the stored path unchanged; non-UTF-8 bytes are
   replaced lossily; payloads are bounded by the parser's 128 KiB OSC cap.
+
+  Windows rejects decoded paths with two leading slash/backslash separators,
+  including UNC and device paths. Restored and interactive cwd validation and
+  ConPTY spawn apply the same check before filesystem probes or child creation;
+  an invalid directory falls back to a permitted home or the default directory.
+  Unix double-slash paths retain their local semantics.
 
   No
   response is emitted and no filesystem access occurs. RIS leaves the stored

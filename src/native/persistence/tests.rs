@@ -507,16 +507,10 @@ fn validate_interactive_cwd_keeps_an_existing_directory() {
 
 #[test]
 fn validate_interactive_cwd_rejects_a_bogus_path_and_falls_back_to_home() {
-    // D-1: a non-existent / non-filesystem cwd (the UNC `//srv/share` and PSDrive
-    // `/HKLM:/...` forms the Windows PowerShell integration can manufacture, or a
-    // hostile OSC 7 from ordinary output) must NOT reach the spawn; it falls back
-    // to home so `CreateProcessW` / `posix_spawn` never gets a bogus directory.
+    // A missing ordinary path falls back to home on every platform. Network
+    // paths are covered by a no-probe Windows fixture below.
     let home = std::env::temp_dir();
-    for bogus in [
-        "/HKLM:/SOFTWARE",
-        "//srv/share/nope-odytty-d1",
-        "///srv/share",
-    ] {
+    for bogus in ["/HKLM:/SOFTWARE", "/definitely/missing/odytty-cwd-fixture"] {
         let cwd = validate_interactive_cwd(Some(bogus), Some(&home));
         assert_eq!(
             cwd.as_deref(),
@@ -1416,4 +1410,37 @@ fn layout_listing_examines_a_bounded_number_of_entries() {
     );
     assert!(large.names.len() <= 1);
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_network_cwd_validation_and_restore_refuse_before_metadata() {
+    let home = PathBuf::from(r"C:\fixture");
+    for path in [
+        r"//fixture.invalid/share",
+        r"\\fixture.invalid\share",
+        r"\\?\C:\fixture",
+        r"\\.\pipe\fixture",
+        r"/\fixture.invalid/share",
+        r"\/fixture.invalid/share",
+    ] {
+        // The shared probe seam separately asserts that these prefixes cannot
+        // reach metadata, even when a probe would otherwise report success.
+        assert_eq!(
+            validate_interactive_cwd(Some(path), Some(&home)),
+            Some(home.clone())
+        );
+        let restored = resolve_cwd(Some(path), Some(&home));
+        assert_eq!(restored.path, Some(home.clone()));
+        assert!(restored.stale);
+        assert!(!dir_exists_for_spawn(Path::new(path)));
+        assert_eq!(validate_interactive_cwd(Some(path), None), None);
+        assert_eq!(resolve_cwd(Some(path), None).path, None);
+    }
+    let bad_home = Path::new(r"\\fixture.invalid\share");
+    assert_eq!(resolve_cwd(None, Some(bad_home)).path, None);
+    assert_eq!(
+        validate_interactive_cwd(Some("/missing-fixture"), Some(bad_home)),
+        None
+    );
 }
