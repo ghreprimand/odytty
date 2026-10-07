@@ -93,7 +93,8 @@ static ANSI_PALETTE: [AtomicU32; 16] = [
 
 /// Override the default foreground/background used to resolve `Color::Default`.
 ///
-/// Called once at native startup by the theme layer. Affects only rendering;
+/// Published by the native event loop at startup, reload and pane switches.
+/// CPU rendering runs on the same thread. Affects only rendering;
 /// the terminal model is unaware of it. Passing the baseline constants restores
 /// the plain appearance.
 pub fn set_default_colors(foreground: (u8, u8, u8), background: (u8, u8, u8)) {
@@ -103,9 +104,9 @@ pub fn set_default_colors(foreground: (u8, u8, u8), background: (u8, u8, u8)) {
 
 /// Override the 16-color ANSI palette used to resolve `Color::Indexed(0..=15)`.
 ///
-/// Called once at native startup by the theme layer (alongside
-/// [`set_default_colors`]). Affects only rendering — the terminal model is
-/// unaware of it — and is layered *below* any per-app OSC-4 dynamic-color
+/// Published alongside [`set_default_colors`] by the native event loop,
+/// on the same thread as CPU rendering. Affects only rendering, the terminal
+/// model is unaware of it, and is layered below any per-app OSC-4 dynamic-color
 /// override: the render path consults the core dynamic palette first and only
 /// falls back to [`indexed_srgb`] (which reads this override) when no app
 /// override is set, so OSC-4 always wins over the theme. Passing
@@ -193,8 +194,10 @@ pub(super) static MIN_CONTRAST: AtomicU32 = AtomicU32::new(1.0_f32.to_bits());
 ///
 /// Presentation-only: it changes how text is painted to keep it legible, never
 /// what the terminal core stores. `ratio <= 1.0` disables enforcement (exact
-/// passthrough). Mirrors [`set_ansi_palette`]/[`set_default_colors`].
+/// passthrough). Non-finite inputs use the disabled floor (`1.0`).
+/// Mirrors [`set_ansi_palette`]/[`set_default_colors`].
 pub fn set_min_contrast(ratio: f32) {
+    let ratio = if ratio.is_finite() { ratio } else { 1.0 };
     MIN_CONTRAST.store(ratio.to_bits(), Ordering::Relaxed);
 }
 
@@ -215,7 +218,7 @@ pub fn min_contrast() -> f32 {
 /// byte-identical until the floor is raised.
 pub fn enforce_contrast_rgba(fg: [f32; 4], bg: [f32; 4]) -> [f32; 4] {
     let ratio = min_contrast();
-    if ratio <= 1.0 {
+    if !ratio.is_finite() || ratio <= 1.0 {
         return fg;
     }
     let [r, g, b] =
@@ -242,7 +245,7 @@ pub fn enforce_contrast_rgba(fg: [f32; 4], bg: [f32; 4]) -> [f32; 4] {
 /// the lift's input. On light backgrounds this later lift can reduce the
 /// contrast achieved by the preceding correction.
 pub fn lift_brightness_rgba(color: [f32; 4], brightness: f32) -> [f32; 4] {
-    if brightness <= 1.0 {
+    if !brightness.is_finite() || brightness <= 1.0 {
         return color;
     }
     let lift = |c: f32| {
@@ -308,3 +311,7 @@ pub fn background_linear(color: Color) -> [f32; 4] {
         Color::Rgb(r, g, b) => linear_rgba((r, g, b)),
     }
 }
+
+#[cfg(test)]
+#[path = "color_control_tests.rs"]
+mod control_tests;

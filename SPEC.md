@@ -2752,6 +2752,12 @@ failures disable runtime fallback for that session, clear pending work, and
 wake windows; subsequent requests return no runtime face. macOS and Windows
 use static fallback chains without this worker.
 
+Monochrome glyph coverage validates finite positive scales and finite
+positions, and refuses pixel bounds larger than 4,096 pixels on either axis
+before scan conversion. Degenerate font metrics cannot request an unbounded
+coverage allocation. Non-finite contrast and brightness controls use exact
+color passthrough. These guards apply on Linux, macOS, and Windows.
+
 ### Render Color Emoji
 
 The accepted direction is a separate

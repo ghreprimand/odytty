@@ -337,6 +337,11 @@ font limit, including discovery in larger collections. Extracted faces repair
 standalone checksums and discard invalidated digital signatures. Font paths
 follow regular-file symlinks and validate the opened file on every platform.
 
+Monochrome glyph coverage refuses invalid scales and rasters
+larger than 4,096 pixels on either axis before allocation. Non-finite contrast
+and brightness inputs preserve the original colors. These bounds apply on
+Linux, macOS, and Windows.
+
 With `wheel_zoom` enabled, `Ctrl`+wheel changes the live font size when the
 running application has not claimed mouse reporting. Each effective step shows
 a compact centered font-size HUD, replaces the previous value during a gesture,

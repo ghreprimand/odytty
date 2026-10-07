@@ -1,29 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The OdyTTY-owned font handle: the single seam between loaded font bytes and
-//! the glyph metrics, coverage checks and coverage rasterization the atlas and
-//! shaper need.
+//! Loaded font bytes, glyph metrics, outlines and bounded coverage rasterization.
 //!
-//! Outlines, metrics and glyph mapping are read through `skrifa`; coverage is
-//! scan-converted through `ab_glyph_rasterizer`. No `ab_glyph` font parser is
-//! used. The glyph geometry value types (`GlyphId`, `PxScale`, `Point`,
-//! `Glyph`, `Rect`, `OutlineCurve`) are OdyTTY-owned (see [`super::glyph_geom`])
-//! and carry the same field layouts and method names the renderer used before,
-//! so the downstream cell-metric, bounds and coverage arithmetic is bit-for-bit
-//! the arithmetic the renderer already ships; only the outline/metric *source*
-//! changes. `Point` is `ab_glyph_rasterizer`'s own point type, so the geometry
-//! and the scan-converter share it without a cast.
-//!
-//! The metric strategy, scale factor, pixel-bounds rounding and draw offset are
-//! reproduced verbatim from `ab_glyph` 0.2.32 (`src/scale.rs`,
-//! `src/outlined.rs`): the scale factor is `px / (ascent - descent)` in unscaled
-//! font units for both axes, `px_bounds` uses subpixel-fraction floor/ceil with
-//! the vertical axis negated, and `draw` scales the font-unit outline by
-//! `(h, -v)` and offsets by `position - px_bounds.min`. The skrifa->outline
-//! conversion applies the same shims the isolated comparator proved
-//! pixel-identical: HarfBuzz path style, outline-derived legacy (i16-truncated
-//! control-point) bounds, and the glyf phantom-point left-side-bearing origin
-//! restore. Coverage equivalence with the previous parser is established by that
-//! comparator, not assumed here.
+//! Outlines, metrics and glyph mapping come from `skrifa`; coverage uses
+//! `ab_glyph_rasterizer`. The scale factor is pixels over ascent minus descent
+//! on both axes. Pixel bounds round outward with the vertical axis negated;
+//! the glyf phantom-point shift restores original font-unit coordinates.
+//! Invalid scales and coverage rasters larger than 4,096 pixels on either
+//! axis are refused before allocation.
 
 use super::glyph_geom::{
     FontParseError, Glyph, GlyphId, Outline, OutlineCurve, Point, PxScale, Rect, point,
@@ -33,6 +16,8 @@ use skrifa::MetadataProvider;
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::pen::PathStyle;
 use skrifa::outline::{DrawSettings, OutlinePen};
+
+const MAX_COVERAGE_AXIS: f32 = 4096.0;
 
 /// A loaded, single-face font: the owned bytes plus the face index within them.
 ///
@@ -205,6 +190,15 @@ impl FontHandle {
     /// returned handle answers [`OutlinedGlyph::px_bounds`] and
     /// [`OutlinedGlyph::draw`].
     pub fn outline_glyph(&self, glyph: Glyph) -> Option<OutlinedGlyph> {
+        if !glyph.scale.x.is_finite()
+            || glyph.scale.x <= 0.0
+            || !glyph.scale.y.is_finite()
+            || glyph.scale.y <= 0.0
+            || !glyph.position.x.is_finite()
+            || !glyph.position.y.is_finite()
+        {
+            return None;
+        }
         let raw = self.raw_outline(glyph.id)?;
         let legacy = raw.bounds?;
         let metrics = self
@@ -218,7 +212,13 @@ impl FontHandle {
         // uniform `PxScale::from(px)` every caller uses, `sf_h == sf_v`.
         let sf_h = glyph.scale.x / height_u;
         let sf_v = glyph.scale.y / height_u;
+        if !sf_h.is_finite() || !sf_v.is_finite() {
+            return None;
+        }
         let px_bounds = px_bounds(legacy, sf_h, sf_v, glyph.position);
+        if !coverage_bounds_valid(px_bounds) {
+            return None;
+        }
         Some(OutlinedGlyph {
             curves: raw.curves,
             sf_h,
@@ -366,6 +366,9 @@ impl OutlinedGlyph {
     /// [`Self::px_bounds`]. Reproduces `ab_glyph::OutlinedGlyph::draw`:
     /// `h_factor = sf_h`, `v_factor = -sf_v`, `offset = position - px_bounds.min`.
     pub fn draw<O: FnMut(u32, u32, f32)>(&self, o: O) {
+        if !coverage_bounds_valid(self.px_bounds) {
+            return;
+        }
         let h_factor = self.sf_h;
         let v_factor = -self.sf_v;
         let offset = self.position - self.px_bounds.min;
@@ -402,6 +405,16 @@ impl OutlinedGlyph {
             })
             .for_each_pixel_2d(o);
     }
+}
+
+/// Bound the float-to-integer conversion and the scan-converter allocation.
+fn coverage_bounds_valid(bounds: Rect) -> bool {
+    [bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y]
+        .into_iter()
+        .all(f32::is_finite)
+        && [bounds.width(), bounds.height()]
+            .into_iter()
+            .all(|axis| axis > 0.0 && axis <= MAX_COVERAGE_AXIS)
 }
 
 /// Font-unit curves plus optional control-point bounds for one glyph.
@@ -547,3 +560,7 @@ impl OutlinePen for CurveBuilder {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "font_handle_tests.rs"]
+mod tests;

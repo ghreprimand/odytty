@@ -1915,6 +1915,9 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       failures: pending work drains and windows wake before later requests
       return no face. The fontconfig worker is used on Linux; macOS and Windows
       keep their static fallback chains.
+- [x] Monochrome coverage rejects invalid scales and oversized pixel bounds
+      before allocation; non-finite contrast and brightness controls preserve
+      input colors on every platform.
 - [x] Runtime fallback faces are parsed once and shared across codepoints;
       over-limit collections reconstruct only the selected face instead of
       retaining the full collection. Directory-only discovery also accepts

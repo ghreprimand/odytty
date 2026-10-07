@@ -325,7 +325,7 @@ const CONTRAST_BISECT_STEPS: u32 = 24;
 /// keeps its hue and only changes how light/dark it is.
 ///
 /// Guarantees:
-/// - `ratio <= 1.0` returns `fg` **unchanged, bit-for-bit** (passthrough — the
+/// - A non-finite ratio or `ratio <= 1.0` returns `fg` unchanged (passthrough, the
 ///   default-setting no-op that keeps the plain path byte-identical).
 /// - If `fg`/`bg` already meet the floor, `fg` is returned unchanged.
 /// - The search keeps the existing fg-vs-bg polarity (lighter text stays the
@@ -337,8 +337,8 @@ const CONTRAST_BISECT_STEPS: u32 = 24;
 /// - Idempotent: a second application is a no-op, because the first result
 ///   already meets the floor.
 pub fn enforce_min_contrast(fg: LinearRgb, bg: LinearRgb, ratio: f32) -> LinearRgb {
-    // Passthrough: at or below unity there is no floor to enforce.
-    if ratio <= 1.0 {
+    // Passthrough: non-finite targets and values at or below unity have no floor.
+    if !ratio.is_finite() || ratio <= 1.0 {
         return fg;
     }
     if wcag_contrast(fg, bg) >= ratio {
