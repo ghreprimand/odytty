@@ -1102,6 +1102,62 @@ impl App {
         self.finish_new_workspace_spawn(Err(std::io::Error::other("forced spawn failure")));
     }
 
+    /// Drive the remote New Workspace flow (global connection profile, or a
+    /// host opened in a new workspace) with an injected placeholder spawn
+    /// result and connect step, without a PTY or `ssh`. A successful spawn
+    /// pushes a headless placeholder workspace; the connect step adds a
+    /// headless tab to the active workspace and focuses it. Returns how many
+    /// times the connect step ran.
+    #[cfg(test)]
+    pub(in crate::native) fn new_workspace_connection_for_test(
+        &mut self,
+        placeholder_spawns: bool,
+        binding: super::ssh_connect::NewWorkspaceBinding<'_>,
+    ) -> usize {
+        use crate::connection_hosts::{ConnectionHost, ConnectionHostSource};
+        let host = ConnectionHost {
+            alias: "synthetic-remote".to_owned(),
+            host_name: Some("remote.invalid".to_owned()),
+            user: None,
+            port: None,
+            theme: None,
+            font: None,
+            title: None,
+            integration: None,
+            reuse: None,
+            tmux: None,
+            protocol: None,
+            identity_file: None,
+            persist: None,
+            source: ConnectionHostSource::Odytty,
+        };
+        let dimensions = crate::core::Dimensions::new(80, 24);
+        let spawned = if placeholder_spawns {
+            self.push_headless_workspace_for_test(
+                Arc::new(Mutex::new(Terminal::new(80, 24))),
+                crate::native::test_support::headless_writer(),
+                dimensions,
+            );
+            Ok(self.sessions.active_id())
+        } else {
+            Err(std::io::Error::other("forced spawn failure"))
+        };
+        let mut connects = 0usize;
+        self.open_connection_over_new_workspace(spawned, &host, binding, |app, _host| {
+            connects += 1;
+            let position = app.push_headless_session_for_test(
+                Arc::new(Mutex::new(Terminal::new(80, 24))),
+                crate::native::test_support::headless_writer(),
+                dimensions,
+            );
+            let token = app.sessions.token_at_position(position)?;
+            let _ = app.sessions.switch(token);
+            app.on_active_session_changed();
+            Some(token)
+        });
+        connects
+    }
+
     /// Drive the exact duplicate-workspace spawn-failure branch without a PTY.
     #[cfg(test)]
     pub(in crate::native) fn duplicate_workspace_spawn_failure_for_test(&mut self) {
@@ -2344,6 +2400,14 @@ impl App {
         self.sessions.token_at_position(session)
     }
 
+    /// Every live session token across all workspaces, in rail and strip order.
+    #[cfg(test)]
+    pub(in crate::native) fn all_session_tokens_for_test(
+        &self,
+    ) -> Vec<crate::native::session::SessionToken> {
+        self.sessions.iter().map(|session| session.id).collect()
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn session_count_for_test(&self) -> usize {
         self.sessions.iter().count()
@@ -2735,6 +2799,14 @@ impl App {
     pub(in crate::native) fn active_workspace_binding_for_test(&self) -> Option<String> {
         self.sessions
             .active_workspace_default_profile()
+            .map(str::to_owned)
+    }
+
+    /// The active workspace's launch profile name, or `None` when unset.
+    #[cfg(test)]
+    pub(in crate::native) fn active_workspace_launch_profile_for_test(&self) -> Option<String> {
+        self.sessions
+            .active_workspace_launch_profile()
             .map(str::to_owned)
     }
 

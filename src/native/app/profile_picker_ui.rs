@@ -68,14 +68,13 @@ impl App {
         };
         // Plain placeholder workspace: the explicit profile choice must not be
         // layered on top of the global default (which could itself be SSH).
-        self.handle_new_workspace_plain();
-        let placeholder = self.sessions.active_id();
-        self.sessions
-            .set_active_workspace_launch_profile(Some(profile_name.to_owned()));
-        if self.connect_or_notice(&host).is_some() {
-            self.close_tab_by_token(placeholder);
-            self.on_active_session_changed();
-        }
+        let result = self.sessions.new_workspace(self.grid);
+        self.open_connection_over_new_workspace(
+            result,
+            &host,
+            super::ssh_connect::NewWorkspaceBinding::LaunchProfile(profile_name),
+            Self::connect_or_notice,
+        );
     }
 
     pub(super) fn finish_new_workspace_with_effective(

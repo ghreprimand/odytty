@@ -274,18 +274,51 @@ impl App {
     /// first tab), sets its `default_profile` so future New Tabs there route
     /// through the SSH connect path, then connects the host as the workspace's
     /// tab and drops the placeholder — connect-then-close, so a connect failure
-    /// leaves a usable local tab rather than an empty workspace. No bind toast:
+    /// leaves a usable local tab rather than an empty workspace, and a failed
+    /// placeholder spawn stops with a notice before anything is bound. No bind toast:
     /// the connecting remote tab is the visible confirmation. Windows: the
     /// connect uses the same `ssh.exe` path; workspace mechanics are
     /// platform-neutral.
     pub(in crate::native) fn open_host_in_new_workspace(&mut self, host: &ConnectionHost) {
         // Plain placeholder: an explicit host choice is not layered on top of
         // the global default launch profile (which could itself route to SSH).
-        self.handle_new_workspace_plain();
-        let placeholder = self.sessions.active_id();
-        self.sessions
-            .set_active_workspace_default_profile(Some(host.alias.clone()));
-        if self.connect_or_notice(host).is_some() {
+        let result = self.sessions.new_workspace(self.grid);
+        self.open_connection_over_new_workspace(
+            result,
+            host,
+            NewWorkspaceBinding::Host,
+            Self::connect_or_notice,
+        );
+    }
+
+    /// Finish a placeholder workspace spawn, bind the new workspace, then
+    /// connect `host` in it and close only that placeholder once the
+    /// connection opens. A failed placeholder spawn stops here after its
+    /// notice: the active workspace is then an existing user workspace, which
+    /// must not be bound, gain the remote tab, or lose a tab. `connect` is
+    /// [`Self::connect_or_notice`] outside tests.
+    pub(in crate::native) fn open_connection_over_new_workspace(
+        &mut self,
+        spawned: std::io::Result<SessionToken>,
+        host: &ConnectionHost,
+        binding: NewWorkspaceBinding<'_>,
+        connect: impl FnOnce(&mut Self, &ConnectionHost) -> Option<SessionToken>,
+    ) {
+        let Some(placeholder) = self.finish_new_workspace_spawn(spawned) else {
+            return;
+        };
+        match binding {
+            NewWorkspaceBinding::None => {}
+            NewWorkspaceBinding::Host => {
+                self.sessions
+                    .set_active_workspace_default_profile(Some(host.alias.clone()));
+            }
+            NewWorkspaceBinding::LaunchProfile(name) => {
+                self.sessions
+                    .set_active_workspace_launch_profile(Some(name.to_owned()));
+            }
+        }
+        if connect(self, host).is_some() {
             self.close_tab_by_token(placeholder);
             self.on_active_session_changed();
         }
@@ -886,4 +919,15 @@ mod bind_notice_tests {
             "unbind toast states new tabs are local: {WORKSPACE_UNBOUND_NOTICE}"
         );
     }
+}
+
+/// What a remote placeholder workspace is bound to once it exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::native) enum NewWorkspaceBinding<'a> {
+    /// Unbound: the global default launch profile chose the host.
+    None,
+    /// New tabs in the workspace connect to the opened host.
+    Host,
+    /// New tabs in the workspace use this named launch profile.
+    LaunchProfile(&'a str),
 }

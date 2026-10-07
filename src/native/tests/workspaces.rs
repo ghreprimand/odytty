@@ -8,6 +8,7 @@
 //! wiring — creation, cycling, close-with-exit-guard, rename commit, and the
 //! palette routing.
 
+use super::super::app::NewWorkspaceBinding;
 use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
@@ -122,6 +123,102 @@ fn creation_spawn_failures_raise_notices_without_mutating_the_layout() {
             message.contains("forced spawn failure"),
             "the notice retains the actionable cause: {message}"
         );
+    }
+}
+
+fn session_tokens(app: &App) -> Vec<SessionToken> {
+    app.all_session_tokens_for_test()
+}
+
+#[test]
+fn failed_remote_workspace_placeholder_never_connects_or_closes_an_existing_tab() {
+    for binding in [
+        NewWorkspaceBinding::None,
+        NewWorkspaceBinding::Host,
+        NewWorkspaceBinding::LaunchProfile("synthetic-profile"),
+    ] {
+        let (mut app, _) = headless_app_for_test();
+        let dims = Dimensions::new(80, 24);
+        let position = app.push_headless_session_for_test(
+            Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows))),
+            crate::native::test_support::headless_writer(),
+            dims,
+        );
+        assert!(app.switch_to_session_for_test(position));
+        let tokens_before = session_tokens(&app);
+        let active_before = app.active_session_token_for_test();
+        assert_eq!(tokens_before.len(), 2);
+
+        let launch_profile_before = app.active_workspace_launch_profile_for_test();
+
+        let connects = app.new_workspace_connection_for_test(false, binding);
+
+        assert_eq!(
+            connects, 0,
+            "a failed placeholder workspace must not start the remote connection"
+        );
+        assert_eq!(
+            session_tokens(&app),
+            tokens_before,
+            "no existing tab may be closed or added"
+        );
+        assert_eq!(app.active_session_token_for_test(), active_before);
+        assert_eq!(app.workspace_count_for_test(), 1);
+        assert_eq!(
+            app.active_workspace_binding_for_test(),
+            None,
+            "the existing workspace must not be bound to the host"
+        );
+        assert_eq!(
+            app.active_workspace_launch_profile_for_test(),
+            launch_profile_before,
+            "the existing workspace keeps its launch profile"
+        );
+        assert!(!app.pending_exit_for_test());
+        let message = app
+            .open_notice_message_for_test()
+            .expect("the failed placeholder raises a notice");
+        assert!(
+            message.starts_with("Could not create a workspace"),
+            "unexpected notice: {message}"
+        );
+    }
+}
+
+#[test]
+fn remote_workspace_connection_replaces_only_its_own_placeholder() {
+    for binding in [
+        NewWorkspaceBinding::None,
+        NewWorkspaceBinding::Host,
+        NewWorkspaceBinding::LaunchProfile("synthetic-profile"),
+    ] {
+        let (mut app, _) = headless_app_for_test();
+        let original = app.active_session_token_for_test();
+
+        let connects = app.new_workspace_connection_for_test(true, binding);
+
+        assert_eq!(connects, 1);
+        assert_eq!(app.workspace_count_for_test(), 2);
+        assert_eq!(app.active_workspace_index_for_test(), 1);
+        assert_eq!(
+            app.active_workspace_tab_count_for_test(),
+            1,
+            "the placeholder is closed and the connected tab remains"
+        );
+        let tokens = session_tokens(&app);
+        assert_eq!(tokens.len(), 2);
+        assert!(tokens.contains(&original), "the original tab survives");
+        assert_ne!(app.active_session_token_for_test(), original);
+        assert_eq!(
+            app.active_workspace_binding_for_test(),
+            (binding == NewWorkspaceBinding::Host).then(|| "synthetic-remote".to_owned())
+        );
+        assert_eq!(
+            app.active_workspace_launch_profile_for_test(),
+            (binding == NewWorkspaceBinding::LaunchProfile("synthetic-profile"))
+                .then(|| "synthetic-profile".to_owned())
+        );
+        assert!(!app.pending_exit_for_test());
     }
 }
 

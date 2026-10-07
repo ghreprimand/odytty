@@ -658,12 +658,12 @@ impl App {
                     return;
                 };
                 let result = self.sessions.new_workspace(self.grid);
-                self.finish_new_workspace_spawn(result);
-                let placeholder = self.sessions.active_id();
-                if self.connect_or_notice(&host).is_some() {
-                    self.close_tab_by_token(placeholder);
-                    self.on_active_session_changed();
-                }
+                self.open_connection_over_new_workspace(
+                    result,
+                    &host,
+                    super::ssh_connect::NewWorkspaceBinding::None,
+                    Self::connect_or_notice,
+                );
                 for warning in effective.warnings {
                     tracing::warn!(warning = %warning, "profile launch notice");
                 }
@@ -690,14 +690,19 @@ impl App {
         self.finish_new_workspace_spawn(result);
     }
 
-    pub(super) fn finish_new_workspace_spawn(&mut self, result: std::io::Result<SessionToken>) {
+    /// Present a newly spawned workspace, or raise the failure notice. Returns
+    /// the new workspace's first session token only when the spawn succeeded.
+    pub(super) fn finish_new_workspace_spawn(
+        &mut self,
+        result: std::io::Result<SessionToken>,
+    ) -> Option<SessionToken> {
         let token = match result {
             Ok(token) => token,
             Err(error) => {
                 if self.open_notice.is_none() {
                     self.raise_open_notice(format!("Could not create a workspace: {error}"));
                 }
-                return;
+                return None;
             }
         };
         let effective_theme = self.effective_theme;
@@ -728,6 +733,7 @@ impl App {
         // changes the content reservation — reflow so the grid matches.
         self.recompute_grid_for_tab_bar();
         self.on_active_session_changed();
+        Some(token)
     }
 
     /// Duplicate the active workspace: create a fresh workspace whose single

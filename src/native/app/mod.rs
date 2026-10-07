@@ -194,6 +194,8 @@ mod selection_input;
 mod session_attach_ui;
 mod session_navigator_ui;
 mod ssh_connect;
+#[cfg(test)]
+pub(in crate::native) use ssh_connect::NewWorkspaceBinding;
 // `App` state ownership: fields, construction, and the active-session
 // dereference. Extracted from this file without behavior change.
 mod state;
