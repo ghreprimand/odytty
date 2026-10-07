@@ -14,8 +14,8 @@
 //! Bounds: at most [`MAX_QUEUED`] codepoints wait at once (a codepoint that
 //! does not fit stays pending and is queued again on a later rebuild), the
 //! answer table holds at most [`MAX_ANSWERS`] entries, and each helper run is
-//! bounded in time and output. If a helper stalls or floods, runtime fallback
-//! is switched off for the rest of the run and every later request answers
+//! bounded in time and output. A resolver panic or a helper stall or flood
+//! switches runtime fallback off for the rest of the run and every later request answers
 //! "no face" at once, so a broken fontconfig costs one deadline, not one per
 //! glyph.
 
@@ -35,6 +35,7 @@ pub(super) const MAX_ANSWERS: usize = 8192;
 const WAKE_BATCH_INTERVAL: Duration = Duration::from_millis(100);
 
 type Waker = Box<dyn Fn() + Send + Sync>;
+#[cfg(test)]
 type Resolver = fn(char) -> Result<Option<Arc<FontHandle>>, super::symbols::FontconfigStalled>;
 
 static WAKER: OnceLock<Waker> = OnceLock::new();
@@ -48,6 +49,7 @@ struct State {
     worker_running: bool,
     disabled: bool,
     /// Test override for the blocking resolver.
+    #[cfg(test)]
     resolver: Option<Resolver>,
 }
 
@@ -59,7 +61,11 @@ pub fn set_runtime_symbol_waker(waker: impl Fn() + Send + Sync + 'static) {
 
 /// The atlas-facing lookup. Never blocks on fontconfig.
 pub(super) fn request(ch: char) -> RuntimeSymbol {
-    let mut state = STATE.lock().unwrap_or_else(PoisonError::into_inner);
+    request_with_state(ch, &STATE, wake)
+}
+
+fn request_with_state(ch: char, shared: &'static Mutex<State>, wake: fn()) -> RuntimeSymbol {
+    let mut state = shared.lock().unwrap_or_else(PoisonError::into_inner);
     if state.disabled {
         return RuntimeSymbol::Ready(None);
     }
@@ -74,7 +80,7 @@ pub(super) fn request(ch: char) -> RuntimeSymbol {
     if !state.worker_running {
         let spawned = std::thread::Builder::new()
             .name("odytty-glyph-fallback".to_owned())
-            .spawn(run_worker);
+            .spawn(move || run_worker(shared, wake));
         if spawned.is_err() {
             // No worker: answer every queued codepoint with "no face" rather
             // than leaving them pending forever.
@@ -93,28 +99,26 @@ fn disable(state: &mut State) {
     state.queued.clear();
 }
 
-fn run_worker() {
+fn run_worker(shared: &Mutex<State>, wake: fn()) {
     let mut batch_started = Instant::now();
     loop {
         let (ch, resolver) = {
-            let mut state = STATE.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut state = shared.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(ch) = state.queue.pop_front() else {
                 state.worker_running = false;
                 break;
             };
-            (
-                ch,
-                state
-                    .resolver
-                    .unwrap_or(super::symbols::resolve_symbol_font_blocking),
-            )
+            let resolver = super::symbols::resolve_symbol_font_blocking;
+            #[cfg(test)]
+            let resolver = state.resolver.unwrap_or(resolver);
+            (ch, resolver)
         };
-        let result = resolver(ch);
+        let result = std::panic::catch_unwind(|| resolver(ch));
         {
-            let mut state = STATE.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut state = shared.lock().unwrap_or_else(PoisonError::into_inner);
             state.queued.remove(&ch);
             match result {
-                Ok(answer) => {
+                Ok(Ok(answer)) => {
                     if state.answers.len() >= MAX_ANSWERS {
                         // Atlases keep their own per-codepoint cache; this
                         // table only spares repeat helper runs, so starting
@@ -123,9 +127,15 @@ fn run_worker() {
                     }
                     state.answers.insert(ch, answer);
                 }
-                Err(_) => {
+                Ok(Err(_)) => {
                     tracing::warn!(
                         "glyph fallback: fontconfig helper exceeded its deadline or output cap; runtime fallback disabled for this run"
+                    );
+                    disable(&mut state);
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "glyph fallback: font resolver panicked; runtime fallback disabled for this run"
                     );
                     disable(&mut state);
                 }
@@ -143,32 +153,6 @@ fn wake() {
     if let Some(waker) = WAKER.get() {
         waker();
     }
-}
-
-/// Reset the process-wide state and install a test resolver. Test-only.
-#[cfg(test)]
-pub(super) fn reset_for_test(resolver: Option<Resolver>) {
-    let mut state = STATE.lock().unwrap_or_else(PoisonError::into_inner);
-    *state = State {
-        resolver,
-        ..State::default()
-    };
-}
-
-/// Whether the worker has drained its queue. Test-only.
-#[cfg(test)]
-pub(super) fn idle_for_test() -> bool {
-    let state = STATE.lock().unwrap_or_else(PoisonError::into_inner);
-    !state.worker_running && state.queue.is_empty()
-}
-
-/// Whether runtime fallback has been switched off. Test-only.
-#[cfg(test)]
-pub(super) fn disabled_for_test() -> bool {
-    STATE
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .disabled
 }
 
 #[cfg(test)]

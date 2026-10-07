@@ -326,6 +326,12 @@ normalized name first, then alphabetical order. Bold, italic, and bold-italic
 faces come from that family and prefer normal width before weight distance.
 This selection rule is shared by Linux, macOS, and Windows.
 
+On Linux and other fontconfig hosts, runtime fallback resolves
+missing glyphs off the render path. A resolver panic or a helper deadline or
+output-limit failure disables runtime fallback for that session and wakes the
+windows, so later requests settle without a face. macOS and Windows use their
+static fallback chains and do not run this worker.
+
 With `wheel_zoom` enabled, `Ctrl`+wheel changes the live font size when the
 running application has not claimed mouse reporting. Each effective step shows
 a compact centered font-size HUD, replaces the previous value during a gesture,

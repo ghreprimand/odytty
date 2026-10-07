@@ -1911,6 +1911,10 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
 - [x] Scrollback storage no longer pays the full inline combining-mark cost per
       cell, with differential, serialization, reflow, and index-integrity
       coverage preserving terminal behavior.
+- [x] Runtime glyph fallback contains resolver panics as well as helper
+      failures: pending work drains and windows wake before later requests
+      return no face. The fontconfig worker is used on Linux; macOS and Windows
+      keep their static fallback chains.
 - [x] Runtime fallback faces are parsed once and shared across codepoints;
       over-limit collections reconstruct only the selected face instead of
       retaining the full collection. This fixes the reproduced MusicFox CJK

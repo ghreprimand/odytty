@@ -2746,6 +2746,12 @@ name, with alphabetical ties, before choosing regular and style faces. Style
 faces prefer normal width before canonical weight, as regular faces do. These
 rules apply on Linux, macOS, and Windows; missing styles use the regular face.
 
+Runtime symbol discovery on Linux and other fontconfig hosts runs on one
+bounded background worker. Resolver panics and helper deadline or output-limit
+failures disable runtime fallback for that session, clear pending work, and
+wake windows; subsequent requests return no runtime face. macOS and Windows
+use static fallback chains without this worker.
+
 ### Render Color Emoji
 
 The accepted direction is a separate
