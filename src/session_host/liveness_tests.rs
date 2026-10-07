@@ -149,6 +149,7 @@ fn kill_treats_a_stale_socket_as_an_already_absent_session() {
     let runtime = TestRuntime::new();
     let socket = runtime.socket("stale");
     drop(UnixListener::bind(&socket).expect("bind stale socket"));
+    crate::test_dirs::wait_until_socket_refuses(&socket);
 
     assert!(
         kill_session(Some(&runtime.base), "stale").is_ok(),

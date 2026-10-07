@@ -18,6 +18,8 @@ fn temporary_config_base() -> PathBuf {
 
 fn with_config_base<R>(base: &Path, f: impl FnOnce() -> R) -> R {
     let _guard = crate::test_lock::test_env_lock();
+    // Profile edits reload the catalog and share the startup-isolation counter.
+    let _count_guard = crate::test_lock::catalog_count_lock();
     let previous_home = std::env::var_os("HOME");
     let previous_xdg = std::env::var_os("XDG_CONFIG_HOME");
     let previous_appdata = std::env::var_os("APPDATA");

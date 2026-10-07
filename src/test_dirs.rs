@@ -50,9 +50,52 @@ pub(crate) fn fresh_socket_dir(prefix: &str) -> PathBuf {
     fresh_dir(Path::new("/tmp"), prefix)
 }
 
+/// Wait for a dropped listener's inherited descriptors to close before probing
+/// stale-socket behavior. Each nonblocking connect and the whole wait are bounded.
+#[cfg(unix)]
+pub(crate) fn wait_until_socket_refuses(path: &Path) {
+    use std::time::{Duration, Instant};
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        match crate::session_host::connect::connect_within(path, Duration::ZERO) {
+            Err(error) if error.raw_os_error() == Some(libc::ECONNREFUSED) => return,
+            Ok(_) => {}
+            // An inherited listener may fill its backlog before its child exits.
+            Err(error) if error.kind() == io::ErrorKind::TimedOut => {}
+            Err(error) => panic!("unexpected stale-socket probe error: {error}"),
+        }
+        assert!(
+            Instant::now() < deadline,
+            "dropped listener still accepts connections"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_socket_waits_for_an_inherited_listener() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+        let dir = fresh_socket_dir("otds");
+        let path = dir.join("s.sock");
+        let listener = UnixListener::bind(&path).expect("listener");
+        // A duplicate holds the same kernel socket as an inherited descriptor.
+        let inherited = listener.try_clone().expect("inherited listener");
+        drop(listener);
+        drop(UnixStream::connect(&path).expect("duplicate still listens"));
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            drop(inherited);
+        });
+        wait_until_socket_refuses(&path);
+        release.join().expect("release inherited descriptor");
+        assert!(path.exists(), "stale socket pathname remains");
+        std::fs::remove_dir_all(dir).expect("clean up");
+    }
 
     #[test]
     fn parallel_callers_get_distinct_directories() {

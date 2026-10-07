@@ -57,15 +57,63 @@ fn unix_listening_inode(path: &Path) -> Option<u64> {
 
 #[cfg(target_os = "linux")]
 fn find_fd_for_socket_inode(inode: u64) -> Option<i32> {
+    socket_fd_from_links(
+        inode,
+        fs::read_dir("/proc/self/fd")
+            .ok()?
+            .flatten()
+            .map(|entry| (entry.file_name(), fs::read_link(entry.path()))),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn socket_fd_from_links(
+    inode: u64,
+    entries: impl Iterator<Item = (std::ffi::OsString, std::io::Result<PathBuf>)>,
+) -> Option<i32> {
     let needle = format!("socket:[{inode}]");
-    for entry in fs::read_dir("/proc/self/fd").ok()?.flatten() {
-        let fd = entry.file_name().to_str()?.parse::<i32>().ok()?;
-        let target = fs::read_link(entry.path()).ok()?;
+    for (name, target) in entries {
+        let Some(fd) = name.to_str().and_then(|name| name.parse::<i32>().ok()) else {
+            continue;
+        };
+        // Other test threads close descriptors between read_dir and read_link.
+        let Ok(target) = target else {
+            continue;
+        };
         if target.to_string_lossy() == needle {
             return Some(fd);
         }
     }
     None
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn descriptor_lookup_skips_closed_and_unrelated_entries() {
+    for (name, target) in [
+        ("5", Err(std::io::Error::from(std::io::ErrorKind::NotFound))),
+        ("not-a-descriptor", Ok(PathBuf::from("socket:[123]"))),
+    ] {
+        assert_eq!(
+            socket_fd_from_links(
+                123,
+                [
+                    (std::ffi::OsString::from(name), target),
+                    (
+                        std::ffi::OsString::from("6"),
+                        Ok(PathBuf::from("socket:[456]"))
+                    ),
+                    (
+                        std::ffi::OsString::from("7"),
+                        Ok(PathBuf::from("socket:[123]"))
+                    ),
+                ]
+                .into_iter()
+            ),
+            Some(7)
+        );
+    }
+    assert_eq!(socket_fd_from_links(123, std::iter::empty()), None);
 }
 
 struct Fixture {

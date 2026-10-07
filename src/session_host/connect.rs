@@ -200,6 +200,7 @@ mod tests {
     fn stale_socket_keeps_connection_refused() {
         let path = temp_socket("s");
         drop(UnixListener::bind(&path).expect("bind"));
+        crate::test_dirs::wait_until_socket_refuses(&path);
         let error = connect_within(&path, Duration::ZERO).expect_err("stale");
         assert_eq!(error.raw_os_error(), Some(libc::ECONNREFUSED));
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

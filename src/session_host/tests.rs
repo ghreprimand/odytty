@@ -165,40 +165,12 @@ fn stale_socket_cleanup_keeps_live_peer_and_removes_dead_socket() {
     );
     drop(listener);
 
-    // Dropping the listener closes it, but under heavy parallel scheduling the
-    // kernel's teardown of the listening socket can lag a beat -- a `connect()`
-    // probe may still briefly succeed against the soon-to-be-dead inode, which
-    // `cleanup_stale_socket` correctly reports as a live peer. The path is
-    // per-test unique, so nothing else can be binding it; this races only the
-    // kernel, not another test. Wait until the socket genuinely refuses
-    // connections before asserting the stale-cleanup path removes it. Pure test
-    // timing -- the production cleanup logic is exercised unchanged.
-    wait_until_socket_refuses(&socket_path);
+    // A concurrently forked child can retain the listener until exec or exit.
+    // Keep the stale-cleanup assertion separate from that inherited ownership.
+    crate::test_dirs::wait_until_socket_refuses(&socket_path);
 
     cleanup_stale_socket(&socket_path).expect("remove stale socket");
     assert!(!socket_path.exists());
-}
-
-/// Poll until a `connect()` to `socket_path` fails, i.e. no listener answers.
-/// Used after dropping a test listener to wait out the kernel's asynchronous
-/// listening-socket teardown before probing for a stale socket.
-fn wait_until_socket_refuses(socket_path: &Path) {
-    let deadline = Instant::now() + SHORT_WAIT;
-    loop {
-        match UnixStream::connect(socket_path) {
-            // Still connectable: the listener teardown is not yet visible.
-            Ok(_) => {}
-            // Refused / not found: the socket is now stale, safe to clean up.
-            Err(_) => return,
-        }
-        if Instant::now() >= deadline {
-            panic!(
-                "socket {} still answers connections {SHORT_WAIT:?} after listener drop",
-                socket_path.display()
-            );
-        }
-        thread::sleep(Duration::from_millis(2));
-    }
 }
 
 #[test]
