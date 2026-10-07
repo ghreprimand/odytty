@@ -1,8 +1,8 @@
 # Selective mutation testing: parser, input, and graphics transport
 
 Mutation testing measures whether the test suite *notices* when behavior
-changes. A tool rewrites a small piece of the source — flips a comparison,
-deletes a match arm, replaces a function body with a constant — and reruns the
+changes. A tool rewrites a small piece of the source - flips a comparison,
+deletes a match arm, replaces a function body with a constant - and reruns the
 tests. A mutant that makes a test fail is **killed**. A mutant that leaves the
 suite green **survives**, and each survivor marks behavior that no assertion
 pins down.
@@ -22,7 +22,7 @@ No survivor was fixed while measuring. No assertion was weakened and no test was
 skipped or annotated. Mutation testing necessarily edits the source: the tool
 applies each mutant to the file in place and reverts it afterwards, so the tree
 is transiently modified by every run. What this work did not do is author or
-retain any change to product source, tests, dependencies, or toolchain pins —
+retain any change to product source, tests, dependencies, or toolchain pins -
 the tree was verified clean before and after every batch, and it is clean of
 mutations now. Findings are recorded here and routed as separate proposals.
 
@@ -58,7 +58,7 @@ input directly.
 <!-- fact: key=provenance-recorded-runs value=4 -->
 <!-- fact: key=provenance-missing-runs value=4 -->
 
-Every artifact of the campaign — raw results, per-mutant logs, applied patches —
+Every artifact of the campaign - raw results, per-mutant logs, applied patches -
 was written outside the working tree, and the runner refuses an output or census
 directory inside it.
 
@@ -75,8 +75,8 @@ That check originally examined tracked files only, which is too weak: an
 untracked test file changes what the suite asserts and an untracked source file
 changes what is compiled, and neither would have been noticed. The runner now
 fails on any untracked path git reports as well. Paths the repository already
-ignores — build output, campaign output written without an output directory, and
-Python byte-code caches — are outside that report by construction; no Rust
+ignores - build output, campaign output written without an output directory, and
+Python byte-code caches - are outside that report by construction; no Rust
 source, test, or fixture pattern is ignored, so nothing that changes what is
 compiled or asserted can hide behind an ignore rule.
 
@@ -172,9 +172,9 @@ was running.
 
 `RUST_TEST_THREADS=1` is not tunable here: it is required by the standing
 resource rule for any job that can create nested compiler and test processes.
-It is not a workaround for a correctness problem in the suite — the render
+It is not a workaround for a correctness problem in the suite - the render
 global state that once forced serial execution is isolated behind a lock and
-the suite passes in parallel — but serial execution still roughly doubles
+the suite passes in parallel - but serial execution still roughly doubles
 per-mutant cost, which is the main reason a whole-repository campaign does not
 fit a bounded budget.
 
@@ -212,7 +212,7 @@ the complete unit suite and 29 are not.
 That is a defect in the runner, not a property of the method, and it is fixed:
 the stage-2 selection now drops mutants inside excluded regions before
 sharding, so the confirmation budget is spent only on mutants a confirmation can
-say something about. The fix is not retroactive — re-running the transport
+say something about. The fix is not retroactive - re-running the transport
 confirmation is scheduled work, listed with the unexecuted batches below.
 
 Neither stage runs the integration tests under `tests/`. Those 169 cases could
@@ -240,7 +240,7 @@ census. The proof was rerun after the campaign and passes at the same revision.
 ## Budget and what was not executed
 
 Three batches were not executed: `input-legacy-modifiers` (91 mutants),
-`input-kitty-keys` (135), and `input-legacy-sequences` (40) — 266 of the 534
+`input-kitty-keys` (135), and `input-legacy-sequences` (40) - 266 of the 534
 mutants in scope. They are absences, not passes, and nothing in this document
 may be read as evidence about them.
 
@@ -268,9 +268,9 @@ inside a `cfg` region the build removes is never executed: the mutated text is
 not in the binary, the suite passes, and the tool records the mutant as
 surviving. Counting that as a survivor would claim the tests fail to notice a
 change that was never made. `scripts/mutation-platform-exclusions.tsv` names
-three such regions in `src/core/kitty_transport.rs` — the non-Unix
+three such regions in `src/core/kitty_transport.rs` - the non-Unix
 `read_shm_transport` fallback, the Windows temp-directory allowlist entry, and
-the macOS child-process shared-memory copy — covering **51** of that batch's 131
+the macOS child-process shared-memory copy - covering **51** of that batch's 131
 mutants. Every one of the 51 was reported as surviving, while 48 of the 80
 mutants in compiled code were killed; a region in which nothing at all can be
 killed is the signature of code that was never built.
@@ -397,10 +397,12 @@ relabelled.
 
 The tables above are generated from the campaign results by
 `scripts/mutation-summary.py`. Its `--check-doc` mode re-derives every published
-row from the same data, and every survivor figure stated in the prose below
-carries a hidden claim marker naming exactly which survivors it counts, which is
-recounted from the run data. A stale table, a wrong figure, or a deleted marker
-fails the check rather than drifting.
+row from the same data. Survivor headings and numbered follow-up counts
+each carry a hidden claim marker naming the counted survivors, with the count
+recomputed from the run data. A stale table, a wrong figure, or a deleted marker
+fails the check rather than drifting. Heading counts use hyphens or colons;
+fenced examples and comments are excluded from the prose check. Historical
+stage-1 counts remain separate from the current survivor claims.
 
 ## Survivor triage
 
@@ -408,7 +410,7 @@ The 66 survivors fall into six clusters. Each is described by what the surviving
 mutants have in common, not by restating the table.
 
 <!-- claim: match=PartialEq count=15 -->
-### Parameter equality is entirely unasserted — 15 survivors
+### Parameter equality is entirely unasserted - 15 survivors
 
 `PartialEq for Params` is hand-written and subtle: it compares only the first
 `len` values, masks the `starts` bitfield to that same length because bits above
@@ -422,13 +424,13 @@ both directions. Highest-value cluster in the campaign: the fix is cheap, and
 the behavior is exactly the kind that a later refactor can silently break.
 
 <!-- claim: functions=win32_event_from_neutral_key,win32_char_identity count=17 -->
-### Initial campaign: Windows key translation was unasserted — 17 survivors
+### Initial campaign: Windows key translation was unasserted - 17 survivors
 
 `win32_event_from_neutral_key` and `win32_char_identity` translate a neutral key
 event into the Win32 key record OdyTTY writes for ConPTY consumers. Surviving
 mutants change virtual-key arithmetic, scan-code arithmetic, and the modifier
 accumulation that builds the control-key state word, and two delete whole match
-arms — the digit row and the space key.
+arms - the digit row and the space key.
 
 Both functions are compiled unconditionally: `src/input.rs` contains exactly one
 `cfg` attribute in the entire file, `#[cfg(test)]` on its test module. These are
@@ -466,7 +468,7 @@ The follow-up remained the sole heavy job under the standard limits. It used
 and 303 seconds of wall time.
 
 <!-- claim: functions=checked_shm_size,read_shm_fd_at_size,read_regular_file,read_shm_transport risk=high count=23 -->
-### Transport size caps are unasserted at the boundary — 23 survivors
+### Transport size caps are unasserted at the boundary - 23 survivors
 
 Every surviving mutant in `checked_shm_size`, `read_shm_fd_at_size`,
 `read_regular_file`, and `read_shm_transport` sits on a bound or an error test:
@@ -480,27 +482,27 @@ detected and rejected; with the arithmetic mutated, the check can never fire and
 the growth goes unnoticed. The transport cap is a stated bound in the threat
 model, so its boundary belongs in an assertion.
 
-Three further survivors mutate the cap constant itself — `96 * 1024 * 1024`
-becomes an addition or a division — which changes the maximum accepted payload
+Three further survivors mutate the cap constant itself - `96 * 1024 * 1024`
+becomes an addition or a division - which changes the maximum accepted payload
 with no test noticing.
 
 <!-- claim: functions=path_from_bytes,allowed_temp_dirs count=2 -->
-### Path admission is unasserted — 2 survivors
+### Path admission is unasserted - 2 survivors
 
 In `path_from_bytes`, the rejection of an empty string or a path containing an
 interior NUL is a single disjunction; replacing it with a conjunction means
 neither is rejected alone, and nothing fails. In `allowed_temp_dirs`, deleting
 the negation on the duplicate check inverts it, so a canonicalised `TMPDIR` is
-never added to the allowlist at all — a functional change to which directories a
+never added to the allowlist at all - a functional change to which directories a
 file transport may read from, and still nothing fails.
 
-### Parameter emptiness — 1 survivor
+### Parameter emptiness - 1 survivor
 
 `Params::is_empty` can return a constant `true` unnoticed. It is not decorative:
 the device-attribute query path and the Sixel parser both branch on it.
 
 <!-- claim: risk=equivalent count=5 -->
-### Proven equivalent — 5 survivors
+### Proven equivalent - 5 survivors
 
 These change no observable behavior and must not be "fixed".
 
@@ -585,7 +587,7 @@ checks are the boundary the threat model relies on.
 <!-- claim: stage=2 count=37 -->
 <!-- claim: stage=1 count=29 -->
 - Stage 2 confirmed 37 of the 66 survivors against the complete unit suite; the
-  remaining 29 — every transport survivor — were observed under a focused
+  remaining 29 - every transport survivor - were observed under a focused
   filter, which can over-report. One transport confirmation shard was run and
   landed entirely inside an excluded region, so it confirmed none of them.
 - Four of the eight completed run directories carry no per-run record of the
@@ -627,7 +629,7 @@ python3 scripts/mutation-summary.py \
 `--also-scan` adds a retained run directory that is not under the campaign root
 to the resource accounting; it is how the cancelled batch above is counted.
 Because the runner now rejects untracked paths, reproducing this from a checkout
-that carries uncommitted work requires committing or stashing it first — that is
+that carries uncommitted work requires committing or stashing it first - that is
 the intended behavior, not an obstacle to work around.
 
 `python3 scripts/mutation-summary.py --self-test` checks the classifier against
@@ -641,3 +643,7 @@ run log with no measured duration, and absent resource accounting being read as
 a recorded zero. It also checks that a stage-2 selection drops mutants inside
 excluded regions and that a run directory with no provenance record is reported
 as an absence rather than assumed to agree.
+
+The prose fixtures also require nearby claim markers for headings with ASCII
+hyphens or colons and for Closes follow-ups. Fenced examples, comments and
+generated tables do not supply markers for surrounding prose.

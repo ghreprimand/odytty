@@ -606,6 +606,39 @@ def render_markdown(report: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+def check_survivor_markers(doc: str) -> None:
+    """Require nearby claim markers for survivor headings and Closes follow-ups.
+
+    Historical stage-1 counts in narrative prose are not current survivor
+    claims. Fenced examples, comments and generated results are excluded.
+    Masking preserves offsets so proximity is measured in the original text.
+    """
+    lines = []
+    fence = None
+    for line in doc.splitlines(keepends=True):
+        opening = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if fence is None and opening:
+            fence = opening.group(1)
+            lines.append(" " * len(line))
+        elif fence is not None:
+            closing = re.match(r"^ {0,3}([`~]+)[ \t]*(?:\n)?$", line)
+            if (closing and set(closing.group(1)) == {fence[0]}
+                    and len(closing.group(1)) >= len(fence)):
+                fence = None
+            lines.append(" " * len(line))
+        else:
+            lines.append(line)
+    prose = "".join(lines)
+    prose = re.sub(r"<!-- generated:results -->.*?<!-- /generated:results -->",
+                   lambda m: " " * len(m.group()), prose, flags=re.DOTALL)
+    marked = [m.end() for m in re.finditer(r"<!-- claim:(.*?)-->", prose)]
+    prose = re.sub(r"<!--.*?-->", lambda m: " " * len(m.group()),
+                   prose, flags=re.DOTALL)
+    for fig in re.finditer(r"(?:[-:]|\u2014|Closes)\s+(\d+)\s+survivors\b", prose):
+        if not any(0 <= fig.start() - end <= 600 for end in marked):
+            raise ResultError(f"survivor figure without a claim marker: {fig.group()}")
+
+
 def self_test() -> int:
     """Prove the classifier rejects malformed and missing input."""
     failures = []
@@ -620,6 +653,30 @@ def self_test() -> int:
             failures.append(f"{label}: unexpected exception {exc!r}")
         else:
             failures.append(f"{label}: accepted input that must be rejected")
+
+    # Project-authored prose fixtures exercise the public punctuation rule.
+    for heading in ("### Caps - 23 survivors", "### Caps: 23 survivors",
+                    "Closes 23 survivors."):
+        check(f"unmarked figure {heading!r}",
+              lambda heading=heading: check_survivor_markers(heading),
+              "without a claim marker")
+        check_survivor_markers("<!-- claim: count=23 -->\n" + heading)
+    check("distant claim", lambda: check_survivor_markers(
+        "<!-- claim: count=23 -->" + "x" * 601 + " - 23 survivors"),
+        "without a claim marker")
+    check("claim inside fenced example", lambda: check_survivor_markers(
+        "```\n<!-- claim: count=23 -->\n```\n - 23 survivors"),
+        "without a claim marker")
+    for example in ("```text\n### Caps - 23 survivors\n```\n",
+                    "~~~\nCloses 23 survivors.\n~~~\n",
+                    "<!-- Example: - 23 survivors -->",
+                    "<!-- generated:results -->\n- 23 survivors\n"
+                    "<!-- /generated:results -->",
+                    "````text\nCloses 23 survivors.\n`````\n"):
+        try:
+            check_survivor_markers(example)
+        except ResultError as exc:
+            failures.append(f"excluded example: {exc}")
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -1048,14 +1105,13 @@ def main() -> int:
             print("mutation-summary: document states survivor figures with no claim markers",
                   file=sys.stderr)
             return 2
-        # Every survivor figure in prose must be covered by a marker, so
+        # Survivor headings and Closes follow-ups must carry a marker, so
         # deleting a marker fails the check instead of silencing it.
-        marked = [m.end() for m in claims]
-        for fig in re.finditer(r"(?:—|Closes) (\d+) survivors", doc):
-            if not any(0 <= fig.start() - end <= 600 for end in marked):
-                print(f"mutation-summary: survivor figure without a claim marker: "
-                      f"{doc[fig.start():fig.end()]}", file=sys.stderr)
-                return 2
+        try:
+            check_survivor_markers(doc)
+        except ResultError as exc:
+            print(f"mutation-summary: {exc}", file=sys.stderr)
+            return 2
         for m in claims:
             fields = dict(kv.split("=", 1) for kv in m.group(1).split() if "=" in kv)
             if any(" " in v for v in fields.values()):
