@@ -126,6 +126,14 @@ impl App {
         point.column
     }
 
+    /// Whether the presented frame drew the focused logical content cell
+    /// `point` inside a right-to-left run (an odd embedding level). `false`
+    /// unless the presented frame planned a map.
+    pub(super) fn bidi_cell_is_right_to_left(&self, point: CellPoint) -> bool {
+        self.bidi_focused_map()
+            .is_some_and(|map| map.level(point.row, point.column) % 2 == 1)
+    }
+
     /// Move a 1-based grid-relative SGR-pixel report coordinate onto the
     /// logical cell drawn under it, keeping its offset inside the cell, so a
     /// pixel report addresses the same cell the cell-encoded reports name.

@@ -335,6 +335,42 @@ impl App {
         }
     }
 
+    /// Whether a window-level modal owns pointer motion: an open overlay, the
+    /// tab-rename prompt (and its drag), or copy mode. Buttons and wheel honour
+    /// the same ownership in `handle_mouse_input` and the wheel path.
+    fn window_modal_owns_pointer(&self) -> bool {
+        self.rename_dragging || self.overlay.is_open() || self.modal_captures_pointer()
+    }
+
+    /// The content cell under the window pointer (`x_px`, `y_px`). A
+    /// single-pane tab maps content-relative coordinates (tab chrome removed)
+    /// against the window grid; a multi-pane tab maps only inside the focused
+    /// pane's drawn grid, so a collapsed leaf or a pointer in its padding or
+    /// leading remainder has no cell and never clamps into the backing grid.
+    /// BIDI: the logical cell drawn under the pointer; identity outside the
+    /// display gate.
+    fn content_pointer_cell(
+        &self,
+        x_px: f64,
+        y_px: f64,
+        cell: CellSize,
+        padding: WindowPadding,
+    ) -> Option<CellPoint> {
+        if !self.sessions.active_is_single_pane() {
+            return self.active_pane_pointer_cell();
+        }
+        let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
+        Some(
+            self.bidi_logical_point(selection::cell_at_physical_with_padding(
+                x_px - chrome_dx,
+                y_px - chrome_dy,
+                cell,
+                self.grid,
+                padding,
+            )),
+        )
+    }
+
     pub(super) fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
         self.window_pointer_px = Some((x_px, y_px));
         let Some(cell) = self.resolved_cell() else {
@@ -372,9 +408,11 @@ impl App {
         // the pointer is over its band, the overlay owns the pointer — do rail
         // hover and nothing else, so a click there hits the rail, not the
         // terminal beneath it. Inert unless autohide is active.
+        let window_modal = self.window_modal_owns_pointer();
         if self.rail_autohide_active() {
             self.update_rail_autohide_pointer(x_px, cell, Instant::now());
-            if let Some(side) = self.rail_autohide_side()
+            if !window_modal
+                && let Some(side) = self.rail_autohide_side()
                 && self.rail_overlay_visible()
                 && self.pointer_in_reveal_band(x_px, cell, side)
             {
@@ -415,6 +453,26 @@ impl App {
                 .map(Self::divider_resize_icon)
                 .unwrap_or(CursorIcon::Default);
             self.apply_cursor_icon(icon);
+            return;
+        }
+        // Window-level modal ownership, the motion analogue of the button and
+        // wheel capture: an open overlay, the rename prompt, and copy mode own
+        // the pointer once a gesture that was already in flight has been
+        // served above. No chrome hover, seam cursor, pane hover, selection, or
+        // PTY motion report runs beneath them. The overlay and the rename drag
+        // read the window-level overlay cell, so a split's other pane, a
+        // divider gap, or padding still reaches them.
+        if window_modal {
+            self.pointer_cell = self.content_pointer_cell(x_px, y_px, cell, padding);
+            if self.rename_dragging {
+                self.apply_cursor_icon(CursorIcon::Text);
+                self.rename_drag_extend();
+            } else {
+                self.apply_cursor_icon(CursorIcon::Default);
+                if self.overlay.is_open() {
+                    self.handle_overlay_pointer_move();
+                }
+            }
             return;
         }
         // Tab-bar bottom-seam hover — a row-resize cursor over the seam grab band
@@ -512,29 +570,12 @@ impl App {
             self.apply_cursor_icon(CursorIcon::Default);
             return;
         }
-        // Map into content-relative space by subtracting the tab chrome: the top
-        // bar shifts Y, the left rail shifts X (F4-V2). Byte-identical on the
-        // plain path (both offsets 0). Multi-pane maps via the pane content rect
-        // (already reserve-offset) inside `active_pane_pointer_cell`, so only the
-        // single-pane fallback below consumes these adjusted coordinates.
-        let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
-        let x_px = x_px - chrome_dx;
+        // The terminal cell under the pointer (see `content_pointer_cell`).
+        let point = self.content_pointer_cell(x_px, y_px, cell, padding);
+        // The scroll-thumb drag and selection autoscroll below take
+        // content-relative Y: the top bar (and chrome gap) removed once.
+        let (_, chrome_dy) = self.tab_chrome_offset_px(cell);
         let y_px = y_px - chrome_dy;
-        // In a multi-pane tab, map only inside the focused pane's actual padded
-        // inner rect. A collapsed leaf or pointer in its padding/remainder has
-        // no terminal cell and must not clamp into the backing 1x1 PTY grid.
-        // Single-pane keeps the established window-origin mapping exactly.
-        let point = if self.sessions.active_is_single_pane() {
-            // BIDI: the logical cell drawn under the pointer; identity outside
-            // the test-only display gate.
-            Some(
-                self.bidi_logical_point(selection::cell_at_physical_with_padding(
-                    x_px, y_px, cell, self.grid, padding,
-                )),
-            )
-        } else {
-            self.active_pane_pointer_cell()
-        };
         self.pointer_cell = point;
         let Some(point) = point else {
             self.hovered_hyperlink = None;
@@ -570,27 +611,6 @@ impl App {
             self.apply_cursor_icon(icon);
             return;
         };
-        // F4-RENAME-MOUSE: while a rename drag is live the field owns the
-        // pointer — extend its selection to the new cell and stop, before any
-        // grid hover/selection/PTY-report work. The handler resolves the same
-        // window-level cell basis used by the single- and multi-pane painters.
-        // `rename_dragging` is only ever set while the modal is open, so this is
-        // inert on every other path.
-        if self.rename_dragging {
-            self.apply_cursor_icon(CursorIcon::Text);
-            self.rename_drag_extend();
-            return;
-        }
-        // UX4-P1/P2: while an overlay is open it owns the pointer. Keep caching
-        // the coordinates above (a press needs them), but skip link hover, local
-        // selection, and PTY motion reports — they belong to the terminal grid
-        // beneath the panel. A move is forwarded to the overlay only to advance
-        // an active slider drag (UX4-P2); non-drag hover is a no-op.
-        if self.overlay.is_open() {
-            self.apply_cursor_icon(CursorIcon::Default);
-            self.handle_overlay_pointer_move();
-            return;
-        }
         // MOUSE-SCROLLBAR: a scroll-thumb drag owns the pointer move — scrub the
         // viewport to the offset the thumb-top maps to and stop. Placed before
         // hover/selection/PTY-report so a scrollbar drag does not update link
@@ -691,9 +711,13 @@ impl App {
     }
 
     /// Scrub the viewport to the scrollback offset the dragged scroll thumb maps
-    /// to (MOUSE-SCROLLBAR). `grab_dy` anchors the cursor to the grab point on
-    /// the thumb. Locks the terminal once for the scrollback length and reuses
-    /// it for both the geometry and the clamped jump.
+    /// to (MOUSE-SCROLLBAR). `y_px` is content-relative: the caller has already
+    /// removed the tab chrome with [`Self::tab_chrome_offset_px`], the same
+    /// single transform the press-time [`Self::scrollbar_hit_test`] applies, so
+    /// a drag that has not moved maps back to the offset it grabbed. `grab_dy`
+    /// anchors the cursor to the grab point on the thumb. Locks the terminal
+    /// once for the scrollback length and reuses it for both the geometry and
+    /// the clamped jump.
     fn drag_scrollbar_to(
         &mut self,
         y_px: f64,
@@ -701,11 +725,6 @@ impl App {
         cell: CellSize,
         padding: WindowPadding,
     ) {
-        let y_px = if self.should_show_tab_bar() {
-            y_px - f64::from(self.tab_bar_height_px(cell))
-        } else {
-            y_px
-        };
         let scrollback_len = self.scrollback_len();
         let Some(target) = scrollbar_offset_for_drag_with_padding(
             y_px as f32,

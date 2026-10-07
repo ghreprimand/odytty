@@ -84,7 +84,7 @@ struct HeldPaneParts {
 use crate::graphics::VisiblePlacement;
 use crate::native::gpu::{OverlayTop, PaneRender, PanelFrameQuads, RailOverlay};
 use crate::native::image_layer::{PaneImageInput, PaneImageUpload};
-use crate::native::layout::{PaneRect, divider_rects, grid_dims_for_rect};
+use crate::native::layout::{PaneRect, divider_rects, grid_dims_for_rect, pane_grid_origin};
 use crate::native::overlay::{apply_overlay, overlay_composite_rect};
 use crate::native::render_helpers::image_uploads_for_visible;
 use std::collections::BTreeMap;
@@ -264,25 +264,32 @@ fn window_overlay_cell(
 }
 
 /// Map an absolute physical pointer position to a cell **relative to a pane's
-/// sub-rect** — origin at the pane's top-left, clamped into `dims` (the focused
-/// pane's grid). Mirrors [`selection::cell_at_physical_with_padding`] but uses
-/// the pane rect as the origin instead of the window padding, so a press inside
-/// an offset pane anchors at the right cell rather than against the window
-/// origin. Pure, so the per-pane selection mapping is unit-testable without a
-/// GPU.
-fn pane_relative_cell(rect: PaneRect, cell: CellSize, x_px: f64, y_px: f64) -> Option<CellPoint> {
-    let (columns, rows) = grid_dims_for_rect(rect, cell.width, cell.height);
+/// drawn grid**: `inner` is the pane's padded rect, which sizes the grid, and
+/// `origin` is where [`pane_grid_origin`] draws its first cell (a sub-cell
+/// remainder on a window-margin edge facing a divider shifts it inside
+/// `inner`). A point before `origin` lies in that remainder strip, where no
+/// cell is drawn, and has no hit; a point in the far remainder clamps to the
+/// last cell. Pure, so the per-pane mapping is unit-testable without a GPU.
+fn pane_relative_cell(
+    inner: PaneRect,
+    origin: [f32; 2],
+    cell: CellSize,
+    x_px: f64,
+    y_px: f64,
+) -> Option<CellPoint> {
+    let (columns, rows) = grid_dims_for_rect(inner, cell.width, cell.height);
+    let (x, y) = (x_px as f32, y_px as f32);
     if columns == 0
         || rows == 0
-        || (x_px as f32) < rect.x
-        || (y_px as f32) < rect.y
-        || (x_px as f32) >= rect.x + rect.w
-        || (y_px as f32) >= rect.y + rect.h
+        || x < origin[0]
+        || y < origin[1]
+        || x >= inner.x + inner.w
+        || y >= inner.y + inner.h
     {
         return None;
     }
-    let column = ((x_px as f32 - rect.x).max(0.0) / cell.width.max(1) as f32) as usize;
-    let row = ((y_px as f32 - rect.y).max(0.0) / cell.height.max(1) as f32) as usize;
+    let column = ((x - origin[0]) / cell.width.max(1) as f32) as usize;
+    let row = ((y - origin[1]) / cell.height.max(1) as f32) as usize;
     Some(CellPoint {
         row: row.min(rows - 1),
         column: column.min(columns - 1),
@@ -445,10 +452,11 @@ impl App {
     /// coords BEFORE the focus switch and pass them here so the selection anchor
     /// lands under the actual click.
     pub(super) fn active_pane_pointer_cell_at(&self, x_px: f64, y_px: f64) -> Option<CellPoint> {
-        let (rect, cell) = self.focused_pane_inner_rect()?;
+        let (inner, origin, cell) = self.focused_pane_grid()?;
         // BIDI: the logical cell drawn under the pointer; identity outside the
         // test-only display gate.
-        pane_relative_cell(rect, cell, x_px, y_px).map(|point| self.bidi_logical_point(point))
+        pane_relative_cell(inner, origin, cell, x_px, y_px)
+            .map(|point| self.bidi_logical_point(point))
     }
 
     /// Whether the cached window pointer lies inside any split leaf's actual
@@ -468,27 +476,23 @@ impl App {
             .into_iter()
             .any(|(_, tiled)| {
                 let inner = self.sessions.active_pane_inner_rect(tiled, content, pad);
-                let dims = grid_dims_for_rect(inner, cell.width, cell.height);
-                dims.0 > 0
-                    && dims.1 > 0
-                    && (x as f32) >= inner.x
-                    && (x as f32) < inner.x + inner.w
-                    && (y as f32) >= inner.y
-                    && (y as f32) < inner.y + inner.h
+                let origin = pane_grid_origin(inner, content, cell.width, cell.height);
+                pane_relative_cell(inner, origin, cell, x, y).is_some()
             })
     }
 
-    /// PANE-PADDING: the focused pane's **padded drawable rect** (grid region)
-    /// plus cell metrics for the active multi-pane tab, or `None` on a single-
-    /// pane tab / when the geometry is unavailable. The tiled sub-rect is inset
-    /// from every divider-facing edge by [`Self::window_pad_px`], exactly matching
-    /// the render origin `rebuild_multipane` derives from
-    /// [`layout::pane_inner_rect`], so a pointer maps to the same cell the glyph
-    /// is drawn at. Zero padding / a zoomed full-bleed pane yields the tiled rect
-    /// unchanged (byte-identical pointer mapping). The origin already folds in the
-    /// tab-chrome/rail offset (it comes off the content rect), so consumers need
-    /// no separate padding subtraction.
-    pub(super) fn focused_pane_inner_rect(&self) -> Option<(PaneRect, CellSize)> {
+    /// PANE-PADDING: the focused pane's **padded drawable rect** (grid region),
+    /// the origin its glyphs are drawn from, and the cell metrics, for the
+    /// active multi-pane tab; `None` on a single-pane tab / when the geometry is
+    /// unavailable. The rect is the tiled sub-rect inset from every
+    /// divider-facing edge by [`Self::window_pad_px`], and the origin is
+    /// [`pane_grid_origin`] of it, exactly as `rebuild_multipane` derives them,
+    /// so a pointer maps to the cell the glyph is drawn at. Zero padding / a
+    /// zoomed full-bleed pane yields the tiled rect and its own top-left
+    /// (byte-identical pointer mapping). Both fold in the tab-chrome/rail
+    /// offset (they come off the content rect), so consumers need no separate
+    /// padding subtraction.
+    pub(super) fn focused_pane_grid(&self) -> Option<(PaneRect, [f32; 2], CellSize)> {
         let (content, cell) = self.multipane_geometry()?;
         let pad = self.window_pad_px();
         let focused = self.sessions.active_id();
@@ -498,10 +502,9 @@ impl App {
             .into_iter()
             .find(|(token, _)| *token == focused)
             .map(|(_, rect)| rect)?;
-        Some((
-            self.sessions.active_pane_inner_rect(rect, content, pad),
-            cell,
-        ))
+        let inner = self.sessions.active_pane_inner_rect(rect, content, pad);
+        let origin = pane_grid_origin(inner, content, cell.width, cell.height);
+        Some((inner, origin, cell))
     }
 
     /// Build the topmost window-level modal surface for the multi-pane render

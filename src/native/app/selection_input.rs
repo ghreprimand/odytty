@@ -495,7 +495,7 @@ impl App {
     /// origin yields a negative fraction and rounds down. Platform-uniform:
     /// [`click_travel_delta`] carries no per-platform behaviour, so this rounding
     /// is the whole of the click-to-place boundary fix on every OS.
-    fn click_subcell_rounds_up(&self, point: CellPoint) -> bool {
+    pub(super) fn click_subcell_rounds_up(&self, point: CellPoint) -> bool {
         let Some((x_px, _)) = self.pointer_px else {
             return false;
         };
@@ -505,10 +505,10 @@ impl App {
         let cell_w = f64::from(cell.width.max(1));
         // Origin of the column axis in the same physical-x basis the cell was
         // resolved against.
-        let origin_x = if let Some((rect, _)) = self.focused_pane_inner_rect() {
-            // Multi-pane: the focused pane's PADDED content sub-rect x origin
-            // (matches the render origin's per-divider inset).
-            f64::from(rect.x)
+        let origin_x = if let Some((_, origin, _)) = self.focused_pane_grid() {
+            // Multi-pane: the focused pane's drawn grid x origin (the render
+            // origin, including the per-divider inset and remainder shift).
+            f64::from(origin[0])
         } else {
             // Single-pane: window padding after the tab-chrome dx. Both are 0 on
             // the plain top-bar path, so this is the bare padding there.
@@ -520,10 +520,16 @@ impl App {
                 .unwrap_or(WindowPadding::ZERO);
             chrome_dx + f64::from(pad.physical_px())
         };
-        // Fraction of the pointer within the resolved cell: >= 0.5 targets the
-        // trailing boundary (caret after the glyph).
-        let frac = (x_px - origin_x) / cell_w - point.column as f64;
-        frac >= 0.5
+        // BIDI: `point` is the logical cell, but the pixel lies in the screen
+        // column the presented frame drew that cell at, so the fraction is
+        // measured against that column. A cell drawn in a right-to-left run
+        // has its logical trailing boundary on its left, so there the left half
+        // targets the boundary after the glyph. Identity (screen column ==
+        // logical column, left-to-right) outside the bidi display gate.
+        let screen_column = self.bidi_visual_column(point);
+        let frac = (x_px - origin_x) / cell_w - screen_column as f64;
+        let right_half = frac >= 0.5;
+        right_half != self.bidi_cell_is_right_to_left(point)
     }
 
     /// Number of rows a Shift+PageUp/PageDown press scrolls: one screenful less

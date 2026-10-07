@@ -100,18 +100,18 @@ impl App {
         // Without this the SGR-pixel (1016) report would leak the chrome / pane
         // offset to the application (a left rail reporting X too large, a top bar
         // reporting Y too large).
-        let (px, py) = if let Some((rect, _)) = self.focused_pane_inner_rect() {
-            // PANE-PADDING: the focused pane's PADDED rect origin already folds in
-            // the tab-chrome, window padding, AND the per-divider inset, so the
-            // report maps to the same cell the glyph renders at (parity with
-            // `pane_relative_cell`); no separate padding subtraction here. The
-            // clamp uses the pane's own grid, the extent `pane_relative_cell`
-            // clamps cells to, so a drag past any pane edge never reports a
-            // pixel outside the pane's screen.
+        let (px, py) = if let Some((rect, origin, _)) = self.focused_pane_grid() {
+            // PANE-PADDING: the focused pane's drawn grid origin already folds
+            // in the tab-chrome, window padding, the per-divider inset, AND the
+            // sub-cell remainder shift, so the report maps to the same cell the
+            // glyph renders at (parity with `pane_relative_cell`); no separate
+            // padding subtraction here. The clamp uses the pane's own grid, the
+            // extent `pane_relative_cell` clamps cells to, so a drag past any
+            // pane edge never reports a pixel outside the pane's screen.
             let (columns, rows) = grid_dims_for_rect(rect, cell.width, cell.height);
             pixel_coords_for_report(
-                x_px - f64::from(rect.x),
-                y_px - f64::from(rect.y),
+                x_px - f64::from(origin[0]),
+                y_px - f64::from(origin[1]),
                 cell,
                 Dimensions::new(columns, rows),
                 WindowPadding::ZERO,

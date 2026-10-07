@@ -464,10 +464,6 @@ impl App {
 }
 
 impl App {
-    pub(super) fn tab_bar_height_px(&self, cell: CellSize) -> f32 {
-        cell.height as f32 * self.tab_reserve().top_rows as f32
-    }
-
     /// The tab-chrome reservation for the current frame. The top tab bar (tabs of
     /// the active workspace) reserves rows off the top whenever it is shown; the
     /// workspace rail reserves columns off its side whenever it is shown and not

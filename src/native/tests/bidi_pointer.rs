@@ -86,3 +86,34 @@ fn drag_across_a_direction_boundary_selects_and_copies_logical_text() {
         "the selection spans logical columns 1..=3 and copies in logical order"
     );
 }
+
+/// Click-to-position measures the half-cell fraction in the screen column the
+/// logical cell is drawn at, and a cell drawn in a right-to-left run has its
+/// logical trailing boundary on its left.
+#[test]
+fn click_half_cell_follows_the_drawn_column_and_its_direction() {
+    let mut app = app();
+    app.present_bidi_frame_map_for_test();
+    let map = app.bidi_frame_map_for_test().expect("gate map").clone();
+    let quarter = f64::from(CELL.width) / 4.0;
+    let y = f64::from(CELL.height) / 2.0;
+    for (column, right_to_left) in [(0, false), (1, false), (3, true), (4, true), (5, true)] {
+        let left_edge = f64::from(CELL.width) * map.visual_column(0, column) as f64;
+        app.pointer_move_for_test(left_edge + quarter, y);
+        assert_eq!(
+            app.pointer_cell_for_test(),
+            Some(CellPoint { row: 0, column })
+        );
+        assert_eq!(
+            app.click_subcell_rounds_up_for_test(),
+            Some(right_to_left),
+            "left half of logical {column}"
+        );
+        app.pointer_move_for_test(left_edge + 3.0 * quarter, y);
+        assert_eq!(
+            app.click_subcell_rounds_up_for_test(),
+            Some(!right_to_left),
+            "right half of logical {column}"
+        );
+    }
+}

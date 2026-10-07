@@ -710,6 +710,17 @@ Each pane owns an independent PTY, terminal model, scrollback, viewport,
 selection, search, and cursor. Selection and search highlights render in their
 own pane, while the search query bar stays on the focused pane.
 
+A click in the focused pane behaves as in a single-pane tab: a program with
+mouse reporting on receives it, Shift selects locally instead, and a
+Ctrl/Cmd click opens a link without sending either half to the program. A
+click in another pane only moves focus there; a mouse-reporting program in
+that pane does not receive the press or its release. The pointer maps to the
+cell drawn under it, including the sub-cell margin a split leaves beside the
+grid, which holds no cell. While a menu, dialog, the rename prompt, or copy
+mode is open, pointer motion over any pane goes to it, never to a program's
+mouse reports. The scroll-indicator thumb is grabbed only in a single-pane
+tab.
+
 `window_padding` applies at divider-facing edges as well as the outside window
 and chrome edges. After a window resize or divider drag settles, every affected
 pane is reconciled to the final whole-cell geometry. A pane narrowed below one

@@ -234,7 +234,7 @@ impl App {
             .into_iter()
             .find(|(t, _)| *t == focused)
             .map(|(_, r)| r)?;
-        let (inner, _cell) = self.focused_pane_inner_rect()?;
+        let (inner, _origin, _cell) = self.focused_pane_grid()?;
         Some((
             [tiled.x, tiled.y, tiled.w, tiled.h],
             [inner.x, inner.y, inner.w, inner.h],
@@ -935,6 +935,21 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn set_test_scale_for_test(&mut self, scale: f32) {
         self.test_scale = Some(scale);
+    }
+
+    /// Test seam: the focused split pane's padded rect `[x, y, w, h]` and the
+    /// origin its grid is drawn from, or `None` on a single-pane tab.
+    #[cfg(test)]
+    pub(in crate::native) fn focused_pane_grid_for_test(&self) -> Option<([f32; 4], [f32; 2])> {
+        let (inner, origin, _) = self.focused_pane_grid()?;
+        Some(([inner.x, inner.y, inner.w, inner.h], origin))
+    }
+
+    /// Test seam: whether click-to-position would target the boundary after
+    /// the cell under the pointer (the half-cell decision).
+    #[cfg(test)]
+    pub(in crate::native) fn click_subcell_rounds_up_for_test(&self) -> Option<bool> {
+        Some(self.click_subcell_rounds_up(self.pointer_cell?))
     }
 
     /// Test seam (CURSOR-ICON): drive the production `CursorMoved` handler

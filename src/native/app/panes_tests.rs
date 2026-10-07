@@ -328,31 +328,70 @@ fn window_overlay_cell_clamps_to_grid_bounds() {
     assert_eq!(mapped, CellPoint { row: 0, column: 0 });
 }
 
+/// A left leaf whose width leaves a sub-cell remainder draws its grid shifted
+/// right by that remainder (flush to the divider). The pointer maps against the
+/// drawn origin: the remainder strip holds no cell, and a pointer just past the
+/// drawn origin is over drawn column zero.
+#[test]
+fn pane_relative_cell_measures_from_the_drawn_grid_origin() {
+    let cell = cell();
+    let content = PaneRect::new(0.0, 0.0, 60.0, 40.0);
+    let left = PaneRect::new(0.0, 0.0, 29.0, 40.0);
+    let origin = crate::native::layout::pane_grid_origin(left, content, 10, 20);
+    assert_eq!(origin, [9.0, 0.0], "a 29px leaf draws two cells from x=9");
+    assert_eq!(
+        pane_relative_cell(left, origin, cell, 11.0, 5.0),
+        Some(CellPoint { row: 0, column: 0 }),
+        "x=11 is over drawn column zero"
+    );
+    assert_eq!(
+        pane_relative_cell(left, origin, cell, 20.0, 5.0),
+        Some(CellPoint { row: 0, column: 1 })
+    );
+    assert_eq!(
+        pane_relative_cell(left, origin, cell, 4.0, 5.0),
+        None,
+        "the remainder strip before the drawn grid has no cell"
+    );
+}
+
 #[test]
 fn pane_relative_cell_rejects_padding_and_collapsed_axes() {
     let cell = cell();
     let inner = PaneRect::new(64.0, 32.0, 25.0, 45.0);
     assert_eq!(
-        pane_relative_cell(inner, cell, 74.0, 52.0),
+        pane_relative_cell(inner, [inner.x, inner.y], cell, 74.0, 52.0),
         Some(CellPoint { row: 1, column: 1 })
     );
     assert_eq!(
-        pane_relative_cell(inner, cell, 63.9, 52.0),
+        pane_relative_cell(inner, [inner.x, inner.y], cell, 63.9, 52.0),
         None,
         "left padding is not clamped into column zero"
     );
     assert_eq!(
-        pane_relative_cell(inner, cell, 89.0, 52.0),
+        pane_relative_cell(inner, [inner.x, inner.y], cell, 89.0, 52.0),
         None,
         "the exclusive inner edge has no hit target"
     );
     assert_eq!(
-        pane_relative_cell(PaneRect::new(64.0, 32.0, 9.0, 45.0), cell, 68.0, 52.0),
+        pane_relative_cell(
+            PaneRect::new(64.0, 32.0, 9.0, 45.0),
+            [64.0, 32.0],
+            cell,
+            68.0,
+            52.0
+        ),
         None,
         "a sub-cell-width pane has no drawable column"
     );
     assert_eq!(
-        pane_relative_cell(PaneRect::new(64.0, 32.0, 25.0, 19.0), cell, 74.0, 42.0),
+        pane_relative_cell(
+            PaneRect::new(64.0, 32.0, 25.0, 19.0),
+            [64.0, 32.0],
+            cell,
+            74.0,
+            42.0
+        ),
         None,
         "a sub-cell-height pane has no drawable row"
     );

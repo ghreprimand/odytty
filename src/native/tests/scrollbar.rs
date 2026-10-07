@@ -138,3 +138,55 @@ fn press_at_live_tail_never_grabs() {
         "live tail: a right-edge press starts a local selection (no thumb to grab)"
     );
 }
+
+/// With the top tab bar shown, a thumb grab followed by motion that has not
+/// moved keeps the viewport where it was: press and drag remove the tab chrome
+/// from the pointer's Y exactly once.
+#[test]
+fn a_motionless_thumb_drag_under_a_shown_tab_bar_keeps_the_offset() {
+    let dims = Dimensions::new(COLS, ROWS);
+    let settings = Settings {
+        always_show_tab_bar: true,
+        ..Settings::default()
+    };
+    let (mut app, terminal) = headless_app_with(NativeOptions::default(), dims, settings);
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(&b"scrollback line\r\n".repeat(120));
+    app.set_test_cell_for_test(cell(CELL_W, CELL_H));
+    app.set_test_surface_for_test(
+        COLS as u32 * CELL_W,
+        (ROWS as u32 + 2) * CELL_H,
+        WindowPadding::ZERO,
+    );
+    let len = app.scrollback_len_for_test();
+    if len == 0 {
+        eprintln!("skipping: no scrollback materialized");
+        return;
+    }
+    app.scroll_up_for_test(len / 2);
+    let offset = app.viewport_offset_for_test();
+    assert!(offset > 0 && offset < len, "the thumb sits mid-track");
+    let (_, chrome_dy) = app.tab_chrome_offset_px_for_test().expect("chrome");
+    assert!(chrome_dy > 0.0, "the top bar is shown");
+    let thumb = scroll_indicator_quad(
+        offset,
+        len,
+        dims,
+        cell(CELL_W, CELL_H),
+        [1.0, 1.0, 1.0, 0.62],
+    )
+    .expect("thumb visible while scrolled back");
+    let x = f64::from((thumb.rect[0] + thumb.rect[2]) / 2.0);
+    let y = f64::from((thumb.rect[1] + thumb.rect[3]) / 2.0) + chrome_dy;
+    app.pointer_move_for_test(x, y);
+    assert_eq!(app.left_button_outcome_for_test(true), "grab");
+    app.pointer_move_for_test(x, y);
+    assert_eq!(
+        app.viewport_offset_for_test(),
+        offset,
+        "a drag that has not moved scrubs nowhere"
+    );
+    assert_eq!(app.left_button_outcome_for_test(false), "idle");
+}

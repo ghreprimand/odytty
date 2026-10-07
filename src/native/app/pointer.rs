@@ -292,10 +292,9 @@ impl App {
             return;
         }
         // Multi-pane left press: grab a divider to drag, else focus the clicked
-        // pane (focus-follows-click, audit row #6). Returns before the
-        // single-pane selection path; per-pane selection geometry is a later
-        // Phase-1 checkbox. `multipane_geometry()` is `None` for a single-pane
-        // tab, so this whole branch is skipped there and the press path stays
+        // pane (focus-follows-click, audit row #6) and resolve the press cell in
+        // that pane. `multipane_geometry()` is `None` for a single-pane tab, so
+        // this whole branch is skipped there and the press path stays
         // byte-identical.
         //
         // Gated on the press landing *inside* the content rect on BOTH axes:
@@ -303,19 +302,17 @@ impl App {
         // and a side workspace rail sits beside it (`content.x` is the rail's
         // inner edge), so a click on either chrome band fails this guard and
         // falls through to the chrome routing below instead of being swallowed by
-        // an unconditional `return` here. The y-bound alone shipped first and the
-        // SIDE band was forgotten: with a left/right rail a rail-slot press has
-        // `y >= content.y` but `x` outside the content rect, so it matched here,
-        // resolved to no pane, and the bare `return` killed every rail
-        // left-interaction (switch/drag/close/+) whenever the active tab was
-        // split. The x-bound restores chrome routing for those presses; a
-        // divider-gap press inside the content rect still resolves to no pane and
-        // returns as before. Under rail auto-hide the floating rail reserves no
-        // columns, so its revealed overlay lies inside the content rect. Exclude
-        // that visible overlay band here as well, allowing the existing chrome
-        // routing below to handle the workspace press. The helper is reveal-state
-        // aware, so a press in the same columns while the rail is hidden still
-        // focuses the underlying pane.
+        // an unconditional `return` here. Under rail auto-hide the floating rail
+        // reserves no columns, so its revealed overlay lies inside the content
+        // rect; the helper excludes that visible band (reveal-state aware, so a
+        // press in the same columns while the rail is hidden still focuses the
+        // underlying pane).
+        //
+        // A press that keeps the focused pane continues to the shared content
+        // ladder below (open modifier, TUI report gate, button, selection), so a
+        // split pane reports clicks to a mouse-reporting program exactly as a
+        // single pane does and a Ctrl/Cmd open swallows its paired release.
+        let mut split_content_press = false;
         if button == WinitMouseButton::Left
             && state == ElementState::Pressed
             && !self.pointer_in_workspace_rail_band()
@@ -337,74 +334,68 @@ impl App {
                 self.divider_drag = Some(idx);
                 return;
             }
-            // Not a divider grab: focus the clicked pane (focus-follows-click),
-            // then begin a text selection anchored in THAT pane's sub-rect.
-            // Recompute the pointer cell against the (possibly newly) focused
-            // pane so the anchor is correct after a focus change, then dispatch
-            // the same selection entry the single-pane press uses (click-count /
-            // Shift-extend / Alt-block all flow through `begin_selection`). A
-            // press in a divider gap resolves to no pane and just returns, as
-            // before — only the unconditional swallow of an in-pane press is
-            // removed.
-            if let Some(token) =
+            // A press in a divider gap resolves to no pane and just returns.
+            let Some(token) =
                 self.sessions
                     .active_pane_at_point(content, PANE_DIVIDER_PX, cell_px, x, y)
-            {
-                // B3: remember whether THIS press performed the pane focus
-                // change — a focus-transfer click must not fire a button.
-                let pane_focus_changed = self.sessions.set_active_focus(token);
-                if pane_focus_changed {
-                    self.on_active_session_changed();
-                }
-                // C11: resolve the anchor from the click coords captured BEFORE
-                // the focus switch. `active_pane_pointer_cell()` would re-read
-                // `self.pointer_px`, which now derefs to the freshly-focused
-                // pane's stale stored coordinate — anchoring the drag at the
-                // wrong cell. `x_px`/`y_px` here are the live click position.
-                let Some(point) = self.active_pane_pointer_cell_at(x_px, y_px) else {
-                    // The tiled leaf can still receive focus while its padded
-                    // inner rect is collapsed or the press lies in the pane's
-                    // padding. It has no drawable terminal cell, so do not
-                    // reuse a stale cell to open a target or begin a selection.
-                    self.pointer_cell = None;
-                    return;
-                };
-                self.pointer_cell = Some(point);
-                // Bug 4 (Ctrl+click in a split): the single-pane press path tries
-                // the open helpers (OSC 8 hyperlink, interactive path incl. the
-                // inline image viewer, bare URL) BEFORE selection; this branch
-                // historically began a selection directly, so Ctrl+click never
-                // reached `open_image_view` in a split. Mirror the single-pane
-                // ladder here. Hover resolution is suppressed while the pointer is
-                // over a NON-focused pane, so the latched hover spans would be
-                // stale (or `None`) for a pane that was not focused when the
-                // pointer moved over it. The clicked pane is now the focused pane
-                // and `pointer_cell` was recomputed against its grid, so
-                // re-resolving the hover spans here latches them exactly as a
-                // single-pane focused hover would before the ladder reads them.
-                self.update_hover_hyperlink();
-                self.update_hover_path();
-                self.update_hover_url();
-                // B3: drop a stale button latch before this press decides
-                // anything (a lost release — e.g. swallowed by chrome — must
-                // never pair with a later release).
+            else {
+                return;
+            };
+            // B3: remember whether THIS press performed the pane focus change;
+            // a focus-transfer click must not fire a button.
+            let pane_focus_changed = self.sessions.set_active_focus(token);
+            if pane_focus_changed {
+                self.on_active_session_changed();
+            }
+            // C11: resolve the anchor from the click coords captured BEFORE the
+            // focus switch. `active_pane_pointer_cell()` would re-read
+            // `self.pointer_px`, which now derefs to the freshly-focused pane's
+            // stale stored coordinate. `x_px`/`y_px` here are the live click
+            // position; storing them makes every later reader (pixel reports,
+            // click-to-position) see the click, not the stale coordinate.
+            self.pointer_px = Some((x_px, y_px));
+            let Some(point) = self.active_pane_pointer_cell_at(x_px, y_px) else {
+                // The tiled leaf can still receive focus while its padded
+                // inner rect is collapsed or the press lies in the pane's
+                // padding. It has no drawable terminal cell, so do not reuse a
+                // stale cell to open a target, report, or begin a selection.
+                self.pointer_cell = None;
+                return;
+            };
+            self.pointer_cell = Some(point);
+            // Hover resolution is suppressed while the pointer is over a
+            // NON-focused pane, so the latched hover spans would be stale for a
+            // pane that was not focused when the pointer moved over it.
+            // Re-resolve them against the now-focused pane before any open
+            // helper reads them.
+            self.update_hover_hyperlink();
+            self.update_hover_path();
+            self.update_hover_url();
+            if pane_focus_changed {
+                // A focus-transfer click (#11167 class) focuses the pane and
+                // never latches a button. A mouse-reporting program in the newly
+                // focused pane does not receive it either: the press belongs to
+                // the focus change, so its paired release is swallowed too.
+                // Without reporting it runs the historical open/selection
+                // ladder.
                 self.pressed_button = None;
-                // B3 button arm, joining AFTER the hover recompute so it
-                // hit-tests the freshly focused pane's grid. A pane-focusing
-                // click is a focus transfer (#11167 class) and never latches
-                // a button; it runs the historical ladder instead.
-                if !pane_focus_changed && self.try_press_button() {
-                    // Press consumed; the paired release resolves in the
-                    // release arm (fire on same span, cancel otherwise).
-                } else if !self.try_open_hovered_hyperlink()
-                    && !self.try_open_hovered_path()
-                    && !self.try_open_hovered_url()
+                if self.should_report_mouse_to_pty() {
+                    self.swallow_open_left_release = true;
+                    return;
+                }
+                self.swallow_open_left_release = false;
+                if self.try_open_hovered_hyperlink()
+                    || self.try_open_hovered_path()
+                    || self.try_open_hovered_url()
                 {
+                    self.swallow_open_left_release = true;
+                } else {
                     self.note_possible_path_misclick();
                     self.begin_selection();
                 }
+                return;
             }
-            return;
+            split_content_press = true;
         }
         if self.any_chrome_shown() {
             match (button, state, self.current_chrome_hit()) {
@@ -605,6 +596,7 @@ impl App {
         // the press actually lands on the thumb; every other press (including in
         // a mouse-reporting app) falls through to exactly the historical path.
         if self.settings.scrollbar_drag
+            && !split_content_press
             && button == WinitMouseButton::Left
             && state == ElementState::Pressed
             && let Some(grab_dy) = self.scrollbar_hit_test()
