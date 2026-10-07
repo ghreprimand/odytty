@@ -661,6 +661,12 @@ impl App {
             // match exhaustive without pretending a single window owns the
             // global toggle.
             UserEvent::QuickTerminalSummon => false,
+            UserEvent::GpuDeviceStateChanged => {
+                if self.gpu.as_ref().is_some_and(GpuState::is_device_lost) {
+                    self.enter_gpu_device_lost();
+                }
+                false
+            }
             // The process host owns the single automation endpoint and consumes
             // this event before routing. A window never dispatches it directly.
             UserEvent::AutomationWake => false,

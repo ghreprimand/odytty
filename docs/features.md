@@ -1350,6 +1350,12 @@ pipe names are rejected before opening. Windows CI covers same-user round trips,
 exclusive-name collision, and malformed-frame refusal. Remote-machine and
 second-account permission checks remain hands-on release acceptance.
 
+GL windows in one presentation instance share their GPU device and queue.
+Closing a sibling, cancelling tab tear-out, merging windows or hiding a quick
+terminal releases the retired surface and window resources without deleting
+the shared GL draw state. Device loss pauses all attached GL windows until
+OdyTTY restarts. Vulkan, Metal and DX12 keep separate devices per window.
+
 ## Shell Integration
 
 ### Enable Prompt-Aware Actions

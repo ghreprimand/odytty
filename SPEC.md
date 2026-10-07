@@ -279,6 +279,15 @@ validation covers NVIDIA's proprietary driver on Hyprland only; AMD, Intel, and
 NVK were not tested on device. The startup log names the chosen and offered
 modes (at warning level when the mode is not `Fifo`).
 
+**GL window lifetime.** Native windows on the GL backend share one adapter,
+device and queue per presentation instance. Each window retains its own surface,
+pipelines, buffers and atlases. Closing a window or cancelling a provisional
+drag releases those window resources without deleting the GL device's bound
+vertex array. A shared device loss pauses every attached GL window and requires
+restarting OdyTTY. Vulkan, Metal and DX12 retain separate devices per window.
+The same lifetime rule applies to Linux Wayland and X11 and to an explicitly
+selected GL backend on another OS.
+
 **DCS query surface** (`src/core/screen/query.rs`). XTGETTCAP (`DCS +q`)
 and DECRQSS (`DCS $q`) capture ride the same parser hook/put/unhook seam used
 for graphics DCS payloads — no parser changes required. `dcs_query_hook`

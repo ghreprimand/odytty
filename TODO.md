@@ -211,6 +211,10 @@ claim acceptance on other platforms. The release notes are in
 - [x] Device acceptance on Windows: a long wrapped PowerShell prompt at
       startup and in a new window places the first typed command directly
       after the prompt.
+- [x] GL multi-window teardown retains one presentation device and queue per
+      instance, so closing a sibling or cancelling a provisional tab window
+      preserves the survivor's draw state. Shared GL device loss pauses every
+      attached window; Vulkan, Metal and DX12 keep per-window devices.
 - [x] GPU and history work is bounded: a lost GPU device stays lost, so no
       later redraw, resize, or surface recreation touches it and its render
       timers stop waking the loop; switching a tab between single-pane and

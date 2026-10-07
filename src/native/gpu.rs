@@ -5,7 +5,9 @@
 //! surface, adapter, device, queue, pipelines, bindings, buffers, CPU-side
 //! vertices, image state, post-processing state, atlases, and fonts. The root
 //! instance is retained by a process owner so retiring one window cannot tear
-//! down the graphics instance used by another. This file is the facade over its
+//! down the graphics instance used by another. GL also retains one device and
+//! queue per instance; the other backends retain per-window devices.
+//! This file is the facade over its
 //! responsibility modules and preserves the
 //! `crate::native::gpu::*` paths the rest of the native layer uses:
 //!
@@ -34,6 +36,7 @@ mod frame;
 mod pipeline_policy;
 mod pipelines;
 pub(super) mod present_mode;
+mod presentation_device;
 mod recovery;
 mod resources;
 mod scene;

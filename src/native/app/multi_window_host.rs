@@ -1717,6 +1717,13 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
             self.refresh();
             return;
         }
+        if matches!(event, UserEvent::GpuDeviceStateChanged) {
+            for app in &mut self.windows {
+                app.apply_user_event(UserEvent::GpuDeviceStateChanged);
+            }
+            self.refresh();
+            return;
+        }
         // A PTY pump wake or session event implies a redraw is wanted.
         self.shared.note_activity();
         // v0.15.0 A: a global-shortcut summon is not session-scoped. Drive the

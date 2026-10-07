@@ -100,3 +100,14 @@ fn a_paused_window_owes_the_watchdog_no_frame() {
         "latched work on a lost device is paused, not a stall"
     );
 }
+
+#[test]
+fn shared_device_health_is_global_and_cannot_clear_a_paused_window() {
+    assert_eq!(UserEvent::GpuDeviceStateChanged.routed_session(), None);
+    let mut app = idle_app();
+    app.enter_gpu_device_lost();
+    assert!(!app.apply_user_event(UserEvent::GpuDeviceStateChanged));
+    assert!(!app.on_redraw_requested());
+    assert!(app.gpu_device_lost);
+    assert!(!app.watchdog_state().render_owed);
+}

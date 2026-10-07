@@ -59,7 +59,7 @@ impl App {
     /// Release this window's presentation state in driver-safe order.
     ///
     /// `App::window` deliberately stays alive while `GpuState` waits for its
-    /// per-window device and drops the surface. Only then is the final app-owned
+    /// presentation queue and drops the surface. Only then is the final app-owned
     /// window reference released. Calling this twice is harmless.
     pub(in crate::native) fn release_surface(&mut self) {
         release_presentation(

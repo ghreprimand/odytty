@@ -311,6 +311,13 @@ pub(in crate::native) fn bring_up_adapter(
             }
         };
 
+        if let Some(adapter) = super::presentation_device::cached_adapter(&instance)
+            && adapter.is_surface_supported(&surface)
+        {
+            let info = adapter.get_info();
+            return Ok((instance, surface, adapter, info));
+        }
+
         let adapter = match pollster::block_on(instance.request_adapter(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),

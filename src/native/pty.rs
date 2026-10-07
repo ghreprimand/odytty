@@ -22,6 +22,9 @@ use super::session::SessionToken;
 pub(super) enum UserEvent {
     /// New PTY output landed in the shared terminal; rebuild + redraw.
     Redraw { session: SessionToken },
+    /// A shared presentation device changed health. Global so tab transfers
+    /// cannot make the notification depend on a stale session owner.
+    GpuDeviceStateChanged,
     /// The shell's PTY reached EOF (shell exited): exit the loop.
     ShellExited { session: SessionToken },
     /// F6-i7: a background image upload finished successfully. The worker sends
@@ -133,6 +136,7 @@ impl UserEvent {
             | UserEvent::QuickTerminalSummon
             | UserEvent::AutomationWake
             | UserEvent::WaylandTabDragWake
+            | UserEvent::GpuDeviceStateChanged
             | UserEvent::GlyphFallbackResolved
             | UserEvent::QuickTerminalRegistration { .. }
             | UserEvent::WaylandFileDrop { .. }

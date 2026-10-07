@@ -1255,6 +1255,10 @@ older hardware.
 - **macOS:** Metal is always hardware-backed on supported machines; a software
   adapter here is unusual and typically indicates a virtualized environment.
 
+GL windows share one presentation device and retain separate surfaces. A GPU
+device loss pauses the attached GL windows until OdyTTY is restarted; an ordinary
+window close does not retire the shared device.
+
 ### No Vulkan adapter, accelerated GL, and virtual machines
 
 On Linux OdyTTY prefers a Vulkan adapter but does not require one:

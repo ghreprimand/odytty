@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! `GpuState` — the single UI-thread owner of the renderer's device, surface,
+//! `GpuState`, the single UI-thread owner of the renderer's device, surface,
 //! pipelines, bindings, buffers, atlases, and fonts — together with its
 //! initialization and its resource-rebuild seams.
 //!
-//! Decomposition adds no locks and no shared ownership: every field below is
-//! reached only from the UI thread through `&mut GpuState`.
+//! Window resources are reached only from the UI thread through `&mut GpuState`.
+//! GL presentation shares its device and queue across sibling windows.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -337,6 +337,8 @@ pub(in crate::native) struct GpuState {
     pub(super) surface: wgpu::Surface<'static>,
     pub(super) device: wgpu::Device,
     pub(super) device_lost: Arc<AtomicBool>,
+    /// Retains this renderer's weakly registered GL device-loss notification.
+    pub(super) _gl_subscription: Option<Arc<super::presentation_device::Subscription>>,
     pub(super) queue: wgpu::Queue,
     /// Owned adapter info for the About panel's renderer diagnostics. Captured
     /// once at init; read-only thereafter. Not used by any render path.
@@ -722,21 +724,21 @@ impl GpuState {
                 "odytty: GPU adapter is below WebGPU default limits; using downlevel-compatible limits"
             );
         }
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("odytty-device"),
-            required_features: enabled_features,
+        let (device, queue) = super::presentation_device::request_device(
+            &instance,
+            &adapter,
+            enabled_features,
             required_limits,
-            experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            // The integrated-GPU gate cut exact-geometry idle memory by 68%
-            // without a repeatable stream-interval regression. Headless test
-            // devices keep the default so allocator policy cannot perturb
-            // rendering-correctness fixtures.
-            memory_hints: wgpu::MemoryHints::MemoryUsage,
-            trace: wgpu::Trace::Off,
-        }))
-        .map_err(|err| NativeError::DeviceRequest(err.to_string()))?;
+        )?;
         let device_lost = Arc::new(AtomicBool::new(false));
-        install_gpu_error_handlers(&device, Arc::clone(&device_lost), event_proxy, session);
+        let gl_subscription = super::presentation_device::subscribe(
+            &device,
+            Arc::clone(&device_lost),
+            event_proxy.clone(),
+        );
+        if gl_subscription.is_none() {
+            install_gpu_error_handlers(&device, Arc::clone(&device_lost), event_proxy, session);
+        }
 
         let caps = surface.get_capabilities(&adapter);
         let (format, surface_is_srgb) = choose_surface_format(&caps.formats);
@@ -1090,6 +1092,7 @@ impl GpuState {
             surface,
             device,
             device_lost,
+            _gl_subscription: gl_subscription,
             queue,
             adapter_diagnostics,
             enabled_features,
