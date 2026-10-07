@@ -195,3 +195,75 @@ fn match_ipv4(b: &[u8], mut i: usize) -> Option<usize> {
     }
     Some(i)
 }
+
+#[test]
+fn nerd_font_sample_labels_match_the_bundled_glyphs() {
+    use skrifa::{MetadataProvider, raw::TableProvider};
+
+    let font = skrifa::FontRef::new(include_bytes!(
+        "../assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf"
+    ))
+    .expect("bundled Symbols font parses");
+    let legacy = skrifa::FontRef::new(include_bytes!(
+        "../assets/fonts/nerd-fonts-symbols-v2/SymbolsNerdFontMono-v2-Regular.ttf"
+    ))
+    .expect("legacy Symbols font parses");
+    let section = FIXTURE
+        .split("# Nerd Font PUA samples")
+        .nth(1)
+        .expect("Nerd Font section exists")
+        .split("# CJK wide text")
+        .next()
+        .unwrap();
+    let mut sample_count = 0;
+    for row in section
+        .lines()
+        .skip(1) // Discard the remainder of the section title.
+        .filter(|row| !row.starts_with('#') && !row.is_empty())
+    {
+        let ch = row.chars().next().unwrap();
+        if ch == 'g' {
+            continue; // The table header is "glyph  meaning".
+        }
+        sample_count += 1;
+        assert!(
+            font.charmap().map(ch).is_some(),
+            "sample exists in bundled font"
+        );
+        assert!(
+            legacy.charmap().map(ch).is_some(),
+            "sample exists in legacy font"
+        );
+    }
+    assert_eq!(sample_count, 10);
+    let post = font.post().expect("bundled glyph names are available");
+    let samples = [
+        ('\u{f0302}', "md-jeepney", "nf-md-jeepney"),
+        ('\u{f031f}', "md-language_php", "nf-md-language_php"),
+        ('\u{f02d2}', "md-heart_box", "nf-md-heart_box"),
+        ('\u{eafc}', "cod-git_commit", "nf-cod-git_commit"),
+        ('\u{e264}', "fae-cheese", "nf-fae-cheese"),
+    ];
+    for (ch, glyph_name, label) in samples {
+        let glyph = font
+            .charmap()
+            .map(ch)
+            .expect("sample exists in bundled font");
+        assert_eq!(
+            post.glyph_name(skrifa::raw::types::GlyphId16::new(glyph.to_u32() as u16)),
+            Some(glyph_name)
+        );
+        assert!(
+            legacy.charmap().map(ch).is_some(),
+            "sample exists in legacy font"
+        );
+        let row = FIXTURE
+            .lines()
+            .find(|row| row.starts_with(ch))
+            .expect("sample row exists");
+        assert!(
+            row.contains(label),
+            "glyph {glyph_name} has the wrong fixture label: {row}"
+        );
+    }
+}

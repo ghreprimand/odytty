@@ -91,6 +91,13 @@ jobs:
           key: ${{ matrix.os }}-cargo-v2-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ matrix.os }}-cargo-v2-
 
+      # Offline intake checks exercise pathlib replacement on every supported OS.
+      - name: Corpus intake self-tests
+        run: python scripts/compatibility-corpus.py selftest
+
+      - name: Compatibility corpus validation
+        run: python scripts/compatibility-corpus.py validate
+
       - name: Format check
         run: cargo fmt --check
 

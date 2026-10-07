@@ -29,7 +29,7 @@ What the corpus is **not**:
 Neither half trusts the other. The validator re-checks everything the harness
 parses, and the harness re-checks the structural rules it depends on, so a
 malformed corpus fails loudly in either place rather than silently in both.
-The validator needs Python 3.11 or newer and uses the standard library only —
+The validator needs Python 3.11 or newer and uses the standard library only -
 the same reproducibility argument as the conformance runner.
 
 ## Layout
@@ -80,7 +80,7 @@ Rules:
 - **Line 1** is exactly `# SPDX-License-Identifier: GPL-3.0-only`.
 - **Directives** are comment lines of the form `# key: value` with a lowercase
   hyphenated key, and they appear only in the header, before the first content
-  line. The vocabulary is closed; an unknown directive — including a typo — is
+  line. The vocabulary is closed; an unknown directive - including a typo - is
   an error, never a default. Prose comments start with a capital letter or
   another word order so they never collide.
 - **Content lines** assemble with the escapes `\e` (ESC), `\r`, `\n`, `\t`,
@@ -121,7 +121,7 @@ chunk sizes. Chunks mirror how a PTY delivers bytes in arbitrary read
 boundaries, and the exact-sum rule means the same case always feeds the same
 way. There is no timing, no randomness, no host command, no PTY.
 
-Expectations are **coarse invariants** — visible trimmed rows, substrings,
+Expectations are **coarse invariants** - visible trimmed rows, substrings,
 cursor, scrollback length, host reply bytes, reported working directory.
 They are the assertions that catch gross regressions without depending on
 cell-by-cell layout minutiae. What replay does **not** assert: pixels, fonts,
@@ -130,7 +130,7 @@ public `Terminal` API. A case that needs those is not a corpus case.
 
 ## Manifest fields
 
-Every `[[case]]` entry in `corpus.toml` carries exactly the fields below —
+Every `[[case]]` entry in `corpus.toml` carries exactly the fields below -
 no missing, no unknown. Metadata the validator does not understand is
 metadata a reviewer cannot rely on, so the field set is closed.
 
@@ -144,7 +144,7 @@ metadata a reviewer cannot rely on, so the field set is closed.
 | `origin` | `authored`, `public_report`, `conformance_run`, `fuzz_campaign`, or `differential_run` |
 | `origin_ref` | Empty unless origin is `public_report`; then `issue:<n>`, `pull:<n>`, or an https URL |
 | `license` | `GPL-3.0-only` |
-| `consent` | `author` for project-internal origins; `submitter-granted` — required — for a public report |
+| `consent` | `author` for project-internal origins; `submitter-granted` - required - for a public report |
 | `reviewed` | `true` in the tracked tree; the record that a human read the case |
 | `minimized` | `true`; a case that is not minimal is not done |
 | `platforms` | Non-empty subset of `linux`, `macos`, `windows` where the expectation holds |
@@ -153,7 +153,7 @@ metadata a reviewer cannot rely on, so the field set is closed.
 | `notes` | Why the case exists and what it does not prove |
 
 The digest covers the assembled bytes, not the file text, so comment and
-notation edits that leave the payload unchanged do not churn it — and any
+notation edits that leave the payload unchanged do not churn it - and any
 edit that changes the bytes is caught. When the bytes change, recompute and
 record the real digest. Never edit bytes to match a stale one: a mismatch
 means the bytes changed, and that is the finding.
@@ -167,11 +167,11 @@ inflate some classes and hide gaps in others.
 
 | Class | Evidence origin | Extra required field |
 | --- | --- | --- |
-| `vttest` | A finding against the pinned conformance suite | `source_case` — the `compat/vttest` case id |
-| `real_app` | Output shape of a real application (shell, editor, pager, TUI) | `application` — the public program name |
-| `differential` | Comparison against an independent reference | `reference` — the standard or terminal compared against |
-| `parser` | OdyTTY parser/state behavior in isolation | — |
-| `fuzz` | A minimized fuzz-campaign finding | `origin_target` — the fuzzer that found it |
+| `vttest` | A finding against the pinned conformance suite | `source_case` - the `compat/vttest` case id |
+| `real_app` | Output shape of a real application (shell, editor, pager, TUI) | `application` - the public program name |
+| `differential` | Comparison against an independent reference | `reference` - the standard or terminal compared against |
+| `parser` | OdyTTY parser/state behavior in isolation | - |
+| `fuzz` | A minimized fuzz-campaign finding | `origin_target` - the fuzzer that found it |
 
 A differential case whose expectation differs from its reference must name
 the documented divergence in its notes; an unexplained difference is a bug,
@@ -183,7 +183,7 @@ kinds blur in practice.
 
 The guards differ in surface. The at-sign, home-path, and Windows identity
 rules apply to the case file text, to the assembled payload (so escapes
-cannot smuggle content past them), and to every manifest string — prose
+cannot smuggle content past them), and to every manifest string - prose
 leaks identities just as well as bytes. The reserved-device-name rule
 applies to assembled payload data only: it judges what the terminal would
 receive, and a prose mention of `NUL` in a note is documentation, not data.
@@ -198,7 +198,7 @@ receive, and a prose mention of `NUL` in a note is documentation, not data.
   `~` or a `/tmp` path.
 - **Windows path-shaped data needs a declaration.** Drive-letter user paths
   and UNC paths are rejected in any covered surface unless the case sets
-  `contains_windows_path_data = true` — and then every match must come from
+  `contains_windows_path_data = true` - and then every match must come from
   a synthetic placeholder allowlist (drives `C:`/`D:`; users
   `test`/`placeholder`/`example`; hosts and shares like `server`/`share`).
   An identity-bearing match is rejected even with the declaration, and a
@@ -210,12 +210,14 @@ receive, and a prose mention of `NUL` in a note is documentation, not data.
 - **UTF-16 data is declared and escape-encoded.** A case carrying
   UTF-16-derived bytes sets `contains_utf16_data = true` and expresses those
   bytes as `\xNN` escapes, so the encoding claim stays reviewable in a diff;
-  such a file must be pure ASCII.
+  such a file must be pure ASCII. Privacy checks always inspect the raw bytes,
+  NUL-stripped bytes and both UTF-16 byte orders, regardless of that declaration.
+  Encoded Windows paths use the same declaration and placeholder allowlist.
 
 ### Windows data is data
 
 The validator and the harness treat drive letters, backslashes, UNC shapes,
-reserved names, and encoding declarations as bytes to check — never as paths
+reserved names, and encoding declarations as bytes to check - never as paths
 to touch. No filesystem access follows from them, on any platform. A case
 about an OSC 7 drive-letter cwd declares both stored strings: Unix retains the
 URL path's drive-leading slash, while Windows intentionally removes it. Each
@@ -240,7 +242,7 @@ under review.
 | `max_expectations_per_case` | 32 | 64 |
 
 A case that wants more room is not minimized. Intake candidates are bound
-tighter still: 4 096 payload bytes — a submission larger than that has not
+tighter still: 4 096 payload bytes - a submission larger than that has not
 been minimized, whatever its cover letter says.
 
 ## Deduplication
@@ -262,7 +264,7 @@ incoming/  ── intake ──▶  staged/  ── review, then accept ──�
     └── quarantine ──▶ quarantine/ + reason
 ```
 
-- **incoming** — a candidate pair, `<id>.vtseq` plus a `<id>.toml` fragment
+- **incoming** - a candidate pair, `<id>.vtseq` plus a `<id>.toml` fragment
   holding its `[[case]]` entry with `reviewed = false`. External submissions
   are minimized by the contributor and must name a public origin; the
   consent rules in the manifest table are what make "may we keep this" a
@@ -273,11 +275,14 @@ incoming/  ── intake ──▶  staged/  ── review, then accept ──�
   nothing is staged silently.
 - **review** is a human act. The reviewer reads the case, and only then sets
   `reviewed = true` in the staged fragment. `accept` re-validates everything,
-  refuses anything on the reject ledger, lands the file under `cases/`,
-  appends the entry to `corpus.toml`, and re-validates the whole corpus
-  before reporting success.
+  refuses anything on the reject ledger and validates the whole prospective
+  corpus before writing the fixture and replacing `corpus.toml`.
+  Fragments contain only one `[[case]]` table; the manifest accepts only
+  `corpus`, `policy` and `case` at its top level. Validation failures leave the
+  corpus and staging unchanged. If the manifest replacement fails, the new
+  fixture is removed and the staged pair stays available for retry.
 - **reject** moves the pair to `rejected/` and records the payload hash with
-  the reason. **quarantine** moves it to `quarantine/` with a reason file —
+  the reason. **quarantine** moves it to `quarantine/` with a reason file -
   the path for anything that looks security- or privacy-sensitive, which
   also gets reported per [`SECURITY.md`](../../SECURITY.md).
 

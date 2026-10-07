@@ -51,12 +51,15 @@ import argparse
 import datetime as _datetime
 import hashlib
 import json
+import os
+import stat
 import re
 import shutil
 import sys
 import tempfile
 import tomllib
 import unittest
+from unittest import mock
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -533,7 +536,7 @@ def guard_text(text: str, label: str, *, windows_declared: bool, payload: bool) 
     errors: list[str] = []
     if AT_SIGN_RE.search(text):
         errors.append(
-            f"{label}: literal at-sign found; the ban is blanket — express the content "
+            f"{label}: literal at-sign found; the ban is blanket - express the content "
             "without one rather than asking for an exception"
         )
     match = UNIX_HOME_RE.search(text)
@@ -588,6 +591,9 @@ def load_manifest(paths: Paths) -> tuple[dict[str, Any] | None, list[str]]:
 
 def validate_policy(manifest: dict[str, Any]) -> tuple[dict[str, int], list[str]]:
     errors: list[str] = []
+    unknown = set(manifest) - {"corpus", "policy", "case"}
+    if unknown:
+        errors.append(f"manifest: unknown top-level tables: {sorted(unknown)}")
     corpus_table = manifest.get("corpus")
     if not isinstance(corpus_table, dict) or corpus_table.get("schema_version") != SCHEMA_VERSION:
         errors.append(f"[corpus] schema_version must be \"{SCHEMA_VERSION}\"")
@@ -770,23 +776,30 @@ def cross_validate(
         errors.append(
             f"{label}: sha256 in the manifest ({fields['sha256'][:12]}...) does not match "
             f"the assembled payload ({digest[:12]}...); recompute and record the real "
-            "digest — never edit bytes to match a stale one"
+            "digest - never edit bytes to match a stale one"
         )
 
     windows_declared = bool(fields["contains_windows_path_data"])
     errors.extend(
         guard_text(case_file.text, f"{label} (file)", windows_declared=windows_declared, payload=False)
     )
-    payload_text = case_file.payload.decode("latin-1")
-    errors.extend(
-        guard_text(
-            payload_text, f"{label} (payload)", windows_declared=windows_declared, payload=True
-        )
-    )
+    # Inspect every payload regardless of its encoding declaration. NUL-stripped
+    # and both UTF-16 views expose identity shapes hidden by byte interleaving.
+    payload_views = tuple(dict.fromkeys((
+        case_file.payload.decode("latin-1"),
+        case_file.payload.replace(b"\x00", b"").decode("latin-1"),
+        case_file.payload.decode("utf-16-le", errors="ignore"),
+        case_file.payload.decode("utf-16-be", errors="ignore"),
+    )))
+    payload_errors: list[str] = []
+    for view in payload_views:
+        payload_errors.extend(guard_text(
+            view, f"{label} (payload)", windows_declared=windows_declared, payload=True
+        ))
+    errors.extend(dict.fromkeys(payload_errors))
     if windows_declared and not (
-        WIN_USER_RE.search(payload_text)
-        or UNC_RE.search(payload_text)
-        or RESERVED_RE.search(payload_text)
+        any(WIN_USER_RE.search(view) or UNC_RE.search(view) or RESERVED_RE.search(view)
+            for view in payload_views)
         or WIN_USER_RE.search(case_file.text)
         or UNC_RE.search(case_file.text)
     ):
@@ -802,11 +815,15 @@ def cross_validate(
     return entry
 
 
-def validate_corpus(paths: Paths) -> list[str]:
-    """Validate the tracked corpus. Returns every error found, empty if clean."""
-    manifest, errors = load_manifest(paths)
+def validate_corpus(
+    paths: Paths, *, manifest: dict[str, Any] | None = None,
+    candidate: CaseFile | None = None,
+) -> list[str]:
+    """Validate the corpus, optionally including a proposed entry without writes."""
     if manifest is None:
-        return errors
+        manifest, errors = load_manifest(paths)
+        if manifest is None:
+            return errors
     policy, errors = validate_policy(manifest)
     if errors:
         return errors
@@ -835,7 +852,10 @@ def validate_corpus(paths: Paths) -> list[str]:
         file_errors: list[str] = []
         fixture_path = paths.corpus_dir / str(raw.get("fixture", ""))
         if not field_errors:
-            case_file, file_errors = parse_case_file(fixture_path)
+            if candidate is not None and label == candidate.case_id:
+                case_file = candidate
+            else:
+                case_file, file_errors = parse_case_file(fixture_path)
         entry = cross_validate(
             raw, case_file, field_errors + file_errors, policy,
             payload_cap=policy["max_payload_bytes"],
@@ -845,7 +865,7 @@ def validate_corpus(paths: Paths) -> list[str]:
             if digest in seen_hashes:
                 errors.append(
                     f"{label}: payload duplicates case `{seen_hashes[digest]}` byte for byte; "
-                    "deduplicate — one minimized case per failure"
+                    "deduplicate - one minimized case per failure"
                 )
             else:
                 seen_hashes[digest] = label
@@ -857,6 +877,8 @@ def validate_corpus(paths: Paths) -> list[str]:
     disk_files = (
         sorted(p.name for p in paths.cases_dir.glob("*.vtseq")) if paths.cases_dir.is_dir() else []
     )
+    if candidate is not None:
+        disk_files.append(f"{candidate.case_id}.vtseq")
     declared = {f"{raw.get('id')}.vtseq" for raw in raw_cases if isinstance(raw, dict)}
     for name in disk_files:
         if name not in declared:
@@ -931,6 +953,9 @@ def validate_candidate(
         fragment = tomllib.loads(toml_path.read_text(encoding="utf-8"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError) as err:
         return None, None, [f"{name}: metadata fragment is not valid UTF-8 TOML: {err}"], warnings
+    unknown = set(fragment) - {"case"}
+    if unknown:
+        return None, None, [f"{name}: fragment has unknown top-level tables: {sorted(unknown)}"], warnings
     raw_cases = fragment.get("case")
     if not isinstance(raw_cases, list) or len(raw_cases) != 1 or not isinstance(raw_cases[0], dict):
         return None, None, [f"{name}: fragment must contain exactly one [[case]] table"], warnings
@@ -964,7 +989,7 @@ def validate_candidate(
         if digest in reject_ledger_hashes(paths):
             if for_accept:
                 errors.append(
-                    f"{name}: payload hash is on the reject ledger; there is no override — "
+                    f"{name}: payload hash is on the reject ledger; there is no override - "
                     "changed bytes get a new review, unchanged bytes stay rejected"
                 )
             else:
@@ -1024,7 +1049,7 @@ def cmd_intake(paths: Paths, name: str | None) -> int:
             for error in errors:
                 print(f"error: {error}", file=sys.stderr)
             print(
-                f"intake: {candidate}: INVALID — fix, `reject`, or `quarantine`; "
+                f"intake: {candidate}: INVALID - fix, `reject`, or `quarantine`; "
                 "nothing was staged",
                 file=sys.stderr,
             )
@@ -1045,30 +1070,51 @@ def cmd_accept(paths: Paths, name: str) -> int:
         return 1
     if not fields.get("reviewed"):
         print(
-            f"error: {name}: reviewed is still false; `accept` is the review act — set "
+            f"error: {name}: reviewed is still false; `accept` is the review act - set "
             "reviewed = true in the staged fragment only after a human has read the case",
             file=sys.stderr,
         )
         return 1
-    paths.cases_dir.mkdir(parents=True, exist_ok=True)
     fixture_target = paths.cases_dir / f"{name}.vtseq"
     if fixture_target.exists():
         print(f"error: {name}: a tracked case file already exists at {fixture_target}", file=sys.stderr)
         return 1
-    shutil.copy2(paths.staged / f"{name}.vtseq", fixture_target)
-    fragment = (paths.staged / f"{name}.toml").read_text(encoding="utf-8").strip() + "\n"
-    with paths.manifest.open("a", encoding="utf-8", newline="\n") as handle:
-        handle.write("\n" + fragment)
-    remaining = validate_corpus(paths)
+    # Validate the complete prospective corpus before changing either tracked file.
+    try:
+        fragment = (paths.staged / f"{name}.toml").read_text(encoding="utf-8").strip() + "\n"
+        proposed = paths.manifest.read_bytes().decode("utf-8") + "\n" + fragment
+        manifest = tomllib.loads(proposed)
+        remaining = validate_corpus(paths, manifest=manifest, candidate=case_file)
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as err:
+        remaining = [f"{name}: cannot prepare the corpus: {err}"]
     if remaining:
         for error in remaining:
             print(f"error: {error}", file=sys.stderr)
-        print(
-            f"accept: {name}: landed but the corpus now fails validation; resolve before "
-            "anything else is accepted",
-            file=sys.stderr,
-        )
+        print(f"accept: {name}: refused; corpus unchanged", file=sys.stderr)
         return 1
+
+    temporary: Path | None = None
+    fixture_created = False
+    try:
+        paths.cases_dir.mkdir(parents=True, exist_ok=True)
+        # Replacing the manifest avoids a partially appended TOML document.
+        with tempfile.NamedTemporaryFile(dir=paths.manifest.parent, prefix=".corpus-",
+                                         suffix=".tmp", delete=False) as handle:
+            temporary = Path(handle.name)
+            os.chmod(temporary, stat.S_IMODE(paths.manifest.stat().st_mode))
+            handle.write(proposed.encode("utf-8"))
+        with fixture_target.open("xb") as handle:
+            fixture_created = True
+            handle.write(case_file.text.encode("utf-8"))
+        temporary.replace(paths.manifest)
+    except OSError as err:
+        if fixture_created:
+            fixture_target.unlink()
+        print(f"error: {name}: cannot write the corpus: {err}", file=sys.stderr)
+        return 1
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     for suffix in (".vtseq", ".toml"):
         for directory in (paths.staged, paths.incoming):
             candidate = directory / f"{name}{suffix}"
@@ -1426,6 +1472,90 @@ class SelfTest(unittest.TestCase):
         self.write_manifest_header()
         self.write_case("parser.basic", ["caf\u00e9"], utf16=True)
         self.assertErrorsContaining("express non-UTF-8 data")
+
+    def test_encoded_privacy_views(self) -> None:
+        samples = [("/" + "home/fixture-identity/work", False, "Unix home path"),
+                   ("C:" + "\\Users\\fixture-identity\\file", True, "placeholder set"),
+                   ("C:/Users/test/file", False, "does not declare"),
+                   ("NUL.txt", False, "reserved name"),
+                   ("\\\\fixture-identity\\share", True, "placeholder set")]
+        for encoding in ("utf-16-le", "utf-16-be"):
+            for text, windows, needle in samples:
+                with self.subTest(encoding=encoding, needle=needle):
+                    self.write_manifest_header()
+                    escapes = "".join(f"\\x{b:02x}" for b in text.encode(encoding))
+                    self.write_case("parser.encoded", [escapes], windows=windows, utf16=True)
+                    self.assertErrorsContaining(needle)
+
+    def test_utf16_windows_placeholder_is_allowed_in_both_byte_orders(self) -> None:
+        for encoding in ("utf-16-le", "utf-16-be"):
+            with self.subTest(encoding=encoding):
+                self.write_manifest_header()
+                escapes = "".join(f"\\x{b:02x}" for b in "C:/Users/test/file".encode(encoding))
+                self.write_case("parser.encoded", [escapes], windows=True, utf16=True)
+                self.assertClean()
+
+    def test_manifest_rejects_unknown_top_level_tables(self) -> None:
+        self.write_manifest_header()
+        self.write_case("parser.basic", ["text"])
+        with self.paths.manifest.open("a", encoding="utf-8") as handle:
+            handle.write('\n[extra]\nvalue = "unchecked"\n')
+        self.assertErrorsContaining("unknown top-level")
+
+    def reviewed_candidate(self) -> str:
+        name = "parser.new-case"
+        self.stage_candidate(name, ["fresh bytes"])
+        self.assertEqual(cmd_intake(self.paths, name), 0)
+        target = self.paths.staged / f"{name}.toml"
+        target.write_text(target.read_text(encoding="utf-8").replace(
+            "reviewed = false", "reviewed = true"), encoding="utf-8")
+        return name
+
+    def test_intake_rejects_unknown_top_level_tables(self) -> None:
+        self.write_manifest_header()
+        self.stage_candidate("parser.new-case", ["fresh bytes"])
+        with (self.paths.incoming / "parser.new-case.toml").open("a", encoding="utf-8") as handle:
+            handle.write('\n[extra]\nvalue = "unchecked"\n')
+        _, _, errors, _ = validate_candidate(self.paths, "parser.new-case", for_accept=False)
+        self.assertTrue(any("unknown top-level" in e for e in errors), errors)
+        self.assertEqual(cmd_intake(self.paths, "parser.new-case"), 1)
+        self.assertFalse((self.paths.staged / "parser.new-case.vtseq").exists())
+
+    def test_accept_refuses_extra_tables_without_mutating_corpus(self) -> None:
+        self.write_manifest_header()
+        name = self.reviewed_candidate()
+        before = self.paths.manifest.read_bytes()
+        with (self.paths.staged / f"{name}.toml").open("a", encoding="utf-8") as handle:
+            handle.write('\n[extra]\nvalue = "unchecked"\n')
+        self.assertEqual(cmd_accept(self.paths, name), 1)
+        self.assertEqual(self.paths.manifest.read_bytes(), before)
+        self.assertFalse((self.paths.cases_dir / f"{name}.vtseq").exists())
+        self.assertTrue((self.paths.staged / f"{name}.vtseq").exists())
+
+    def test_accept_policy_failure_leaves_corpus_and_staging_unchanged(self) -> None:
+        self.write_manifest_header()
+        self.write_case("parser.basic", ["old bytes"])
+        name = self.reviewed_candidate()
+        self.paths.manifest.write_text(self.paths.manifest.read_text(encoding="utf-8").replace(
+            "max_cases = 64", "max_cases = 1"), encoding="utf-8")
+        before = self.paths.manifest.read_bytes()
+        self.assertEqual(cmd_accept(self.paths, name), 1)
+        self.assertEqual(self.paths.manifest.read_bytes(), before)
+        self.assertFalse((self.paths.cases_dir / f"{name}.vtseq").exists())
+        self.assertTrue((self.paths.staged / f"{name}.vtseq").exists())
+
+    def test_accept_io_failure_removes_only_its_new_fixture(self) -> None:
+        self.write_manifest_header()
+        self.write_case("parser.basic", ["old bytes"])
+        name = self.reviewed_candidate()
+        before = self.paths.manifest.read_bytes()
+        old_fixture = (self.paths.cases_dir / "parser.basic.vtseq").read_bytes()
+        with mock.patch.object(Path, "replace", side_effect=OSError("synthetic write failure")):
+            self.assertEqual(cmd_accept(self.paths, name), 1)
+        self.assertEqual(self.paths.manifest.read_bytes(), before)
+        self.assertEqual((self.paths.cases_dir / "parser.basic.vtseq").read_bytes(), old_fixture)
+        self.assertFalse((self.paths.cases_dir / f"{name}.vtseq").exists())
+        self.assertTrue((self.paths.staged / f"{name}.vtseq").exists())
 
     # -- intake lifecycle -------------------------------------------------------
 
