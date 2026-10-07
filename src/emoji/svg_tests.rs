@@ -524,3 +524,52 @@ fn fills_over_the_pixel_work_budget_fall_back() {
         "the same document fits the budget on a small canvas"
     );
 }
+
+/// `nested_layers` with the glyph id moved from the first group to the root
+/// `svg` element.
+fn root_id(document: &str) -> String {
+    document
+        .replacen(r#"<g id="glyph1""#, r#"<g id="p0""#, 1)
+        .replacen("<svg ", r#"<svg id="glyph1" "#, 1)
+}
+
+/// Fails before the fix: SVG emoji fonts put the glyph id on the root `svg`
+/// element, which usvg exposes as no node, so every such glyph drew nothing
+/// and fell back to monochrome.
+#[test]
+fn a_glyph_id_on_the_root_svg_element_draws_the_whole_document() {
+    let document = r##"<svg id="glyph1" xmlns="http://www.w3.org/2000/svg" viewBox="0 -100 100 100"><rect x="0" y="-80" width="100" height="50" fill="#c00"/></svg>"##;
+    let mut table = Vec::new();
+    index(&mut table, &[(1, 2, 14, document.len() as u32)]);
+    table.extend_from_slice(document.as_bytes());
+    let rgba = super::render(&table, 1, 16, 16).expect("the root glyph renders");
+    // The 100 x 50 ink box fills the 16 x 16 slot's width, centered.
+    assert_eq!(pixels(&rgba)[8 * 16 + 8], [0xcc, 0, 0, 255], "center");
+    assert_eq!(pixels(&rgba)[0], [0, 0, 0, 0], "corner outside the ink");
+    assert_eq!(
+        super::render(&table, 2, 16, 16),
+        None,
+        "glyph 2 shares the document but no element carries its id"
+    );
+}
+
+#[test]
+fn a_root_glyph_is_held_to_the_same_raster_budget() {
+    let (width, height) = (MAX_RASTER_WIDTH, MAX_RASTER_HEIGHT);
+    let deep = root_id(&nested_layers(3, 50));
+    assert!(parsed_within_limits(deep.as_bytes()));
+    assert_eq!(
+        super::render(&document_table(&deep), 1, width, height),
+        None
+    );
+    assert!(
+        super::render(
+            &document_table(&root_id(&nested_layers(3, 5))),
+            1,
+            width,
+            height
+        )
+        .is_some(),
+        "fifteen layers render"
+    );
+}

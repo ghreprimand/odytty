@@ -2704,8 +2704,9 @@ a glyph that would expand past 65,536 paint visits, 2^30 raster pixel passes,
 or 256 MiB of live raster buffers at its slot size uses the monochrome
 fallback. Compatible Segoe glyphs
 leave the monochrome fallback on a stock Windows install. An SVG document is
-used only for a glyph no earlier source draws; its glyph element is fitted into
-the same one- or two-cell color slot. Documents are bounded: 1 MiB raw and
+used only for a glyph no earlier source draws; its glyph element, or the whole
+document when the root `svg` element carries the glyph id, is fitted into the
+same one- or two-cell color slot. Documents are bounded: 1 MiB raw and
 after gzip decompression, DTDs refused, 20,000 XML nodes, nesting depth 64,
 80,000 nodes once `use`, `href`, and `url(#id)` references are expanded,
 reference cycles refused, documents with patterns, filters (including CSS

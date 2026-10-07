@@ -3,8 +3,10 @@
 //!
 //! SVG is the last color source: bitmap strikes, COLR v0, and COLR v1 keep
 //! their established pixels, and a glyph reaches this module only when none of
-//! them draws it. Any limit hit, parse error, missing glyph element, or empty
-//! render returns `None`, which leaves the monochrome path exactly as before.
+//! them draws it. The glyph is the element whose id is `glyph<ID>`, or the whole
+//! document when that id is on the root `svg` element. Any limit hit, parse
+//! error, missing glyph element, or empty render returns `None`, which leaves
+//! the monochrome path exactly as before.
 //!
 //! Every input is untrusted. The `SVG ` table index is read with checked
 //! arithmetic; a document is at most [`MAX_DOCUMENT_BYTES`] before and after
@@ -73,7 +75,25 @@ pub(super) fn render(svg_table: &[u8], glyph_id: u16, width: u32, height: u32) -
         ..usvg::Options::default()
     };
     let tree = usvg::Tree::from_xmltree(&xml, &options).ok()?;
-    let node = tree.node_by_id(&format!("glyph{glyph_id}"))?;
+    let id = format!("glyph{glyph_id}");
+    let pixmap = if let Some(node) = tree.node_by_id(&id) {
+        render_element(node, width, height)?
+    } else if xml.root_element().attribute("id") == Some(id.as_str()) {
+        render_document(&tree, width, height)?
+    } else {
+        return None;
+    };
+    pixmap
+        .data()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .any(|pixel| pixel[3] != 0)
+        .then(|| pixmap.take())
+}
+
+/// Draws the glyph element `node`, its ink box fitted into the canvas.
+fn render_element(node: &usvg::Node, width: u32, height: u32) -> Option<Pixmap> {
     let layer = node.abs_layer_bounding_box()?;
     let ink = match node {
         usvg::Node::Group(_) => layer.to_rect(),
@@ -97,13 +117,24 @@ pub(super) fn render(svg_table: &[u8], glyph_id: u16, width: u32, height: u32) -
     }
     let mut pixmap = Pixmap::new(width, height)?;
     resvg::render_node(node, transform, &mut pixmap.as_mut())?;
-    pixmap
-        .data()
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .any(|pixel| pixel[3] != 0)
-        .then(|| pixmap.take())
+    Some(pixmap)
+}
+
+/// Draws a whole document whose root `svg` element carries the glyph id, as
+/// SVG emoji fonts commonly do. usvg exposes no node for the root element, so
+/// the tree's root group stands for it, its ink box fitted into the canvas.
+fn render_document(tree: &usvg::Tree, width: u32, height: u32) -> Option<Pixmap> {
+    let root = tree.root();
+    if !root.has_children() {
+        return None;
+    }
+    let fit = fit_transform(root.abs_layer_bounding_box().to_rect(), width, height)?;
+    if !super::svg_budget::admits_root(root, fit, width, height) {
+        return None;
+    }
+    let mut pixmap = Pixmap::new(width, height)?;
+    resvg::render(tree, fit, &mut pixmap.as_mut());
+    Some(pixmap)
 }
 
 /// The raw (possibly gzip-compressed) document covering `glyph_id`, or `None`

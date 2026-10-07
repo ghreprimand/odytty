@@ -550,7 +550,9 @@ is attempted only when they do not cover the glyph, and an SVG document only
 when no COLR source draws it. The Windows CI assertion records how many glyphs in the
 installed Segoe build expose v0, v1, and v1-only coverage instead of assuming a
 specific system-font revision. The synthetic v1-only fixture is the portable
-correctness evidence when no stock v1-only glyph is observed. An SVG document
+correctness evidence when no stock v1-only glyph is observed. An SVG glyph is
+the element whose id is `glyph<ID>`, or the whole document when the root `svg`
+element carries that id, as SVG emoji fonts commonly do. An SVG document
 is parsed with DTDs refused and checked before conversion: at most 1 MiB raw
 and after gzip decompression, 20,000 XML nodes, nesting depth 64, and 80,000
 nodes once `use`, `href`, and `url(#id)` references are expanded, with

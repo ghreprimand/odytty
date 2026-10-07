@@ -73,6 +73,21 @@ pub(super) fn admits(node: &usvg::Node, transform: Transform, width: u32, height
     cost(node, transform, width, height, LIMITS).is_some()
 }
 
+/// Whether rendering a whole tree's `root` group with `transform` (as
+/// `resvg::render` does: each child with that transform, the root itself never
+/// isolated) onto a `width` x `height` canvas stays within [`LIMITS`].
+pub(super) fn admits_root(
+    root: &usvg::Group,
+    transform: Transform,
+    width: u32,
+    height: u32,
+) -> bool {
+    walk(width, height, LIMITS, |walk, canvas| {
+        walk.children(root, transform, canvas)
+    })
+    .is_some()
+}
+
 /// The raster cost of rendering `node` with `transform` onto a `width` x
 /// `height` canvas, or `None` when it exceeds `limits` or holds content
 /// outside the model. The walk stops at the first exceeded limit.
@@ -82,6 +97,21 @@ pub(super) fn cost(
     width: u32,
     height: u32,
     limits: Limits,
+) -> Option<RasterCost> {
+    // `render_node` translates by the node's layer box; no size below depends
+    // on a translation, so the walk uses `transform` as given.
+    walk(width, height, limits, |walk, canvas| {
+        walk.node(node, transform, canvas)
+    })
+}
+
+/// Charges the canvas itself (allocated zeroed and kept for the atlas), then
+/// runs `body` over it.
+fn walk(
+    width: u32,
+    height: u32,
+    limits: Limits,
+    body: impl FnOnce(&mut Walk, Size) -> Option<()>,
 ) -> Option<RasterCost> {
     let canvas = Size {
         width: u64::from(width),
@@ -96,12 +126,9 @@ pub(super) fn cost(
         live: 0,
         cost: RasterCost::default(),
     };
-    // The canvas itself: allocated zeroed and kept for the atlas.
     walk.allocate(canvas.bytes())?;
     walk.charge(canvas.pixels())?;
-    // `render_node` translates by the node's layer box; no size below depends
-    // on a translation, so the walk uses `transform` as given.
-    walk.node(node, transform, canvas)?;
+    body(&mut walk, canvas)?;
     Some(walk.cost)
 }
 

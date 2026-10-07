@@ -327,7 +327,9 @@ Scripts outside the enabled blocks keep the per-cell path.
 SVG-in-OpenType glyphs rasterize through resvg into the same bounded one-cell
 or two-cell color atlas slot used by bitmap, COLR v0, and COLR v1 sources, and
 only for glyphs none of those sources draws. The logical grid does not change.
-The glyph element's ink box is fitted into the slot the way COLR v1 glyphs are.
+The glyph element's ink box, or the whole document's when the root `svg`
+element carries the glyph id (the layout SVG emoji fonts commonly use), is
+fitted into the slot the way COLR v1 glyphs are.
 
 Documents are untrusted: the `SVG ` index is read with checked arithmetic; a
 document is at most 1 MiB raw and after gzip decompression; XML is parsed with
