@@ -60,6 +60,8 @@ impl Settings {
                 path.display().to_string()
             };
             values.insert(BACKGROUND_IMAGE_ENV, rendered);
+        } else {
+            values.insert(BACKGROUND_IMAGE_ENV, "none".to_owned());
         }
         values.insert(
             BACKGROUND_BLUR_RADIUS_ENV,
@@ -67,6 +69,8 @@ impl Settings {
         );
         if let Some(scrim) = self.background_image_scrim {
             values.insert(BACKGROUND_IMAGE_SCRIM_ENV, format_float(scrim));
+        } else {
+            values.insert(BACKGROUND_IMAGE_SCRIM_ENV, "auto".to_owned());
         }
         values.insert(CELL_BG_OPACITY_ENV, format_float(self.cell_bg_opacity));
         values.insert(

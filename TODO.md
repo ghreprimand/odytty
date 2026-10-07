@@ -1027,6 +1027,8 @@ not a stretch goal.
         file writeback happens in this slice.
   - [x] Edits are tracked as a diff over the loaded settings so the writeback
         step can serialize only changed rows; reverting a row clears it from the diff.
+- [x] Settings numeric keyboard and pointer steps share a grid; search arrows
+      preserve settings, and invalid background visibility is rejected.
 - [x] Atomic settings writeback.
   - [x] `Ctrl+S` in the settings panel persists the live-applied diff to the
         same `odytty.conf` path used by startup/live reload.

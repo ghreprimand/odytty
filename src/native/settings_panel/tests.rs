@@ -2001,3 +2001,64 @@ fn about_esc_returns_to_section_list() {
         "Esc from About returns to the section list"
     );
 }
+
+#[test]
+fn visibility_rejects_invalid_text_without_pending_changes() {
+    for value in ["abc", "", "50%", "NaN", "inf", "-0.1", "1.1"] {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let before = panel.edits.settings().clone();
+        assert_eq!(
+            panel.commit_value("cell_bg_opacity", value),
+            SettingsPanelOutcome::Consumed,
+            "{value:?}"
+        );
+        assert_eq!(panel.edits.settings(), &before, "{value:?}");
+        assert_eq!(panel.edits.changed_count(), 0);
+        assert!(panel.message.as_deref().unwrap().contains("0"));
+    }
+}
+
+#[test]
+fn background_disable_aliases_do_not_enable_image_treatment() {
+    for value in ["off", "false", "NONE", ""] {
+        let settings = Settings {
+            background_treatment: crate::settings::BackgroundTreatment::Off,
+            ..Settings::default()
+        };
+        let mut panel = SettingsPanel::new(&settings);
+        let SettingsPanelOutcome::Apply(applied) = panel.commit_value("background_image", value)
+        else {
+            panic!("disable should apply");
+        };
+        assert!(applied.background_image.is_none());
+        assert_eq!(applied.background_treatment, settings.background_treatment);
+        assert_eq!(applied.cell_bg_opacity, settings.cell_bg_opacity);
+        assert_eq!(panel.edits.changed_count(), 1);
+    }
+}
+
+#[test]
+fn about_selection_survives_live_apply_and_one_row_scroll() {
+    let mut panel = SettingsPanel::new(&Settings::default());
+    panel.update_body_height(1);
+    panel.handle_input(OverlayInput::End);
+    assert_eq!(panel.section_selected, SECTIONS.len());
+    assert_eq!(panel.section_scroll, SECTIONS.len());
+    panel.apply_settings(&Settings::default());
+    assert_eq!(panel.section_selected, SECTIONS.len());
+    assert_eq!(panel.section_scroll, SECTIONS.len());
+}
+
+#[test]
+fn search_arrows_leave_settings_and_query_unchanged() {
+    let mut panel = SettingsPanel::new(&Settings::default());
+    panel.handle_input(OverlayInput::Char('/'));
+    for ch in "font_size".chars() {
+        panel.handle_input(OverlayInput::Char(ch));
+    }
+    let before = panel.render_signature();
+    for input in [OverlayInput::Left, OverlayInput::Right] {
+        assert_eq!(panel.handle_input(input), SettingsPanelOutcome::Consumed);
+        assert_eq!(panel.render_signature(), before);
+    }
+}

@@ -148,7 +148,7 @@ impl SettingsPanel {
         } else if self.section_selected >= self.section_scroll + window {
             self.section_scroll = self.section_selected + 1 - window;
         }
-        let max_scroll = SECTIONS.len().saturating_sub(1);
+        let max_scroll = SECTIONS.len();
         self.section_scroll = self.section_scroll.min(max_scroll);
     }
 
@@ -172,13 +172,8 @@ impl SettingsPanel {
         // (T-scroll-per-level). `selected_in_window` must not run here because
         // Level-1 rows are SectionRow, not Value/Slider.
         if matches!(self.level, SettingsLevel::SectionList) && !self.search_active {
-            if SECTIONS.is_empty() {
-                self.section_selected = 0;
-                self.section_scroll = 0;
-            } else {
-                self.section_selected = self.section_selected.min(SECTIONS.len() - 1);
-                self.section_scroll = self.section_scroll.min(SECTIONS.len() - 1);
-            }
+            self.section_selected = self.section_selected.min(SECTIONS.len());
+            self.section_scroll = self.section_scroll.min(SECTIONS.len());
             return;
         }
 

@@ -481,7 +481,12 @@ the user explicitly saves. `Ctrl+S` writes only changed rows back to the
 resolved config file, preserving comments, blank lines, key order, and
 unknown/future keys. Missing changed keys are appended under an OdyTTY settings
 section. Saves use a same-directory temporary file followed by rename; OdyTTY
-does not truncate the config file in place.
+does not truncate the config file in place. Numeric keyboard steps and pointer
+buttons share the catalog step grid. Background visibility rejects invalid or
+out-of-range input before converting it to cell opacity. Image selection and
+its dependent treatment and opacity changes are applied together. Selecting
+no image does not change the treatment or opacity. Disabled images and
+automatic wallpaper readability retain explicit tokens through later edits.
 
 **Live reload.** The native app polls the resolved config path at a one-second
 cadence from the existing event-loop wake path, without a watcher thread or
@@ -529,7 +534,7 @@ precedence.
 
 **Settings search.** Typing `/` while the in-app settings panel is open
 filters the displayed roster by name, config key, description, or group label.
-`Esc` once clears the filter; a second `Esc` closes the panel. Theme-picker
+`Esc` once clears the filter; a second `Esc` closes the panel. Left and Right do not apply settings while searching. Theme-picker
 search is a separate future slice.
 
 **First-run onboarding.** On first launch — detected by the absence of a

@@ -54,7 +54,13 @@ particular workflows, start with the [settings guide](settings-guide.md).
 The settings panel is keyboard- and pointer-driven. Arrow keys move through
 sections and rows, `Enter` activates a choice, and `Esc` clears a search or
 closes the panel. Clicking a numeric row starts text entry; the first keystroke
-replaces the prefilled value so a new number can be typed directly.
+replaces the prefilled value so a new number can be typed directly. Left and
+Right step numeric rows on the same grid as the pointer buttons. In settings
+search, Left and Right leave both the query and settings unchanged. Background
+visibility accepts only finite numbers from 0 to 1; invalid input leaves the
+current value unchanged. Choosing an image enables its treatment and default
+visibility together; choosing no image preserves those dependent settings.
+No-image and automatic readability choices survive later edits.
 
 `Ctrl+Shift+,` and Settings from the terminal content menu open the section
 list. Settings from the empty tab strip, a workspace slot, or the empty

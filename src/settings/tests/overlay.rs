@@ -460,3 +460,43 @@ fn rebase_then_mark_saved_keeps_theme() {
     assert_eq!(edits.settings().theme, Theme::ODYSSEY);
     assert!(edits.changes().is_empty(), "save clears dirty edits");
 }
+
+#[test]
+fn disabled_background_image_round_trips_through_edit_values() {
+    let settings = Settings {
+        background_image: None,
+        ..Settings::default()
+    };
+    let values = settings.to_edit_values();
+    assert_eq!(
+        values.get(BACKGROUND_IMAGE_ENV).map(String::as_str),
+        Some("none")
+    );
+    let round_trip = Settings::from_edit_values(&values).expect("valid edit values");
+    assert!(round_trip.background_image.is_none());
+}
+
+#[test]
+fn automatic_background_scrim_survives_other_edits_and_round_trip() {
+    let settings = Settings {
+        background_image_scrim: None,
+        ..Settings::default()
+    };
+    let values = settings.to_edit_values();
+    assert_eq!(
+        values.get(BACKGROUND_IMAGE_SCRIM_ENV).map(String::as_str),
+        Some("auto")
+    );
+    let round_trip = Settings::from_edit_values(&values).expect("valid edit values");
+    assert_eq!(round_trip.background_image_scrim, None);
+    let mut edits = SettingsEditOverlay::new(&settings);
+    edits
+        .apply_raw("font_size", "20")
+        .expect("valid unrelated edit");
+    assert_eq!(edits.settings().background_image_scrim, None);
+    let mut edits = SettingsEditOverlay::new(&Settings::default());
+    edits
+        .apply_raw("background_image_scrim", "auto")
+        .expect("valid automatic scrim");
+    assert_eq!(edits.settings().background_image_scrim, None);
+}

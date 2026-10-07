@@ -804,22 +804,7 @@ impl SettingsPanel {
         let Some(entry) = self.entries.get(entry_index).cloned() else {
             return SettingsPanelOutcome::Consumed;
         };
-        if entry.key == "tab_bar_height" {
-            let next = super::stepped_tab_bar_height(&entry.value, direction);
-            return self.commit_value(entry.key, &next);
-        }
-        let Some(spec) = entry.numeric else {
-            return SettingsPanelOutcome::Consumed;
-        };
-        let parsed = entry.value.parse::<f32>().unwrap_or_else(|_| {
-            if entry.key == "background_image_scrim" && direction < 0 {
-                1.0
-            } else {
-                0.0
-            }
-        });
-        let next = spec.snap(parsed + spec.step * direction as f32);
-        self.commit_value(entry.key, &format!("{next:.3}"))
+        self.step_numeric_value(&entry, direction)
     }
 
     /// Settings steppers do not drag. Pointer moves are ignored so a stale
@@ -1451,6 +1436,32 @@ mod tests {
             stepped.font_size_px,
             crate::settings::DEFAULT_FONT_SIZE_PX + 1.0
         );
+    }
+
+    #[test]
+    fn fractional_off_grid_steps_match_keyboard_and_pointer() {
+        use crate::native::overlay::OverlayInput;
+        for direction in [-1, 1] {
+            let mut kb = panel();
+            kb.commit_value("cell_bg_opacity", "0.37");
+            kb.set_selection(entry_index(&kb, "cell_bg_opacity"));
+            let mut pointer = kb.clone();
+            let input = if direction < 0 {
+                OverlayInput::Left
+            } else {
+                OverlayInput::Right
+            };
+            let keyboard_outcome = kb.handle_input(input);
+            let (row, zone) = stepper_row(&pointer, "cell_bg_opacity");
+            let RowZone::Stepper { down_x0, up_x0, .. } = zone else {
+                unreachable!()
+            };
+            let col = if direction < 0 { down_x0 } else { up_x0 };
+            let pointer_outcome =
+                pointer.handle_pointer_press(W, H, row, col, PointerButton::Left, None);
+            assert_eq!(keyboard_outcome, pointer_outcome);
+            assert_eq!(kb.edits.settings(), pointer.edits.settings());
+        }
     }
 
     #[test]

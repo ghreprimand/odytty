@@ -103,38 +103,34 @@ impl SettingsPanel {
         let Some(entry) = self.selected_entry().cloned() else {
             return SettingsPanelOutcome::Consumed;
         };
+        match entry.kind {
+            SettingKind::Enum => self.cycle_selected(direction),
+            SettingKind::Number => self.step_numeric_value(&entry, direction),
+            _ => SettingsPanelOutcome::Consumed,
+        }
+    }
+
+    pub(super) fn step_numeric_value(
+        &mut self,
+        entry: &SettingInfo,
+        direction: isize,
+    ) -> SettingsPanelOutcome {
         if entry.key == "tab_bar_height" {
             let next = stepped_tab_bar_height(&entry.value, direction);
             return self.commit_value(entry.key, &next);
         }
-        if entry.key == "background_image_scrim" {
-            let parsed =
-                entry
-                    .value
-                    .parse::<f32>()
-                    .unwrap_or(if direction < 0 { 1.0 } else { 0.0 });
-            let next = if let Some(spec) = entry.numeric {
-                let step = spec.step * direction as f32;
-                (parsed + step).clamp(spec.min, spec.max)
+        let Some(spec) = entry.numeric else {
+            return SettingsPanelOutcome::Consumed;
+        };
+        let parsed = entry.value.parse::<f32>().unwrap_or_else(|_| {
+            if entry.key == "background_image_scrim" && direction < 0 {
+                1.0
             } else {
-                parsed
-            };
-            return self.commit_value(entry.key, &format!("{next:.3}"));
-        }
-        match entry.kind {
-            SettingKind::Enum => self.cycle_selected(direction),
-            SettingKind::Number => {
-                let parsed = entry.value.parse::<f32>().unwrap_or(0.0);
-                let next = if let Some(spec) = entry.numeric {
-                    let step = spec.step * direction as f32;
-                    (parsed + step).clamp(spec.min, spec.max)
-                } else {
-                    parsed
-                };
-                self.commit_value(entry.key, &format!("{:.3}", next))
+                spec.min
             }
-            _ => SettingsPanelOutcome::Consumed,
-        }
+        });
+        let next = spec.snap(parsed + spec.step * direction as f32);
+        self.commit_value(entry.key, &format!("{next:.3}"))
     }
 
     pub(super) fn cycle_selected(&mut self, direction: isize) -> SettingsPanelOutcome {
@@ -153,25 +149,29 @@ impl SettingsPanel {
 
     pub(super) fn commit_value(&mut self, key: &'static str, value: &str) -> SettingsPanelOutcome {
         let before_scroll = self.scroll;
-        if key == "background_image" && !value.trim().is_empty() && value.trim() != "none" {
-            let _ = self.edits.apply_raw("background_treatment", "image");
-            if self.edits.settings().cell_bg_opacity >= DEFAULT_CELL_BG_OPACITY - 0.001 {
-                let _ = self.edits.apply_raw("cell_bg_opacity", "0.850");
-            }
-        }
         let commit_value;
         let value = if key == "cell_bg_opacity" {
-            let visibility = value.trim().parse::<f32>().unwrap_or(0.0).clamp(0.0, 1.0);
+            let Ok(visibility) = value.trim().parse::<f32>() else {
+                self.message =
+                    Some("Background visibility must be a number from 0 to 1.".to_owned());
+                return SettingsPanelOutcome::Consumed;
+            };
+            if !visibility.is_finite() || !(0.0..=1.0).contains(&visibility) {
+                self.message =
+                    Some("Background visibility must be a number from 0 to 1.".to_owned());
+                return SettingsPanelOutcome::Consumed;
+            }
             commit_value = format!("{:.3}", 1.0 - visibility);
             commit_value.as_str()
         } else {
             value
         };
-        if key == "background_image" {
-            self.update_entry_value_in_place("background_treatment");
-            self.update_entry_value_in_place("cell_bg_opacity");
-        }
-        match self.edits.apply_raw(key, value) {
+        let result = if key == "background_image" {
+            self.commit_background_image(value)
+        } else {
+            self.edits.apply_raw(key, value)
+        };
+        match result {
             Ok(Some(settings)) => {
                 // Update only the changed row's display value in place instead
                 // of rebuilding the full `setting_info()` table on every
@@ -200,6 +200,25 @@ impl SettingsPanel {
                 SettingsPanelOutcome::Consumed
             }
         }
+    }
+
+    /// Validate the image choice before applying its dependent settings. Publish
+    /// the complete candidate only after every edit succeeds.
+    fn commit_background_image(
+        &mut self,
+        value: &str,
+    ) -> Result<Option<Settings>, crate::settings::SettingEditError> {
+        let mut candidate = self.edits.clone();
+        candidate.apply_raw("background_image", value)?;
+        if candidate.settings().background_image.is_some() {
+            candidate.apply_raw("background_treatment", "image")?;
+            if candidate.settings().cell_bg_opacity >= DEFAULT_CELL_BG_OPACITY - 0.001 {
+                candidate.apply_raw("cell_bg_opacity", "0.850")?;
+            }
+        }
+        let changed = candidate.settings() != self.edits.settings();
+        self.edits = candidate;
+        Ok(changed.then(|| self.edits.settings().clone()))
     }
 
     /// Re-derive the display `value` for a single setting key from the current

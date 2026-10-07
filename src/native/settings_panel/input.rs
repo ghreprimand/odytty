@@ -294,8 +294,7 @@ impl SettingsPanel {
                 self.set_selection(self.entries.len().saturating_sub(1));
                 SettingsPanelOutcome::Consumed
             }
-            OverlayInput::Left => self.step_or_cycle_selected(-1),
-            OverlayInput::Right => self.step_or_cycle_selected(1),
+            OverlayInput::Left | OverlayInput::Right => SettingsPanelOutcome::Consumed,
             OverlayInput::Save => self.save_changes(),
             // Enter/Space on a search result: exit search, drill into the
             // entry's section, and select it at Level 2.
