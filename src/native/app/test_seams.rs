@@ -2963,9 +2963,30 @@ impl App {
 
     /// Route a command-palette action id through the production dispatch (W3
     /// workspace rows: `workspace-switch-<idx>`, `workspace-new`,
-    /// `workspace-rename`).
+    /// `workspace-rename`), as if the palette had opened just before: indexed
+    /// rows resolve against workspaces and panes captured now.
     #[cfg(test)]
     pub(in crate::native) fn handle_palette_action_for_test(&mut self, id: &str) {
+        self.capture_palette_targets(Vec::new(), Vec::new(), Vec::new());
+        self.handle_palette_action(id.to_owned());
+    }
+
+    /// Capture palette targets as the palette's open path does, with injected
+    /// host and profile lists, without opening the overlay.
+    #[cfg(test)]
+    pub(in crate::native) fn capture_palette_targets_for_test(
+        &mut self,
+        hosts: &[&str],
+        profiles: &[&str],
+    ) {
+        let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect();
+        self.capture_palette_targets(owned(hosts), owned(profiles), Vec::new());
+    }
+
+    /// Accept a palette row against the targets already captured, as the
+    /// overlay does when it closes.
+    #[cfg(test)]
+    pub(in crate::native) fn accept_palette_action_for_test(&mut self, id: &str) {
         self.handle_palette_action(id.to_owned());
     }
 
@@ -3024,6 +3045,13 @@ impl App {
         idx: usize,
     ) -> Option<usize> {
         self.revalidated_workspace_slot(idx)
+    }
+
+    /// Test seam: close the workspace at rail index `idx` through the rail's
+    /// "Close Workspace" path.
+    #[cfg(test)]
+    pub(in crate::native) fn close_workspace_at_for_test(&mut self, idx: usize) {
+        self.close_workspace_at(idx);
     }
 
     #[cfg(test)]

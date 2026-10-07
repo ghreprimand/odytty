@@ -852,8 +852,8 @@ impl WorkspaceSet {
     }
 
     /// The display names of every workspace, in rail order. Feeds the command
-    /// palette's per-workspace "switch to …" rows (W3); the index into this list
-    /// is the [`Self::switch_workspace`] target.
+    /// palette's per-workspace "switch to …" rows (W3); each row's index selects
+    /// the workspace identity captured with this list.
     pub(in crate::native) fn workspace_names(&self) -> Vec<String> {
         self.workspaces.iter().map(|ws| ws.name.clone()).collect()
     }

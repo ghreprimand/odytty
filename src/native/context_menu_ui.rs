@@ -499,7 +499,6 @@ pub(super) struct ContextMenuUi {
     /// [`Self::set_window_actions`]. Reset on every open so they never leak
     /// across surfaces.
     window_actions: WindowMenuActions,
-    /// The name of the workspace under a right-clicked rail slot, snapshotted at
     /// Immutable identity of the workspace under the right-clicked rail slot,
     /// snapshotted at open time on the `WorkspaceSlot` surface
     /// (RAIL-REVALIDATE). The surface carries a bare rail index; a background

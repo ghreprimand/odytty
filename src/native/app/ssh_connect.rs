@@ -367,22 +367,8 @@ impl App {
         self.open_connection_overlay();
     }
 
-    /// Bind the active workspace to the known host at list index `idx` (F6-W5 /
-    /// ODP-9), so New Tab in that workspace routes through the SSH connect path.
-    /// The index is into the same `load_connection_entries` order the palette
-    /// built its rows from; an out-of-range index (host list changed under the
-    /// open palette) is a no-op. A one-line notice confirms the binding and
-    /// spells out what it changes — every new tab/pane in this workspace now
-    /// spawns on the remote, and "New Local Tab" is the escape hatch.
-    pub(in crate::native) fn bind_active_workspace_to_host_index(&mut self, idx: usize) {
-        let Some(host) = self.load_connection_entries().into_iter().nth(idx) else {
-            return;
-        };
-        self.bind_active_workspace_to_host_alias(host.alias);
-    }
-
-    /// Bind the active workspace to a host by its alias (ODP-6B). Shared tail of
-    /// the palette index path and the ODP-1B host-picker path; a one-line notice
+    /// Bind the active workspace to a host by its alias (ODP-6B). Shared by the
+    /// palette host rows and the ODP-1B host-picker path; a one-line notice
     /// spells out what the binding changes (every new tab/pane spawns on the
     /// remote; "New Local Tab" is the escape hatch).
     pub(in crate::native) fn bind_active_workspace_to_host_alias(&mut self, alias: String) {

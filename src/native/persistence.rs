@@ -783,7 +783,13 @@ fn list_layout_names_in(dir: &Path) -> LayoutListing {
         if crate::state_dir::open_existing_sensitive(&path).is_err() {
             continue;
         }
-        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        // Only stems that name their own file are listed: open and delete
+        // address a layout by its sanitized stem, so a file such as
+        // `a.b.json` (stem `a.b`, sanitized `a_b`) would otherwise list under
+        // one name while every action reached a different file.
+        if let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            && sanitize_layout_name(stem).as_deref() == Some(stem)
+        {
             listing.names.push(stem.to_owned());
         }
     }
@@ -842,10 +848,73 @@ fn delete_layout_in(dir: &Path, name: &str) -> io::Result<()> {
     }
 }
 
-/// Delete a named layout (WP3). A missing file is treated as success (the end
-/// state — no such layout — is what the caller wanted).
-pub(crate) fn delete_layout(name: &str) -> io::Result<()> {
-    delete_layout_in(&prepared_layouts_dir()?, name)
+/// The on-disk identity of a saved layout file: its length and modification
+/// time. A palette row captures it when the palette opens, so a later delete
+/// refuses a file that was removed, replaced, or rewritten in the meantime
+/// instead of acting on whatever now carries the name. A rewrite that keeps
+/// both the length and the timestamp (within the filesystem's timestamp
+/// resolution) is not distinguished.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LayoutStamp {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+/// The [`LayoutStamp`] of layout `name` under `dir`, or `None` when no regular
+/// file names it or the name is not its own sanitized stem.
+fn layout_stamp_in(dir: &Path, name: &str) -> Option<LayoutStamp> {
+    if sanitize_layout_name(name).as_deref() != Some(name) {
+        return None;
+    }
+    let metadata = std::fs::symlink_metadata(layout_path_in(dir, name)?).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    Some(LayoutStamp {
+        len: metadata.len(),
+        modified: metadata.modified().ok(),
+    })
+}
+
+/// The current [`LayoutStamp`] of layout `name`, or `None` when it is absent.
+pub(crate) fn layout_stamp(name: &str) -> Option<LayoutStamp> {
+    prepared_layouts_dir()
+        .ok()
+        .and_then(|dir| layout_stamp_in(&dir, name))
+}
+
+/// What [`delete_layout_if_unchanged`] did.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum LayoutDeleteOutcome {
+    /// The file still matched the captured stamp and was removed.
+    Deleted,
+    /// No layout of that name exists any more; nothing was removed.
+    Gone,
+    /// A file of that name exists but differs from the captured stamp; it was
+    /// left in place.
+    Changed,
+}
+
+/// Delete layout `name` from `dir` only while it still matches `expected`.
+fn delete_layout_if_unchanged_in(
+    dir: &Path,
+    name: &str,
+    expected: LayoutStamp,
+) -> io::Result<LayoutDeleteOutcome> {
+    match layout_stamp_in(dir, name) {
+        None => Ok(LayoutDeleteOutcome::Gone),
+        Some(current) if current != expected => Ok(LayoutDeleteOutcome::Changed),
+        Some(_) => delete_layout_in(dir, name).map(|()| LayoutDeleteOutcome::Deleted),
+    }
+}
+
+/// Delete layout `name` only while it still matches the stamp captured when
+/// the deleting surface listed it.
+pub(crate) fn delete_layout_if_unchanged(
+    name: &str,
+    expected: LayoutStamp,
+) -> io::Result<LayoutDeleteOutcome> {
+    delete_layout_if_unchanged_in(&prepared_layouts_dir()?, name, expected)
 }
 
 /// Read and classify the whole-app snapshot from its state-dir path.

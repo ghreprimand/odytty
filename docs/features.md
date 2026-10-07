@@ -1129,6 +1129,16 @@ A fresh window with one untouched default workspace skips this prompt and
 replaces that placeholder. When no layouts exist, the picker explains how to
 create one.
 
+**Delete Layout: NAME** in the command palette deletes the layout listed under
+that name when the palette opened, never a layout that took its place in the
+list. When that file was removed or rewritten after the palette opened,
+nothing is deleted and a notice says so. Every palette row that names a
+workspace, pane, host, profile, or layout acts on what it named when the
+palette opened and does nothing when that target has gone. Layout lists show
+only files whose name is a valid layout name (letters, digits, spaces, `-`, and
+`_`); a file such as `a.b.json` added to the layouts folder by other means is
+not listed.
+
 ### Open Local Tools
 
 | Shortcut | Action |

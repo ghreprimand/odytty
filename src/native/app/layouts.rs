@@ -249,15 +249,27 @@ impl App {
         }
     }
 
-    /// Delete a saved layout (8e). A missing layout is treated as success (the
-    /// end state the user wanted). A one-line notice confirms.
-    pub(super) fn delete_layout(&mut self, name: &str) {
-        match persistence::delete_layout(name) {
-            Ok(()) => self.raise_open_notice(format!("Deleted layout \u{201c}{name}\u{201d}.")),
-            Err(_) => {
-                self.raise_open_notice(format!("Couldn't delete layout \u{201c}{name}\u{201d}."))
+    /// Delete a saved layout (8e) named by a palette row. The delete happens
+    /// only while the file still matches `stamp`, the identity captured when
+    /// the row was listed: a layout removed, replaced, or rewritten since then
+    /// is left alone and a notice says so. A one-line notice reports the result.
+    pub(super) fn delete_layout(&mut self, name: &str, stamp: Option<persistence::LayoutStamp>) {
+        use persistence::LayoutDeleteOutcome;
+        let outcome = match stamp {
+            Some(stamp) => persistence::delete_layout_if_unchanged(name, stamp),
+            None => Ok(LayoutDeleteOutcome::Gone),
+        };
+        let notice = match outcome {
+            Ok(LayoutDeleteOutcome::Deleted) => format!("Deleted layout \u{201c}{name}\u{201d}."),
+            Ok(LayoutDeleteOutcome::Gone) => {
+                format!("Layout \u{201c}{name}\u{201d} no longer exists; nothing was deleted.")
             }
-        }
+            Ok(LayoutDeleteOutcome::Changed) => format!(
+                "Layout \u{201c}{name}\u{201d} changed after the palette opened; it was not deleted."
+            ),
+            Err(_) => format!("Couldn't delete layout \u{201c}{name}\u{201d}."),
+        };
+        self.raise_open_notice(notice);
     }
 
     /// Open the "Open Layout \u{25b8}" picker (LAYOUT-SURFACE), seeded with the

@@ -147,6 +147,9 @@ pub(in crate::native) struct App {
     pub(super) next_command_export_id: u64,
     /// Opaque command authority captured when the content context menu opens.
     pub(super) context_command_handle: Option<(SessionToken, crate::core::CommandRangeHandle)>,
+    /// The targets the open command palette's indexed rows name, captured when
+    /// it opened (see [`palette_ui::PaletteTargets`]).
+    pub(super) palette_targets: palette_ui::PaletteTargets,
     /// ID1: when set, the authored theme `cursor`/`selection`/`search` roles
     /// drive cursor color and selection/search highlight fills (with
     /// RV1-floored foregrounds) instead of the historical inverse / hardcoded
@@ -811,6 +814,7 @@ impl App {
             pending_scrollback_exports: HashMap::new(),
             next_command_export_id: 1,
             context_command_handle: None,
+            palette_targets: palette_ui::PaletteTargets::default(),
             themed_ui_roles,
             overlay,
             clipboard: NativeClipboard::default(),

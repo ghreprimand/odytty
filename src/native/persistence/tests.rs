@@ -1444,3 +1444,66 @@ fn windows_network_cwd_validation_and_restore_refuse_before_metadata() {
         None
     );
 }
+
+fn layout_identity_scratch_dir(label: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "odytty-layout-{label}-{}-{nanos}",
+        std::process::id()
+    ))
+}
+
+/// A layout delete bound to the file seen when the row was listed refuses a
+/// file that was removed, or replaced under the same name, and never reaches a
+/// neighbouring layout.
+#[test]
+fn layout_delete_refuses_a_target_that_changed_after_listing() {
+    let dir = layout_identity_scratch_dir("delete-identity");
+    let layout = sample_snapshot();
+    save_layout_in(&dir, "alpha", &layout).expect("save alpha");
+    save_layout_in(&dir, "beta", &layout).expect("save beta");
+    let alpha = layout_stamp_in(&dir, "alpha").expect("alpha stamp");
+    let beta = layout_stamp_in(&dir, "beta").expect("beta stamp");
+
+    // Removed elsewhere: the captured alpha row deletes nothing, beta stays.
+    delete_layout_in(&dir, "alpha").expect("external delete");
+    assert_eq!(
+        delete_layout_if_unchanged_in(&dir, "alpha", alpha).expect("delete gone"),
+        LayoutDeleteOutcome::Gone
+    );
+    assert_eq!(list_layout_names_in(&dir).names, vec!["beta".to_owned()]);
+
+    // Rewritten under the same name with different contents: refused, kept.
+    std::fs::write(dir.join("beta.json"), b"{}").expect("rewrite beta");
+    assert_eq!(
+        delete_layout_if_unchanged_in(&dir, "beta", beta).expect("delete changed"),
+        LayoutDeleteOutcome::Changed
+    );
+    assert!(dir.join("beta.json").exists(), "a changed layout is kept");
+
+    // Unchanged since it was listed: deleted.
+    let current = layout_stamp_in(&dir, "beta").expect("current stamp");
+    assert_eq!(
+        delete_layout_if_unchanged_in(&dir, "beta", current).expect("delete"),
+        LayoutDeleteOutcome::Deleted
+    );
+    assert!(list_layout_names_in(&dir).names.is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A file whose stem is not its own sanitized name is not listed, because
+/// every layout action addresses the sanitized stem and would reach a
+/// different file.
+#[test]
+fn layout_listing_skips_stems_that_address_a_different_file() {
+    let dir = layout_identity_scratch_dir("stem-roundtrip");
+    let layout = sample_snapshot();
+    save_layout_in(&dir, "a_b", &layout).expect("save a_b");
+    write_atomic(&dir.join("a.b.json"), &layout.to_json_pretty()).expect("write a.b");
+    assert_eq!(list_layout_names_in(&dir).names, vec!["a_b".to_owned()]);
+    assert_eq!(layout_stamp_in(&dir, "a.b"), None);
+    let _ = std::fs::remove_dir_all(dir);
+}

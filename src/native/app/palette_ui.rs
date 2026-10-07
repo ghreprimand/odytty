@@ -19,7 +19,71 @@ use crate::native::palette_overlay::{
 use crate::palette_catalog::PaletteAction;
 use crate::settings::BindableAction;
 
+/// What the open command palette's indexed rows refer to, captured when the
+/// palette opens. A row id carries only an index (`layout-delete-1`); the index
+/// selects from these captured lists, never from a listing re-read on accept,
+/// so a list that changes while the palette is open (a workspace or pane
+/// closing, another window saving or deleting a layout, a profile or host file
+/// edited) can never retarget a row at a neighbour. A target that has gone by
+/// accept time is refused.
+#[derive(Debug, Default)]
+pub(super) struct PaletteTargets {
+    /// The workspace that was active, which the rename, bind, and unbind rows
+    /// act on.
+    active_workspace: Option<SessionToken>,
+    /// `workspace-switch-<idx>`: workspace identities in rail order.
+    workspaces: Vec<SessionToken>,
+    /// `pane-focus-<idx>`: the active tab's panes in stable order.
+    panes: Vec<SessionToken>,
+    /// `workspace-bind-<idx>`: host aliases.
+    hosts: Vec<String>,
+    /// `profile-launch-<idx>` and `profile-bind-<idx>`: profile names.
+    profiles: Vec<String>,
+    /// `layout-open-<idx>` and `layout-delete-<idx>`: names with the file
+    /// identity seen when listed (`None` when it could not be read).
+    layouts: Vec<(String, Option<crate::native::persistence::LayoutStamp>)>,
+}
+
 impl App {
+    /// Capture the in-memory palette targets (workspaces and panes) plus the
+    /// given host, profile, and layout lists.
+    pub(super) fn capture_palette_targets(
+        &mut self,
+        hosts: Vec<String>,
+        profiles: Vec<String>,
+        layouts: Vec<(String, Option<crate::native::persistence::LayoutStamp>)>,
+    ) {
+        let active = self.sessions.active_workspace_index();
+        self.palette_targets = PaletteTargets {
+            active_workspace: self.sessions.workspace_identity(active),
+            workspaces: (0..self.sessions.workspace_names().len())
+                .filter_map(|idx| self.sessions.workspace_identity(idx))
+                .collect(),
+            panes: if self.pane_focus_row_labels().is_empty() {
+                Vec::new()
+            } else {
+                self.sessions
+                    .active_pane_order()
+                    .into_iter()
+                    .map(|(token, _)| token)
+                    .collect()
+            },
+            hosts,
+            profiles,
+            layouts,
+        };
+    }
+
+    /// Whether the workspace that was active when the palette opened is still
+    /// the active one, so a rename or binding row cannot land on whichever
+    /// workspace became active after it closed.
+    fn palette_workspace_still_active(&self, targets: &PaletteTargets) -> bool {
+        targets.active_workspace.is_some_and(|identity| {
+            self.sessions.workspace_index_of(identity)
+                == Some(self.sessions.active_workspace_index())
+        })
+    }
+
     pub(super) fn open_command_palette_overlay(&mut self) {
         if self.search.is_open() {
             self.close_search(true);
@@ -50,6 +114,17 @@ impl App {
         let catalog = super::profile_launch::load_profile_catalog();
         let profile_names = super::profile_launch::profile_display_names(&catalog);
         let pane_rows = self.pane_focus_row_labels();
+        self.capture_palette_targets(
+            host_aliases.clone(),
+            profile_names.iter().map(|(name, _)| name.clone()).collect(),
+            layout_names
+                .iter()
+                .map(|name| {
+                    let stamp = crate::native::persistence::layout_stamp(name);
+                    (name.clone(), stamp)
+                })
+                .collect(),
+        );
         let context = WorkspacePaletteContext {
             names: &workspaces,
             host_aliases: &host_aliases,
@@ -82,16 +157,10 @@ impl App {
     }
 
     pub(super) fn handle_palette_action(&mut self, id: String) {
-        // Workspace rows (ODP-5) carry dynamic ids the pure `PaletteAction`
-        // catalog does not model: `workspace-switch-<idx>` plus the create /
-        // rename rows. Route those first, then fall through to the static
-        // catalog for everything else.
-        if let Some(idx) = parse_workspace_switch_id(&id) {
-            self.switch_to_workspace(idx);
-            return;
-        }
-        if let Some(idx) = crate::native::palette_overlay::parse_pane_focus_id(&id) {
-            self.focus_pane_at_order_index(idx);
+        // Indexed rows resolve against the targets captured when the palette
+        // opened; they are consumed here so a later dispatch never reuses them.
+        let targets = std::mem::take(&mut self.palette_targets);
+        if self.handle_indexed_palette_action(&id, &targets) {
             return;
         }
         if id == WORKSPACE_NEW_ID {
@@ -99,40 +168,19 @@ impl App {
             return;
         }
         if id == WORKSPACE_RENAME_ID {
-            self.enter_rename_workspace(self.sessions.active_workspace_index());
-            return;
-        }
-        if let Some(idx) = parse_workspace_bind_id(&id) {
-            self.bind_active_workspace_to_host_index(idx);
+            if self.palette_workspace_still_active(&targets) {
+                self.enter_rename_workspace(self.sessions.active_workspace_index());
+            }
             return;
         }
         if id == WORKSPACE_UNBIND_ID {
-            self.unbind_active_workspace();
+            if self.palette_workspace_still_active(&targets) {
+                self.unbind_active_workspace();
+            }
             return;
         }
         if id == WORKSPACE_NEW_LOCAL_TAB_ID {
             self.handle_new_local_tab_plain();
-            return;
-        }
-        if let Some(idx) = parse_profile_launch_id(&id) {
-            let catalog = super::profile_launch::load_profile_catalog();
-            if let Some((name, _)) = super::profile_launch::profile_display_names(&catalog)
-                .into_iter()
-                .nth(idx)
-            {
-                self.handle_new_tab_with_profile(&name);
-            }
-            return;
-        }
-        if let Some(idx) = parse_profile_bind_id(&id) {
-            let catalog = super::profile_launch::load_profile_catalog();
-            if let Some((name, _)) = super::profile_launch::profile_display_names(&catalog)
-                .into_iter()
-                .nth(idx)
-            {
-                self.sessions
-                    .set_active_workspace_launch_profile(Some(name));
-            }
             return;
         }
         if let Some(request) = move_request_for_palette_id(&id) {
@@ -160,24 +208,6 @@ impl App {
         }
         if id == LAYOUT_SAVE_ID {
             self.save_active_workspace_as_layout();
-            return;
-        }
-        if let Some(idx) = parse_layout_open_id(&id) {
-            if let Some(name) = crate::native::persistence::list_layout_names()
-                .into_iter()
-                .nth(idx)
-            {
-                self.open_layout(&name);
-            }
-            return;
-        }
-        if let Some(idx) = parse_layout_delete_id(&id) {
-            if let Some(name) = crate::native::persistence::list_layout_names()
-                .into_iter()
-                .nth(idx)
-            {
-                self.delete_layout(&name);
-            }
             return;
         }
         let Some(action) = PaletteAction::from_id(&id) else {
@@ -342,6 +372,65 @@ impl App {
             pane_to_window: rows.pane_to_window,
             merge: self.merge_targets_available(),
         }
+    }
+
+    /// Dispatch a palette row whose id carries an index (workspace, pane,
+    /// host, profile, and layout rows) through the captured `targets`. Returns
+    /// whether `id` was such a row; an index with no captured target, or a
+    /// target that has since gone, does nothing.
+    fn handle_indexed_palette_action(&mut self, id: &str, targets: &PaletteTargets) -> bool {
+        if let Some(idx) = parse_workspace_switch_id(id) {
+            if let Some(idx) = targets
+                .workspaces
+                .get(idx)
+                .and_then(|identity| self.sessions.workspace_index_of(*identity))
+            {
+                self.switch_to_workspace(idx);
+            }
+            return true;
+        }
+        if let Some(idx) = crate::native::palette_overlay::parse_pane_focus_id(id) {
+            if let Some(token) = targets.panes.get(idx).copied() {
+                self.focus_pane_token(token);
+            }
+            return true;
+        }
+        if let Some(idx) = parse_workspace_bind_id(id) {
+            if let Some(alias) = targets.hosts.get(idx)
+                && self.palette_workspace_still_active(targets)
+            {
+                self.bind_active_workspace_to_host_alias(alias.clone());
+            }
+            return true;
+        }
+        if let Some(idx) = parse_profile_launch_id(id) {
+            if let Some(name) = targets.profiles.get(idx) {
+                self.handle_new_tab_with_profile(name);
+            }
+            return true;
+        }
+        if let Some(idx) = parse_profile_bind_id(id) {
+            if let Some(name) = targets.profiles.get(idx)
+                && self.palette_workspace_still_active(targets)
+            {
+                self.sessions
+                    .set_active_workspace_launch_profile(Some(name.clone()));
+            }
+            return true;
+        }
+        if let Some(idx) = parse_layout_open_id(id) {
+            if let Some((name, _)) = targets.layouts.get(idx) {
+                self.open_layout(name);
+            }
+            return true;
+        }
+        if let Some(idx) = parse_layout_delete_id(id) {
+            if let Some((name, stamp)) = targets.layouts.get(idx) {
+                self.delete_layout(name, *stamp);
+            }
+            return true;
+        }
+        false
     }
 
     /// Run a palette move row on the right-clicked tab. The move requests act on

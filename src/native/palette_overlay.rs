@@ -343,8 +343,10 @@ fn palette_options() -> PaletteOptions {
 }
 
 /// Stable id prefix for the per-workspace "switch to …" palette rows. The rail
-/// index is appended (`workspace-switch-2`); [`parse_workspace_switch_id`]
-/// recovers it, and the App routes it through `switch_to_workspace`.
+/// index at open time is appended (`workspace-switch-2`);
+/// [`parse_workspace_switch_id`] recovers it. Every indexed row id (workspace,
+/// host, layout, profile, and pane rows) selects from the targets the App
+/// captured when the palette opened, never from a list re-read on accept.
 pub(super) const WORKSPACE_SWITCH_ID_PREFIX: &str = "workspace-switch-";
 /// Stable id for the "New Workspace" palette row.
 pub(super) const WORKSPACE_NEW_ID: &str = "workspace-new";

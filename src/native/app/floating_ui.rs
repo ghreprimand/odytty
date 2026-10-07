@@ -213,11 +213,9 @@ impl App {
             .collect()
     }
 
-    /// Focus the pane at `index` in the stable tab order, from a palette row.
-    pub(super) fn focus_pane_at_order_index(&mut self, index: usize) {
-        let Some((token, _)) = self.sessions.active_pane_order().get(index).copied() else {
-            return;
-        };
+    /// Focus pane `token` from a palette row. A pane that has closed, or that is
+    /// not in the active tab any more, does nothing.
+    pub(super) fn focus_pane_token(&mut self, token: SessionToken) {
         self.finish_divider_drag();
         if self.sessions.set_active_focus(token) {
             self.reflow_active_panes_and_redraw();

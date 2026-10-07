@@ -233,6 +233,7 @@ mod overlay_pointer;
 mod overlay_registry;
 mod overlay_rendered_rows;
 mod overlay_small_window;
+mod palette_targets;
 mod poison_recovery;
 mod profile_acceptance_e2e;
 mod profile_auto_switch;

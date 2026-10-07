@@ -646,9 +646,6 @@ impl App {
         None
     }
 
-    /// Rebuild the GPU geometry for a **multi-pane** active tab. Mirrors the
-    /// single-pane rebuild's GPU hand-off but assembles one [`PaneRender`] per
-    /// visible pane and calls [`GpuState::update_from_panes`].
     /// The earliest synchronized-output release deadline among the panes on
     /// screen: the active pane, or each visible pane of a split tab.
     pub(super) fn synchronized_output_hold_deadline(&self) -> Option<Instant> {
@@ -675,6 +672,9 @@ impl App {
             .any(|session| session.synchronized_output_hold.is_due(now))
     }
 
+    /// Rebuild the GPU geometry for a **multi-pane** active tab. Mirrors the
+    /// single-pane rebuild's GPU hand-off but assembles one [`PaneRender`] per
+    /// visible pane and calls [`GpuState::update_from_panes`].
     pub(super) fn rebuild_multipane(&mut self) {
         // BIDI: the split frame plans per-pane maps below; never let a
         // single-pane map, or a previous split frame's maps, outlive it.
