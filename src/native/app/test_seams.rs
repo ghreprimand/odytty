@@ -886,6 +886,14 @@ impl App {
         self.multipane_pane_probe_for_test.clone()
     }
 
+    /// Drive the multi-pane rebuild and return the solid quads it composited
+    /// over the panes (dividers, window border, strip quads).
+    #[cfg(test)]
+    pub(in crate::native) fn rebuild_multipane_frame_quads_for_test(&mut self) -> Vec<SolidQuad> {
+        self.rebuild_multipane();
+        self.multipane_frame_quads_for_test.clone()
+    }
+
     /// Test seam (floating layouts): the content rectangle and cell size the
     /// multi-pane geometry resolves to, or `None` on a single-pane tab.
     #[cfg(test)]

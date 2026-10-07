@@ -1695,8 +1695,9 @@ scope rather than silently inheriting deferred work from a prior release.
   this fade.
 
 - Themed window border (`window_border`, off by default): an optional thin
-  border around the terminal grid in the theme's `border` role color, drawn
-  inside the window padding band, DPI-scaled, purely visual.
+  border around the terminal content in the theme's `border` role color, drawn
+  inside the window padding band, DPI-scaled, purely visual. A split, zoomed,
+  stacked, or floating tab keeps one border around the whole pane area.
 
 - Follow-OS dark/light theme (`follow_os_theme`, off by default): switches
   between `os_theme_dark` and `os_theme_light` based on the desktop

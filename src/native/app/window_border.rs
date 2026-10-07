@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! ID4 themed window border — an optional thin frame in the theme `border` role
-//! color drawn around the terminal grid.
+//! ID4 themed window border: an optional thin frame in the theme `border` role
+//! color drawn around the terminal content, in single-pane and split tabs alike.
 //!
 //! The frame is painted as four [`SolidQuad`]s forming a ring whose inner edge
 //! is flush with the content rect and which extends OUTWARD into the existing
@@ -47,31 +47,48 @@ impl App {
         ctx: &OverlayCtx,
         out: &mut Vec<SolidQuad>,
     ) {
-        if !self.settings.window_border {
-            return;
-        }
         let cols = ctx.grid.columns;
         let rows = ctx.grid.rows;
         if cols == 0 || rows == 0 {
             return;
         }
         let pad = ctx.window_padding.as_f32();
+        let content = [
+            pad,
+            pad,
+            pad + cols as f32 * ctx.cell.width as f32,
+            pad + rows as f32 * ctx.cell.height as f32,
+        ];
+        self.window_border_ring(content, pad, ctx.scale, out);
+    }
+
+    /// Emit the border ring around `content` (`[x0, y0, x1, y1]` in surface
+    /// pixels): the single-pane grid, or the whole pane area of a split,
+    /// zoomed, stacked or floating tab, so splitting never removes the frame.
+    /// `room` is the padding band available outside `content`; the ring is
+    /// clamped to it so it never reaches the surface edge or a chrome band.
+    /// No-op unless `window_border` is on or when `content` is empty.
+    pub(in crate::native) fn window_border_ring(
+        &self,
+        content: [f32; 4],
+        room: f32,
+        scale: f32,
+        out: &mut Vec<SolidQuad>,
+    ) {
+        if !self.settings.window_border {
+            return;
+        }
+        let [cx0, cy0, cx1, cy1] = content;
+        if cx1 <= cx0 || cy1 <= cy0 {
+            return;
+        }
         // Thickness in physical px, scaled by DPI and clamped to the padding so
         // the outward ring never extends past the surface edge. A zero padding
         // band leaves no room for an outward border.
-        let thickness = (BORDER_THICKNESS_LOGICAL_PX * ctx.scale.max(1.0)).min(pad);
+        let thickness = (BORDER_THICKNESS_LOGICAL_PX * scale.max(1.0)).min(room);
         if thickness <= 0.0 {
             return;
         }
-        let cell_w = ctx.cell.width as f32;
-        let cell_h = ctx.cell.height as f32;
-        let content_w = cols as f32 * cell_w;
-        let content_h = rows as f32 * cell_h;
-        // Content rect (inner edge of the ring).
-        let cx0 = pad;
-        let cy0 = pad;
-        let cx1 = pad + content_w;
-        let cy1 = pad + content_h;
         // Outer edge of the ring, `thickness` into the padding band.
         let ox0 = cx0 - thickness;
         let oy0 = cy0 - thickness;
@@ -79,8 +96,7 @@ impl App {
         let oy1 = cy1 + thickness;
         // Present the active pane's theme (a profile tab paints its authored
         // border; a plain tab uses the global effective theme, which
-        // `chrome_theme` equals, so this is byte-identical to the pre-profile
-        // path).
+        // `chrome_theme` equals).
         let (r, g, b) = self.chrome_theme.border;
         let mut color = text::foreground_linear(Color::Rgb(r, g, b));
         color[3] = 1.0;
@@ -244,6 +260,105 @@ mod tests {
         assert!(
             (right.rect[0] - content_x1).abs() < 1.0,
             "right border tracks the resized content rect"
+        );
+    }
+
+    // --- split, zoomed and floating tabs keep the outer ring ---------------
+
+    fn split_app(border: bool) -> App {
+        let d = Dimensions::new(COLS, ROWS);
+        let (mut app, _terminal) = crate::native::test_support::headless_app_with(
+            crate::native::options::NativeOptions::default(),
+            d,
+            Settings {
+                window_border: border,
+                ..Settings::default()
+            },
+        );
+        let second = std::sync::Arc::new(std::sync::Mutex::new(crate::core::Terminal::new(
+            COLS, ROWS,
+        )));
+        let writer = crate::native::test_support::headless_writer();
+        app.seed_headless_split_pane_for_test(true, second, writer, d);
+        app.set_test_cell_for_test(CellSize {
+            width: CELL_W,
+            height: CELL_H,
+            baseline: 0,
+        });
+        app.set_test_surface_for_test(
+            (COLS as u32) * CELL_W * 2,
+            (ROWS as u32) * CELL_H * 2,
+            crate::native::WindowPadding::from_logical(8.0, 1.0),
+        );
+        app
+    }
+
+    /// The four ring quads around the split's content rect.
+    fn expected_ring(app: &App) -> Vec<[f32; 4]> {
+        let (content, _) = app.pane_geometry_for_test().expect("split geometry");
+        let t = BORDER_THICKNESS_LOGICAL_PX;
+        let (x0, y0) = (content.x, content.y);
+        let (x1, y1) = (content.x + content.w, content.y + content.h);
+        vec![
+            [x0 - t, y0 - t, x1 + t, y0],
+            [x0 - t, y1, x1 + t, y1 + t],
+            [x0 - t, y0, x0, y1],
+            [x1, y0, x1 + t, y1],
+        ]
+    }
+
+    fn assert_ring(quads: &[SolidQuad], app: &App, label: &str) {
+        let (r, g, b) = app.chrome_theme.border;
+        let color = crate::text::foreground_linear(crate::core::Color::Rgb(r, g, b));
+        for rect in expected_ring(app) {
+            assert!(
+                quads.iter().any(|q| q.rect == rect
+                    && q.color[..3] == color[..3]
+                    && (q.color[3] - 1.0).abs() < 1e-6),
+                "{label}: no border quad at {rect:?} in {:?}",
+                quads.iter().map(|q| q.rect).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn a_split_tab_keeps_the_outer_window_border() {
+        let mut app = split_app(true);
+        let quads = app.rebuild_multipane_frame_quads_for_test();
+        assert_ring(&quads, &app, "tiled split");
+    }
+
+    #[test]
+    fn a_zoomed_split_keeps_the_outer_window_border() {
+        let mut app = split_app(true);
+        app.drive_char_with_mods_for_test('b', true, false);
+        app.drive_char_with_mods_for_test('z', false, false);
+        assert!(app.active_is_zoomed_for_test(), "the pane zoomed");
+        let quads = app.rebuild_multipane_frame_quads_for_test();
+        assert_ring(&quads, &app, "zoomed split");
+    }
+
+    #[test]
+    fn the_split_border_adds_exactly_its_ring_and_is_absent_when_off() {
+        let mut off = split_app(false);
+        let off_quads = off.rebuild_multipane_frame_quads_for_test();
+        let ring = expected_ring(&off);
+        assert!(
+            !off_quads.iter().any(|q| ring.contains(&q.rect)),
+            "the off path draws no ring"
+        );
+        let mut on = split_app(true);
+        let on_quads = on.rebuild_multipane_frame_quads_for_test();
+        assert_eq!(on_quads.len(), off_quads.len() + 4, "four ring quads added");
+        let without_ring: Vec<[f32; 4]> = on_quads
+            .iter()
+            .map(|q| q.rect)
+            .filter(|rect| !ring.contains(rect))
+            .collect();
+        assert_eq!(
+            without_ring,
+            off_quads.iter().map(|q| q.rect).collect::<Vec<_>>(),
+            "dividers and strip quads are unchanged"
         );
     }
 }

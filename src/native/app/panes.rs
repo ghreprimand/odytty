@@ -1246,7 +1246,7 @@ impl App {
         // stacked: the focused pane is full-bleed and the layout tree underneath
         // is hidden, so no divider should overdraw it. A floating tab has no
         // gaps; each pane gets a frame instead.
-        let divider_quads = if self.sessions.active_shows_only_focused() {
+        let mut divider_quads = if self.sessions.active_shows_only_focused() {
             Vec::new()
         } else if floating {
             self.floating_border_quads(&rects, focused)
@@ -1271,6 +1271,25 @@ impl App {
                 })
                 .unwrap_or_default()
         };
+
+        // The optional window border frames the whole pane area, as it frames
+        // the single-pane grid, in every arrangement (tiled, zoomed, stacked,
+        // floating). It sits in the padding band outside `content`, clear of
+        // the panes and of the chrome bands (each separated by the padding).
+        self.window_border_ring(
+            [
+                content.x,
+                content.y,
+                content.x + content.w,
+                content.y + content.h,
+            ],
+            padding.as_f32(),
+            self.gpu
+                .as_ref()
+                .map(crate::native::gpu::GpuState::scale)
+                .unwrap_or(1.0),
+            &mut divider_quads,
+        );
 
         // Assemble the borrow-bound `PaneRender` list.
         let mut panes: Vec<PaneRender> =
@@ -1352,6 +1371,10 @@ impl App {
         let mut frame_quads = divider_quads;
         for strip in &chrome_strips {
             frame_quads.extend_from_slice(&strip.quads);
+        }
+        #[cfg(test)]
+        {
+            self.multipane_frame_quads_for_test = frame_quads.clone();
         }
         // F4-P1 unified tab panel + seam: background-segment quads behind the tab
         // chrome (same layer as the NF11 edge wash). Empty when the bar is hidden

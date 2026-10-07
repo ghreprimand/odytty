@@ -512,6 +512,10 @@ pub(in crate::native) struct App {
     /// multi-pane rebuild, in paint order.
     #[cfg(test)]
     pub(super) multipane_pane_probe_for_test: Vec<PanePaintProbe>,
+    /// Test-only: the solid quads the last multi-pane rebuild composited over
+    /// the panes (dividers, window border, strip quads).
+    #[cfg(test)]
+    pub(super) multipane_frame_quads_for_test: Vec<SolidQuad>,
     /// How many times the chrome reservation asked for a grid reflow.
     #[cfg(test)]
     pub(super) chrome_recomputes_for_test: u32,
@@ -924,6 +928,8 @@ impl App {
             multipane_chrome_rows_for_test: Vec::new(),
             #[cfg(test)]
             multipane_pane_probe_for_test: Vec::new(),
+            #[cfg(test)]
+            multipane_frame_quads_for_test: Vec::new(),
             multipane_frame_seq: 0,
             #[cfg(test)]
             chrome_recomputes_for_test: 0,
