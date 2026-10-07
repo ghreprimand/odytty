@@ -59,16 +59,29 @@ static BOX_THICKNESS: AtomicU32 = AtomicU32::new(0x3f80_0000); // 1.0_f32.to_bit
 ///
 /// Called by the settings layer at startup and on the atlas-rebuild seam with
 /// the parsed `ODYTTY_BOX_THICKNESS` value (already range-clamped). A
-/// non-finite value falls back to `1.0`. Only glyphs rasterized *after* this
+/// non-finite or non-positive value falls back to `1.0`, and a finite value is
+/// clamped to the settings range ([`crate::settings::MIN_BOX_THICKNESS`] to
+/// [`crate::settings::MAX_BOX_THICKNESS`]) so stroke widths stay bounded for
+/// any caller. Only glyphs rasterized *after* this
 /// call observe the new weight, which on the live path is the whole atlas (it
 /// is rebuilt when the setting changes).
 pub fn set_box_thickness(multiplier: f32) {
-    let value = if multiplier.is_finite() && multiplier > 0.0 {
-        multiplier
+    BOX_THICKNESS.store(
+        bounded_box_thickness(multiplier).to_bits(),
+        Ordering::Relaxed,
+    );
+}
+
+/// The multiplier [`set_box_thickness`] stores for `multiplier`.
+fn bounded_box_thickness(multiplier: f32) -> f32 {
+    if multiplier.is_finite() && multiplier > 0.0 {
+        multiplier.clamp(
+            crate::settings::MIN_BOX_THICKNESS,
+            crate::settings::MAX_BOX_THICKNESS,
+        )
     } else {
         1.0
-    };
-    BOX_THICKNESS.store(value.to_bits(), Ordering::Relaxed);
+    }
 }
 
 /// The active box-drawing thickness multiplier (`1.0` when unset).
@@ -119,8 +132,9 @@ enum Diagonal {
 }
 
 /// One of the four cell edges, used by the Symbols for Legacy Computing
-/// triangular blocks (`U+1FB68..=U+1FB6F`). Each edge names the apex direction
-/// of the quarter-triangle (e.g. [`Edge::Left`] points at the left edge).
+/// triangular blocks (`U+1FB68..=U+1FB6F`). The two cell diagonals split the
+/// cell into four triangles; each edge names the triangle whose base is that
+/// edge and whose apex is the cell center.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Edge {
     Left,
@@ -129,10 +143,9 @@ enum Edge {
     Lower,
 }
 
-/// A triangular block from `U+1FB68..=U+1FB6F`. [`Triangle::Quarter`] is a
-/// right triangle filling one quarter of the cell (apex at [`Edge`]); the
-/// [`Triangle::ThreeQuarters`] variants are its complement (the cell minus that
-/// quarter-triangle).
+/// A triangular block from `U+1FB68..=U+1FB6F`. [`Triangle::Quarter`] is the
+/// diagonal-bounded quarter on [`Edge`]; the [`Triangle::ThreeQuarters`]
+/// variants are its complement (the cell minus that quarter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Triangle {
     Quarter(Edge),
@@ -252,7 +265,8 @@ pub fn covers(ch: char) -> bool {
 }
 
 /// Compute a row-major `width * height` 8-bit coverage bitmap for `ch` at the
-/// given cell pixel size, or `None` if `ch` is not geometrically covered.
+/// given cell pixel size, or `None` if `ch` is not geometrically covered, a
+/// side is zero, or `width * height` does not fit in `u32`.
 ///
 /// Coverage is `0` for uncovered pixels and up to `255` for fully inked ones;
 /// shade blocks use intermediate constant values. The renderer multiplies this
@@ -262,7 +276,7 @@ pub fn coverage(ch: char, width: u32, height: u32) -> Option<Vec<u8>> {
         return None;
     }
     let glyph = classify(ch)?;
-    let mut canvas = Canvas::new(width, height);
+    let mut canvas = Canvas::new(width, height)?;
     match glyph {
         Glyph::Arms(arms) => render_arms(&mut canvas, arms),
         Glyph::Dash {
@@ -561,13 +575,14 @@ fn block_table(ch: char) -> Option<Block> {
         '\u{1FB79}' => Block::HorizontalEighthStrip(5),
         '\u{1FB7A}' => Block::HorizontalEighthStrip(6),
         '\u{1FB7B}' => Block::HorizontalEighthStrip(7),
-        // Upper-eighth ladder (top n/8) and right-eighth ladder (right n/8).
-        '\u{1FB82}' => Block::UpperEighths(1),
+        // Upper and right ladders: ONE QUARTER, THREE EIGHTHS, FIVE EIGHTHS,
+        // THREE QUARTERS, SEVEN EIGHTHS (top or right n/8).
+        '\u{1FB82}' => Block::UpperEighths(2),
         '\u{1FB83}' => Block::UpperEighths(3),
         '\u{1FB84}' => Block::UpperEighths(5),
         '\u{1FB85}' => Block::UpperEighths(6),
         '\u{1FB86}' => Block::UpperEighths(7),
-        '\u{1FB87}' => Block::RightEighths(1),
+        '\u{1FB87}' => Block::RightEighths(2),
         '\u{1FB88}' => Block::RightEighths(3),
         '\u{1FB89}' => Block::RightEighths(5),
         '\u{1FB8A}' => Block::RightEighths(6),
@@ -615,18 +630,20 @@ fn powerline_table(ch: char) -> Option<Powerline> {
 //
 // Sextant (`U+1FB00..=U+1FB3B`) and octant (`U+1CD00..=U+1CDE5`) code points
 // each divide the cell into a 2×N grid (N=3 sextant, N=4 octant) and name the
-// filled regions directly. Region `r` maps to bit `r-1`; the layout is
-// `1..=N` down the left column then `N+1..=2N` down the right column:
+// filled regions directly. Region `r` maps to bit `r-1`; Unicode numbers the
+// regions row by row, left to right:
 //
-//     sextant   1 4      octant   1 5
-//               2 5                2 6
-//               3 6                3 7
-//                                  4 8
+//     sextant   1 2      octant   1 2
+//               3 4                3 4
+//               5 6                5 6
+//                                  7 8
 //
-// The `*_MASKS` tables are the code-point-offset → region-mask lookup,
-// generated from the authoritative Unicode 16 names (there is no simple closed
-// form for the offset ordering). `sextant_and_octant_masks_match_unicode_names`
-// regenerates them at test time to guard against transcription drift.
+// Unicode leaves out the masks other blocks already encode (SEXTANT-135 and
+// -246 are the left and right half blocks), which only fits this numbering.
+// The `*_MASKS` tables are the code-point-offset → region-mask lookup taken
+// from the Unicode names (there is no simple closed form for the offset
+// ordering). `tests/legacy_computing_names.rs` derives every mask and region
+// from the Unicode Character Database names to guard against drift.
 // ---------------------------------------------------------------------------
 
 /// Sextant region masks in `U+1FB00` code-point order (60 entries).
@@ -718,12 +735,16 @@ struct Canvas {
 }
 
 impl Canvas {
-    fn new(w: u32, h: u32) -> Self {
-        Self {
+    /// A blank `w`×`h` canvas, or `None` when `w * h` does not fit in `u32`.
+    /// Every pixel index is below that product, so the `u32` index arithmetic
+    /// in the painters cannot wrap.
+    fn new(w: u32, h: u32) -> Option<Self> {
+        let len = usize::try_from(w.checked_mul(h)?).ok()?;
+        Some(Self {
             w,
             h,
-            data: vec![0u8; (w * h) as usize],
-        }
+            data: vec![0u8; len],
+        })
     }
 
     /// Max-combine `v` into the pixel at `(x, y)` (out-of-bounds is a no-op).
@@ -778,8 +799,12 @@ fn light_thickness_with(w: u32, h: u32, multiplier: f32) -> u32 {
 
 /// Heavy line thickness — about twice the light weight, always strictly thicker.
 fn heavy_thickness(w: u32, h: u32) -> u32 {
-    let light = light_thickness(w, h);
-    (light * 2).max(light + 1)
+    heavy_from_light(light_thickness(w, h))
+}
+
+/// Heavy weight for a `light` weight: twice it, and at least one pixel more.
+fn heavy_from_light(light: u32) -> u32 {
+    light.saturating_mul(2).max(light.saturating_add(1))
 }
 
 fn thickness(weight: Weight, w: u32, h: u32) -> u32 {
@@ -846,31 +871,27 @@ fn render_arms(c: &mut Canvas, arms: [Option<Weight>; 4]) {
 
 /// Render a dashed straight line: the same band as a solid line, broken into
 /// `dashes` evenly spaced segments. Dashed lines are intentionally broken, so
-/// (unlike solid lines) they need not meet across cell boundaries.
+/// (unlike solid lines) they need not meet across cell boundaries. Each dash
+/// keeps at least one pixel inside the cell, so no dash vanishes on a small
+/// cell (adjacent dashes may then touch).
 fn render_dash(c: &mut Canvas, horizontal: bool, weight: Weight, dashes: u32) {
     let (w, h) = (c.w, c.h);
+    let length = if horizontal { w } else { h };
     let dash_ratio = 0.62; // inked fraction of each segment
-    if horizontal {
-        let (y0, y1) = hband(weight, w, h);
-        let seg = w as f32 / dashes as f32;
-        for i in 0..dashes {
-            let start = i as f32 * seg;
-            let ink = seg * dash_ratio;
-            let pad = (seg - ink) / 2.0;
-            let x0 = (start + pad).round() as i32;
-            let x1 = (start + pad + ink).round() as i32;
-            c.fill(x0, x1, y0, y1);
-        }
-    } else {
-        let (x0, x1) = vband(weight, w, h);
-        let seg = h as f32 / dashes as f32;
-        for i in 0..dashes {
-            let start = i as f32 * seg;
-            let ink = seg * dash_ratio;
-            let pad = (seg - ink) / 2.0;
-            let y0 = (start + pad).round() as i32;
-            let y1 = (start + pad + ink).round() as i32;
-            c.fill(x0, x1, y0, y1);
+    let seg = length as f32 / dashes as f32;
+    let last = length as i32 - 1;
+    for i in 0..dashes {
+        let start = i as f32 * seg;
+        let ink = seg * dash_ratio;
+        let pad = (seg - ink) / 2.0;
+        let a0 = ((start + pad).round() as i32).min(last);
+        let a1 = ((start + pad + ink).round() as i32).max(a0 + 1);
+        if horizontal {
+            let (y0, y1) = hband(weight, w, h);
+            c.fill(a0, a1, y0, y1);
+        } else {
+            let (x0, x1) = vband(weight, w, h);
+            c.fill(x0, x1, a0, a1);
         }
     }
 }
@@ -1156,8 +1177,7 @@ fn render_block(c: &mut Canvas, block: Block) {
         }
         Block::RightHalf => c.fill((wf / 2.0).round() as i32, w as i32, 0, h as i32),
         // The singular one-eighth blocks carry the same >=1px floor as the
-        // ladder arms above; U+2594 must stay consistent with UpperEighths(1)
-        // (U+1FB82) on degenerate cells.
+        // ladder arms above, so they stay visible on degenerate cells.
         Block::UpperEighth => c.fill(0, w as i32, 0, ((hf / 8.0).round() as i32).max(1)),
         Block::RightEighth => c.fill(
             ((wf * 7.0 / 8.0).round() as i32).min(w as i32 - 1),
@@ -1247,32 +1267,31 @@ fn shade_rect(c: &mut Canvas, x0: i32, x1: i32, y0: i32, y1: i32, v: u8) {
     }
 }
 
-/// Render a Symbols for Legacy Computing sextant as a 2×3 filled grid. Region
-/// `r` (1..=6): left column top→bottom for 1,2,3 and right column for 4,5,6.
+/// Render a Symbols for Legacy Computing sextant as a 2×3 filled grid.
 fn render_sextant(c: &mut Canvas, mask: u8) {
-    render_grid(c, mask, 3, |r| if r <= 3 { (0, r - 1) } else { (1, r - 4) });
+    render_grid(c, mask, 3);
 }
 
 /// Render a Symbols for Legacy Computing Supplement octant as a 2×4 filled grid.
-/// Region `r` (1..=8): left column 1..=4, right column 5..=8.
 fn render_octant(c: &mut Canvas, mask: u8) {
-    render_grid(c, mask, 4, |r| if r <= 4 { (0, r - 1) } else { (1, r - 5) });
+    render_grid(c, mask, 4);
 }
 
 /// Shared 2-column × `nrow` grid renderer for sextants (`nrow`=3) and octants
-/// (`nrow`=4). For each set region `r` (1-based) in `mask`, `region_to_cell(r)`
-/// gives its `(col, row)`; that sub-rectangle is filled solid.
-fn render_grid<F: Fn(u8) -> (u8, u8)>(c: &mut Canvas, mask: u8, nrow: u8, region_to_cell: F) {
+/// (`nrow`=4). Region `r` (1-based, bit `r-1` of `mask`) is numbered row by
+/// row as Unicode does: column `(r-1) % 2`, row `(r-1) / 2`. Each set region's
+/// sub-rectangle is filled solid.
+fn render_grid(c: &mut Canvas, mask: u8, nrow: u8) {
     if mask == 0 {
         return;
     }
     let (w, h) = (c.w as f32, c.h as f32);
     let nrowf = nrow as f32;
-    for r in 1u8..=8 {
+    for r in 1u8..=nrow * 2 {
         if mask & (1 << (r - 1)) == 0 {
             continue;
         }
-        let (col, row) = region_to_cell(r);
+        let (col, row) = ((r - 1) % 2, (r - 1) / 2);
         let x0 = (w * col as f32 / 2.0).round() as i32;
         let x1 = (w * (col as f32 + 1.0) / 2.0).round() as i32;
         let y0 = (h * row as f32 / nrowf).round() as i32;
@@ -1281,24 +1300,25 @@ fn render_grid<F: Fn(u8) -> (u8, u8)>(c: &mut Canvas, mask: u8, nrow: u8, region
     }
 }
 
-/// Render a triangular block from `U+1FB68..=U+1FB6F`. Each quarter-triangle has
-/// its apex at the named [`Edge`] center and a base along the perpendicular cell
-/// midline, covering one quarter of the cell; the three-quarters variants fill
-/// the complement. The slanted edges are anti-aliased with a 1px band.
+/// Render a triangular block from `U+1FB68..=U+1FB6F`. Each quarter is the
+/// triangle between the named [`Edge`] and the cell center, bounded by the two
+/// cell diagonals, so it covers one quarter of the cell; the three-quarters
+/// variants fill the complement. The slanted edges are anti-aliased with a 1px
+/// band.
 fn render_triangle(c: &mut Canvas, tri: Triangle) {
     let (w, h) = (c.w as f32, c.h as f32);
     let invert = matches!(tri, Triangle::ThreeQuarters(_));
     let edge = match tri {
         Triangle::Quarter(e) | Triangle::ThreeQuarters(e) => e,
     };
-    // Three vertices in pixel space (origin top-left). Apex at the named edge's
-    // center; the two base corners sit on the perpendicular midline at the cell
-    // corners, so the triangle covers exactly one quarter of the cell.
-    let (apex, b1, b2) = match edge {
-        Edge::Left => ((0.0, h / 2.0), (w / 2.0, 0.0), (w / 2.0, h)),
-        Edge::Upper => ((w / 2.0, 0.0), (0.0, h / 2.0), (w, h / 2.0)),
-        Edge::Right => ((w, h / 2.0), (w / 2.0, 0.0), (w / 2.0, h)),
-        Edge::Lower => ((w / 2.0, h), (0.0, h / 2.0), (w, h / 2.0)),
+    // Three vertices in pixel space (origin top-left): the apex at the cell
+    // center and the two corners at the ends of the named edge.
+    let apex = (w / 2.0, h / 2.0);
+    let (b1, b2) = match edge {
+        Edge::Left => ((0.0, 0.0), (0.0, h)),
+        Edge::Upper => ((0.0, 0.0), (w, 0.0)),
+        Edge::Right => ((w, 0.0), (w, h)),
+        Edge::Lower => ((0.0, h), (w, h)),
     };
     let v = [apex, b1, b2];
     for y in 0..c.h {

@@ -4,7 +4,13 @@ prior-coverage-fnv64.txt freezes unmodified OdyTTY geometric coverage before
 polygon changes, SHA f8db7b0ac25a67ff2a5f01ea2c1ae033b171b34c. Its boxdraw.rs
 is identical to 2436a410. Records are codepoint, width, height, and FNV-1a-64
 of every pixel, for all 760 previously covered glyphs at five cell sizes.
-Never regenerate this baseline from a changed renderer.
+Never regenerate this baseline from a changed renderer. One deliberate
+correction replaced only the rows of 282 code points: the 54 sextants and
+218 octants whose cells had been drawn transposed, the 8 triangular blocks
+U+1FB68..U+1FB6F, and U+1FB82 and U+1FB87, which had been drawn as one eighth
+instead of one quarter. Those shapes are checked independently against the
+Unicode names by tests/legacy_computing_names.rs. Every other row is
+unchanged.
 
 diagonal-area-coverage.txt is an independent rational-area reference generated
 from four project-authored polygons defined by the Unicode character names:

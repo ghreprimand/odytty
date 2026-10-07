@@ -386,15 +386,16 @@ fn covered_ranges_all_produce_buffers() {
 // ---------------------------------------------------------------------------
 
 /// A point deep inside sextant region `r` (1..=6) of a 2-col × 3-row cell.
+/// Unicode numbers the regions row by row: 1 2 / 3 4 / 5 6.
 fn sextant_point(r: u32) -> (u32, u32) {
-    // left column top→bottom = 1,2,3; right column = 4,5,6.
-    let (col, row) = if r <= 3 { (0u32, r - 1) } else { (1, r - 4) };
+    let (col, row) = ((r - 1) % 2, (r - 1) / 2);
     (col * W / 2 + 1, row * H / 3 + H / 6)
 }
 
-/// A point deep inside octant region `r` (1..=8) of a 2-col × 4-row cell.
+/// A point deep inside octant region `r` (1..=8) of a 2-col × 4-row cell,
+/// numbered row by row: 1 2 / 3 4 / 5 6 / 7 8.
 fn octant_point(r: u32) -> (u32, u32) {
-    let (col, row) = if r <= 4 { (0u32, r - 1) } else { (1, r - 5) };
+    let (col, row) = ((r - 1) % 2, (r - 1) / 2);
     (col * W / 2 + 1, row * H / 4 + H / 8)
 }
 
@@ -478,21 +479,21 @@ fn sextant_single_region_inks_only_that_region() {
 }
 
 #[test]
-fn sextant_left_column_matches_left_half_block() {
-    // SEXTANT-123 (1FB06) fills the whole left column, so its left-column ink
-    // matches the LEFT HALF block (U+258C) and its right column is clear.
+fn sextant_123_is_the_top_row_plus_middle_left() {
+    // SEXTANT-123 (1FB06) fills regions 1 and 2 (the top row) and region 3
+    // (middle left). The left half block is SEXTANT-135, which Unicode leaves
+    // out because U+258C already encodes it.
     let sext = cov('\u{1FB06}');
-    let half = cov('\u{258C}');
     for r in [1u32, 2, 3] {
         let (x, y) = sextant_point(r);
-        assert!(at(&sext, x, y) > 0, "left region {r} inked");
+        assert!(at(&sext, x, y) > 0, "region {r} inked");
     }
     for r in [4u32, 5, 6] {
         let (x, y) = sextant_point(r);
-        assert_eq!(at(&sext, x, y), 0, "right region {r} clear");
+        assert_eq!(at(&sext, x, y), 0, "region {r} clear");
     }
-    // Same left-column sample inked in both glyphs.
-    assert_eq!(at(&sext, 1, H / 2) > 0, at(&half, 1, H / 2) > 0);
+    assert!(!SEXTANT_MASKS.contains(&0b01_0101), "SEXTANT-135 is U+258C");
+    assert!(!SEXTANT_MASKS.contains(&0b10_1010), "SEXTANT-246 is U+2590");
 }
 
 #[test]
@@ -508,16 +509,49 @@ fn octant_single_region_inks_only_that_region() {
 }
 
 #[test]
-fn triangular_quarter_block_inks_apex_corner_only() {
-    // LEFT TRIANGULAR ONE QUARTER (1FB6C): apex at the left edge, so it inks
-    // the left side and leaves the far-right column clear.
+fn triangular_quarter_block_has_its_base_on_the_named_edge() {
+    // LEFT TRIANGULAR ONE QUARTER (1FB6C): base on the left edge, apex at the
+    // center, so the whole left column is inked and the right edge is clear.
     let buf = cov('\u{1FB6C}');
-    assert!(at(&buf, 0, H / 2) > 0, "apex (left-center) should be inked");
+    // Corner pixels are partly covered by the antialiased diagonal edges.
+    for y in 0..H {
+        assert!(at(&buf, 0, y) > 0, "left edge row {y} should be inked");
+    }
+    assert_eq!(at(&buf, 0, H / 2), 255);
     assert_eq!(at(&buf, W - 1, H / 2), 0, "right edge should be clear");
-    // UPPER (1FB6D): apex at the top.
+    // UPPER (1FB6D): base on the top edge.
     let buf = cov('\u{1FB6D}');
-    assert!(at(&buf, W / 2, 0) > 0, "apex (top-center) should be inked");
+    for x in 0..W {
+        assert!(at(&buf, x, 0) > 0, "top edge column {x} should be inked");
+    }
+    assert_eq!(at(&buf, W / 2, 0), 255);
+    assert_eq!(at(&buf, 0, H / 2), 0, "left edge middle should be clear");
     assert_eq!(at(&buf, W / 2, H - 1), 0, "bottom edge should be clear");
+}
+
+#[test]
+fn triangular_quarter_and_complement_sum_to_full_coverage() {
+    let pairs = [
+        ('\u{1FB6C}', '\u{1FB68}'),
+        ('\u{1FB6D}', '\u{1FB69}'),
+        ('\u{1FB6E}', '\u{1FB6A}'),
+        ('\u{1FB6F}', '\u{1FB6B}'),
+    ];
+    for (w, h) in [(W, H), (11, 23), (12, 24)] {
+        for (quarter, complement) in pairs {
+            let q = coverage(quarter, w, h).expect("covered");
+            let c = coverage(complement, w, h).expect("covered");
+            for (i, (a, b)) in q.iter().zip(&c).enumerate() {
+                let sum = u16::from(*a) + u16::from(*b);
+                assert!(
+                    (254..=256).contains(&sum),
+                    "U+{:04X} + U+{:04X} pixel {i} at {w}x{h}: {sum}",
+                    quarter as u32,
+                    complement as u32
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -541,7 +575,18 @@ fn triangular_three_quarters_inverts_the_quarter() {
 fn eighth_ladders_grow_monotonically_and_reach_the_named_edge() {
     let count = |ch: char| cov(ch).iter().filter(|&&v| v > 0).count();
     // Upper-eighth ladder: more eighths ⇒ more ink, all at the top.
-    assert!(count('\u{1FB82}') < count('\u{1FB86}')); // 1/8 < 7/8
+    assert!(count('\u{1FB82}') < count('\u{1FB86}')); // 2/8 < 7/8
+    // UPPER and RIGHT ONE QUARTER BLOCK are two eighths: twice the one-eighth
+    // blocks U+2594 and U+2595 at a cell that divides evenly.
+    let ink = |ch: char| {
+        coverage(ch, 16, 32)
+            .expect("covered")
+            .iter()
+            .filter(|&&v| v > 0)
+            .count()
+    };
+    assert_eq!(ink('\u{1FB82}'), 2 * ink('\u{2594}'));
+    assert_eq!(ink('\u{1FB87}'), 2 * ink('\u{2595}'));
     let upper = cov('\u{1FB86}'); // upper 7/8
     assert!(at(&upper, W / 2, 0) > 0, "top row inked");
     assert_eq!(
@@ -763,4 +808,62 @@ fn eighth_ladders_never_vanish_on_tiny_cells() {
             );
         }
     }
+}
+
+#[test]
+fn dashes_never_vanish_on_tiny_cells() {
+    // Every dash keeps at least one pixel, so a dashed glyph inks at least
+    // min(dashes, length) pixels along its axis on any cell size.
+    let families = [
+        ('\u{254C}', true, 2),
+        ('\u{254D}', true, 2),
+        ('\u{254E}', false, 2),
+        ('\u{254F}', false, 2),
+        ('\u{2504}', true, 3),
+        ('\u{2505}', true, 3),
+        ('\u{2506}', false, 3),
+        ('\u{2507}', false, 3),
+        ('\u{2508}', true, 4),
+        ('\u{2509}', true, 4),
+        ('\u{250A}', false, 4),
+        ('\u{250B}', false, 4),
+    ];
+    for (w, h) in [(1u32, 1u32), (2, 2), (3, 3), (4, 4), (2, 5), (5, 2), (7, 3)] {
+        for (ch, horizontal, dashes) in families {
+            let buf = coverage(ch, w, h).expect("covered");
+            let length = if horizontal { w } else { h };
+            let inked_along = (0..length)
+                .filter(|&i| {
+                    if horizontal {
+                        (0..h).any(|y| buf[(y * w + i) as usize] > 0)
+                    } else {
+                        (0..w).any(|x| buf[(i * w + x) as usize] > 0)
+                    }
+                })
+                .count() as u32;
+            assert!(
+                inked_along >= dashes.min(length),
+                "U+{:04X} inks {inked_along} of {length} at {w}x{h}",
+                ch as u32
+            );
+        }
+    }
+}
+
+#[test]
+fn oversized_cells_are_refused_instead_of_wrapping() {
+    assert!(coverage('\u{2588}', 65_536, 65_536).is_none());
+    assert!(Canvas::new(u32::MAX, 2).is_none());
+}
+
+#[test]
+fn box_thickness_is_bounded_to_the_settings_range() {
+    use crate::settings::{MAX_BOX_THICKNESS, MIN_BOX_THICKNESS};
+    assert_eq!(bounded_box_thickness(1.0), 1.0);
+    assert_eq!(bounded_box_thickness(1e30), MAX_BOX_THICKNESS);
+    assert_eq!(bounded_box_thickness(1e-30), MIN_BOX_THICKNESS);
+    assert_eq!(bounded_box_thickness(f32::NAN), 1.0);
+    assert_eq!(bounded_box_thickness(-2.0), 1.0);
+    assert_eq!(heavy_from_light(3), 6);
+    assert_eq!(heavy_from_light(u32::MAX), u32::MAX);
 }

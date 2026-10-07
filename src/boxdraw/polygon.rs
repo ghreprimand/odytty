@@ -228,10 +228,10 @@ mod tests {
         let mut cov = PolygonCoverage::new(2, 2);
         cov.add(&square);
         cov.add(&square);
-        let mut canvas = Canvas::new(2, 2);
+        let mut canvas = Canvas::new(2, 2).expect("small canvas");
         cov.write(&mut canvas, false);
         assert_eq!(canvas.data, vec![255; 4]);
-        let mut canvas = Canvas::new(2, 2);
+        let mut canvas = Canvas::new(2, 2).expect("small canvas");
         cov.write(&mut canvas, true);
         assert_eq!(canvas.data, vec![0; 4]);
     }

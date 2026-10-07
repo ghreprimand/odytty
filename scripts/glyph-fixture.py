@@ -124,7 +124,7 @@ section(
     "Symbols for Legacy Computing - sextants  (U+1FB00..U+1FB3B)",
     [
         "2-column x 3-row cell-division fills (60 glyphs). Rendered geometrically.",
-        "Region 1 = top-left; 1..3 fill the left column, 4..6 the right column.",
+        "Regions are numbered row by row: 1 2 / 3 4 / 5 6, region 1 top-left.",
     ],
     ranges_blurb="# Range: U+1FB00..U+1FB3B (full set, geometric)",
 )
@@ -135,7 +135,7 @@ section(
     "Symbols for Legacy Computing Supplement - octants  (U+1CD00..U+1CDE5)",
     [
         "2-column x 4-row cell-division fills (230 glyphs). Rendered geometrically.",
-        "Regions 1..4 fill the left column, 5..8 the right column.",
+        "Regions are numbered row by row: 1 2 / 3 4 / 5 6 / 7 8, region 1 top-left.",
     ],
     ranges_blurb="# Range: U+1CD00..U+1CDE5 (full set, geometric)",
 )
@@ -145,7 +145,8 @@ chunked(0x1CD00, 0x1CDE5, per_line=15)
 section(
     "Symbols for Legacy Computing - triangular blocks  (U+1FB68..U+1FB6F)",
     [
-        "Edge-apex quarter triangles and their three-quarter complements.",
+        "Quarters between the cell diagonals: base on the named edge, apex at the center,",
+        "and their three-quarter complements.",
         "Rendered geometrically with 1px anti-aliased edges.",
     ],
     ranges_blurb="# Range: U+1FB68..U+1FB6F (full set, geometric)",

@@ -464,8 +464,13 @@ procedural cell coverage instead of font outlines. The coverage meets its cell
 edges exactly, keeping TUI borders, graphs, and prompt separators crisp and
 seamless at every font size. Diagonal edges are antialiased from the exact
 polygon area in each pixel, so a lower diagonal fill and its upper complement
-tile into one solid cell. `geometric_boxdraw` is on by default; `box_thickness` tunes
-line weight when a different visual density is preferred.
+tile into one solid cell. Sextants and octants fill the cells their Unicode
+names list, numbered row by row; triangular blocks fill the quarters between
+the cell diagonals. Releases v0.1.6 through v0.16.1 drew sextants and octants
+transposed, the triangular blocks with the wrong triangle, and `U+1FB82` and
+`U+1FB87` at one eighth instead of one quarter. `geometric_boxdraw` is on by
+default; `box_thickness` tunes line weight when a different visual density is
+preferred.
 
 Text colors are composed in linear light, with an sRGB surface preferred for
 correct antialiased edges. `text_gamma` controls coverage weight independently,
