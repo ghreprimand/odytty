@@ -2755,8 +2755,12 @@ The test exits cleanly when the font is absent.
 `src/emoji/color_atlas.rs` adds the OdyTTY-owned
 `ColorGlyphAtlas`: a grow-only `Rgba8Unorm` atlas for premultiplied source
 pixels, keyed by `(font identity, glyph-or-cluster id, physical px size,
-scale)` rather than by character. Slots span one or two terminal cells; wide
-color glyphs draw once from the lead cell and continuation cells emit nothing.
+scale, cell span)` rather than by character. Insertion requires matching key
+and bitmap spans. Both atlas dimensions must fit the bound device limit;
+oversized atlases decline lookups and inserts while preserving resident data.
+Growth stops at the last complete page within the limit. Slots span one or
+two terminal cells; wide color glyphs draw once from the lead cell and
+continuation cells emit nothing.
 The native renderer owns a dedicated color-glyph texture, vertex buffer, WGSL
 shader, and premultiplied-alpha blend state. At this increment the segment
 received no live runs because the real decoder had not yet supplied decoded

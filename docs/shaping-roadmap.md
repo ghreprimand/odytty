@@ -104,6 +104,8 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
   glyphs through Fontations' guarded graph traversal. Solid fills, gradients,
   transforms, clips, and composites rasterize into premultiplied RGBA after
   bitmap and v0 sources decline the glyph, preserving both established paths.
+  Atlas admission checks both device dimensions and the bitmap/key cell span
+  before reusing a color slot.
 - **Extended ligature coverage beyond ASCII.** Landed as the curated allowlist
   above, not an open feature-tag surface.
 - **Latin `liga` alongside `calt`.** Eligible Latin/operator runs enable both

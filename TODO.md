@@ -1258,6 +1258,8 @@ a floor; surpassing it is the standing ambition.
   - [x] Emoji clusters: flags, keycaps, skin-tone modifiers, ZWJ
         sequences; regression fixtures per category; defined fallback for
         unsupported clusters.
+  - [x] ColorGlyphAtlas device admission: check both texture dimensions and
+        key/bitmap cell-span agreement before insertion or cached reuse.
   - [x] ColorGlyphAtlas capacity audit: bounded growth to 4096 slots,
         deterministic `Full` at cap, and no slot overwrite or dirtying on
         overflow.

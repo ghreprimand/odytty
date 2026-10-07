@@ -151,7 +151,10 @@ fn wide_color_glyph_lead_emits_one_two_cell_quad() {
     );
 
     let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
-    let key = color_key(11);
+    let key = odytty::emoji::ColorGlyphKey {
+        width_cells: 2,
+        ..color_key(11)
+    };
     color_atlas
         .insert_premultiplied(key, 2, &premul_solid(atlas.cell, 2, [0, 180, 60, 255]))
         .expect("insert wide synthetic color glyph");

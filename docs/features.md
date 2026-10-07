@@ -519,7 +519,9 @@ the standard composite modes. A COLR v1 glyph whose Paint graph would exceed
 the fixed visit, pixel-work, or live-buffer budget at its slot size uses the
 monochrome fallback. Directory discovery recognizes stock Windows
 Segoe UI Emoji and other parseable COLR/CPAL faces. The shared raster and atlas
-logic is platform-neutral.
+logic is platform-neutral. Atlas admission checks both texture dimensions
+against the device limit and requires matching key/bitmap cell spans.
+Oversized atlases decline color lookups without discarding resident pixels.
 
 Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
 supported by the color-glyph renderer. Unicode 17 listed VS16 bases, supported

@@ -26,7 +26,7 @@ pub struct ColorGlyphKey {
     pub px_bits: u32,
     pub scale_bits: u32,
     /// Cell span the bitmap was rendered for. Part of the identity: the same
-    /// glyph id requested at a different span must rasterize its own slot —
+    /// glyph id requested at a different span must rasterize its own slot:
     /// without this, whichever width rendered first would be returned for
     /// every later width (a one- vs two-cell presentation collision).
     pub width_cells: u8,
@@ -77,6 +77,8 @@ struct ColorGlyphSlot {
 pub enum ColorGlyphAtlasError {
     #[error("color glyph width must span 1 or 2 cells, got {0}")]
     InvalidCellSpan(u8),
+    #[error("color glyph key span {key} disagrees with bitmap span {bitmap}")]
+    WidthMismatch { key: u8, bitmap: u8 },
     #[error("premultiplied RGBA length mismatch: expected {expected} bytes, got {actual}")]
     Length { expected: usize, actual: usize },
     #[error("premultiplied source has RGB greater than alpha at byte {0}")]
@@ -96,6 +98,7 @@ pub struct ColorGlyphAtlas {
     capacity_rows: u32,
     next_slot: u32,
     max_slots: u32,
+    max_texture_dimension: u32,
     slots: HashMap<ColorGlyphKey, ColorGlyphSlot>,
     revision: u64,
     dirty: bool,
@@ -114,6 +117,7 @@ impl ColorGlyphAtlas {
             capacity_rows: ATLAS_GROW_ROWS,
             next_slot: 0,
             max_slots: MAX_COLOR_GLYPH_SLOTS,
+            max_texture_dimension: u32::MAX,
             slots: HashMap::new(),
             revision: 0,
             dirty: false,
@@ -143,13 +147,14 @@ impl ColorGlyphAtlas {
         u64::from(self.width) * u64::from(self.height) * 4
     }
 
-    /// Bind growth to the active device's maximum 2D texture height. Inserts
-    /// return [`ColorGlyphAtlasError::Full`] once the final complete growth
-    /// page is full.
+    /// Bind both atlas dimensions to the active device's 2D texture limit.
+    /// Oversized atlases decline lookups and inserts without discarding slots.
+    /// Inserts return [`ColorGlyphAtlasError::Full`] when another complete
+    /// growth page would exceed the limit.
     pub fn set_texture_dimension_limit(&mut self, max_dimension: u32) {
+        self.max_texture_dimension = max_dimension;
         let rows = max_dimension / self.cell.height.max(1);
-        let reachable_rows = self.capacity_rows
-            + rows.saturating_sub(self.capacity_rows) / ATLAS_GROW_ROWS * ATLAS_GROW_ROWS;
+        let reachable_rows = rows / ATLAS_GROW_ROWS * ATLAS_GROW_ROWS;
         self.max_slots = reachable_rows
             .saturating_mul(self.cols)
             .min(MAX_COLOR_GLYPH_SLOTS)
@@ -157,6 +162,9 @@ impl ColorGlyphAtlas {
     }
 
     pub fn lookup(&self, key: ColorGlyphKey) -> Option<ColorGlyphBounds> {
+        if self.width > self.max_texture_dimension || self.height > self.max_texture_dimension {
+            return None;
+        }
         let slot = self.slots.get(&key)?;
         Some(self.slot_bounds(*slot))
     }
@@ -171,11 +179,20 @@ impl ColorGlyphAtlas {
         width_cells: u8,
         rgba: &[u8],
     ) -> Result<ColorGlyphBounds, ColorGlyphAtlasError> {
-        if let Some(bounds) = self.lookup(key) {
-            return Ok(bounds);
-        }
         if !(1..=2).contains(&width_cells) {
             return Err(ColorGlyphAtlasError::InvalidCellSpan(width_cells));
+        }
+        if key.width_cells != width_cells {
+            return Err(ColorGlyphAtlasError::WidthMismatch {
+                key: key.width_cells,
+                bitmap: width_cells,
+            });
+        }
+        if self.width > self.max_texture_dimension || self.height > self.max_texture_dimension {
+            return Err(ColorGlyphAtlasError::Full);
+        }
+        if let Some(bounds) = self.lookup(key) {
+            return Ok(bounds);
         }
         let pixel_width = self.cell.width as usize * width_cells as usize;
         let pixel_height = self.cell.height as usize;
@@ -416,18 +433,24 @@ mod tests {
 
     #[test]
     fn device_height_limit_stops_before_an_oversized_growth_page() {
-        let mut atlas = ColorGlyphAtlas::new(cell());
+        // The initial width also fits the height-bound device limit.
+        let mut atlas = ColorGlyphAtlas::new(CellSize {
+            width: 1,
+            height: 8,
+            baseline: 6,
+        });
+        let pixels = [255; 32];
         let initial_height = atlas.height;
         atlas.set_texture_dimension_limit(initial_height);
         let slots_in_page = ATLAS_COLS * ATLAS_GROW_ROWS;
         for id in 0..slots_in_page {
             atlas
-                .insert_premultiplied(cluster_key(id), 1, &rgba(1, [1, 2, 3, 255]))
+                .insert_premultiplied(cluster_key(id), 1, &pixels)
                 .expect("slot within device limit");
         }
         assert_eq!(atlas.height, initial_height);
         assert_eq!(
-            atlas.insert_premultiplied(cluster_key(slots_in_page), 1, &rgba(1, [1, 2, 3, 255]),),
+            atlas.insert_premultiplied(cluster_key(slots_in_page), 1, &pixels,),
             Err(ColorGlyphAtlasError::Full)
         );
         assert_eq!(atlas.height, initial_height);
