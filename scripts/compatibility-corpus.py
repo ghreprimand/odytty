@@ -64,6 +64,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+def write_utf8_lf(path: Path, text: str, *, append: bool = False) -> None:
+    """Write UTF-8 bytes without platform newline translation, including on Windows."""
+    with path.open("ab" if append else "wb") as handle:
+        handle.write(text.encode("utf-8"))
+
+
 CORPUS_VERSION = "1.0.0"
 SCHEMA_VERSION = "1.0.0"
 MIN_PYTHON = (3, 11)
@@ -1134,9 +1140,7 @@ def _move_candidate(paths: Paths, name: str, target: Path, reason: str, verb: st
     for source in pair:
         if source.exists():
             shutil.move(str(source), str(target / source.name))
-    (target / f"{name}.reason.txt").write_text(
-        f"{verb}: {stamp}\n{reason}\n", encoding="utf-8"
-    )
+    write_utf8_lf(target / f"{name}.reason.txt", f"{verb}: {stamp}\n{reason}\n")
     if verb == "rejected":
         case_file, parse_errors = parse_case_file(target / f"{name}.vtseq")
         digest = (
@@ -1145,10 +1149,11 @@ def _move_candidate(paths: Paths, name: str, target: Path, reason: str, verb: st
             else "unparseable"
         )
         paths.reject_ledger.parent.mkdir(parents=True, exist_ok=True)
-        with paths.reject_ledger.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(
-                json.dumps({"sha256": digest, "name": name, "reason": reason, "date": stamp}) + "\n"
-            )
+        write_utf8_lf(
+            paths.reject_ledger,
+            json.dumps({"sha256": digest, "name": name, "reason": reason, "date": stamp}) + "\n",
+            append=True,
+        )
     print(f"{verb}: {name}: moved to {target}")
     return 0
 
@@ -1253,7 +1258,7 @@ class SelfTest(unittest.TestCase):
         **manifest_kwargs,
     ) -> None:
         body = header.format(id=case_id, directives=directives) + "\n".join(payload_lines) + "\n"
-        (self.paths.cases_dir / f"{case_id}.vtseq").write_text(body, encoding="utf-8")
+        write_utf8_lf(self.paths.cases_dir / f"{case_id}.vtseq", body)
         if manifest:
             # Assemble the payload line by line so deliberately broken cases
             # still get a manifest entry; validation is what the tests probe.
@@ -1262,11 +1267,10 @@ class SelfTest(unittest.TestCase):
             except CorpusError:
                 payload = b""
             digest = hashlib.sha256(payload).hexdigest()
-            with self.paths.manifest.open("a", encoding="utf-8", newline="\n") as handle:
-                handle.write(make_case_toml(case_id, digest, **manifest_kwargs))
+            write_utf8_lf(self.paths.manifest, make_case_toml(case_id, digest, **manifest_kwargs), append=True)
 
     def write_manifest_header(self) -> None:
-        self.paths.manifest.write_text(POLICY_TOML, encoding="utf-8")
+        write_utf8_lf(self.paths.manifest, POLICY_TOML)
 
     def errors(self) -> list[str]:
         return validate_corpus(self.paths)
@@ -1288,6 +1292,45 @@ class SelfTest(unittest.TestCase):
         self.write_case("parser.basic", ["plain text"])
         self.assertClean()
 
+    # -- platform line endings -------------------------------------------------
+
+    def windows_newline_translation(self):
+        original_open = Path.open
+
+        def translated_open(path, mode="r", *args, **kwargs):
+            if "b" not in mode and any(flag in mode for flag in "wax") and kwargs.get("newline") is None:
+                kwargs["newline"] = "\r\n"
+            return original_open(path, mode, *args, **kwargs)
+
+        return mock.patch.object(Path, "open", translated_open)
+
+    def test_windows_translation_keeps_authored_intake_and_accepted_files_lf(self) -> None:
+        with self.windows_newline_translation():
+            control = self.paths.incoming / "translation-control.txt"
+            with control.open("w", encoding="utf-8") as handle:
+                handle.write("control\n")
+            self.assertEqual(control.read_bytes(), b"control\r\n")
+            self.write_manifest_header()
+            self.write_case("parser.basic", ["old bytes"])
+            self.assertClean()
+            name = self.reviewed_candidate()
+            self.assertEqual(cmd_accept(self.paths, name), 0)
+            self.assertClean()
+            for path in (self.paths.manifest, self.paths.cases_dir / "parser.basic.vtseq",
+                         self.paths.cases_dir / f"{name}.vtseq"):
+                self.assertNotIn(b"\r", path.read_bytes())
+
+    def test_windows_translation_keeps_reject_and_quarantine_records_lf(self) -> None:
+        self.write_manifest_header()
+        for name, target, verb in (("parser.reject", self.paths.rejected, "rejected"),
+                                   ("parser.quarantine", self.paths.quarantine, "quarantined")):
+            with self.subTest(verb=verb):
+                self.stage_candidate(name, ["fixture bytes"])
+                with self.windows_newline_translation():
+                    self.assertEqual(_move_candidate(self.paths, name, target, "reason", verb), 0)
+                self.assertNotIn(b"\r", (target / f"{name}.reason.txt").read_bytes())
+        self.assertNotIn(b"\r", self.paths.reject_ledger.read_bytes())
+
     # -- structure ------------------------------------------------------------
 
     def test_unknown_directive_is_an_error(self) -> None:
@@ -1302,12 +1345,10 @@ class SelfTest(unittest.TestCase):
             "# SPDX-License-Identifier: GPL-3.0-only\n# id: parser.basic\n# geometry: 20 4\n"
             "text\n# expect-cursor: 0 0\n"
         )
-        (self.paths.cases_dir / "parser.basic.vtseq").write_text(body, encoding="utf-8")
+        write_utf8_lf(self.paths.cases_dir / "parser.basic.vtseq", body)
         case_file, _ = parse_case_file(self.paths.cases_dir / "parser.basic.vtseq")
         digest = hashlib.sha256(case_file.payload).hexdigest() if case_file else "0" * 64
-        self.paths.manifest.write_text(
-            POLICY_TOML + make_case_toml("parser.basic", digest), encoding="utf-8"
-        )
+        write_utf8_lf(self.paths.manifest, POLICY_TOML + make_case_toml("parser.basic", digest))
         self.assertErrorsContaining("after payload content")
 
     def test_missing_expectation_is_an_error(self) -> None:
@@ -1321,10 +1362,8 @@ class SelfTest(unittest.TestCase):
             "# SPDX-License-Identifier: GPL-3.0-only\n# id: parser.basic\n# geometry: 20 4\n"
             "# expect-cursor: 0 0\n"
         )
-        (self.paths.cases_dir / "parser.basic.vtseq").write_text(body, encoding="utf-8")
-        self.paths.manifest.write_text(
-            POLICY_TOML + make_case_toml("parser.basic", "0" * 64), encoding="utf-8"
-        )
+        write_utf8_lf(self.paths.cases_dir / "parser.basic.vtseq", body)
+        write_utf8_lf(self.paths.manifest, POLICY_TOML + make_case_toml("parser.basic", "0" * 64))
         self.assertErrorsContaining("empty payload")
 
     def test_chunk_sum_must_match_payload(self) -> None:
@@ -1367,8 +1406,7 @@ class SelfTest(unittest.TestCase):
 
     def test_manifest_entry_without_fixture_is_an_error(self) -> None:
         self.write_manifest_header()
-        with self.paths.manifest.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(make_case_toml("parser.ghost", "0" * 64))
+        write_utf8_lf(self.paths.manifest, make_case_toml("parser.ghost", "0" * 64), append=True)
         self.assertErrorsContaining("is missing")
 
     def test_sha256_mismatch_is_an_error(self) -> None:
@@ -1377,7 +1415,7 @@ class SelfTest(unittest.TestCase):
         with self.paths.manifest.open("r", encoding="utf-8") as handle:
             content = handle.read()
         content = content.replace(content[content.index('sha256 = "') + 10 : content.index('sha256 = "') + 74], "0" * 64)
-        self.paths.manifest.write_text(content, encoding="utf-8")
+        write_utf8_lf(self.paths.manifest, content)
         self.assertErrorsContaining("does not match the assembled payload")
 
     def test_duplicate_payloads_are_rejected(self) -> None:
@@ -1418,9 +1456,7 @@ class SelfTest(unittest.TestCase):
         # No at-sign yet: baseline clean.
         self.assertClean()
         body = (self.paths.cases_dir / "parser.basic.vtseq").read_text(encoding="utf-8")
-        (self.paths.cases_dir / "parser.basic.vtseq").write_text(
-            body + "\\x40\n", encoding="utf-8"
-        )
+        write_utf8_lf(self.paths.cases_dir / "parser.basic.vtseq", body + "\\x40\n")
         self.assertErrorsContaining("at-sign")
 
     def test_unix_home_path_is_rejected(self) -> None:
@@ -1453,9 +1489,7 @@ class SelfTest(unittest.TestCase):
         )
         self.assertClean()
         body = (self.paths.cases_dir / "parser.unc-ok.vtseq").read_text(encoding="utf-8")
-        (self.paths.cases_dir / "parser.unc-ok.vtseq").write_text(
-            body.replace("server", "filesrv01"), encoding="utf-8"
-        )
+        write_utf8_lf(self.paths.cases_dir / "parser.unc-ok.vtseq", body.replace("server", "filesrv01"))
         self.assertErrorsContaining("not from the synthetic placeholder set")
 
     def test_reserved_name_requires_declaration(self) -> None:
@@ -1498,8 +1532,7 @@ class SelfTest(unittest.TestCase):
     def test_manifest_rejects_unknown_top_level_tables(self) -> None:
         self.write_manifest_header()
         self.write_case("parser.basic", ["text"])
-        with self.paths.manifest.open("a", encoding="utf-8") as handle:
-            handle.write('\n[extra]\nvalue = "unchecked"\n')
+        write_utf8_lf(self.paths.manifest, '\n[extra]\nvalue = "unchecked"\n', append=True)
         self.assertErrorsContaining("unknown top-level")
 
     def reviewed_candidate(self) -> str:
@@ -1507,15 +1540,14 @@ class SelfTest(unittest.TestCase):
         self.stage_candidate(name, ["fresh bytes"])
         self.assertEqual(cmd_intake(self.paths, name), 0)
         target = self.paths.staged / f"{name}.toml"
-        target.write_text(target.read_text(encoding="utf-8").replace(
-            "reviewed = false", "reviewed = true"), encoding="utf-8")
+        write_utf8_lf(target, target.read_text(encoding="utf-8").replace(
+            "reviewed = false", "reviewed = true"))
         return name
 
     def test_intake_rejects_unknown_top_level_tables(self) -> None:
         self.write_manifest_header()
         self.stage_candidate("parser.new-case", ["fresh bytes"])
-        with (self.paths.incoming / "parser.new-case.toml").open("a", encoding="utf-8") as handle:
-            handle.write('\n[extra]\nvalue = "unchecked"\n')
+        write_utf8_lf(self.paths.incoming / "parser.new-case.toml", '\n[extra]\nvalue = "unchecked"\n', append=True)
         _, _, errors, _ = validate_candidate(self.paths, "parser.new-case", for_accept=False)
         self.assertTrue(any("unknown top-level" in e for e in errors), errors)
         self.assertEqual(cmd_intake(self.paths, "parser.new-case"), 1)
@@ -1525,8 +1557,7 @@ class SelfTest(unittest.TestCase):
         self.write_manifest_header()
         name = self.reviewed_candidate()
         before = self.paths.manifest.read_bytes()
-        with (self.paths.staged / f"{name}.toml").open("a", encoding="utf-8") as handle:
-            handle.write('\n[extra]\nvalue = "unchecked"\n')
+        write_utf8_lf(self.paths.staged / f"{name}.toml", '\n[extra]\nvalue = "unchecked"\n', append=True)
         self.assertEqual(cmd_accept(self.paths, name), 1)
         self.assertEqual(self.paths.manifest.read_bytes(), before)
         self.assertFalse((self.paths.cases_dir / f"{name}.vtseq").exists())
@@ -1536,8 +1567,8 @@ class SelfTest(unittest.TestCase):
         self.write_manifest_header()
         self.write_case("parser.basic", ["old bytes"])
         name = self.reviewed_candidate()
-        self.paths.manifest.write_text(self.paths.manifest.read_text(encoding="utf-8").replace(
-            "max_cases = 64", "max_cases = 1"), encoding="utf-8")
+        write_utf8_lf(self.paths.manifest, self.paths.manifest.read_text(encoding="utf-8").replace(
+            "max_cases = 64", "max_cases = 1"))
         before = self.paths.manifest.read_bytes()
         self.assertEqual(cmd_accept(self.paths, name), 1)
         self.assertEqual(self.paths.manifest.read_bytes(), before)
@@ -1565,14 +1596,12 @@ class SelfTest(unittest.TestCase):
         body = CASE_HEADER.format(id=name, directives="# expect-cursor: 0 0") + "\n".join(
             payload_lines
         ) + "\n"
-        (self.paths.incoming / f"{name}.vtseq").write_text(body, encoding="utf-8")
+        write_utf8_lf(self.paths.incoming / f"{name}.vtseq", body)
         case_file, errors = parse_case_file(self.paths.incoming / f"{name}.vtseq")
         self.assertEqual(errors, [])
         self.assertIsNotNone(case_file)
         digest = hashlib.sha256(case_file.payload).hexdigest()
-        (self.paths.incoming / f"{name}.toml").write_text(
-            make_case_toml(name, digest, reviewed=reviewed, **kwargs), encoding="utf-8"
-        )
+        write_utf8_lf(self.paths.incoming / f"{name}.toml", make_case_toml(name, digest, reviewed=reviewed, **kwargs))
 
     def test_intake_stages_a_valid_candidate(self) -> None:
         self.write_manifest_header()
@@ -1621,9 +1650,7 @@ class SelfTest(unittest.TestCase):
         self.stage_candidate("parser.new-case", ["fresh bytes"], reviewed=False)
         self.assertEqual(cmd_intake(self.paths, None), 0)
         staged_fragment = (self.paths.staged / "parser.new-case.toml").read_text(encoding="utf-8")
-        (self.paths.staged / "parser.new-case.toml").write_text(
-            staged_fragment.replace("reviewed = false", "reviewed = true"), encoding="utf-8"
-        )
+        write_utf8_lf(self.paths.staged / "parser.new-case.toml", staged_fragment.replace("reviewed = false", "reviewed = true"))
         self.assertEqual(cmd_accept(self.paths, "parser.new-case"), 0)
         self.assertTrue((self.paths.cases_dir / "parser.new-case.vtseq").is_file())
         self.assertClean()
@@ -1638,9 +1665,7 @@ class SelfTest(unittest.TestCase):
         self.stage_candidate("parser.renamed", ["bad bytes"], reviewed=False)
         self.assertEqual(cmd_intake(self.paths, None), 0)
         fragment = (self.paths.staged / "parser.renamed.toml").read_text(encoding="utf-8")
-        (self.paths.staged / "parser.renamed.toml").write_text(
-            fragment.replace("reviewed = false", "reviewed = true"), encoding="utf-8"
-        )
+        write_utf8_lf(self.paths.staged / "parser.renamed.toml", fragment.replace("reviewed = false", "reviewed = true"))
         self.assertEqual(cmd_accept(self.paths, "parser.renamed"), 1)
 
 

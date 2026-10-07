@@ -89,6 +89,10 @@ Rules:
 - The file is UTF-8, LF-only, with no BOM, no carriage returns, and no
   trailing whitespace. A payload CR is written as the `\r` escape, so a raw
   CR in the file is always an editing accident.
+- The intake tool writes its own text (self-test fixtures and reject or
+  quarantine records) as UTF-8 with LF line endings on every OS, including
+  Windows. Staging copies validated input bytes unchanged. Existing CRLF case
+  files are rejected, not normalized.
 
 ### Directives
 
