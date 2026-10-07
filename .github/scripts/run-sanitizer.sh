@@ -9,7 +9,7 @@
 # what a given execution actually touches. Neither one proves the absence of a
 # defect, and this script never reports as if it did.
 #
-# Usage: run-sanitizer.sh <address|thread|memory>
+# Usage: run-sanitizer.sh <address|thread|memory> or --print-toolchain
 #
 #   address - AddressSanitizer with leak detection.
 #   thread  - ThreadSanitizer.
@@ -41,7 +41,7 @@ fi
 
 sanitizer="${1:-}"
 if [ "$#" -ne 1 ]; then
-  echo "usage: run-sanitizer.sh <address|thread|memory>" >&2
+  echo "usage: run-sanitizer.sh <address|thread|memory> or --print-toolchain" >&2
   exit 2
 fi
 
@@ -182,7 +182,8 @@ esac
 
 required_total=0
 pass_total=0
-fail_total=0
+required_fail_total=0
+probe_fail_total=0
 finding_total=0
 
 for entry in "${filters[@]}"; do
@@ -204,21 +205,31 @@ for entry in "${filters[@]}"; do
     >"$log" 2>&1 || rc=$?
   elapsed=$((SECONDS - start))
 
-  if grep -Eq "ERROR: (AddressSanitizer|ThreadSanitizer|MemorySanitizer|LeakSanitizer)|WARNING: ThreadSanitizer" "$log"; then
+  if grep -Eq "ERROR: (AddressSanitizer|ThreadSanitizer|MemorySanitizer|LeakSanitizer)|WARNING: (ThreadSanitizer|MemorySanitizer)" "$log"; then
     # A sanitizer report is recorded as a finding even when the process exits
     # zero. Suppressing that would let a runtime option change turn a real
     # report into a green run.
     result="sanitizer-finding"
     finding_total=$((finding_total + 1))
   elif [ "$rc" -eq 0 ]; then
-    result="pass"
-    pass_total=$((pass_total + 1))
+    if grep -Eq 'test result: ok\. [1-9][0-9]* passed;' "$log"; then
+      result="pass"
+      pass_total=$((pass_total + 1))
+    else
+      result="empty-filter"
+    fi
   elif [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
     result="timeout"
-    fail_total=$((fail_total + 1))
   else
     result="fail"
-    fail_total=$((fail_total + 1))
+  fi
+
+  if [ "$result" = "fail" ] || [ "$result" = "timeout" ] || [ "$result" = "empty-filter" ]; then
+    if [ "$declared" = "required" ]; then
+      required_fail_total=$((required_fail_total + 1))
+    else
+      probe_fail_total=$((probe_fail_total + 1))
+    fi
   fi
 
   printf '%s\t%s\t%s\t%s\t%s\n' "$declared" "$filter" "$result" "$elapsed" "$log" >>"$summary"
@@ -233,7 +244,7 @@ done
 echo "== summary"
 column -t -s "$(printf '\t')" "$summary" 2>/dev/null || cat "$summary"
 echo
-echo "sanitizer=$sanitizer pass=$pass_total fail=$fail_total findings=$finding_total"
+echo "sanitizer=$sanitizer pass=$pass_total required-fail=$required_fail_total probe-fail=$probe_fail_total findings=$finding_total"
 
 status=0
 
@@ -242,8 +253,8 @@ if [ "$finding_total" -gt 0 ]; then
   status=1
 fi
 
-if [ "$fail_total" -gt 0 ]; then
-  echo "run-sanitizer.sh: at least one filter failed to build, failed a test, or timed out" >&2
+if [ "$required_fail_total" -gt 0 ]; then
+  echo "run-sanitizer.sh: at least one required filter failed, timed out, or selected no passing tests" >&2
   status=1
 fi
 

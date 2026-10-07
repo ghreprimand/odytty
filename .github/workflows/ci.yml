@@ -6,7 +6,7 @@ name: CI
 # release/X.Y.Z patch branches cut from a published tag (so release.yml's
 # exact-commit CI check can pass for a tag that is not on master), and on
 # pull requests. Uses only standard GitHub-hosted runners (ubuntu-latest,
-# macos-latest, windows-latest) — free with no quota for public repositories,
+# macos-latest, windows-latest) - free with no quota for public repositories,
 # and ephemeral, so this never touches a self-hosted runner. Produces no
 # artifacts; this is a correctness gate, not a packaging job.
 on:
@@ -15,10 +15,10 @@ on:
   pull_request:
     branches: [master]
 
-# Cancel superseded runs on the same ref to avoid piling up macOS minutes.
+# Cancel superseded pull-request runs; later pushes do not cancel active branch runs.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Least privilege: this is a build/test correctness gate that reads the repo and
 # produces no artifacts, so the workflow token needs only read access to
@@ -30,7 +30,7 @@ jobs:
   build-test:
     name: Build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # The macOS runner intermittently deadlocked in tests that spawn real PTYs —
+    # The macOS runner intermittently deadlocked in tests that spawn real PTYs -
     # a child-reap / PTY-teardown contention specific to macOS (ubuntu + windows
     # were always green). Mitigation is two-layered: the macOS Test step runs
     # single-threaded (`--test-threads=1`) to serialize PTY spawn/teardown, and
@@ -38,7 +38,7 @@ jobs:
     # self-heals instead of needing a manual re-run (see the macOS Test step
     # below for the mechanism and why it cannot mask a real failure). Because two
     # 12-min test attempts can stack on top of a cold release+debug build
-    # (~8-12 min; `target` is no longer cached — see the Cache step), the macOS
+    # (~8-12 min; `target` is no longer cached - see the Cache step), the macOS
     # job needs a wider ceiling: 40 min fits a cold build + clippy + two test
     # attempts, while ubuntu/windows keep the tight 25-min fail-fast tripwire
     # (single test attempt, comfortably above a cold build, well below a hang).
@@ -74,7 +74,7 @@ jobs:
       # Cache only the dependency-download dirs (~/.cargo), NOT `target`.
       # `target` grows without bound across runs, and with `restore-keys`
       # fallback every run restored an ever-larger compiled-artifact cache,
-      # rebuilt more into it, then saved a bigger one — until the ubuntu
+      # rebuilt more into it, then saved a bigger one - until the ubuntu
       # runner hit "No space left on device" during cache restore (the macOS
       # leg, with a roomier disk, stayed green). Dropping `target` keeps the
       # cache bounded; a fresh build each run costs ~2 min but never exhausts
@@ -101,8 +101,8 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
 
       # The coverage-guided fuzz crate is a separate workspace, so the root
-      # build and clippy steps do not compile its targets. Check it on stable in
-      # the Linux leg so public-API drift fails on each push instead of waiting
+      # build and clippy steps do not compile its targets. Check on the pinned
+      # toolchain in the Linux leg so public-API drift fails on each push instead of waiting
       # for the scheduled nightly-toolchain fuzz campaign.
       - name: Coverage-guided fuzz target API check
         if: runner.os == 'Linux'
@@ -114,7 +114,7 @@ jobs:
       # Step-level timeout: a wedged test must fail THIS step in ~15 min, not
       # spin until the job backstop. Run 28609779371 (a P2-FIX resize pressure
       # test that deadlocked on an undrained ConPTY pipe) ate 25m37s before
-      # reporting red — the job-level ceiling is too coarse to fail fast. Normal
+      # reporting red - the job-level ceiling is too coarse to fail fast. Normal
       # full-suite test steps finish in ~2-3 min here (windows ~153s is the
       # slowest), so 15 min is ~6x headroom over green while tripping quickly on
       # a hang. macOS is handled by the separate auto-retry step below.
@@ -124,7 +124,7 @@ jobs:
         run: cargo test --locked
 
       # macOS: the runner intermittently deadlocked (~1 in 6-7 runs) during
-      # PTY teardown in the single-threaded test sweep — the tests run clean,
+      # PTY teardown in the single-threaded test sweep - the tests run clean,
       # then a silent multi-minute dead gap in a PTY-spawning region, then
       # GitHub reaps the orphaned process at the step timeout and the leg goes
       # red. It is a child-reap / PTY-teardown contention specific to the macOS
@@ -136,7 +136,7 @@ jobs:
       # red, so nothing is masked; only a transient hang benefits from the retry
       # (two independent hangs is ~(1/6)^2 ~= 3%).
       #
-      # Mechanism (dependency-free — no third-party actions; BSD userland has no
+      # Mechanism (dependency-free - no third-party actions; BSD userland has no
       # GNU `timeout`): a small perl wrapper forks the test into its own session
       # (POSIX::setsid, so its process-group id equals its pid), waits with an
       # alarm, and on timeout signals the whole process GROUP (TERM, 5s grace,
@@ -211,7 +211,7 @@ jobs:
           done
           exit "$rc"
 
-      # TEST-HANG regression guard (Linux only — the wedge is a unix-pipe
+      # TEST-HANG regression guard (Linux only - the wedge is a unix-pipe
       # phenomenon): a `cargo test` whose stdout pipe closes early must
       # TERMINATE, never wedge. See scripts/piped-test-guard.sh for the full
       # failure-mode writeup. The binary is already built by the Test step, so
@@ -327,13 +327,7 @@ jobs:
 
       - name: shellcheck
         run: |
-          shellcheck dist/install.sh dist/linux/tarball-install.sh \
-            dist/appimage/build-appimage.sh dist/appimage/smoke-test.sh \
-            dist/appimage/smoke-test-container.sh \
-            .github/scripts/verify-release-ci.sh \
-            .github/scripts/verify-release-ci-test.sh \
-            .github/scripts/await-release-ci.sh \
-            .github/scripts/await-release-ci-test.sh
+          git ls-files -z '*.sh' | xargs -0 -r -n 50 shellcheck
 
       - name: install.sh dry-run smoke
         run: bash dist/install.sh --dry-run
@@ -344,7 +338,11 @@ jobs:
         # missing/cancelled/failed/other-commit state fails closed, that a run
         # still queued/in-progress reports UNDECIDED rather than either verdict,
         # and that only a completed success for the exact commit passes.
-        run: bash .github/scripts/verify-release-ci-test.sh
+        run: |
+          bash .github/scripts/verify-release-ci-test.sh
+          python3 .github/scripts/dynamic-analysis-test.py
+          python3 .github/scripts/derive-version-test.py
+          python3 .github/scripts/workflow-policy-test.py
 
       - name: Documentation convergence fixtures and status check
         run: |

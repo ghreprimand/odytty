@@ -75,6 +75,7 @@ jobs:
             2>&1 | tee fuzz-logs/graphics-fuzz.log
 
       - name: Protocol deep fuzz
+        if: ${{ !cancelled() }}
         env:
           RUST_BACKTRACE: "1"
         run: |

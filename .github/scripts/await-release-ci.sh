@@ -21,9 +21,8 @@
 #   * gate exit 2 (malformed/usage)  -> propagate immediately.
 #   * deadline reached while pending -> exit 1 (FAIL CLOSED).
 #
-# A transient failure of the fetch command itself (API blip) is retried on the
-# same bounded clock rather than failing the release outright; if it never
-# recovers, the deadline path fails closed.
+# A transient fetch failure or empty response is retried on the same bounded
+# clock. If it never recovers, the deadline path fails closed.
 #
 # Purity: this script does no network I/O of its own. The command that fetches
 # the API payload is passed in as arguments, so the whole wait/stop decision
@@ -38,7 +37,7 @@
 # observed worst-case CI wall time (~10 min, windows-latest leg) with margin.
 set -uo pipefail
 
-# Internal marker for "the fetch command itself failed" — distinct from every
+# Internal marker for "the fetch command itself failed" - distinct from every
 # exit code verify-release-ci.sh can return, so a fetch blip is never confused
 # with a gate verdict.
 readonly FETCH_FAILED=90
@@ -52,6 +51,11 @@ shift
 
 if [ "$#" -eq 0 ]; then
   echo "await-release-ci: usage: await-release-ci.sh <head-sha> <fetch-command> [args...]" >&2
+  exit 2
+fi
+
+if ! command -v "$1" >/dev/null 2>&1; then
+  echo "await-release-ci: fetch command unavailable: $1" >&2
   exit 2
 fi
 
@@ -82,7 +86,8 @@ case "$interval_s" in
 esac
 
 runs_json="$(mktemp)"
-trap 'rm -f "$runs_json"' EXIT
+fetch_error="$(mktemp)"
+trap 'rm -f "$runs_json" "$fetch_error"' EXIT
 
 started="$SECONDS"
 attempt=0
@@ -91,9 +96,20 @@ while : ; do
   attempt=$((attempt + 1))
   status=0
 
-  if "$@" > "$runs_json" 2>/dev/null; then
-    bash "$gate" "$sha" "$runs_json" || status=$?
+  if "$@" > "$runs_json" 2>"$fetch_error"; then
+    if [ -s "$runs_json" ]; then
+      bash "$gate" "$sha" "$runs_json" || status=$?
+    else
+      status="$FETCH_FAILED"
+      echo "await-release-ci: attempt ${attempt}: empty CI run query response" >&2
+    fi
   else
+    fetch_status=$?
+    if [ "$fetch_status" -eq 126 ] || [ "$fetch_status" -eq 127 ]; then
+      tail -n 20 "$fetch_error" >&2
+      echo "await-release-ci: fetch command cannot execute -> FAIL CLOSED" >&2
+      exit 2
+    fi
     status="$FETCH_FAILED"
     echo "await-release-ci: attempt ${attempt}: CI run query failed" >&2
   fi
@@ -117,6 +133,7 @@ while : ; do
   elapsed=$((SECONDS - started))
   if [ "$elapsed" -ge "$timeout_s" ]; then
     echo "await-release-ci: CI still not green for ${sha} after ${elapsed}s (${attempt} attempt(s)) -> FAIL CLOSED" >&2
+    tail -n 20 "$fetch_error" >&2
     exit 1
   fi
 

@@ -91,6 +91,8 @@ if [ "$systemd_mode" = "user" ]; then
     "${build_command[@]}" >"$build_log" 2>&1
   build_rc=$?
 else
+  # Logs are intentionally written by the unprivileged caller.
+  # shellcheck disable=SC2024
   sudo -n systemd-run --pipe --wait --collect --unit="$build_unit" \
     --uid="$(id -u)" --gid="$(id -g)" --working-directory="$workspace" \
     "${common_properties[@]}" "${build_command[@]}" >"$build_log" 2>&1
@@ -176,6 +178,8 @@ for index in "${!targets[@]}"; do
       "${command[@]}" >"$log" 2>&1
     rc=$?
   else
+    # Logs are intentionally written by the unprivileged caller.
+    # shellcheck disable=SC2024
     sudo -n systemd-run --pipe --wait --collect --unit="$unit" \
       --uid="$(id -u)" --gid="$(id -g)" --working-directory="$workspace" \
       "${common_properties[@]}" "${command[@]}" >"$log" 2>&1

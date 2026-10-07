@@ -112,7 +112,10 @@ filters=(
   "probe|core::scrollback_tests::cross_width_|cross-width reflow invariants"
   "probe|core::scrollback_tests::resize_parity_|resize parity sweeps"
   "probe|core::scrollback_tests::push_row_|row merge, eviction, and bounds"
-  "probe|core::scrollback_tests::limit|scrollback limit enforcement"
+  "probe|core::scrollback_tests::unbounded_limit|unbounded scrollback limit"
+  "probe|core::scrollback_tests::lowering_the_limit|lowering the scrollback limit"
+  "probe|core::scrollback_tests::default_limit|default scrollback cap"
+  "probe|core::scrollback_tests::terminal_set_scrollback_limit|live scrollback limit"
   "probe|core::scrollback_tests::open_|unterminated open-line bounds"
   "probe|core::scrollback_tests::shell_owns_resize_|shell-owned resize behavior"
   "probe|core::scrollback_tests::search_survives_width_change|search across reflow"
@@ -270,10 +273,7 @@ for entry in "${filters[@]}"; do
     >"$log" 2>&1 || rc=$?
   elapsed=$((SECONDS - start))
 
-  if [ "$rc" -eq 0 ]; then
-    result="pass"
-    pass_total=$((pass_total + 1))
-  elif grep -q "Undefined Behavior" "$log"; then
+  if grep -q "Undefined Behavior" "$log"; then
     # Checked before anything else: an unsupported-operation message later in
     # the same log must never downgrade a real UB report.
     result="undefined-behavior"
@@ -281,6 +281,13 @@ for entry in "${filters[@]}"; do
   elif grep -Eq "unsupported operation|can't call foreign function|is not supported" "$log"; then
     result="unsupported"
     unsupported_total=$((unsupported_total + 1))
+  elif [ "$rc" -eq 0 ]; then
+    if grep -Eq 'test result: ok\. [1-9][0-9]* passed;' "$log"; then
+      result="pass"
+      pass_total=$((pass_total + 1))
+    else
+      result="empty-filter"
+    fi
   elif [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
     result="timeout"
   else
@@ -290,7 +297,7 @@ for entry in "${filters[@]}"; do
   # Timeout and fail are honest classifications in either status; only the
   # gating differs. Required failures gate the lane; probe failures are
   # diagnostic evidence and never gate it.
-  if [ "$result" = "timeout" ] || [ "$result" = "fail" ]; then
+  if [ "$result" = "timeout" ] || [ "$result" = "fail" ] || [ "$result" = "empty-filter" ]; then
     if [ "$declared" = "required" ]; then
       required_fail_total=$((required_fail_total + 1))
     else
@@ -320,13 +327,13 @@ if [ "$ub_total" -gt 0 ]; then
 fi
 
 if [ "$required_fail_total" -gt 0 ]; then
-  echo "run-miri.sh: at least one required filter failed or timed out" >&2
+  echo "run-miri.sh: at least one required filter failed, timed out, or selected no passing tests" >&2
   status=1
 fi
 
 if [ "$probe_fail_total" -gt 0 ]; then
   echo
-  echo "NOTE: $probe_fail_total probe filter(s) failed or timed out. Probes are diagnostic:"
+  echo "NOTE: $probe_fail_total probe filter(s) failed, timed out, or selected no passing tests. Probes are diagnostic:"
   echo "their results are classified and retained above but never gate this lane."
   echo "Triage and promotion follow docs/dynamic-analysis.md."
 fi

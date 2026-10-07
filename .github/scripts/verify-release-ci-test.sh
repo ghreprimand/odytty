@@ -98,7 +98,7 @@ run_case "pull_request event success counts" 0 "$target" \
 run_case "malformed payload" 2 "$target" '{"nope": true}'
 
 # Empty response body: fail closed.
-run_case "empty response" 1 "$target" ''
+run_case "empty response" 2 "$target" ''
 
 # Missing SHA argument: usage exit 2. An empty sha argument exercises the same
 # usage guard the workflow would hit if GITHUB_SHA were somehow unset.

@@ -28,11 +28,14 @@ jobs:
       run:
         shell: bash
     env:
+      ODYTTY_BUILD_SHA: ${{ github.sha }}
       RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=."
     steps:
       - name: Checkout
         # v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
 
       - name: Build release binary
         run: cargo build --release --locked

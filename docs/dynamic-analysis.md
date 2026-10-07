@@ -148,7 +148,7 @@ family from hiding the results of neighboring families and gives every timeout
 an attributable scope.
 
 The workflow isolates the six required filters in one job and distributes all
-49 probes across nine round-robin shards. Jobs run serially, retain distinct
+52 probes across nine round-robin shards. Jobs run serially, retain distinct
 artifacts, and continue after another shard fails. Each job executes at most
 six filters. With a 1,800-second setup limit, 900 seconds per filter, and
 60 seconds of kill grace per command, the bounded execution totals at most
@@ -236,7 +236,8 @@ Each filter produces exactly one result, recorded in a machine-readable
 
 | Result | Meaning |
 | --- | --- |
-| `pass` | The filter ran to completion with no failure and no report. |
+| `pass` | At least one selected test passed, with no failure and no report. |
+| `empty-filter` | The command exited zero without any selected passing test. |
 | `fail` | A test failed, or the build failed. |
 | `timeout` | The filter exceeded its wall clock and was killed. |
 | `unsupported` | Miri could not execute the code, typically a foreign call. |
@@ -258,13 +259,13 @@ Three rules make the classification load-bearing rather than cosmetic:
 
 Every filter carries a declared status that is a contract, not a prediction:
 
-- **`probe`** — the filter has never completed a recorded run here. It is
-  executed, classified, and retained, but its `fail`, `timeout`, and
-  `unsupported` results do not fail the job; they are the evidence base for
+- **`probe`** - the filter has never completed a recorded run here. It is
+  executed, classified, and retained, but its `fail`, `timeout`,
+  `empty-filter`, and `unsupported` results do not fail the job; they are the evidence base for
   triage and later promotion.
-- **`required`** — the filter has been executed here and passed, so a later
-  failure fails the job, and a later `unsupported` result also fails the job
-  because coverage silently regressed.
+- **`required`** - the filter has been executed here and passed, so a later
+  failure or empty selection fails the job. A later `unsupported` result also
+  fails because coverage silently regressed.
 
 Undefined behavior and sanitizer findings fail the job from either status.
 
@@ -348,7 +349,7 @@ clean lane result and is not one.
 | Code | Meaning |
 | --- | --- |
 | 0 | Every declared filter completed within its contract. |
-| 1 | Undefined behavior in any filter, a required-filter failure or timeout, or a required-filter coverage regression. Probe failures, timeouts, and unsupported results remain classified diagnostics and do not set this exit code. |
+| 1 | Undefined behavior or a sanitizer finding in any filter, a required-filter failure, timeout or empty selection, or a required-filter coverage regression. Probe failures, timeouts, empty selections, and unsupported results remain classified diagnostics and do not set this exit code. |
 | 2 | Usage error, or MemorySanitizer without its explicit acknowledgement. |
 | 3 | Unavailable: unsupported host, missing tool, missing pinned toolchain, or missing component. No results were produced. |
 

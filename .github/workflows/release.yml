@@ -42,11 +42,7 @@ jobs:
       - name: Derive version
         id: ver
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
+          version="$(bash .github/scripts/derive-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
@@ -76,7 +72,7 @@ jobs:
     name: AppImage (x86_64)
     # Built on the oldest supported Ubuntu LTS so the bundle links against an
     # old glibc floor and runs on a wide range of distros. The graphics stack
-    # (libvulkan/libGL/X11/Wayland) is intentionally NOT bundled — the host
+    # (libvulkan/libGL/X11/Wayland) is intentionally NOT bundled - the host
     # must provide a working Vulkan driver (Mesa or vendor ICD).
     runs-on: ubuntu-22.04
     # Embed the exact release commit in the About panel (build.rs provenance
@@ -100,11 +96,7 @@ jobs:
       - name: Derive version
         id: ver
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
+          version="$(bash .github/scripts/derive-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
@@ -194,11 +186,7 @@ jobs:
       - name: Derive version
         id: ver
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
+          version="$(bash .github/scripts/derive-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
@@ -266,11 +254,7 @@ jobs:
       - name: Derive version
         id: ver
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
+          version="$(bash .github/scripts/derive-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
@@ -341,11 +325,7 @@ jobs:
       - name: Derive version
         id: ver
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
+          version="$(bash .github/scripts/derive-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
@@ -420,11 +400,7 @@ jobs:
       - name: Derive version
         id: ver
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
+          version="$(bash .github/scripts/derive-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
@@ -500,11 +476,7 @@ jobs:
       - name: Derive version
         id: ver
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
+          version="$(bash .github/scripts/derive-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
@@ -644,9 +616,7 @@ jobs:
         run: RUSTUP_TOOLCHAIN=stable cargo install cargo-audit --version 0.22.2 --locked
 
       - name: Audit locked dependency graph
-        # --release: the RustSec early-warning window passes on a tag build so a
-        # release is never blocked by the 14-day pre-expiry nag (PR/scheduled
-        # runs still fail then, and the hard expiry fails everywhere).
+        # The same policy applies to pull requests, scheduled runs and tags.
         run: .github/scripts/rustsec-audit.sh --release
 
       - name: Install Minisign
@@ -663,11 +633,7 @@ jobs:
       - name: Derive version
         id: ver
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
+          version="$(bash .github/scripts/derive-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
@@ -829,7 +795,7 @@ jobs:
     # master. This closes the manual-lag window: without it, `scoop update
     # odytty` serves the previous version until a maintainer hand-edits the
     # manifest (v0.7.1 lagged its tag by hours). The Scoop CLIENT reads only the
-    # pinned fields — the manifest's autoupdate block is maintainer tooling
+    # pinned fields - the manifest's autoupdate block is maintainer tooling
     # (checkver/Excavator) and does NOT keep installed clients current on its
     # own, so this per-release bump is required.
     needs: [release]
@@ -856,11 +822,7 @@ jobs:
       - name: Derive version
         id: ver
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
+          version="$(bash .github/scripts/derive-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
@@ -933,15 +895,15 @@ jobs:
     name: Bump Homebrew tap
     # Mirrors the `scoop` job's structure but pushes to a SEPARATE repo (the
     # `ghreprimand/homebrew-odytty` tap) the way the `aur` job pushes to the AUR
-    # remote — so it needs an explicit push credential, not GITHUB_TOKEN. The
+    # remote - so it needs an explicit push credential, not GITHUB_TOKEN. The
     # channel is cask-primary (the prebuilt .app zip) with a source-build formula
     # fallback; the canonical recipes live in dist/homebrew/ and are stamped from
     # the published SHA256SUMS and pushed to the tap here.
     #
     # GUARDED (mirrors the AUR job): when HOMEBREW_TAP_DEPLOY_KEY is unset the
-    # push step exits 0 with an explanatory echo — the recipes are still rewritten
+    # push step exits 0 with an explanatory echo - the recipes are still rewritten
     # locally as a validation gate, but nothing publishes. So the job is green
-    # from day one; the operator activates the channel by creating the tap repo
+    # from day one; a maintainer activates the channel by creating the tap repo
     # and adding the deploy-key secret. Runs AFTER `release` so the macOS zip, the
     # source tarball, and SHA256SUMS all exist.
     needs: [release]
@@ -970,11 +932,7 @@ jobs:
       - name: Derive version
         id: ver
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
+          version="$(bash .github/scripts/derive-version.sh)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
@@ -1030,7 +988,7 @@ jobs:
           version="${VERSION}"
           if [ -z "${HOMEBREW_TAP_DEPLOY_KEY:-}" ]; then
             echo "Homebrew publish skipped: no HOMEBREW_TAP_DEPLOY_KEY configured."
-            echo "The tap is operator-gated; create ghreprimand/homebrew-odytty and add the deploy key to activate. Nothing to do."
+            echo "The tap is maintainer-gated; create ghreprimand/homebrew-odytty and add the deploy key to activate. Nothing to do."
             exit 0
           fi
           install -d -m700 ~/.ssh
@@ -1045,7 +1003,7 @@ jobs:
             echo "::error::GitHub host key fingerprint mismatch: got '$fp' expected '$expected'"
             exit 1
           fi
-          printf 'Host github.com\n  User git\n  IdentityFile ~/.ssh/id_ed25519\n  IdentitiesOnly yes\n' > ~/.ssh/config
+          printf 'Host github.com\n  User git\n  IdentityFile ~/.ssh/id_ed25519\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n  UserKnownHostsFile ~/.ssh/known_hosts\n  HostKeyAlgorithms ssh-ed25519\n' > ~/.ssh/config
           chmod 600 ~/.ssh/config
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"

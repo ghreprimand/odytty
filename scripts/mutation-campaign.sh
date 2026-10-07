@@ -111,6 +111,8 @@ write_listings() {
   for name in $(batch_names); do
     list_batch "$name" > "$dir/$name.list"
   done
+  # The project-authored census contains whitespace-free Rust paths.
+  # shellcheck disable=SC2013
   for f in $(awk -F'\t' '!/^#/ && NF >= 5 { print $2 }' scripts/mutation-batches.tsv | sort -u); do
     cargo mutants --list --no-times --no-shuffle -f "$f" > "$dir/census-${f//\//__}.list"
   done
@@ -146,9 +148,11 @@ write_provenance() {
 # read from the scope's own accounting rather than estimated.
 run_confined() {
   local unit="$1" logfile="$2"; shift 2
-  local started ended rc cgroup peak_mem cpu_usec
+  local started ended rc
   started="$(date +%s)"
   set +e
+  # The child shell expands its own positional arguments and cgroup paths.
+  # shellcheck disable=SC2016
   systemd-run --user --scope --quiet --unit="$unit" \
     -p MemoryHigh="$MEM_HIGH" -p MemoryMax="$MEM_MAX" -p MemorySwapMax="$SWAP_MAX" -p CPUQuota="$CPU_QUOTA" \
     -- bash -c '
@@ -241,7 +245,9 @@ main() {
     census) [ $# -eq 2 ] || die "usage: census <dir>"; cmd_census "$2" ;;
     list)   [ $# -eq 2 ] || die "usage: list <batch>"; list_batch "$2" ;;
     stage1) [ $# -eq 2 ] || die "usage: stage1 <batch>"; cmd_stage1 "$2" ;;
-    stage2) [ $# -ge 2 ] && [ $# -le 3 ] || die "usage: stage2 <batch> [i/k]"; cmd_stage2 "$2" "${3:--}" ;;
+    stage2)
+      if [ $# -lt 2 ] || [ $# -gt 3 ]; then die "usage: stage2 <batch> [i/k]"; fi
+      cmd_stage2 "$2" "${3:--}" ;;
     *)      die "usage: $0 {verify|census|list|stage1|stage2} [batch|dir]" ;;
   esac
 }

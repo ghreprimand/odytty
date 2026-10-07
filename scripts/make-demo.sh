@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
-# make-demo.sh — reproduce the OdyTTY README splash for a fresh screenshot.
+# make-demo.sh - reproduce the OdyTTY README splash for a fresh screenshot.
 #
 # Renders the showcase frame inside a REAL OdyTTY window (so it uses OdyTTY's
 # own glyph atlas + CRT/bloom/vignette post-processing), then helps you capture
-# it with grim+slurp. Everything runs from a sanitized /tmp fake repo — no real
+# it with grim+slurp. Everything runs from a sanitized /tmp fake repo - no real
 # user data, safe for a public screenshot.
 #
-# Tagline is "a GPU-accelerated terminal emulator written in Rust" — no version,
+# Tagline is "a GPU-accelerated terminal emulator written in Rust" - no version,
 # no "for Linux" (the only change from the original v0.2.0 showcase).
 #
 # Usage:  bash scripts/make-demo.sh  [output.png]
@@ -21,6 +21,8 @@ OUT="${1:-$HOME/odytty-demo-new.png}"
 BIN=""
 if [ -x target/release/odytty ]; then BIN="$(pwd)/target/release/odytty"; fi
 if [ -z "$BIN" ]; then
+  # Versioned local build paths have fixed, newline-free names.
+  # shellcheck disable=SC2012
   BIN="$(ls -dt "$HOME"/.local/opt/odytty/dev-*/bin/odytty 2>/dev/null | head -n1)"
 fi
 if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
@@ -31,7 +33,7 @@ echo "using binary : $BIN"
 echo "output target: $OUT"
 
 # --- build a sanitized fake repo so 'git log --graph' + 'tree' have content ---
-rm -rf "$DEMO"; mkdir -p "$DEMO/src" "$DEMO/shaders"; cd "$DEMO"
+rm -rf "$DEMO"; mkdir -p "$DEMO/src" "$DEMO/shaders"; cd "$DEMO" || exit 1
 cat > README.md <<'EOF'
 # OdyTTY
 A from-scratch, GPU-rendered terminal emulator.
@@ -66,7 +68,7 @@ commit "2024-02-09T12:05:00" "shaders: bloom + CRT post-processing pass"
 # --- showcase frame (tagline: no version, no "for Linux") ---
 cat > /tmp/odytty-showcase.sh <<'SHEOF'
 #!/usr/bin/env bash
-# Sanitized OdyTTY showcase frame. No real user data — safe for screenshots.
+# Sanitized OdyTTY showcase frame. No real user data - safe for screenshots.
 set -u
 cd /tmp/odytty-demo 2>/dev/null || true
 
@@ -76,7 +78,7 @@ printf '\n'
 # --- Banner: block-art "OdyTTY" in a magenta->cyan truecolor gradient ---
 # Kerned standard-font glyphs, composed programmatically so every column
 # aligns (the previous hand-typed art fused the second T with the Y and
-# dropped the T's right rail — visibly mangled in the README hero shot).
+# dropped the T's right rail - visibly mangled in the README hero shot).
 banner=(
 '  ___       _         _____  _____ __   __'
 ' / _ \   __| | _   _ |_   _||_   _|\ \ / /'
@@ -129,7 +131,7 @@ sed '/213mody/d' /tmp/odytty-showcase.sh > /tmp/odytty-showcase-frame.sh
 chmod +x /tmp/odytty-showcase-frame.sh
 
 cat > /tmp/odytty-rc.sh <<'RCEOF'
-# Sanitized interactive shell for screenshots — no real user data.
+# Sanitized interactive shell for screenshots - no real user data.
 export HISTFILE=/dev/null
 unset HISTSIZE
 PROMPT_COMMAND=
@@ -141,7 +143,7 @@ RCEOF
 
 # --- launch OdyTTY showing the splash (uses your odytty.conf theme + effects) ---
 echo "launching OdyTTY…"
-cd "$DEMO"
+cd "$DEMO" || exit 1
 setsid "$BIN" \
   --title "OdyTTY" \
   --working-directory "$DEMO" \
@@ -155,7 +157,7 @@ setsid "$BIN" \
   >/tmp/odytty-demo.log 2>&1 &
 sleep 3
 if ! pgrep -af 'odytty' | grep -q "$BIN"; then
-  echo "WARNING: OdyTTY may not have started — check /tmp/odytty-demo.log" >&2
+  echo "WARNING: OdyTTY may not have started - check /tmp/odytty-demo.log" >&2
 fi
 
 # --- capture ---

@@ -40,7 +40,7 @@ fi
 
 if ! json="$(cat "$input" 2>/dev/null)" || [ -z "$json" ]; then
   echo "verify-release-ci: no CI run data for ${sha} (empty response) -> FAIL CLOSED" >&2
-  exit 1
+  exit 2
 fi
 
 # Validate the payload shape before trusting any field inside it.

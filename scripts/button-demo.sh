@@ -20,6 +20,8 @@ btn() { # CODE LABEL [ICON] [SCOPE]
   printf '\e]133;P;odytty-button;code=%s%s%s\a%s\e]133;P;odytty-button;end\a' \
     "$1" "${3:+;icon=$3}" "${4:+;scope=$4}" "$2"
 }
+# An optional code targets one chip; this demo clears every chip.
+# shellcheck disable=SC2120
 btn_clear() { # [CODE]
   printf '\e]133;P;odytty-button;invalidate%s\a' "${1:+;code=$1}"
 }
@@ -58,6 +60,8 @@ echo
 stty_saved=$(stty -g 2>/dev/null) || stty_saved=""
 cleanup() {
   [ -n "$stty_saved" ] && stty "$stty_saved" 2>/dev/null
+  # No argument deliberately clears all chips.
+  # shellcheck disable=SC2119
   btn_clear
   printf '\n'
 }

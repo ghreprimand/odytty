@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
-# Deterministic fixtures for await-release-ci.sh — the bounded waiter wrapped
+# Deterministic fixtures for await-release-ci.sh - the bounded waiter wrapped
 # around the fail-closed release gate. No network: the fetch command is a
 # scripted stub that replays a canned sequence of "list workflow runs" payloads,
 # one per attempt, so every branch of the wait/stop decision tree is exercised
@@ -87,7 +87,7 @@ attempts_made() {
 }
 
 # Assert the waiter's exit code, and (when want_calls is non-empty) exactly how
-# many times it polled — the only way to prove "fails fast" really is fast.
+# many times it polled - the only way to prove "fails fast" really is fast.
 await_case() {
   local name="$1" want_exit="$2" want_calls="$3" sha="$4"
   shift 4
@@ -116,7 +116,7 @@ await_case() {
 await_case "green on first attempt" 0 1 "$target" "$green_payload"
 
 # THE v0.9.7 RACE: CI is still running, then finishes green. This is the whole
-# point of the waiter — the same input that used to fail the release now passes,
+# point of the waiter - the same input that used to fail the release now passes,
 # and only because CI itself went green.
 await_case "in_progress then green" 0 3 "$target" \
   "$pending_payload" "$pending_payload" "$green_payload"
@@ -143,13 +143,16 @@ await_case "malformed payload fails fast" 2 1 "$target" "$malformed_payload"
 
 # Never-ending in_progress: the deadline must fire and FAIL CLOSED rather than
 # hanging or passing. Attempt count is left unpinned (clock-dependent).
-await_case "pending forever times out closed" 1 "" "$target" "$pending_payload"
+RELEASE_CI_WAIT_INTERVAL_SECONDS=1 RELEASE_CI_WAIT_TIMEOUT_SECONDS=2 await_case "pending forever times out closed" 1 "" "$target" "$pending_payload"
 
 # A transient fetch failure is retried on the same bounded clock.
 await_case "transient fetch failure then green" 0 2 "$target" "BOOM" "$green_payload"
 
+# An empty successful API response is retryable, not a definitive CI refusal.
+await_case "empty response then green" 0 2 "$target" "" "$green_payload"
+
 # A fetch that never recovers still fails closed at the deadline.
-await_case "fetch failure forever times out closed" 1 "" "$target" "BOOM"
+RELEASE_CI_WAIT_INTERVAL_SECONDS=1 RELEASE_CI_WAIT_TIMEOUT_SECONDS=2 await_case "fetch failure forever times out closed" 1 "" "$target" "BOOM"
 
 # Usage guards: no SHA and no fetch command are both exit 2.
 no_sha_exit=0
@@ -167,6 +170,36 @@ if [ "$no_cmd_exit" -eq 2 ]; then
   echo "ok   - missing fetch command (exit 2)"
 else
   echo "FAIL - missing fetch command (want 2, got ${no_cmd_exit})"
+  fail=1
+fi
+
+missing_cmd_exit=0
+RELEASE_CI_WAIT_TIMEOUT_SECONDS=0 "$waiter" "$target" odytty-fixture-command-does-not-exist >/dev/null 2>&1 || missing_cmd_exit=$?
+if [ "$missing_cmd_exit" -eq 2 ]; then
+  echo "ok   - nonexistent fetch command rejected (exit 2)"
+else
+  echo "FAIL - nonexistent fetch command (want 2, got $missing_cmd_exit)"
+  fail=1
+fi
+
+blocked_cmd="$workdir/not-executable"
+printf '#!/bin/sh\nexit 0\n' > "$blocked_cmd"
+blocked_exit=0
+RELEASE_CI_WAIT_TIMEOUT_SECONDS=0 "$waiter" "$target" "$blocked_cmd" >/dev/null 2>&1 || blocked_exit=$?
+if [ "$blocked_exit" -eq 2 ]; then
+  echo "ok   - non-executable fetch command rejected (exit 2)"
+else
+  echo "FAIL - non-executable fetch command (want 2, got $blocked_exit)"
+  fail=1
+fi
+
+make_fetcher "$workdir/diagnostics" BOOM
+diagnostic_exit=0
+RELEASE_CI_WAIT_TIMEOUT_SECONDS=0 "$waiter" "$target" "$workdir/diagnostics/fetch.sh" >"$workdir/diagnostics/output" 2>&1 || diagnostic_exit=$?
+if [ "$diagnostic_exit" -eq 1 ] && grep -q 'simulated API failure' "$workdir/diagnostics/output"; then
+  echo "ok   - final failure retains fetch stderr"
+else
+  echo "FAIL - final failure lost fetch stderr"
   fail=1
 fi
 
