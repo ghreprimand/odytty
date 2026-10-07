@@ -675,9 +675,13 @@ the most deliberate omissions.
   at 1 MiB raw and after gzip decompression, parsed with DTDs refused and at
   most 20,000 XML nodes, and refused before conversion when nesting exceeds 64,
   reference expansion exceeds 80,000 nodes, a reference cycle exists, or the
-  document uses patterns or stylesheet `url(` references. Every image resolver
-  returns nothing, so no file or network resource is read, and the raster is
-  the color atlas slot.
+  document uses patterns, filters (including CSS filter functions), masks,
+  markers, or stylesheet `url(` references. The converted tree is then costed
+  the way resvg renders it (nested isolation layers, clip buffers and masks,
+  path coverage, and dashes) and refused when its raster work would exceed
+  2^30 pixels or its live buffers 256 MiB at the slot size. Every image
+  resolver returns nothing, so no file or network resource is read, and the
+  raster is the color atlas slot.
 - **Failure behavior:** an unparseable font is skipped during enumeration or
   falls back to the next candidate at load time.
 - **Diagnostic exposure:** font paths may include a user's home directory and

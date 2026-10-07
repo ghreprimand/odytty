@@ -10,12 +10,14 @@
 //! arithmetic; a document is at most [`MAX_DOCUMENT_BYTES`] before and after
 //! gzip decompression; XML is parsed with DTDs disabled and a node limit;
 //! element nesting, reference expansion (`use`, `href`, and `url(#id)`), and
-//! reference chains are bounded before conversion; documents with patterns
+//! reference chains are bounded before conversion; documents with patterns,
+//! filters, masks, markers (which OpenType does not allow in glyph documents),
 //! or stylesheet references are refused; and every external-resource resolver
 //! returns nothing, so no file or network resource is ever read. The raster is
 //! the atlas slot itself, clamped to [`MAX_RASTER_WIDTH`] by
-//! [`MAX_RASTER_HEIGHT`], and resvg clamps intermediate layers to five times
-//! that canvas per side.
+//! [`MAX_RASTER_HEIGHT`], and `svg_budget` bounds the pixel work and the live
+//! layer and clip buffers of the converted tree before that canvas is
+//! allocated.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -90,6 +92,9 @@ pub(super) fn render(svg_table: &[u8], glyph_id: u16, width: u32, height: u32) -
     let transform = fit
         .pre_concat(parents)
         .pre_concat(Transform::from_translate(layer.x(), layer.y()));
+    if !super::svg_budget::admits(node, transform, width, height) {
+        return None;
+    }
     let mut pixmap = Pixmap::new(width, height)?;
     resvg::render_node(node, transform, &mut pixmap.as_mut())?;
     pixmap
@@ -153,9 +158,17 @@ fn decode_document(raw: &[u8]) -> Option<Vec<u8>> {
     (out.len() <= MAX_DOCUMENT_BYTES).then_some(out)
 }
 
+/// Elements refused outright. OpenType does not allow patterns, filters,
+/// masks, or markers in glyph documents, and their raster cost is outside the
+/// `svg_budget` model.
+const REFUSED_ELEMENTS: [&str; 4] = ["pattern", "filter", "mask", "marker"];
+/// Properties that apply a filter (including CSS filter functions), a mask, or
+/// markers, refused for the same reason in attributes and style text.
+const REFUSED_PROPERTIES: [&str; 3] = ["filter", "mask", "marker"];
+
 /// Structural limits checked on the parsed XML before usvg converts it:
-/// nesting depth, no `pattern` elements, no stylesheet `url(` references, and
-/// a bounded node count once every reference is expanded.
+/// nesting depth, no refused elements or properties, no stylesheet `url(`
+/// references, and a bounded node count once every reference is expanded.
 pub(super) fn document_within_limits(xml: &roxmltree::Document) -> bool {
     let mut ids = HashMap::new();
     let mut stack = vec![(xml.root(), 0usize)];
@@ -165,10 +178,14 @@ pub(super) fn document_within_limits(xml: &roxmltree::Document) -> bool {
         }
         if node.is_element() {
             let name = node.tag_name().name();
-            if name == "pattern" {
+            if REFUSED_ELEMENTS.contains(&name) || sets_refused_property(node) {
                 return false;
             }
-            if name == "style" && node.descendants().any(|child| text_has_url(child.text())) {
+            if name == "style"
+                && node.descendants().any(|child| {
+                    text_has_url(child.text()) || child.text().is_some_and(names_refused_property)
+                })
+            {
                 return false;
             }
             if let Some(id) = node.attribute("id") {
@@ -189,6 +206,29 @@ pub(super) fn document_within_limits(xml: &roxmltree::Document) -> bool {
 
 fn text_has_url(text: Option<&str>) -> bool {
     text.is_some_and(|text| text.contains("url("))
+}
+
+/// Whether `node` sets a refused property to anything but `none`, as an
+/// attribute or inside its `style` attribute.
+fn sets_refused_property(node: roxmltree::Node) -> bool {
+    node.attributes().any(|attribute| {
+        let name = attribute.name();
+        if name == "style" {
+            return names_refused_property(attribute.value());
+        }
+        REFUSED_PROPERTIES
+            .iter()
+            .any(|property| name.starts_with(property))
+            && attribute.value().trim() != "none"
+    })
+}
+
+/// Conservative: any mention of a refused property name in style text.
+fn names_refused_property(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    REFUSED_PROPERTIES
+        .iter()
+        .any(|property| text.contains(property))
 }
 
 /// Memoized expanded node count with cycle detection. `None` means a cycle, a

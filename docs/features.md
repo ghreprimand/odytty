@@ -419,7 +419,7 @@ The support boundary is explicit:
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed shaping is the separate Khmer/Myanmar shaping row |
 | Additional measured script widths | Chakma, Javanese, Grantha, and Tai Tham spacing signs and measured linked consonants share bounded two-cell owners | Chakma U+11134 links directly but keeps separate owners with ZWJ; Javanese/Grantha viramas alone keep one cell; font-backed shaping stays within each owner |
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
-| SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, or reference-expansion limits, and documents with patterns or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
+| SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, reference-expansion, pixel-work, or live-buffer limits, and documents with patterns, filters, masks, markers, or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
 
 Reordering and owner shaping change presentation only: cursor addressing,
 selection, search, and copy keep the logical text, and no display order or
@@ -554,7 +554,12 @@ correctness evidence when no stock v1-only glyph is observed. An SVG document
 is parsed with DTDs refused and checked before conversion: at most 1 MiB raw
 and after gzip decompression, 20,000 XML nodes, nesting depth 64, and 80,000
 nodes once `use`, `href`, and `url(#id)` references are expanded, with
-reference cycles, patterns, and stylesheet `url(` references refused. External
+reference cycles, patterns, filters (including CSS filter functions), masks,
+markers, and stylesheet `url(` references refused; OpenType does not allow
+patterns, filters, masks, or markers in glyph documents. The converted document
+is then costed before its canvas is allocated: one that would need more than
+2^30 pixels of raster work or 256 MiB of live layer and clip buffers at its
+slot size is refused. External
 files, network URLs, and embedded images are never loaded, scripts and
 animation have no effect, and SVG text is not drawn. A refused document keeps
 the monochrome path, and a glyph that fails to rasterize is not retried. When

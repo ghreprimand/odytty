@@ -410,3 +410,117 @@ fn discovery_accepts_svg_only_faces_after_colr_faces() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+const SVG_OPEN: &str =
+    r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">"#;
+const RED_RECT: &str = r##"<rect width="100" height="50" fill="#c00"/>"##;
+
+/// An `SVG ` table whose only record maps glyph 1 to `document`.
+fn document_table(document: &str) -> Vec<u8> {
+    let mut table = Vec::new();
+    index(&mut table, &[(1, 1, 14, document.len() as u32)]);
+    table.extend_from_slice(document.as_bytes());
+    table
+}
+
+/// Fails before the refusal: each document rendered with its filter, mask,
+/// or markers applied.
+#[test]
+fn filters_masks_and_markers_are_refused_before_conversion() {
+    let control = format!(r#"{SVG_OPEN}<g id="glyph1">{RED_RECT}</g></svg>"#);
+    assert!(
+        super::render(&document_table(&control), 1, 16, 16).is_some(),
+        "control renders"
+    );
+    let refused = [
+        format!(
+            r#"{SVG_OPEN}<filter id="f"><feGaussianBlur stdDeviation="2"/></filter><g id="glyph1" filter="url(#f)">{RED_RECT}</g></svg>"#
+        ),
+        format!(r#"{SVG_OPEN}<g id="glyph1" filter="blur(2)">{RED_RECT}</g></svg>"#),
+        format!(r#"{SVG_OPEN}<g id="glyph1" style="filter: blur(2)">{RED_RECT}</g></svg>"#),
+        format!(
+            r#"{SVG_OPEN}<style>g {{ filter: blur(2) }}</style><g id="glyph1">{RED_RECT}</g></svg>"#
+        ),
+        format!(
+            r##"{SVG_OPEN}<mask id="m"><rect width="50" height="50" fill="#fff"/></mask><g id="glyph1" mask="url(#m)">{RED_RECT}</g></svg>"##
+        ),
+        format!(
+            r##"{SVG_OPEN}<marker id="k" markerWidth="4" markerHeight="4"><rect width="4" height="4" fill="#00c"/></marker><path id="glyph1" d="M0 0 L100 0 L100 50" stroke="#c00" stroke-width="4" fill="none" marker-mid="url(#k)"/></svg>"##
+        ),
+    ];
+    let rendered: Vec<usize> = refused
+        .iter()
+        .enumerate()
+        .filter(|(_, document)| super::render(&document_table(document), 1, 16, 16).is_some())
+        .map(|(case, _)| case)
+        .collect();
+    assert!(rendered.is_empty(), "cases {rendered:?} rendered");
+}
+
+/// `parts` elements of `depth` nested opacity groups each, every part ending
+/// in a reference to the next and the last in a rect: `parts * depth` nested
+/// layers, each about the size of the canvas.
+fn nested_layers(parts: usize, depth: usize) -> String {
+    let mut document = String::from(SVG_OPEN);
+    for part in 0..parts {
+        let id = if part == 0 {
+            "glyph1".to_string()
+        } else {
+            format!("p{part}")
+        };
+        let inner = if part + 1 == parts {
+            RED_RECT.to_string()
+        } else {
+            format!(r##"<use xlink:href="#p{}"/>"##, part + 1)
+        };
+        document.push_str(&format!(r#"<g id="{id}" opacity="0.99">"#));
+        document.push_str(&r#"<g opacity="0.99">"#.repeat(depth - 1));
+        document.push_str(&inner);
+        document.push_str(&"</g>".repeat(depth));
+    }
+    document.push_str("</svg>");
+    document
+}
+
+/// Fails before the budget: 150 nested layers of about 2 MiB each rendered.
+#[test]
+fn nested_layers_over_the_live_buffer_budget_fall_back() {
+    let (width, height) = (MAX_RASTER_WIDTH, MAX_RASTER_HEIGHT);
+    let deep = nested_layers(3, 50);
+    assert!(
+        parsed_within_limits(deep.as_bytes()),
+        "the document passes every structural limit"
+    );
+    assert_eq!(
+        super::render(&document_table(&deep), 1, width, height),
+        None
+    );
+    assert!(
+        super::render(&document_table(&nested_layers(3, 5)), 1, width, height).is_some(),
+        "fifteen layers render"
+    );
+}
+
+/// Fails before the budget: 2,400 canvas-sized fills rendered.
+#[test]
+fn fills_over_the_pixel_work_budget_fall_back() {
+    let document = format!(
+        r##"{SVG_OPEN}<rect id="r" width="100" height="50" fill="#c00"/><g id="g10">{}</g><g id="g100">{}</g><g id="glyph1">{}</g></svg>"##,
+        r##"<use xlink:href="#r"/>"##.repeat(10),
+        r##"<use xlink:href="#g10"/>"##.repeat(10),
+        r##"<use xlink:href="#g100"/>"##.repeat(24),
+    );
+    assert!(
+        parsed_within_limits(document.as_bytes()),
+        "the document passes every structural limit"
+    );
+    let table = document_table(&document);
+    assert_eq!(
+        super::render(&table, 1, MAX_RASTER_WIDTH, MAX_RASTER_HEIGHT),
+        None
+    );
+    assert!(
+        super::render(&table, 1, 32, 32).is_some(),
+        "the same document fits the budget on a small canvas"
+    );
+}

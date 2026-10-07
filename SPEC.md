@@ -2708,9 +2708,12 @@ used only for a glyph no earlier source draws; its glyph element is fitted into
 the same one- or two-cell color slot. Documents are bounded: 1 MiB raw and
 after gzip decompression, DTDs refused, 20,000 XML nodes, nesting depth 64,
 80,000 nodes once `use`, `href`, and `url(#id)` references are expanded,
-reference cycles refused, and documents with patterns or stylesheet `url(`
-references refused. No file, network, or embedded image is loaded, scripts and
-animation have no effect, and SVG text is not drawn. A refused or empty
+reference cycles refused, documents with patterns, filters (including CSS
+filter functions), masks, markers, or stylesheet `url(` references refused, and
+a document whose raster work would exceed 2^30 pixels or whose live layer and
+clip buffers would exceed 256 MiB at its slot size refused before rendering.
+No file, network, or embedded image is loaded, scripts and animation have no
+effect, and SVG text is not drawn. A refused or empty
 document leaves the monochrome fallback, and a key that fails to rasterize is
 not retried. When no named or COLR/CPAL face exists, directory discovery
 accepts a face whose only color data is an `SVG ` table. An explicit

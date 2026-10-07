@@ -13,6 +13,7 @@ mod colr1_budget;
 mod keycap;
 mod render;
 mod svg;
+mod svg_budget;
 
 use std::path::{Path, PathBuf};
 #[cfg(all(unix, not(target_os = "macos")))]
