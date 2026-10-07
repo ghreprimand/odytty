@@ -1158,6 +1158,12 @@ pub(in crate::native) fn overlay_input_from_winit(
         WinitKey::Character(text) if mods.ctrl && !mods.alt && text.eq_ignore_ascii_case("s") => {
             Some(OverlayInput::Save)
         }
+        WinitKey::Character(text) if mods.ctrl && !mods.alt && !mods.shift => {
+            let mut chars = text.chars();
+            let ch = chars.next()?;
+            (chars.next().is_none() && ch.is_ascii_alphabetic())
+                .then(|| OverlayInput::Command(ch.to_ascii_lowercase()))
+        }
         WinitKey::Named(NamedKey::Space) if !mods.ctrl && !mods.alt => {
             Some(OverlayInput::Char(' '))
         }

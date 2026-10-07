@@ -166,7 +166,7 @@ impl PaletteOverlay {
                 self.follow_selection_for_known_body_height();
                 PaletteOverlayOutcome::Consumed
             }
-            OverlayInput::Char(_) => PaletteOverlayOutcome::Consumed,
+            OverlayInput::Char(_) | OverlayInput::Command(_) => PaletteOverlayOutcome::Consumed,
             OverlayInput::Activate => match self.model.selected_selection() {
                 Some(PaletteSelection::Action { id }) => PaletteOverlayOutcome::Action(id),
                 Some(PaletteSelection::TypeText { text, .. }) => {

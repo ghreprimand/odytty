@@ -115,6 +115,7 @@ impl ReplayOverlay {
             // Replay is presentation-only: typing, Tab, Save, Backspace, and
             // Enter are inert (no action is ever emitted from here).
             OverlayInput::Char(_)
+            | OverlayInput::Command(_)
             | OverlayInput::Tab
             | OverlayInput::Save
             | OverlayInput::Backspace

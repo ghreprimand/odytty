@@ -506,6 +506,23 @@ carries workspace and layout actions that have no default chord:
 Any of the bindable workspace actions above can still be given a chord; the
 layout and host-binding actions are palette- and menu-only.
 
+## Session Navigator
+
+While the Session Navigator is open, typing filters the list. Row commands are
+Ctrl chords and act on the highlighted row:
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Focus the row, or attach a detached session |
+| `Ctrl+R` / `Ctrl+D` / `Ctrl+M` | Rename, duplicate, or move the row |
+| `Ctrl+X` | Close a tab or workspace, or kill a detached session, after confirmation |
+| `Ctrl+O` | Reopen the last closed row |
+| `Ctrl+I` / `Ctrl+P` | Merge this window into another, or pull another into this one (with two or more windows) |
+| `Esc` | Close the navigator |
+
+These chords apply only inside the navigator and are not rebindable. Rename,
+duplicate, move, and close are also on the row's right-click menu.
+
 ## Remote reconnect prompt
 
 When a remote SSH tab's connection drops, OdyTTY holds the tab open with an

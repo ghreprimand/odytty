@@ -475,7 +475,9 @@ impl ConnectionOverlay {
                 }
                 _ => ConnectionOverlayOutcome::Consumed,
             },
-            OverlayInput::Char(_) | OverlayInput::Left => ConnectionOverlayOutcome::Consumed,
+            OverlayInput::Char(_) | OverlayInput::Command(_) | OverlayInput::Left => {
+                ConnectionOverlayOutcome::Consumed
+            }
         }
     }
 

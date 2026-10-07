@@ -30,6 +30,43 @@ fn input_mapping_covers_settings_panel_navigation() {
     );
 }
 
+/// Ctrl+letter (no Shift or Alt) maps to a lowercase `Command`; Ctrl+S stays
+/// Save, and Ctrl+Shift or Ctrl+Alt letters map to nothing, as before.
+#[test]
+fn ctrl_letters_map_to_overlay_commands() {
+    let ctrl = Modifiers {
+        ctrl: true,
+        ..Modifiers::default()
+    };
+    for (text, expected) in [("d", 'd'), ("D", 'd'), ("x", 'x')] {
+        assert_eq!(
+            overlay_input_from_winit(&WinitKey::Character(text.into()), ctrl),
+            Some(OverlayInput::Command(expected))
+        );
+    }
+    assert_eq!(
+        overlay_input_from_winit(&WinitKey::Character("s".into()), ctrl),
+        Some(OverlayInput::Save)
+    );
+    for mods in [
+        Modifiers {
+            shift: true,
+            ..ctrl
+        },
+        Modifiers { alt: true, ..ctrl },
+    ] {
+        assert_eq!(
+            overlay_input_from_winit(&WinitKey::Character("d".into()), mods),
+            None
+        );
+    }
+    assert_eq!(
+        overlay_input_from_winit(&WinitKey::Character("1".into()), ctrl),
+        None,
+        "only ASCII letters become commands"
+    );
+}
+
 #[test]
 fn right_click_host_row_opens_connection_row_menu() {
     // A right-click on a saved-host row opens the connection-row context menu

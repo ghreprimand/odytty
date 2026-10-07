@@ -621,6 +621,11 @@ pub(in crate::native) enum OverlayInput {
     /// drop it).
     Tab,
     Char(char),
+    /// A Ctrl+letter chord (no Shift or Alt), carried as the lowercase ASCII
+    /// letter. The Session Navigator binds its row commands here so every
+    /// printable character stays free for type-to-filter; every other overlay
+    /// ignores it.
+    Command(char),
 }
 
 /// Which mouse button drove a pointer event into the overlay. Only the buttons

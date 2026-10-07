@@ -25,21 +25,22 @@ fn detached(id: &str) -> ListedSession {
 }
 
 #[test]
-fn navigator_uppercase_x_only_targets_detached_sessions() {
+fn navigator_close_chord_kills_a_detached_session_and_x_filters() {
     let mut overlay = SessionAttachOverlay::new();
     overlay.open(vec![live(9), NavigatorEntry::from(detached("s-kill"))]);
-    assert_eq!(
-        overlay.handle_input(OverlayInput::Char('X')),
-        SessionAttachOverlayOutcome::Consumed,
-        "X never turns a live focus-list row into a kill request"
-    );
     let _ = overlay.handle_input(OverlayInput::Down);
     assert_eq!(
-        overlay.handle_input(OverlayInput::Char('X')),
+        overlay.handle_input(OverlayInput::Command('x')),
         SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::Close(
             NavigatorTarget::Detached("s-kill".to_owned())
         ))
     );
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Char('X')),
+        SessionAttachOverlayOutcome::Consumed,
+        "a typed X is a filter character, never a kill request"
+    );
+    assert_eq!(overlay.render_signature().query, "X");
 }
 
 fn live(token: u64) -> NavigatorEntry {
@@ -168,19 +169,19 @@ fn navigator_lifecycle_race_actions_keep_the_original_stable_target() {
 
     let expected = [
         (
-            OverlayInput::Char('r'),
+            OverlayInput::Command('r'),
             NavigatorAction::Rename(target.clone()),
         ),
         (
-            OverlayInput::Char('d'),
+            OverlayInput::Command('d'),
             NavigatorAction::Duplicate(target.clone()),
         ),
         (
-            OverlayInput::Char('m'),
+            OverlayInput::Command('m'),
             NavigatorAction::Move(target.clone()),
         ),
         (
-            OverlayInput::Char('x'),
+            OverlayInput::Command('x'),
             NavigatorAction::Close(target.clone()),
         ),
     ];
@@ -192,7 +193,7 @@ fn navigator_lifecycle_race_actions_keep_the_original_stable_target() {
         );
     }
     assert_eq!(
-        overlay.handle_input(OverlayInput::Char('o')),
+        overlay.handle_input(OverlayInput::Command('o')),
         SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::Reopen)
     );
 }

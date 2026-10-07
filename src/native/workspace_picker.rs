@@ -242,6 +242,7 @@ impl WorkspacePicker {
                 },
             },
             OverlayInput::Char(_)
+            | OverlayInput::Command(_)
             | OverlayInput::Left
             | OverlayInput::Right
             | OverlayInput::Save

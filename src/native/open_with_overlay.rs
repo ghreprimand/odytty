@@ -167,6 +167,7 @@ impl OpenWithOverlay {
                 None => OpenWithOverlayOutcome::Consumed,
             },
             OverlayInput::Char(_)
+            | OverlayInput::Command(_)
             | OverlayInput::Left
             | OverlayInput::Right
             | OverlayInput::Save

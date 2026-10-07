@@ -2030,8 +2030,11 @@ scope rather than silently inheriting deferred work from a prior release.
   progress, unread state, and profile. The default collects no command output;
   opt-in `navigator_preview` shows at most eight frozen, redacted live-pane
   lines without polling or mutation. Selecting a live row focuses its stable token.
-  Navigator `x` closes live tab/workspace rows only after an explicit confirm;
-  `o` relaunches a fresh shell at the last closed row's directory and profile
+  Typing always filters; row commands are Ctrl chords (`Ctrl+R`, `Ctrl+D`,
+  `Ctrl+M`, `Ctrl+X`, `Ctrl+O`, and `Ctrl+I`/`Ctrl+P` with a sibling window).
+  Navigator `Ctrl+X` closes live tab/workspace rows only after an explicit
+  confirm and kills a detached session only after confirmation; `Ctrl+O`
+  relaunches a fresh shell at the last closed row's directory and profile
   from a bounded process-lifetime history, never resurrecting its process.
   Selecting a detached session attaches it; an already-open session is de-duplicated to its existing tab instead of
   opening a second copy, and otherwise a New-tab / Replace-current dialog

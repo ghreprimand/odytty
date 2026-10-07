@@ -485,6 +485,7 @@ impl ConnectionForm {
                 ConnectionFormOutcome::Consumed
             }
             OverlayInput::Char(_)
+            | OverlayInput::Command(_)
             | OverlayInput::PageUp
             | OverlayInput::PageDown
             | OverlayInput::Home
@@ -568,6 +569,7 @@ impl ConnectionForm {
                 self.browse = None;
             }
             OverlayInput::Char(_)
+            | OverlayInput::Command(_)
             | OverlayInput::Left
             | OverlayInput::Right
             | OverlayInput::Save => {}

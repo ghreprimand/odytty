@@ -34,13 +34,13 @@ const MAX_RESULTS: usize = 40;
 /// clipped the full legend). Joined with " \u{b7} " and wrapped by
 /// [`crate::native::overlay::render::wrap_segments`].
 const NAV_LEGEND_SEGMENTS: [&str; 8] = [
+    "type to filter",
     "Enter focus",
-    "r rename",
-    "d duplicate",
-    "m move",
-    "x close",
-    "X kill",
-    "o reopen",
+    "Ctrl+R rename",
+    "Ctrl+D duplicate",
+    "Ctrl+M move",
+    "Ctrl+X close or kill",
+    "Ctrl+O reopen",
     "Esc back",
 ];
 const NAV_LEGEND_SEP: &str = " \u{b7} ";
@@ -240,39 +240,27 @@ impl SessionAttachOverlay {
                 self.follow_selection_for_known_body_height();
                 SessionAttachOverlayOutcome::Consumed
             }
-            OverlayInput::Char('r') if self.query.is_empty() => {
-                self.selected_action(NavigatorAction::Rename)
-            }
-            OverlayInput::Char('d') if self.query.is_empty() => {
-                self.selected_action(NavigatorAction::Duplicate)
-            }
-            OverlayInput::Char('m') if self.query.is_empty() => {
-                self.selected_action(NavigatorAction::Move)
-            }
-            OverlayInput::Char('x') if self.query.is_empty() => {
-                self.selected_action(NavigatorAction::Close)
-            }
-            OverlayInput::Char('X') if self.query.is_empty() => self
-                .selected_entry()
-                .filter(|entry| matches!(entry.target, NavigatorTarget::Detached(_)))
-                .map(|entry| {
-                    SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::Close(
-                        entry.target.clone(),
-                    ))
-                })
-                .unwrap_or(SessionAttachOverlayOutcome::Consumed),
-            OverlayInput::Char('o') if self.query.is_empty() => {
+            // Row commands are Ctrl+letter chords, so every printable character
+            // stays type-to-filter: a name starting with a command letter
+            // (`dev`, `ops`, `xterm`) filters instead of acting on the
+            // highlighted row. They act on the highlighted row whatever the
+            // query is.
+            OverlayInput::Command('r') => self.selected_action(NavigatorAction::Rename),
+            OverlayInput::Command('d') => self.selected_action(NavigatorAction::Duplicate),
+            OverlayInput::Command('m') => self.selected_action(NavigatorAction::Move),
+            OverlayInput::Command('x') => self.selected_action(NavigatorAction::Close),
+            OverlayInput::Command('o') => {
                 SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::Reopen)
             }
             // v0.15.0 D window-level merge/pull: only when the owner reports a
-            // sibling window, so a lone window falls through to type-to-filter
-            // rather than opening an empty, refused picker.
-            OverlayInput::Char('i') if self.query.is_empty() && self.merge_targets_available => {
+            // sibling window, so a lone window never opens an empty, refused
+            // picker.
+            OverlayInput::Command('i') if self.merge_targets_available => {
                 SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::MergeWindow(
                     MergeDirection::MergeThisInto,
                 ))
             }
-            OverlayInput::Char('p') if self.query.is_empty() && self.merge_targets_available => {
+            OverlayInput::Command('p') if self.merge_targets_available => {
                 SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::MergeWindow(
                     MergeDirection::PullIntoThis,
                 ))
@@ -300,6 +288,7 @@ impl SessionAttachOverlay {
                 None => SessionAttachOverlayOutcome::Consumed,
             },
             OverlayInput::Char(_)
+            | OverlayInput::Command(_)
             | OverlayInput::Left
             | OverlayInput::Right
             | OverlayInput::Save
@@ -462,8 +451,8 @@ impl SessionAttachOverlay {
             // `i`/`p` key gate so a lone window never advertises a merge.
             let mut segments: Vec<&str> = NAV_LEGEND_SEGMENTS.to_vec();
             if self.merge_targets_available {
-                segments.push("i merge window");
-                segments.push("p pull window");
+                segments.push("Ctrl+I merge window");
+                segments.push("Ctrl+P pull window");
             }
             let legend =
                 crate::native::overlay::wrap_segments(&segments, NAV_LEGEND_SEP, body_width);
@@ -704,13 +693,13 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         for expected in [
+            "type to filter",
             "Enter focus",
-            "r rename",
-            "d duplicate",
-            "m move",
-            "x close",
-            "X kill",
-            "o reopen",
+            "Ctrl+R rename",
+            "Ctrl+D duplicate",
+            "Ctrl+M move",
+            "Ctrl+X close or kill",
+            "Ctrl+O reopen",
             "Esc back",
         ] {
             assert!(
@@ -969,13 +958,13 @@ mod tests {
         let mut overlay = open(entries());
         overlay.set_merge_targets_available(true);
         assert_eq!(
-            overlay.handle_input(OverlayInput::Char('i')),
+            overlay.handle_input(OverlayInput::Command('i')),
             SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::MergeWindow(
                 MergeDirection::MergeThisInto
             ))
         );
         assert_eq!(
-            overlay.handle_input(OverlayInput::Char('p')),
+            overlay.handle_input(OverlayInput::Command('p')),
             SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::MergeWindow(
                 MergeDirection::PullIntoThis
             ))
@@ -983,16 +972,62 @@ mod tests {
     }
 
     #[test]
-    fn merge_shortcuts_fall_through_to_filtering_without_a_sibling() {
-        // A lone window: 'i'/'p' are ordinary query characters, not merge rows,
-        // so the navigator never opens an empty, refused picker.
+    fn merge_shortcuts_are_inert_without_a_sibling() {
+        // A lone window: Ctrl+I/Ctrl+P do nothing, so the navigator never opens
+        // an empty, refused picker, and the query is untouched.
         let mut overlay = open(entries());
         assert!(!overlay.merge_targets_available);
         assert_eq!(
-            overlay.handle_input(OverlayInput::Char('i')),
+            overlay.handle_input(OverlayInput::Command('i')),
             SessionAttachOverlayOutcome::Consumed
         );
-        assert_eq!(overlay.render_signature().query, "i");
+        assert_eq!(overlay.render_signature().query, "");
+    }
+
+    /// Every printable character filters, including the letters the row
+    /// commands use: typing `dev` finds the `dev` row instead of duplicating
+    /// the highlighted one.
+    #[test]
+    fn a_name_starting_with_a_command_letter_filters() {
+        for name in ["dev", "ops", "xterm", "main", "repl", "Xorg", "ifx", "prod"] {
+            let mut overlay = open(vec![
+                session("s-0001-aaaa", "build", 1),
+                session("s-0002-bbbb", name, 1),
+            ]);
+            overlay.set_merge_targets_available(true);
+            type_query(&mut overlay, name);
+            let signature = overlay.render_signature();
+            assert_eq!(signature.query, name);
+            assert_eq!(signature.results_len, 1, "{name} filters to its row");
+        }
+    }
+
+    /// The commands act on the highlighted row with or without a query.
+    #[test]
+    fn ctrl_letter_commands_act_on_the_highlighted_row() {
+        let mut overlay = open(entries());
+        type_query(&mut overlay, "web");
+        let target = NavigatorTarget::Detached("s-0002-bbbb".to_owned());
+        for (letter, action) in [
+            ('r', NavigatorAction::Rename(target.clone())),
+            ('d', NavigatorAction::Duplicate(target.clone())),
+            ('m', NavigatorAction::Move(target.clone())),
+            ('x', NavigatorAction::Close(target.clone())),
+        ] {
+            assert_eq!(
+                overlay.handle_input(OverlayInput::Command(letter)),
+                SessionAttachOverlayOutcome::NavigatorAction(action)
+            );
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Command('o')),
+            SessionAttachOverlayOutcome::NavigatorAction(NavigatorAction::Reopen)
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Command('z')),
+            SessionAttachOverlayOutcome::Consumed
+        );
+        assert_eq!(overlay.render_signature().query, "web");
     }
 
     #[test]
@@ -1014,7 +1049,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(
-            joined.contains("i merge window") && joined.contains("p pull window"),
+            joined.contains("Ctrl+I merge window") && joined.contains("Ctrl+P pull window"),
             "merge legend must list both shortcuts; got:\n{joined}"
         );
     }

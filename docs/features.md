@@ -1272,7 +1272,7 @@ right-click menu offer **Merge This Window Into...** and **Pull Window Into This
 One...**. Merge and pull move the source window's workspaces whole: each arrives
 as its own workspace in the destination rail, rather than as tabs in the
 current workspace; to add one tab to the current workspace, use **Move Tab to
-Window...** instead. The Session Navigator legend adds `i merge window` and `p pull window` when targets exist.
+Window...** instead. The Session Navigator legend adds `Ctrl+I merge window` and `Ctrl+P pull window` when targets exist.
 Candidates show temporary numerals painted inside each window surface, including
 decoration-less tiling compositors without compositor plugins. The window that
 opened the picker paints a banner naming the numerals to press and the Escape
@@ -1777,8 +1777,12 @@ tab** or **Replace**. Stale or errored registry entries show
 take a connection is listed as `unresponsive`; opening the navigator never
 waits on it.
 
-Press `X` on a detached session to kill it after confirmation. A host that does
-not answer is reported with a notice and stays listed. **Detach &
+Typing always filters the list, including names that start with a command
+letter. Row commands are Ctrl chords that act on the highlighted row with or
+without a query: `Ctrl+R` rename, `Ctrl+D` duplicate, `Ctrl+M` move, `Ctrl+X`
+close (a live tab or workspace after confirmation) or kill (a detached session
+after confirmation), and `Ctrl+O` reopen the last closed row. A host that does
+not answer a kill is reported with a notice and stays listed. **Detach &
 switch** gives the focused pane's working directory to a fresh managed session.
 
 Right-clicking a navigator row opens a context menu with only the actions that
