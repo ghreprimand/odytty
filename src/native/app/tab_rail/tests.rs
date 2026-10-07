@@ -1392,3 +1392,117 @@ fn two_row_rail_emits_no_underline_attributes() {
     );
     assert!(output.glyphs.iter().all(|glyph| !glyph.attrs.underline()));
 }
+
+/// A workspace rail source whose rows can carry a progress rollup.
+struct ProgressMock {
+    titles: Vec<&'static str>,
+    active: usize,
+    bound: Vec<usize>,
+    activity: Vec<usize>,
+    progress: Vec<(usize, crate::core::TerminalProgress)>,
+}
+
+impl TabBarSource for ProgressMock {
+    fn tab_count(&self) -> usize {
+        self.titles.len()
+    }
+    fn tab_title(&self, idx: usize) -> &str {
+        self.titles[idx]
+    }
+    fn active_tab(&self) -> usize {
+        self.active
+    }
+    fn tab_bound(&self, idx: usize) -> bool {
+        self.bound.contains(&idx)
+    }
+    fn tab_activity(&self, idx: usize) -> bool {
+        self.activity.contains(&idx)
+    }
+    fn tab_progress(&self, idx: usize) -> Option<crate::core::TerminalProgress> {
+        self.progress
+            .iter()
+            .find(|(row, _)| *row == idx)
+            .map(|(_, progress)| *progress)
+    }
+}
+
+fn half_done() -> crate::core::TerminalProgress {
+    crate::core::TerminalProgress {
+        kind: crate::core::ProgressKind::Normal,
+        value: Some(50),
+    }
+}
+
+/// A background workspace with only a progress rollup shows the typed
+/// progress glyph at the activity edge, beside its bound marker; progress
+/// wins the cell over unseen activity, as on the top strip.
+#[test]
+fn workspace_progress_rollup_paints_at_the_activity_edge() {
+    let src = ProgressMock {
+        titles: vec!["local", "build", "logs"],
+        active: 0,
+        bound: vec![1],
+        activity: vec![2],
+        progress: vec![(1, half_done()), (2, half_done())],
+    };
+    let out = render_default(&src);
+    let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+    let expected = tab_bar::progress_badge(half_done());
+    for idx in [1, 2] {
+        let row = layout.slots[idx].label_row;
+        let badge = &out.glyphs[row * RAIL_COLS + RAIL_COLS - 1];
+        assert_eq!(badge.ch, expected, "row {idx} shows its progress");
+        assert!(badge.attrs.bold());
+    }
+    let row = layout.slots[1].label_row;
+    assert_eq!(
+        out.glyphs[row * RAIL_COLS].ch,
+        BOUND_BADGE,
+        "bound marker kept"
+    );
+    let row = layout.slots[0].label_row;
+    assert_ne!(out.glyphs[row * RAIL_COLS + RAIL_COLS - 1].ch, expected);
+}
+
+/// A workspace name carrying control characters (restored from a layout or
+/// set by a shell title) paints only its printable scalars, and auto-width
+/// counts the same scalars.
+#[test]
+fn rail_labels_drop_control_characters() {
+    let src = MockSource::new(&["bu\u{1b}[31mild\nout"], 0);
+    let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+    assert_eq!(layout.slots[0].label, "bu[31mildout");
+    assert!(layout.slots[0].label.chars().all(|ch| !ch.is_control()));
+    assert_eq!(rail_label_chars("  bu\u{1b}ild\n ").len(), 5);
+}
+
+/// A rail with one or two rows has no slot region: it is control-only, with
+/// no overflow indicator painted into the reserved control or separator row.
+#[test]
+fn a_rail_with_no_slot_rows_paints_no_overflow_indicator() {
+    let src = MockSource::new(&["one", "two", "three"], 1);
+    for rows in [1, 2] {
+        let layout = compute_rail_layout(&src, RAIL_COLS, rows, GEOM);
+        assert_eq!(layout.slot_region_rows, 0);
+        assert!(layout.slots.is_empty());
+        assert_eq!(layout.overflow_above, None, "{rows} rows");
+        assert_eq!(layout.overflow_below, None, "{rows} rows");
+        let out = rail().render(
+            &src,
+            RAIL_COLS,
+            rows,
+            ORIGIN,
+            CELL,
+            RailSide::Left,
+            COLORS,
+            GEOM,
+            PANEL_STRENGTH,
+            ACCENT,
+            false,
+        );
+        assert!(
+            out.glyphs.iter().all(|g| g.ch != '▲' && g.ch != '▼'),
+            "{rows} rows: no overflow glyph"
+        );
+    }
+}

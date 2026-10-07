@@ -515,15 +515,16 @@ impl App {
 
     /// The longest tab title in cells (F4-P4 auto-width): each Unicode scalar
     /// counts as one column, matching the rail widget's `truncate_label` (the
-    /// wide-glyph display-width caveat is F4P-NF1, out of scope). Trimmed like
-    /// the widget so trailing spaces never pad the auto width.
+    /// wide-glyph display-width caveat is F4P-NF1, out of scope). It counts the
+    /// widget's own label scalars (trimmed, controls removed), so trailing
+    /// spaces and control characters never pad the auto width.
     pub(super) fn rail_longest_title_cols(&self) -> usize {
         use tab_bar::TabBarSource;
         // The rail lists WORKSPACES, so auto-width sizes to the longest workspace
         // name, not the active workspace's tab titles (§7.1).
         let source = self.sessions.rail_source();
         (0..source.tab_count())
-            .map(|idx| source.tab_title(idx).trim().chars().count())
+            .map(|idx| tab_rail::rail_label_chars(source.tab_title(idx)).len())
             .max()
             .unwrap_or(0)
     }

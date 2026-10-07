@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! A background workspace's progress rollup reaches the workspace rail: a
+//! progress report from one of its panes changes what the floating rail
+//! paints, so its render cache repaints.
+
+use super::*;
+use crate::native::test_support::{headless_app_with_writer, headless_writer};
+
+#[test]
+fn background_workspace_progress_repaints_the_floating_rail() {
+    let (mut app, background) = headless_app_with_writer(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        Settings::default(),
+        headless_writer(),
+    );
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.push_headless_workspace_for_test(
+        Arc::new(Mutex::new(Terminal::new(80, 24))),
+        headless_writer(),
+        Dimensions::new(80, 24),
+    );
+    app.set_tab_bar_placement_for_test("left");
+    app.set_workspace_rail_for_test("always");
+    app.set_tab_rail_autohide_for_test(true);
+    app.force_rail_reveal_for_test();
+    assert!(app.rail_overlay_visible_for_test());
+    app.drain_progress_for_test();
+    let before = app.rail_overlay_content_hash_for_test();
+
+    // The first workspace, now in the background, reports 50% progress.
+    background
+        .lock()
+        .expect("terminal")
+        .advance(b"\x1b]9;4;1;50\x07");
+    app.drain_progress_for_test();
+
+    assert_ne!(
+        app.rail_overlay_content_hash_for_test(),
+        before,
+        "the progress rollup changes the floating rail's content"
+    );
+}

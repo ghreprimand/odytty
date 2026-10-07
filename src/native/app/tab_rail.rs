@@ -437,11 +437,13 @@ impl TabRail {
                     g.attrs.foreground = rgb(bound_accent);
                 }
             }
-            // Unseen workspace activity uses the opposite edge from the bound
-            // marker, so the two independent states remain visible together.
-            // Static theme-role color keeps reduced-motion and plain rendering
-            // on the same path.
-            if source.tab_activity(slot.idx) {
+            // Unseen workspace activity, or the workspace's progress rollup,
+            // uses the opposite edge from the bound marker, so the states remain
+            // visible together. Progress wins the cell over activity, as on the
+            // top strip, and uses the same typed glyphs. Static theme-role color
+            // keeps reduced-motion and plain rendering on the same path.
+            let progress = source.tab_progress(slot.idx);
+            if progress.is_some() || source.tab_activity(slot.idx) {
                 let badge_col = match placement {
                     RailSide::Left => rail_cols - 1,
                     RailSide::Right => 0,
@@ -449,7 +451,7 @@ impl TabRail {
                 let brow = slot.label_row;
                 if brow < grid_rows {
                     let g = &mut cells[brow * rail_cols + badge_col];
-                    g.ch = ACTIVITY_BADGE;
+                    g.ch = progress.map_or(ACTIVITY_BADGE, tab_bar::progress_badge);
                     g.attrs.foreground = active_lbl;
                     g.attrs.background = slot_bg;
                     g.attrs.set_bold(true);
@@ -603,6 +605,12 @@ pub(super) fn compute_rail_layout(
     let region_rows = grid_rows - reserve;
     layout.autohide_row = Some(grid_rows - 1);
     layout.slot_region_rows = region_rows;
+    // A rail too short for any slot row is control-only: no slot, no `+`, and
+    // no overflow indicator, which would otherwise land in the reserved
+    // control and separator rows.
+    if region_rows == 0 {
+        return layout;
+    }
     let top_margin = geom.top_margin();
     let stride = geom.stride();
     let tab_count = source.tab_count();
@@ -756,17 +764,26 @@ fn is_slot_hovered(hover: Option<TabHit>, idx: usize) -> bool {
     matches!(hover, Some(TabHit::Switch(i) | TabHit::Close(i)) if i == idx)
 }
 
+/// The scalars a rail label shows: `s` trimmed, with control characters
+/// removed (the top strip's policy), so a restored or shell-set workspace name
+/// carrying ESC or a newline never projects them into chrome cells. Auto-width
+/// counts the same scalars.
+pub(super) fn rail_label_chars(s: &str) -> Vec<char> {
+    s.trim().chars().filter(|ch| !ch.is_control()).collect()
+}
+
 /// Truncate `s` to a single line of at most `inner` columns, ending an
 /// overflowing title with `…` (F4-P4 — the rail never wraps to a second line;
 /// the auto-width mode grows the rail to fit, and past the cap the title
-/// ellipsizes). Leading/trailing whitespace is stripped. Each Unicode scalar
-/// counts as one column — correct for the ASCII-heavy titles typical of
-/// terminal tabs (the wide-glyph display-width caveat is F4P-NF1, out of scope).
+/// ellipsizes). Leading/trailing whitespace and control characters are
+/// stripped ([`rail_label_chars`]). Each Unicode scalar counts as one column:
+/// correct for the ASCII-heavy titles typical of terminal tabs (the wide-glyph
+/// display-width caveat is F4P-NF1, out of scope).
 fn truncate_label(s: &str, inner: usize) -> String {
     if inner == 0 {
         return String::new();
     }
-    let chars: Vec<char> = s.trim().chars().collect();
+    let chars = rail_label_chars(s);
     if chars.len() <= inner {
         return chars.into_iter().collect();
     }

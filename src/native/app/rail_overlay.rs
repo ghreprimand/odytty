@@ -501,6 +501,11 @@ impl App {
         source.tab_count().hash(&mut hasher);
         for idx in 0..source.tab_count() {
             source.tab_title(idx).hash(&mut hasher);
+            // The progress badge the floating rail paints for a workspace.
+            source
+                .tab_progress(idx)
+                .map(tab_bar::progress_badge)
+                .hash(&mut hasher);
         }
         // Hover state changes the highlighted slot, so a hover move while
         // revealed must repaint.

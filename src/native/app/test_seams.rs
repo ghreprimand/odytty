@@ -1587,6 +1587,21 @@ impl App {
         self.rail_autohide.force_revealed();
     }
 
+    /// Test seam: the floating rail overlay's render signature content hash.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_overlay_content_hash_for_test(&self) -> Option<u64> {
+        let cell = self.resolved_cell()?;
+        Some(self.rail_overlay_render_signature(cell).content_hash)
+    }
+
+    /// Test seam: drain pane notification and progress events, as a frame does.
+    #[cfg(test)]
+    pub(in crate::native) fn drain_progress_for_test(&mut self) {
+        let _ = self
+            .sessions
+            .drain_notifications(std::time::Instant::now(), true, true);
+    }
+
     /// Test seam (F4-P3): whether the floating rail overlay is drawn this frame.
     #[cfg(test)]
     pub(in crate::native) fn rail_overlay_visible_for_test(&self) -> bool {

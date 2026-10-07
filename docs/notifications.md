@@ -29,7 +29,10 @@ trusted notification surface.
 ## Presentation And Ownership
 
 Progress and notification state belongs to the exact pane that emitted it.
-Tabs and workspaces show only a bounded rollup of their owned panes. Viewing an
+Tabs and workspaces show only a bounded rollup of their owned panes: a tab's
+progress glyph sits in its top-strip padding, and a workspace's sits at the
+workspace rail's activity edge, where progress takes the place of the unseen
+activity dot. Viewing an
 active tab clears unread/completion flags while leaving live progress intact.
 In-app notices expire after 15 seconds; progress expires after 10 minutes if a
 program never clears it. Per-pane duplicate requests are suppressed for five
