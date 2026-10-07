@@ -99,8 +99,9 @@ selection_opacity = 1.0
 # effect at window_opacity = 100.
 colored_bg_opacity = 0.9
 
-# Follow the pointer with a provisional tab window on X11, macOS and Windows.
-# Release commits; cancellation restores the tab. Off creates only on release.
+# Follow with a provisional tab window on X11, Hyprland, macOS, Windows,
+# and Wayland with advertised xdg-toplevel-drag. Completion commits;
+# cancellation restores the tab. Off creates only on release.
 live_tab_drag = on
 # Show the tab bar even with a single tab. Off by default (a lone unnamed tab
 # hides the bar). A single tab you have renamed always shows the bar regardless.

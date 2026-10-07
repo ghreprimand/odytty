@@ -361,6 +361,8 @@ pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
     MultiWindowHost {
         windows,
         live_drag: None,
+        #[cfg(target_os = "linux")]
+        wayland_docked_drag: None,
         shared: WatchdogShared::new(),
         last_seen_frames: 0,
         factory: Box::new(|_| None),
@@ -1855,4 +1857,18 @@ mod wayland_file_drop_routing {
             "notice={notice}"
         );
     }
+}
+
+#[test]
+fn wayland_tab_first_buffer_barrier_blocks_the_real_redraw_ingress() {
+    let mut app = headless();
+    let delivered = app.redraws_delivered;
+    let signature = app.last_render_signature.clone();
+    app.live_drag_map_blocked = true;
+    assert!(app.on_redraw_requested());
+    assert_eq!(app.redraws_delivered, delivered);
+    assert_eq!(app.last_render_signature, signature);
+    app.live_drag_map_blocked = false;
+    let _ = app.on_redraw_requested();
+    assert_eq!(app.redraws_delivered, delivered + 1);
 }

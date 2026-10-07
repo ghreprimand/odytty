@@ -55,6 +55,9 @@ pub(super) enum UserEvent {
     /// metadata-only: the host drains at most eight requests on this event-loop
     /// turn, then posts another wake when the bounded queue still has work.
     AutomationWake,
+    /// The native Wayland tab-drag listener changed bounded transport state.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    WaylandTabDragWake,
     /// The runtime glyph-fallback worker resolved codepoints the atlases drew
     /// as pending fallback boxes. Not session-scoped: the host rebuilds every
     /// window so those cells re-rasterize with the resolved faces.
@@ -129,6 +132,7 @@ impl UserEvent {
             UserEvent::CommandExportDestination { .. }
             | UserEvent::QuickTerminalSummon
             | UserEvent::AutomationWake
+            | UserEvent::WaylandTabDragWake
             | UserEvent::GlyphFallbackResolved
             | UserEvent::QuickTerminalRegistration { .. }
             | UserEvent::WaylandFileDrop { .. }

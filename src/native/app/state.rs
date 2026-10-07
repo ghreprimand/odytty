@@ -434,6 +434,10 @@ pub(in crate::native) struct App {
     /// opens.
     pub(super) live_drag_source: bool,
     pub(super) live_drag_destination: bool,
+    /// Withhold the first buffer until ordered Wayland attachment is acknowledged.
+    pub(super) live_drag_map_blocked: bool,
+    #[cfg(target_os = "linux")]
+    pub(super) wayland_live_available: bool,
     pub(super) process_window_id: crate::native::window_owner::ProcessWindowId,
     /// v0.15.0 C: monotonic incarnation of THIS window's native Wayland surface,
     /// bumped in `try_resume_presentation` each time the surface is (re)created
@@ -850,6 +854,9 @@ impl App {
             // than aliasing a live window's identity.
             live_drag_source: false,
             live_drag_destination: provisional,
+            live_drag_map_blocked: false,
+            #[cfg(target_os = "linux")]
+            wayland_live_available: false,
             process_window_id: crate::native::window_owner::next_window_id()
                 .expect("ProcessWindowId space exhausted (2^64 windows); refusing to reuse an id"),
             #[cfg(target_os = "linux")]

@@ -132,6 +132,10 @@ x11rb = { version = "0.13", default-features = false }
 # `Backend::from_foreign_display`. Linux-only (macOS backend is Cocoa); X11,
 # macOS, and Windows keep their existing winit file-drop event paths.
 wayland-client = { version = "0.31.14", features = ["system"] }
+# Advertised compositor-assisted tab dragging. This MIT-licensed protocol
+# crate is already used by winit at the pinned version; staging exposes the
+# xdg-toplevel-drag bindings without a second connection or toolkit fork.
+wayland-protocols = { version = "=0.32.12", features = ["client", "staging"] }
 
 # Linux-only: the Wayland global-shortcut backend for the quick terminal
 # (`src/native/quick_terminal/wayland.rs`, v0.15.0 A). Wayland denies apps a

@@ -343,6 +343,9 @@ impl App {
     /// exactly the paths that reached it before, and skipped on exactly the
     /// paths that skipped it.
     pub(super) fn on_redraw_requested(&mut self) -> bool {
+        if self.live_drag_map_blocked {
+            return true;
+        }
         // FREEZE-WATCHDOG: count the delivery, not the request. A
         // request we made that the windowing system never turned into
         // this event means the surface is not being painted (asleep

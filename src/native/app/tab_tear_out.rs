@@ -18,7 +18,15 @@ pub(in crate::native) struct TearOutRelease {
 
 impl App {
     pub(super) fn live_tab_transport_supported(&self) -> bool {
-        !self.is_wayland_client() || self.hyprland_live_requested()
+        let supported = !self.is_wayland_client() || self.hyprland_live_requested();
+        #[cfg(target_os = "linux")]
+        {
+            supported || self.wayland_live_available
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            supported
+        }
     }
 
     pub(super) fn hyprland_live_requested(&self) -> bool {

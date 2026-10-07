@@ -183,6 +183,16 @@ impl App {
         self.wayland_surface_present_for_test = Some(present);
     }
 
+    #[cfg(all(test, target_os = "linux"))]
+    pub(in crate::native) fn set_live_tab_drag_for_test(&mut self, enabled: bool) {
+        self.settings.live_tab_drag = enabled;
+    }
+
+    #[cfg(all(test, target_os = "linux"))]
+    pub(in crate::native) fn set_wayland_live_advertised_for_test(&mut self, available: bool) {
+        self.wayland_live_available = available;
+    }
+
     /// This window's Wayland `wl_display` proxy pointer, when running on the
     /// Wayland backend (v0.15.0 C). The display is process-wide, so the host
     /// starts the single native file-drop listener against the first window

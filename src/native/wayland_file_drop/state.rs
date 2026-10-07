@@ -153,6 +153,10 @@ impl DropCore {
         }
     }
 
+    pub(super) fn negotiated_action(&self, offer: u32) -> Option<DropAction> {
+        self.offers.get(&offer).and_then(|record| record.negotiated)
+    }
+
     pub(super) fn supports_uri(&self, offer: u32) -> bool {
         self.offers.get(&offer).is_some_and(|r| r.supports_uri)
     }

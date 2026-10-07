@@ -1732,6 +1732,7 @@ dependencies = [
  "unicode-bidi",
  "unicode-width",
  "wayland-client",
+ "wayland-protocols",
  "wgpu",
  "windows",
  "winit",

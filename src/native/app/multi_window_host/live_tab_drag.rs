@@ -9,6 +9,8 @@ use crate::native::session::{MoveScope, MovedRestore, WorkspaceSet};
 
 #[cfg(target_os = "linux")]
 mod hyprland;
+#[cfg(target_os = "linux")]
+pub(super) mod wayland;
 
 const FOCUS_SETTLE_BOUND: Duration = Duration::from_millis(150);
 
@@ -37,6 +39,8 @@ pub(super) struct ProvisionalTab {
     hyprland: Option<super::super::hyprland_tear_out::follow::Follow>,
     #[cfg(target_os = "linux")]
     follow_dirty: bool,
+    #[cfg(target_os = "linux")]
+    wayland: Option<crate::native::wayland_file_drop::WirePress>,
     focus_deadline: Option<Instant>,
     release_pending: bool,
 }
@@ -48,6 +52,18 @@ impl ProvisionalTab {
 }
 
 impl MultiWindowHost {
+    fn wayland_live_custody(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            self.live_drag
+                .as_ref()
+                .is_some_and(|drag| drag.wayland.is_some())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            false
+        }
+    }
     pub(super) fn begin_live_tab(
         &mut self,
         origin: ProcessWindowId,
@@ -60,6 +76,19 @@ impl MultiWindowHost {
         let Some(index) = self.index_of(origin) else {
             return false;
         };
+        #[cfg(target_os = "linux")]
+        let wayland = if self.windows[index].wayland_live_available
+            && !self.windows[index].hyprland_live_requested()
+        {
+            let Some(press) = self.wayland_press_for(index, tab) else {
+                return false;
+            };
+            Some(press)
+        } else {
+            None
+        };
+        #[cfg(target_os = "linux")]
+        let wayland_bridge = self.wayland_bridge();
         let source = &mut self.windows[index];
         if !source.settings.live_tab_drag || !source.sessions.owns_session(tab) {
             return false;
@@ -86,7 +115,11 @@ impl MultiWindowHost {
             .map_or(1.0, |window| window.scale_factor());
         let point = pointer_global(source);
         let hyprland = source.hyprland_live_requested();
-        if !hyprland && source.window.is_some() && point.is_none() {
+        #[cfg(target_os = "linux")]
+        let needs_global_point = !hyprland && wayland.is_none();
+        #[cfg(not(target_os = "linux"))]
+        let needs_global_point = !hyprland;
+        if needs_global_point && source.window.is_some() && point.is_none() {
             return false;
         }
         #[cfg(target_os = "linux")]
@@ -101,12 +134,26 @@ impl MultiWindowHost {
         let strip_right_inset = source.resolved_surface().map_or(0.0, |(width, _, _)| {
             (f64::from(width) - strip.x - strip.width).max(0.0)
         });
+        #[cfg(target_os = "linux")]
+        if let Some(press) = wayland.as_ref()
+            && !wayland_bridge
+                .as_ref()
+                .is_some_and(|bridge| bridge.reserve(press))
+        {
+            return false;
+        }
         let active = source.sessions.active_id();
         source.sessions.switch(tab);
         let restore_focus = source.focused && source.active_tab_tokens().contains(&active);
         let moved = source.detach_for_move(MoveScope::ActiveTab);
         source.sessions.switch(active);
         let Ok((content, hold)) = moved else {
+            #[cfg(target_os = "linux")]
+            if let Some(press) = wayland.as_ref()
+                && let Some(bridge) = wayland_bridge
+            {
+                bridge.rollback(press.identity);
+            }
             return false;
         };
         let restore = content.restore_template();
@@ -118,6 +165,10 @@ impl MultiWindowHost {
         );
         let mut destination = (self.adopt)(set, Some(source.settings.clone()));
         destination.live_drag_destination = true;
+        #[cfg(target_os = "linux")]
+        {
+            destination.live_drag_map_blocked = wayland.is_some();
+        }
         #[cfg(target_os = "linux")]
         if hyprland {
             let epoch = follow_epoch.expect("reserved identity");
@@ -151,12 +202,24 @@ impl MultiWindowHost {
             hyprland: None,
             #[cfg(target_os = "linux")]
             follow_dirty: hyprland,
+            #[cfg(target_os = "linux")]
+            wayland,
             focus_deadline: None,
             release_pending: false,
         });
         self.windows[index].live_drag_source = true;
         self.windows.push(destination);
         let dest = self.windows.len() - 1;
+        #[cfg(target_os = "linux")]
+        if self
+            .live_drag
+            .as_ref()
+            .is_some_and(|drag| drag.wayland.is_some())
+            && !self.queue_wayland_tab_start()
+        {
+            self.cancel_live_tab();
+            return false;
+        }
         if let Err(error) = open(&mut self.windows[dest]) {
             tracing::warn!(%error, "provisional tab window could not open");
             self.cancel_live_tab();
@@ -171,6 +234,16 @@ impl MultiWindowHost {
                 tab,
             );
             self.live_drag.as_mut().expect("custody").hyprland = Some(follow);
+        }
+        #[cfg(target_os = "linux")]
+        if self
+            .live_drag
+            .as_ref()
+            .is_some_and(|drag| drag.wayland.is_some())
+            && !self.queue_wayland_tab_attach()
+        {
+            self.cancel_live_tab();
+            return false;
         }
         self.tick_live_tab(Instant::now());
         self.sync_sibling_counts();
@@ -190,9 +263,18 @@ impl MultiWindowHost {
     }
 
     fn cancel_live_tab_with_focus(&mut self, request_focus: impl FnOnce(&App)) -> bool {
+        #[cfg(target_os = "linux")]
+        let cancelled_wayland = self.cancel_wayland_tab_protocol();
         let return_focus = self.process_has_focus();
         let Some(drag) = self.live_drag.take() else {
-            return false;
+            #[cfg(target_os = "linux")]
+            {
+                return cancelled_wayland;
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                return false;
+            }
         };
         let Some(dest) = self.index_of(drag.destination) else {
             // All surface retirement routes must settle custody first.
@@ -303,6 +385,9 @@ impl MultiWindowHost {
     }
 
     pub(super) fn expire_live_focus(&mut self, now: Instant) {
+        if self.wayland_live_custody() {
+            return;
+        }
         if !self.process_has_focus()
             && self
                 .live_drag
@@ -334,11 +419,26 @@ impl MultiWindowHost {
         }
     }
 
-    fn live_tab_key(&mut self, index: usize, key: &WinitKey, state: ElementState) -> bool {
+    pub(super) fn live_tab_contains(&self, id: ProcessWindowId) -> bool {
         if self
             .live_drag
             .as_ref()
-            .is_some_and(|drag| drag.contains(self.windows[index].process_window_id()))
+            .is_some_and(|drag| drag.contains(id))
+        {
+            return true;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            self.wayland_docked_contains(id)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            false
+        }
+    }
+
+    fn live_tab_key(&mut self, index: usize, key: &WinitKey, state: ElementState) -> bool {
+        if self.live_tab_contains(self.windows[index].process_window_id())
             && state == ElementState::Pressed
             && *key == WinitKey::Named(NamedKey::Escape)
         {
@@ -350,6 +450,10 @@ impl MultiWindowHost {
     }
 
     pub(super) fn route_live_tab_event(&mut self, index: usize, event: &WindowEvent) -> bool {
+        #[cfg(target_os = "linux")]
+        if let Some(handled) = self.route_wayland_docked_event(index, event) {
+            return handled;
+        }
         let Some(drag) = self.live_drag.as_ref() else {
             return false;
         };
@@ -413,7 +517,7 @@ impl MultiWindowHost {
             } else {
                 self.windows[index].on_window_focus_changed(*focused);
             }
-            if !focused {
+            if !focused && !self.wayland_live_custody() {
                 let drag = self.live_drag.as_mut().expect("custody");
                 drag.focus_deadline
                     .get_or_insert(Instant::now() + FOCUS_SETTLE_BOUND);
@@ -438,6 +542,33 @@ impl MultiWindowHost {
             )
         {
             self.configure_live_source(index, event);
+            return true;
+        }
+        if self.wayland_live_custody()
+            && matches!(
+                event,
+                WindowEvent::CursorMoved { .. }
+                    | WindowEvent::CursorLeft { .. }
+                    | WindowEvent::MouseInput {
+                        state: ElementState::Released,
+                        button: WinitMouseButton::Left,
+                        ..
+                    }
+            )
+        {
+            if matches!(
+                event,
+                WindowEvent::MouseInput {
+                    state: ElementState::Released,
+                    button: WinitMouseButton::Left,
+                    ..
+                }
+            ) {
+                self.live_drag
+                    .as_mut()
+                    .expect("protocol custody")
+                    .release_pending = true;
+            }
             return true;
         }
         if source {

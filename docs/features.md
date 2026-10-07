@@ -1269,10 +1269,12 @@ unsupported, and so is dragging a workspace out of the rail: a rail slot drag
 only reorders workspaces.
 
 `live_tab_drag` (Settings > Layout > Tabs, default on) follows the pointer
-with a provisional window on X11, Hyprland, macOS and Windows. Release commits once.
+with a provisional window on X11, Hyprland, macOS, Windows and Wayland with
+advertised `xdg-toplevel-drag`. Completion commits once.
 Escape, returning to the source strip, a window close or a failed creation
 restores the exact tab order, active identity and pane tree. Focus changes
-within OdyTTY keep custody alive. If no OdyTTY window gains focus within
+within OdyTTY keep custody alive. On the X11, Hyprland, macOS and Windows
+transports, if no OdyTTY window gains focus within
 150 ms after focus loss, the drag cancels; later loss from the provisional
 window uses the same bound. Cancellation requests source focus only while
 OdyTTY already holds focus. Ordinary input at the source or provisional window
@@ -1291,9 +1293,8 @@ Placement follows the platform:
 | --- | --- |
 | Linux X11 | A provisional window follows the pointer with the grabbed tab offset, clamped to the monitor under the cursor. With live tab drag off, the global release point is used. |
 | Linux Hyprland Wayland | A floating provisional window follows the logical global cursor through bounded IPC. Release tiles it on the cursor monitor and workspace. With live tab drag off, release-time creation and tiling remain unchanged. |
-| Linux KDE Plasma Wayland | The compositor chooses placement. |
-| Linux GNOME Wayland | The compositor chooses placement. |
-| Linux other Wayland | The compositor chooses placement. |
+| Linux Wayland with advertised `xdg-toplevel-drag` | The compositor moves the attached provisional window and determines its release placement. |
+| Linux Wayland without `xdg-toplevel-drag` | Creation waits for release; the compositor chooses placement. |
 | macOS | A provisional window follows the pointer with the grabbed tab offset, clamped to the monitor under the cursor. With live tab drag off, the global release point is used. |
 | Windows | A provisional window follows the pointer with the grabbed tab offset, clamped to the monitor under the cursor. With live tab drag off, the global release point is used. |
 
@@ -1307,8 +1308,21 @@ characters cannot be used for placement. Follow effects name a unique initial
 title for that surface incarnation; delayed commands cannot target a replacement
 surface. On IPC failure, the floating preview is retired before release-time
 replacement. Its terminal stays in reversible custody until release or cancel.
-A failed replacement restores the source. Live follow remains unsupported on
-other Wayland compositors.
+A failed replacement restores the source.
+
+The `xdg-toplevel-drag` transport captures the original seat, left-button serial,
+source surface incarnation, tab token and tab geometry. Missing or ambiguous
+capture retains release-time creation. The attached provisional toplevel cannot
+present its first buffer before the protocol acknowledgement. Compositor drop
+completion commits once; raw pointer release and expected DnD focus changes do
+not commit or cancel custody. Return to the source strip restores held reorder;
+leaving it during DnD reattaches a fresh provisional window. Window placement
+belongs to the compositor, without global monitor clamping by the client.
+Local cancellation restores the terminal immediately while retaining unresolved
+protocol objects until their legal completion. One unresolved transaction blocks
+further live protocol drags until completion or display close. At most 64 windows
+and 4,096 published tab hit regions participate. The private offer contains no
+terminal text, and external URI drops retain their Copy-only admission policy.
 
 ### Control OdyTTY Locally
 

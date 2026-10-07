@@ -184,6 +184,8 @@ fn quick_needs_host_resume(visibility: QuickVisibility, surface_exists: bool) ->
 pub(in crate::native) struct MultiWindowHost {
     pub(super) windows: Vec<App>,
     live_drag: Option<live_tab_drag::ProvisionalTab>,
+    #[cfg(target_os = "linux")]
+    wayland_docked_drag: Option<live_tab_drag::wayland::Docked>,
     shared: Arc<WatchdogShared>,
     last_seen_frames: u64,
     factory: SiblingFactory,
@@ -288,6 +290,8 @@ impl MultiWindowHost {
         Self {
             windows: vec![primary],
             live_drag: None,
+            #[cfg(target_os = "linux")]
+            wayland_docked_drag: None,
             shared,
             last_seen_frames: 0,
             factory,
@@ -557,6 +561,8 @@ impl MultiWindowHost {
     /// state snapshot is the primary window's (a representative surface for the
     /// human-readable log); the frame-progress signal is the aggregate.
     fn refresh(&mut self) {
+        #[cfg(target_os = "linux")]
+        self.publish_wayland_tab_regions();
         self.service_broadcast();
         self.sync_peer_attached_sessions();
         let total_frames: u64 = self.windows.iter().map(App::frames_presented).sum();
@@ -593,11 +599,7 @@ impl MultiWindowHost {
     /// reaping its sessions on the way out; exit the process on the last window.
     fn close_window(&mut self, idx: usize, event_loop: &ActiveEventLoop) {
         let id = self.windows[idx].process_window_id();
-        if self
-            .live_drag
-            .as_ref()
-            .is_some_and(|drag| drag.contains(id))
-        {
+        if self.live_tab_contains(id) {
             self.cancel_live_tab();
             let Some(index) = self.index_of(id) else {
                 return;
@@ -623,11 +625,7 @@ impl MultiWindowHost {
     fn remove_closed_window(&mut self, i: usize) {
         if let Some(app) = self.windows.get(i) {
             let id = app.process_window_id();
-            if self
-                .live_drag
-                .as_ref()
-                .is_some_and(|drag| drag.contains(id))
-            {
+            if self.live_tab_contains(id) {
                 self.cancel_live_tab();
                 // Cancellation removes only the provisional destination. A
                 // close of that surface has no remaining window to close.
@@ -1703,9 +1701,21 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         // before the event routes. PTY output continues at its current owner.
         if !matches!(
             event,
-            UserEvent::Redraw { .. } | UserEvent::GlyphFallbackResolved | UserEvent::AutomationWake
+            UserEvent::Redraw { .. }
+                | UserEvent::GlyphFallbackResolved
+                | UserEvent::AutomationWake
+                | UserEvent::WaylandTabDragWake
         ) {
             self.cancel_live_tab();
+        }
+        if matches!(event, UserEvent::WaylandTabDragWake) {
+            #[cfg(target_os = "linux")]
+            {
+                self.acknowledge_wayland_tab_wake();
+                self.service_wayland_tab_drag(event_loop);
+            }
+            self.refresh();
+            return;
         }
         // A PTY pump wake or session event implies a redraw is wanted.
         self.shared.note_activity();
@@ -1839,6 +1849,8 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         {
             self.reconcile_wayland_surfaces();
             self.service_wayland_file_drop();
+            self.publish_wayland_tab_regions();
+            self.service_wayland_tab_drag(event_loop);
         }
 
         // Service cross-window requests (may add or remove windows).

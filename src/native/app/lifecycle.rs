@@ -677,7 +677,8 @@ impl App {
             UserEvent::WaylandFileDrop { .. }
             | UserEvent::WaylandFileDropRejected
             | UserEvent::WaylandFileDropUnavailable
-            | UserEvent::WaylandFileDropFailed => false,
+            | UserEvent::WaylandFileDropFailed
+            | UserEvent::WaylandTabDragWake => false,
         }
     }
 

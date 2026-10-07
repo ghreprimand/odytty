@@ -67,6 +67,18 @@ impl TopTabDrag {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    pub(in crate::native) fn set_press_position(&mut self, point: [f64; 2]) {
+        self.press_x = point[0];
+        self.press_y = point[1];
+        self.slot_span_px = 0.0;
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(in crate::native) fn press_position(&self) -> [f64; 2] {
+        [self.press_x, self.press_y]
+    }
+
     pub(in crate::native) fn update_arm(&mut self, x: f64, y: f64) -> bool {
         self.pointer_x = x;
         if !self.armed {

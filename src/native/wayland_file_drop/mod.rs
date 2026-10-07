@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Native Wayland external file drop (v0.15.0 C, Linux only).
+//! Native Wayland file drops and advertised toplevel tab dragging (Linux only).
 //!
 //! winit 0.30's Wayland backend emits no `WindowEvent::DroppedFile`: it never
 //! creates a `wl_data_device`, so a drag from a file manager is invisible to the
 //! X11-style event path. This module closes that gap WITHOUT forking winit by
-//! opening a second, NON-owning `wl_data_device` on a foreign connection that
+//! creating an owned `wl_data_device` on a foreign, non-owning connection that
 //! shares winit's live `wl_display` (winit keeps ownership of the display, the
 //! surfaces, and the main event queue). The listener runs on its own thread with
 //! its own event queue and never touches winit's queue.
@@ -15,7 +15,7 @@
 //!
 //! Safety boundary (shared with the v0.13.0 paste policy and the
 //! foreground-group authority in [`crate::native::app::file_drop`]):
-//! - Only `text/uri-list` is accepted. A conforming compositor answers the
+//! - External drops accept only `text/uri-list`. A conforming compositor answers the
 //!   destination's Copy preference with an unambiguous Copy action, and only
 //!   that answer admits a drop. If the compositor never answers after the
 //!   preference, OdyTTY admits only an offer whose source advertised Copy.
@@ -56,6 +56,12 @@
 #![cfg(target_os = "linux")]
 
 mod state;
+mod tab_drag;
+mod tab_drag_protocol;
+mod tab_drag_state;
+
+pub(crate) use tab_drag::{DragTarget, TabDragBridge};
+pub(crate) use tab_drag_state::{DragCompletion, DragRect, DragRegion, DragSlot, WirePress};
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
@@ -79,7 +85,7 @@ use state::{DropAction, DropCore, DropOutcome, SurfaceIdent};
 
 pub(crate) use state::SurfaceIdent as WaylandSurfaceIdent;
 
-/// The only MIME accepted.
+/// The only external-drop MIME accepted.
 const URI_MIME: &str = "text/uri-list";
 /// Bounded, shutdown-aware wait for the required globals during init.
 const INIT_DEADLINE: Duration = Duration::from_secs(2);
@@ -108,6 +114,7 @@ pub(crate) type SurfaceRegistry = Arc<Mutex<Vec<SurfaceEntry>>>;
 pub(crate) struct WaylandDropListener {
     shutdown_write: Option<OwnedFd>,
     thread: Option<JoinHandle<()>>,
+    pub(crate) tab_drag: TabDragBridge,
 }
 
 impl WaylandDropListener {
@@ -134,11 +141,25 @@ impl WaylandDropListener {
                 return None;
             }
         };
+        let (tab_read, tab_drag) = match socketpair_nonblocking() {
+            Ok((read, write)) => (Some(read), TabDragBridge::new(write)),
+            Err(_) => (None, TabDragBridge::default()),
+        };
+        let listener_drag = tab_drag.clone();
         let thread = thread::Builder::new()
             .name("odytty-wayland-drop".to_owned())
             // SAFETY: forwarded to `listener_main`; the caller's contract that
             // the display outlives this listener is upheld by the host.
-            .spawn(move || unsafe { listener_main(display_ptr, registry, proxy, shutdown_read) })
+            .spawn(move || unsafe {
+                listener_main(
+                    display_ptr,
+                    registry,
+                    proxy,
+                    shutdown_read,
+                    tab_read,
+                    listener_drag,
+                )
+            })
             .map_err(|err| {
                 tracing::warn!(%err, "wayland file-drop listener: thread spawn failed");
             })
@@ -146,6 +167,7 @@ impl WaylandDropListener {
         Some(Self {
             shutdown_write: Some(shutdown_write),
             thread: Some(thread),
+            tab_drag,
         })
     }
 }
@@ -188,6 +210,8 @@ struct Listener {
     transfers: HashMap<u32, Transfer>,
     surface_registry: SurfaceRegistry,
     proxy: EventLoopProxy<UserEvent>,
+    tab_drag: tab_drag_protocol::TabProtocol,
+    tab_offers: HashSet<u32>,
 }
 
 impl Listener {
@@ -207,6 +231,7 @@ impl Listener {
             offer.destroy();
         }
         self.core.remove_offer(offer_id);
+        self.tab_offers.remove(&offer_id);
     }
 
     /// Drop an in-flight transfer whose offer is `offer_id`, if any. Releases the
@@ -318,6 +343,19 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Listener {
                     "wl_data_device_manager" if version >= 3 => {
                         state.manager = Some(registry.bind(name, 3, qh, ()));
                     }
+                    "xdg_toplevel_drag_manager_v1"
+                        if version >= 1
+                            && state.tab_drag.global.is_none()
+                            && state.tab_drag.bridge.can_wake() =>
+                    {
+                        if let Some(manager) = state.tab_drag.manager.take() {
+                            manager.destroy();
+                        }
+                        state.tab_drag.manager = Some(registry.bind(name, 1, qh, ()));
+                        state.tab_drag.global = Some(name);
+                        state.tab_drag.create_pointers(&state.seats, qh);
+                        state.tab_drag.wake(&state.proxy);
+                    }
                     "wl_seat" if state.seats.len() < MAX_SEATS => {
                         let seat = registry.bind(name, version.min(7), qh, ());
                         state.seats.insert(name, seat);
@@ -327,6 +365,12 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Listener {
                 state.create_missing_devices(qh);
             }
             wl_registry::Event::GlobalRemove { name } => {
+                if state.tab_drag.global == Some(name) {
+                    state.tab_drag.global = None;
+                    state.tab_drag.bridge.lock().disable();
+                    state.tab_drag.wake(&state.proxy);
+                }
+                state.tab_drag.remove_seat(name);
                 if let Some(seat) = state.seats.remove(&name) {
                     state.devices_for.remove(&seat.id());
                     if seat.version() >= 5 {
@@ -354,7 +398,31 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Listener {
 }
 
 delegate_noop!(Listener: ignore wl_data_device_manager::WlDataDeviceManager);
-delegate_noop!(Listener: ignore wl_seat::WlSeat);
+impl Dispatch<wl_seat::WlSeat, ()> for Listener {
+    fn event(
+        state: &mut Self,
+        seat: &wl_seat::WlSeat,
+        event: wl_seat::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_seat::Event::Capabilities { capabilities } = event
+            && let Some(name) = state
+                .seats
+                .iter()
+                .find_map(|(name, known)| (known.id() == seat.id()).then_some(*name))
+        {
+            let pointer = capabilities
+                .into_result()
+                .ok()
+                .is_some_and(|caps| caps.contains(wl_seat::Capability::Pointer));
+            state.tab_drag.seat_capability(name, pointer);
+            state.tab_drag.create_pointers(&state.seats, qh);
+            state.tab_drag.wake(&state.proxy);
+        }
+    }
+}
 delegate_noop!(Listener: ignore wl_surface::WlSurface);
 
 impl Dispatch<wl_data_offer::WlDataOffer, ()> for Listener {
@@ -369,6 +437,9 @@ impl Dispatch<wl_data_offer::WlDataOffer, ()> for Listener {
         let offer_id = offer.id().protocol_id();
         match event {
             wl_data_offer::Event::Offer { mime_type } => {
+                if state.tab_drag.owns_offer(&mime_type) {
+                    state.tab_offers.insert(offer_id);
+                }
                 if mime_type == URI_MIME {
                     state.core.set_supports_uri(offer_id);
                 }
@@ -415,7 +486,8 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Listener {
                 serial,
                 surface,
                 id,
-                ..
+                x,
+                y,
             } => {
                 let Some(offer) = id else {
                     return;
@@ -426,6 +498,37 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Listener {
                 let outcome = state.core.enter(device_id, offer_id, ptr, ident);
                 if let Some(stale) = outcome.stale_offer {
                     state.destroy_offer(stale);
+                }
+                if state.tab_offers.contains(&offer_id) {
+                    offer.accept(
+                        serial,
+                        Some(format!(
+                            "application/x-odytty-tab-{}-{}",
+                            std::process::id(),
+                            state.tab_drag.bridge.lock().active.unwrap_or(0)
+                        )),
+                    );
+                    offer.set_actions(
+                        wl_data_device_manager::DndAction::Move,
+                        wl_data_device_manager::DndAction::Move,
+                    );
+                    if let Some(seat) = state
+                        .devices
+                        .iter()
+                        .find_map(|(seat, known)| (known.id() == device.id()).then_some(*seat))
+                    {
+                        state.tab_drag.target(
+                            seat,
+                            ident.map(|ident| tab_drag::DragTarget {
+                                window: ident.window,
+                                generation: ident.generation,
+                                point: [x, y],
+                            }),
+                            &state.proxy,
+                        );
+                    }
+                    let _ = conn.flush();
+                    return;
                 }
                 if outcome.accept {
                     offer.accept(serial, Some(URI_MIME.to_owned()));
@@ -443,7 +546,18 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Listener {
                     offer.accept(serial, None);
                 }
             }
-            wl_data_device::Event::Motion { .. } => {
+            wl_data_device::Event::Motion { x, y, .. } => {
+                if let Some(offer) = state.core.current_enter_offer(device_id)
+                    && state.tab_offers.contains(&offer)
+                {
+                    let mut shared = state.tab_drag.bridge.lock();
+                    if let Some(target) = shared.target.as_mut() {
+                        target.point = [x, y];
+                    }
+                    drop(shared);
+                    state.tab_drag.wake(&state.proxy);
+                    return;
+                }
                 // Re-assert the Copy preference so a compositor that renegotiates
                 // on modifier changes re-emits an action, and flush it.
                 if let Some(offer_id) = state.core.current_enter_offer(device_id)
@@ -461,56 +575,84 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Listener {
                 }
             }
             wl_data_device::Event::Leave => {
+                if let Some(seat) = state
+                    .devices
+                    .iter()
+                    .find_map(|(seat, known)| (known.id() == device.id()).then_some(*seat))
+                {
+                    state.tab_drag.target(seat, None, &state.proxy);
+                }
                 if let Some(offer_id) = state.core.leave(device_id) {
                     state.destroy_offer(offer_id);
                 }
             }
-            wl_data_device::Event::Drop => match state.core.drop(device_id) {
-                DropOutcome::Idle => {}
-                DropOutcome::Refuse { offer, was_uri } => state.refuse(offer, was_uri),
-                DropOutcome::Receive { drag } => {
-                    let Some(ident) = drag.ident else {
-                        // No routable surface incarnation: refuse rather than
-                        // receive an undeliverable drop.
-                        state.refuse(drag.offer, true);
-                        return;
-                    };
-                    let Some(offer) = state.offer_proxies.get(&drag.offer).cloned() else {
-                        state.core.remove_offer(drag.offer);
-                        return;
-                    };
-                    let (read, write) = match pipe_nonblocking() {
-                        Ok(pipe) => pipe,
-                        Err(err) => {
-                            tracing::debug!(%err, "wayland file-drop: receive pipe failed");
+            wl_data_device::Event::Drop => {
+                if state
+                    .core
+                    .current_enter_offer(device_id)
+                    .is_some_and(|offer| state.tab_offers.contains(&offer))
+                {
+                    // Destination Leave and source completion can follow Drop
+                    // in either queue order. Retain the drop-time target.
+                    state.tab_drag.bridge.lock().note_drop();
+                }
+                if let Some(offer_id) = state.core.current_enter_offer(device_id)
+                    && state.tab_offers.contains(&offer_id)
+                    && state.core.negotiated_action(offer_id) == Some(DropAction::Move)
+                {
+                    if let Some(offer) = state.offer_proxies.get(&offer_id) {
+                        offer.finish();
+                    }
+                    state.destroy_offer(offer_id);
+                    return;
+                }
+                match state.core.drop(device_id) {
+                    DropOutcome::Idle => {}
+                    DropOutcome::Refuse { offer, was_uri } => state.refuse(offer, was_uri),
+                    DropOutcome::Receive { drag } => {
+                        let Some(ident) = drag.ident else {
+                            // No routable surface incarnation: refuse rather than
+                            // receive an undeliverable drop.
                             state.refuse(drag.offer, true);
                             return;
+                        };
+                        let Some(offer) = state.offer_proxies.get(&drag.offer).cloned() else {
+                            state.core.remove_offer(drag.offer);
+                            return;
+                        };
+                        let (read, write) = match pipe_nonblocking() {
+                            Ok(pipe) => pipe,
+                            Err(err) => {
+                                tracing::debug!(%err, "wayland file-drop: receive pipe failed");
+                                state.refuse(drag.offer, true);
+                                return;
+                            }
+                        };
+                        offer.receive(URI_MIME.to_owned(), write.as_fd());
+                        drop(write);
+                        if let Err(err) = conn.flush() {
+                            tracing::debug!(%err, "wayland file-drop: receive flush failed");
                         }
-                    };
-                    offer.receive(URI_MIME.to_owned(), write.as_fd());
-                    drop(write);
-                    if let Err(err) = conn.flush() {
-                        tracing::debug!(%err, "wayland file-drop: receive flush failed");
+                        // A prior drop on this same seat may still be receiving;
+                        // supersede it (cancel + destroy its offer) so the insert
+                        // below never silently discards a live transfer and leaks or
+                        // double-completes it.
+                        state.cancel_transfer_for_device(device_id, false);
+                        state.transfers.insert(
+                            device_id,
+                            Transfer {
+                                offer,
+                                offer_id: drag.offer,
+                                read,
+                                bytes: Vec::new(),
+                                started: Instant::now(),
+                                window: ident.window,
+                                generation: ident.generation,
+                            },
+                        );
                     }
-                    // A prior drop on this same seat may still be receiving;
-                    // supersede it (cancel + destroy its offer) so the insert
-                    // below never silently discards a live transfer and leaks or
-                    // double-completes it.
-                    state.cancel_transfer_for_device(device_id, false);
-                    state.transfers.insert(
-                        device_id,
-                        Transfer {
-                            offer,
-                            offer_id: drag.offer,
-                            read,
-                            bytes: Vec::new(),
-                            started: Instant::now(),
-                            window: ident.window,
-                            generation: ident.generation,
-                        },
-                    );
                 }
-            },
+            }
             wl_data_device::Event::Selection { id: Some(offer) } => {
                 // Clipboard selection offers are not drops: prune immediately.
                 let offer_id = offer.id().protocol_id();
@@ -534,6 +676,8 @@ unsafe fn listener_main(
     surface_registry: SurfaceRegistry,
     proxy: EventLoopProxy<UserEvent>,
     shutdown_read: OwnedFd,
+    tab_read: Option<OwnedFd>,
+    tab_drag: TabDragBridge,
 ) {
     // SAFETY: forwarded contract - winit owns this live wl_display and the host
     // joins this thread before releasing it.
@@ -554,6 +698,8 @@ unsafe fn listener_main(
         transfers: HashMap::new(),
         surface_registry,
         proxy,
+        tab_drag: tab_drag_protocol::TabProtocol::new(tab_drag),
+        tab_offers: HashSet::new(),
     };
 
     if !init_globals(&conn, &mut event_queue, &mut state, &shutdown_read) {
@@ -565,7 +711,13 @@ unsafe fn listener_main(
         "wayland file-drop listener ready"
     );
 
-    run_poll_loop(&conn, &mut event_queue, &mut state, &shutdown_read);
+    run_poll_loop(
+        &conn,
+        &mut event_queue,
+        &mut state,
+        &shutdown_read,
+        tab_read.as_ref(),
+    );
     teardown(&conn, &mut state);
 }
 
@@ -644,12 +796,20 @@ fn run_poll_loop(
     event_queue: &mut wayland_client::EventQueue<Listener>,
     state: &mut Listener,
     shutdown_read: &OwnedFd,
+    tab_read: Option<&OwnedFd>,
 ) {
     loop {
         if let Err(err) = event_queue.dispatch_pending(state) {
             tracing::warn!(%err, "wayland file-drop listener: dispatch failed");
             break;
         }
+        state.tab_drag.commands(
+            conn,
+            &event_queue.handle(),
+            &state.proxy,
+            &state.devices,
+            state.manager.as_ref(),
+        );
         if let Err(err) = conn.flush() {
             tracing::warn!(%err, "wayland file-drop listener: flush failed");
             break;
@@ -659,11 +819,15 @@ fn run_poll_loop(
             continue;
         };
 
-        // Build the poll set: connection, shutdown, then one fd per transfer.
+        // Poll connection, shutdown, tab commands, then one fd per transfer.
         let transfer_ids: Vec<u32> = state.transfers.keys().copied().collect();
-        let mut fds = Vec::with_capacity(2 + transfer_ids.len());
+        let mut fds = Vec::with_capacity(3 + transfer_ids.len());
         fds.push(pollfd(conn.as_fd().as_raw_fd(), libc::POLLIN));
         fds.push(pollfd(shutdown_read.as_raw_fd(), libc::POLLIN));
+        fds.push(pollfd(
+            tab_read.map_or(-1, AsRawFd::as_raw_fd),
+            libc::POLLIN,
+        ));
         for id in &transfer_ids {
             let raw = state.transfers[id].read.as_raw_fd();
             fds.push(pollfd(raw, libc::POLLIN | libc::POLLHUP | libc::POLLERR));
@@ -706,8 +870,16 @@ fn run_poll_loop(
             break;
         }
 
+        if fds[2].revents != 0
+            && let Some(tab_read) = tab_read
+        {
+            let mut bytes = [0_u8; 128];
+            // SAFETY: the owned socket and bounded writable buffer are live.
+            let _ =
+                unsafe { libc::read(tab_read.as_raw_fd(), bytes.as_mut_ptr().cast(), bytes.len()) };
+        }
         for (offset, device_id) in transfer_ids.iter().enumerate() {
-            if fds[2 + offset].revents != 0 {
+            if fds[3 + offset].revents != 0 {
                 drain_transfer(state, *device_id);
             }
         }
@@ -823,6 +995,7 @@ fn abort_transfer(state: &mut Listener, transfer: Transfer, notify: bool) {
 }
 
 fn teardown(conn: &Connection, state: &mut Listener) {
+    state.tab_drag.shutdown();
     let device_ids: Vec<u32> = state.transfers.keys().copied().collect();
     for id in device_ids {
         if let Some(transfer) = state.transfers.remove(&id) {
@@ -844,6 +1017,7 @@ fn teardown(conn: &Connection, state: &mut Listener) {
             seat.release();
         }
     }
+    state.tab_drag.wake(&state.proxy);
     let _ = conn.flush();
 }
 
@@ -853,6 +1027,24 @@ fn pollfd(fd: i32, events: i16) -> libc::pollfd {
         events,
         revents: 0,
     }
+}
+
+fn socketpair_nonblocking() -> io::Result<(OwnedFd, OwnedFd)> {
+    let mut fds = [-1; 2];
+    // SAFETY: fds provides storage for both newly owned descriptors.
+    if unsafe {
+        libc::socketpair(
+            libc::AF_UNIX,
+            libc::SOCK_STREAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
+            0,
+            fds.as_mut_ptr(),
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: successful socketpair returned two newly owned descriptors.
+    Ok(unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) })
 }
 
 fn pipe_nonblocking() -> io::Result<(OwnedFd, OwnedFd)> {
