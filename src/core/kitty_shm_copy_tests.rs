@@ -48,7 +48,7 @@ fn a_size_change_after_the_copy_is_refused() {
 #[cfg(target_os = "macos")]
 mod isolated_copy {
     use super::super::kitty_transport::{
-        IsolatedCopyOps, TransportError, checked_shm_size, read_shm_isolated,
+        IsolatedCopyOps, TransportError, read_shm_isolated, shm_object_size,
     };
     use super::interrupted;
     use std::ffi::CString;
@@ -135,11 +135,11 @@ mod isolated_copy {
             }
         }
 
-        fn size(&mut self, fd: i32, cap: usize) -> Result<usize, TransportError> {
+        fn size(&mut self, fd: i32) -> Result<usize, TransportError> {
             self.size_queries += 1;
             match self.late_size {
                 Some(size) if self.size_queries > 1 => Ok(size),
-                _ => checked_shm_size(fd, cap),
+                _ => shm_object_size(fd),
             }
         }
     }
@@ -159,7 +159,9 @@ mod isolated_copy {
             late_size: None,
             reaped: None,
         };
-        let bytes = read_shm_isolated(segment.fd, 32, 64, &mut ops).unwrap();
+        // macOS reports the page-rounded object size; 32 bytes are read.
+        let object_size = shm_object_size(segment.fd).unwrap();
+        let bytes = read_shm_isolated(segment.fd, object_size, 32, &mut ops).unwrap();
         assert_eq!(bytes, [0x5a; 32]);
         let pid = ops.reaped.expect("the child was waited for");
         assert!(pid > 0);
@@ -176,7 +178,8 @@ mod isolated_copy {
             late_size: Some(48),
             reaped: None,
         };
-        let result = read_shm_isolated(segment.fd, 32, 64, &mut ops);
+        let object_size = shm_object_size(segment.fd).unwrap();
+        let result = read_shm_isolated(segment.fd, object_size, 32, &mut ops);
         assert!(matches!(result, Err(TransportError::ShmError(_))));
         assert!(no_child_left(ops.reaped.expect("reaped before the check")));
     }

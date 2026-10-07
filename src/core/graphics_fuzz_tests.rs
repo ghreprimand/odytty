@@ -1106,6 +1106,29 @@ fn named_shm_fixture_loads_exact_pixels() {
     assert_owned_shm_roundtrip();
 }
 
+/// A raw payload in a shared-memory object larger than the decode cap still
+/// loads: only the transmitted pixel length is read. macOS reports every
+/// object rounded up to a whole page (16 KiB on Apple silicon), so this is the
+/// shape of every small raw transfer there; padding the object reproduces it on
+/// any Unix.
+#[cfg(unix)]
+#[test]
+fn raw_shm_payload_in_an_object_larger_than_the_cap_loads() {
+    let pixels = [0x5Au8; 16];
+    let mut object = pixels.to_vec();
+    object.resize(FUZZ_LIMITS.max_decoded_bytes * 2, 0xEE);
+    let fixture = OwnedShmFixture::create(&object);
+    let mut t = capped_terminal(20, 4);
+    t.set_kitty_named_transports_enabled(true);
+    let name_b64 = b64_encode(fixture.name.as_bytes());
+    t.advance(format!("\x1b_Ga=T,t=s,f=32,s=2,v=2;{name_b64}\x1b\\").as_bytes());
+    let placements = t.graphics().placements();
+    assert_eq!(placements.len(), 1);
+    let image = t.graphics().store().get(placements[0].image_id).unwrap();
+    assert_eq!(image.rgba, pixels);
+    assert_store_bounded(0, &t);
+}
+
 /// Directed extreme-parameter placement soup: huge / overflowing `c=` and `r=`
 /// display extents at every screen position, mixed with extreme source-crop
 /// and offset values. The clamps must keep every accepted placement bounded by

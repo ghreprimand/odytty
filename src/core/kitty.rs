@@ -709,12 +709,13 @@ fn resolve_transport_bytes(
     let medium = control.transmission.unwrap_or('d');
     let bytes = read_transport_medium(control, payload, max_decoded, named_transports_enabled)?;
     let mut bytes = decompress_if_requested(control, bytes, max_decoded)?;
-    // POSIX shm objects are rounded up to a page boundary on macOS, so the
-    // mapped segment can be larger than the logical payload. For fixed-size raw
-    // formats the exact length is known from the dimensions — trim trailing
-    // padding to it so the strict length check in `rgba_from_payload` still
-    // holds. PNG (self-delimiting) and segments already at the exact size
-    // (every Linux segment) are unaffected.
+    // POSIX shm objects are rounded up to a page boundary on macOS, so a
+    // segment read whole can be larger than the logical payload. The reader
+    // already stops at the exact length of an uncompressed raw payload, and a
+    // short segment is refused here. For fixed-size raw formats the length is
+    // known from the dimensions, so any bytes past it are trimmed and the
+    // strict length check in `rgba_from_payload` still holds. PNG is
+    // self-delimiting and unaffected.
     //
     // The trim runs *after* decompression, not before: with `o=z` the segment
     // holds a compressed stream whose length has nothing to do with the raw
@@ -773,10 +774,19 @@ fn read_transport_medium(
                     "EPERM:named-transport-disabled",
                 ));
             }
-            // Shared memory: payload is base64-encoded shm name. Page-padding
-            // trim happens in `resolve_transport_bytes`, after decompression.
+            // Shared memory: payload is base64-encoded shm name. An
+            // uncompressed raw-pixel payload has a known length, so only that
+            // many bytes are read: on macOS the object's reported size is
+            // rounded up to a whole page and can exceed the decode cap even
+            // when the image fits. Other payloads read the whole object, and
+            // their page padding is handled in `resolve_transport_bytes`.
             let name_bytes = decode_base64(payload, 4096)?;
-            kitty_transport::read_shm_transport(&name_bytes, max_decoded)
+            let wanted = control
+                .compression
+                .is_none()
+                .then(|| expected_raw_payload_len(control))
+                .flatten();
+            kitty_transport::read_shm_transport(&name_bytes, max_decoded, wanted)
                 .map_err(|e| KittyError::TransportFailed(e.kitty_message()))
         }
         _ => Err(KittyError::UnsupportedTransmission),

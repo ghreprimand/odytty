@@ -286,7 +286,7 @@ mod shm {
     fn shm_read_unlinks_the_object_that_was_read() {
         let fixture = ShmFixture::new("r", ADMITTED);
         assert_eq!(
-            transport::read_shm_transport(fixture.0.as_bytes(), 4096),
+            transport::read_shm_transport(fixture.0.as_bytes(), 4096, Some(ADMITTED.len())),
             Ok(ADMITTED.to_vec())
         );
         assert!(!fixture.exists(), "the object that was read is unlinked");
@@ -302,7 +302,7 @@ mod shm {
             }
         });
         assert_eq!(
-            transport::read_shm_transport(fixture.0.as_bytes(), 4096),
+            transport::read_shm_transport(fixture.0.as_bytes(), 4096, Some(ADMITTED.len())),
             Ok(ADMITTED.to_vec())
         );
         assert!(!fixture.exists());
@@ -312,9 +312,11 @@ mod shm {
     fn shm_name_rebound_before_unlink_keeps_the_new_object() {
         let fixture = ShmFixture::new("b", ADMITTED);
         let name = fixture.0.clone();
-        // A different size keeps the rebinding detectable even where the
-        // platform reports no object number for shared memory.
-        let replacement = b"unrelated shared-memory object, longer".to_vec();
+        // A size in a different page count keeps the rebinding detectable even
+        // where the platform reports no object number for shared memory and
+        // rounds the reported size up to a whole page (macOS).
+        let page = usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).unwrap();
+        let replacement = vec![b'u'; 2 * page + 1];
         let _hook = test_hooks::install(move |point| {
             if point == Stage::BeforeDelete {
                 unsafe { libc::shm_unlink(name.as_ptr()) };
@@ -322,7 +324,8 @@ mod shm {
             }
         });
 
-        let result = transport::read_shm_transport(fixture.0.as_bytes(), 4096);
+        let result =
+            transport::read_shm_transport(fixture.0.as_bytes(), 4096, Some(ADMITTED.len()));
         assert!(
             fixture.exists(),
             "unlink must not remove an object other than the one that was read"

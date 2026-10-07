@@ -35,7 +35,9 @@
 //!    that was read: Unix compares the name's current object with the open
 //!    descriptor and unlinks relative to the admitted directory, and Windows
 //!    deletes through the open handle itself. A rebound name is retained and
-//!    the transfer fails with `EPERM:object-changed`.
+//!    the transfer fails with `EPERM:object-changed`. For shared memory the
+//!    comparison is only as strong as the identity `fstat` reports; see
+//!    `shm_name_binds_fd` for the macOS limit.
 //!
 //! ## Design choices stricter than Kitty proper
 //!
@@ -54,9 +56,13 @@
 //!   and is strictly safer.
 //!   Rejected special files are never deleted.
 //!
-//! - t=s calls `shm_unlink` only after the bytes were read within the size
-//!   cap and while the name still binds the object that was read. Image
-//!   decoding happens later. Rejected objects retain their names.
+//! - t=s reads an uncompressed raw payload at its exact pixel length, with
+//!   the object's own size only as an upper bound:
+//!   macOS reports a shared-memory object's size rounded up to a whole page,
+//!   so that size can exceed both the payload and the read cap. It calls
+//!   `shm_unlink` only after the bytes were read within the size cap and
+//!   while the name still binds the object that was read. Image decoding
+//!   happens later. Rejected objects retain their names.
 
 #[cfg(unix)]
 use std::ffi::CString;
@@ -460,11 +466,13 @@ pub(super) fn read_temp_transport(
 /// and only while the name still binds the object that was read. The name
 /// must contain no path separators: it is passed directly to `shm_open`.
 ///
-/// `max_read` is the maximum bytes to read.
+/// `max_read` is the maximum bytes to read. `wanted` is the payload length the
+/// command transmitted, when known; see [`shm_read_len`].
 #[cfg(unix)]
 pub(super) fn read_shm_transport(
     raw_name: &[u8],
     max_read: usize,
+    wanted: Option<usize>,
 ) -> Result<Vec<u8>, TransportError> {
     let name_str = std::str::from_utf8(raw_name).map_err(|_| TransportError::InvalidPath)?;
 
@@ -499,7 +507,7 @@ pub(super) fn read_shm_transport(
     // Copy through a fault-contained reader. Positional reads avoid mappings
     // on platforms that support them; macOS isolates its mmap-only shm access
     // in a child so a concurrent truncate cannot deliver SIGBUS to OdyTTY.
-    let result = read_shm_fd(fd, max_read);
+    let result = read_shm_fd(fd, max_read, wanted);
 
     let result = result.and_then(|data| {
         #[cfg(test)]
@@ -528,9 +536,10 @@ pub(super) fn read_shm_transport(
 /// [`TransportError::ObjectChanged`] and is retained.
 ///
 /// The comparison covers device, object number, owner, mode and size. Linux
-/// reports a device and object number for shared memory; where a platform
-/// reports zero for both, the remaining fields still differ for any object
-/// that is not an identical copy.
+/// reports a device and object number for shared memory. Where a platform
+/// reports zero for both, only owner, mode and size remain, and macOS rounds
+/// the size up to a whole page, so there a replacement object with the same
+/// owner, mode and page count is indistinguishable from the one that was read.
 #[cfg(unix)]
 fn shm_name_binds_fd(name: &CString, fd: i32) -> Result<bool, TransportError> {
     let other = unsafe { libc::shm_open(name.as_ptr(), libc::O_RDONLY, 0) };
@@ -578,6 +587,7 @@ fn shm_identity(fd: i32) -> Option<(u64, u64, u32, u32, u64)> {
 pub(super) fn read_shm_transport(
     _raw_name: &[u8],
     _max_read: usize,
+    _wanted: Option<usize>,
 ) -> Result<Vec<u8>, TransportError> {
     Err(TransportError::ShmError(
         "shm transport unsupported on this platform".into(),
@@ -640,14 +650,43 @@ fn read_opened_file(file: &std::fs::File, max_read: usize) -> Result<Vec<u8>, Tr
 }
 
 #[cfg(unix)]
-fn read_shm_fd(fd: i32, max_read: usize) -> Result<Vec<u8>, TransportError> {
+pub(super) fn read_shm_fd(
+    fd: i32,
+    max_read: usize,
+    wanted: Option<usize>,
+) -> Result<Vec<u8>, TransportError> {
     let cap = max_read.min(MAX_TRANSPORT_READ_BYTES);
-    let size = checked_shm_size(fd, cap)?;
-    read_shm_fd_at_size(fd, size, cap)
+    let object_size = shm_object_size(fd)?;
+    let read_len = shm_read_len(object_size, wanted, cap)?;
+    read_shm_fd_at_size(fd, object_size, read_len)
 }
 
+/// How many bytes to read from a shared-memory object of `object_size` bytes.
+/// A transmitted length (`wanted`) is read when known, bounded by the object;
+/// otherwise the whole object is read. The cap applies to the bytes actually
+/// read, never to the object size alone: macOS rounds that size up to a whole
+/// page (16 KiB on Apple silicon), so a small payload sits in an object larger
+/// than a small cap. Nothing beyond the returned length is ever mapped or read.
 #[cfg(unix)]
-pub(super) fn checked_shm_size(fd: i32, cap: usize) -> Result<usize, TransportError> {
+pub(super) fn shm_read_len(
+    object_size: usize,
+    wanted: Option<usize>,
+    cap: usize,
+) -> Result<usize, TransportError> {
+    let len = wanted.map_or(object_size, |wanted| wanted.min(object_size));
+    if len == 0 {
+        return Err(TransportError::ShmError("empty shm read".into()));
+    }
+    if len > cap {
+        return Err(TransportError::TooLarge);
+    }
+    Ok(len)
+}
+
+/// The object's current size as `fstat` reports it (page-rounded on macOS).
+/// An empty object is refused.
+#[cfg(unix)]
+pub(super) fn shm_object_size(fd: i32) -> Result<usize, TransportError> {
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
     let rc = unsafe { libc::fstat(fd, stat.as_mut_ptr()) };
     if rc < 0 {
@@ -658,12 +697,7 @@ pub(super) fn checked_shm_size(fd: i32, cap: usize) -> Result<usize, TransportEr
     if raw_size <= 0 {
         return Err(TransportError::ShmError("empty shm segment".into()));
     }
-    let size = raw_size as usize;
-    // Enforce the cap before mapping: never map more than the cap allows.
-    if size > cap {
-        return Err(TransportError::TooLarge);
-    }
-    Ok(size)
+    usize::try_from(raw_size).map_err(|_| TransportError::TooLarge)
 }
 
 /// Refuse a segment whose size, re-read by `current`, no longer matches the
@@ -701,29 +735,31 @@ pub(super) fn reap_child(
     }
 }
 
+/// Read the first `read_len` bytes of an object admitted at `object_size`
+/// bytes (`read_len <= object_size`, as [`shm_read_len`] returns).
 #[cfg(all(unix, not(target_os = "macos")))]
 pub(super) fn read_shm_fd_at_size(
     fd: i32,
-    expected_size: usize,
-    cap: usize,
+    object_size: usize,
+    read_len: usize,
 ) -> Result<Vec<u8>, TransportError> {
     // A second size check catches a shrink after the admission check. The
     // positional read itself remains fault-tolerant if truncation races later:
     // it returns EOF/error rather than touching an invalid mapped page.
-    if checked_shm_size(fd, cap)? != expected_size {
+    if shm_object_size(fd)? != object_size || read_len > object_size {
         return Err(TransportError::ShmError(
             "shm segment changed size before read".into(),
         ));
     }
 
-    let mut buf = vec![0_u8; expected_size];
+    let mut buf = vec![0_u8; read_len];
     let mut offset = 0;
-    while offset < expected_size {
+    while offset < read_len {
         let read = unsafe {
             libc::pread(
                 fd,
                 buf[offset..].as_mut_ptr().cast(),
-                expected_size - offset,
+                read_len - offset,
                 offset as libc::off_t,
             )
         };
@@ -742,7 +778,7 @@ pub(super) fn read_shm_fd_at_size(
         return Err(TransportError::ShmError(detail));
     }
 
-    ensure_size_unchanged(checked_shm_size(fd, cap), expected_size)?;
+    ensure_size_unchanged(shm_object_size(fd), object_size)?;
     Ok(buf)
 }
 
@@ -752,8 +788,8 @@ pub(super) fn read_shm_fd_at_size(
 pub(super) trait IsolatedCopyOps {
     /// `waitpid(pid, status, 0)`; an error carries `errno`.
     fn wait(&mut self, pid: libc::pid_t, status: &mut i32) -> std::io::Result<libc::pid_t>;
-    /// The segment's current size, under `cap`.
-    fn size(&mut self, fd: i32, cap: usize) -> Result<usize, TransportError>;
+    /// The segment's current size.
+    fn size(&mut self, fd: i32) -> Result<usize, TransportError>;
 }
 
 #[cfg(target_os = "macos")]
@@ -771,8 +807,8 @@ impl IsolatedCopyOps for SystemCopyOps {
         }
     }
 
-    fn size(&mut self, fd: i32, cap: usize) -> Result<usize, TransportError> {
-        checked_shm_size(fd, cap)
+    fn size(&mut self, fd: i32) -> Result<usize, TransportError> {
+        shm_object_size(fd)
     }
 }
 
@@ -783,23 +819,24 @@ impl IsolatedCopyOps for SystemCopyOps {
 #[cfg(target_os = "macos")]
 pub(super) fn read_shm_fd_at_size(
     fd: i32,
-    expected_size: usize,
-    cap: usize,
+    object_size: usize,
+    read_len: usize,
 ) -> Result<Vec<u8>, TransportError> {
-    read_shm_isolated(fd, expected_size, cap, &mut SystemCopyOps)
+    read_shm_isolated(fd, object_size, read_len, &mut SystemCopyOps)
 }
 
 /// [`read_shm_fd_at_size`] on macOS with its wait and size calls routed
 /// through `ops`. The child is reaped on every path after a successful fork,
-/// and the size is re-read after the copy as on every other Unix.
+/// and the size is re-read after the copy as on every other Unix. Only the
+/// first `read_len` bytes are mapped and copied.
 #[cfg(target_os = "macos")]
 pub(super) fn read_shm_isolated(
     fd: i32,
-    expected_size: usize,
-    cap: usize,
+    object_size: usize,
+    read_len: usize,
     ops: &mut impl IsolatedCopyOps,
 ) -> Result<Vec<u8>, TransportError> {
-    if ops.size(fd, cap)? != expected_size {
+    if ops.size(fd)? != object_size || read_len > object_size {
         return Err(TransportError::ShmError(
             "shm segment changed size before read".into(),
         ));
@@ -810,7 +847,7 @@ pub(super) fn read_shm_isolated(
     let addr = unsafe {
         libc::mmap(
             std::ptr::null_mut(),
-            expected_size,
+            read_len,
             libc::PROT_READ,
             libc::MAP_SHARED,
             fd,
@@ -825,7 +862,7 @@ pub(super) fn read_shm_isolated(
     }
     let mut pipe_fds = [0_i32; 2];
     if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
-        unsafe { libc::munmap(addr, expected_size) };
+        unsafe { libc::munmap(addr, read_len) };
         return Err(TransportError::ShmError(format!(
             "pipe: {}",
             std::io::Error::last_os_error()
@@ -836,7 +873,7 @@ pub(super) fn read_shm_isolated(
         unsafe {
             libc::close(pipe_fds[0]);
             libc::close(pipe_fds[1]);
-            libc::munmap(addr, expected_size);
+            libc::munmap(addr, read_len);
         }
         return Err(TransportError::ShmError(format!(
             "fork: {}",
@@ -847,11 +884,11 @@ pub(super) fn read_shm_isolated(
         unsafe {
             libc::close(pipe_fds[0]);
             let mut written = 0_usize;
-            while written < expected_size {
+            while written < read_len {
                 let count = libc::write(
                     pipe_fds[1],
                     (addr as *const u8).add(written).cast(),
-                    expected_size - written,
+                    read_len - written,
                 );
                 if count > 0 {
                     written += count as usize;
@@ -861,21 +898,21 @@ pub(super) fn read_shm_isolated(
                     libc::_exit(3);
                 }
             }
-            libc::munmap(addr, expected_size);
+            libc::munmap(addr, read_len);
             libc::close(pipe_fds[1]);
             libc::_exit(0);
         }
     }
 
     unsafe { libc::close(pipe_fds[1]) };
-    let mut buf = vec![0_u8; expected_size];
+    let mut buf = vec![0_u8; read_len];
     let mut offset = 0_usize;
-    while offset < expected_size {
+    while offset < read_len {
         let read = unsafe {
             libc::read(
                 pipe_fds[0],
                 buf[offset..].as_mut_ptr().cast(),
-                expected_size - offset,
+                read_len - offset,
             )
         };
         if read > 0 {
@@ -890,13 +927,13 @@ pub(super) fn read_shm_isolated(
     }
     unsafe { libc::close(pipe_fds[0]) };
     let status = reap_child(pid, |pid, status| ops.wait(pid, status));
-    unsafe { libc::munmap(addr, expected_size) };
-    if status != Some(0) || offset != expected_size {
+    unsafe { libc::munmap(addr, read_len) };
+    if status != Some(0) || offset != read_len {
         return Err(TransportError::ShmError(
             "shm segment changed or failed during isolated copy".into(),
         ));
     }
-    ensure_size_unchanged(ops.size(fd, cap), expected_size)?;
+    ensure_size_unchanged(ops.size(fd), object_size)?;
     Ok(buf)
 }
 

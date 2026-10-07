@@ -236,11 +236,7 @@ fn fixture_collision_preserves_existing_shm_bytes() {
     let collision = OwnedShmFixture::try_create_name(fixture.name.clone());
     assert!(matches!(collision, Err(error) if error.raw_os_error() == Some(libc::EEXIST)));
     assert_eq!(
-        transport::checked_shm_size(fixture.fd.as_raw_fd(), 32),
-        Ok(16)
-    );
-    assert_eq!(
-        transport::read_shm_fd_at_size(fixture.fd.as_raw_fd(), 16, 32).unwrap(),
+        transport::read_shm_fd(fixture.fd.as_raw_fd(), 32, Some(16)).unwrap(),
         [0xA5; 16]
     );
 }
@@ -591,10 +587,10 @@ fn shm_reader_rejects_segment_shrunk_after_initial_size_check() {
     let path = OwnedPath::new("shrink.dat");
     let file = std::fs::File::create(&path).unwrap();
     file.set_len(16).unwrap();
-    let expected = super::kitty_transport::checked_shm_size(file.as_raw_fd(), 32).unwrap();
+    let expected = super::kitty_transport::shm_object_size(file.as_raw_fd()).unwrap();
     file.set_len(8).unwrap();
 
-    let result = super::kitty_transport::read_shm_fd_at_size(file.as_raw_fd(), expected, 32);
+    let result = super::kitty_transport::read_shm_fd_at_size(file.as_raw_fd(), expected, expected);
     assert!(matches!(
         result,
         Err(super::kitty_transport::TransportError::ShmError(_))
@@ -1001,7 +997,7 @@ fn shm_name_admission_rejects_only_malformed_names() {
         &[0x2F, 0xFF, 0xFE][..],
     ] {
         assert_eq!(
-            transport::read_shm_transport(name, 4096),
+            transport::read_shm_transport(name, 4096, None),
             Err(TransportError::InvalidPath),
             "malformed shm name {name:?} must be refused before shm_open"
         );
@@ -1016,7 +1012,7 @@ fn shm_name_admission_rejects_only_malformed_names() {
     // and fail there (or succeed), never be refused as malformed.
     assert!(
         !matches!(
-            transport::read_shm_transport(single.name.as_bytes(), 4096),
+            transport::read_shm_transport(single.name.as_bytes(), 4096, None),
             Err(TransportError::InvalidPath)
         ),
         "a single-character shm name is legal and must not be refused as malformed"
@@ -1028,7 +1024,7 @@ fn shm_reader_reports_the_open_failure_rather_than_a_later_stage() {
     let shm = OwnedShmFixture::create(&[]);
     let name = shm.name().to_owned();
     drop(shm);
-    match transport::read_shm_transport(name.as_bytes(), 4096) {
+    match transport::read_shm_transport(name.as_bytes(), 4096, None) {
         Err(TransportError::ShmError(message)) => assert!(
             message.contains("shm_open"),
             "a failed open must be classified as such, got {message}"
@@ -1038,32 +1034,63 @@ fn shm_reader_reports_the_open_failure_rather_than_a_later_stage() {
 }
 
 #[test]
-fn shm_size_check_admits_the_exact_cap_and_refuses_one_byte_more() {
+fn shm_read_length_admits_the_exact_cap_and_refuses_one_byte_more() {
+    assert_eq!(
+        transport::shm_read_len(64, None, 64),
+        Ok(64),
+        "a whole segment exactly at the cap is admitted"
+    );
+    assert_eq!(
+        transport::shm_read_len(64, None, 65),
+        Ok(64),
+        "a whole segment below the cap is admitted"
+    );
+    assert_eq!(
+        transport::shm_read_len(64, None, 63),
+        Err(TransportError::TooLarge),
+        "a whole segment one byte over the cap is refused before any mapping"
+    );
+    assert_eq!(
+        transport::shm_read_len(64, Some(64), 63),
+        Err(TransportError::TooLarge),
+        "a transmitted length one byte over the cap is refused"
+    );
+    assert!(matches!(
+        transport::shm_read_len(64, Some(0), 64),
+        Err(TransportError::ShmError(_))
+    ));
+}
+
+#[test]
+fn shm_read_length_is_the_transmitted_length_under_a_page_rounded_object() {
+    // macOS reports a shared-memory object's size rounded up to a whole page
+    // (16 KiB on Apple silicon). A 22-byte payload in such an object fits a
+    // 4 KiB cap: the cap applies to what is read, not to the rounded size.
+    assert_eq!(transport::shm_read_len(16_384, Some(22), 4096), Ok(22));
+    assert_eq!(
+        transport::shm_read_len(16_384, None, 4096),
+        Err(TransportError::TooLarge),
+        "with no transmitted length the whole object is read and capped"
+    );
+    assert_eq!(
+        transport::shm_read_len(16, Some(64), 4096),
+        Ok(16),
+        "a transmitted length beyond the object reads only the object"
+    );
+}
+
+#[test]
+fn shm_object_size_refuses_an_empty_segment() {
     let path = temp_path("shm-size");
     let file = std::fs::File::create(&path).unwrap();
     file.set_len(64).unwrap();
     let fd = file.as_raw_fd();
-
-    assert_eq!(
-        transport::checked_shm_size(fd, 64),
-        Ok(64),
-        "a segment exactly at the cap is admitted"
-    );
-    assert_eq!(
-        transport::checked_shm_size(fd, 65),
-        Ok(64),
-        "a segment below the cap is admitted"
-    );
-    assert_eq!(
-        transport::checked_shm_size(fd, 63),
-        Err(TransportError::TooLarge),
-        "a segment one byte over the cap is refused before any mapping"
-    );
+    assert_eq!(transport::shm_object_size(fd), Ok(64));
 
     file.set_len(0).unwrap();
     assert!(
         matches!(
-            transport::checked_shm_size(fd, 64),
+            transport::shm_object_size(fd),
             Err(TransportError::ShmError(_))
         ),
         "an empty segment is refused"
@@ -1077,7 +1104,7 @@ fn shm_size_check_admits_the_exact_cap_and_refuses_one_byte_more() {
 fn shm_size_check_reports_a_failed_fstat() {
     // -1 is never a valid descriptor. The failure must be reported as an fstat
     // failure rather than being read out of an uninitialized stat buffer.
-    match transport::checked_shm_size(-1, 4096) {
+    match transport::shm_object_size(-1) {
         Err(TransportError::ShmError(message)) => assert!(
             message.contains("fstat"),
             "a failed fstat must be classified as such, got {message}"
@@ -1099,9 +1126,9 @@ fn shm_reader_reports_a_failed_copy_from_an_unreadable_descriptor() {
         .unwrap();
     file.set_len(32).unwrap();
     let fd = file.as_raw_fd();
-    assert_eq!(transport::checked_shm_size(fd, 64), Ok(32));
+    assert_eq!(transport::shm_object_size(fd), Ok(32));
 
-    match transport::read_shm_fd_at_size(fd, 32, 64) {
+    match transport::read_shm_fd_at_size(fd, 32, 32) {
         Err(TransportError::ShmError(message)) => {
             #[cfg(not(target_os = "macos"))]
             assert!(

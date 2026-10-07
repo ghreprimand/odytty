@@ -377,11 +377,18 @@ was read (device, object number, owner, mode and size); a name rebound to a
 different object is kept and the transfer fails with `EPERM:object-changed`.
 Linux reports a device and object number for shared memory. On a platform that
 reports neither for shared memory, the comparison rests on owner, mode and
-size. The same short window between the check and the unlink remains. Windows
-keeps `t=s` unsupported.
+size; macOS reports that size rounded up to a whole page, so there a
+replacement with the same owner, mode and page count is not told apart from
+the object that was read. The same short window between the check and the
+unlink remains. Windows keeps `t=s` unsupported.
 
-The segment's size is checked before and after its bytes are copied, and a
-segment resized in between is refused, on Linux and macOS alike. On macOS the
+An uncompressed raw RGB or RGBA payload (`f=24`, `f=32`) is read at its exact
+pixel length, with the object's size only as an upper bound. A PNG or
+compressed payload reads the whole object, which must fit the cap. This
+matters on macOS, where the reported size includes the page padding (16 KiB
+pages on Apple silicon). The segment's size is checked before and after its
+bytes are copied, and a segment resized in between is refused, on Linux and
+macOS alike. On macOS the
 segment can only be mapped, so the copy runs in a short-lived child process
 that is always reaped, including when a signal interrupts the wait.
 
