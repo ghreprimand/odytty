@@ -136,19 +136,37 @@ at its own `q=` level rather than the abandoned transfer's.
 
 | `d=` | What is deleted | Uppercase (`D=`) variant |
 |------|-----------------|--------------------------|
-| `a`  | All placements in the active screen buffer | `A` also frees unreferenced image data |
+| `a`  | Placements in the active screen buffer that reach the screen; placements wholly in scrollback stay | `A` also frees data |
 | `i`  | Placements for image `i=` (optionally filtered by `p=`) | `I` also frees data |
 | `c`  | Placements intersecting the current cursor cell | `C` also frees data |
 | `p`  | Placements intersecting cell `x=`,`y=` (defaults to cursor) | `P` also frees data |
 
 Lowercase specifiers delete placements only. Uppercase specifiers also free
-stored image data once no remaining placements reference the image.
+the stored data of the images whose placements they removed, once no remaining
+placement (real or virtual) references them. Images that were transmitted for
+later display, or are placed only elsewhere, are kept. `d=I` without `p=`
+targets the image itself, so it frees image `i=` even when it has no
+placements.
 
 Specifiers outside this table — including `n`/`N` (delete the newest image with
 the number in `I=`), `f`/`F` beyond the frame deletes documented under
 [Animation](#animation), `q`/`Q`, `r`/`R`, `x`/`X`, `y`/`Y` and `z`/`Z` — are
 rejected as unsupported. A delete that cannot be honoured exactly is refused
 rather than approximated: deleting the wrong image is worse than deleting none.
+
+### Placements and screen operations
+
+Placements move with the text around them. A full-screen scroll moves every
+placement of the active screen, including those already in scrollback history,
+and drops them once they age past the scrollback limit. A scroll inside a
+margin region moves only placements wholly inside the region and removes one
+when any part leaves it; a placement crossing a margin is removed, and
+placements wholly outside the region, such as a header or footer, stay where
+they are. Erase in display removes placements that overlap the erased cells:
+`ED 0` the cursor row from the cursor on plus every later row, `ED 1` every
+earlier row plus the cursor row through the cursor, and `ED 2`/`ED 3` every
+placement of the active screen. A reset (`RIS`) removes the placements of both
+screens, including a saved primary screen, and keeps stored image data.
 
 ### Unicode placeholders (`U=1`)
 

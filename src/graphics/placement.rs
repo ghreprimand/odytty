@@ -678,14 +678,11 @@ impl ImageScene {
         self.active = ScreenBuffer::Primary;
     }
 
-    pub fn clear_active(&mut self) {
-        let active = self.active;
-        self.placements
-            .retain(|placement| placement.buffer != active);
-    }
-
+    /// RIS discards both screens, including a saved primary screen that
+    /// would otherwise reappear on leaving the alternate screen, so every
+    /// placement goes. Stored image data stays available to later commands.
     pub fn hard_reset(&mut self) {
-        self.clear_active();
+        self.placements.clear();
         self.virtual_placements.clear();
         self.active = ScreenBuffer::Primary;
     }
@@ -694,131 +691,140 @@ impl ImageScene {
     // Kitty graphics protocol delete actions (a=d)
     // -----------------------------------------------------------------------
 
-    /// `d=a` — delete all visible placements in the active buffer.
+    /// `d=a`: delete the active buffer's placements that reach the screen.
+    /// Placements wholly in scrollback history are not visible on screen and
+    /// stay, as in kitty.
     pub fn delete_all_placements(&mut self) {
-        self.clear_active();
+        self.delete_active_where(reaches_screen);
     }
 
-    /// `d=A` — delete all visible placements AND free images with no remaining
-    /// placements.
+    /// `d=A`: like `d=a`, then free the images those placements showed when
+    /// nothing else references them. Images that were transmitted but never
+    /// placed, or are placed only elsewhere, are untouched.
     pub fn delete_all_placements_and_free(&mut self) {
-        self.clear_active();
-        self.gc_unreferenced_images();
+        let affected = self.delete_active_where(reaches_screen);
+        self.free_unreferenced(affected);
     }
 
-    /// `d=i` — delete placements referencing `image_id` (Kitty protocol id) in
+    /// `d=i`: delete placements referencing `image_id` (Kitty protocol id) in
     /// the active buffer. If `placement_id` is `Some`, delete only the placement
     /// with that protocol-level placement id (Kitty `p=`); otherwise delete all
     /// placements of the image.
     ///
     /// Virtual (Unicode-placeholder) placements are deleted here too: `d=i`/`d=I`
     /// are among the specifiers the graphics protocol says DO affect virtual
-    /// placements. The specifiers that address a screen location — `a`, `c`,
-    /// `p` and their capital forms — deliberately leave them alone, because a
+    /// placements. The specifiers that address a screen location (`a`, `c`,
+    /// `p` and their capital forms) deliberately leave them alone, because a
     /// virtual placement has no screen location to intersect.
     pub fn delete_by_image_id(&mut self, image_id: u32, placement_id: Option<u32>) {
+        self.delete_by_image_id_affected(image_id, placement_id);
+    }
+
+    fn delete_by_image_id_affected(
+        &mut self,
+        image_id: u32,
+        placement_id: Option<u32>,
+    ) -> Vec<StoredImageId> {
+        let matches_placement = |id: Option<u32>| match placement_id {
+            Some(pid) => id == Some(pid),
+            None => true,
+        };
+        let mut affected = Vec::new();
         self.virtual_placements.retain(|candidate| {
-            if candidate.protocol_image_id != image_id {
-                return true;
+            let matched = candidate.protocol_image_id == image_id
+                && matches_placement(candidate.protocol_placement_id);
+            if matched {
+                affected.push(candidate.image_id);
             }
-            match placement_id {
-                Some(pid) => candidate.protocol_placement_id != Some(pid),
-                None => false,
-            }
+            !matched
         });
-        let active = self.active;
-        self.placements.retain(|p| {
-            if p.buffer != active {
-                return true;
-            }
-            if p.protocol_image_id != Some(image_id) {
-                return true;
-            }
-            // Keep placements whose protocol placement id differs from the
-            // requested one; with no placement id all matches are removed.
-            match placement_id {
-                Some(pid) => p.protocol_placement_id != Some(pid),
-                None => false,
-            }
-        });
+        affected.extend(self.delete_active_where(|placement| {
+            placement.protocol_image_id == Some(image_id)
+                && matches_placement(placement.protocol_placement_id)
+        }));
+        affected
     }
 
-    /// `d=I` — like `d=i` but also free image data when no placements remain.
+    /// `d=I`: like `d=i`, then free the image's data when no placement
+    /// references it. Without a placement id the image is the target, so it is
+    /// freed even when it had no placements; with one, only an image that lost
+    /// that placement is a candidate. Other images are untouched.
     pub fn delete_by_image_id_and_free(&mut self, image_id: u32, placement_id: Option<u32>) {
-        self.delete_by_image_id(image_id, placement_id);
-        self.gc_unreferenced_images();
+        let mut affected = self.delete_by_image_id_affected(image_id, placement_id);
+        if placement_id.is_none() {
+            affected.extend(self.store.iter_ids().filter(|id| {
+                self.store
+                    .get(*id)
+                    .is_some_and(|image| image.protocol_id == Some(image_id))
+            }));
+        }
+        self.free_unreferenced(affected);
     }
 
-    /// `d=c` / `d=C` — delete placements whose anchor is at (`row`, `col`) in
-    /// the active buffer.
+    /// `d=c` / `d=C`: delete the active buffer's placements that cover the
+    /// cursor cell (`row`, `col`), not only those anchored there.
     pub fn delete_at_cursor(&mut self, row: usize, col: usize, free_images: bool) {
-        let active = self.active;
-        self.placements.retain(|p| {
-            if p.buffer != active {
-                return true;
-            }
-            !(p.anchor.row == row as isize && p.anchor.column == col)
-        });
-        if free_images {
-            self.gc_unreferenced_images();
-        }
+        self.delete_at_position(row, col, free_images);
     }
 
-    /// `d=p` / `d=P` — delete placements that intersect cell (`row`, `col`) in
-    /// the active buffer.
+    /// `d=p` / `d=P`: delete the active buffer's placements that cover cell
+    /// (`row`, `col`). The capital form then frees the images those placements
+    /// showed when nothing else references them.
     pub fn delete_at_position(&mut self, row: usize, col: usize, free_images: bool) {
-        let active = self.active;
-        self.placements.retain(|p| {
-            if p.buffer != active {
-                return true;
-            }
-            let r = p.anchor.row;
-            let c = p.anchor.column;
-            let intersects = row as isize >= r
-                && (row as isize) < r + p.display_rows as isize
-                && col >= c
-                && col < c + p.display_columns;
-            !intersects
-        });
+        let affected = self.delete_active_where(|placement| covers_cell(placement, row, col));
         if free_images {
-            self.gc_unreferenced_images();
+            self.free_unreferenced(affected);
         }
     }
 
-    /// Remove images from the store that have no placements referencing them.
-    /// Virtual placements count as references: an image kept alive only as a
-    /// Unicode-placeholder prototype must survive a `d=A` that clears the
-    /// screen's real placements, or every placeholder on screen would blank.
-    fn gc_unreferenced_images(&mut self) {
+    /// Remove the active buffer's placements matching `matches`, returning
+    /// the image each removed placement showed.
+    fn delete_active_where(
+        &mut self,
+        matches: impl Fn(&ImagePlacement) -> bool,
+    ) -> Vec<StoredImageId> {
+        let active = self.active;
+        let mut affected = Vec::new();
+        self.placements.retain(|placement| {
+            if placement.buffer != active || !matches(placement) {
+                return true;
+            }
+            affected.push(placement.image_id);
+            false
+        });
+        affected
+    }
+
+    /// Remove each of `candidates` from the store when no placement references
+    /// it. Virtual placements count as references: an image kept alive only as
+    /// a Unicode-placeholder prototype must survive, or every placeholder on
+    /// screen would blank.
+    fn free_unreferenced(&mut self, candidates: Vec<StoredImageId>) {
+        if candidates.is_empty() {
+            return;
+        }
         let referenced: std::collections::HashSet<StoredImageId> = self
             .placements
             .iter()
             .map(|p| p.image_id)
             .chain(self.virtual_placements.iter().map(|p| p.image_id))
             .collect();
-        let all_ids: Vec<StoredImageId> = self
-            .store
-            .iter_ids()
-            .filter(|id| !referenced.contains(id))
-            .collect();
-        for id in all_ids {
-            self.store.remove(id);
+        for id in candidates {
+            if !referenced.contains(&id) {
+                self.store.remove(id);
+            }
         }
     }
 
+    /// Full-screen scroll up: every active placement moves, including those
+    /// already in scrollback history, so history ages and evicts uniformly.
     pub fn scroll_full_up(&mut self, count: usize, scrollback_rows: usize) {
-        self.shift_rows(0, None, -(count as isize), true);
+        self.shift_into_history(None, -(count as isize));
         self.evict_above_scrollback(scrollback_rows);
     }
 
     pub fn scroll_region_up(&mut self, top: usize, bottom: usize, count: usize) {
-        self.shift_rows(
-            top as isize,
-            Some(bottom as isize),
-            -(count as isize),
-            false,
-        );
-        self.drop_outside_region(top as isize, bottom as isize);
+        self.scroll_region(top as isize, bottom as isize, -(count as isize));
     }
 
     /// Scroll a TOP-ANCHORED region (top row 0) up by `count`, feeding the rows
@@ -835,13 +841,12 @@ impl ImageScene {
         count: usize,
         scrollback_rows: usize,
     ) {
-        self.shift_rows(0, Some(bottom as isize), -(count as isize), true);
+        self.shift_into_history(Some(bottom as isize), -(count as isize));
         self.evict_above_scrollback(scrollback_rows);
     }
 
     pub fn scroll_region_down(&mut self, top: usize, bottom: usize, count: usize) {
-        self.shift_rows(top as isize, Some(bottom as isize), count as isize, false);
-        self.drop_outside_region(top as isize, bottom as isize);
+        self.scroll_region(top as isize, bottom as isize, count as isize);
     }
 
     pub fn erase_display(
@@ -857,9 +862,20 @@ impl ImageScene {
             if placement.buffer != active {
                 return true;
             }
+            // ED0 erases the cursor row from the cursor on plus every later
+            // row; ED1 every earlier row plus the cursor row through the
+            // cursor. Rows are compared signed, so a placement wholly in
+            // scrollback history never overlaps the screen.
+            let row = cursor_row as isize;
             match mode {
-                0 => !intersects_range(placement, cursor_row, cursor_column, rows, columns),
-                1 => !intersects_range(placement, 0, 0, cursor_row + 1, cursor_column + 1),
+                0 => {
+                    !(overlaps(placement, row..row + 1, cursor_column..columns)
+                        || overlaps(placement, row + 1..rows as isize, 0..columns))
+                }
+                1 => {
+                    !(overlaps(placement, 0..row, 0..columns)
+                        || overlaps(placement, row..row + 1, 0..cursor_column.saturating_add(1)))
+                }
                 2 | 3 => false,
                 _ => true,
             }
@@ -938,43 +954,44 @@ impl ImageScene {
         visible
     }
 
-    fn shift_rows(
-        &mut self,
-        top: isize,
-        bottom: Option<isize>,
-        delta: isize,
-        allow_negative: bool,
-    ) {
+    /// Move active placements anchored at or above `bottom` (all of them when
+    /// `None`) by `delta` rows, into scrollback history for a negative delta.
+    /// Placements already in history move too; a footer below `bottom` stays.
+    fn shift_into_history(&mut self, bottom: Option<isize>, delta: isize) {
         let active = self.active;
         for placement in self
             .placements
             .iter_mut()
             .filter(|placement| placement.buffer == active)
         {
-            if placement.anchor.row < top {
-                continue;
-            }
-            if let Some(bottom) = bottom
-                && placement.anchor.row > bottom
-            {
+            if bottom.is_some_and(|bottom| placement.anchor.row > bottom) {
                 continue;
             }
             placement.anchor.row += delta;
-            if !allow_negative && placement.anchor.row < top {
-                placement.anchor.row = top - placement.display_rows as isize;
-            }
         }
     }
 
-    fn drop_outside_region(&mut self, top: isize, bottom: isize) {
+    /// Scroll the region `top..=bottom` by `delta` rows. Placements wholly
+    /// outside the region, such as a header or footer, neither move nor go.
+    /// A placement inside it moves and is removed once any part leaves the
+    /// region; one crossing a margin before the scroll is removed, because the
+    /// rows it covered inside the region moved away beneath it.
+    fn scroll_region(&mut self, top: isize, bottom: isize, delta: isize) {
         let active = self.active;
-        self.placements.retain(|placement| {
+        self.placements.retain_mut(|placement| {
             if placement.buffer != active {
                 return true;
             }
-            let start = placement.anchor.row;
-            let end = placement.anchor.row + placement.display_rows as isize - 1;
-            !(start < top || end > bottom)
+            let (start, end) = row_span(placement);
+            if end < top || start > bottom {
+                return true;
+            }
+            if start < top || end > bottom {
+                return false;
+            }
+            placement.anchor.row += delta;
+            let (start, end) = row_span(placement);
+            start >= top && end <= bottom
         });
     }
 
@@ -1003,20 +1020,43 @@ impl ImageScene {
     }
 }
 
-fn intersects_range(
-    placement: &ImagePlacement,
-    start_row: usize,
-    start_column: usize,
-    end_row_exclusive: usize,
-    end_column_exclusive: usize,
-) -> bool {
-    let place_start_row = placement.anchor.row.max(0) as usize;
-    let place_end_row = place_start_row + placement.display_rows;
-    let place_start_column = placement.anchor.column;
-    let place_end_column = place_start_column + placement.display_columns;
+/// First and last row a placement covers, signed so scrollback history is
+/// negative. A zero-row placement is treated as covering its anchor row.
+fn row_span(placement: &ImagePlacement) -> (isize, isize) {
+    let start = placement.anchor.row;
+    let rows = isize::try_from(placement.display_rows.max(1)).unwrap_or(isize::MAX);
+    (start, start.saturating_add(rows - 1))
+}
 
-    let row_overlap = place_start_row < end_row_exclusive && place_end_row > start_row;
-    let column_overlap =
-        place_start_column < end_column_exclusive && place_end_column > start_column;
-    row_overlap && column_overlap
+/// Whether `placement` covers any cell in `rows` x `columns`.
+fn overlaps(
+    placement: &ImagePlacement,
+    rows: std::ops::Range<isize>,
+    columns: std::ops::Range<usize>,
+) -> bool {
+    let (start, end) = row_span(placement);
+    let column_end = placement
+        .anchor
+        .column
+        .saturating_add(placement.display_columns);
+    start < rows.end
+        && end >= rows.start
+        && placement.anchor.column < columns.end
+        && column_end > columns.start
+}
+
+/// Whether `placement` covers screen cell (`row`, `col`).
+fn covers_cell(placement: &ImagePlacement, row: usize, col: usize) -> bool {
+    let row = isize::try_from(row).unwrap_or(isize::MAX);
+    overlaps(
+        placement,
+        row..row.saturating_add(1),
+        col..col.saturating_add(1),
+    )
+}
+
+/// Whether any row of `placement` is on the screen or below it, rather than
+/// wholly in scrollback history.
+fn reaches_screen(placement: &ImagePlacement) -> bool {
+    row_span(placement).1 >= 0
 }

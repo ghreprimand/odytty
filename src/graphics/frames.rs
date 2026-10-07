@@ -757,9 +757,10 @@ fn blit(
 }
 
 /// Alpha-composite one source pixel over one destination pixel, 8-bit
-/// straight-alpha in and out. Integer math only: `(a * b + 127) / 255`
-/// rounding keeps repeated composition from drifting the way a truncating
-/// divide does.
+/// straight-alpha in and out. Source-over is kept as one exact rational in
+/// units of 1/255 and divided once at the end, so low-alpha colors survive:
+/// rounding each premultiplied channel to eight bits first would turn a
+/// one-alpha source over a transparent pixel into black.
 fn alpha_blend(destination: &mut [u8], source: &[u8]) {
     let src_alpha = source[3] as u32;
     if src_alpha == 0 {
@@ -770,16 +771,14 @@ fn alpha_blend(destination: &mut [u8], source: &[u8]) {
         return;
     }
     let dst_alpha = destination[3] as u32;
-    let out_alpha = src_alpha + mul255(dst_alpha, 255 - src_alpha);
+    // Output alpha times 255: at most 255 * 255.
+    let out_alpha = src_alpha * 255 + dst_alpha * (255 - src_alpha);
     for channel in 0..3 {
         let src = source[channel] as u32;
         let dst = destination[channel] as u32;
-        let weighted = mul255(src, src_alpha) + mul255(mul255(dst, dst_alpha), 255 - src_alpha);
-        destination[channel] = ((weighted * 255 + out_alpha / 2) / out_alpha).min(255) as u8;
+        // Premultiplied output times 255: at most 255 * 255 * 255.
+        let weighted = src * src_alpha * 255 + dst * dst_alpha * (255 - src_alpha);
+        destination[channel] = ((weighted + out_alpha / 2) / out_alpha).min(255) as u8;
     }
-    destination[3] = out_alpha.min(255) as u8;
-}
-
-fn mul255(a: u32, b: u32) -> u32 {
-    (a * b + 127) / 255
+    destination[3] = ((out_alpha + 127) / 255).min(255) as u8;
 }

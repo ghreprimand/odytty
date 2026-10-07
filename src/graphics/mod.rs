@@ -32,6 +32,8 @@ pub use store::{
 #[cfg(test)]
 mod frames_tests;
 #[cfg(test)]
+mod placement_scroll_tests;
+#[cfg(test)]
 mod placement_tests;
 #[cfg(test)]
 mod replace_tests;

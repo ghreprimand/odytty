@@ -654,3 +654,41 @@ fn frame_bytes_are_reported_for_the_store_budget() {
         "the first frame command also pays for the root-frame copy"
     );
 }
+
+fn blend_one_pixel(destination: [u8; 4], source: [u8; 4]) -> [u8; 4] {
+    let mut frames = ImageFrames::default();
+    let base = canvas(destination);
+    let mut update = full_update(&source, None);
+    update.width = 1;
+    update.height = 1;
+    update.base_frame = Some(1);
+    update.overwrite = false;
+    frames
+        .transmit_frame(&base, 2, 2, update)
+        .expect("blended frame");
+    frames.set_current(2).expect("frame 2");
+    let pixel = &frames.current_rgba().expect("pixels")[0..4];
+    [pixel[0], pixel[1], pixel[2], pixel[3]]
+}
+
+/// Fails before the fix: each premultiplied channel was rounded to eight bits
+/// before the divide, so a one-alpha color over transparency became black and
+/// partial alpha drifted by a level.
+#[test]
+fn alpha_blend_keeps_low_alpha_color_exact() {
+    assert_eq!(
+        blend_one_pixel([0, 0, 0, 0], [127, 0, 0, 1]),
+        [127, 0, 0, 1]
+    );
+    assert_eq!(
+        blend_one_pixel([0, 0, 0, 0], [10, 200, 250, 3]),
+        [10, 200, 250, 3]
+    );
+    // Source-over in exact arithmetic: alpha 64/255 over 128/255 gives
+    // 40768/255 = 159.9 -> 160, red 200*64*255/40768 = 80.1 -> 80, blue
+    // (50*64*255 + 255*128*191)/40768 = 172.9 -> 173.
+    assert_eq!(
+        blend_one_pixel([0, 0, 255, 128], [200, 100, 50, 64]),
+        [80, 40, 173, 160]
+    );
+}
