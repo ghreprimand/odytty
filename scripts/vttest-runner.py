@@ -61,6 +61,7 @@ import unittest
 import urllib.request
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 RUNNER_VERSION = "1.1.0"
 SCHEMA_VERSION = "1.1.0"
@@ -541,8 +542,8 @@ def safe_extract(archive: Path, target: Path, limits: dict[str, Any]) -> None:
 
     An archive is attacker-controlled input for the purposes of this function
     even though it is pinned, because the pin is checked by a digest that this
-    function does not itself re-check. Every member is validated before any
-    byte is written:
+    function does not itself re-check. Each member is validated before its
+    content is written:
 
       * no absolute paths and no parent traversal
       * no symbolic links, hard links, devices, or FIFOs
@@ -1506,6 +1507,46 @@ UNVERIFIED = {"sha256": "not_checked", "signature": "not_checked", "trust_root":
 UNBUILT = {"status": "not_built", "binary_sha256": "unknown", "toolchain": []}
 
 
+SOURCE_DIRECTORY = "upstream-src"
+SOURCE_MARKER = ".odytty-vttest-source"
+SOURCE_MARKER_BYTES = b"OdyTTY conformance source cache v1\n"
+
+
+def checked_work_dir(args: argparse.Namespace, phase: str) -> Path:
+    """Keep upstream material outside repositories, including nested caches."""
+    destination = Path(args.work_dir or cache_dir()).resolve()
+    for parent in (destination, *destination.parents):
+        if (
+            (parent / ".git").exists()
+            or (parent / ".git").is_symlink()
+            or (parent / "Cargo.toml").exists()
+        ):
+            raise RunnerError(phase, "work directory must be outside a repository")
+    return destination
+
+
+def source_directory(work_dir: Path, phase: str, *, required: bool = False) -> Path:
+    """Only a marked, non-symlink source tree belongs to this runner."""
+    target = work_dir / SOURCE_DIRECTORY
+    if target.is_symlink():
+        raise RunnerError(phase, "source cache is a symlink; refused")
+    if not target.exists():
+        if required:
+            raise RunnerError(phase, "owned source cache is absent; run extract first")
+        return target
+    marker = target / SOURCE_MARKER
+    if not target.is_dir() or marker.is_symlink() or not marker.is_file():
+        raise RunnerError(phase, "source cache has no ownership marker; refused")
+    try:
+        with marker.open("rb") as handle:
+            value = handle.read(len(SOURCE_MARKER_BYTES) + 1)
+    except OSError as exc:
+        raise RunnerError(phase, "source cache ownership marker is unreadable") from exc
+    if value != SOURCE_MARKER_BYTES:
+        raise RunnerError(phase, "source cache ownership marker does not match; refused")
+    return target
+
+
 def cmd_list(_args: argparse.Namespace) -> int:
     cases = validate_cases(load_toml(CASES_MANIFEST))
     policy = cases["policy"]
@@ -1522,7 +1563,7 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     upstream = validate_upstream(load_toml(UPSTREAM_MANIFEST))
     release = upstream["release"]
     limits = upstream["limits"]
-    destination = Path(args.work_dir or cache_dir())
+    destination = checked_work_dir(args, "fetch")
     archive = destination / str(release["archive_name"])
     signature = destination / str(release["signature_name"])
 
@@ -1562,7 +1603,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     upstream = validate_upstream(load_toml(UPSTREAM_MANIFEST))
     release = upstream["release"]
     integrity = upstream["integrity"]
-    destination = Path(args.work_dir or cache_dir())
+    destination = checked_work_dir(args, "verify")
     archive = destination / str(release["archive_name"])
     signature = destination / str(release["signature_name"])
 
@@ -1590,15 +1631,26 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 def cmd_extract(args: argparse.Namespace) -> int:
     upstream = validate_upstream(load_toml(UPSTREAM_MANIFEST))
-    destination = Path(args.work_dir or cache_dir())
+    destination = checked_work_dir(args, "extract")
     archive = destination / str(upstream["release"]["archive_name"])
     if not archive.is_file():
         raise RunnerError("extract", "archive is not present; run fetch first")
     verify_digest(archive, str(upstream["integrity"]["archive_sha256"]))
-    target = destination / "src"
-    if target.exists():
-        shutil.rmtree(target)
-    safe_extract(archive, target, upstream["limits"])
+    target = source_directory(destination, "extract")
+    # Validate and unpack into a private scratch tree before replacing owned
+    # sources. Failed extraction leaves the previous successful tree intact.
+    try:
+        with tempfile.TemporaryDirectory(prefix="vttest-extract-", dir=destination) as tmp:
+            staged = Path(tmp) / SOURCE_DIRECTORY
+            safe_extract(archive, staged, upstream["limits"])
+            (staged / SOURCE_MARKER).write_bytes(SOURCE_MARKER_BYTES)
+            if target.exists():
+                # Recheck ownership immediately before recursive removal.
+                source_directory(destination, "extract", required=True)
+                shutil.rmtree(target)
+            staged.rename(target)
+    except OSError as exc:
+        raise RunnerError("extract", "source cache could not be replaced") from exc
     print(f"extracted into {target}")
     return 0
 
@@ -1606,8 +1658,8 @@ def cmd_extract(args: argparse.Namespace) -> int:
 def cmd_build(args: argparse.Namespace) -> int:
     check_platform_supported()
     upstream = validate_upstream(load_toml(UPSTREAM_MANIFEST))
-    destination = Path(args.work_dir or cache_dir())
-    roots = sorted((destination / "src").glob("*/configure"))
+    destination = checked_work_dir(args, "build")
+    roots = sorted(source_directory(destination, "build", required=True).glob("*/configure"))
     if not roots:
         raise RunnerError("build", "no configure script found; run extract first")
     source_root = roots[0].parent
@@ -1717,7 +1769,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         raise RunnerError("run", "selection matched no cases")
 
     binary = Path(args.binary).resolve() if args.binary else None
-    cache = Path(args.work_dir or cache_dir())
+    cache = checked_work_dir(args, "run")
     work_dir = cache / "run"
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1731,7 +1783,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     if args.upstream_binary:
         upstream_binary = Path(args.upstream_binary).resolve()
     else:
-        candidates = sorted((cache / "src").glob(f"*/{upstream['project']['name']}"))
+        candidates = sorted(source_directory(cache, "run").glob(f"*/{upstream['project']['name']}"))
         if candidates:
             upstream_binary = candidates[0]
 
@@ -1918,6 +1970,142 @@ class SelfTest(unittest.TestCase):
     def test_sanitizer_redacts_windows_profile_paths(self) -> None:
         cleaned = sanitize(r"C:\Users\someone\AppData")
         self.assertNotIn("someone", cleaned)
+
+    def extract_fixture(self, root: Path) -> argparse.Namespace:
+        upstream = load_toml(UPSTREAM_MANIFEST)
+        archive = root / upstream["release"]["archive_name"]
+        root.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(archive, "w") as tar:
+            data = b"synthetic sources"
+            info = tarfile.TarInfo("pkg/configure")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+        return argparse.Namespace(work_dir=str(root))
+
+    def test_extract_preserves_unrelated_src(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.extract_fixture(root)
+            src = root / "src"
+            src.mkdir()
+            sentinel = src / "keep.txt"
+            sentinel.write_bytes(b"keep")
+            with mock.patch(__name__ + ".verify_digest"):
+                self.assertEqual(cmd_extract(args), 0)
+            self.assertEqual(sentinel.read_bytes(), b"keep")
+            self.assertTrue((root / "upstream-src/pkg/configure").is_file())
+
+    def test_extract_refuses_repository_and_nested_cache(self) -> None:
+        for entry in (".git", "Cargo.toml"):
+            for nested in (False, True):
+                with self.subTest(entry=entry, nested=nested), tempfile.TemporaryDirectory() as tmp:
+                    repo = Path(tmp)
+                    (repo / entry).write_bytes(b"synthetic repository marker")
+                    cache = repo / "cache" if nested else repo
+                    args = self.extract_fixture(cache)
+                    src = cache / "src"
+                    src.mkdir()
+                    (src / "keep.txt").write_bytes(b"keep")
+                    with mock.patch(__name__ + ".verify_digest"), self.assertRaises(RunnerError):
+                        cmd_extract(args)
+                    self.assertEqual((src / "keep.txt").read_bytes(), b"keep")
+
+    def test_extract_refuses_unowned_source_directory(self) -> None:
+        for marker in (None, b"wrong marker"):
+            with self.subTest(marker=marker), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                args = self.extract_fixture(root)
+                target = root / "upstream-src"
+                target.mkdir()
+                (target / "keep.txt").write_bytes(b"keep")
+                if marker is not None:
+                    (target / ".odytty-vttest-source").write_bytes(marker)
+                with mock.patch(__name__ + ".verify_digest"), self.assertRaises(RunnerError):
+                    cmd_extract(args)
+                self.assertEqual((target / "keep.txt").read_bytes(), b"keep")
+
+    def test_extract_replaces_only_owned_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.extract_fixture(root)
+            with mock.patch(__name__ + ".verify_digest"):
+                self.assertEqual(cmd_extract(args), 0)
+                target = root / "upstream-src"
+                self.assertTrue((target / ".odytty-vttest-source").is_file())
+                (target / "stale.txt").write_bytes(b"stale")
+                self.assertEqual(cmd_extract(args), 0)
+            self.assertFalse((target / "stale.txt").exists())
+            self.assertEqual((target / "pkg/configure").read_bytes(), b"synthetic sources")
+
+    def test_extract_failure_preserves_previous_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.extract_fixture(root)
+            with mock.patch(__name__ + ".verify_digest"):
+                cmd_extract(args)
+            archive = root / load_toml(UPSTREAM_MANIFEST)["release"]["archive_name"]
+            with tarfile.open(archive, "w") as tar:
+                good = tarfile.TarInfo("pkg/new.txt")
+                good.size = 3
+                tar.addfile(good, io.BytesIO(b"new"))
+                bad = tarfile.TarInfo("../escape")
+                tar.addfile(bad, io.BytesIO(b""))
+            with mock.patch(__name__ + ".verify_digest"), self.assertRaises(RunnerError):
+                cmd_extract(args)
+            target = root / "upstream-src"
+            self.assertEqual((target / "pkg/configure").read_bytes(), b"synthetic sources")
+            self.assertFalse((target / "pkg/new.txt").exists())
+            self.assertEqual(list(root.glob("vttest-extract-*")), [])
+
+    def test_build_uses_owned_source_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.extract_fixture(root)
+            with mock.patch(__name__ + ".verify_digest"):
+                cmd_extract(args)
+            project = load_toml(UPSTREAM_MANIFEST)["project"]["name"]
+            source = root / "upstream-src/pkg"
+            (source / project).write_bytes(b"synthetic executable")
+            with (
+                mock.patch(__name__ + ".check_platform_supported"),
+                mock.patch(
+                    __name__ + ".subprocess.run",
+                    return_value=subprocess.CompletedProcess([], 0),
+                ) as run,
+                mock.patch(__name__ + ".tool_versions", return_value=[]),
+            ):
+                self.assertEqual(cmd_build(args), 0)
+            self.assertEqual(len(run.call_args_list), 2)
+            for call in run.call_args_list:
+                self.assertEqual(call.kwargs["cwd"], str(source.resolve()))
+            (source.parent / ".odytty-vttest-source").unlink()
+            with mock.patch(__name__ + ".check_platform_supported"), self.assertRaises(RunnerError):
+                cmd_build(args)
+
+    @unittest.skipIf(os.name == "nt", "symlink creation requires Windows privileges")
+    def test_extract_refuses_source_and_marker_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.extract_fixture(root)
+            outside = root / "keep"
+            outside.mkdir()
+            target = root / "upstream-src"
+            target.symlink_to(outside, target_is_directory=True)
+            with mock.patch(__name__ + ".verify_digest"), self.assertRaises(RunnerError):
+                cmd_extract(args)
+            self.assertTrue(outside.is_dir())
+            target.unlink()
+            with mock.patch(__name__ + ".verify_digest"):
+                cmd_extract(args)
+            marker = target / ".odytty-vttest-source"
+            data = marker.read_bytes()
+            marker.unlink()
+            real_marker = outside / "marker"
+            real_marker.write_bytes(data)
+            marker.symlink_to(real_marker)
+            with mock.patch(__name__ + ".verify_digest"), self.assertRaises(RunnerError):
+                cmd_extract(args)
+            self.assertTrue((target / "pkg/configure").is_file())
 
     def test_safe_extract_refuses_traversal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2441,7 +2629,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--work-dir",
         default=None,
-        help="cache and scratch directory (default: an untracked per-user cache)",
+        help="cache outside repositories; only marked upstream-src is replaced (default: per-user cache)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

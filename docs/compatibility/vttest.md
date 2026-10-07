@@ -224,6 +224,20 @@ digest-only check.
 
 ### Extraction refuses more than it resolves
 
+The cache must be outside any repository, including a nested directory below
+`.git` or `Cargo.toml`. All cache commands refuse repository paths. Extraction
+uses `upstream-src`, leaving an unrelated `src` directory untouched. Replacing
+an existing source tree requires the runner's exact ownership marker; source
+and marker symlinks are refused. Existing caches with the former `src` layout
+need a fresh `extract` before `build` or automatic suite discovery can use them.
+The old directory is left intact.
+
+Archive validation and extraction run in a private scratch directory. An
+invalid archive leaves the previous successful source tree intact, and the
+scratch tree is removed on failure. Build and automatic suite discovery use
+the same marked source directory. These cache rules apply on Linux and macOS;
+Windows remains unsupported by this POSIX conformance harness.
+
 `extract` treats the archive as untrusted input even though it is pinned, and
 refuses absolute paths, parent traversal, symbolic links, hard links, device
 nodes, and FIFOs, along with per-member, total-size, and member-count caps.
