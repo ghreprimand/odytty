@@ -395,6 +395,46 @@ fn existing_endpoint_is_not_removed_to_force_bind_and_replacement_is_preserved()
     let _ = fs::remove_file(&path);
 }
 
+// Queue the complete hostile buffer before the real connection handler reads.
+// This tests already-present trailing data, rather than racing later writes
+// against a valid first request that the server may have dispatched already.
+fn assert_prequeued_trailing_data_is_rejected(bytes: &[u8]) {
+    let (mut client, server) = UnixStream::pair().expect("socketpair");
+    // Arm before serve can close the peer; macOS rejects a timeout on a closed peer.
+    client
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .expect("short read timeout");
+    client
+        .write_all(bytes)
+        .expect("queue complete hostile buffer");
+    let (submission, queue) = dispatch::channel(false);
+    serve(
+        server,
+        submission,
+        Arc::new(|| panic!("queued trailing data must not wake the owner")),
+        Arc::new(AtomicBool::new(false)),
+    )
+    .expect("reject queued trailing data");
+    assert_eq!(
+        queue.dispatch(|_| panic!("queued trailing data must not dispatch")),
+        0
+    );
+    let mut response = [0u8; 64];
+    let result = client.read(&mut response);
+    assert!(
+        matches!(result, Ok(0))
+            || result.as_ref().is_err_and(|error| {
+                matches!(
+                    error.kind(),
+                    io::ErrorKind::TimedOut
+                        | io::ErrorKind::WouldBlock
+                        | io::ErrorKind::ConnectionReset
+                )
+            }),
+        "queued trailing data must receive no structural reply: {result:?}"
+    );
+}
+
 #[test]
 fn oversized_truncated_and_trailing_frames_fail_closed() {
     let harness = start_harness(false);
@@ -473,29 +513,13 @@ fn oversized_truncated_and_trailing_frames_fail_closed() {
         );
     }
 
-    // Trailing bytes after a complete request cancel pending work (no half-close).
-    {
-        let mut stream = connect(&path, IO_TIMEOUT).expect("connect trailing");
-        // Arm the short read timeout before the server can close the
-        // connection: macOS rejects setsockopt on a peer-closed Unix socket
-        // with EINVAL, so setting it after the sleep is timing-dependent.
-        stream
-            .set_read_timeout(Some(Duration::from_millis(200)))
-            .expect("short read timeout");
-        protocol::write_request(&mut stream, &capabilities_request(9)).expect("request");
-        stream.write_all(&[0x55]).expect("trailing byte");
-        stream.flush().expect("flush");
-        // Keep the connection open while the server peeks the trailing byte.
-        thread::sleep(POLL_INTERVAL * 5);
-        let mut buf = [0u8; 4];
-        let result = stream.read(&mut buf);
-        assert!(
-            matches!(result, Ok(0) | Err(_)),
-            "trailing-byte connection must not receive a successful structural reply: {result:?}"
-        );
-    }
+    // Trailing bytes present when the request is read cancel work (no half-close).
+    let mut bytes = Vec::new();
+    protocol::write_request(&mut bytes, &capabilities_request(9)).expect("request");
+    bytes.push(0x55);
+    assert_prequeued_trailing_data_is_rejected(&bytes);
 
-    // Endpoint recovers for a clean framed request after hostile frames.
+    // Endpoint recovers for a clean request after oversized and truncated frames.
     let response =
         request(&path, &capabilities_request(8)).expect("recovered after hostile frames");
     assert_eq!(response.request_id, 8);
@@ -677,36 +701,11 @@ fn zero_length_and_u32_max_length_frames_fail_closed_without_wake() {
 }
 
 #[test]
-fn two_frames_in_one_write_fail_closed_without_second_dispatch() {
-    let harness = start_harness(false);
-    let path = harness.fixture.socket.clone();
-    let wakes_before = harness.wakes.load(Ordering::Acquire);
-    let dispatched_before = harness.dispatched.load(Ordering::Acquire);
-    let mut stream = connect(&path, IO_TIMEOUT).expect("connect");
-    protocol::write_request(&mut stream, &capabilities_request(101)).expect("first");
-    protocol::write_request(&mut stream, &capabilities_request(102)).expect("second");
-    stream.flush().expect("flush");
-    // Arm the short read timeout before the peer can reset the connection.
-    stream
-        .set_read_timeout(Some(Duration::from_millis(200)))
-        .expect("short read timeout");
-    thread::sleep(POLL_INTERVAL * 5);
-    let mut buf = [0u8; 64];
-    let result = stream.read(&mut buf);
-    assert!(
-        matches!(result, Ok(0) | Err(_)),
-        "trailing second frame must not yield a successful dual reply: {result:?}"
-    );
-    assert_eq!(
-        harness.dispatched.load(Ordering::Acquire),
-        dispatched_before,
-        "second framed request must not dispatch (trailing bytes cancel)"
-    );
-    assert_eq!(
-        harness.wakes.load(Ordering::Acquire),
-        wakes_before,
-        "trailing second frame must not wake the owner"
-    );
+fn two_queued_frames_fail_closed_without_dispatch() {
+    let mut bytes = Vec::new();
+    protocol::write_request(&mut bytes, &capabilities_request(101)).expect("first");
+    protocol::write_request(&mut bytes, &capabilities_request(102)).expect("second");
+    assert_prequeued_trailing_data_is_rejected(&bytes);
 }
 
 #[test]

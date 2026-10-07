@@ -271,11 +271,18 @@ mod tests {
 
         let (client, server) = UnixStream::pair().expect("socketpair");
         let mut pending = PendingHandshake::new(server, far_deadline()).expect("pending");
+        // CLOEXEC does not prevent a concurrent fork from retaining this peer.
+        // Shut down the shared write side so EOF does not depend on alias drops.
+        let inherited_client = client.try_clone().expect("duplicate peer handle");
+        client
+            .shutdown(std::net::Shutdown::Write)
+            .expect("close peer write side");
         drop(client);
         match pending.poll(Instant::now()) {
             HandshakeProgress::Failed(message) => assert!(message.contains("closed")),
             other => panic!("expected a closed connection to fail, got {other:?}"),
         }
+        drop(inherited_client);
     }
 
     #[test]
