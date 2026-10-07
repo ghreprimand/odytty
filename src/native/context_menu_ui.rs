@@ -335,12 +335,12 @@ pub(super) enum ContextMenuRow {
 }
 
 /// Render-cache signature for the menu: the raw spawn cell, the focused row, the
-/// committed scroll anchor, and the per-item enabled state (which drives the
-/// dim/normal attrs). The clamp to
-/// the grid is deterministic from `spawn` + grid size, so the raw spawn fully
-/// describes the render at a given grid size. `Default` (closed, nothing
-/// focused, all disabled) backs the test fixtures' closed-overlay signatures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// committed scroll anchor, every fact that selects the visible rows or their
+/// enabled state, the accelerator text, and the rail clearance. The clamp to
+/// the grid is deterministic from these plus the grid size. `Default` (closed,
+/// nothing focused, all disabled) backs the test fixtures' closed-overlay
+/// signatures.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct ContextMenuSignature {
     /// Raw (pre-clamp) spawn cell as `(row, column)`.
     pub(super) spawn: (usize, usize),
@@ -351,6 +351,9 @@ pub(super) struct ContextMenuSignature {
     pub(super) paste_enabled: bool,
     pub(super) delete_enabled: bool,
     pub(super) prompt_editing_hint: bool,
+    /// Whether the command-output rows show (shell integration has a command
+    /// under the click), so their appearance repaints.
+    pub(super) command_actions_enabled: bool,
     pub(super) rename_enabled: bool,
     /// Whether the active tab is multi-pane (drives the Close Pane item's
     /// visibility, so a pane-count change must repaint the menu).
@@ -380,6 +383,10 @@ pub(super) struct ContextMenuSignature {
     /// Up/Down items' visibility on a `WorkspaceSlot` menu (a slot can move down
     /// only when it is not last), so a workspace-count change must repaint.
     pub(super) workspace_count: usize,
+    /// The clicked rail slot on a `WorkspaceSlot` menu (0 elsewhere): with
+    /// `workspace_count` it selects the Move Up/Down rows, so two slots with the
+    /// same count still repaint differently.
+    pub(super) workspace_slot: usize,
     /// The surface discriminant (F7): a surface change swaps the whole
     /// composition, so it must repaint.
     pub(super) surface: u8,
@@ -411,6 +418,13 @@ pub(super) struct ContextMenuSignature {
     /// The v0.16 window, layout, and move facts that select the Move, layout, and
     /// merge rows, so a change in any of them repaints the menu.
     pub(super) window_actions: WindowMenuActions,
+    /// The accelerator text painted beside each item, as `(ALL index, text)`
+    /// pairs for the items that have one. It paints text and sets the box
+    /// width, so a rebind repaints.
+    pub(super) accelerators: Vec<(u8, String)>,
+    /// Rail clearance in columns on the left and right: it moves and narrows
+    /// the box, so a change repaints.
+    pub(super) reserved_cols: (usize, usize),
     /// Committed scroll anchor (first visible body row). The displayed window
     /// is derived from this plus `focused` at a given grid, so an overflow-mark
     /// press or a wheel step that scrolls without moving focus still changes
@@ -537,3 +551,7 @@ pub(super) struct ContextMenuUi {
 #[cfg(test)]
 #[path = "context_menu_ui_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "context_menu_ui_presentation_tests.rs"]
+mod presentation_tests;

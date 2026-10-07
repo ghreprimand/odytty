@@ -37,6 +37,7 @@ impl ContextMenuUi {
             paste_enabled: self.paste_enabled,
             delete_enabled: self.delete_enabled,
             prompt_editing_hint: self.prompt_editing_hint,
+            command_actions_enabled: self.command_actions_enabled,
             rename_enabled: self.rename_target.is_some(),
             multi_pane: self.multi_pane,
             multi_tab: self.multi_tab,
@@ -47,6 +48,10 @@ impl ContextMenuUi {
             pane_broadcast: self.pane_broadcast,
             broadcast_active: self.broadcast_active,
             workspace_count: self.workspace_count,
+            workspace_slot: match self.surface {
+                ContextMenuSurface::WorkspaceSlot(idx) => idx,
+                _ => 0,
+            },
             surface: self.surface.discriminant(),
             has_path_target: self.path_target.is_some(),
             is_image_target: self.is_image_target(),
@@ -55,6 +60,13 @@ impl ContextMenuUi {
             navigator_target_kind: self.navigator_target_kind(),
             navigator_detached_available: self.navigator_detached_available,
             window_actions: self.window_actions,
+            accelerators: self
+                .accelerators
+                .iter()
+                .enumerate()
+                .filter_map(|(index, text)| Some((u8::try_from(index).ok()?, text.clone()?)))
+                .collect(),
+            reserved_cols: (self.reserved_cols_left, self.reserved_cols_right),
             scroll_anchor: self.scroll_anchor,
         }
     }

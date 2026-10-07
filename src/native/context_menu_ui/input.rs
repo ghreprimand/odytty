@@ -19,18 +19,32 @@ pub(in crate::native) enum OverflowArrow {
 }
 
 impl ContextMenuUi {
+    /// Move focus to the previous selectable item, wrapping. An empty
+    /// composition has nothing to focus, so focus stays put.
     pub(super) fn focus_prev(&mut self) {
         let n = self.item_count();
-        self.focused = (self.focused + n - 1) % n;
+        if n == 0 {
+            return;
+        }
+        self.focused = (self.focused.min(n - 1) + n - 1) % n;
     }
 
+    /// Move focus to the next selectable item, wrapping. An empty composition
+    /// has nothing to focus, so focus stays put.
     pub(super) fn focus_next(&mut self) {
         let n = self.item_count();
-        self.focused = (self.focused + 1) % n;
+        if n == 0 {
+            return;
+        }
+        self.focused = (self.focused.min(n - 1) + 1) % n;
     }
 
+    /// Activate the focused item. An empty composition, or a focus index left
+    /// outside the visible list, activates nothing.
     pub(super) fn activate_focused(&self) -> ContextMenuOutcome {
-        let item = self.visible_items()[self.focused];
+        let Some(&item) = self.visible_items().get(self.focused) else {
+            return ContextMenuOutcome::Consumed;
+        };
         if self.item_enabled(item) {
             ContextMenuOutcome::Activate(item)
         } else {
@@ -65,14 +79,16 @@ impl ContextMenuUi {
     /// [`Self::scroll_offset`] to reach the true body row. Activation happens on
     /// PRESS. A press past the visible window, on the separator row, or past the
     /// last body row is inert. The pressed item also takes focus. Disabled items
-    /// swallow the press (D-IN2-6).
+    /// swallow the press (D-IN2-6). Only the left button activates, as on the
+    /// sibling overlay rows and the overflow marks: any other button on a body
+    /// row is inert and leaves focus where it was.
     pub(in crate::native) fn handle_press(
         &mut self,
         row_in_body: usize,
         body_height: usize,
-        _button: PointerButton,
+        button: PointerButton,
     ) -> ContextMenuOutcome {
-        if row_in_body >= body_height {
+        if button != PointerButton::Left || row_in_body >= body_height {
             return ContextMenuOutcome::Consumed;
         }
         self.commit_scroll(body_height);
@@ -84,8 +100,10 @@ impl ContextMenuUi {
             // Separator row: inert.
             return ContextMenuOutcome::Consumed;
         };
+        let Some(&item) = self.visible_items().get(item_index) else {
+            return ContextMenuOutcome::Consumed;
+        };
         self.focused = item_index;
-        let item = self.visible_items()[item_index];
         if self.item_enabled(item) {
             ContextMenuOutcome::Activate(item)
         } else {

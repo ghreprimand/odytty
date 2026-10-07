@@ -919,12 +919,15 @@ fn hover_skips_separator() {
         m.handle_hover(Some(sep), m.body_row_count());
         assert_eq!(m.focused, 2, "separator hover is inert");
     }
-    // Hovering Settings (body row 27, item index 23 in the with-selection
-    // reference - Make Pane Read-Only, Broadcast to This Pane, the workspace
-    // section + Bind + Save/Save Workspace/Open Layout rows now sit above
-    // Settings) focuses it.
-    m.handle_hover(Some(27), m.body_row_count());
-    assert_eq!(m.focused, 23, "hover Settings focuses it");
+    // Hovering Settings (body row 28, item index 24 in the with-selection
+    // reference, just below Reorder Right-to-Left Text) focuses it.
+    m.handle_hover(Some(28), m.body_row_count());
+    assert_eq!(m.focused, 24);
+    assert_eq!(
+        m.visible_items()[m.focused],
+        ContextMenuItem::Settings,
+        "hover Settings focuses it"
+    );
 }
 
 #[test]
@@ -1039,6 +1042,8 @@ fn hover_moves_focus_only_over_items() {
     assert_eq!(m.focused, 2);
 }
 
+/// Command rows, accelerators, rail clearance and the clicked rail slot are
+/// covered in `context_menu_ui_presentation_tests`.
 #[test]
 fn signature_tracks_state() {
     let plain = menu(false, false).render_signature();
@@ -1697,6 +1702,9 @@ fn split_items_map_to_pane_actions() {
     assert_eq!(ContextMenuItem::SelectAll.bindable_action(), None);
 }
 
+/// Checks the handwritten reference only; the production layout is compared
+/// against it, and inverted on every surface, in
+/// `context_menu_ui_presentation_tests`.
 #[test]
 fn body_row_mapping_is_consistent() {
     // Items 0-4 map 1:1 to body rows 0-4.

@@ -209,7 +209,9 @@ Window and Move Tab to Window when they apply, and New Window; the empty tab
 strip offers New Tab, New Workspace, Open Layout, Merge This Window Into and
 Pull Window Into This One when another window exists, Command Palette, and
 Settings. The terminal grid opens the selection- and path-aware content
-menu. Items with a bound chord show it.
+menu. Items with a bound chord show it, including New, Rename, Close, and
+Duplicate Workspace. A row activates with the left button or Enter; a right
+press on an open menu does nothing.
 
 ## Windows Console Input
 
@@ -474,7 +476,8 @@ keyboard-accessible workspace picker without requiring PageUp/PageDown.
 Renaming and closing a workspace are unbound by default. The workspace
 right-click menu covers both, while the command palette covers Rename Workspace
 only. Close Workspace is also reachable from the rail close button or a chord
-you assign in the settings key-remap editor or `keybinds` config:
+you assign in the settings key-remap editor or `keybinds` config. An assigned
+chord shows beside the matching right-click menu row:
 
 - `rename-workspace` — unbound by default; follows the same precedent as Rename
   Tab.

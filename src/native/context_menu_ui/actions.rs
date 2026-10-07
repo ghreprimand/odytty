@@ -651,7 +651,10 @@ impl ContextMenuItem {
             Self::NewWindow => Some(BindableAction::NewWindow),
             Self::CloseTab => Some(BindableAction::CloseTab),
             Self::DuplicateTab => Some(BindableAction::DuplicateTab),
+            Self::NewWorkspace => Some(BindableAction::NewWorkspace),
             Self::DuplicateWorkspace => Some(BindableAction::DuplicateWorkspace),
+            Self::RenameWorkspace => Some(BindableAction::RenameWorkspace),
+            Self::CloseWorkspace => Some(BindableAction::CloseWorkspace),
             Self::SplitColumns => Some(BindableAction::SplitColumns),
             Self::SplitRows => Some(BindableAction::SplitRows),
             Self::Settings => Some(BindableAction::SettingsPanel),
@@ -695,13 +698,9 @@ impl ContextMenuItem {
             // The bidi reordering pair has no default chord.
             | Self::ReorderRtlText
             | Self::ReorderRtlTextChecked
-            // Workspace actions have no default chord (rail / menu / palette
-            // cover them; ODP-5).
-            | Self::NewWorkspace
+            // The profile-choosing New rows have no bindable action.
             | Self::NewTabWithProfile
             | Self::NewWorkspaceWithProfile
-            | Self::RenameWorkspace
-            | Self::CloseWorkspace
             // RAIL-REORDER: reorder actions are menu-only; no chord.
             | Self::MoveWorkspaceUp
             | Self::MoveWorkspaceDown
@@ -723,8 +722,8 @@ impl ContextMenuItem {
             | Self::ConnRowBindWorkspace
             | Self::ConnRowEdit
             | Self::ConnRowRemove
-            // NAVIGATOR-ROW actions are pointer/menu-only; no default chord (the
-            // navigator's own r/d/m/x/Enter keys cover the keyboard path).
+            // NAVIGATOR-ROW actions have no global chord; the navigator's own
+            // row keys cover the keyboard path.
             | Self::NavFocus
             | Self::NavAttach
             | Self::NavRename

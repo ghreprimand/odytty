@@ -253,7 +253,7 @@ impl ContextMenuUi {
     /// hides on the last slot; Move Up hides on the first). Every non-rail menu
     /// leaves it at `0`, where no Move rows are composed anyway.
     pub(in crate::native) fn set_workspace_count(&mut self, count: usize) {
-        self.workspace_count = count;
+        self.recompose(|menu| menu.workspace_count = count);
     }
 
     /// Snapshot the identity of the workspace under a right-clicked rail slot
@@ -273,19 +273,19 @@ impl ContextMenuUi {
     }
 
     pub(in crate::native) fn set_command_actions_enabled(&mut self, enabled: bool) {
-        self.command_actions_enabled = enabled;
+        self.recompose(|menu| menu.command_actions_enabled = enabled);
     }
 
     /// Record whether the focused pane is read-only for a content-surface menu,
     /// so exactly one of Make Pane Read-Only / Make Pane Writable shows.
     pub(in crate::native) fn set_pane_read_only(&mut self, read_only: bool) {
-        self.pane_read_only = read_only;
+        self.recompose(|menu| menu.pane_read_only = read_only);
     }
 
     /// Record whether bidi reordering is on for a content-surface menu, so
     /// the Reorder Right-to-Left Text row shows checked or unchecked.
     pub(in crate::native) fn set_bidi_reorder(&mut self, on: bool) {
-        self.bidi_reorder = on;
+        self.recompose(|menu| menu.bidi_reorder = on);
     }
 
     /// Record the broadcast state for a content-surface menu: whether the
@@ -293,14 +293,29 @@ impl ContextMenuUi {
     /// Pane from Broadcast) and whether any receiver exists (shows Stop
     /// Broadcast).
     pub(in crate::native) fn set_broadcast(&mut self, pane_receiver: bool, active: bool) {
-        self.pane_broadcast = pane_receiver;
-        self.broadcast_active = active;
+        self.recompose(|menu| {
+            menu.pane_broadcast = pane_receiver;
+            menu.broadcast_active = active;
+        });
     }
 
     /// Record the window, layout, and move facts on an open content, tab, or
     /// empty-strip menu. Reset on every open.
     pub(in crate::native) fn set_window_actions(&mut self, actions: WindowMenuActions) {
-        self.window_actions = actions;
+        self.recompose(|menu| menu.window_actions = actions);
+    }
+
+    /// Apply a change to the facts that select the visible items, then keep
+    /// focus on the same item when it is still shown. When it is not, focus
+    /// keeps its index clamped into the new list, so it never names a row past
+    /// the end of a shorter composition.
+    fn recompose(&mut self, change: impl FnOnce(&mut Self)) {
+        let focused_item = self.visible_items().get(self.focused).copied();
+        change(self);
+        let items = self.visible_items();
+        self.focused = focused_item
+            .and_then(|item| items.iter().position(|shown| *shown == item))
+            .unwrap_or_else(|| self.focused.min(items.len().saturating_sub(1)));
     }
 
     /// The saved host snapshotted for a `ConnectionRow` menu (ODP-2C), if any.

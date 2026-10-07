@@ -2,6 +2,10 @@
 use super::*;
 use crate::native::overlay::OverlayRect;
 
+/// Narrowest box that still holds a bordered, padded body column: two border
+/// columns, two pad columns and one content column.
+pub(super) const MIN_MENU_WIDTH: usize = 5;
+
 impl ContextMenuUi {
     /// Whether a v0.16 window, layout, or export row shows on the content
     /// surface. Every other item is unaffected (`true`).
@@ -393,24 +397,21 @@ impl ContextMenuUi {
             .and_then(|slot| slot.as_deref())
     }
 
-    /// Menu width in cells: the longest label, plus (when any item has an
-    /// accelerator) a two-column gap and the longest accelerator, plus a border
-    /// and one pad column on each side. Falls back to label-only width when no
-    /// accelerators are set (the unit-test / legacy layout).
+    /// Menu width in cells: the longest visible label, plus (when any visible
+    /// item has an accelerator or hint) a two-column gap and the longest such
+    /// text, plus a border and one pad column on each side. Hidden items never
+    /// widen the box. Falls back to label-only width when no visible item has
+    /// an accelerator (the unit-test / legacy layout).
     pub(in crate::native) fn menu_width(&self) -> usize {
-        let longest_label = ContextMenuItem::ALL
+        let items = self.visible_items();
+        let longest_label = items
             .iter()
             .map(|item| item.label().chars().count())
             .max()
             .unwrap_or(0);
-        let longest_accel = self
-            .accelerators
+        let longest_accel = items
             .iter()
-            .filter_map(|slot| slot.as_deref())
-            .chain(
-                self.prompt_editing_hint
-                    .then_some(SHELL_INTEGRATION_DISABLED_HINT),
-            )
+            .filter_map(|item| self.accelerator_for_item(*item))
             .map(|accel| accel.chars().count())
             .max()
             .unwrap_or(0);
@@ -431,15 +432,20 @@ impl ContextMenuUi {
     /// pointer routing and click-outside dismissal work unchanged.
     pub(in crate::native) fn rect(&self, columns: usize, rows: usize) -> OverlayRect {
         let body_rows = self.body_row_count();
-        // MENU-Z-ORDER: constrain the box to the column span left of the reserved
-        // rail band(s). `avail_left`..`avail_right` is the full grid when both
-        // reserves are 0 (every non-rail open), so the default path is
-        // byte-identical. A reserve wider than the grid degrades to the whole
-        // grid rather than vanishing the menu.
-        let avail_left = self.reserved_cols_left.min(columns.saturating_sub(1));
-        let avail_right = columns
-            .saturating_sub(self.reserved_cols_right)
-            .max(avail_left + 1);
+        // MENU-Z-ORDER: constrain the box to the column span between the
+        // reserved rail band(s). `avail_left`..`avail_right` is the full grid
+        // when both reserves are 0 (every non-rail open). When the reserves
+        // leave too few columns for a bordered body, the clearance is dropped
+        // and the box uses the whole grid, so the menu stays usable (partly
+        // under the rail) rather than collapsing beside it.
+        let reserved = self
+            .reserved_cols_left
+            .saturating_add(self.reserved_cols_right);
+        let (avail_left, avail_right) = if columns.saturating_sub(reserved) >= MIN_MENU_WIDTH {
+            (self.reserved_cols_left, columns - self.reserved_cols_right)
+        } else {
+            (0, columns)
+        };
         let span = avail_right - avail_left;
         let width = self.menu_width().min(span.max(1));
         let height = (body_rows + 2).min(rows.max(1));
@@ -451,14 +457,23 @@ impl ContextMenuUi {
         // this equals `body_rows` and the layout is byte-identical to before
         // scrolling existed; only a too-short window produces a smaller window.
         let body_height = height.saturating_sub(2).min(body_rows);
+        // A box too narrow or too short for a bordered body (a grid smaller
+        // than `MIN_MENU_WIDTH` x 3) has an empty body that starts inside the
+        // box, so no press or row maps outside the grid.
+        let body_width = width.saturating_sub(4);
+        let (body_width, body_height) = if body_width == 0 || body_height == 0 {
+            (0, 0)
+        } else {
+            (body_width, body_height)
+        };
         OverlayRect {
             left,
             top,
             width,
             height,
-            body_left: left + 2,
-            body_top: top + 1,
-            body_width: width.saturating_sub(4),
+            body_left: (left + 2).min(left + width.saturating_sub(1)),
+            body_top: (top + 1).min(top + height.saturating_sub(1)),
+            body_width,
             body_height,
         }
     }
@@ -466,7 +481,9 @@ impl ContextMenuUi {
     /// The body row of the currently focused item (separators are never
     /// focused), used to keep the focus inside the visible scroll window.
     pub(super) fn focused_body_row(&self) -> usize {
-        let focused_item = self.visible_items()[self.focused];
+        let Some(&focused_item) = self.visible_items().get(self.focused) else {
+            return 0;
+        };
         self.body_layout()
             .iter()
             .position(|row| *row == Some(focused_item))
