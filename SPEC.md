@@ -1959,7 +1959,9 @@ scope rather than silently inheriting deferred work from a prior release.
   Path**, **Copy File** (`file://` URI), and **Reveal in File Manager**. Open
   With uses freedesktop MIME/desktop enumeration on Linux and `NSWorkspace` on
   macOS; Windows currently opens an empty picker because application enumeration
-  is not implemented there.
+  is not implemented there. Linux association removals apply only at their
+  own or lower priority, preserving higher-priority added or cached handlers
+  and the defaults-first picker ordering.
 
   Every open routes through a single argv-only detached-spawn point — never
   `sh -c` — so a filename containing `;`, `$()`, backticks, or spaces is an inert

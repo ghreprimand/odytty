@@ -16,7 +16,7 @@
 //! The production seam implementations live in `native/` (they touch the real
 //! process/filesystem); this module stays pure.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 mod exec;
@@ -82,7 +82,8 @@ pub trait DesktopEnv {
 /// 2. Collect candidate desktop ids in priority order: `mimeapps.list`
 ///    `[Default Applications]` then `[Added Associations]` across the config
 ///    ladder, then `mimeinfo.cache` `[MIME Cache]` across the data ladder.
-///    Subtract `[Removed Associations]`. Dedup preserving first occurrence.
+///    Apply `[Removed Associations]` only at their own or lower precedence.
+///    Dedup preserving first occurrence.
 /// 3. Resolve each id to its `.desktop` file across the data ladder (user dir
 ///    wins; subdir-prefixed `kde-foo.desktop` → `applications/kde/foo.desktop`).
 ///    Parse + filter (`Type=Application`, not NoDisplay/Hidden/Terminal, has
@@ -104,56 +105,62 @@ pub fn enumerate_open_with(
     let data_dirs = env.data_dirs();
 
     // --- Step 2: ordered candidate ids + removed set ------------------------
-    let mut removed: HashSet<String> = HashSet::new();
+    let mut removed: HashMap<String, usize> = HashMap::new();
     let mut ordered: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
 
     // mimeapps.list lives in each config dir, and (legacy) in each data dir's
     // applications/ subdir. Read both ladders for associations.
-    let mut mimeapps_texts: Vec<String> = Vec::new();
-    for dir in &config_dirs {
+    let mut mimeapps_texts: Vec<(usize, String)> = Vec::new();
+    for (rank, dir) in config_dirs.iter().enumerate() {
         if let Some(text) = env.read_file(&dir.join("mimeapps.list")) {
-            mimeapps_texts.push(text);
+            mimeapps_texts.push((rank, text));
         }
     }
-    for dir in &data_dirs {
+    for (rank, dir) in data_dirs.iter().enumerate() {
         if let Some(text) = env.read_file(&dir.join("applications").join("mimeapps.list")) {
-            mimeapps_texts.push(text);
+            mimeapps_texts.push((config_dirs.len() + rank, text));
         }
     }
 
-    // Removed associations subtract regardless of order, so gather them first.
-    for text in &mimeapps_texts {
+    // Retain the highest-priority removal for each id. A lower-priority file
+    // cannot cancel a handler already associated higher in the ladder.
+    for (rank, text) in &mimeapps_texts {
         for id in parse::parse_association_list(text, "Removed Associations", mime) {
-            removed.insert(id);
+            removed.entry(id).or_insert(*rank);
         }
     }
 
-    let push_id = |id: String, ordered: &mut Vec<String>, seen: &mut HashSet<String>| {
-        if removed.contains(&id) || seen.contains(&id) {
-            return;
-        }
-        seen.insert(id.clone());
-        ordered.push(id);
-    };
+    let push_id =
+        |id: String, rank: usize, ordered: &mut Vec<String>, seen: &mut HashSet<String>| {
+            if removed
+                .get(&id)
+                .is_some_and(|removed_rank| *removed_rank <= rank)
+                || seen.contains(&id)
+            {
+                return;
+            }
+            seen.insert(id.clone());
+            ordered.push(id);
+        };
 
     // Defaults first (highest priority), then added associations.
-    for text in &mimeapps_texts {
+    for (rank, text) in &mimeapps_texts {
         for id in parse::parse_association_list(text, "Default Applications", mime) {
-            push_id(id, &mut ordered, &mut seen);
+            push_id(id, *rank, &mut ordered, &mut seen);
         }
     }
-    for text in &mimeapps_texts {
+    for (rank, text) in &mimeapps_texts {
         for id in parse::parse_association_list(text, "Added Associations", mime) {
-            push_id(id, &mut ordered, &mut seen);
+            push_id(id, *rank, &mut ordered, &mut seen);
         }
     }
     // Then the registered handlers from mimeinfo.cache in each applications dir.
-    for dir in &data_dirs {
+    for (rank, dir) in data_dirs.iter().enumerate() {
         let cache = dir.join("applications").join("mimeinfo.cache");
         if let Some(text) = env.read_file(&cache) {
             for id in parse::parse_association_list(&text, "MIME Cache", mime) {
-                push_id(id, &mut ordered, &mut seen);
+                push_id(id, config_dirs.len() + rank, &mut ordered, &mut seen);
             }
         }
     }

@@ -1496,6 +1496,8 @@ feature validates against.
   - [x] In-app image lightbox: Ctrl+click (Cmd+click on macOS) a resolved
         `png`/`jpg`/`jpeg`/`webp` path, or use the right-click "Open in OdyTTY"
         item, to open an in-window viewer; `Esc` or click-outside dismisses it.
+  - [x] Linux Open With association precedence: lower-priority removals
+        preserve higher-priority added and cached handlers.
   - [x] Path right-click menu: Open, Open in OdyTTY (images), Open With… (the
         `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
         in File Manager. See [`docs/keybindings.md`](docs/keybindings.md) for the chord reference.

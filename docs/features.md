@@ -1753,7 +1753,10 @@ jpeg, and webp files open in an in-app lightbox.
 
 Dismiss the lightbox with `Esc` or a click outside. A click hint and the path
 menu expose Open, **Open With…**, Copy Path, Copy File, and Reveal in File
-Manager.
+Manager. Linux Open With keeps higher-priority added and cached MIME
+handlers when a lower-priority file removes them. Same-file removals retain
+the established refusal policy, and defaults stay first. macOS uses
+`NSWorkspace`; Windows application enumeration remains unsupported.
 
 Holding the open modifier over a detected path underlines it, in single-pane,
 split, stacked, and floating tabs alike; in a multi-pane tab the underline is
