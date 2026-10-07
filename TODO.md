@@ -198,7 +198,7 @@ claim acceptance on other platforms. The release notes are in
       docs/profiles.md), so per-prompt working-directory reports no longer
       reparse it; the saved-layout list examines at most 1,024 entries; font
       discovery bounds entries examined and directories read, visits entries
-      in name order, and includes symlinks to regular font files without
+      in name order after admission, and includes symlinks to regular font files without
       following directory symlinks. Each truncation is reported.
 - [x] Transport lifecycles are bounded: the session host reads each attach
       hello without blocking under a deadline, accepts at most eight
@@ -1918,6 +1918,10 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
 - [x] Monochrome coverage rejects invalid scales and oversized pixel bounds
       before allocation; non-finite contrast and brightness controls preserve
       input colors on every platform.
+- [x] Font discovery honors Linux XDG data roots and common profile roots,
+      deduplicates canonical roots and files, and reports depth truncation.
+      Entry-bound prefixes follow filesystem enumeration order before sorting;
+      custom fontconfig-only directories remain outside the picker scan.
 - [x] Runtime fallback faces are parsed once and shared across codepoints;
       over-limit collections reconstruct only the selected face instead of
       retaining the full collection. Directory-only discovery also accepts

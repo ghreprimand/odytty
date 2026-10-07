@@ -2758,6 +2758,16 @@ before scan conversion. Degenerate font metrics cannot request an unbounded
 coverage allocation. Non-finite contrast and brightness controls use exact
 color passthrough. These guards apply on Linux, macOS, and Windows.
 
+Font discovery on Linux honors absolute `XDG_DATA_HOME` and `XDG_DATA_DIRS`
+font directories, with standard defaults for invalid or empty values, and
+checks common profile font directories when present. It considers at most 64
+configured XDG system roots. macOS and Windows keep their platform roots.
+Canonical roots and font files are admitted once; exceeding the depth limit
+reports truncation without dropping eligible shallower siblings. Directory
+entries admitted before the entry bound are sorted by name, but a truncated
+directory's admitted prefix follows filesystem order. Custom fontconfig-only
+directories are not included in this scan.
+
 ### Render Color Emoji
 
 The accepted direction is a separate

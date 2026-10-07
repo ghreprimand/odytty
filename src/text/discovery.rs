@@ -6,6 +6,7 @@
 //! actually contains is [`super::face_meta`]'s job, and choosing between
 //! candidates is [`super::resolve`]'s.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -72,23 +73,63 @@ pub fn font_search_dirs() -> Vec<PathBuf> {
         dirs
     };
     #[cfg(not(any(target_os = "macos", windows)))]
-    let mut dirs = vec![
-        PathBuf::from("/usr/share/fonts"),
-        PathBuf::from("/usr/local/share/fonts"),
-    ];
-    #[cfg(not(windows))]
+    let mut dirs = linux_font_roots(
+        std::env::var_os("HOME").as_deref().map(Path::new),
+        std::env::var_os("XDG_DATA_HOME").as_deref(),
+        std::env::var_os("XDG_DATA_DIRS").as_deref(),
+    );
+    #[cfg(target_os = "macos")]
     if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
-        #[cfg(target_os = "macos")]
-        dirs.push(home.join("Library/Fonts"));
-        #[cfg(not(any(target_os = "macos", windows)))]
-        {
-            dirs.push(home.join(".local/share/fonts"));
-            dirs.push(home.join(".fonts"));
-        }
+        dirs.push(PathBuf::from(home).join("Library/Fonts"));
     }
     dirs.retain(|d| d.is_dir());
     dirs
+}
+
+/// Candidate roots with explicit environment inputs for portable Linux tests.
+/// Reversed XDG system order keeps the first configured directory higher
+/// priority, because the scan visits the last root first.
+#[cfg(not(any(target_os = "macos", windows)))]
+fn linux_font_roots(
+    home: Option<&Path>,
+    data_home: Option<&std::ffi::OsStr>,
+    data_dirs: Option<&std::ffi::OsStr>,
+) -> Vec<PathBuf> {
+    let mut roots = vec![
+        PathBuf::from("/run/current-system/sw/share/fonts"),
+        PathBuf::from("/run/current-system/profile/share/fonts"),
+    ];
+    if let Some(home) = home {
+        roots.push(home.join(".nix-profile/share/fonts"));
+        roots.push(home.join(".guix-profile/share/fonts"));
+    }
+    // Environment strings can name many roots; keep discovery's setup bounded
+    // as well as its directory walk.
+    let mut system: Vec<PathBuf> = data_dirs
+        .into_iter()
+        .flat_map(std::env::split_paths)
+        .filter(|path| path.is_absolute())
+        .take(64)
+        .collect();
+    if system.is_empty() {
+        system = vec![
+            PathBuf::from("/usr/local/share"),
+            PathBuf::from("/usr/share"),
+        ];
+    }
+    roots.extend(system.into_iter().rev().map(|path| path.join("fonts")));
+    let user_data = data_home
+        .map(Path::new)
+        .filter(|path| path.is_absolute())
+        .map(Path::to_path_buf)
+        .or_else(|| home.map(|home| home.join(".local/share")));
+    if let Some(data) = user_data {
+        roots.push(data.join("fonts"));
+    }
+    if let Some(home) = home {
+        roots.push(home.join(".fonts"));
+    }
+    roots
 }
 
 /// Lowercased alphanumeric-only form of a family/stem name, so "DejaVu Sans
@@ -169,16 +210,25 @@ pub(super) struct FontScan {
 /// A symlink counts when it points at a regular font file, the same rule an
 /// explicit font path follows; symlinks to directories are not followed, so a
 /// link cannot loop the scan or pull in a tree outside the roots. Each
-/// directory's entries are visited in name order and the last root is read
-/// first (per-user directories come after the system ones), so a bounded scan
-/// keeps the same files from run to run.
+/// directory's admitted entries are visited in name order and the last root is
+/// read first (per-user directories come after the system ones). If the entry
+/// limit cuts a directory short, its admitted prefix follows filesystem
+/// enumeration order and can differ between filesystems. Canonical roots and
+/// files are visited only once, so aliases do not consume the same budget twice.
 pub(super) fn collect_font_files_bounded(dirs: &[PathBuf], limits: FontScanLimits) -> FontScan {
     let mut scan = FontScan::default();
     let mut examined = 0usize;
     let mut dirs_read = 0usize;
+    let mut visited_dirs = HashSet::new();
+    let mut visited_files = HashSet::new();
     let mut stack: Vec<(PathBuf, usize)> = dirs.iter().map(|d| (d.clone(), 0)).collect();
     'dirs: while let Some((dir, depth)) = stack.pop() {
+        let canonical = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+        if visited_dirs.contains(&canonical) {
+            continue;
+        }
         if depth > limits.depth {
+            scan.truncated = true;
             continue;
         }
         if dirs_read >= limits.dirs {
@@ -186,13 +236,16 @@ pub(super) fn collect_font_files_bounded(dirs: &[PathBuf], limits: FontScanLimit
             break;
         }
         dirs_read += 1;
+        visited_dirs.insert(canonical);
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
         let mut listed = Vec::new();
+        let mut entry_limit_hit = false;
         for entry in entries {
             if examined >= limits.entries {
                 scan.truncated = true;
+                entry_limit_hit = true;
                 break;
             }
             examined += 1;
@@ -212,6 +265,10 @@ pub(super) fn collect_font_files_bounded(dirs: &[PathBuf], limits: FontScanLimit
                     || (ft.is_symlink()
                         && std::fs::metadata(&path).is_ok_and(|meta| meta.is_file())))
             {
+                let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                if !visited_files.insert(canonical) {
+                    continue;
+                }
                 if scan.files.len() >= limits.files {
                     scan.truncated = true;
                     break 'dirs;
@@ -221,7 +278,7 @@ pub(super) fn collect_font_files_bounded(dirs: &[PathBuf], limits: FontScanLimit
         }
         // Pushed in reverse so the stack pops them in name order.
         stack.extend(subdirs.into_iter().rev());
-        if scan.truncated {
+        if entry_limit_hit {
             break;
         }
     }
@@ -235,3 +292,7 @@ pub(super) fn collect_font_files_bounded(dirs: &[PathBuf], limits: FontScanLimit
     }
     scan
 }
+
+#[cfg(test)]
+#[path = "discovery_root_tests.rs"]
+mod root_tests;

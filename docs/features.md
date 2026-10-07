@@ -342,6 +342,15 @@ larger than 4,096 pixels on either axis before allocation. Non-finite contrast
 and brightness inputs preserve the original colors. These bounds apply on
 Linux, macOS, and Windows.
 
+Linux discovery honors absolute `XDG_DATA_HOME` and
+`XDG_DATA_DIRS` font directories, using the standard data directories when
+those values are empty or invalid. Common profile font directories are also
+checked when present. At most 64 configured XDG system roots are considered.
+Windows and macOS keep their platform font directories. Aliased roots and
+files are scanned once; depth limits report truncation. Entry limits admit a
+filesystem-order prefix, then sort that prefix by name. Directories known only
+to custom fontconfig configuration are outside the picker scan.
+
 With `wheel_zoom` enabled, `Ctrl`+wheel changes the live font size when the
 running application has not claimed mouse reporting. Each effective step shows
 a compact centered font-size HUD, replaces the previous value during a gesture,
