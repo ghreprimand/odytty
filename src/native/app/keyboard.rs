@@ -145,7 +145,11 @@ impl App {
                 && let Some(chord) =
                     prefix_chord_from_winit(&logical, &binding_key, mods, self.super_key)
             {
-                match self.prefix_engine.on_chord(chord, Instant::now()) {
+                match self.prefix_engine.on_key(
+                    chord,
+                    chord_from_winit(&binding_key, mods, self.super_key),
+                    Instant::now(),
+                ) {
                     PrefixOutcome::Inactive => {}
                     PrefixOutcome::Entered => {
                         // Prefix captured; await the second key. Repaint so a

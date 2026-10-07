@@ -17,9 +17,9 @@ mod rendering;
 mod sections;
 
 use path_picker::{PathPickerOutcome, PathPickerSignature, PathPickerState, resolve_start_dir};
+pub(in crate::native) use rendering::wrap_words;
 use rendering::{
     edit_options, ellipsize, matches_query, setting_detail, settings_detail_footer_reserve,
-    wrap_words,
 };
 use sections::SECTIONS;
 

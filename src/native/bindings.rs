@@ -77,17 +77,10 @@ impl PrefixEngine {
         overrides: &[KeyBindingOverride],
         timeout: Duration,
     ) -> Self {
-        let mut table: Vec<(KeyChord, BindableAction)> = default_prefix_bindings()
+        let table = effective_prefix_bindings(overrides)
             .into_iter()
             .map(|(chord, action)| (normalize_lookup_chord(chord), action))
             .collect();
-        for override_ in overrides {
-            if !override_.action.is_pane_action() {
-                continue;
-            }
-            table.retain(|(_, action)| *action != override_.action);
-            table.push((normalize_lookup_chord(override_.chord), override_.action));
-        }
         Self {
             prefix,
             table,
@@ -132,12 +125,12 @@ impl PrefixEngine {
     /// re-arms `WaitUntil(past)` — a 0-timeout poll that returns immediately
     /// every iteration, busy-spinning a core (frozen `voluntary_ctxt_switches`)
     /// until the next key or focus loss clears the prefix. Mirrors the timeout
-    /// check in [`Self::on_chord`] so the timer and the next-key paths agree on
-    /// when a prefix is stale (using `>=` here so the boundary the loop was woken
-    /// at is treated as expired in that same pass, never re-armed).
+    /// Shares [`Self::is_expired`] with the next-key path, so a prefix is
+    /// stale at exactly [`Self::pending_deadline`] whichever path sees it first,
+    /// and the boundary the loop was woken at is never re-armed.
     pub(super) fn expire_pending(&mut self, now: Instant) -> bool {
         if let Some(since) = self.pending_since
-            && now.duration_since(since) >= self.timeout
+            && self.is_expired(since, now)
         {
             self.pending_since = None;
             return true;
@@ -145,43 +138,76 @@ impl PrefixEngine {
         false
     }
 
+    /// Whether a prefix pressed at `since` has timed out by `now`: at or after
+    /// the deadline. The one predicate for the timer and the next key.
+    fn is_expired(&self, since: Instant, now: Instant) -> bool {
+        now.duration_since(since) >= self.timeout
+    }
+
     /// The literal bytes to forward to the PTY for the doubled-prefix passthrough
     /// (K3). For a `Ctrl+<letter>` prefix this is the corresponding C0 control
-    /// byte (`Ctrl-b` → `0x02`); empty for prefixes with no single-byte literal.
+    /// byte (`Ctrl-b` -> `0x02`), and `Ctrl+Space` sends NUL; empty for prefixes
+    /// with no single-byte literal, which then send nothing.
     pub(super) fn passthrough_bytes(&self) -> Vec<u8> {
         let Some(chord) = self.prefix else {
             return Vec::new();
         };
-        if let KeyBindingKey::Character(ch) = chord.key {
-            let m = chord.modifiers;
-            if m.ctrl && !m.alt && !m.super_key {
-                let upper = ch.to_ascii_uppercase();
-                if upper.is_ascii_uppercase() {
-                    return vec![(upper as u8) - 0x40];
-                }
-                // Ctrl with a few non-letter keys also has C0 encodings.
-                match ch {
-                    ' ' => return vec![0x00],
-                    '@' => return vec![0x00],
-                    '[' => return vec![0x1b],
-                    '\\' => return vec![0x1c],
-                    ']' => return vec![0x1d],
-                    '^' => return vec![0x1e],
-                    '_' => return vec![0x1f],
-                    _ => {}
-                }
+        let m = chord.modifiers;
+        if chord.key == KeyBindingKey::Named(KeyBindingNamedKey::Space)
+            && m.ctrl
+            && !m.alt
+            && !m.super_key
+        {
+            return vec![0x00];
+        }
+        if let KeyBindingKey::Character(ch) = chord.key
+            && m.ctrl
+            && !m.alt
+            && !m.super_key
+        {
+            let upper = ch.to_ascii_uppercase();
+            if upper.is_ascii_uppercase() {
+                return vec![(upper as u8) - 0x40];
+            }
+            // Ctrl with a few non-letter keys also has C0 encodings.
+            match ch {
+                ' ' => return vec![0x00],
+                '@' => return vec![0x00],
+                '[' => return vec![0x1b],
+                '\\' => return vec![0x1c],
+                ']' => return vec![0x1d],
+                '^' => return vec![0x1e],
+                '_' => return vec![0x1f],
+                _ => {}
             }
         }
         Vec::new()
     }
 
-    /// Feed a keychord to the engine, advancing the prefix state machine and
-    /// returning what the caller should do. `now` drives the pending timeout so
-    /// the state machine is deterministically unit-testable.
+    /// Feed a keychord to the engine with no separate base-key view (tests).
+    #[cfg(test)]
     pub(super) fn on_chord(&mut self, chord: KeyChord, now: Instant) -> PrefixOutcome {
+        self.on_key(chord, None, now)
+    }
+
+    /// Feed a key to the engine, advancing the prefix state machine and
+    /// returning what the caller should do. `chord` is the produced-character
+    /// view used for second keys; `base` is the unshifted base-key view of the
+    /// same press. The configured prefix matches either view, so a shifted
+    /// prefix such as `Ctrl+Shift+5` is recognised whether the platform reports
+    /// it as `5` or `%`, for entry and for the doubled-prefix passthrough. `now`
+    /// drives the pending timeout so the state machine is deterministically
+    /// unit-testable.
+    pub(super) fn on_key(
+        &mut self,
+        chord: KeyChord,
+        base: Option<KeyChord>,
+        now: Instant,
+    ) -> PrefixOutcome {
+        let is_prefix = self.is_prefix(chord) || base.is_some_and(|base| self.is_prefix(base));
         // Resolve any pending state first.
         if let Some(since) = self.pending_since {
-            if now.duration_since(since) > self.timeout {
+            if self.is_expired(since, now) {
                 // The pending prefix expired; forget it and treat this chord as
                 // fresh input (it may itself be the prefix, re-entering).
                 self.pending_since = None;
@@ -190,7 +216,7 @@ impl PrefixEngine {
                 // action; anything else → clean cancel. Either way, no longer
                 // pending afterward.
                 self.pending_since = None;
-                if self.is_prefix(chord) {
+                if is_prefix {
                     return PrefixOutcome::Passthrough;
                 }
                 if let Some(action) = self.lookup(chord) {
@@ -200,7 +226,7 @@ impl PrefixEngine {
             }
         }
         // Not pending: only the prefix chord does anything new.
-        if self.is_prefix(chord) {
+        if is_prefix {
             self.pending_since = Some(now);
             return PrefixOutcome::Entered;
         }
@@ -237,6 +263,32 @@ impl PrefixEngine {
             .rev()
             .find_map(|(candidate, action)| (*candidate == normalized).then_some(*action))
     }
+}
+
+/// The effective pane-action prefix table: the tmux defaults, then each
+/// pane-action override in order. An override replaces its action's earlier
+/// chords and removes any earlier binding on the same lookup-normalized chord,
+/// so one second key resolves to exactly one action and a shadowed action is
+/// left unbound rather than listed with a key that no longer reaches it. Chords
+/// stay raw (as authored); [`PrefixEngine::new`] normalizes them for lookup.
+fn effective_prefix_bindings(overrides: &[KeyBindingOverride]) -> Vec<(KeyChord, BindableAction)> {
+    let mut bindings = default_prefix_bindings();
+    for override_ in overrides {
+        if !override_.action.is_pane_action() {
+            continue;
+        }
+        let normalized = normalize_lookup_chord(override_.chord);
+        bindings.retain(|(chord, action)| {
+            *action != override_.action && normalize_lookup_chord(*chord) != normalized
+        });
+        bindings.push((override_.chord, override_.action));
+    }
+    bindings
+}
+
+/// Whether two pane-prefix second keys are the same key to the engine.
+pub(in crate::native) fn same_prefix_key(a: KeyChord, b: KeyChord) -> bool {
+    normalize_lookup_chord(a) == normalize_lookup_chord(b)
 }
 
 /// Normalize a chord for prefix-table lookup: for a character key, drop the
@@ -320,26 +372,21 @@ fn default_prefix_bindings() -> Vec<(KeyChord, BindableAction)> {
 /// pane-action chord only conflicts with ANOTHER pane action's chord.
 ///
 /// Chords are kept RAW (as authored), matching how [`KeyBindings`] stores
-/// override chords, so `format_key_chord` renders exactly what the user pressed
-/// and conflict comparison is raw-to-raw on both sides.
+/// override chords, so `format_key_chord` renders exactly what the user pressed.
+/// Conflicts compare the lookup-normalized chord the [`PrefixEngine`] matches
+/// on, and both are built by [`effective_prefix_bindings`], so a shadowed pane
+/// action reads as unbound here exactly when it can no longer fire.
 pub(in crate::native) struct PanePrefixBindings {
     bindings: Vec<(KeyChord, BindableAction)>,
 }
 
 impl PanePrefixBindings {
-    /// Build from the working overrides: the tmux defaults plus any pane-action
-    /// overrides (later entries win), mirroring [`PrefixEngine::new`]'s table
-    /// build minus the lookup normalization (the UI wants raw chords).
+    /// Build from the working overrides: the same effective table the
+    /// [`PrefixEngine`] uses, with raw chords for display.
     pub(in crate::native) fn from_overrides(overrides: &[KeyBindingOverride]) -> Self {
-        let mut bindings = default_prefix_bindings();
-        for override_ in overrides {
-            if !override_.action.is_pane_action() {
-                continue;
-            }
-            bindings.retain(|(_, action)| *action != override_.action);
-            bindings.push((override_.chord, override_.action));
+        Self {
+            bindings: effective_prefix_bindings(overrides),
         }
-        Self { bindings }
     }
 
     /// The effective prefix second-key currently bound to `action`, newest-first
@@ -351,12 +398,13 @@ impl PanePrefixBindings {
             .find_map(|(chord, candidate)| (*candidate == action).then_some(*chord))
     }
 
-    /// The pane action a prefix second-key resolves to, newest-first.
+    /// The pane action a prefix second-key resolves to, newest-first, compared
+    /// the way the engine matches it (shift folded for character keys).
     pub(in crate::native) fn action_for_chord(&self, chord: KeyChord) -> Option<BindableAction> {
-        self.bindings
-            .iter()
-            .rev()
-            .find_map(|(candidate, action)| (*candidate == chord).then_some(*action))
+        let chord = normalize_lookup_chord(chord);
+        self.bindings.iter().rev().find_map(|(candidate, action)| {
+            (normalize_lookup_chord(*candidate) == chord).then_some(*action)
+        })
     }
 }
 
@@ -1218,6 +1266,10 @@ pub(super) fn map_winit_mouse_button(button: WinitMouseButton) -> Option<CoreMou
         _ => return None,
     })
 }
+
+#[cfg(test)]
+#[path = "bindings_prefix_tests.rs"]
+mod prefix_tests;
 
 #[cfg(test)]
 mod tests {

@@ -388,3 +388,30 @@ fn new_bindable_actions_parse_from_config_names() {
     );
     assert!(warnings.is_empty());
 }
+
+#[test]
+fn a_global_action_on_an_unmodified_typing_key_is_skipped_with_a_warning() {
+    let (settings, warnings) = settings_from([(
+        KEYBINDS_ENV,
+        "x=copy;space=paste;shift+a=search;f9=copy;x=close-pane;alt+x=paste",
+    )]);
+    let bound: Vec<(String, BindableAction)> = settings
+        .key_bindings
+        .iter()
+        .map(|o| (format_key_chord(o.chord), o.action))
+        .collect();
+    assert_eq!(
+        bound,
+        vec![
+            ("f9".to_owned(), BindableAction::Copy),
+            ("x".to_owned(), BindableAction::ClosePane),
+            ("alt+x".to_owned(), BindableAction::Paste),
+        ],
+        "only the typing keys bound to global actions are dropped"
+    );
+    assert_eq!(
+        warnings.iter().filter(|w| w.contains("types text")).count(),
+        3,
+        "{warnings:?}"
+    );
+}

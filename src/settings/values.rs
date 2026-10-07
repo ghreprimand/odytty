@@ -89,6 +89,12 @@ fn parse_key_binding_entry(entry: &str, warn: &mut impl FnMut(&str)) -> Option<K
         ));
         return None;
     };
+    if !action.is_pane_action() && chord.is_unmodified_typing_key() {
+        warn(&format!(
+            "{KEYBINDS_ENV} entry {trimmed:?} binds a key that types text without Ctrl, Alt or Super; skipping"
+        ));
+        return None;
+    }
     Some(KeyBindingOverride { chord, action })
 }
 

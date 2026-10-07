@@ -1182,10 +1182,13 @@ scope rather than silently inheriting deferred work from a prior release.
 - Configurable terminal-local key bindings; `keybinds` / `ODYTTY_KEYBINDS`
   supports all bindable local, tab, palette, and pane actions. The in-app
   key-remap editor in the settings panel covers every bindable action (the full
-  `BindableAction::ALL` set, currently 49)
+  `BindableAction::ALL` set, currently 52)
   (select a row and press `Enter` to capture a new chord, `Backspace` resets to
   default, `R` resets all, conflict prompt on clash, writes to `odytty.conf` via
-  the preservation-first writeback path). See
+  the preservation-first writeback path). A global action never takes an
+  unmodified typing key (a character, Space, Tab, Backspace, Enter, or Escape
+  without Ctrl, Alt, or Super); the editor refuses it and the config skips it
+  with a warning. See
   [`docs/keybindings.md`](docs/keybindings.md) for the full keyboard reference.
 
 - Keyboard copy mode (`copy-mode` action, `Ctrl+Shift+Space` by default): a

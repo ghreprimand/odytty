@@ -26,8 +26,11 @@ use crate::settings::{
     key_bindings_config_value,
 };
 
-use super::bindings::{KeyBindings, PanePrefixBindings};
+use std::cell::Cell;
+
+use super::bindings::{KeyBindings, PanePrefixBindings, same_prefix_key};
 use super::overlay::OverlayInput;
+use super::settings_panel::wrap_words;
 
 /// Every `BindableAction` the in-app remap UI exposes — the full config surface,
 /// grouped core → overlay → tab → pane. Sourced from [`BindableAction::ALL`] so
@@ -71,7 +74,16 @@ pub(super) struct KeyRemapUi {
     /// on `Save`). Starts as a clone of `base.key_bindings`.
     overrides: Vec<KeyBindingOverride>,
     selected: usize,
+    /// First action row of the list window, as last committed. The rendered
+    /// window starts here unless that would leave `selected` outside it (see
+    /// [`Self::window_start`]).
     scroll: usize,
+    /// Body width of the last render, so wrapping, click mapping and the
+    /// scroll arrows agree on how many rows the message takes. 0 before the
+    /// first frame (messages then count one row per line).
+    last_body_width: Cell<usize>,
+    /// Action rows the last render had room for. 0 before the first frame.
+    last_list_capacity: Cell<usize>,
     /// `Some(action)` while a row is armed to capture its next chord.
     capture: Option<BindableAction>,
     /// `Some(_)` while a captured chord awaits conflict confirmation.
@@ -97,6 +109,8 @@ impl KeyRemapUi {
             overrides: settings.key_bindings.clone(),
             selected: 0,
             scroll: 0,
+            last_body_width: Cell::new(0),
+            last_list_capacity: Cell::new(0),
             capture: None,
             conflict: None,
             pending_close_prompt: false,
@@ -177,8 +191,10 @@ impl KeyRemapUi {
     fn request_close(&mut self) -> KeyRemapOutcome {
         if self.is_dirty() {
             self.pending_close_prompt = true;
+            // The choices go on their own line, as in the conflict prompt, so
+            // they are never the part a narrow modal cuts off.
             self.message = Some(
-                "Unsaved keybinding changes — [S] save  [D] discard  [C] keep editing.".to_owned(),
+                "Unsaved keybinding changes.\n[S] save  [D] discard  [C] keep editing".to_owned(),
             );
             KeyRemapOutcome::Consumed
         } else {
@@ -217,9 +233,56 @@ impl KeyRemapUi {
         self.set_selection(next);
     }
 
+    /// Select `index` and scroll the window just far enough to keep it shown,
+    /// using the window size of the last render.
     fn set_selection(&mut self, index: usize) {
         self.selected = index.min(ACTIONS.len() - 1);
         self.message = None;
+        self.scroll = self.window_start(self.last_list_capacity.get());
+    }
+
+    /// First action row to render for a list window of `capacity` rows: the
+    /// committed `scroll`, moved only as far as needed to keep `selected`
+    /// inside the window, and never past the last full window. A capacity of
+    /// 0 (no frame yet) is treated as one row.
+    fn window_start(&self, capacity: usize) -> usize {
+        let capacity = capacity.max(1);
+        let lowest = self.selected.saturating_sub(capacity - 1);
+        self.scroll
+            .clamp(lowest, self.selected)
+            .min(ACTIONS.len().saturating_sub(capacity))
+    }
+
+    /// The message as display lines: each `\n` segment word-wrapped to `width`
+    /// (left unwrapped while the width is unknown).
+    fn message_lines(&self, width: usize) -> Vec<String> {
+        let Some(message) = &self.message else {
+            return Vec::new();
+        };
+        message
+            .lines()
+            .flat_map(|line| {
+                // A line that fits is kept as written (hint spacing intact).
+                let wrapped = if width == 0 || line.chars().count() <= width {
+                    Vec::new()
+                } else {
+                    wrap_words(line, width)
+                };
+                if wrapped.is_empty() {
+                    vec![line.to_owned()]
+                } else {
+                    wrapped
+                }
+            })
+            .collect()
+    }
+
+    /// Action rows that fit under the message in a body of `body_height` rows
+    /// at the last rendered width.
+    fn list_capacity(&self, body_height: usize) -> usize {
+        body_height
+            .max(1)
+            .saturating_sub(self.message_lines(self.last_body_width.get()).len())
     }
 
     fn begin_capture(&mut self) {
@@ -275,12 +338,13 @@ impl KeyRemapUi {
         }]
     }
 
-    /// Map a clicked body row to the action index it represents — the inverse of
-    /// [`Self::visible_lines`] (UX4-P1 click→Activate). The optional message line
-    /// occupies row 0 when present; action rows follow from `self.scroll`.
-    /// Returns `None` for the message row or a click past the last action.
+    /// Map a clicked body row to the action index it represents, the inverse of
+    /// [`Self::visible_lines`] (click then Activate). The message lines, wrapped
+    /// at the last rendered width, come first; action rows follow from the
+    /// rendered window start. Returns `None` for a message row or a click past
+    /// the last action.
     pub(super) fn row_at(&self, row_in_body: usize, body_height: usize) -> Option<usize> {
-        let prefix = usize::from(self.message.is_some());
+        let prefix = self.message_lines(self.last_body_width.get()).len();
         // Reject the message row and any row at or past the rendered window: the
         // bottom border row maps to `row_in_body == body_height`, and clicks
         // there (or below a short scrolled list) must not resolve to an
@@ -288,7 +352,7 @@ impl KeyRemapUi {
         if row_in_body < prefix || row_in_body >= body_height {
             return None;
         }
-        let index = self.scroll + (row_in_body - prefix);
+        let index = self.window_start(self.list_capacity(body_height)) + (row_in_body - prefix);
         (index < ACTIONS.len()).then_some(index)
     }
 
@@ -337,6 +401,15 @@ impl KeyRemapUi {
         if is_bare(chord, KeyBindingNamedKey::Enter) {
             self.message =
                 Some("Enter is reserved as a control key — try a different chord.".to_owned());
+            return KeyRemapOutcome::Consumed;
+        }
+        // A global chord on a key that types text would take that key away from
+        // every shell. Pane actions are prefix second keys, bare by design.
+        if !action.is_pane_action() && chord.is_unmodified_typing_key() {
+            self.message = Some(format!(
+                "{} types text. Add Ctrl, Alt or Super, or press another key.",
+                format_key_chord(chord)
+            ));
             return KeyRemapOutcome::Consumed;
         }
         // Conflict check against the CURRENT EFFECTIVE bindings (defaults +
@@ -408,11 +481,21 @@ impl KeyRemapUi {
     }
 
     /// Set `action`'s override to `chord`, dropping any prior override that used
-    /// either this action or this chord so the working vector never holds two
-    /// overrides on one chord (replace-only, D-KBR-6).
+    /// either this action or this chord in the SAME chord space, so the working
+    /// vector never holds two overrides on one key (replace-only). Pane actions
+    /// (prefix second keys) and global actions never share a key at runtime, so
+    /// binding one never drops the other's override; pane keys compare the way
+    /// the prefix engine matches them.
     fn commit_binding(&mut self, action: BindableAction, chord: KeyChord) -> KeyRemapOutcome {
-        self.overrides
-            .retain(|o| o.action != action && o.chord != chord);
+        let pane = action.is_pane_action();
+        self.overrides.retain(|o| {
+            let same_key = if pane {
+                same_prefix_key(o.chord, chord)
+            } else {
+                o.chord == chord
+            };
+            o.action != action && !(same_key && o.action.is_pane_action() == pane)
+        });
         self.overrides.push(KeyBindingOverride { chord, action });
         self.capture = None;
         self.message = Some(format!(
@@ -483,10 +566,18 @@ impl KeyRemapUi {
         64.min(columns)
     }
 
+    /// Scroll the list window by `delta` rows (the wheel). The selection
+    /// follows into the window, so the window and the highlighted row never
+    /// part and a later key moves from what is shown.
     pub(super) fn scroll_lines(&mut self, delta: isize) {
-        let max_scroll = ACTIONS.len().saturating_sub(1);
-        let next = (self.scroll as isize + delta).clamp(0, max_scroll as isize);
-        self.scroll = next as usize;
+        let capacity = self.last_list_capacity.get().max(1);
+        let max_start = ACTIONS.len().saturating_sub(capacity);
+        let start = self
+            .window_start(capacity)
+            .saturating_add_signed(delta)
+            .min(max_start);
+        self.scroll = start;
+        self.selected = self.selected.clamp(start, start + capacity - 1);
     }
 
     pub(super) fn render_signature(&self) -> KeyRemapSignature {
@@ -513,44 +604,34 @@ impl KeyRemapUi {
     /// affordance (OVERLAY-SMALL-WINDOW). `(false, false)` when all fit, so a
     /// normal window draws no arrows and stays byte-identical.
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
-        (
-            self.scroll > 0,
-            body_height > 0 && self.scroll + body_height < ACTIONS.len(),
-        )
+        let capacity = self.list_capacity(body_height);
+        if body_height == 0 || capacity == 0 {
+            return (false, false);
+        }
+        let start = self.window_start(capacity);
+        (start > 0, start + capacity < ACTIONS.len())
     }
 
-    pub(super) fn visible_lines(
-        &self,
-        _body_width: usize,
-        body_height: usize,
-    ) -> Vec<KeyRemapLine> {
+    pub(super) fn visible_lines(&self, body_width: usize, body_height: usize) -> Vec<KeyRemapLine> {
         let bindings = self.effective_bindings();
-        let mut rows: Vec<KeyRemapLine> = Vec::new();
-        // Header + message occupy the first lines; the action list scrolls. A
-        // message may span multiple lines (the conflict prompt carries its key
-        // hints on a second line so they are never tail-truncated); each `\n`
-        // segment becomes its own render line.
-        let message_line_count = self
-            .message
-            .as_ref()
-            .map(|m| m.lines().count().max(1))
-            .unwrap_or(0);
-        if let Some(message) = &self.message {
-            for line in message.lines() {
-                rows.push(KeyRemapLine {
-                    text: line.to_owned(),
-                    focused: false,
-                });
-            }
-        }
+        // The message occupies the first lines; the action list scrolls below
+        // it. Each `\n` segment is word-wrapped to the body width, so no hint
+        // is cut off the end of a narrow modal.
+        self.last_body_width.set(body_width);
+        let mut rows: Vec<KeyRemapLine> = self
+            .message_lines(body_width)
+            .into_iter()
+            .map(|text| KeyRemapLine {
+                text,
+                focused: false,
+            })
+            .collect();
         let body_budget = body_height.max(1);
-        let list_budget = body_budget.saturating_sub(rows.len()).max(1);
-        let start = self.scroll.min(ACTIONS.len().saturating_sub(1));
+        let capacity = body_budget.saturating_sub(rows.len());
+        self.last_list_capacity.set(capacity);
+        let start = self.window_start(capacity);
         for (offset, action) in ACTIONS.iter().enumerate().skip(start) {
             if rows.len() >= body_budget {
-                break;
-            }
-            if rows.len().saturating_sub(message_line_count) >= list_budget {
                 break;
             }
             let focused = offset == self.selected;
@@ -610,6 +691,10 @@ fn is_bare(chord: KeyChord, named: KeyBindingNamedKey) -> bool {
     let m = chord.modifiers;
     !m.ctrl && !m.shift && !m.alt && !m.super_key && chord.key == KeyBindingKey::Named(named)
 }
+
+#[cfg(test)]
+#[path = "key_remap_ui_window_tests.rs"]
+mod window_tests;
 
 #[cfg(test)]
 mod tests {
@@ -876,13 +961,19 @@ mod tests {
 
     #[test]
     fn c8_flat_and_prefix_chord_spaces_are_disjoint() {
-        // C8: a pane action's prefix second key (`x`) and a bare global chord are
-        // DISJOINT input spaces — they never collide at runtime. Binding a flat
-        // action (Copy) to bare `x` must NOT falsely conflict with ClosePane.
+        // A pane action's prefix second key and an equal global chord are
+        // disjoint input spaces: they never collide at runtime. Binding a flat
+        // action (Copy) to the chord a pane action uses after the prefix must
+        // not falsely conflict with it. (A global action cannot take a bare
+        // typing key, so the shared chord here carries Ctrl.)
         let mut ui = ui();
+        select_action(&mut ui, BindableAction::ClosePane);
+        ui.handle_input(OverlayInput::Activate);
+        let out = ui.deliver_chord(Some(char_chord(true, false, 'x')));
+        assert!(matches!(out, KeyRemapOutcome::Preview(_)));
         select_action(&mut ui, BindableAction::Copy);
         ui.handle_input(OverlayInput::Activate);
-        let out = ui.deliver_chord(Some(char_chord(false, false, 'x')));
+        let out = ui.deliver_chord(Some(char_chord(true, false, 'x')));
         assert!(
             matches!(out, KeyRemapOutcome::Preview(_)),
             "a flat binding must not conflict with a pane action's prefix key"

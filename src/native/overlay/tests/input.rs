@@ -1913,9 +1913,14 @@ fn pointer_click_keybind_row_selects_and_arms_capture() {
     let mut overlay = OverlayUi::default();
     overlay.open_key_bindings(&overlay.settings.clone());
     let rect = overlay_rect(&overlay, 80, 30).expect("rect");
-    let _ = overlay.visible_lines(rect.body_width, rect.body_height);
-    // Row 0 is the help message; row 1 is the first action row.
-    let outcome = overlay.handle_pointer(body_press(rect, 1, 0), rect);
+    let lines = overlay.visible_lines(rect.body_width, rect.body_height);
+    // The help message (wrapped to the body width) comes first; the first
+    // action row is the focused one.
+    let first_action = lines
+        .iter()
+        .position(|line| line.text.starts_with("> "))
+        .expect("an action row is shown");
+    let outcome = overlay.handle_pointer(body_press(rect, first_action, 0), rect);
     assert_eq!(outcome, OverlayOutcome::Consumed);
     assert!(
         overlay.is_capturing_chord(),

@@ -132,6 +132,31 @@ pub struct KeyChord {
     pub key: KeyBindingKey,
 }
 
+impl KeyChord {
+    /// Whether this chord is a key that types text or edits a command line
+    /// (a character, Space, Tab, Backspace, Enter or Escape) pressed without
+    /// Ctrl, Alt or Super. Bound to a global action it would take that key
+    /// away from every shell, so the global table refuses it; pane-prefix
+    /// second keys are bare by design and are exempt.
+    pub fn is_unmodified_typing_key(&self) -> bool {
+        let m = self.modifiers;
+        if m.ctrl || m.alt || m.super_key {
+            return false;
+        }
+        match self.key {
+            KeyBindingKey::Character(_) => true,
+            KeyBindingKey::Named(named) => matches!(
+                named,
+                KeyBindingNamedKey::Space
+                    | KeyBindingNamedKey::Tab
+                    | KeyBindingNamedKey::Backspace
+                    | KeyBindingNamedKey::Enter
+                    | KeyBindingNamedKey::Escape
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyBindingOverride {
     pub chord: KeyChord,

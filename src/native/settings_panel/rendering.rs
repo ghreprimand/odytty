@@ -143,7 +143,9 @@ pub(super) fn edit_options(entry: &SettingInfo) -> Vec<&'static str> {
     }
 }
 
-pub(super) fn wrap_words(text: &str, width: usize) -> Vec<String> {
+/// Word-wrap `text` to `width` columns (at least 12); a word longer than the
+/// width is ellipsized onto its own line. Shared with the key-binding editor.
+pub(in crate::native) fn wrap_words(text: &str, width: usize) -> Vec<String> {
     let width = width.max(12);
     let mut lines = Vec::new();
     let mut current = String::new();

@@ -249,7 +249,15 @@ Prefix behaviour:
   (`Ctrl+b` = `0x02`) flows straight to the shell, so readline `backward-char`
   still works and the default input path is byte-identical.
 - A pending prefix is forgotten after **2 seconds** if no pane key follows.
-- An unrecognized second key cancels the prefix without sending anything.
+- An unrecognized second key cancels the prefix without sending anything. A
+  second key pressed exactly when the 2 seconds run out is ordinary input.
+- Pressing the prefix twice sends its literal byte: the control byte for
+  `Ctrl+<letter>` and for `Ctrl` with `space`, `@`, `[`, `\`, `]`, `^`, or `_`.
+  Any other prefix sends nothing when doubled. A shifted prefix such as
+  `ctrl+shift+5` is recognised whether the keyboard reports it as `5` or `%`.
+- When a pane-action override and another pane action share a second key
+  (Shift ignored for characters), the later binding wins and the other action
+  is shown as unbound.
 - Set `pane_prefix=off` (or `none`/`disabled`) to disable the prefix entirely
   and free `Ctrl+b` in multi-pane tabs too. Any other value (e.g. `ctrl+a`) is
   parsed as a custom prefix chord.
@@ -388,7 +396,9 @@ ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" odytty
 **In-app key-remap editor** — open the settings panel (`Ctrl+Shift+,`), pick the
 keybinds row, select an action, and press the new chord. Capture is via `Enter`
 after selecting a row; `Backspace` resets one row to its default; `R` resets all;
-binding a chord already in use prompts to reassign or cancel. The editor covers
+binding a chord already in use prompts to reassign or cancel. Reassigning a pane
+key leaves the action that had it unbound. The selected row stays on screen as
+you move through the list, and long hints wrap to the editor width. The editor covers
 all bindable actions and writes the result back to `odytty.conf` byte-identically
 to a hand-typed entry.
 
@@ -402,6 +412,11 @@ A chord is `+`-joined modifiers plus one key:
   (`enter`, `backspace`, `esc`, `tab`, `space`, `pageup`, `pagedown`, `home`,
   `end`, `delete`, `insert`, `up`/`down`/`left`/`right`); or `f1`–`f24`.
 - `+` and `=` cannot be used as the bound key character.
+- A global action cannot take a key that types text or edits a command line
+  (a character, `space`, `tab`, `backspace`, `enter`, or `esc`) without `ctrl`,
+  `alt`, or `super`: the config skips such an entry with a warning, and the
+  in-app editor asks for another chord. Named keys such as `f9`, `insert`, or the
+  arrows may be bound alone. Pane-action second keys are exempt.
 
 ### Bindable actions
 
