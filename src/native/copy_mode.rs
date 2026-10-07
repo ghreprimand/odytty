@@ -60,7 +60,7 @@ pub const LINE_END_COLUMN: usize = usize::MAX;
 /// reserved MOUSE-RECT seam — column/rectangular selection lands later with the
 /// mouse block-select item so a single block-range implementation serves both;
 /// it is intentionally not constructed yet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SelectKind {
     #[default]
     Normal,

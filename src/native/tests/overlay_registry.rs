@@ -243,7 +243,8 @@ fn frame_overlay_refactor_is_pixel_identical() {
     // gutter is off, so the new slots all stay empty.
     let mut quads: Vec<SolidQuad> = Vec::new();
     app.paint_scroll_indicator_quads(&ctx, &mut quads);
-    app.paint_gutter_quads(&ctx, &mut quads);
+    let gutter = app.gutter_frame_input_for_test();
+    app.paint_gutter_quads(&ctx, gutter.as_ref(), &mut quads);
     app.paint_cursor_trail_quads(&ctx, &mut quads);
     app.paint_background_quads(&ctx, &mut quads);
     assert!(

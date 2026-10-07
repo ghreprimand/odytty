@@ -180,10 +180,12 @@ pub(super) enum OverlayFragment {
     Inert,
     /// HINTS label-overlay epoch (bumped when the visible label set changes).
     Hints { label_epoch: u64 },
-    /// COPYMODE caret + optional selection anchor (cell coordinates).
+    /// COPYMODE caret + optional selection anchor (cell coordinates) and the
+    /// selection kind, which changes the highlighted range on its own.
     CopyMode {
         caret: (usize, usize),
         anchor: Option<(usize, usize)>,
+        kind: crate::native::copy_mode::SelectKind,
     },
     /// VE4-v1 cursor-trail animation phase.
     CursorTrail { phase: u32 },

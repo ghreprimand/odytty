@@ -215,7 +215,9 @@ fn gutter_off_emits_no_overlays_even_with_marks() {
         return;
     };
     let scrollback_len = app.scrollback_len_for_test();
+    let input = app.gutter_frame_input_for_test();
     let overlays = app.command_status_gutter_overlays(
+        input.as_ref(),
         scrollback_len,
         cell(CELL_W, CELL_H),
         WindowPadding::ZERO,
@@ -236,7 +238,9 @@ fn gutter_on_emits_a_bar_for_a_finished_command() {
         return;
     };
     let scrollback_len = app.scrollback_len_for_test();
+    let input = app.gutter_frame_input_for_test();
     let overlays = app.command_status_gutter_overlays(
+        input.as_ref(),
         scrollback_len,
         cell(CELL_W, CELL_H),
         WindowPadding::ZERO,

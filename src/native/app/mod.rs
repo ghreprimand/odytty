@@ -162,6 +162,7 @@ mod overlay_actions;
 mod overlay_registry;
 mod palette_ui;
 mod panes;
+pub(in crate::native) use panes::PresentedPane;
 mod paste;
 pub(in crate::native) mod platform_opener;
 pub(in crate::native) use multi_window::NewWindowRequest;

@@ -840,6 +840,42 @@ impl App {
         self.on_modifiers_changed(state);
     }
 
+    /// How many chrome-reservation grid reflows have been requested.
+    #[cfg(test)]
+    pub(in crate::native) fn chrome_recomputes_for_test(&self) -> u32 {
+        self.chrome_recomputes_for_test
+    }
+
+    /// Apply `reloaded` through the production config-reload seam.
+    #[cfg(test)]
+    pub(in crate::native) fn apply_reloaded_settings_for_test(&mut self, reloaded: Settings) {
+        self.apply_reloaded_settings(reloaded);
+    }
+
+    /// Mark every visible pane dirty, deliver one `RedrawRequested` through the
+    /// production frame handler, and return each visible pane's probe from the
+    /// multi-pane rebuild it ran (the previous probe when it ran none).
+    #[cfg(test)]
+    pub(in crate::native) fn redraw_multipane_probe_for_test(
+        &mut self,
+    ) -> Vec<super::state::PanePaintProbe> {
+        for token in self.sessions.active_visible_tokens() {
+            if let Some(session) = self.sessions.get_mut(token) {
+                session.needs_rebuild = true;
+            }
+        }
+        let _ = self.on_redraw_requested();
+        self.multipane_pane_probe_for_test.clone()
+    }
+
+    /// The session the last activation reconciled (focus reports, latches).
+    #[cfg(test)]
+    pub(in crate::native) fn last_active_session_for_test(
+        &self,
+    ) -> crate::native::session::SessionToken {
+        self.last_active_session
+    }
+
     /// Drive the multi-pane rebuild and return each visible pane's probe (top
     /// rows and underlined cell count), in paint order.
     #[cfg(test)]
@@ -1869,6 +1905,18 @@ impl App {
                     && session.cursor_slide_deadline.is_none()
                     && session.cursor_streak.deadline().is_none()
             })
+    }
+
+    /// The single-pane gutter inputs the frame path captures: marks read under
+    /// the terminal lock at the scroll-glide render offset.
+    #[cfg(test)]
+    pub(in crate::native) fn gutter_frame_input_for_test(
+        &self,
+    ) -> Option<super::gutter_ui::GutterFrameInput> {
+        let terminal = crate::native::lock_recover(&self.terminal);
+        let scrollback_len = terminal.screen().scrollback_len();
+        let offset = self.glide_render_offset(self.viewport.offset(), scrollback_len);
+        self.gutter_frame_input(&terminal, offset)
     }
 
     /// Test seam (NF20-B): arm the ACTIVE pane's synchronized-output hold at

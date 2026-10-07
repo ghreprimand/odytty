@@ -378,14 +378,16 @@ impl App {
 
     /// Copy-mode render-cache fragment. `Inert` while inactive (a constant on
     /// the default path ⇒ byte-identical plain frame); a `CopyMode { caret,
-    /// anchor }` keyed on the absolute caret + anchor cells while active, so the
-    /// geometry-update gate repaints on every motion / selection change but does
-    /// not thrash at rest (trap #2).
+    /// anchor, kind }` keyed on the absolute caret + anchor cells and the
+    /// selection kind while active, so the geometry-update gate repaints on
+    /// every motion / selection change (including `v` to `V` at a fixed caret,
+    /// which widens the band to full rows) but does not thrash at rest.
     pub(super) fn copy_mode_overlay_signature(&self) -> OverlayFragment {
         match &self.copy_mode {
             Some(cm) => OverlayFragment::CopyMode {
                 caret: (cm.cursor().row, cm.cursor().column),
                 anchor: cm.anchor().map(|a| (a.row, a.column)),
+                kind: cm.mode(),
             },
             None => OverlayFragment::Inert,
         }
@@ -621,6 +623,47 @@ mod tests {
             before,
             app.copy_mode_overlay_signature(),
             "a caret motion changes the fragment (repaints)"
+        );
+    }
+
+    #[test]
+    fn switching_char_to_line_selection_at_a_fixed_caret_repaints_full_rows() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        seed(&app, "abc def ghi");
+        assert!(app.enter_copy_mode());
+        app.copy_mode_key(&WinitKey::Character("v".into()));
+        let char_wise = app.copy_mode_overlay_signature();
+        let caret = app.copy_mode.as_ref().map(|cm| cm.cursor()).unwrap();
+        app.copy_mode_key(&WinitKey::Character("V".into()));
+        let line_wise = app.copy_mode_overlay_signature();
+        assert_eq!(
+            app.copy_mode.as_ref().map(|cm| cm.cursor()),
+            Some(caret),
+            "the caret did not move"
+        );
+        assert_ne!(
+            char_wise, line_wise,
+            "v to V widens the band, so the frame cache must repaint"
+        );
+        let snapshot = app.terminal.lock().unwrap().snapshot();
+        let mut painted = snapshot.clone();
+        app.paint_copy_mode_cells(&mut painted, &ctx_for(&app));
+        let cols = painted.dimensions.columns;
+        let row = caret.row;
+        for col in 0..cols {
+            let idx = row * cols + col;
+            assert_ne!(
+                painted.cells[idx], snapshot.cells[idx],
+                "column {col} of the caret row is painted line-wise"
+            );
+        }
+        let next = (row + 1) * cols;
+        assert_eq!(
+            painted.cells[next..next + cols],
+            snapshot.cells[next..next + cols],
+            "the row below stays unpainted"
         );
     }
 

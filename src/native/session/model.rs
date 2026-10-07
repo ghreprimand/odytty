@@ -90,6 +90,11 @@ pub(in crate::native) struct Session {
     /// Last GPU-presented snapshot. Single-pane tab chrome is included so a
     /// held blink or synchronized-output frame retains its rendered geometry.
     pub(in crate::native) last_presented_snapshot: Option<Snapshot>,
+    /// What this pane presented in the latest split-tab frame, kept so a
+    /// synchronized-output hold on this pane can present it again while the
+    /// other panes update. Replaced by every split frame; ignored unless it
+    /// came from the immediately preceding one.
+    pub(in crate::native) multipane_presented: Option<crate::native::app::PresentedPane>,
     /// Cursor and dimensions of the last terminal-content snapshot in
     /// undecorated grid coordinates. Cursor motion compares against this
     /// rather than the chrome-shifted render copy. Metadata only, by type:

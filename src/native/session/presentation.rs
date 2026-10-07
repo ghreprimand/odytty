@@ -196,11 +196,12 @@ impl Session {
     /// timers above PLUS the synchronized-output hold. A background pane is
     /// never rendered, so none of these has a consumer (NF20-B). The
     /// synchronized-output hold is parked ONLY here: unlike the cursor timers it
-    /// is consumed by `should_hold` in the render branch (which runs before the
-    /// single/multi split) and its 150 ms deadline is the crash-protection
-    /// watchdog that auto-releases a frozen display — so the focused pane of a
-    /// multi-pane tab keeps its hold live (parking it would defeat the watchdog)
-    /// and parks only its cursor timers.
+    /// is consumed by `should_hold` in the render path (once for a single-pane
+    /// tab, per visible pane in `rebuild_multipane`) and its 150 ms deadline is
+    /// the crash-protection watchdog that auto-releases a frozen display, so
+    /// every visible pane of a multi-pane tab keeps its hold live (parking it
+    /// would defeat the watchdog) and a non-focused one parks only its cursor
+    /// timers.
     pub(in crate::native) fn park_animation_timers(&mut self) {
         self.park_cursor_timers();
         self.synchronized_output_hold.clear();
@@ -284,22 +285,32 @@ impl WorkspaceSet {
     /// Consumer scope (§5 rule 2): the only pane with live animation timers is
     /// the focused pane of the active tab of the ACTIVE WORKSPACE — everything
     /// else (all background workspaces, all background tabs, all non-focused
-    /// panes) is parked. Collectors iterate the flat arena (§5 rule 1), never
+    /// panes) is parked, except that the visible panes of a split tab keep
+    /// their synchronized-output holds. Collectors iterate the flat arena (§5 rule 1), never
     /// the hierarchy; "active" is resolved once through `active_focused_token`
     /// so this and the redraw gate can never disagree about which pane is live.
     ///
-    /// - Every pane of an inactive tab (in any workspace) and every non-focused
-    ///   pane of the active tab is never rendered → fully parked
-    ///   (`park_animation_timers`).
+    /// - Every pane of an inactive tab (in any workspace) is never rendered →
+    ///   fully parked (`park_animation_timers`).
+    /// - A non-focused visible pane of the active tab parks its cursor timers
+    ///   but keeps its synchronized-output hold: `rebuild_multipane` consumes
+    ///   that hold per pane, and its deadline is the watchdog that releases a
+    ///   pane whose batch never ends.
     /// - The focused pane of the active tab keeps ALL its timers. Both the
-    ///   single-pane path and `rebuild_multipane` poll its blink/ease/slide;
-    ///   `should_hold` consumes its render hold before either branch.
+    ///   single-pane path and `rebuild_multipane` poll its blink/ease/slide and
+    ///   consume its render hold.
     ///
     /// Idempotent; cheap (few panes).
     pub(in crate::native) fn park_background_timers(&mut self) {
         let active = self.active_focused_token();
+        let visible = self.active_visible_tokens();
         for (token, session) in self.sessions.iter_mut() {
-            if *token != active {
+            if *token == active {
+                continue;
+            }
+            if visible.contains(token) {
+                session.park_cursor_timers();
+            } else {
                 session.park_animation_timers();
             }
         }

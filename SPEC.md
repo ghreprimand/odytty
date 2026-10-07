@@ -695,6 +695,14 @@ display for longer than 150 ms. Cursor blink remains live during the hold: the
 hold path calls `update_held_cursor_frame`, which re-renders the cursor blink
 delta against the last presented snapshot without touching grid content.
 
+In a split tab each visible pane holds on its own. A pane inside a batch
+presents its previous frame (cells, labels, status-gutter bars, display map,
+and image placements) while the other panes keep updating, and each pane's
+150 ms release deadline is registered with the event loop. A pane that has no
+frame from the immediately preceding split render at its current size draws
+live. A held split pane keeps its cursor as last presented; the blink and
+cursor effects resume when its hold ends.
+
 ### Semantic Prompt Marking (OSC 133)
 
 #### Parse Prompt Phases

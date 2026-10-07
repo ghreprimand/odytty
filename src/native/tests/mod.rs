@@ -256,6 +256,7 @@ mod smart_ctrl_c;
 mod synchronized_output;
 mod tabs_sessions;
 mod theme_capture;
+mod ui_state_sync;
 mod viewport;
 mod wheel_zoom;
 mod window_menu_rows;

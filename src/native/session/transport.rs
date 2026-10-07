@@ -482,6 +482,7 @@ impl Session {
             last_render_signature: None,
             synchronized_output_hold: SynchronizedOutputHold::default(),
             last_presented_snapshot: None,
+            multipane_presented: None,
             last_cursor_comparison_snapshot: None,
             last_presented_cursor_style: crate::core::CursorStyle::default(),
             last_presented_cursor_blinking: true,

@@ -802,8 +802,10 @@ impl App {
     /// and should start / show a rail resize rather than a tab hit (F4-P4).
     /// Yields to a live scroll thumb (ODP-5 right-rail rule) so a scrollbar drag
     /// wins the shared edge. `false` off a rail, so the plain path never grabs.
+    /// Gated on the workspace rail alone: the top tab bar is independent, so a
+    /// pinned rail beside a hidden top bar still resizes.
     pub(super) fn pointer_over_rail_seam(&self, px_x: f64, cell: CellSize) -> bool {
-        if (!self.rail_autohide_active() && !self.should_show_tab_bar())
+        if (!self.rail_autohide_active() && !self.should_show_workspace_rail())
             || self.effective_rail_seam_side().is_none()
         {
             return false;
@@ -1040,6 +1042,10 @@ impl App {
     }
 
     pub(super) fn recompute_grid_for_tab_bar(&mut self) {
+        #[cfg(test)]
+        {
+            self.chrome_recomputes_for_test = self.chrome_recomputes_for_test.saturating_add(1);
+        }
         let Some(gpu) = self.gpu.as_ref() else {
             return;
         };

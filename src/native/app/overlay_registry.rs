@@ -327,10 +327,16 @@ impl App {
     }
 
     /// SH2 per-command success/fail gutter (relocated inline
-    /// `command_status_gutter_overlays` call). The method is gated on its
-    /// setting and returns no quads while off.
-    pub(in crate::native) fn paint_gutter_quads(&self, ctx: &OverlayCtx, out: &mut Vec<SolidQuad>) {
+    /// `command_status_gutter_overlays` call). `gutter` is `None` while the
+    /// setting is off, which adds no quads.
+    pub(in crate::native) fn paint_gutter_quads(
+        &self,
+        ctx: &OverlayCtx,
+        gutter: Option<&super::gutter_ui::GutterFrameInput>,
+        out: &mut Vec<SolidQuad>,
+    ) {
         out.extend(self.command_status_gutter_overlays(
+            gutter,
             ctx.scrollback_len,
             ctx.cell,
             ctx.window_padding,

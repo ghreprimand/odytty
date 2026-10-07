@@ -15,10 +15,10 @@
 //!
 //! Ships on by default behind the `command_status_gutter` setting; command
 //! marks are on out of the box, so the verdict bars appear wherever an
-//! integrated shell emits them. While off,
-//! [`App::command_status_gutter_overlays`] returns no quads before touching the
-//! terminal, so the composed overlay list is byte-identical to a plain margin
-//! and that render path is unchanged.
+//! integrated shell emits them. While off, [`App::gutter_frame_input`] reads
+//! no marks and [`App::command_status_gutter_overlays`] returns no quads, so
+//! the composed overlay list is byte-identical to a plain margin and that
+//! render path is unchanged.
 
 use super::*;
 
@@ -44,36 +44,77 @@ const ANSI_BRIGHT_GREEN: usize = 10;
 /// Bright-red ANSI index for a failure bar.
 const ANSI_BRIGHT_RED: usize = 9;
 
+/// The single-pane gutter's inputs, read under the same terminal lock as the
+/// frame snapshot: the prompt marks and the scrollback offset the snapshot was
+/// taken at (the scroll-glide follower's row while a glide is in flight, not
+/// the logical viewport offset).
+#[derive(Debug, Clone)]
+pub(in crate::native) struct GutterFrameInput {
+    marks: Vec<(usize, PromptKind)>,
+    render_offset: usize,
+}
+
 impl App {
-    /// Build the success/fail gutter overlay quads for the current viewport, or
-    /// an empty list when the gutter is disabled or there are no finished
-    /// commands on screen.
-    ///
-    /// Gated on `command_status_gutter`: when off it returns before locking the
-    /// terminal or reading marks, so the off path adds no work and the composed
-    /// overlay set is byte-identical to today. `pub(in crate::native)` so the
-    /// native test suite can assert the inverted gate directly.
+    /// Capture the gutter inputs beside the frame snapshot, or `None` while the
+    /// gutter is off, so the off path reads no marks.
+    pub(in crate::native) fn gutter_frame_input(
+        &self,
+        terminal: &crate::core::Terminal,
+        render_offset: usize,
+    ) -> Option<GutterFrameInput> {
+        self.settings
+            .command_status_gutter
+            .then(|| GutterFrameInput {
+                marks: terminal.screen().prompt_marks(),
+                render_offset,
+            })
+    }
+
+    /// Build the success/fail gutter overlay quads for the presented viewport,
+    /// or an empty list when the gutter is disabled or there are no finished
+    /// commands on screen. Bars use the snapshot's render offset and follow the
+    /// sub-row scroll shift of the content (`scroll_frac_offset`), clipped to
+    /// the at-rest grid rows exactly as split panes clip theirs, so a bar stays
+    /// beside its prompt row while a scroll glides. At rest the result equals
+    /// the unshifted geometry.
     pub(in crate::native) fn command_status_gutter_overlays(
         &self,
+        input: Option<&GutterFrameInput>,
         scrollback_len: usize,
         cell: CellSize,
         padding: WindowPadding,
     ) -> Vec<SolidQuad> {
-        if !self.settings.command_status_gutter {
+        let Some(input) = input else {
             return Vec::new();
-        }
-        let viewport_offset = self.viewport.offset();
-        let marks = match self.terminal.lock() {
-            Ok(terminal) => terminal.screen().prompt_marks(),
-            Err(_) => return Vec::new(),
         };
-        command_status_gutter_quads(
-            &marks,
-            viewport_offset,
+        let pad = padding.as_f32();
+        let frac_px = self.scroll_frac_offset;
+        if frac_px == 0.0 {
+            return command_status_gutter_quads(
+                &input.marks,
+                input.render_offset,
+                scrollback_len,
+                self.grid,
+                cell,
+                padding,
+                &self.effective_theme.palette,
+            );
+        }
+        pane_command_status_gutter_quads(
+            &input.marks,
+            input.render_offset,
             scrollback_len,
-            self.grid,
-            cell,
-            padding,
+            PaneGutterGeometry {
+                dimensions: self.grid,
+                cell,
+                origin: [0.0, pad + frac_px],
+                clip_rect: [
+                    0.0,
+                    pad,
+                    f32::MAX,
+                    pad + self.grid.rows as f32 * cell.height as f32,
+                ],
+            },
             &self.effective_theme.palette,
         )
     }

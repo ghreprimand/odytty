@@ -612,19 +612,27 @@ impl App {
     /// stay in the arena. Moves WITHOUT following: the active workspace is
     /// unchanged and the rail flashes so the departure is visible, unless moving
     /// the last tab out closes the source workspace, which necessarily shifts
-    /// focus to a neighbor. Reconciles focus only when the move actually changed
-    /// the active workspace, so a same-workspace no-op stays byte-identical.
+    /// focus to a neighbor. Reconciles focus whenever the move changed the
+    /// active workspace or the active session: moving the active tab out of a
+    /// workspace that keeps other tabs selects one of them at the same
+    /// workspace index, and closing workspace 0 leaves its neighbor at index 0.
+    /// A move that leaves both unchanged stays byte-identical.
     pub(super) fn move_tab_to_workspace(&mut self, token: SessionToken, dest_ws: usize) {
         self.finish_divider_drag();
-        let active_before = self.sessions.active_workspace_index();
+        let active_before = (
+            self.sessions.active_workspace_index(),
+            self.sessions.active_id(),
+        );
         let (moved, _source_closed) = self.sessions.move_tab_to_workspace(token, dest_ws);
         if !moved {
             return;
         }
         self.flash_rail_autohide();
-        // Removing an emptied source workspace can shift the active workspace
-        // onto a neighbor; only then does focus/geometry need reconciling.
-        if self.sessions.active_workspace_index() != active_before {
+        let active_after = (
+            self.sessions.active_workspace_index(),
+            self.sessions.active_id(),
+        );
+        if active_after != active_before {
             if self.sessions.active_is_single_pane() {
                 self.prefix_engine.cancel();
             }

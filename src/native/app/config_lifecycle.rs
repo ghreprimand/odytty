@@ -587,6 +587,9 @@ impl App {
         // same grid recompute.
         let rail_was_shown = self.should_show_workspace_rail();
         let rail_side_was = self.workspace_rail_side();
+        // The full chrome reservation, so a geometry change with unchanged
+        // visibility and side (a visible top bar's `tab_bar_height`) reflows too.
+        let reserve_was = self.tab_reserve();
 
         let next_options = self.options_for_settings(&next_settings);
         let (text_rebuilt, padding_changed) = match self.gpu.as_mut() {
@@ -739,12 +742,14 @@ impl App {
             }
         }
 
-        // F4 ODP-7 / F4-V2: if a live toggle flipped the bar's visibility OR its
-        // placement (top↔left changes the reserved axis), reserve/reclaim the tab
-        // chrome now so the content grid matches. No-op when both are unchanged.
+        // F4 ODP-7 / F4-V2: if a live change flipped the bar's visibility, its
+        // placement (top↔left changes the reserved axis), or the reserved rows
+        // or columns themselves (top-bar height), reserve/reclaim the tab chrome
+        // now so the content grid matches. No-op when all are unchanged.
         if self.should_show_tab_bar() != tab_bar_was_shown
             || self.should_show_workspace_rail() != rail_was_shown
             || self.workspace_rail_side() != rail_side_was
+            || self.tab_reserve() != reserve_was
         {
             self.recompute_grid_for_tab_bar();
         }

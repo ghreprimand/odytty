@@ -57,6 +57,29 @@ struct OwnedPaneRender {
     /// BIDI: this pane's session, plan, and the snapshot it was planned from;
     /// `None` while reordering is off and on the alternate screen.
     bidi: Option<(SessionToken, (crate::grid::BidiDisplayMap, Snapshot))>,
+    /// The pane's session, so the presented frame can be retained on it.
+    token: SessionToken,
+    /// Set while a synchronized-output hold re-presents the previous frame:
+    /// the retained decorations, effects, and bidi map, which this frame does
+    /// not rebuild.
+    held: Option<HeldPaneParts>,
+}
+
+/// One pane's presented split-tab frame: the decorated snapshot, its overlay
+/// quads, its display map, and its image placements.
+#[derive(Debug)]
+pub(in crate::native) struct PresentedPane {
+    seq: u64,
+    snapshot: Snapshot,
+    effects: Vec<SolidQuad>,
+    bidi: Option<crate::grid::BidiDisplayMap>,
+    placements: Vec<VisiblePlacement>,
+}
+
+/// The parts of a [`PresentedPane`] a held pane reuses beside its snapshot.
+struct HeldPaneParts {
+    effects: Vec<SolidQuad>,
+    bidi: Option<crate::grid::BidiDisplayMap>,
 }
 use crate::graphics::VisiblePlacement;
 use crate::native::gpu::{OverlayTop, PaneRender, PanelFrameQuads, RailOverlay};
@@ -629,6 +652,32 @@ impl App {
     /// Rebuild the GPU geometry for a **multi-pane** active tab. Mirrors the
     /// single-pane rebuild's GPU hand-off but assembles one [`PaneRender`] per
     /// visible pane and calls [`GpuState::update_from_panes`].
+    /// The earliest synchronized-output release deadline among the panes on
+    /// screen: the active pane, or each visible pane of a split tab.
+    pub(super) fn synchronized_output_hold_deadline(&self) -> Option<Instant> {
+        if self.sessions.active_is_single_pane() {
+            return self.synchronized_output_hold.deadline();
+        }
+        self.sessions
+            .active_visible_tokens()
+            .into_iter()
+            .filter_map(|token| self.sessions.get(token))
+            .filter_map(|session| session.synchronized_output_hold.deadline())
+            .min()
+    }
+
+    /// Whether any on-screen hold has reached its release deadline.
+    pub(super) fn synchronized_output_hold_due(&self, now: Instant) -> bool {
+        if self.sessions.active_is_single_pane() {
+            return self.synchronized_output_hold.is_due(now);
+        }
+        self.sessions
+            .active_visible_tokens()
+            .into_iter()
+            .filter_map(|token| self.sessions.get(token))
+            .any(|session| session.synchronized_output_hold.is_due(now))
+    }
+
     pub(super) fn rebuild_multipane(&mut self) {
         // BIDI: the split frame plans per-pane maps below; never let a
         // single-pane map, or a previous split frame's maps, outlive it.
@@ -652,6 +701,8 @@ impl App {
         // (its step reads each session's own last-tick delta), so one shared
         // `now` for the whole rebuild is correct.
         let now = Instant::now();
+        let seq = self.multipane_frame_seq.wrapping_add(1);
+        self.multipane_frame_seq = seq;
         let show_tab_bar = self.should_show_tab_bar();
         let reserve = self.tab_reserve();
         let content = pane_content_rect(surface_w, surface_h, cell, padding, reserve);
@@ -736,6 +787,84 @@ impl App {
                 continue;
             };
             let scrollback_len = terminal.screen().scrollback_len();
+            // Synchronized output (DEC 2026), per pane: a pane inside a batch
+            // re-presents its previous frame while the other panes update.
+            // Each hold keeps its own bounded release. Without a frame from the
+            // immediately preceding split render at the current size there is
+            // nothing to hold, so the pane draws live.
+            let holding = session
+                .synchronized_output_hold
+                .should_hold(terminal.synchronized_output_enabled(), now);
+            let held = if holding {
+                session.multipane_presented.take().filter(|presented| {
+                    presented.seq.wrapping_add(1) == seq
+                        && presented.snapshot.dimensions == terminal.screen().dimensions()
+                })
+            } else {
+                None
+            };
+            if let Some(held) = held {
+                let cursor_style = terminal.cursor_style();
+                let namespace = token.0;
+                let cached_for_pane: BTreeMap<StoredImageId, u64> = cached_pane_ids
+                    .iter()
+                    .filter(|((ns, _), _)| *ns == namespace)
+                    .map(|((_, id), generation)| (*id, *generation))
+                    .collect();
+                let uploads =
+                    image_uploads_for_visible(&terminal, &held.placements, &cached_for_pane);
+                drop(terminal);
+                let base_origin = crate::native::layout::pane_grid_origin(
+                    inner,
+                    content,
+                    cell.width,
+                    cell.height,
+                );
+                let inner_edges = crate::native::float_layout::rect_edges(inner);
+                let occluders = pane_occluders(&occluders_per_pane[rect_idx], inner_edges);
+                if !held.placements.is_empty() && occluders.is_empty() {
+                    let scissor = crate::native::layout::pane_image_scissor(
+                        base_origin,
+                        held.snapshot.dimensions.columns,
+                        held.snapshot.dimensions.rows,
+                        cell.width as f32,
+                        cell.height as f32,
+                        inner,
+                        surface_w as f32,
+                        surface_h as f32,
+                    );
+                    pane_graphics.push(PaneGraphics {
+                        namespace,
+                        placements: held.placements,
+                        origin: base_origin,
+                        scissor,
+                    });
+                    for upload in uploads {
+                        pane_uploads.push(PaneImageUpload { namespace, upload });
+                    }
+                }
+                panes_owned.push(OwnedPaneRender {
+                    snapshot: held.snapshot,
+                    origin: base_origin,
+                    focused: *token == focused,
+                    cursor_style,
+                    glide_clip: crate::grid::VClip::NONE,
+                    content_clip: (padding.as_f32() > 0.0).then_some([
+                        inner.x,
+                        inner.y,
+                        inner.x + inner.w,
+                        inner.y + inner.h,
+                    ]),
+                    occluders,
+                    bidi: None,
+                    token: *token,
+                    held: Some(HeldPaneParts {
+                        effects: held.effects,
+                        bidi: held.bidi,
+                    }),
+                });
+                continue;
+            }
             // NF21-10: anchor this pane across output growth (mirrors the
             // single-pane render path via the shared helper) so a scrolled-back
             // split or background pane stays pinned to its absolute rows instead
@@ -859,16 +988,7 @@ impl App {
             // floating pane over any part of its drawable area shows no images
             // until it is uncovered (documented limitation).
             let inner_edges = crate::native::float_layout::rect_edges(inner);
-            let occluders: Vec<[f32; 4]> = occluders_per_pane[rect_idx]
-                .iter()
-                .copied()
-                .filter(|hole| {
-                    hole[0] < inner_edges[2]
-                        && hole[2] > inner_edges[0]
-                        && hole[1] < inner_edges[3]
-                        && hole[3] > inner_edges[1]
-                })
-                .collect();
+            let occluders = pane_occluders(&occluders_per_pane[rect_idx], inner_edges);
             if !visible.is_empty() && occluders.is_empty() {
                 let scissor = crate::native::layout::pane_image_scissor(
                     base_origin,
@@ -905,6 +1025,8 @@ impl App {
                 content_clip,
                 occluders,
                 bidi: bidi.map(|plan| (*token, plan)),
+                token: *token,
+                held: None,
             });
         }
 
@@ -982,6 +1104,9 @@ impl App {
         let pane_bidi: Vec<Option<(SessionToken, crate::grid::BidiDisplayMap)>> = panes_owned
             .iter_mut()
             .map(|pane| {
+                if let Some(held) = pane.held.as_mut() {
+                    return held.bidi.take().map(|map| (pane.token, map));
+                }
                 let (token, plan) = pane.bidi.take()?;
                 super::bidi_gate::finish_bidi_plan(Some(plan), &pane.snapshot)
                     .map(|map| (token, map))
@@ -1029,6 +1154,11 @@ impl App {
                 input.geometry,
                 &self.effective_theme.palette,
             );
+        }
+        for (idx, pane) in panes_owned.iter_mut().enumerate() {
+            if let Some(held) = pane.held.as_mut() {
+                pane_effects[idx] = std::mem::take(&mut held.effects);
+            }
         }
         let mut pane_cursor_glow = vec![None; panes_owned.len()];
         let mut pane_cursor_streak = vec![None; panes_owned.len()];
@@ -1290,6 +1420,25 @@ impl App {
                 .collect();
             gpu.update_pane_image_layers(&pane_images, &pane_uploads);
         }
+        // Retain each pane's presented frame for a synchronized-output hold on
+        // the next split frame. Moves only: nothing is copied.
+        drop(panes);
+        let mut placements: BTreeMap<_, Vec<VisiblePlacement>> = pane_graphics
+            .into_iter()
+            .map(|graphics| (graphics.namespace, graphics.placements))
+            .collect();
+        for ((pane, effects), bidi) in panes_owned.into_iter().zip(pane_effects).zip(pane_bidi) {
+            let presented = PresentedPane {
+                seq,
+                snapshot: pane.snapshot,
+                effects,
+                bidi: bidi.map(|(_, map)| map),
+                placements: placements.remove(&pane.token.0).unwrap_or_default(),
+            };
+            if let Some(session) = self.sessions.get_mut(pane.token) {
+                session.multipane_presented = Some(presented);
+            }
+        }
         // Multi-pane v1 does not participate in the single-pane render-signature
         // cache; it rebuilds whenever a visible pane requests a redraw. Reset
         // the cache so the first frame after returning to a single-pane tab does
@@ -1423,6 +1572,20 @@ pub(super) fn place_tab_bar_glyphs(
             }
         }
     }
+}
+
+/// The floating-pane rectangles above a pane that overlap its inner rect.
+fn pane_occluders(above: &[[f32; 4]], inner_edges: [f32; 4]) -> Vec<[f32; 4]> {
+    above
+        .iter()
+        .copied()
+        .filter(|hole| {
+            hole[0] < inner_edges[2]
+                && hole[2] > inner_edges[0]
+                && hole[1] < inner_edges[3]
+                && hole[3] > inner_edges[1]
+        })
+        .collect()
 }
 
 #[cfg(test)]

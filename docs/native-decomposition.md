@@ -155,8 +155,9 @@ Lifecycle invariants:
 - Reconnect, hold-open, and exit processing retain their exact order.
 - Pending exit is evaluated after the window-event match.
 - Every wake-deadline producer retains its matching consumer.
-- Active-only blink and synchronized-output gates must not create
-  past-deadline event-loop spin.
+- Active-only blink and on-screen synchronized-output gates (the active
+  pane, or each visible pane of a split tab) must not create past-deadline
+  event-loop spin.
 - Minimized and occluded windows retain their current redraw and recovery
   behavior.
 - Every surface recreation leaves either a redraw request or a bounded wake.

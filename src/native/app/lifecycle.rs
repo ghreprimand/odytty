@@ -282,12 +282,12 @@ impl App {
             self.focused
                 .then(|| self.external_palette_follow.deadline())
                 .flatten(),
-            // NF20-B: the synchronized-output hold of the ACTIVE pane only, for
-            // the same fan-out reason as the blink above. The maintenance
-            // consumer (`self.synchronized_output_hold.is_due`) advances the
-            // active pane; background panes are parked, so an active-only source
-            // matches the consumer and cannot strand a stale hold in the wake set.
-            self.synchronized_output_hold.deadline(),
+            // NF20-B: the synchronized-output holds of the panes on screen only
+            // (the active pane, or every visible pane of a split tab, where each
+            // pane holds on its own). The maintenance consumer
+            // (`synchronized_output_hold_due`) reads the same set; background
+            // tabs are parked, so they cannot strand a stale hold in the wake set.
+            self.synchronized_output_hold_deadline(),
             // Cursor-animation wake source, ACTIVE focused pane only (NF20-B).
             // Both single-pane and split render paths advance this consumer;
             // background panes stay parked and never fan wakes into this set.
@@ -914,7 +914,7 @@ impl App {
         // already takes for the blink check.
         self.advance_graphics_animations(now);
 
-        if self.synchronized_output_hold.is_due(now) {
+        if self.synchronized_output_hold_due(now) {
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();

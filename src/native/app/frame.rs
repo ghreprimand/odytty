@@ -382,26 +382,33 @@ impl App {
         // then drop it before touching the GPU.
         if self.should_rebuild_frame() {
             let now = Instant::now();
-            let synchronized_output = self
-                .terminal
-                .lock()
-                .map(|terminal| terminal.synchronized_output_enabled())
-                .unwrap_or(false);
+            let single_pane = self.sessions.active_is_single_pane();
             let was_holding = self.synchronized_output_hold.is_holding();
-            let is_holding = self
-                .synchronized_output_hold
-                .should_hold(synchronized_output, now);
-            if was_holding && !is_holding {
+            // A split tab applies synchronized output per pane inside the
+            // multi-pane rebuild, so one pane's batch never freezes the others.
+            let is_holding = single_pane && {
+                let synchronized_output = self
+                    .terminal
+                    .lock()
+                    .map(|terminal| terminal.synchronized_output_enabled())
+                    .unwrap_or(false);
+                self.synchronized_output_hold
+                    .should_hold(synchronized_output, now)
+            };
+            if was_holding && !is_holding && single_pane {
                 self.clear_cursor_streak();
             }
             if is_holding {
                 let _ = self.update_held_cursor_frame(now);
-            } else if !self.sessions.active_is_single_pane() {
+            } else if !single_pane {
                 // Multi-pane active tab: branch to the per-pane render
                 // dispatch (design doc §3.2, audit rows #2/#3/#10/#11).
                 // The single-pane fast path below is never reached here,
                 // so it stays byte-identical.
                 self.rebuild_multipane();
+                if was_holding && !self.synchronized_output_hold.is_holding() {
+                    self.clear_cursor_streak();
+                }
                 // Clear EVERY visible pane's flag, not just the focused
                 // one (`self.needs_rebuild`): the widened gate above ORs
                 // the flag across the tab, so leaving a dirtied background
@@ -431,6 +438,7 @@ impl App {
                     image_uploads,
                     ambiguous_wide,
                     bidi_plan,
+                    gutter_input,
                 ) = {
                     // NF21-6: bell + prompt-marks latches are drained
                     // in the about-to-wait maintenance sweep (over the
@@ -490,6 +498,7 @@ impl App {
                     let cursor_blinking = terminal.cursor_blinking();
                     let terminal_revision = terminal.render_revision();
                     let ambiguous_wide = terminal.ambiguous_wide();
+                    let gutter_input = self.gutter_frame_input(&terminal, offset);
                     drop(terminal);
                     self.search = search;
                     (
@@ -503,6 +512,7 @@ impl App {
                         image_uploads,
                         ambiguous_wide,
                         bidi_plan,
+                        gutter_input,
                     )
                 };
                 let pane_dims_reconciled = {
@@ -608,7 +618,7 @@ impl App {
                 // SH2 status gutter, then the no-op new slots.
                 let mut overlays: Vec<SolidQuad> = Vec::new();
                 self.paint_scroll_indicator_quads(&ctx, &mut overlays);
-                self.paint_gutter_quads(&ctx, &mut overlays);
+                self.paint_gutter_quads(&ctx, gutter_input.as_ref(), &mut overlays);
                 self.paint_cursor_trail_quads(&ctx, &mut overlays);
                 self.paint_background_quads(&ctx, &mut overlays);
                 // ID4 themed window border: a thin frame in the padding

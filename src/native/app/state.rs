@@ -501,6 +501,12 @@ pub(in crate::native) struct App {
     /// multi-pane rebuild, in paint order.
     #[cfg(test)]
     pub(super) multipane_pane_probe_for_test: Vec<PanePaintProbe>,
+    /// How many times the chrome reservation asked for a grid reflow.
+    #[cfg(test)]
+    pub(super) chrome_recomputes_for_test: u32,
+    /// Sequence number of the latest split-tab frame, so a pane's retained
+    /// presentation is reused only by the very next one.
+    pub(super) multipane_frame_seq: u64,
     /// Guarded broadcast input: the process-wide receiver set. A window owns a
     /// private empty set until the process window owner shares its own, so
     /// every window of one process reads and writes the same set.
@@ -881,6 +887,9 @@ impl App {
             multipane_chrome_rows_for_test: Vec::new(),
             #[cfg(test)]
             multipane_pane_probe_for_test: Vec::new(),
+            multipane_frame_seq: 0,
+            #[cfg(test)]
+            chrome_recomputes_for_test: 0,
             connection_probe: None,
             #[cfg(test)]
             last_image_upload: None,
