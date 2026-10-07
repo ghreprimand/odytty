@@ -133,8 +133,8 @@ echo "coverage-report: output $out_dir"
 
 # The build uses any caller-supplied RUSTFLAGS plus the coverage flags, so
 # recording the coverage flags alone would not describe the instrumentation
-# that actually ran. Both the inherited prefix and the exact exported value are
-# recorded, which is what makes the command reproducible.
+# that actually ran. The private metadata retains both exact values for local
+# reproduction; shareable metadata redacts caller-supplied flags.
 inherited_rustflags="${RUSTFLAGS:-}"
 export RUSTFLAGS="${inherited_rustflags:+$inherited_rustflags }$coverage_flags"
 effective_rustflags="$RUSTFLAGS"
@@ -264,37 +264,34 @@ else
 fi
 echo "coverage-report: branch instrumentation $branch_regions ($branch_counters counters)"
 
-metadata="$out_dir/run-metadata.json"
-python3 - "$metadata" <<PY
+# Exact caller flags are local diagnostics, never shareable report metadata.
+metadata="$out_dir/run-metadata-private.json"
+python3 - "$metadata" "$revision" "$rustc_version" "$rustc_llvm" \
+  "$llvm_tools_version" "$target_triple" "$branch_regions" "$branch_probe" \
+  "$branch_counters" "$coverage_flags" "$inherited_rustflags" \
+  "$effective_rustflags" "$source_fingerprint" "${#binaries[@]}" \
+  "${#raw_profiles[@]}" "$swept" "$passed" "$failures" "$ignored" <<'PY'
 import json
 import sys
 
-json.dump(
-    {
-        "revision": "$revision",
-        "rustc_version": "$rustc_version",
-        "rustc_llvm": "$rustc_llvm",
-        "llvm_tools_version": "$llvm_tools_version",
-        "target_triple": "$target_triple",
-        "branch_regions": "$branch_regions",
-        "branch_probe": "$branch_probe",
-        "branch_counters_in_export": $branch_counters,
-        "coverage_rustflags": "$coverage_flags",
-        "inherited_rustflags": "$inherited_rustflags",
-        "effective_rustflags": "$effective_rustflags",
-        "source_fingerprint": "$source_fingerprint",
-        "binaries_executed": ${#binaries[@]},
-        "raw_profiles": ${#raw_profiles[@]},
-        "swept_child_profiles": $swept,
-        "tests_passed": $passed,
-        "tests_failed": $failures,
-        "tests_ignored": $ignored,
-        "doctests_measured": False,
-    },
-    open(sys.argv[1], "w", encoding="utf-8"),
-    indent=2,
-    sort_keys=True,
+# Arguments are data even when flags contain quotes, backslashes or newlines.
+keys = (
+    "revision", "rustc_version", "rustc_llvm", "llvm_tools_version",
+    "target_triple", "branch_regions", "branch_probe", "branch_counters_in_export",
+    "coverage_rustflags", "inherited_rustflags", "effective_rustflags",
+    "source_fingerprint", "binaries_executed", "raw_profiles",
+    "swept_child_profiles", "tests_passed", "tests_failed", "tests_ignored",
 )
+document = dict(zip(keys, sys.argv[2:], strict=True))
+for key in (
+    "branch_counters_in_export", "binaries_executed", "raw_profiles",
+    "swept_child_profiles", "tests_passed", "tests_failed", "tests_ignored",
+):
+    document[key] = int(document[key])
+document["doctests_measured"] = False
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(document, handle, indent=2, sort_keys=True)
+    handle.write("\n")
 PY
 
 echo "coverage-report: classifying risk surfaces"
@@ -303,6 +300,7 @@ python3 "$repo_root/scripts/coverage-surfaces.py" \
   --metadata "$metadata" \
   --repo-root "$repo_root" \
   --top 0 \
+  --out-metadata "$out_dir/run-metadata.json" \
   --out-json "$out_dir/coverage-surfaces.json" \
   --out-md "$out_dir/coverage-surfaces.md"
 

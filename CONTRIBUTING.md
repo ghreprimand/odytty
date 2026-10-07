@@ -401,6 +401,7 @@ Before every commit, run through this gate and stop if anything is unclear:
    - `scripts/piped-test-guard.sh` runs on every CI test job.
    - `python3 scripts/production-file-guard.py --self-test`,
      `python3 scripts/coverage-surfaces.py --self-test`,
+     `python3 scripts/coverage-report-test.py` (Unix with Bash 4 or newer),
      `python3 scripts/bench-protocol/bench-protocol.py --self-test`,
      `python3 scripts/memory-capture.py --self-test`, and
      `python3 scripts/memory-regression-guard.py --self-test` validate the

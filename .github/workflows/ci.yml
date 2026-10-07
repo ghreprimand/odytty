@@ -272,6 +272,7 @@ jobs:
         run: |
           python3 scripts/production-file-guard.py --self-test
           python3 scripts/coverage-surfaces.py --self-test
+          python3 scripts/coverage-report-test.py
 
       - name: Benchmark-harness self-tests
         # Offline and side-effect free: the harness never takes a measurement,

@@ -32,9 +32,10 @@ The effective `RUSTFLAGS` row is the exact value the build exported, not just
 the flags the runner adds. The runner appends its coverage flags to any
 `RUSTFLAGS` already in the environment, so recording its own flags alone would
 have described a command that may not be the one that ran; both the inherited
-prefix and the combined value are recorded, and the inherited prefix was empty
-for this run. The fingerprint for this run was computed after the export and
-before publication, at which point every tracked Rust source was verified
+prefix and the combined value were recorded, and the inherited prefix was empty
+for this run. Current runs retain exact flags in private local metadata and
+redact caller-supplied flags from shareable metadata. The fingerprint for this
+run was computed after the export and before publication, at which point every tracked Rust source was verified
 byte-identical to the recorded revision with no untracked Rust source present;
 runs from this revision onward record it during the build instead.
 
@@ -47,13 +48,29 @@ scripts/coverage-report.sh [output-directory]
 The runner defaults to `target/coverage`, which is already ignored. It writes
 raw profiles, the merged profile, the llvm-cov export, a machine-readable
 summary (`coverage-surfaces.json`), and a generated table
-(`coverage-surfaces.md`) there. No absolute path reaches a tracked file, and
-nothing remains in the source tree when the run finishes -- see the note on
-child processes below for the one file that is transiently written there.
+(`coverage-surfaces.md`) there. The Unix runner requires Bash 4 or newer;
+Windows execution is unsupported. macOS requires a Bash version with `mapfile`.
+Nothing remains in the source tree when the run finishes: see the note on child
+processes below for the one file that is transiently written there.
 
-This measurement added no Rust code. The runner and the classifier are the only
-new executable files, and no product source, test, or assertion was touched to
-produce the numbers below.
+`run-metadata-private.json` retains the exact inherited and effective compiler
+flags as data, including quotes, backslashes and newlines. It is local evidence
+and must not be committed, along with raw exports and build logs that can carry
+absolute paths. `run-metadata.json` and the JSON/Markdown summaries are shareable
+reports: only known scalar metadata fields are retained, caller flag values
+are redacted in full, and path-bearing metadata values are redacted. The owned
+coverage instrumentation flags remain visible. A redaction marker records that
+exact caller flags are available only in private metadata. Counts, region
+identities and source verification still use the original evidence.
+
+`python3 scripts/coverage-report-test.py` exercises metadata serialization and
+report redaction with project-authored tool stubs. It performs no coverage build
+or measurement. `python3 scripts/coverage-surfaces.py --self-test` checks the
+classifier, including unknown metadata fields and Unix/Windows path redaction.
+
+That measurement added no Rust code. The runner and classifier were the only
+executable files added at that revision; no product source, test, or assertion
+was touched to produce the numbers below.
 
 The runner refuses to start when `cargo`, `rustc`, `python3`, `llvm-profdata`,
 or `llvm-cov` is missing, and when the LLVM major version behind `rustc`

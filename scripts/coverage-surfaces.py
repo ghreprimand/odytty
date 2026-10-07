@@ -1096,6 +1096,48 @@ def verify_source_identity(metadata, repo_root):
 MARKDOWN_FINDING_LIMIT = 10
 
 
+PUBLIC_METADATA_KEYS = {
+    "revision", "rustc_version", "rustc_llvm", "llvm_tools_version",
+    "target_triple", "branch_regions", "branch_probe", "branch_counters_in_export",
+    "coverage_rustflags", "inherited_rustflags", "effective_rustflags",
+    "source_fingerprint", "binaries_executed", "raw_profiles",
+    "swept_child_profiles", "tests_passed", "tests_failed", "tests_ignored",
+    "doctests_measured", "caller_rustflags_redacted",
+}
+COVERAGE_FLAGS = {
+    "-C instrument-coverage",
+    "-C instrument-coverage -Z coverage-options=branch",
+}
+
+
+def public_metadata(metadata):
+    """Copy known scalar evidence, excluding caller flags and path-bearing values.
+
+    Exact input remains in local private metadata. Never tokenize caller flags:
+    relative paths, opaque configuration values and quoted linker arguments can
+    carry private details too. Source verification uses the original metadata.
+    """
+    result = {
+        key: value for key, value in metadata.items()
+        if key in PUBLIC_METADATA_KEYS and isinstance(value, (str, int, bool))
+    }
+    inherited = metadata.get("inherited_rustflags", "")
+    effective = metadata.get("effective_rustflags", "")
+    redacted = bool(inherited) or bool(
+        effective and (not isinstance(effective, str) or effective not in COVERAGE_FLAGS)
+    )
+    for key in ("inherited_rustflags", "effective_rustflags"):
+        if key in result and redacted:
+            result[key] = "[redacted caller flags]"
+    if "coverage_rustflags" in result and result["coverage_rustflags"] not in COVERAGE_FLAGS:
+        result["coverage_rustflags"] = "[redacted]"
+    for key, value in result.items():
+        if isinstance(value, str) and ("/" in value or "\\" in value):
+            result[key] = "[redacted]"
+    result["caller_rustflags_redacted"] = redacted
+    return result
+
+
 def summarize(records, stats, metadata, index, top_n):
     surfaces = {}
     for surface_id, title, matchers in SURFACES:
@@ -1177,10 +1219,11 @@ def summarize(records, stats, metadata, index, top_n):
             ),
         }
 
-    branch_state = metadata.get("branch_regions", "unavailable")
+    report_metadata = public_metadata(metadata)
+    branch_state = report_metadata.get("branch_regions", "unavailable")
     return {
         "schema_version": SCHEMA_VERSION,
-        "metadata": metadata,
+        "metadata": report_metadata,
         "measurement": {
             "granularity": "llvm-region",
             "region_identity": "path + line_start + col_start + line_end + col_end",
@@ -1264,6 +1307,7 @@ def render_markdown(summary):
     add("| Tests passed | {} |".format(meta.get("tests_passed", "unknown")))
     add("| Tests failed | {} |".format(meta.get("tests_failed", "unknown")))
     add("| Tests ignored | {} |".format(meta.get("tests_ignored", "unknown")))
+    add("| Caller compiler flags redacted | {} |".format(meta.get("caller_rustflags_redacted", False)))
     add("| Branch instrumentation | {} |".format(summary["measurement"]["branch_regions"]))
     add(
         "| Branch counters in export | {} |".format(
@@ -1629,6 +1673,25 @@ def self_test():
     def check(condition, message):
         if not condition:
             failures.append(message)
+
+    # Shareable metadata never forwards raw caller flags or unknown fields.
+    private_meta = {
+        "revision": "self-test", "inherited_rustflags": "--sysroot=/private/fixture",
+        "effective_rustflags": "--sysroot=/private/fixture -C instrument-coverage",
+        "coverage_rustflags": "-C instrument-coverage", "tests_passed": 7,
+        "private_extra": "opaque_private_marker",
+    }
+    sanitized = public_metadata(private_meta)
+    check("/private/fixture" not in json.dumps(sanitized), "caller path leaked into metadata")
+    check("private_extra" not in sanitized, "unknown private metadata was forwarded")
+    check(sanitized["tests_passed"] == 7, "test count changed during redaction")
+    check(public_metadata(sanitized) == sanitized, "metadata redaction is not idempotent")
+    check(private_meta["inherited_rustflags"].endswith("/private/fixture"), "private input mutated")
+    for path in ("C:" + chr(92) + "fixture", "//fixture/share", "relative/fixture"):
+        check(public_metadata({"rustc_version": path})["rustc_version"] == "[redacted]",
+              "path-bearing scalar leaked into metadata")
+    check(public_metadata({"effective_rustflags": "-C instrument-coverage"})["effective_rustflags"]
+          == "-C instrument-coverage", "owned flags were unnecessarily redacted")
 
     # Classification contract.
     check(classify("src/parser/machine.rs") == "parser-dispatch", "parser path misrouted")
@@ -2092,6 +2155,7 @@ def main(argv):
     parser.add_argument("--export", type=Path, help="llvm-cov JSON export to read")
     parser.add_argument("--metadata", type=Path, help="run metadata JSON from the runner")
     parser.add_argument("--repo-root", type=Path, help="repository root the export refers to")
+    parser.add_argument("--out-metadata", type=Path, help="shareable metadata destination")
     parser.add_argument("--out-json", type=Path, help="machine-readable summary destination")
     parser.add_argument("--out-md", type=Path, help="human-readable report destination")
     parser.add_argument(
@@ -2137,6 +2201,10 @@ def main(argv):
     index = SourceIndex(root)
     summary = summarize(records, stats, metadata, index, args.top)
 
+    if args.out_metadata:
+        args.out_metadata.write_text(
+            json.dumps(summary["metadata"], indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
     if args.out_json:
         args.out_json.write_text(
             json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
