@@ -230,7 +230,21 @@ impl App {
         self.peer_attached_sessions = ids;
     }
 
-    /// Adopt the `--hold` state that travelled with moved panes.
+    /// Take this window's whole `--hold` state. A whole-window merge moves
+    /// every session out, so the launch hold (or the held, exited pane's
+    /// first-key close) travels with them instead of being dropped with the
+    /// retired window.
+    pub(in crate::native) fn take_hold_for_whole_merge(&mut self) -> MovedHold {
+        MovedHold {
+            hold_session: self.hold_session.take(),
+            held_exit: self.held_exit.take(),
+        }
+    }
+
+    /// Adopt the `--hold` state that travelled with moved panes. Only the
+    /// launch session of the first window carries a hold, so at most one
+    /// window in the process holds either marker and adopting never replaces
+    /// a destination's own.
     pub(in crate::native) fn adopt_moved_hold(&mut self, hold: MovedHold) {
         if hold.hold_session.is_some() {
             self.hold_session = hold.hold_session;

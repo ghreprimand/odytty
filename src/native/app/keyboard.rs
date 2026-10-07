@@ -16,19 +16,53 @@ use super::platform_opener::OpenerOs;
 use super::*;
 
 impl App {
-    /// Encode a key event and write its bytes to the PTY.
+    /// Route one key event through local UI, or encode it and write its bytes
+    /// to the PTY.
     ///
-    /// Maps the `winit` logical key (plus the cached [`Modifiers`]) onto the
-    /// neutral [`Key`] model and defers byte production to the shared
-    /// [`input::encode_key`]. Keys the prototype does not encode are dropped. The
-    /// PTY writer is flushed after each write so the keystroke reaches the shell
-    /// without buffering latency.
+    /// A press that local UI consumes records its physical key; that key's
+    /// repeats and release are then withheld from the PTY encoder, so Kitty
+    /// and Win32 input reporting never see a release (or repeat) whose press
+    /// stayed local. A release whose press reached the encoder is still
+    /// encoded. Local UI keeps receiving repeats, so held navigation inside
+    /// the search field still works.
     pub(super) fn handle_key_event(
         &mut self,
         logical: WinitKey,
         binding_key: WinitKey,
         physical: PhysicalKey,
         event_type: KeyEventType,
+    ) {
+        let consumed_locally = match event_type {
+            KeyEventType::Press => {
+                self.locally_consumed_keys.retain(|key| *key != physical);
+                false
+            }
+            KeyEventType::Repeat => self.locally_consumed_keys.contains(&physical),
+            KeyEventType::Release => {
+                let before = self.locally_consumed_keys.len();
+                self.locally_consumed_keys.retain(|key| *key != physical);
+                self.locally_consumed_keys.len() != before
+            }
+        };
+        self.key_reached_pty_encoder = false;
+        self.route_key_event(logical, binding_key, physical, event_type, consumed_locally);
+        if event_type == KeyEventType::Press && !self.key_reached_pty_encoder {
+            self.locally_consumed_keys.push(physical);
+        }
+    }
+
+    /// The ordered precedence chain. Maps the `winit` logical key (plus the
+    /// cached [`Modifiers`]) onto the neutral [`Key`] model and defers byte
+    /// production to the shared [`input::encode_key`]. Keys with no encoding
+    /// are dropped. The PTY writer is flushed after each write so the
+    /// keystroke reaches the shell without buffering latency.
+    fn route_key_event(
+        &mut self,
+        logical: WinitKey,
+        binding_key: WinitKey,
+        physical: PhysicalKey,
+        event_type: KeyEventType,
+        consumed_locally: bool,
     ) {
         // Physical identity is the stable source for editing keys. KDE/KWin can
         // report Ctrl+Backspace as Character(BS), while Mutter and other stacks
@@ -215,8 +249,12 @@ impl App {
                 return;
             }
             if action == Some(BindableAction::Search) {
-                self.arm_consumed_character(&logical);
-                self.toggle_search();
+                // Toggle on the press only: a held chord's repeats are
+                // consumed, so search never flickers open and closed.
+                if event_type == KeyEventType::Press {
+                    self.arm_consumed_character(&logical);
+                    self.toggle_search();
+                }
                 return;
             }
             if self.search.is_open() {
@@ -232,6 +270,16 @@ impl App {
                     self.route_modal_key(modal, &logical);
                     return;
                 }
+            }
+            // Toggles act once per press. A held chord's repeats are consumed
+            // here so read-only and broadcast never flip on every repeat.
+            if event_type == KeyEventType::Repeat
+                && matches!(
+                    action,
+                    Some(BindableAction::ToggleReadOnly | BindableAction::ToggleBroadcast)
+                )
+            {
+                return;
             }
             let latch_before = (
                 self.consumed_chord,
@@ -506,6 +554,12 @@ impl App {
             return;
         }
 
+        // The press of this key was consumed by local UI: its repeat or
+        // release is not shell input either.
+        if consumed_locally {
+            return;
+        }
+        self.key_reached_pty_encoder = true;
         key_event_diagnostics::log_backspace_modes(&logical, key_modes, event_type);
         let mut bytes = Vec::new();
         if key_modes.win32_input {
@@ -1182,13 +1236,21 @@ impl App {
     /// visible at copy time (the app-wide selection→clipboard contract). Also
     /// mirrors the selection to PRIMARY like any other selection. No-op on an
     /// empty grid.
+    /// Select the focused pane's whole buffer, history included. Its size and
+    /// history length are read together under one lock, from the focused
+    /// terminal rather than the window grid, so a split pane selects exactly
+    /// its own rows.
     pub(super) fn handle_select_all(&mut self) {
-        let columns = self.grid.columns;
-        let rows = self.grid.rows;
+        let (columns, rows, history) = {
+            let terminal = crate::native::lock_recover(&self.terminal);
+            let screen = terminal.screen();
+            let dimensions = screen.dimensions();
+            (dimensions.columns, dimensions.rows, screen.scrollback_len())
+        };
         if columns == 0 || rows == 0 {
             return;
         }
-        let end_row = self.scrollback_len() + rows - 1;
+        let end_row = history + rows - 1;
         self.selection.set_range(AbsoluteSelectionRange {
             start: selection::AbsoluteCellPoint { row: 0, column: 0 },
             end: selection::AbsoluteCellPoint {

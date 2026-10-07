@@ -113,6 +113,14 @@ pub(in crate::native) struct App {
     /// or after the key-up. The window that handled the chord leaves this
     /// false, so a press after the key-up there is real typing.
     pub(super) consumed_chord_inherited: bool,
+    /// Physical keys whose last press local UI consumed (search, modals,
+    /// launchers, the prefix engine, held exit). Their repeats and release
+    /// never reach the PTY encoder, so Kitty and Win32 input reporting never
+    /// see half of a key event. A press that reaches the encoder removes its
+    /// key. Bounded by the number of distinct physical keys.
+    pub(super) locally_consumed_keys: Vec<PhysicalKey>,
+    /// Set when the key event being routed reached the PTY encoder.
+    pub(super) key_reached_pty_encoder: bool,
     pub(super) key_bindings: KeyBindings,
     /// Multiplexer prefix engine (§7). Holds the configurable prefix chord, the
     /// pane-action table, and the transient prefix-pending state. Additive: when
@@ -768,6 +776,8 @@ impl App {
             consumed_chord: None,
             consumed_chord_released: false,
             consumed_chord_inherited: false,
+            locally_consumed_keys: Vec::new(),
+            key_reached_pty_encoder: false,
             key_bindings,
             prefix_engine,
             last_active_session,

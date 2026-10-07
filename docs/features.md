@@ -117,6 +117,9 @@ shells and full-screen terminal applications:
 | Keyboard input | Mode-aware legacy encoding, negotiated Kitty keyboard protocol, and IME composition |
 
 SGR-pixel mode reports true physical pixel coordinates from the native window.
+In a split, coordinates are relative to the focused pane and clamped to that
+pane's own pixel size, so a drag past its edge never reports a point outside
+its screen.
 Alternate scroll mode 1007 is on by default and translates the wheel into
 cursor-key presses on the alternate screen. Full-screen applications that do
 not track the mouse therefore scroll at the configured `scroll_wheel_lines`
@@ -127,6 +130,15 @@ active, legacy bytes are preserved. Under the disambiguate flag, modified
 `Enter`/`Tab`/`Backspace` (for example `Ctrl+Enter`, `Shift+Enter`,
 `Ctrl+Backspace`) become distinct CSI-u sequences while the unmodified keys
 stay on their legacy bytes.
+
+A key press that OdyTTY itself handles (typing in search, the multiplexer
+prefix and its pane command, a shortcut, or dismissing a held pane) is not
+sent to the pane, and neither are that key's repeats or its release, so a
+program using Kitty event reporting or Windows Win32-input mode never sees a
+release without its press. A key pressed while the pane had input keeps
+sending its release to that pane. Holding the search shortcut, or a
+`toggle-read-only` or `toggle-broadcast` chord, acts once per press, as the
+Settings and theme picker shortcuts already did.
 
 xterm's modifyOtherKeys (`XTMODKEYS`, levels 1 and 2) is supported as a
 compatibility layer for applications that select it by `TERM` — Vim's default
@@ -1231,7 +1243,9 @@ picker is visible even when the candidate windows are stacked behind it. The qui
 terminal is never a merge origin or candidate. Tabs, panes, PTYs, profiles, and
 attach handles move with the transfer; the source window closes only after
 success. When the source window owns the saved workspace layout, the surviving
-window takes over that role and saves the merged layout. Escape cancels. See the
+window takes over that role and saves the merged layout. A `--hold` launch
+session moves with its hold: its later exit is still held, and an already
+held, exited pane still closes on its first key. Escape cancels. See the
 [window-merge contract](v0.15.0-foundation.md).
 
 ### Move Tabs And Panes Between Windows

@@ -239,8 +239,12 @@ impl App {
         let mut text = String::new();
         let mut previous_wrapped = false;
         let mut have_previous = false;
+        // Bound the walk to live rows: an end row past the buffer (a range
+        // built against other geometry) copies what exists and stops.
+        let last_live_row = scrollback_len + rows - 1;
+        let end_row = range.end.row.min(last_live_row);
         let mut abs_row = range.start.row;
-        while abs_row <= range.end.row {
+        while abs_row <= end_row {
             // Window placing `abs_row` at (or below) the viewport top.
             let offset = scrollback_len.saturating_sub(abs_row);
             let visible_rows = terminal.screen().visible_search_rows(offset);
@@ -250,7 +254,11 @@ impl App {
             let last_col = cols - 1;
             let top = scrollback_len.saturating_sub(offset);
             let window_bottom = top + rows - 1;
-            let chunk_end = window_bottom.min(range.end.row);
+            let chunk_end = window_bottom.min(end_row);
+            if chunk_end < abs_row {
+                // No progress is possible from here; never spin.
+                break;
+            }
 
             for r in abs_row..=chunk_end {
                 let vrow = r - top;

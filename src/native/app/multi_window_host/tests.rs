@@ -715,6 +715,59 @@ fn selecting_a_candidate_merges_this_into_it_and_retires_the_source() {
 }
 
 #[test]
+fn a_whole_window_merge_carries_a_running_launch_hold_to_the_survivor() {
+    let mut source = headless();
+    let launch = source.active_session_token_for_test();
+    source.hold_session = Some(launch);
+    let mut target = headless();
+    target
+        .workspace_set_mut()
+        .rekey_sole_session_for_test(SessionToken(500));
+    let mut host = host_of(vec![source, target]);
+
+    host.open_picker(0, MergeDirection::MergeThisInto);
+    host.handle_picker_key(PickerKey::Select(1));
+
+    assert_eq!(host.windows.len(), 1, "source window retired");
+    let survivor = &host.windows[0];
+    assert!(survivor.owns_session(launch));
+    assert_eq!(
+        survivor.hold_session,
+        Some(launch),
+        "a later EOF of the moved launch session is still held"
+    );
+    assert_eq!(survivor.held_exit, None);
+}
+
+#[test]
+fn pulling_a_window_with_a_held_exited_pane_keeps_its_first_key_close() {
+    let mut origin = headless();
+    origin
+        .workspace_set_mut()
+        .rekey_sole_session_for_test(SessionToken(500));
+    let mut held = headless();
+    let exited = held.active_session_token_for_test();
+    held.held_exit = Some(exited);
+    let mut host = host_of(vec![origin, held]);
+
+    host.open_picker(0, MergeDirection::PullIntoThis);
+    host.handle_picker_key(PickerKey::Select(1));
+
+    assert_eq!(host.windows.len(), 1, "the pulled window retired");
+    let survivor = &mut host.windows[0];
+    assert_eq!(survivor.held_exit, Some(exited));
+    assert_eq!(survivor.hold_session, None);
+    survivor.focus_session_token_for_test(exited);
+    survivor.drive_text_key_for_test("x");
+    assert_eq!(survivor.held_exit, None, "the first key dismisses the hold");
+    assert!(
+        !survivor.owns_session(exited),
+        "the first key closes the held, exited pane"
+    );
+    assert!(survivor.owns_session(SessionToken(500)));
+}
+
+#[test]
 fn merging_the_primary_window_into_a_sibling_preserves_autosave_ownership() {
     use std::time::{Duration, Instant};
 

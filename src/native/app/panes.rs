@@ -363,10 +363,11 @@ impl App {
     }
 
     /// The cell dimensions a **window-level overlay** (context menu / settings /
-    /// palette / connections / replay) centers within. Overlays are window-level,
-    /// so in a multi-pane tab they use the whole content grid, NOT the focused
-    /// pane's smaller sub-grid (`self.grid`). In a single-pane tab this returns
-    /// `self.grid` exactly, so the single-pane overlay geometry is unchanged.
+    /// palette / connections / replay) centers within: the whole content grid,
+    /// never a focused pane's smaller sub-grid. A multi-pane tab derives it from
+    /// the content rect; a single-pane tab returns `self.grid`, the App's
+    /// window content grid (an App field, so it is never the focused session's
+    /// size).
     pub(super) fn overlay_grid_dims(&self) -> (usize, usize) {
         if let Some((content, cell)) = self.multipane_geometry() {
             grid_dims_for_rect(content, cell.width, cell.height)
@@ -376,14 +377,10 @@ impl App {
     }
 
     /// The column count the tab-bar strip is laid out across: the **window**
-    /// content columns, not the focused pane's sub-grid. The strip renders edge
+    /// content columns, not a focused pane's sub-grid. The strip renders edge
     /// to edge across the whole window ([`Self::tab_bar_strip`] uses
-    /// `(surface_w - 2·pad)/cell.width`), so its hit-test must use the same
-    /// window columns — otherwise, in a multi-pane tab where `self.grid` Derefs
-    /// to the narrower focused-pane sub-grid, tabs render at window-width
-    /// positions but hit-test across the sub-grid and clicks/hover miss. In a
-    /// single-pane tab [`Self::overlay_grid_dims`] returns `self.grid`, so this
-    /// is exactly `self.grid.columns` and the tab-bar hit-test is byte-identical.
+    /// `(surface_w - 2·pad)/cell.width`), so its hit-test uses the same window
+    /// columns, through [`Self::overlay_grid_dims`].
     pub(super) fn tab_bar_grid_cols(&self) -> usize {
         self.overlay_grid_dims().0
     }
@@ -424,9 +421,9 @@ impl App {
 
     /// The pointer cell **relative to the focused pane's sub-rect** in a
     /// multi-pane tab — the basis local text selection anchors and extends
-    /// against, since `self.grid` / `self.terminal` / `self.selection` all
-    /// operate on the focused pane's sub-grid, which is offset from the window
-    /// origin. Returns `None` on a single-pane tab (where the byte-identical
+    /// against, since `self.terminal` / `self.selection` operate on the
+    /// focused pane's sub-grid, which is offset from the window origin
+    /// (`self.grid` is the App's whole-window grid, not the pane's). Returns `None` on a single-pane tab (where the byte-identical
     /// window-origin mapping in `update_pointer_cell` is correct) or when the
     /// geometry / cached pointer is unavailable. Uses the cached absolute
     /// `pointer_px` — the same physical-pixel basis `multipane_geometry` and the

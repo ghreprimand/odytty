@@ -2276,6 +2276,21 @@ impl App {
         })
     }
 
+    /// Test seam: the focused terminal's screen size.
+    #[cfg(test)]
+    pub(in crate::native) fn active_terminal_dimensions_for_test(&self) -> crate::core::Dimensions {
+        crate::native::lock_recover(&self.terminal)
+            .screen()
+            .dimensions()
+    }
+
+    /// Test seam: Select All through the production handler the context menu
+    /// dispatches.
+    #[cfg(test)]
+    pub(in crate::native) fn select_all_for_test(&mut self) {
+        self.handle_select_all();
+    }
+
     /// Test seam (KB-REMAP): open the key-binding remap modal through the
     /// production entry path (so the pointer-state reset and overlay open are
     /// genuinely exercised), without a window/GPU.

@@ -6,6 +6,7 @@
 //! focus report emission, and click-to-position travel encoding.
 
 use super::*;
+use crate::native::layout::grid_dims_for_rect;
 
 impl App {
     pub(super) fn mouse_protocol(&self) -> MouseProtocol {
@@ -81,8 +82,9 @@ impl App {
     /// window-absolute, so it is first mapped grid-relative the same way the cell
     /// path maps it (subtract the tab-chrome offset on a single-pane tab, or the
     /// focused pane's rect origin in a multi-pane tab); [`pixel_coords_for_report`]
-    /// then floors it to a 1-based pixel and clamps to the grid's pixel extent
-    /// after removing any window padding.
+    /// then floors it to a 1-based pixel and clamps to the pixel extent of the
+    /// grid the report addresses (the focused pane's grid in a split, the
+    /// window grid otherwise) after removing any window padding.
     pub(super) fn encode_pixel_mouse_report(
         &self,
         protocol: MouseProtocol,
@@ -90,8 +92,8 @@ impl App {
         kind: MouseEventKind,
     ) -> Option<Vec<u8>> {
         let (x_px, y_px) = self.pointer_px?;
-        let gpu = self.gpu.as_ref()?;
-        let cell = gpu.cell();
+        let cell = self.resolved_cell()?;
+        let (_, _, window_padding) = self.resolved_surface()?;
         // Map the absolute pointer into grid-relative pixels, mirroring the cell
         // path: a top bar / left rail shifts the grid origin, and in a multi-pane
         // tab the focused pane's content rect is offset from the window origin.
@@ -102,12 +104,16 @@ impl App {
             // PANE-PADDING: the focused pane's PADDED rect origin already folds in
             // the tab-chrome, window padding, AND the per-divider inset, so the
             // report maps to the same cell the glyph renders at (parity with
-            // `pane_relative_cell`); no separate padding subtraction here.
+            // `pane_relative_cell`); no separate padding subtraction here. The
+            // clamp uses the pane's own grid, the extent `pane_relative_cell`
+            // clamps cells to, so a drag past any pane edge never reports a
+            // pixel outside the pane's screen.
+            let (columns, rows) = grid_dims_for_rect(rect, cell.width, cell.height);
             pixel_coords_for_report(
                 x_px - f64::from(rect.x),
                 y_px - f64::from(rect.y),
                 cell,
-                self.grid,
+                Dimensions::new(columns, rows),
                 WindowPadding::ZERO,
             )
         } else {
@@ -120,7 +126,7 @@ impl App {
                 y_px - chrome_dy,
                 cell,
                 self.grid,
-                gpu.window_padding(),
+                window_padding,
             )
         };
         // BIDI: a reordered row reports the logical cell drawn under the

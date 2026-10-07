@@ -284,8 +284,8 @@ impl App {
 
     /// True when, in a multi-pane tab, the pointer is over a pane OTHER than the
     /// focused one — or in a divider gap with no pane content beneath it. This is
-    /// the case where hover resolution must be suppressed: `self.grid` /
-    /// `self.terminal` belong to the focused pane, so mapping an off-pane pointer
+    /// the case where hover resolution must be suppressed: `self.terminal`
+    /// belongs to the focused pane, so mapping an off-pane pointer
     /// into them resolves a false link/path/URL. Always `false` on a single-pane
     /// tab (`multipane_geometry` is `None`), keeping the single-pane and
     /// focused-pane hover paths byte-identical.
@@ -628,8 +628,8 @@ impl App {
             self.apply_cursor_icon(Self::divider_resize_icon(axis));
             return;
         }
-        // Multi-pane hover analog of focus-follows-click: `self.grid` /
-        // `self.terminal` are the FOCUSED pane's, so resolving hover while the
+        // Multi-pane hover analog of focus-follows-click: `self.terminal` is
+        // the FOCUSED pane's, so resolving hover while the
         // pointer is over a NON-focused pane (or a divider gap) would map the
         // pointer into the focused pane and light a false hyperlink / path / URL
         // hit (and hand cursor) there. Suppress hover in that case, clearing any
