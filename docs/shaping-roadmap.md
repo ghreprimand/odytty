@@ -64,7 +64,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Surface | Current support | Standing position |
 | --- | --- | --- |
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
-| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
+| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and bases or harakat the font does not map, keep the monochrome path |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen and right-to-left paragraph levels are not reordered. Complex-script owners move as whole spans, keeping their cells adjacent and in order |
 | Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
 | Khmer/Myanmar shaping | With `script_shaping` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
@@ -163,7 +163,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
   draws this way, including one whose form joining leaves unchanged; a marked
   letter with no adjacent Arabic letter keeps the monochrome path. A mark
   without an attachment is drawn from its base's advance, which matches the
-  monochrome placement when the letter is one cell wide. A marked cell whose
+  monochrome placement when the letter is one cell wide. A cell whose base or
   marks the text font does not map, and any other combining mark on an Arabic
   letter, keep the monochrome combining path and split the run there. Copy,
   search, selection, and cursor addressing are unchanged. Mark ink stays
@@ -347,6 +347,13 @@ have no effect, and SVG text is not drawn. Output is premultiplied RGBA no
 larger than the slot. A refused or empty document keeps the monochrome
 fallback, and a key that fails is remembered so it is not reparsed each frame.
 Synthetic SVG-only fixtures cover these paths on Linux, macOS, and Windows.
+
+The row-run and owner-run caches validate every style face before reuse.
+Changing a face invalidates its prior glyph plans and parsed shaping data;
+clones of the same immutable face preserve their generation. Collection-face
+indices participate in shaping and atlas identity. These cache rules are
+shared across Linux, macOS and Windows, and do not change logical cell,
+selection or copy semantics.
 
 ## Tractable candidate work
 

@@ -147,6 +147,9 @@ pub fn shaper_data(face: &FontHandle) -> Option<ShaperData> {
 fn fingerprint(face: &FontHandle) -> u64 {
     let mut hasher = DefaultHasher::new();
     face.as_slice().hash(&mut hasher);
+    if face.face_index() != 0 {
+        face.face_index().hash(&mut hasher);
+    }
     hasher.finish()
 }
 
@@ -206,6 +209,7 @@ pub struct ComplexShaper {
     presented: HashMap<OwnerKey, Presentation>,
     shape_calls: u64,
     face_lookups: u64,
+    face_generations: [u64; 4],
 }
 
 impl ComplexShaper {
@@ -220,6 +224,7 @@ impl ComplexShaper {
         self.primary = Default::default();
         self.fallback.clear();
         self.presented.clear();
+        self.face_generations = [0; 4];
     }
 
     /// Number of harfrust shaping calls made, for cache tests.
@@ -264,6 +269,17 @@ impl ComplexShaper {
         let cols = snapshot.dimensions.columns;
         if cols == 0 {
             return runs;
+        }
+        let face_generations = [
+            FontStyle::Regular,
+            FontStyle::Bold,
+            FontStyle::Italic,
+            FontStyle::BoldItalic,
+        ]
+        .map(|style| fonts.ligature_font(style).face_generation());
+        if face_generations != self.face_generations {
+            self.clear();
+            self.face_generations = face_generations;
         }
         let coverage = ColorRunCoverage::new(color_runs, cols, snapshot.dimensions.rows);
         for (row, cells) in snapshot.cells.chunks(cols).enumerate() {

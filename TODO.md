@@ -1929,6 +1929,10 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
 - [x] Core font-regression fixtures are portable across Linux, macOS and
       Windows; host font exercises are explicit extras. Refused SVG cache tests
       observe actual render attempts, and color probes accept v1/SVG coverage.
+- [x] Row and owner shaping caches invalidate changed style faces, respect raw
+      collection face indices, and leave uncovered Arabic bases/marks on scalar
+      fallback. Zero-column snapshots return no shaping runs; portable fixture
+      and full-quad clipping assertions cover the public shaping seam.
 - [x] Runtime fallback faces are parsed once and shared across codepoints;
       over-limit collections reconstruct only the selected face instead of
       retaining the full collection. Directory-only discovery also accepts

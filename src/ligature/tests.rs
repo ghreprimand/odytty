@@ -380,50 +380,23 @@ fn default_latin_path_enables_liga_alongside_calt() {
 
 #[test]
 fn latin_length_changing_liga_stays_clipped_to_its_source_cells() {
-    let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
+    let fonts = Fonts(
+        FontHandle::try_from_vec(
+            include_bytes!("../../tests/fixtures/fonts/bidi-mixed.ttf").to_vec(),
+        )
+        .expect("length-changing fixture"),
+    );
     let mut shaper = LigatureShaper::new();
-    let snap = snapshot("ffi");
-    let runs = shaper.build_runs(true, &snap, &fonts, &[]);
-    let Some(run) = runs.first() else {
-        // The bundled face may encode this sequence without a `liga`
-        // substitution. The structural feature-tag test above still pins
-        // that `liga` is enabled.
-        return;
-    };
-    assert_eq!((run.start, run.end), (0, 3));
-    assert!(run.glyphs.iter().all(|glyph| glyph.key.span_cells == 3));
+    let runs = shaper.build_runs(true, &snapshot("->"), &fonts, &[]);
+    let run = runs.first().expect("fixture defines an arrow liga");
+    assert_eq!((run.start, run.end), (0, 2));
+    assert_eq!(run.glyphs.len(), 1, "length-changing substitution");
+    assert!(run.glyphs.iter().all(|glyph| glyph.key.span_cells == 2));
 }
 
-/// Host fonts known to carry Arabic joining lookups. Absence → skip, never fail.
-fn load_arabic_capable_font() -> Option<(FontHandle, &'static str)> {
-    const CANDIDATES: &[(&str, &str)] = &[
-        ("/usr/share/fonts/dejavu/DejaVuSans.ttf", "DejaVu Sans"),
-        (
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "DejaVu Sans",
-        ),
-        ("/usr/share/fonts/TTF/DejaVuSans.ttf", "DejaVu Sans"),
-        (
-            "/usr/share/fonts/noto/NotoNaskhArabic-Regular.ttf",
-            "Noto Naskh Arabic",
-        ),
-        (
-            "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
-            "Noto Naskh Arabic",
-        ),
-        // Windows stock faces with Arabic coverage (windows CI leg).
-        (r"C:\Windows\Fonts\arial.ttf", "Arial"),
-        (r"C:\Windows\Fonts\tahoma.ttf", "Tahoma"),
-        (r"C:\Windows\Fonts\seguisym.ttf", "Segoe UI Symbol"),
-    ];
-    for &(path, label) in CANDIDATES {
-        if let Ok(bytes) = std::fs::read(path)
-            && let Ok(font) = FontHandle::try_from_vec(bytes)
-        {
-            return Some((font, label));
-        }
-    }
-    None
+fn arabic_fixture_font() -> FontHandle {
+    FontHandle::try_from_vec(include_bytes!("../../tests/fixtures/fonts/arabic-marks.ttf").to_vec())
+        .expect("project-authored Arabic fixture")
 }
 
 #[test]
@@ -452,16 +425,12 @@ fn arabic_joining_bases_form_compatible_runs_separate_from_latin() {
 
 #[test]
 fn arabic_joining_forms_overlay_preserves_logical_columns() {
-    let Some((font, label)) = load_arabic_capable_font() else {
-        eprintln!(
-            "skip arabic_joining_forms_overlay_preserves_logical_columns: no Arabic-capable font discoverable"
-        );
-        return;
-    };
+    let font = arabic_fixture_font();
+    let label = "project-authored Arabic fixture";
     let fonts = Fonts(font);
     let mut shaper = LigatureShaper::new();
-    // "كتاب" - dual/right-joining letters that change under Script::Arabic.
-    let word = "كتاب";
+    // Project-authored sequence with joining forms and a lam-alef cluster.
+    let word = "\u{0628}\u{0628}\u{0644}\u{0627}";
     let snap = snapshot(word);
     let runs = shaper.build_runs(true, &snap, &fonts, &[]);
     let run = runs
@@ -501,12 +470,8 @@ fn arabic_joining_forms_overlay_preserves_logical_columns() {
 
 #[test]
 fn arabic_lam_alef_length_changing_ligature_still_overlays() {
-    let Some((font, label)) = load_arabic_capable_font() else {
-        eprintln!(
-            "skip arabic_lam_alef_length_changing_ligature_still_overlays: no Arabic-capable font discoverable"
-        );
-        return;
-    };
+    let font = arabic_fixture_font();
+    let label = "project-authored Arabic fixture";
     let fonts = Fonts(font);
     let mut shaper = LigatureShaper::new();
     // Lam-alef typically collapses two cells to one glyph under Arabic shaping.
@@ -600,6 +565,7 @@ fn disabled_renderer_is_byte_identical_and_allocates_nothing() {
 
 #[test]
 fn shaped_atlas_reuses_slots_and_clips_ink_to_source_span() {
+    let _guard = crate::test_lock::render_globals_lock();
     let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
     let atlas_font = text::load_bundled_font().expect("bundled font");
     let snap = snapshot("->");
@@ -643,6 +609,8 @@ fn shaped_atlas_reuses_slots_and_clips_ink_to_source_span() {
         assert!(vertex.pos[0] <= 2.0 * atlas.cell.width as f32);
         assert!(vertex.pos[1] >= 0.0);
         assert!(vertex.pos[1] <= atlas.cell.height as f32);
+        assert!(vertex.end_pos[0] >= 0.0 && vertex.end_pos[0] <= 2.0 * atlas.cell.width as f32);
+        assert!(vertex.end_pos[1] >= 0.0 && vertex.end_pos[1] <= atlas.cell.height as f32);
     }
     assert!(saw_ink);
 }
@@ -956,3 +924,6 @@ fn pane_origin_translates_ligature_without_changing_shape_plan() {
         assert_eq!(right.uv, left.uv);
     }
 }
+
+#[path = "cache_face_tests.rs"]
+mod cache_face_tests;

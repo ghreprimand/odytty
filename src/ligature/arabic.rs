@@ -4,7 +4,7 @@
 //! A cell joins an Arabic shaping run when its base is a joining letter (or
 //! tatweel) and every retained combining mark is an Arabic harakat from
 //! [`is_arabic_harakat`]. Before shaping, a run is split at any marked cell
-//! whose marks the shaping face does not map, so that cell keeps the
+//! whose base or marks the shaping face does not map, so that cell keeps the
 //! monochrome combining path (which never draws a missing mark) instead of a
 //! `.notdef` box over its base.
 //!
@@ -82,8 +82,8 @@ pub(super) fn marks_join_arabic_run(cell: &Cell) -> bool {
         || (is_arabic_joining_base(cell.ch) && marks.iter().all(|&m| is_arabic_harakat(m)))
 }
 
-/// Sub-ranges of `start..end` that exclude every marked cell carrying a mark
-/// `font` does not map. Unmarked runs come back whole.
+/// Sub-ranges excluding unmapped Arabic bases and retained marks. Unmarked
+/// Latin/operator runs retain their compatibility bounds.
 pub(super) fn mapped_mark_segments(
     cells: &[Cell],
     start: usize,
@@ -93,10 +93,11 @@ pub(super) fn mapped_mark_segments(
     let mut segments = Vec::new();
     let mut segment = start;
     for (column, cell) in cells.iter().enumerate().take(end).skip(start) {
-        let unmapped = cell
-            .combining()
-            .iter()
-            .any(|&mark| font.glyph_id(mark).0 == 0);
+        let unmapped = (is_arabic_joining_base(cell.ch) && font.glyph_id(cell.ch).0 == 0)
+            || cell
+                .combining()
+                .iter()
+                .any(|&mark| font.glyph_id(mark).0 == 0);
         if unmapped {
             if segment < column {
                 segments.push(segment..column);

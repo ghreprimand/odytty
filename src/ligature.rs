@@ -3,9 +3,9 @@
 //!
 //! # Model
 //!
-//! The terminal model remains one logical character per grid cell. Compatible
+//! Logical owners retain graphemes and their terminal-cell spans. Compatible
 //! cells are grouped into shaping runs, each cell contributing its stored
-//! grapheme cluster ([`Cell::grapheme`] — base plus any combining marks). Runs
+//! grapheme cluster ([`Cell::grapheme`], base plus retained marks). Runs
 //! are shaped with `swash`; OpenType `calt` substitutions become presentation
 //! overlays ([`LigatureRun`]) while backgrounds, decorations, selection, search,
 //! copy, and cursor placement stay cell-owned. Shaped advances never move
@@ -188,6 +188,8 @@ impl LatinShapingFeatures {
 }
 
 /// Font access needed by the shaper without coupling it to the native GPU type.
+/// Faces stay constant during one build call; replacements between calls are
+/// detected before cached row plans are reused.
 pub trait LigatureFonts {
     fn ligature_font(&self, style: FontStyle) -> &FontHandle;
 }
@@ -305,6 +307,7 @@ pub struct LigatureShaper {
     fifo: VecDeque<(u64, Arc<RowKey>)>,
     entry_count: usize,
     face_fingerprints: [Option<u64>; 4],
+    face_generations: [u64; 4],
     shape_calls: u64,
     latin_features: LatinShapingFeatures,
     switches: ShapingSwitches,
@@ -324,6 +327,7 @@ impl LigatureShaper {
             fifo: VecDeque::new(),
             entry_count: 0,
             face_fingerprints: [None; 4],
+            face_generations: [0; 4],
             shape_calls: 0,
             latin_features: LatinShapingFeatures::default(),
             switches: ShapingSwitches {
@@ -338,6 +342,7 @@ impl LigatureShaper {
         self.fifo.clear();
         self.entry_count = 0;
         self.face_fingerprints = [None; 4];
+        self.face_generations = [0; 4];
     }
 
     pub fn cached_rows(&self) -> usize {
@@ -432,15 +437,28 @@ impl LigatureShaper {
         if !switches.ligatures && !switches.scripts {
             return Vec::new();
         }
-        if latin_features != self.latin_features || switches != self.switches {
+        let cols = snapshot.dimensions.columns;
+        if cols == 0 {
+            return Vec::new();
+        }
+        let face_generations = [
+            FontStyle::Regular,
+            FontStyle::Bold,
+            FontStyle::Italic,
+            FontStyle::BoldItalic,
+        ]
+        .map(|style| fonts.ligature_font(style).face_generation());
+        if latin_features != self.latin_features
+            || switches != self.switches
+            || face_generations != self.face_generations
+        {
             self.clear();
             self.latin_features = latin_features;
             self.switches = switches;
+            self.face_generations = face_generations;
         }
-        let cols = snapshot.dimensions.columns;
-        // One O(cells / 64 + runs) coverage mask serves the fingerprint,
-        // cache-key comparison, and eligibility passes for every row, instead
-        // of each of those scanning the whole run list per cell.
+        // One coverage mask serves row fingerprints, exact cache-key checks,
+        // and run eligibility.
         let coverage = ColorRunCoverage::new(color_runs, cols, snapshot.dimensions.rows);
         let mut output = Vec::new();
         for (row, cells) in snapshot.cells.chunks(cols).enumerate() {
@@ -539,7 +557,8 @@ impl LigatureShaper {
         font: &FontHandle,
         direction: Direction,
     ) -> Vec<RelativeRun> {
-        let Some(font_ref) = FontRef::from_index(font.as_slice(), 0) else {
+        let Some(font_ref) = FontRef::from_index(font.as_slice(), font.face_index() as usize)
+        else {
             return Vec::new();
         };
         let arabic = run_text.text.chars().any(is_arabic_joining_base);
@@ -938,6 +957,10 @@ fn whole_run_overlay(
 fn font_fingerprint(font: &FontHandle) -> u64 {
     let mut hasher = DefaultHasher::new();
     font.as_slice().hash(&mut hasher);
+    // Preserve standalone identities and distinguish faces of raw collections.
+    if font.face_index() != 0 {
+        font.face_index().hash(&mut hasher);
+    }
     hasher.finish()
 }
 

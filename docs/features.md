@@ -420,7 +420,10 @@ forms advance exactly one cell, as in a monospace face; a proportional face
 loaded through the `font` path setting, which is not checked for monospace,
 draws gaps between joined letters. Arabic letters carrying harakat (fatha,
 kasra, shadda, and the other Arabic nonspacing marks) stay in their joining
-run, and the marks are drawn where the font's mark positioning places them.
+run when the shaping face maps their base and every mark, and the marks are
+drawn where the font's mark positioning places them. An uncovered base or mark
+splits the run and keeps that cell on scalar fallback. Shaping caches validate
+the regular, bold, italic and bold-italic faces before reusing glyph plans.
 Unsupported fonts and runs render through the normal per-cell path. Set
 `ligatures = off` in Settings or configuration, or `ODYTTY_LIGATURES=off` for
 one launch, to restore per-cell Latin/operator rendering. Set `script_shaping =

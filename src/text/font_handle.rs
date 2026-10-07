@@ -16,6 +16,11 @@ use skrifa::MetadataProvider;
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::pen::PathStyle;
 use skrifa::outline::{DrawSettings, OutlinePen};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Immutable face generations distinguish replacements even when allocators
+/// reuse the same address. Clones retain their generation.
+static NEXT_FACE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 const MAX_COVERAGE_AXIS: f32 = 4096.0;
 
@@ -31,6 +36,7 @@ const MAX_COVERAGE_AXIS: f32 = 4096.0;
 pub struct FontHandle {
     bytes: Vec<u8>,
     index: u32,
+    generation: u64,
     /// The glyph the face's OpenType `zero` feature substitutes for `'0'`,
     /// when the alternate-zero legibility control is on and the face carries
     /// such a lookup (see [`Self::with_zero_feature`]). `None` maps `'0'`
@@ -62,11 +68,21 @@ impl FontHandle {
     /// Parse and validate a specific face index from owned bytes.
     pub fn from_vec_and_index(bytes: Vec<u8>, index: u32) -> Result<Self, FontParseError> {
         skrifa::FontRef::from_index(&bytes, index).map_err(|_| FontParseError)?;
+        let generation = NEXT_FACE_GENERATION
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .map_err(|_| FontParseError)?;
         Ok(Self {
             bytes,
             index,
+            generation,
             zero_glyph: None,
         })
+    }
+
+    pub(crate) fn face_generation(&self) -> u64 {
+        self.generation
     }
 
     /// Apply or clear the OpenType `zero` feature (slashed or dotted zero) for

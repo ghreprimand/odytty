@@ -2687,8 +2687,8 @@ The monochrome renderer draws resident marks over that base and suppresses a
 missing-mark tofu fallback, so a missing font glyph cannot obscure the base.
 With script shaping on, Arabic harakat on an Arabic letter inside a
 joining run of two or more cells are drawn instead by the shaping overlay at
-the font's mark-positioned offsets, and only when the text font maps every
-mark on that cell; the monochrome path does not draw them again (see
+the font's mark-positioned offsets, and only when the text font maps the base
+and every mark on that cell; the monochrome path does not draw them again (see
 [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md)).
 
 With script shaping on, each width owner of an enabled script group is
@@ -2782,6 +2782,13 @@ and weight selection, proportional-face rejection, symbol precedence and
 monochrome format detection. Host inventory and host color-font extras are
 marked ignored separately. Refused SVG cache coverage observes actual render
 attempts across repeated redraws, not only the number of remembered failures.
+
+Shaping caches validate all four immutable style-face generations before
+reusing row plans or owner presentations. A changed face invalidates those
+plans and parsed-face entries; clones of an unchanged face keep their cache
+identity. Raw collection shaping uses the selected face index, which also
+participates in the atlas fingerprint. Zero-column public snapshots produce
+no shaping runs. Terminal cells, logical copy and selection remain unchanged.
 
 ### Render Color Emoji
 
