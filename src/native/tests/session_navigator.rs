@@ -531,13 +531,55 @@ fn navigator_preview_redacts_private_key_and_unlabelled_high_entropy_tokens() {
 #[test]
 fn navigator_preview_handles_mixed_case_unicode_controls_and_long_lines_without_leaking() {
     assert_preview_redacts("PaSsWoRd=mixed-case-secret", "mixed-case-secret");
-    let homoglyph = preview_for_line("pаssword=unicode-lookalike");
+    // A Cyrillic U+0430 standing in for the Latin `a` of `password`.
+    let homoglyph = preview_for_line("p\u{0430}ssword=unicode-lookalike");
     assert!(!homoglyph.contains('\u{1b}'));
+    assert!(
+        !homoglyph.contains("unicode-lookalike"),
+        "a lookalike key is judged as the word it imitates: {homoglyph:?}"
+    );
     let long_secret = "x".repeat(10 * 1024);
     let preview = preview_for_line(&format!("TOKEN={long_secret}\u{1b}[31m"));
     assert!(preview.len() <= 96, "one preview row is bounded");
     assert!(!preview.contains('\u{1b}'));
     assert!(!preview.contains(&long_secret));
+}
+
+/// Secrets passed as a separate argument or as a header credential: the
+/// word after a sensitive option, a curl `-u user:password` pair, a Basic
+/// credential (shorter than the high-entropy backstop), and every pair of a
+/// Cookie header.
+#[test]
+fn navigator_preview_redacts_option_values_basic_credentials_and_cookies() {
+    for (line, secret) in [
+        ("mysql --password hunter2 -h db", "hunter2"),
+        ("deploy --api-token tok3n --verbose", "tok3n"),
+        ("curl -u admin:hunter2 https://example.test", "hunter2"),
+        (
+            "curl --user admin:hunter2 https://example.test",
+            "admin:hunter2",
+        ),
+        ("Authorization: Basic dXNlcjpwYXNz", "dXNlcjpwYXNz"),
+        ("Cookie: sid=abc123; theme=dark", "abc123"),
+    ] {
+        assert_preview_redacts(line, secret);
+    }
+    let preview = preview_for_line("Authorization: Basic dXNlcjpwYXNz");
+    assert!(
+        preview.contains("Basic"),
+        "the scheme stays visible: {preview:?}"
+    );
+}
+
+/// A secret that crosses the display bound is redacted whole before the row
+/// is cut, so no prefix of it survives.
+#[test]
+fn navigator_preview_redacts_a_secret_straddling_the_row_bound() {
+    // 87 columns of short words, then a 32-digit hex token the bound would
+    // cut to its first nine digits, under the 20-character entropy backstop.
+    let line = format!("{}0123456789abcdef0123456789abcdef", "ab ".repeat(29));
+    let preview = preview_for_line(&line);
+    assert!(!preview.contains("012345678"), "{preview:?}");
 }
 
 #[test]
@@ -548,6 +590,10 @@ fn navigator_preview_preserves_benign_terminal_and_documentation_text() {
         "the key= form accepts an argument",
         "git log --oneline",
         "cd token/",
+        "mkdir -p build/out",
+        "ssh -p 2222 example.test",
+        "cargo test --locked --lib",
+        "curl -u",
     ] {
         let preview = preview_for_line(line);
         assert!(

@@ -713,8 +713,15 @@ closes or recording is turned off.
 
 `navigator_preview = on` (or `ODYTTY_NAVIGATOR_PREVIEW=on`) shows up to eight
 frozen, bounded lines from the selected live pane in Session Navigator. It is
-off by default. Values matching `password=`, `token=`, `key=`, and remote
-`user@host:port` forms are redacted before presentation. A preview never
+off by default. Before presentation it redacts values of sensitive keys
+(`password=`, `token=`, `key:`, including Cyrillic or Greek lookalike
+spellings), the value after a sensitive option (`--password VALUE`,
+`--api-token VALUE`) and after `-u`/`--user` given `user:password`,
+`Authorization:` credentials after their scheme, every `Cookie:` pair, long
+hex or base64 tokens, and remote `user@host:port` forms. A row is redacted
+whole before it is cut to the display width. Redaction is best-effort: it
+cannot recognise every secret, such as a bare short password typed alone or a
+token wrapped across two screen rows. A preview never
 attaches, wakes, writes to, or polls a session. Detached rows always say
 `preview unavailable`; Windows has no detached-session preview until a Windows
 detached session-host surface exists.

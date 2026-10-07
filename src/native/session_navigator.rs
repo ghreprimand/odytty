@@ -326,7 +326,10 @@ fn preview_lines(snapshot: Option<&crate::core::Snapshot>) -> Vec<String> {
 }
 
 fn redact_preview(value: &str) -> String {
-    let value = bound(value);
+    // Redact the whole control-free row first and bound the result after, so a
+    // secret that straddles the display bound is judged whole, never cut into
+    // a fragment that escapes the rules.
+    let value: String = value.chars().filter(|ch| !ch.is_control()).collect();
     if value.to_ascii_uppercase().contains("PRIVATE KEY") {
         return "[redacted]".to_owned();
     }
@@ -335,17 +338,9 @@ fn redact_preview(value: &str) -> String {
     let mut index = 0;
     while let Some(word) = words.get(index) {
         if let Some((key, has_value)) = sensitive_assignment_key(word) {
-            if !has_value
-                && key
-                    .trim_end_matches(':')
-                    .eq_ignore_ascii_case("authorization")
-                && words
-                    .get(index + 1)
-                    .is_some_and(|next| next.eq_ignore_ascii_case("bearer"))
-                && words.get(index + 2).is_some()
-            {
-                redacted.push(format!("{key} Bearer [redacted]"));
-                index += 2;
+            if !has_value && is_sensitive_label(key) && words.get(index + 1).is_some() {
+                redacted.push(key.to_owned());
+                index += redact_label_value(key, &words[index + 1..], &mut redacted);
             } else {
                 redacted.push(format!("{key}[redacted]"));
                 if !has_value && words.get(index + 1).is_some() {
@@ -354,20 +349,13 @@ fn redact_preview(value: &str) -> String {
             }
         } else if is_sensitive_label(word) && words.get(index + 1).is_some() {
             redacted.push((*word).to_owned());
-            if word
-                .trim_end_matches(':')
-                .eq_ignore_ascii_case("authorization")
-                && words
-                    .get(index + 1)
-                    .is_some_and(|next| next.eq_ignore_ascii_case("bearer"))
-                && words.get(index + 2).is_some()
-            {
-                redacted.push("Bearer [redacted]".to_owned());
-                index += 2;
-            } else {
-                redacted.push("[redacted]".to_owned());
-                index += 1;
-            }
+            index += redact_label_value(word, &words[index + 1..], &mut redacted);
+        } else if let Some(next) = words.get(index + 1)
+            && sensitive_flag_takes_value(word, next)
+        {
+            redacted.push((*word).to_owned());
+            redacted.push("[redacted]".to_owned());
+            index += 1;
         } else if is_base64_or_hex_shaped(word) || (word.contains('@') && word.contains(':')) {
             redacted.push("[redacted]".to_owned());
         } else {
@@ -375,7 +363,53 @@ fn redact_preview(value: &str) -> String {
         }
         index += 1;
     }
-    redacted.join(" ")
+    bound(&redacted.join(" "))
+}
+
+/// Redact what follows a sensitive label or a valueless `key:` (`following`
+/// starts at the next word) and return how many words were consumed.
+/// `Authorization:` keeps an alphabetic scheme word (`Bearer`, `Basic`,
+/// `Digest`) and redacts the credential after it; `Cookie:` and
+/// `Set-Cookie:` redact the rest of the row, since every pair is a secret;
+/// any other label redacts one word.
+fn redact_label_value(label: &str, following: &[&str], redacted: &mut Vec<String>) -> usize {
+    let label = label.trim_end_matches(':').to_ascii_lowercase();
+    if following.is_empty() {
+        return 0;
+    }
+    if label.ends_with("cookie") {
+        redacted.push("[redacted]".to_owned());
+        return following.len();
+    }
+    if label == "authorization"
+        && following.len() >= 2
+        && following[0].chars().all(|ch| ch.is_ascii_alphabetic())
+    {
+        redacted.push(following[0].to_owned());
+        redacted.push("[redacted]".to_owned());
+        return 2;
+    }
+    redacted.push("[redacted]".to_owned());
+    1
+}
+
+/// Whether `flag` is a command-line option whose value, given as the next
+/// word, is a secret: a `-`/`--` option whose name holds a sensitive needle
+/// (`--password`, `--token`, `--api-key`), or `-u`/`--user` given a
+/// `user:password` pair (curl). Short options other than `-u` are left alone:
+/// `-p` means a port or a parent directory far more often than a password.
+fn sensitive_flag_takes_value(flag: &str, next: &str) -> bool {
+    let Some(name) = flag.strip_prefix('-') else {
+        return false;
+    };
+    let name = name.trim_start_matches('-');
+    if name.is_empty() || name.contains('=') || next.starts_with('-') {
+        return false;
+    }
+    if matches!(name, "u" | "user") {
+        return next.contains(':');
+    }
+    name.len() > 1 && is_sensitive_name(name)
 }
 
 /// Return the displayable `key=`/`key:` prefix for sensitive assignments. The
@@ -394,7 +428,17 @@ fn sensitive_assignment_key(word: &str) -> Option<(&str, bool)> {
     }
     let key = &word[..offset];
     let key = key.strip_prefix("$env:").unwrap_or(key);
-    let lower = key.to_ascii_lowercase();
+    is_sensitive_name(key).then_some((&word[..offset + delimiter.len_utf8()], !value.is_empty()))
+}
+
+/// Whether a key or option name holds a sensitive needle. Common Cyrillic and
+/// Greek letters that look like Latin ones are folded first, so a lookalike
+/// spelling (`pаssword` with a Cyrillic `а`) is judged as the word it imitates.
+fn is_sensitive_name(name: &str) -> bool {
+    let folded: String = name
+        .chars()
+        .map(|ch| fold_latin_lookalike(ch).to_ascii_lowercase())
+        .collect();
     [
         "pass",
         "pwd",
@@ -408,13 +452,41 @@ fn sensitive_assignment_key(word: &str) -> Option<(&str, bool)> {
         "session",
     ]
     .iter()
-    .any(|needle| lower.contains(needle))
-    .then_some((&word[..offset + delimiter.len_utf8()], !value.is_empty()))
+    .any(|needle| folded.contains(needle))
+}
+
+/// The Latin letter a common Cyrillic or Greek lookalike imitates, or `ch`.
+fn fold_latin_lookalike(ch: char) -> char {
+    match ch {
+        '\u{0430}' | '\u{03B1}' => 'a',
+        '\u{0441}' => 'c',
+        '\u{0435}' | '\u{03B5}' => 'e',
+        '\u{0456}' | '\u{03B9}' => 'i',
+        '\u{043A}' | '\u{03BA}' => 'k',
+        '\u{043E}' | '\u{03BF}' => 'o',
+        '\u{0440}' | '\u{03C1}' => 'p',
+        '\u{0455}' => 's',
+        '\u{0442}' | '\u{03C4}' => 't',
+        '\u{0443}' | '\u{03C5}' => 'y',
+        '\u{0445}' | '\u{03C7}' => 'x',
+        '\u{0410}' | '\u{0391}' => 'A',
+        '\u{0415}' | '\u{0395}' => 'E',
+        '\u{041E}' | '\u{039F}' => 'O',
+        '\u{0420}' | '\u{03A1}' => 'P',
+        '\u{0421}' => 'C',
+        '\u{0405}' => 'S',
+        '\u{0422}' | '\u{03A4}' => 'T',
+        '\u{041A}' | '\u{039A}' => 'K',
+        _ => ch,
+    }
 }
 
 fn is_sensitive_label(word: &str) -> bool {
     let normalized = word.trim_end_matches(':').to_ascii_lowercase();
-    matches!(normalized.as_str(), "authorization" | "bearer")
+    matches!(
+        normalized.as_str(),
+        "authorization" | "bearer" | "cookie" | "set-cookie"
+    )
 }
 
 fn is_base64_or_hex_shaped(word: &str) -> bool {
@@ -428,7 +500,12 @@ fn is_base64_or_hex_shaped(word: &str) -> bool {
 
 fn redacted_remote_identity(value: &str) -> String {
     let host = value.rsplit('@').next().unwrap_or(value);
-    let host = host.split(':').next().unwrap_or(host);
+    // A bracketed IPv6 literal (`[::1]:22`) keeps its brackets; any other host
+    // ends at its port separator.
+    let host = match host.strip_prefix('[').and_then(|rest| rest.find(']')) {
+        Some(close) => &host[..close + 2],
+        None => host.split(':').next().unwrap_or(host),
+    };
     format!("remote {}", bound(host))
 }
 
@@ -453,6 +530,11 @@ mod tests {
         assert_eq!(
             redacted_remote_identity("operator@example.test:2200"),
             "remote example.test"
+        );
+        assert_eq!(
+            redacted_remote_identity("operator@[2001:db8::1]:22"),
+            "remote [2001:db8::1]",
+            "a bracketed IPv6 host keeps its address"
         );
     }
 
