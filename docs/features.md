@@ -1001,6 +1001,11 @@ Workspace, **Bind to Host…**, **Unbind from Host**, and Settings.
 
 Either reorder path follows the active workspace by identity, so focus does not
 change, and the order persists across restart. Rename edits the label in place.
+Every action in a rail-slot menu, and the host picker it opens, acts on the
+workspace that was right-clicked, followed by identity: if another workspace
+closes or the rail reorders while the menu is open, the action still reaches
+that workspace, even when another workspace has the same name. If the clicked
+workspace has closed, the action does nothing.
 
 Binding a workspace routes its future tabs to the chosen saved host without
 changing existing tabs. The terminal content menu exposes the same New, Rename,
@@ -1263,7 +1268,9 @@ Cancelling the window picker leaves the right-clicked tab active.
 
 The moved shell keeps running: its PTY or attached session, scrollback, images,
 selection, search, replay recording, profile, and `--hold` state move with it,
-and nothing is restarted. A moved tab keeps its panes and layout. A moved
+and nothing is restarted. Recorded replay frames and the recording on/off state
+are kept whether the new window opens or fails to open and the tab returns. A
+new window opened for a move uses the source window's current settings. A moved tab keeps its panes and layout. A moved
 pane becomes the only pane of a new tab, and the pane it leaves behind takes
 over its tab; when the destination window's active tab is floating, the pane
 joins that tab instead (see [Stacked and floating pane

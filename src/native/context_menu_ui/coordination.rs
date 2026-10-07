@@ -28,7 +28,7 @@ impl Default for ContextMenuUi {
             navigator_target: None,
             navigator_detached_available: false,
             window_actions: WindowMenuActions::default(),
-            workspace_slot_name: None,
+            workspace_slot_identity: None,
             // `[T; N]: Default` only exists up to N == 32; the item set is now
             // larger, so build the all-`None` array element-wise.
             accelerators: std::array::from_fn(|_| None),
@@ -129,8 +129,8 @@ impl ContextMenuUi {
         self.navigator_target = None;
         self.navigator_detached_available = false;
         // Reset on every open; the App sets it only for a WorkspaceSlot menu
-        // (RAIL-REVALIDATE), so a stale name never leaks across surfaces.
-        self.workspace_slot_name = None;
+        // (RAIL-REVALIDATE), so a stale identity never leaks across surfaces.
+        self.workspace_slot_identity = None;
         self.focused = 0;
         self.reset_scroll_input();
         // Rail clearance is opt-in per open: the App re-applies it via
@@ -180,7 +180,7 @@ impl ContextMenuUi {
         self.connection_target = Some(Box::new(host));
         self.navigator_target = None;
         self.navigator_detached_available = false;
-        self.workspace_slot_name = None;
+        self.workspace_slot_identity = None;
         self.focused = 0;
         self.reset_scroll_input();
         // The connection-row menu spawns over the full-screen manager (the rail
@@ -226,7 +226,7 @@ impl ContextMenuUi {
         self.connection_target = None;
         self.navigator_target = Some(target);
         self.navigator_detached_available = detached_available;
-        self.workspace_slot_name = None;
+        self.workspace_slot_identity = None;
         self.focused = 0;
         self.reset_scroll_input();
         // The navigator menu spawns over the full-screen navigator overlay (the
@@ -256,17 +256,20 @@ impl ContextMenuUi {
         self.workspace_count = count;
     }
 
-    /// Snapshot the name of the workspace under a right-clicked rail slot
+    /// Snapshot the identity of the workspace under a right-clicked rail slot
     /// (RAIL-REVALIDATE). The App applies this right after opening a
-    /// `WorkspaceSlot` menu so each workspace action can re-validate the frozen
-    /// rail index still names the same workspace before acting.
-    pub(in crate::native) fn set_workspace_slot_name(&mut self, name: Option<String>) {
-        self.workspace_slot_name = name;
+    /// `WorkspaceSlot` menu so each workspace action resolves the workspace
+    /// that was clicked, wherever it now sits in the rail.
+    pub(in crate::native) fn set_workspace_slot_identity(
+        &mut self,
+        identity: Option<SessionToken>,
+    ) {
+        self.workspace_slot_identity = identity;
     }
 
-    /// The workspace name snapshotted for a `WorkspaceSlot` menu, or `None`.
-    pub(in crate::native) fn workspace_slot_name(&self) -> Option<&str> {
-        self.workspace_slot_name.as_deref()
+    /// The workspace identity snapshotted for a `WorkspaceSlot` menu, or `None`.
+    pub(in crate::native) fn workspace_slot_identity(&self) -> Option<SessionToken> {
+        self.workspace_slot_identity
     }
 
     pub(in crate::native) fn set_command_actions_enabled(&mut self, enabled: bool) {

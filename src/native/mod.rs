@@ -382,11 +382,9 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         )
     });
     // Moving a tab or pane to a new window builds the window around the moved
-    // sessions: no shell is spawned, only the window and its settings.
-    let adopt_settings = settings.clone();
-    let adopt: app::AdoptFactory = Box::new(move |set, settings_override| {
-        let provisional = settings_override.is_some();
-        let settings = settings_override.unwrap_or_else(|| adopt_settings.clone());
+    // sessions: no shell is spawned, only the window and the source window's
+    // live settings.
+    let adopt: app::AdoptFactory = Box::new(move |set, settings, provisional| {
         App::new_with_sessions_for_transfer(
             NativeOptions::from_settings(&settings),
             set,

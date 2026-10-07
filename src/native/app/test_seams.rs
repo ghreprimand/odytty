@@ -3014,10 +3014,10 @@ impl App {
         self.open_context_menu(super::ContextMenuSurface::WorkspaceSlot(idx));
     }
 
-    /// Test seam (RAIL-REVALIDATE): the index a `WorkspaceSlot` action would act
-    /// on after re-validating the open menu's snapshotted workspace name against
-    /// the live workspace at that index. `None` means the rail shifted since the
-    /// menu opened and the action is dropped.
+    /// Test seam (RAIL-REVALIDATE): the live index a `WorkspaceSlot` action
+    /// would act on, resolved from the open menu's snapshotted workspace
+    /// identity. `None` means the clicked workspace has closed and the action
+    /// is dropped.
     #[cfg(test)]
     pub(in crate::native) fn revalidated_workspace_slot_for_test(
         &self,

@@ -500,14 +500,14 @@ pub(super) struct ContextMenuUi {
     /// across surfaces.
     window_actions: WindowMenuActions,
     /// The name of the workspace under a right-clicked rail slot, snapshotted at
-    /// open time on the `WorkspaceSlot` surface (RAIL-REVALIDATE). Unlike the
-    /// tab surface (which carries an opaque `SessionToken` re-resolved at
-    /// activation), a `WorkspaceSlot` carries a bare rail index frozen at open
-    /// time. A background workspace auto-closing while the menu is open shifts
-    /// every later slot's index down, so the frozen index would name a
-    /// different workspace. The App re-validates this name against the live
-    /// workspace at the index before acting. `None` on every other surface.
-    workspace_slot_name: Option<String>,
+    /// Immutable identity of the workspace under the right-clicked rail slot,
+    /// snapshotted at open time on the `WorkspaceSlot` surface
+    /// (RAIL-REVALIDATE). The surface carries a bare rail index; a background
+    /// workspace closing while the menu (or the host picker it opens) is up
+    /// shifts every later index, and workspace names are renameable and not
+    /// unique. The App re-resolves this identity to its live index before
+    /// acting. `None` on every other surface.
+    workspace_slot_identity: Option<SessionToken>,
     /// Per-item effective-keybind labels (Part C), indexed by
     /// [`ContextMenuItem::ALL`] order. `None` means the item shows no
     /// accelerator. Reset to all-`None` on `open`; the App overwrites via

@@ -26,8 +26,10 @@ use super::*;
 use crate::native::app::reparent::{MOVE_REFUSED_NOTICE, MoveRequest};
 use crate::native::session::{MoveScope, WorkspaceSet};
 
-/// Builds a window around an adopted session set, with no shell spawn.
-pub(in crate::native) type AdoptFactory = Box<dyn FnMut(WorkspaceSet, Option<Settings>) -> App>;
+/// Builds a window around an adopted session set, with no shell spawn, using
+/// the source window's live settings. The flag marks provisional custody (a
+/// live tab drag) rather than a committed move.
+pub(in crate::native) type AdoptFactory = Box<dyn FnMut(WorkspaceSet, Settings, bool) -> App>;
 
 /// Notice for a move the quick terminal cannot take part in.
 pub(in crate::native) const QUICK_MOVE_NOTICE: &str =
@@ -246,7 +248,8 @@ impl MultiWindowHost {
             source.workspace_set(),
             source.workspace_set().event_proxy(),
         );
-        let mut window = (self.adopt)(set, None);
+        let settings = source.settings.clone();
+        let mut window = (self.adopt)(set, settings, false);
         if let Err(err) = open(&mut window) {
             tracing::warn!(%err, "new window for a moved tab could not open; content restored");
             let content = window.workspace_set_mut().release_adopted(template);
@@ -527,6 +530,69 @@ mod tests {
         assert!(new_window.owns_session(moving));
         assert_eq!(new_window.hold_session, Some(moving));
         assert_eq!(tab_leaves(new_window), vec![vec![moving.0]]);
+    }
+
+    /// The active tab of a two-tab window, recording, with one replay frame.
+    fn recording_two_tab_window() -> (App, SessionToken) {
+        let (mut origin, model) = two_tab_window();
+        origin.sessions.set_recording_enabled(true);
+        let moving = origin.active_session_token_for_test();
+        let frame = model.lock().expect("terminal").snapshot();
+        origin
+            .sessions
+            .get(moving)
+            .expect("moving pane")
+            .recorder
+            .record(frame);
+        (origin, moving)
+    }
+
+    #[test]
+    fn a_refused_new_window_keeps_the_moved_pane_recording_and_frames() {
+        // The adopt factory's settings have session replay off, as a window
+        // launched with it off and turned on later would.
+        let (origin, moving) = recording_two_tab_window();
+        let origin_id = origin.process_window_id();
+        let mut host = host_of(vec![origin]);
+
+        assert!(
+            !host.move_to_new_window(origin_id, MoveScope::ActiveTab, |_| {
+                Err("refused".to_owned())
+            })
+        );
+
+        let session = host.windows[0].sessions.get(moving).expect("restored");
+        assert!(session.recorder.is_enabled(), "recording stays on");
+        assert_eq!(session.recorder.len(), 1, "the replay frame survives");
+    }
+
+    #[test]
+    fn a_moved_pane_keeps_recording_and_frames_in_the_new_window() {
+        let (origin, moving) = recording_two_tab_window();
+        let origin_id = origin.process_window_id();
+        let mut host = host_of(vec![origin]);
+
+        assert!(host.move_to_new_window(origin_id, MoveScope::ActiveTab, |_| Ok(())));
+
+        let window = &host.windows[1];
+        let session = window.sessions.get(moving).expect("moved pane");
+        assert!(session.recorder.is_enabled(), "recording stays on");
+        assert_eq!(session.recorder.len(), 1, "the replay frame survives");
+        assert!(window.sessions.recording_enabled_for_test());
+    }
+
+    #[test]
+    fn a_new_window_for_a_move_uses_the_source_window_live_settings() {
+        let (mut origin, _model) = two_tab_window();
+        // A preference changed after launch; the adopt factory's own settings
+        // still have it off.
+        origin.settings.session_replay = true;
+        let origin_id = origin.process_window_id();
+        let mut host = host_of(vec![origin]);
+
+        assert!(host.move_to_new_window(origin_id, MoveScope::ActiveTab, |_| Ok(())));
+
+        assert!(host.windows[1].settings.session_replay);
     }
 
     #[test]

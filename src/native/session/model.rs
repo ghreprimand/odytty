@@ -837,6 +837,19 @@ impl WorkspaceSet {
         self.workspaces.get(idx).map(|ws| ws.name.as_str())
     }
 
+    /// The immutable creation identity of the workspace at rail index `idx`.
+    pub(in crate::native) fn workspace_identity(&self, idx: usize) -> Option<SessionToken> {
+        self.workspaces.get(idx).map(|ws| ws.identity)
+    }
+
+    /// The current rail index of the workspace with creation identity
+    /// `identity`, or `None` once it has closed.
+    pub(in crate::native) fn workspace_index_of(&self, identity: SessionToken) -> Option<usize> {
+        self.workspaces
+            .iter()
+            .position(|ws| ws.identity == identity)
+    }
+
     /// The display names of every workspace, in rail order. Feeds the command
     /// palette's per-workspace "switch to …" rows (W3); the index into this list
     /// is the [`Self::switch_workspace`] target.

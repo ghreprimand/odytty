@@ -2216,31 +2216,88 @@ fn a_stale_press_burst_into_a_fresh_workspace_menu_activates_nothing() {
 }
 
 #[test]
-fn workspace_slot_action_revalidates_snapshotted_name() {
+fn workspace_slot_action_follows_the_clicked_workspace_identity() {
     // RAIL-REVALIDATE (F3): a WorkspaceSlot menu freezes a bare rail index at
-    // open time. If a background workspace auto-closes while the menu is open,
-    // every later index shifts down, so the frozen index would name a different
-    // workspace. The action re-validates the snapshotted workspace name against
-    // the live workspace at the index and drops the action on a mismatch.
+    // open time. The action follows the clicked workspace's immutable
+    // identity: a rename keeps it, a rail shift re-resolves it, and a closed
+    // workspace drops the action.
     let Some((mut app, _)) = app_with_recording_writer(b"") else {
         eprintln!("skipping: no PTY available");
         return;
     };
     app.set_test_cell_for_test(cell(10, 20));
     app.set_test_surface_for_test(800, 480, WindowPadding::ZERO);
-    app.set_pointer_cell_for_test(5, 10);
-    app.open_workspace_rail_menu_for_test(0);
-    assert!(app.context_menu_open_for_test(), "workspace menu opened");
-
-    // The frozen index still names the snapshotted workspace: accepted.
-    assert_eq!(app.revalidated_workspace_slot_for_test(0), Some(0));
-
-    // A shift has the same observable as the workspace at the frozen index
-    // becoming a different one: the live name no longer matches the snapshot.
-    app.rename_workspace_for_test(0, "Shifted Workspace");
-    assert_eq!(
-        app.revalidated_workspace_slot_for_test(0),
-        None,
-        "a rail slot whose workspace identity changed must drop the action"
+    app.push_headless_workspace_for_test(
+        Arc::new(Mutex::new(Terminal::new(80, 24))),
+        crate::native::test_support::headless_writer(),
+        Dimensions::new(80, 24),
     );
+    app.set_pointer_cell_for_test(5, 10);
+    app.open_workspace_rail_menu_for_test(1);
+    assert!(app.context_menu_open_for_test(), "workspace menu opened");
+    assert_eq!(app.revalidated_workspace_slot_for_test(1), Some(1));
+
+    app.rename_workspace_for_test(1, "Renamed Workspace");
+    assert_eq!(
+        app.revalidated_workspace_slot_for_test(1),
+        Some(1),
+        "a rename keeps the clicked workspace"
+    );
+
+    app.move_workspace_at_for_test(1, true);
+    assert_eq!(
+        app.revalidated_workspace_slot_for_test(1),
+        Some(0),
+        "a rail shift follows the clicked workspace to its new slot"
+    );
+}
+
+/// A rail menu opened on the first of two same-named workspaces, then a
+/// background exit that shifts the rail: Close Workspace closes the clicked
+/// workspace, never the same-named one that slid into its slot.
+#[test]
+fn workspace_menu_close_after_a_rail_shift_closes_the_clicked_duplicate_name() {
+    let (mut app, _first) = headless_app_with(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        Settings::default(),
+    );
+    app.set_test_cell_for_test(cell(10, 20));
+    app.set_test_surface_for_test(800, 480, WindowPadding::ZERO);
+    for _ in 0..2 {
+        app.push_headless_workspace_for_test(
+            Arc::new(Mutex::new(Terminal::new(80, 24))),
+            crate::native::test_support::headless_writer(),
+            Dimensions::new(80, 24),
+        );
+    }
+    app.rename_workspace_for_test(0, "A");
+    app.rename_workspace_for_test(1, "X");
+    app.rename_workspace_for_test(2, "X");
+    let clicked = SessionToken(1);
+    let survivor = SessionToken(2);
+    assert!(app.workspace_set().owns_session(clicked));
+
+    app.set_pointer_cell_for_test(5, 10);
+    app.open_workspace_rail_menu_for_test(1);
+    assert!(app.context_menu_open_for_test());
+    // A background shell exit closes workspace A; the second X slides to 1.
+    app.dispatch_user_event_for_test(crate::native::pty::UserEvent::ShellExited {
+        session: SessionToken(0),
+    });
+    assert_eq!(app.workspace_names_for_test(), vec!["X", "X"]);
+
+    app.apply_overlay_outcome_for_test(
+        crate::native::overlay::OverlayOutcome::ContextMenuCloseWorkspace(1),
+    );
+
+    assert!(
+        !app.workspace_set().owns_session(clicked),
+        "the clicked workspace closed"
+    );
+    assert!(
+        app.workspace_set().owns_session(survivor),
+        "the same-named workspace that shifted into the slot survives"
+    );
+    assert_eq!(app.workspace_names_for_test(), vec!["X"]);
 }

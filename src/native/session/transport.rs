@@ -629,6 +629,12 @@ impl WorkspaceSet {
         }
     }
 
+    /// Whether sessions created in this set start recording (test-only).
+    #[cfg(test)]
+    pub(in crate::native) fn recording_enabled_for_test(&self) -> bool {
+        self.recording_enabled
+    }
+
     pub(in crate::native) fn set_shell_integration_enabled(&mut self, on: bool) {
         self.shell_integration_enabled = on;
     }

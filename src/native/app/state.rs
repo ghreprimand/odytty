@@ -720,10 +720,15 @@ impl App {
         settings: Settings,
         settings_reloader: SettingsReloader,
     ) -> Self {
-        Self::new_with_sessions_for_transfer(options, sessions, settings, settings_reloader, false)
+        Self::build(options, sessions, settings, settings_reloader, false, true)
     }
 
-    /// Provisional custody leaves recorder, shell-integration and terminal
+    /// A window built around sessions moved out of another window. The
+    /// adopted set already carries the source's recording and
+    /// shell-integration policy (see `WorkspaceSet::adopting`), so they are
+    /// never reseeded from settings: the moved recorders keep their state and
+    /// replay frames whether the new window opens, is refused and rolled
+    /// back, or stays provisional. Provisional custody also leaves terminal
     /// geometry intact until a release commits the transfer.
     pub(in crate::native) fn new_with_sessions_for_transfer(
         options: NativeOptions,
@@ -731,6 +736,24 @@ impl App {
         settings: Settings,
         settings_reloader: SettingsReloader,
         provisional: bool,
+    ) -> Self {
+        Self::build(
+            options,
+            sessions,
+            settings,
+            settings_reloader,
+            provisional,
+            false,
+        )
+    }
+
+    fn build(
+        options: NativeOptions,
+        sessions: WorkspaceSet,
+        settings: Settings,
+        settings_reloader: SettingsReloader,
+        provisional: bool,
+        seed_session_policy: bool,
     ) -> Self {
         let grid = options.initial_grid;
         let hold_session = options.hold.then(|| sessions.active_id());
@@ -958,8 +981,8 @@ impl App {
         // Phase 2 output recording: seed the initial session's recorder with the
         // configured `session_replay` state at startup, so a window launched
         // with recording already enabled records from the first output. Off (the
-        // default) is a no-op.
-        if !provisional {
+        // default) is a no-op. Adopted sessions keep the source's policy.
+        if seed_session_policy && !provisional {
             app.sessions
                 .set_recording_enabled(app.settings.session_replay);
             app.sessions

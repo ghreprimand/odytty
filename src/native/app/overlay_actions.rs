@@ -180,12 +180,11 @@ impl App {
         if let ContextMenuSurface::WorkspaceSlot(idx) = surface {
             self.overlay
                 .set_context_menu_workspace_count(self.sessions.workspace_count());
-            // RAIL-REVALIDATE: snapshot the clicked workspace's name so a later
-            // rail mutation (a background workspace auto-closing) that shifts
-            // indices is caught before an action lands on the wrong workspace.
-            self.overlay.set_context_menu_workspace_slot_name(
-                self.sessions.workspace_name(idx).map(str::to_owned),
-            );
+            // RAIL-REVALIDATE: snapshot the clicked workspace's identity so a
+            // later rail mutation (a background workspace auto-closing) that
+            // shifts indices never lands an action on another workspace.
+            self.overlay
+                .set_context_menu_workspace_slot_identity(self.sessions.workspace_identity(idx));
         }
         // MENU-Z-ORDER: a rail-anchored menu keeps the auto-hide rail revealed
         // (RAIL-PIN), and the rail composites topmost — so without clearance the
@@ -234,19 +233,17 @@ impl App {
         Some(format!("{prefix_label} {second_label}"))
     }
 
-    /// RAIL-REVALIDATE: confirm a `WorkspaceSlot` context-menu index still names
-    /// the workspace that was right-clicked. Unlike a `TabSlot` (which carries an
-    /// opaque token re-resolved at activation), a rail slot carries a bare index
-    /// frozen at menu-open time; a background workspace auto-closing while the
-    /// menu is open shifts every later index down, so acting on the raw index
-    /// would hit the wrong workspace. Returns the index only when the live
-    /// workspace name at it matches the snapshot taken at open; otherwise `None`
-    /// (the action is dropped, mirroring how a `TabSlot` action degrades to a
-    /// safe no-op after a reorder). When no name was captured (not a rail-slot
+    /// RAIL-REVALIDATE: resolve a `WorkspaceSlot` context-menu action to the
+    /// workspace that was right-clicked. The menu carries a bare rail index
+    /// frozen at open time, and a background workspace closing while the menu
+    /// or its host picker is open shifts later indices; names are renameable
+    /// and may repeat. The action therefore follows the immutable identity
+    /// snapshotted at open to its live index, and is dropped when that
+    /// workspace has closed. When no identity was captured (not a rail-slot
     /// menu), the index is accepted unchanged.
     pub(super) fn revalidated_workspace_slot(&self, idx: usize) -> Option<usize> {
-        match self.overlay.context_menu_workspace_slot_name() {
-            Some(captured) => (self.sessions.workspace_name(idx) == Some(captured)).then_some(idx),
+        match self.overlay.context_menu_workspace_slot_identity() {
+            Some(identity) => self.sessions.workspace_index_of(identity),
             None => Some(idx),
         }
     }
@@ -584,7 +581,9 @@ impl App {
             // rail slot to the chosen saved-host alias.
             OverlayOutcome::BindWorkspaceAtToHost(idx, alias) => {
                 self.flush_pending_overlay_settings();
-                self.bind_workspace_at_to_host_alias(idx, alias);
+                if let Some(idx) = self.revalidated_workspace_slot(idx) {
+                    self.bind_workspace_at_to_host_alias(idx, alias);
+                }
             }
             // ODP-5D: a tab-menu host action closed the menu; open the shared
             // host picker seeded for the clicked tab so the pick routes back.

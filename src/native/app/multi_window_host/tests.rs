@@ -366,12 +366,11 @@ pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
         shared: WatchdogShared::new(),
         last_seen_frames: 0,
         factory: Box::new(|_| None),
-        adopt: Box::new(|set, settings_override| {
-            let provisional = settings_override.is_some();
+        adopt: Box::new(|set, settings, provisional| {
             App::new_with_sessions_for_transfer(
                 crate::native::options::NativeOptions::default(),
                 set,
-                settings_override.unwrap_or_default(),
+                settings,
                 crate::settings::SettingsReloader::for_current_process(Instant::now()),
                 provisional,
             )

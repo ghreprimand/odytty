@@ -163,7 +163,7 @@ impl MultiWindowHost {
             source.workspace_set(),
             source.workspace_set().event_proxy(),
         );
-        let mut destination = (self.adopt)(set, Some(source.settings.clone()));
+        let mut destination = (self.adopt)(set, source.settings.clone(), true);
         destination.live_drag_destination = true;
         #[cfg(target_os = "linux")]
         {
