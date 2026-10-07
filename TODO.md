@@ -641,8 +641,10 @@ not a stretch goal.
   - [x] `ODYTTY_FONT_FAMILY` resolves a monospace face by family name (system
         font lookup across standard Linux dirs) or a direct `.ttf`/`.otf`/`.ttc`
         path, validated as monospace; proportional/unresolved values and bad
-        `ODYTTY_FONT` paths fall back to the probe list with one notice rather
+        `ODYTTY_FONT` paths fall back to the bundled face with one notice rather
         than aborting startup. `ODYTTY_FONT` takes precedence. Dependency-free.
+        Partial names select one deterministic family, and its style faces
+        prefer normal width before weight distance on every platform.
   - [x] Multi-style atlas groundwork: `FontStyle` enum + `(style, char)`-keyed
         dynamic region with `uv_rect_styled`/`ensure_styled`; native rendering
         now consumes the styled path for bold/italic attrs, with regular-face

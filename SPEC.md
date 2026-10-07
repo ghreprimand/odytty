@@ -2740,6 +2740,12 @@ golden fixtures do not need to change when the representation does — the same
 rationale that governs the `protected`-omit and `blink:false`-omit golden
 decisions elsewhere.
 
+Font-family resolution matches real OpenType family names. Exact normalized
+matches take precedence; a partial name selects the shortest normalized family
+name, with alphabetical ties, before choosing regular and style faces. Style
+faces prefer normal width before canonical weight, as regular faces do. These
+rules apply on Linux, macOS, and Windows; missing styles use the regular face.
+
 ### Render Color Emoji
 
 The accepted direction is a separate

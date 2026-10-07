@@ -321,7 +321,10 @@ v2 faces, so PUA prompt icons work without a host-installed Nerd font and
 remain compatible with configs from either Nerd Font era.
 
 Bundled and discovered system families both resolve without hand-written
-configuration.
+configuration. A partial family name chooses one matching family: shortest
+normalized name first, then alphabetical order. Bold, italic, and bold-italic
+faces come from that family and prefer normal width before weight distance.
+This selection rule is shared by Linux, macOS, and Windows.
 
 With `wheel_zoom` enabled, `Ctrl`+wheel changes the live font size when the
 running application has not claimed mouse reporting. Each effective step shows
