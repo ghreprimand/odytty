@@ -2772,8 +2772,14 @@ directory scanning recognizes Noto Color Emoji, Apple Color Emoji, stock
 Windows Segoe UI Emoji (`seguiemj.ttf`), and other COLR/CPAL faces, and a
 candidate that fails to load falls through to the next. A file not named after
 a known color-emoji face is checked for COLR and CPAL through its first face's
-table directory only (size ceiling, sfnt or collection magic, and each table's
-byte range inside the file), not by reading the whole file. Rasterization
+table directory only (sfnt or collection magic and each table's byte range
+inside the opened regular file), not by reading the whole file. Standalone
+files and retained collection faces are capped at 256 MiB; directory-only
+collection probes do not apply a whole-collection size cap. Extracted faces
+recompute table checksums and the standalone `head.checksumAdjustment`, and
+remove signatures invalidated by reconstruction. Font symlinks remain
+supported on Linux, macOS, and Windows; all font reads validate the opened
+handle's type and length. Rasterization
 prefers existing CBDT/CBLC or sbix bitmap strikes, then static COLR/CPAL v0
 layers, then COLR v1 Paint graphs, then SVG-in-OpenType documents. The v1
 evaluator covers solid fills, gradients, transforms, clips, and composites

@@ -1917,7 +1917,10 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       keep their static fallback chains.
 - [x] Runtime fallback faces are parsed once and shared across codepoints;
       over-limit collections reconstruct only the selected face instead of
-      retaining the full collection. This fixes the reproduced MusicFox CJK
+      retaining the full collection. Directory-only discovery also accepts
+      these larger collections, opened-file metadata is checked consistently,
+      and extracted faces repair checksums and discard invalidated signatures.
+      This fixes the reproduced MusicFox CJK
       fallback memory growth.
 - [x] Kitty `o=z` payloads and image-number animation addressing are supported,
       Sixel is advertised through DA1, and hostile compressed payloads remain

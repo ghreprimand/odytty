@@ -21,13 +21,12 @@
 //! face references, reassembled as a standalone single-face font. The ceiling
 //! is unchanged and now applies to what is actually retained.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
-/// Upper bound for one font file. Installed text and emoji fonts are normally
-/// far smaller; 256 MiB leaves headroom for large color-emoji collections
-/// while bounding both discovery probes and explicit font-path loads.
+/// Upper bound for one retained font file or extracted collection face.
+/// Directory-only collection probes do not retain the full file.
 pub(crate) const MAX_FONT_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 pub(crate) fn read_font_file(path: &Path) -> io::Result<Vec<u8>> {
@@ -58,8 +57,7 @@ const MAX_TABLES_PER_FACE: u16 = 512;
 /// the real file length before a seek, arithmetic is checked, and the assembled
 /// size is compared against the ceiling *before* any buffer is reserved.
 pub(crate) fn read_font_face(path: &Path, face_index: u32) -> io::Result<Vec<u8>> {
-    let file_len = regular_file_len(path)?;
-    let mut file = open_for_read(path)?;
+    let (mut file, file_len) = open_for_read(path)?;
 
     let mut magic = [0u8; 4];
     // A file too short to hold a magic number cannot be either kind of font;
@@ -71,7 +69,8 @@ pub(crate) fn read_font_face(path: &Path, face_index: u32) -> io::Result<Vec<u8>
                 format!("font is not a collection, so face {face_index} does not exist"),
             ));
         }
-        return read_font_file(path);
+        file.seek(SeekFrom::Start(0))?;
+        return read_opened_bounded(file, file_len, MAX_FONT_FILE_BYTES);
     }
 
     let face_offset = collection_face_offset(&mut file, file_len, face_index)?;
@@ -148,7 +147,7 @@ fn extract_face(
     for _ in 0..num_tables {
         let mut tag = [0u8; 4];
         file.read_exact(&mut tag)?;
-        let checksum = read_u32(file)?;
+        let _checksum = read_u32(file)?;
         let offset = read_u32(file)?;
         let length = read_u32(file)?;
         if (offset as u64)
@@ -158,12 +157,30 @@ fn extract_face(
         {
             return Err(bad_offset());
         }
+        // Relocating a face invalidates any digital signature over its bytes.
+        if tag == *b"DSIG" {
+            continue;
+        }
+        if tag == *b"head" && length < 54 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "short head table",
+            ));
+        }
         payload_bytes = payload_bytes
             .checked_add(padded_len(length as u64))
             .ok_or_else(bad_offset)?;
-        entries.push((tag, checksum, offset, length));
+        entries.push((tag, 0, offset, length));
     }
 
+    let num_tables = entries.len() as u16;
+    if num_tables == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "font face has no usable tables",
+        ));
+    }
+    let directory_bytes = u64::from(num_tables) * TABLE_RECORD_BYTES;
     let total = SFNT_HEADER_BYTES
         .checked_add(directory_bytes)
         .and_then(|v| v.checked_add(payload_bytes))
@@ -197,7 +214,8 @@ fn extract_face(
         out.extend_from_slice(&length.to_be_bytes());
         cursor += padded_len(*length as u64);
     }
-    for (_, _, offset, length) in &entries {
+    let mut head_adjustment = None;
+    for (index, (tag, _, offset, length)) in entries.iter().enumerate() {
         file.seek(SeekFrom::Start(*offset as u64))?;
         let before = out.len();
         file.by_ref()
@@ -211,6 +229,18 @@ fn extract_face(
         }
         let pad = padded_len(*length as u64) - *length as u64;
         out.resize(out.len() + pad as usize, 0);
+        if *tag == *b"head" {
+            let adjustment = before + 8;
+            out[adjustment..adjustment + 4].fill(0);
+            head_adjustment = Some(adjustment);
+        }
+        let checksum = sfnt_checksum(&out[before..]);
+        let checksum_at = SFNT_HEADER_BYTES as usize + index * TABLE_RECORD_BYTES as usize + 4;
+        out[checksum_at..checksum_at + 4].copy_from_slice(&checksum.to_be_bytes());
+    }
+    if let Some(at) = head_adjustment {
+        let adjustment = 0xB1B0_AFBAu32.wrapping_sub(sfnt_checksum(&out));
+        out[at..at + 4].copy_from_slice(&adjustment.to_be_bytes());
     }
     Ok(out)
 }
@@ -252,65 +282,50 @@ fn bad_offset() -> io::Error {
     )
 }
 
-/// Length of `path`, rejecting anything that is not a regular file.
-fn regular_file_len(path: &Path) -> io::Result<u64> {
-    let metadata = std::fs::metadata(path)?;
-    if !metadata.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "font path is not a regular file",
-        ));
-    }
-    Ok(metadata.len())
+/// Open a regular font target and use metadata from that exact handle.
+fn open_for_read(path: &Path) -> io::Result<(File, u64)> {
+    open_for_read_with(path, crate::bounded_io::open_regular)
 }
 
-fn read_bounded(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
-    // Check before opening so directories, devices, sockets, and FIFOs are
-    // rejected without attempting a potentially blocking read. metadata()
-    // follows a symlink to its target, preserving existing installed-font and
-    // explicit-path behavior when that target is a regular file.
-    let path_metadata = std::fs::metadata(path)?;
-    if !path_metadata.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "font path is not a regular file",
-        ));
-    }
-    if path_metadata.len() > limit {
-        return Err(over_limit(path_metadata.len(), limit));
-    }
-
-    let file = open_for_read(path)?;
-    // Validate the opened object as well. This catches a path changed after the
-    // pre-open check whenever the replacement can be opened without blocking.
-    let opened_metadata = file.metadata()?;
-    if !opened_metadata.is_file() {
+fn open_for_read_with(
+    path: &Path,
+    opener: impl FnOnce(&Path) -> io::Result<File>,
+) -> io::Result<(File, u64)> {
+    let file = opener(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "opened font path is not a regular file",
         ));
     }
-    if opened_metadata.len() > limit {
-        return Err(over_limit(opened_metadata.len(), limit));
-    }
+    Ok((file, metadata.len()))
+}
 
-    let mut bytes = Vec::with_capacity(opened_metadata.len() as usize);
-    file.take(limit + 1).read_to_end(&mut bytes)?;
+fn read_bounded(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
+    let (file, file_len) = open_for_read(path)?;
+    read_opened_bounded(file, file_len, limit)
+}
+
+fn read_opened_bounded(file: File, file_len: u64, limit: u64) -> io::Result<Vec<u8>> {
+    if file_len > limit {
+        return Err(over_limit(file_len, limit));
+    }
+    let mut bytes = Vec::with_capacity(file_len as usize);
+    file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > limit {
         return Err(over_limit(bytes.len() as u64, limit));
     }
     Ok(bytes)
 }
 
-fn open_for_read(path: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK);
-    }
-    options.open(path)
+/// Sum big-endian words, treating a trailing partial word as zero-padded.
+fn sfnt_checksum(bytes: &[u8]) -> u32 {
+    bytes.chunks(4).fold(0u32, |sum, chunk| {
+        let mut word = [0u8; 4];
+        word[..chunk.len()].copy_from_slice(chunk);
+        sum.wrapping_add(u32::from_be_bytes(word))
+    })
 }
 
 fn over_limit(found: u64, limit: u64) -> io::Error {
@@ -329,7 +344,8 @@ fn over_limit(found: u64, limit: u64) -> io::Error {
 /// answered (`swash::FontRef::from_index(data, 0)` then a table lookup for each
 /// tag) from at most the header plus `u16::MAX` sixteen-byte records:
 ///
-/// - the target must be a regular file no larger than [`MAX_FONT_FILE_BYTES`];
+/// - the opened target must be regular; ordinary files are capped at
+///   [`MAX_FONT_FILE_BYTES`], while a collection probe reads only its directory;
 /// - the magic must be an sfnt version (`0x00010000`, `OTTO`, `true`) or
 ///   `ttcf`, and a collection must declare at least one face whose directory
 ///   offset holds an sfnt version;
@@ -339,13 +355,7 @@ fn over_limit(found: u64, limit: u64) -> io::Error {
 ///
 /// Any read error or malformed value answers `false`, as before.
 pub(crate) fn face0_has_tables(path: &Path, tags: &[[u8; 4]]) -> bool {
-    let Ok(file_len) = regular_file_len(path) else {
-        return false;
-    };
-    if file_len > MAX_FONT_FILE_BYTES {
-        return false;
-    }
-    let Ok(mut file) = open_for_read(path) else {
+    let Ok((mut file, file_len)) = open_for_read(path) else {
         return false;
     };
     reader_face0_has_tables(&mut file, file_len, tags).unwrap_or(false)
@@ -363,6 +373,9 @@ fn reader_face0_has_tables<R: Read + Seek>(
     reader.seek(SeekFrom::Start(0))?;
     reader.read_exact(&mut magic)?;
     let face_offset = if SFNT_VERSIONS.contains(&magic) {
+        if file_len > MAX_FONT_FILE_BYTES {
+            return Ok(false);
+        }
         0
     } else if magic == TTC_TAG {
         // ttcf header: tag(4) version(4) numFonts(4) then the face offsets.
@@ -442,7 +455,7 @@ fn read_be_u32<R: Read>(reader: &mut R) -> io::Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::fs::{self, OpenOptions};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -704,6 +717,154 @@ mod tests {
         fs::write(&target, b"font").expect("write target");
         symlink(&target, &link).expect("create font symlink");
         assert_eq!(read_bounded(&link, 16).expect("read linked font"), b"font");
+        fs::remove_dir_all(dir).expect("remove temp directory");
+    }
+
+    #[test]
+    fn opened_font_metadata_uses_the_replacement_handle() {
+        let dir = temp_dir("opened-length");
+        let original = dir.join("original.ttf");
+        let replacement = dir.join("replacement.ttf");
+        fs::write(&original, b"old").expect("write original");
+        fs::write(&replacement, b"replacement").expect("write replacement");
+        let (file, length) =
+            open_for_read_with(&original, |_| File::open(&replacement)).expect("open replacement");
+        assert_eq!(length, 11, "length must describe the opened object");
+        assert_eq!(
+            read_opened_bounded(file, length, 10).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        fs::remove_dir_all(dir).expect("remove temp directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opened_font_metadata_rejects_a_replacement_directory() {
+        let dir = temp_dir("opened-type");
+        let original = dir.join("original.ttf");
+        fs::write(&original, b"font").expect("write original");
+        let error = open_for_read_with(&original, |_| File::open(&dir))
+            .expect_err("refuse opened directory");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        fs::remove_dir_all(dir).expect("remove temp directory");
+    }
+
+    #[test]
+    fn table_probe_accepts_a_small_face_in_an_over_limit_collection() {
+        let bytes = synthetic_collection(&[(0xAA, 32)]);
+        let (dir, path) = write_temp("probe-large-ttc", &bytes);
+        let file = OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .expect("open collection");
+        file.set_len(MAX_FONT_FILE_BYTES + 1)
+            .expect("extend sparse collection");
+        drop(file);
+        assert!(face0_has_tables(&path, &[*b"TEST"]));
+        assert!(!face0_has_tables(&path, &[*b"COLR"]));
+        assert_eq!(
+            read_font_face(&path, 0).expect("read bounded face").len(),
+            60
+        );
+        fs::remove_dir_all(dir).expect("remove temp directory");
+    }
+
+    #[test]
+    fn table_probe_still_rejects_an_over_limit_standalone_font() {
+        let dir = temp_dir("probe-large-plain");
+        let path = dir.join("font.ttf");
+        fs::write(&path, &synthetic_collection(&[(0xAA, 32)])[16..])
+            .expect("write standalone header");
+        let file = OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .expect("open font");
+        file.set_len(MAX_FONT_FILE_BYTES + 1)
+            .expect("extend sparse font");
+        drop(file);
+        assert!(!face0_has_tables(&path, &[*b"TEST"]));
+        assert_eq!(
+            read_font_face(&path, 0).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        fs::remove_dir_all(dir).expect("remove temp directory");
+    }
+
+    /// Project-authored table data with a head adjustment and a stale signature.
+    fn collection_with_head(head_length: usize) -> Vec<u8> {
+        let mut head = vec![0u8; head_length];
+        if head_length >= 54 {
+            head[..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+            head[8..12].copy_from_slice(&0x1234_5678u32.to_be_bytes());
+            head[12..16].copy_from_slice(&0x5F0F_3CF5u32.to_be_bytes());
+            head[18..20].copy_from_slice(&1000u16.to_be_bytes());
+        }
+        let mut bytes = b"ttcf".to_vec();
+        bytes.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&16u32.to_be_bytes());
+        bytes.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+        bytes.extend_from_slice(&3u16.to_be_bytes());
+        bytes.extend_from_slice(&[0u8; 6]);
+        let tables = [
+            (*b"head", head),
+            (*b"TEST", b"payload".to_vec()),
+            (*b"DSIG", vec![0xCC; 8]),
+        ];
+        let mut offset = 16 + 12 + tables.len() * 16;
+        for (tag, data) in &tables {
+            bytes.extend_from_slice(tag);
+            // Deliberately stale checksums must be replaced after reconstruction.
+            bytes.extend_from_slice(&0x1122_3344u32.to_be_bytes());
+            bytes.extend_from_slice(&(offset as u32).to_be_bytes());
+            bytes.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            offset += data.len().div_ceil(4) * 4;
+        }
+        for (_, data) in &tables {
+            bytes.extend_from_slice(data);
+            bytes.resize(bytes.len() + (4 - data.len() % 4) % 4, 0);
+        }
+        bytes
+    }
+
+    #[test]
+    fn extracted_face_repairs_checksums_and_removes_the_stale_signature() {
+        let (dir, path) = write_temp("ttc-checksum", &collection_with_head(54));
+        let out = read_font_face(&path, 0).expect("extract face");
+        let total = out.as_chunks::<4>().0.iter().fold(0u32, |sum, word| {
+            sum.wrapping_add(u32::from_be_bytes(*word))
+        });
+        assert_eq!(total, 0xB1B0_AFBA, "standalone whole-font checksum");
+        assert_eq!(be_u32_at(&out, 0), Some(0x0001_0000));
+        assert_eq!(&out[4..12], &[0, 2, 0, 32, 0, 1, 0, 0]);
+        for (index, expected_tag) in [*b"TEST", *b"head"].iter().enumerate() {
+            let record = 12 + index * 16;
+            assert_eq!(&out[record..record + 4], expected_tag);
+            let offset = be_u32_at(&out, record + 8).expect("table offset") as usize;
+            let length = be_u32_at(&out, record + 12).expect("table length") as usize;
+            let mut table = out[offset..offset + length].to_vec();
+            if *expected_tag == *b"head" {
+                assert_ne!(&table[8..12], &0x1234_5678u32.to_be_bytes());
+                table[8..12].fill(0);
+            } else {
+                assert_eq!(table, b"payload");
+            }
+            table.resize(table.len().div_ceil(4) * 4, 0);
+            let sum = table.as_chunks::<4>().0.iter().fold(0u32, |sum, word| {
+                sum.wrapping_add(u32::from_be_bytes(*word))
+            });
+            assert_eq!(be_u32_at(&out, record + 4), Some(sum));
+        }
+        fs::remove_dir_all(dir).expect("remove temp directory");
+    }
+
+    #[test]
+    fn extracted_face_rejects_a_truncated_head_table() {
+        let (dir, path) = write_temp("ttc-short-head", &collection_with_head(12));
+        assert_eq!(
+            read_font_face(&path, 0).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
         fs::remove_dir_all(dir).expect("remove temp directory");
     }
 

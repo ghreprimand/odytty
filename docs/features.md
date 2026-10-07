@@ -332,6 +332,11 @@ output-limit failure disables runtime fallback for that session and wakes the
 windows, so later requests settle without a face. macOS and Windows use their
 static fallback chains and do not run this worker.
 
+Collection faces load independently under the 256 MiB retained
+font limit, including discovery in larger collections. Extracted faces repair
+standalone checksums and discard invalidated digital signatures. Font paths
+follow regular-file symlinks and validate the opened file on every platform.
+
 With `wheel_zoom` enabled, `Ctrl`+wheel changes the live font size when the
 running application has not claimed mouse reporting. Each effective step shows
 a compact centered font-size HUD, replaces the previous value during a gesture,
