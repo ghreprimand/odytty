@@ -359,6 +359,12 @@ list and discards malformed UTF-8 records individually. macOS keeps its fixed
 system-tail order and shares the host Nerd-face preference; Windows does not
 run fontconfig queries.
 
+Font-family, weight, proportional-face rejection and symbol
+precedence regressions use embedded licensed fixtures on every platform.
+Selected host inventory and color-font exercises are explicit ignored extras.
+Refused SVG color-glyph tests count render attempts, so repeated refusal cannot
+hide behind an unchanged failure-cache size.
+
 With `wheel_zoom` enabled, `Ctrl`+wheel changes the live font size when the
 running application has not claimed mouse reporting. Each effective step shows
 a compact centered font-size HUD, replaces the previous value during a gesture,

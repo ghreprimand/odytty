@@ -37,6 +37,8 @@ pub struct EmojiRasterizer {
     /// function of the key, so a failed key is not retried each frame; this
     /// keeps a hostile SVG document from being parsed on every redraw.
     failed: HashSet<ColorGlyphKey>,
+    #[cfg(test)]
+    render_attempts: usize,
 }
 
 impl EmojiRasterizer {
@@ -57,6 +59,8 @@ impl EmojiRasterizer {
             shape_context: ShapeContext::new(),
             scale_context: ScaleContext::new(),
             failed: HashSet::new(),
+            #[cfg(test)]
+            render_attempts: 0,
         }
     }
 
@@ -72,6 +76,11 @@ impl EmojiRasterizer {
     #[cfg(test)]
     pub(crate) fn failed_color_keys(&self) -> usize {
         self.failed.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn render_attempts(&self) -> usize {
+        self.render_attempts
     }
 
     pub fn build_color_glyph_runs(
@@ -123,6 +132,10 @@ impl EmojiRasterizer {
             return None;
         }
 
+        #[cfg(test)]
+        {
+            self.render_attempts = self.render_attempts.saturating_add(1);
+        }
         let Some(rgba) = render_color_glyph(
             &mut self.scale_context,
             font_ref,

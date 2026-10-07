@@ -354,6 +354,11 @@ fn a_failed_svg_glyph_is_remembered_and_not_retried() {
         let runs = rasterizer.build_color_glyph_runs(&terminal.snapshot(), &mut atlas);
         assert!(runs.is_empty(), "a refused document draws no color run");
         assert_eq!(rasterizer.failed_color_keys(), 1, "one remembered failure");
+        assert_eq!(
+            rasterizer.render_attempts(),
+            1,
+            "refused SVG is parsed once per remembered key"
+        );
     }
 }
 

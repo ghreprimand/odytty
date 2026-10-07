@@ -2777,6 +2777,12 @@ regular-preferred fallback list and omit malformed UTF-8 records individually,
 so one record cannot discard every usable provider. Windows and macOS do not
 run these queries.
 
+The default regression suite uses portable embedded font fixtures for family
+and weight selection, proportional-face rejection, symbol precedence and
+monochrome format detection. Host inventory and host color-font extras are
+marked ignored separately. Refused SVG cache coverage observes actual render
+attempts across repeated redraws, not only the number of remembered failures.
+
 ### Render Color Emoji
 
 The accepted direction is a separate

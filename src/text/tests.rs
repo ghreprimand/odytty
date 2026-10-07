@@ -250,18 +250,11 @@ fn font_inventory_reports_stems_sorted_and_monospace_state() {
     let dir = unique_tmp_dir("inventory");
     std::fs::write(dir.join("BrokenFont.ttf"), b"not a font").expect("write broken font");
 
-    let Some(bytes) = system_mono_bytes() else {
-        let entries = font_inventory_in_dirs(std::slice::from_ref(&dir));
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "BrokenFont");
-        assert!(!entries[0].monospace);
-        let _ = std::fs::remove_dir_all(&dir);
-        return;
-    };
+    let bytes = fixture_mono_bytes();
     std::fs::write(dir.join("ZetaMono.ttf"), &bytes).expect("write zeta font");
     std::fs::write(dir.join("AlphaMono.otf"), &bytes).expect("write alpha font");
 
-    let entries = font_inventory_in_dirs(std::slice::from_ref(&dir));
+    let entries = font_inventory_in_dirs(std::slice::from_ref(&dir.0));
     let names = entries
         .iter()
         .map(|entry| entry.name.as_str())
@@ -270,8 +263,6 @@ fn font_inventory_reports_stems_sorted_and_monospace_state() {
     assert!(entries[0].monospace);
     assert!(!entries[1].monospace);
     assert!(entries[2].monospace);
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -282,37 +273,19 @@ fn empty_or_nonsense_family_resolves_to_none() {
     assert!(resolve_font_family("DefinitelyNotAFont", &[]).is_none());
 }
 
-/// Bytes of the first available system monospace font, or `None` when the
-/// host has no candidate (tests then skip).
-fn system_mono_bytes() -> Option<Vec<u8>> {
-    font_candidates()
-        .into_iter()
-        .find(|c| c.exists())
-        .and_then(|c| std::fs::read(&c).ok())
-}
+#[path = "test_font_fixtures.rs"]
+mod fixtures;
+use fixtures::{TempDir, fixture_mono_bytes, fixture_proportional_bytes};
 
-/// A unique temp dir for fixture fonts; best-effort cleanup by the caller.
-fn unique_tmp_dir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "odytty_f1_{tag}_{}_{:?}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    dir
+fn unique_tmp_dir(tag: &str) -> TempDir {
+    TempDir::new(tag)
 }
 
 #[test]
-fn loaded_system_font_is_monospace() {
-    let Some(bytes) = system_mono_bytes() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
-    let font = FontHandle::try_from_vec(bytes).expect("parse system font");
-    assert!(is_monospace(&font), "probed default should be monospace");
+fn embedded_fixture_font_is_monospace() {
+    let bytes = fixture_mono_bytes();
+    let font = FontHandle::try_from_vec(bytes).expect("parse embedded fixture font");
+    assert!(is_monospace(&font), "embedded fixture is monospace");
 }
 
 #[test]
@@ -600,7 +573,8 @@ fn a_real_monospace_family() -> Option<(String, Vec<PathBuf>)> {
 /// a thin/italic face. Family identity comes from the `name` table, so the
 /// resolved regular is the one whose metadata is upright (the regular slot).
 #[test]
-fn resolve_real_family_picks_a_monospace_regular_face() {
+#[ignore = "host font inventory extra; portable family regressions run by default"]
+fn host_extra_real_family_picks_a_monospace_regular_face() {
     let Some((family, dirs)) = a_real_monospace_family() else {
         eprintln!("skipping: no system monospace family available");
         return;
@@ -625,7 +599,7 @@ fn grouped_inventory_always_has_the_bundled_families() {
     // An empty search dir => no system families, but the bundled group is
     // fixed and present.
     let empty = unique_tmp_dir("grouped-empty");
-    let groups = font_families_grouped_in_dirs(&[empty]);
+    let groups = font_families_grouped_in_dirs(std::slice::from_ref(&empty.0));
     assert_eq!(
         groups.bundled,
         vec![
@@ -645,7 +619,14 @@ fn grouped_inventory_always_has_the_bundled_families() {
 /// picking it always resolves the version-pinned shipped face.
 #[test]
 fn grouped_inventory_dedups_a_host_copy_of_a_bundled_family() {
-    let groups = font_families_grouped();
+    let dir = unique_tmp_dir("bundled-host-copy");
+    std::fs::write(dir.join("Fixture-Regular.ttf"), fixture_mono_bytes())
+        .expect("write bundled copy");
+    let groups = font_families_grouped_in_dirs(std::slice::from_ref(&dir.0));
+    assert!(
+        groups.system.is_empty(),
+        "bundled copy is omitted from system group"
+    );
     for sys in &groups.system {
         let key = normalize_family(sys);
         assert!(
@@ -658,8 +639,8 @@ fn grouped_inventory_dedups_a_host_copy_of_a_bundled_family() {
 
 /// Lay down a multi-weight family fixture and return `(dir, dirs)`. Faces are
 /// the same monospace bytes; the filename stems drive weight matching.
-fn weight_fixture(tag: &str, faces: &[&str]) -> (PathBuf, Vec<PathBuf>) {
-    let bytes = system_mono_bytes().expect("caller guards on system font");
+fn weight_fixture(tag: &str, faces: &[&str]) -> (TempDir, Vec<PathBuf>) {
+    let bytes = fixture_mono_bytes();
     let dir = unique_tmp_dir(tag);
     for name in faces {
         std::fs::write(dir.join(name), &bytes).expect("write fixture font");
@@ -675,10 +656,6 @@ fn weight_face_finds_bold_within_a_family() {
     // path could not). This path is unchanged by the metadata rework: the
     // real family name the picker writes (e.g. "Cascadia Code") still
     // normalizes into the file stem, so weight selection stays robust.
-    let Some(_) = system_mono_bytes() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
     let (dir, dirs) = weight_fixture(
         "weight_bold",
         &["CascadiaMono-Regular.ttf", "CascadiaMono-Bold.ttf"],
@@ -689,8 +666,6 @@ fn weight_face_finds_bold_within_a_family() {
         Some(dir.join("CascadiaMono-Bold.ttf")),
         "weight resolver selects the Bold face the old concat path could not"
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -708,11 +683,7 @@ fn weight_face_empty_inputs_return_none() {
 fn weight_face_missing_weight_returns_none_for_fallback() {
     // T-weight-not-found: a weight with no matching face returns None so the
     // caller warns and falls back to the regular face — never a crash.
-    let Some(_) = system_mono_bytes() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
-    let (dir, dirs) = weight_fixture(
+    let (_fixture_dir, dirs) = weight_fixture(
         "weight_missing",
         &["CascadiaMono-Regular.ttf", "CascadiaMono-Bold.ttf"],
     );
@@ -720,7 +691,6 @@ fn weight_face_missing_weight_returns_none_for_fallback() {
         resolve_font_weight_face("CascadiaMono", "Black", &dirs).is_none(),
         "no Black face exists ⇒ None ⇒ caller falls back to regular"
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -729,10 +699,6 @@ fn weight_face_light_resolves_and_beats_extralight() {
     // resolve to the Light face, NOT ExtraLight (whose stem also contains
     // "light"). The shortest-stem tie-break makes this deterministic
     // regardless of filesystem iteration order.
-    let Some(_) = system_mono_bytes() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
     let (dir, dirs) = weight_fixture(
         "weight_light",
         &[
@@ -751,7 +717,6 @@ fn weight_face_light_resolves_and_beats_extralight() {
         resolve_font_weight_face("CascadiaMono", "ExtraLight", &dirs),
         Some(dir.join("CascadiaMono-ExtraLight.ttf"))
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -759,10 +724,6 @@ fn weight_face_prefers_non_italic_for_a_pure_weight() {
     // A pure "Bold" request prefers the upright Bold face over BoldItalic,
     // while "BoldItalic" still reaches the italic face (its term only the
     // bold-italic stem carries).
-    let Some(_) = system_mono_bytes() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
     let (dir, dirs) = weight_fixture(
         "weight_italic",
         &[
@@ -781,17 +742,12 @@ fn weight_face_prefers_non_italic_for_a_pure_weight() {
         Some(dir.join("CascadiaMono-BoldItalic.ttf")),
         "BoldItalic reaches the bold-italic face"
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn weight_face_matching_is_case_and_separator_insensitive() {
     // T-case-norm: weight matching normalizes case and separators, so
     // "semi bold" / "SemiBold" both match "CascadiaMono-SemiBold.ttf".
-    let Some(_) = system_mono_bytes() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
     let (dir, dirs) = weight_fixture(
         "weight_case",
         &["CascadiaMono-Regular.ttf", "CascadiaMono-SemiBold.ttf"],
@@ -806,15 +762,11 @@ fn weight_face_matching_is_case_and_separator_insensitive() {
         expected,
         "case + separator insensitive on both family and weight"
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn resolve_family_accepts_a_direct_path() {
-    let Some(bytes) = system_mono_bytes() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let bytes = fixture_mono_bytes();
     let dir = unique_tmp_dir("direct");
     let path = dir.join("SomeMono.otf");
     std::fs::write(&path, &bytes).expect("write fixture font");
@@ -822,25 +774,6 @@ fn resolve_family_accepts_a_direct_path() {
     let m = resolve_font_family(path.to_str().unwrap(), &[]).expect("path resolves");
     assert_eq!(m.regular, path);
     assert!(m.bold.is_none() && m.italic.is_none() && m.bold_italic.is_none());
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// Bytes of the first available *proportional* (non-monospace) system font,
-/// or `None` when the host has only monospace faces (tests then skip). Scans
-/// the real search dirs and returns the first face that loads but fails the
-/// monospace probe; short-circuits on the first hit.
-fn system_proportional_bytes() -> Option<Vec<u8>> {
-    for dir in font_search_dirs() {
-        for f in collect_font_files(&[dir]) {
-            if let Ok(font) = load_font_at(&f)
-                && !is_monospace(&font)
-            {
-                return std::fs::read(&f).ok();
-            }
-        }
-    }
-    None
 }
 
 #[test]
@@ -862,10 +795,7 @@ fn try_resolve_reports_not_found_for_missing_family() {
 
 #[test]
 fn try_resolve_reports_not_monospace_for_proportional_family() {
-    let Some(bytes) = system_proportional_bytes() else {
-        eprintln!("skipping: no proportional system font available");
-        return;
-    };
+    let bytes = fixture_proportional_bytes();
     let dir = unique_tmp_dir("proportional");
     let path = dir.join("Proportional.ttf");
     std::fs::write(&path, &bytes).expect("write fixture font");
@@ -873,11 +803,9 @@ fn try_resolve_reports_not_monospace_for_proportional_family() {
 
     // Query by the proportional face's REAL family name (from metadata): the
     // family matches but offers no monospace face → NotMonospace.
-    let Some(family) = read_face_meta(&path).map(|meta| meta.family) else {
-        eprintln!("skipping: proportional face carries no family name");
-        let _ = std::fs::remove_dir_all(&dir);
-        return;
-    };
+    let family = read_face_meta(&path)
+        .expect("fixture has Latin coverage and family metadata")
+        .family;
     assert_eq!(
         try_resolve_font_family(&family, &dirs),
         Err(FontResolveError::NotMonospace),
@@ -891,16 +819,15 @@ fn try_resolve_reports_not_monospace_for_proportional_family() {
     );
     // The `Option` view collapses both reasons to `None`.
     assert!(resolve_font_family(&family, &dirs).is_none());
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn try_resolve_ok_agrees_with_resolve_font_family_on_success() {
-    let Some((family, dirs)) = a_real_monospace_family() else {
-        eprintln!("skipping: no system monospace family available");
-        return;
-    };
+    let dir = unique_tmp_dir("agreement");
+    let path = dir.join("Fixture-Regular.ttf");
+    std::fs::write(&path, fixture_mono_bytes()).expect("write fixture");
+    let family = read_face_meta(&path).expect("fixture metadata").family;
+    let dirs = vec![dir.0.clone()];
     let ok = try_resolve_font_family(&family, &dirs).expect("real family resolves");
     // The `Option` view must agree exactly on the success path.
     assert_eq!(resolve_font_family(&family, &dirs), Some(ok));
@@ -946,23 +873,20 @@ fn distinct_families_dedup_styles_and_exclude_proportional_only() {
 // so they never list as text families (the "Noto Color Emoji" picker wart).
 #[test]
 fn latin_coverage_accepts_text_font_rejects_emoji() {
-    // Positive: a real monospace text font on this host is accepted by the
-    // production read path (Latin coverage is enforced inside read_face_meta).
-    if let Some((_, dirs)) = a_real_monospace_family() {
-        let covered = collect_font_files(&dirs)
-            .iter()
-            .any(|f| read_face_meta(f).is_some());
-        assert!(covered, "a text mono font must report Latin coverage");
-    }
-    // Negative: a color-emoji font (if installed) fails coverage AND is
-    // therefore absent from read_face_meta / font_families. Skip if absent.
-    let emoji = Path::new("/usr/share/fonts/noto/NotoColorEmoji.ttf");
-    if emoji.is_file() {
-        assert!(
-            read_face_meta(emoji).is_none(),
-            "emoji font must be excluded from family enumeration"
-        );
-    }
+    // Positive and negative fixtures exercise the production Latin filter.
+    let dir = unique_tmp_dir("latin-coverage");
+    let path = dir.join("Fixture-Regular.ttf");
+    std::fs::write(&path, fixture_mono_bytes()).expect("write fixture");
+    assert!(
+        read_face_meta(&path).is_some(),
+        "embedded text font has Latin coverage"
+    );
+    let emoji =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fonts/color-emoji-colr-v1.ttf");
+    assert!(
+        read_face_meta(&emoji).is_none(),
+        "project-authored emoji fixture is excluded"
+    );
 }
 
 // Trap (b): the regular face is chosen by metadata (400, upright), NOT by
@@ -1035,15 +959,29 @@ fn pick_variant_selects_faces_by_metadata() {
     );
 }
 
-// font_families over the real host dirs: sorted, no empties, no
-// case-insensitive duplicates (trap a/c on real metadata).
+// Embedded families and styles enumerate real names once, in sorted order.
 #[test]
 fn font_families_lists_real_names_without_variant_duplicates() {
-    let families = font_families_in_dirs(&font_search_dirs());
-    if families.is_empty() {
-        eprintln!("skipping: no system fonts available");
-        return;
-    }
+    let dir = unique_tmp_dir("family-inventory");
+    std::fs::write(dir.join("Fixture-Regular.ttf"), fixture_mono_bytes()).expect("write regular");
+    std::fs::write(
+        dir.join("Fixture-Bold.ttf"),
+        bundled_face_bytes(BUNDLED_FONT_FAMILY, "Bold", false).unwrap(),
+    )
+    .expect("write bold");
+    std::fs::write(
+        dir.join("Other-Regular.ttf"),
+        bundled_face_bytes(JETBRAINS_FONT_FAMILY, "Regular", false).unwrap(),
+    )
+    .expect("write other family");
+    let families = font_families_in_dirs(std::slice::from_ref(&dir.0));
+    assert_eq!(
+        families,
+        [
+            JETBRAINS_FONT_FAMILY.to_owned(),
+            BUNDLED_FONT_FAMILY.to_owned()
+        ]
+    );
     let mut sorted = families.clone();
     sorted.sort_by_key(|name| name.to_lowercase());
     assert_eq!(families, sorted, "families are sorted case-insensitively");
@@ -1063,23 +1001,14 @@ fn font_families_lists_real_names_without_variant_duplicates() {
 
 #[test]
 fn load_font_with_path_falls_back_on_bad_path() {
-    // A bogus explicit path must not error when the host has a probe font.
     let bogus = Path::new("/nonexistent/not-a-font.ttf");
-    match load_font_with_path(Some(bogus)) {
-        Ok(_) => {} // fell back to a probed font
-        Err(TextError::NoFont) => {
-            eprintln!("skipping: no system font to fall back to");
-        }
-        Err(other) => panic!("bad path should fall back, not error: {other}"),
-    }
+    let font = load_font_with_path(Some(bogus)).expect("bad override uses bundled face");
+    assert_eq!(font.as_slice(), fixture_mono_bytes());
 }
 
 #[test]
 fn resolve_symbol_font_prefers_the_dedicated_symbols_face() {
-    let Some(bytes) = system_mono_bytes() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let bytes = fixture_mono_bytes();
     let dir = unique_tmp_dir("symbolfont");
     // A plain body font, a patched family font, and the dedicated symbols
     // face — same bytes; the *names* drive selection. The dedicated
@@ -1090,8 +1019,11 @@ fn resolve_symbol_font_prefers_the_dedicated_symbols_face() {
     std::fs::write(dir.join("SymbolsNerdFont-Regular.ttf"), &bytes).expect("write symbols");
     let dirs = vec![dir.clone()];
 
-    // It resolves to *a* Nerd font (loadable), and the preference ranking
-    // selects the symbols-only face when present.
+    assert_eq!(
+        resolve_symbol_font_path_in(&dirs),
+        Some(dir.join("SymbolsNerdFont-Regular.ttf"))
+    );
+    // The preferred fixture is loadable through the same resolution path.
     assert!(
         resolve_symbol_font_in(&dirs).is_some(),
         "a symbol font should resolve from the fixture dir"
@@ -1101,12 +1033,9 @@ fn resolve_symbol_font_prefers_the_dedicated_symbols_face() {
     let plain = unique_tmp_dir("symbolfont-plain");
     std::fs::write(plain.join("DejaVuSansMono.ttf"), &bytes).expect("write body font");
     assert!(
-        resolve_symbol_font_in(std::slice::from_ref(&plain)).is_none(),
+        resolve_symbol_font_in(std::slice::from_ref(&plain.0)).is_none(),
         "a non-Nerd font dir must not resolve a symbol font"
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
-    let _ = std::fs::remove_dir_all(&plain);
 }
 
 // --- symbol-fallback precedence (explicit > bundled > host) -----------
@@ -1117,32 +1046,24 @@ fn symbol_source_no_override_with_bundled_present_is_bundled_not_host() {
     // "* Nerd Font" face is present in the search dirs, the bundled,
     // version-pinned face wins, so icon rendering is identical on every
     // machine regardless of host fonts.
-    let Some(bytes) = system_mono_bytes() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let bytes = fixture_mono_bytes();
     let dir = unique_tmp_dir("symbol-source-bundled");
     std::fs::write(dir.join("SymbolsNerdFont-Regular.ttf"), &bytes).expect("write host symbol");
 
-    let (source, font) = resolve_symbol_font_with_source(None, std::slice::from_ref(&dir));
+    let (source, font) = resolve_symbol_font_with_source(None, std::slice::from_ref(&dir.0));
     assert_eq!(
         source,
         SymbolFontSource::Bundled,
         "bundled face must win over a host symbol font when no override is set"
     );
     assert!(font.is_some(), "bundled face must load");
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn symbol_source_explicit_path_wins_over_bundled() {
     // A valid explicit override is reported as Explicit and takes priority
     // over the bundled face.
-    let Some(bytes) = system_mono_bytes() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let bytes = fixture_mono_bytes();
     let dir = unique_tmp_dir("symbol-source-explicit");
     let explicit = dir.join("MyExplicitSymbols.ttf");
     std::fs::write(&explicit, &bytes).expect("write explicit font");
@@ -1150,8 +1071,6 @@ fn symbol_source_explicit_path_wins_over_bundled() {
     let (source, font) = resolve_symbol_font_with_source(Some(&explicit), &[]);
     assert_eq!(source, SymbolFontSource::Explicit(explicit.clone()));
     assert!(font.is_some());
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -1349,7 +1268,7 @@ fn linux_symbol_fallback_faces_picks_up_a_hint_named_file() {
     let dir = unique_tmp_dir("linuxsymtail");
     let fixture = dir.join("NotoSansSymbols2-Regular.ttf");
     std::fs::write(&fixture, BUNDLED_SYMBOL_FONT_BYTES).expect("write fixture");
-    let faces = linux_symbol_fallback_faces(std::slice::from_ref(&dir));
+    let faces = linux_symbol_fallback_faces(std::slice::from_ref(&dir.0));
     assert!(
         faces
             .iter()
@@ -1361,11 +1280,9 @@ fn linux_symbol_fallback_faces_picks_up_a_hint_named_file() {
     std::fs::write(empty.join("Random-Regular.ttf"), BUNDLED_SYMBOL_FONT_BYTES)
         .expect("write non-matching fixture");
     assert!(
-        linux_symbol_fallback_faces(std::slice::from_ref(&empty)).is_empty(),
+        linux_symbol_fallback_faces(std::slice::from_ref(&empty.0)).is_empty(),
         "a dir with no hint-named file resolves to an empty tail"
     );
-    let _ = std::fs::remove_dir_all(&dir);
-    let _ = std::fs::remove_dir_all(&empty);
 }
 
 /// Hermetic (no real host font asserted): a file under the search dirs whose
@@ -1380,7 +1297,7 @@ fn windows_symbol_fallback_faces_picks_up_a_hint_named_file() {
     // `seguisym.ttf`'s normalized stem is "seguisym", the primary hint.
     let fixture = dir.join("seguisym.ttf");
     std::fs::write(&fixture, BUNDLED_SYMBOL_FONT_BYTES).expect("write fixture");
-    let faces = windows_symbol_fallback_faces(std::slice::from_ref(&dir));
+    let faces = windows_symbol_fallback_faces(std::slice::from_ref(&dir.0));
     assert!(
         faces
             .iter()
@@ -1392,11 +1309,9 @@ fn windows_symbol_fallback_faces_picks_up_a_hint_named_file() {
     std::fs::write(empty.join("Random-Regular.ttf"), BUNDLED_SYMBOL_FONT_BYTES)
         .expect("write non-matching fixture");
     assert!(
-        windows_symbol_fallback_faces(std::slice::from_ref(&empty)).is_empty(),
+        windows_symbol_fallback_faces(std::slice::from_ref(&empty.0)).is_empty(),
         "a dir with no hint-named file resolves to an empty tail"
     );
-    let _ = std::fs::remove_dir_all(&dir);
-    let _ = std::fs::remove_dir_all(&empty);
 }
 
 /// Authoritative on the windows-latest runner (`seguisym.ttf` is present):

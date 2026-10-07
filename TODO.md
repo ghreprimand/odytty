@@ -1926,6 +1926,9 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       hints, keeps load-failure fallthrough, and preserves valid fontconfig
       records when another record is malformed. Linux runtime candidates use
       sorted regular-style preference; Windows and macOS retain static tails.
+- [x] Core font-regression fixtures are portable across Linux, macOS and
+      Windows; host font exercises are explicit extras. Refused SVG cache tests
+      observe actual render attempts, and color probes accept v1/SVG coverage.
 - [x] Runtime fallback faces are parsed once and shared across codepoints;
       over-limit collections reconstruct only the selected face instead of
       retaining the full collection. Directory-only discovery also accepts

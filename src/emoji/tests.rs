@@ -229,11 +229,8 @@ fn stock_windows_segoe_ui_emoji_is_a_discoverable_color_font() {
 
 #[test]
 fn color_format_detection_is_empty_for_monospace_outline_font() {
-    let Some(path) = first_system_font() else {
-        return;
-    };
-    let bytes = std::fs::read(path).expect("read system font");
-    let font = FontRef::from_index(&bytes, 0).expect("parse system font");
+    let bytes = include_bytes!("../../tests/fixtures/fonts/bidi-mixed.ttf");
+    let font = FontRef::from_index(bytes, 0).expect("parse project-authored fixture");
     assert!(font.table(tag_from_bytes(b"head")).is_some());
     assert_eq!(color_formats(font), Vec::<ColorGlyphFormat>::new());
 }
@@ -493,6 +490,7 @@ fn synthetic_sbix_bitmap_path_keeps_historical_pixel_bytes() {
 }
 
 #[test]
+#[ignore = "host color-font extra; portable COLR/SVG/sbix fixtures run by default"]
 fn host_noto_color_emoji_rasterizes_fire_into_premultiplied_atlas() {
     let Some(found) = discover_noto_color_emoji() else {
         eprintln!("Noto Color Emoji not found; host-dependent raster test skipped");
@@ -558,7 +556,10 @@ fn host_noto_color_emoji_probe_records_shape_and_color_metadata() {
         report
             .sequences
             .iter()
-            .any(|sequence| sequence.has_color_bitmap || sequence.has_color_outline),
+            .any(|sequence| sequence.has_color_bitmap
+                || sequence.has_color_outline
+                || sequence.has_colr_v1
+                || sequence.has_svg),
         "at least one representative sequence should resolve to a color glyph:\n{}",
         summarize_report(&report)
     );
@@ -596,19 +597,6 @@ fn cell() -> CellSize {
         height: 16,
         baseline: 12,
     }
-}
-
-fn first_system_font() -> Option<&'static Path> {
-    [
-        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-        "/usr/share/fonts/noto/NotoSansMono-Regular.ttf",
-    ]
-    .iter()
-    .map(Path::new)
-    .find(|path| path.is_file())
 }
 
 /// The answer the COLR/CPAL probe gave when it parsed the whole file.
