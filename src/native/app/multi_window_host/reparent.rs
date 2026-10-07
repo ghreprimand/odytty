@@ -532,6 +532,54 @@ mod tests {
         assert_eq!(tab_leaves(new_window), vec![vec![moving.0]]);
     }
 
+    /// A focused pane that is sent its focus-out as it leaves, and then comes
+    /// back because the new window could not open, hears the matching
+    /// focus-in: the program is never left believing it lost focus.
+    #[test]
+    fn a_refused_focused_pane_move_sends_the_matching_focus_in() {
+        let mut origin = headless();
+        let first = origin.active_session_token_for_test();
+        origin.seed_headless_split_pane_for_test(
+            true,
+            terminal(),
+            crate::native::test_support::headless_writer(),
+            Dimensions::new(40, 24),
+        );
+        let moving = origin
+            .active_tab_pane_tokens_for_test()
+            .into_iter()
+            .find(|token| *token != first)
+            .expect("split pane");
+        origin.focus_session_token_for_test(moving);
+        origin.last_active_session = moving;
+        origin
+            .workspace_set()
+            .get(moving)
+            .expect("pane")
+            .terminal
+            .lock()
+            .expect("terminal")
+            .advance(b"\x1b[?1004h");
+        origin.set_window_focus_for_test(true);
+        origin.focus_reports_for_test.clear();
+        let origin_id = origin.process_window_id();
+        let mut host = host_of(vec![origin]);
+
+        assert!(
+            !host.move_to_new_window(origin_id, MoveScope::ActivePane, |_| {
+                Err("refused".to_owned())
+            })
+        );
+
+        let source = &host.windows[0];
+        assert_eq!(source.active_session_token_for_test(), moving);
+        assert_eq!(
+            source.focus_reports_for_test,
+            vec![(moving, false), (moving, true)],
+            "the focus-out is cancelled by a focus-in"
+        );
+    }
+
     /// The active tab of a two-tab window, recording, with one replay frame.
     fn recording_two_tab_window() -> (App, SessionToken) {
         let (mut origin, model) = two_tab_window();

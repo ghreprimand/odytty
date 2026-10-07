@@ -92,7 +92,8 @@ impl App {
     /// connect path. A stale binding (alias removed from `hosts.conf`) or a
     /// connect failure falls back to a local tab and raises a one-line notice —
     /// a bad binding never blocks opening a tab.
-    pub(super) fn new_tab_for_bound_host(&mut self, alias: &str) {
+    /// Returns the new tab's pane, or `None` when no tab opened.
+    pub(super) fn new_tab_for_bound_host(&mut self, alias: &str) -> Option<SessionToken> {
         let host = self
             .load_connection_entries()
             .into_iter()
@@ -102,28 +103,28 @@ impl App {
                 // A connect failure raises its own one-line notice inside
                 // connect_or_notice (LOW-03); fall back to a local tab so New Tab
                 // never dead-ends on a bad binding.
-                if self.connect_or_notice(&host).is_none() {
-                    self.handle_new_local_tab_plain();
-                }
+                self.connect_or_notice(&host)
+                    .or_else(|| self.handle_new_local_tab_plain())
             }
             None => {
                 self.raise_open_notice(format!(
                     "Host \"{alias}\" is no longer configured; opened a local tab"
                 ));
-                self.handle_new_local_tab_plain();
+                self.handle_new_local_tab_plain()
             }
         }
     }
 
     /// Spawn a local tab from a fully resolved named-profile launch context.
+    /// Returns the new tab's pane, or `None` when the spawn (or the connection
+    /// and its local fallback) failed and a notice was raised instead.
     pub(super) fn spawn_local_tab_from_effective(
         &mut self,
         mut effective: crate::profiles::EffectiveLaunch,
-    ) {
+    ) -> Option<SessionToken> {
         self.finish_divider_drag();
         if let Some(alias) = effective.connection.clone() {
-            self.new_tab_for_bound_host(&alias);
-            return;
+            return self.new_tab_for_bound_host(&alias);
         }
         // A profile whose persisted starting directory no longer exists must not
         // dead-end the tab: fall back to home and surface a bounded notice
@@ -184,11 +185,13 @@ impl App {
                 {
                     self.raise_open_notice(warning.clone());
                 }
+                Some(session_id)
             }
             Err(err) => {
                 if self.open_notice.is_none() {
                     self.raise_open_notice(format!("Could not open a new tab: {err}"));
                 }
+                None
             }
         }
     }
@@ -213,8 +216,9 @@ impl App {
         self.handle_new_local_tab_plain();
     }
 
-    /// Plain local tab spawn without workspace named-profile binding.
-    pub(super) fn handle_new_local_tab_plain(&mut self) {
+    /// Plain local tab spawn without workspace named-profile binding. Returns
+    /// the new tab's pane, or `None` when the spawn failed (a notice says so).
+    pub(super) fn handle_new_local_tab_plain(&mut self) -> Option<SessionToken> {
         self.finish_divider_drag();
         // F1 cwd inheritance: seed the new tab's shell in the active pane's OSC 7
         // cwd when known, so New Tab opens where you already are. A pane with no
@@ -252,6 +256,7 @@ impl App {
                 }
                 let _ = self.sessions.switch(session_id);
                 self.on_active_session_changed();
+                Some(session_id)
             }
             Err(err) => {
                 // D-1: surface a spawn failure instead of swallowing it (the old
@@ -264,6 +269,7 @@ impl App {
                 if self.open_notice.is_none() {
                     self.raise_open_notice(format!("Could not open a new tab: {err}"));
                 }
+                None
             }
         }
     }

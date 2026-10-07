@@ -9,7 +9,8 @@
 //!   drop, and image-paste confirmations are cancelled, an IME composition on
 //!   the pane is dropped, a context-menu command target and any open overlay
 //!   (whose intents may name the pane) are closed, drags are settled, and the
-//!   `--hold` state of the pane travels with it.
+//!   `--hold` state of the pane travels with it. A move refused after that
+//!   point sends the focused pane the matching focus-in.
 //! - **Source, after the move.** OSC 52 consents of departed panes are pruned,
 //!   the remaining panes reflow, and the new active pane is reconciled.
 //! - **Destination.** The moved panes' presentation caches (last presented
@@ -31,6 +32,9 @@ use crate::native::session::{MoveError, MoveScope, MovedContent};
 pub(in crate::native) struct MovedHold {
     hold_session: Option<SessionToken>,
     held_exit: Option<SessionToken>,
+    /// The focused pane the source told it had lost focus when it left. A
+    /// refused move that brings it back owes it the matching focus-in.
+    focus_out_reported: Option<SessionToken>,
 }
 
 /// A request to move content out of this window, captured from its UI
@@ -85,9 +89,20 @@ impl App {
         if tokens.is_empty() {
             return Err(MoveError::SourceEmpty);
         }
-        self.settle_before_move_out(&tokens);
-        let content = self.sessions.detach_for_move(scope)?;
-        let mut hold = MovedHold::default();
+        let focus_out_reported = self.settle_before_move_out(&tokens);
+        let content = match self.sessions.detach_for_move(scope) {
+            Ok(content) => content,
+            Err(err) => {
+                // Nothing left: the focused pane stays, so take back the
+                // focus-out it was just sent.
+                self.compensate_focus_out(focus_out_reported);
+                return Err(err);
+            }
+        };
+        let mut hold = MovedHold {
+            focus_out_reported,
+            ..MovedHold::default()
+        };
         for token in content.tokens() {
             if self.hold_session == Some(token) {
                 hold.hold_session = self.hold_session.take();
@@ -106,16 +121,19 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// Release this window's hold on panes that are about to leave.
-    fn settle_before_move_out(&mut self, tokens: &[SessionToken]) {
+    /// Release this window's hold on panes that are about to leave. Returns the
+    /// focused pane that was sent a focus-out report, if any.
+    fn settle_before_move_out(&mut self, tokens: &[SessionToken]) -> Option<SessionToken> {
         self.finish_divider_drag();
         let _ = self.cancel_workspace_drag();
         let _ = self.cancel_top_tab_drag();
         self.prefix_engine.cancel();
         // A focused pane that leaves is no longer focused here: tell a program
         // that asked for focus reports before the window loses its writer.
-        if self.focused && tokens.contains(&self.last_active_session) {
-            self.send_focus_report_to(self.last_active_session, false);
+        let focus_out_reported = (self.focused && tokens.contains(&self.last_active_session))
+            .then_some(self.last_active_session);
+        if let Some(token) = focus_out_reported {
+            self.send_focus_report_to(token, false);
         }
         self.cancel_pending_input_for_merge();
         if self
@@ -133,6 +151,19 @@ impl App {
         }
         if self.overlay.is_open() {
             self.overlay.close();
+        }
+        focus_out_reported
+    }
+
+    /// Send the focus-in that cancels a focus-out `reported` to a pane that is
+    /// staying (or coming back) as this focused window's active pane.
+    fn compensate_focus_out(&mut self, reported: Option<SessionToken>) {
+        if let Some(token) = reported
+            && self.focused
+            && self.sessions.active_id() == token
+            && self.sessions.get(token).is_some()
+        {
+            self.send_focus_report_to(token, true);
         }
     }
 
@@ -175,7 +206,14 @@ impl App {
         if scope_was_pane_reflow(&self.sessions) {
             self.reflow_active_panes_and_redraw();
         }
+        // The active-session seam reports focus only on an identity change. A
+        // pane that left focused and came back as the same active pane sees no
+        // change there, so its focus-out is cancelled explicitly.
+        let unchanged = self.last_active_session == self.sessions.active_id();
         self.on_active_session_changed();
+        if unchanged {
+            self.compensate_focus_out(hold.focus_out_reported);
+        }
         self.raise_open_notice(MOVE_REFUSED_NOTICE.to_owned());
     }
 
@@ -238,6 +276,7 @@ impl App {
         MovedHold {
             hold_session: self.hold_session.take(),
             held_exit: self.held_exit.take(),
+            focus_out_reported: None,
         }
     }
 

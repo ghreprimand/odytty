@@ -3525,6 +3525,39 @@ impl App {
             .set_title_override(token, title.map(ToOwned::to_owned));
     }
 
+    /// Test seam: entries in the navigator's recently-closed ring.
+    #[cfg(test)]
+    pub(in crate::native) fn navigator_recently_closed_len_for_test(&self) -> usize {
+        self.navigator_recently_closed.len()
+    }
+
+    /// Test seam: reopen the last closed navigator item with the tab launch
+    /// step injected: `None` fails as a refused spawn does, `Some` launches a
+    /// headless tab and returns its pane.
+    #[cfg(test)]
+    pub(in crate::native) fn reopen_last_closed_with_launch_for_test(
+        &mut self,
+        launches: bool,
+    ) -> Option<SessionToken> {
+        let mut launched = None;
+        self.reopen_last_closed_navigator_item_with(|app, _effective| {
+            if !launches {
+                return None;
+            }
+            let position = app.push_headless_session_for_test(
+                Arc::new(Mutex::new(Terminal::new(80, 24))),
+                crate::native::test_support::headless_writer(),
+                crate::core::Dimensions::new(80, 24),
+            );
+            let token = app.sessions.token_at_position(position)?;
+            let _ = app.sessions.switch(token);
+            app.on_active_session_changed();
+            launched = Some(token);
+            Some(token)
+        });
+        launched
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn session_tab_title_for_test(&self, session: usize) -> Option<String> {
         self.sessions

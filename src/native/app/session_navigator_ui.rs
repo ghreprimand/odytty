@@ -239,6 +239,17 @@ impl App {
     /// cwd/profile/title to existing profile-launch seams and no closed PTY is
     /// stored or revived.
     pub(super) fn reopen_last_closed_navigator_item(&mut self) {
+        self.reopen_last_closed_navigator_item_with(Self::spawn_local_tab_from_effective);
+    }
+
+    /// [`Self::reopen_last_closed_navigator_item`] with the tab launch step
+    /// injected. The closed title goes onto the tab that launch returns, never
+    /// onto whichever tab is active, and a launch that fails (it raises its own
+    /// notice) puts the item back in the ring so it can be retried.
+    pub(super) fn reopen_last_closed_navigator_item_with(
+        &mut self,
+        launch_tab: impl FnOnce(&mut Self, crate::profiles::EffectiveLaunch) -> Option<SessionToken>,
+    ) {
         let Some(item) = self.navigator_recently_closed.pop_back() else {
             self.open_session_navigator_overlay();
             return;
@@ -250,10 +261,10 @@ impl App {
             item.profile.as_deref(),
         );
         match item.kind {
-            ClosedNavigatorKind::Tab => {
-                self.spawn_local_tab_from_effective(effective);
-                self.restore_navigator_title(self.sessions.active_id(), item.title);
-            }
+            ClosedNavigatorKind::Tab => match launch_tab(self, effective) {
+                Some(token) => self.restore_navigator_title(token, item.title),
+                None => self.navigator_recently_closed.push_back(item),
+            },
             ClosedNavigatorKind::Workspace => match self
                 .sessions
                 .new_workspace_from_effective(self.grid, &effective)
@@ -268,6 +279,7 @@ impl App {
                     if self.open_notice.is_none() {
                         self.raise_open_notice(format!("Could not reopen the workspace: {error}"));
                     }
+                    self.navigator_recently_closed.push_back(item);
                 }
             },
         }

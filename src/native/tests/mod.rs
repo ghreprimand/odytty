@@ -228,6 +228,7 @@ mod local_key_capture;
 mod mouse_rect;
 mod multipane_labels;
 mod navigator_pane_close;
+mod navigator_reopen;
 mod notifications;
 mod os_theme;
 mod overlay_pointer;
