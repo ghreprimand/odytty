@@ -48,39 +48,7 @@ fn temp_config_base(label: &str) -> PathBuf {
 /// body reads the real `profiles_dir_path()` so it writes wherever production
 /// will look.
 fn with_config_base<R>(base: &Path, f: impl FnOnce() -> R) -> R {
-    // One crate-wide env lock (crate::test_lock) serializes every test that
-    // mutates process-global env vars, so a sibling module redirecting the same
-    // HOME/XDG/APPDATA base cannot run concurrently. The guard recovers from a
-    // poisoned mutex internally, so a failing assertion elsewhere does not
-    // cascade-fail later cases.
-    let _guard = crate::test_lock::test_env_lock();
-    // These routes load the profile catalog, bumping the process-global load
-    // counter that the startup-isolation tests assert on. Hold the catalog-count
-    // guard too, acquired AFTER the env lock (fixed order, never the reverse) so
-    // it cannot deadlock against a sibling that holds one and wants the other.
-    let _count_guard = crate::test_lock::catalog_count_lock();
-    let prev_appdata = std::env::var_os("APPDATA");
-    let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
-    let prev_home = std::env::var_os("HOME");
-    unsafe {
-        std::env::set_var("APPDATA", base);
-        std::env::set_var("XDG_CONFIG_HOME", base);
-        std::env::set_var("HOME", base);
-    }
-    let result = f();
-    unsafe {
-        restore("APPDATA", prev_appdata);
-        restore("XDG_CONFIG_HOME", prev_xdg);
-        restore("HOME", prev_home);
-    }
-    result
-}
-
-unsafe fn restore(key: &str, value: Option<std::ffi::OsString>) {
-    match value {
-        Some(value) => unsafe { std::env::set_var(key, value) },
-        None => unsafe { std::env::remove_var(key) },
-    }
+    super::config_env::with_config_base(base, true, f)
 }
 
 /// Write a synthetic named profile whose only launch field is an optional

@@ -37,30 +37,7 @@ fn temp_config_base(label: &str) -> PathBuf {
 }
 
 fn with_config_base<R>(base: &Path, f: impl FnOnce() -> R) -> R {
-    let _guard = crate::test_lock::test_env_lock();
-    let _count_guard = crate::test_lock::catalog_count_lock();
-    let prev_appdata = std::env::var_os("APPDATA");
-    let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
-    let prev_home = std::env::var_os("HOME");
-    unsafe {
-        std::env::set_var("APPDATA", base);
-        std::env::set_var("XDG_CONFIG_HOME", base);
-        std::env::set_var("HOME", base);
-    }
-    let result = f();
-    unsafe {
-        restore_env("APPDATA", prev_appdata);
-        restore_env("XDG_CONFIG_HOME", prev_xdg);
-        restore_env("HOME", prev_home);
-    }
-    result
-}
-
-unsafe fn restore_env(key: &str, value: Option<std::ffi::OsString>) {
-    match value {
-        Some(value) => unsafe { std::env::set_var(key, value) },
-        None => unsafe { std::env::remove_var(key) },
-    }
+    super::config_env::with_config_base(base, true, f)
 }
 
 fn profiles_dir() -> PathBuf {
@@ -217,6 +194,7 @@ fn profile_env_applies_with_explicit_shell() {
 fn profile_theme_stays_on_session_across_model_state_and_tab_switch() {
     let base = temp_config_base("theme");
     with_config_base(&base, || {
+        let _render_globals = crate::test_lock::render_globals_lock();
         write_theme_profile("drac", "dracula");
         let expected = Theme::from_name("dracula").expect("dracula builtin");
         let expected_bg = rgb_tuple(expected.background);
@@ -300,6 +278,7 @@ fn profile_theme_stays_on_session_across_model_state_and_tab_switch() {
 fn global_default_profile_theme_applies_on_plain_new_tab() {
     let base = temp_config_base("default-theme");
     with_config_base(&base, || {
+        let _render_globals = crate::test_lock::render_globals_lock();
         write_theme_profile("spot", "dracula");
         let expected = Theme::from_name("dracula").expect("dracula builtin");
         let expected_bg = rgb_tuple(expected.background);

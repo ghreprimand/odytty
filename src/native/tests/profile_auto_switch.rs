@@ -24,42 +24,7 @@ fn temp_config_home(label: &str) -> PathBuf {
 }
 
 fn with_home<R>(home: &Path, f: impl FnOnce() -> R) -> R {
-    // One crate-wide env lock (crate::test_lock) serializes every test that
-    // mutates process-global env vars, so a sibling module redirecting the same
-    // HOME/XDG base cannot run concurrently. Poison-tolerant by construction.
-    let _guard = crate::test_lock::test_env_lock();
-    // The live auto-switch poll loads the profile catalog, bumping the
-    // process-global load counter the startup-isolation tests assert on. Hold
-    // the catalog-count guard too, acquired AFTER the env lock (fixed order,
-    // never the reverse) so it cannot deadlock against a sibling.
-    let _count_guard = crate::test_lock::catalog_count_lock();
-    // APPDATA is redirected too: on Windows the config base resolves from
-    // APPDATA before HOME, so leaving it untouched would point the catalog at
-    // the real user profile directory instead of the fixture.
-    let prev_appdata = std::env::var_os("APPDATA");
-    let prev_home = std::env::var_os("HOME");
-    let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
-    unsafe {
-        std::env::set_var("APPDATA", home);
-        std::env::set_var("HOME", home);
-        std::env::remove_var("XDG_CONFIG_HOME");
-    }
-    let result = f();
-    unsafe {
-        match prev_xdg {
-            Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
-        match prev_home {
-            Some(value) => std::env::set_var("HOME", value),
-            None => std::env::remove_var("HOME"),
-        }
-        match prev_appdata {
-            Some(value) => std::env::set_var("APPDATA", value),
-            None => std::env::remove_var("APPDATA"),
-        }
-    }
-    result
+    super::config_env::with_config_base(home, false, f)
 }
 
 fn write_switch_profile(profiles_dir: &Path, name: &str, rules: ProfileSwitchRules) -> PathBuf {

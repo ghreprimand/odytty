@@ -17,24 +17,7 @@ fn temporary_config_base() -> PathBuf {
 }
 
 fn with_config_base<R>(base: &Path, f: impl FnOnce() -> R) -> R {
-    let _guard = crate::test_lock::test_env_lock();
-    // Profile edits reload the catalog and share the startup-isolation counter.
-    let _count_guard = crate::test_lock::catalog_count_lock();
-    let previous_home = std::env::var_os("HOME");
-    let previous_xdg = std::env::var_os("XDG_CONFIG_HOME");
-    let previous_appdata = std::env::var_os("APPDATA");
-    unsafe {
-        std::env::set_var("HOME", base);
-        std::env::set_var("XDG_CONFIG_HOME", base);
-        std::env::set_var("APPDATA", base);
-    }
-    let result = f();
-    unsafe {
-        restore_env("HOME", previous_home);
-        restore_env("XDG_CONFIG_HOME", previous_xdg);
-        restore_env("APPDATA", previous_appdata);
-    }
-    result
+    super::config_env::with_config_base(base, true, f)
 }
 
 fn app_with_profile_binding(profile_name: &str, settings: Settings) -> App {
@@ -90,13 +73,6 @@ fn primary_autosave_app() -> App {
 
 fn advance_cwd(app: &mut App, cwd: &str) {
     app.advance_primary_terminal_for_test(format!("\x1b]7;file://{cwd}\x07").as_bytes());
-}
-
-unsafe fn restore_env(key: &str, value: Option<std::ffi::OsString>) {
-    match value {
-        Some(value) => unsafe { std::env::set_var(key, value) },
-        None => unsafe { std::env::remove_var(key) },
-    }
 }
 
 #[cfg_attr(

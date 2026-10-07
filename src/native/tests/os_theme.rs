@@ -27,6 +27,7 @@ fn build_app(theme: Theme) -> Option<App> {
 
 #[test]
 fn following_off_keeps_the_authored_theme_on_any_os_signal() {
+    let _render_globals = crate::test_lock::render_globals_lock();
     let authored = Theme::ODYSSEY;
     let Some(mut app) = build_app(authored) else {
         eprintln!("skipping: no PTY available");
@@ -50,6 +51,7 @@ fn following_off_keeps_the_authored_theme_on_any_os_signal() {
 
 #[test]
 fn following_on_switches_between_dark_and_light_themes() {
+    let _render_globals = crate::test_lock::render_globals_lock();
     let authored = Theme::ODYSSEY;
     let Some(mut app) = build_app(authored) else {
         eprintln!("skipping: no PTY available");
@@ -79,6 +81,7 @@ fn following_on_switches_between_dark_and_light_themes() {
 
 #[test]
 fn unset_or_unknown_direction_falls_back_to_the_authored_theme() {
+    let _render_globals = crate::test_lock::render_globals_lock();
     let authored = Theme::ODYSSEY;
     let Some(mut app) = build_app(authored) else {
         eprintln!("skipping: no PTY available");
@@ -105,6 +108,7 @@ fn unset_or_unknown_direction_falls_back_to_the_authored_theme() {
 
 #[test]
 fn defaults_are_off_path_identity() {
+    let _render_globals = crate::test_lock::render_globals_lock();
     // Following off, both directions unset — the feature is fully inert by
     // default. (Config-key round-tripping is covered in the settings tests.)
     let defaults = Settings::default();
@@ -119,6 +123,7 @@ fn defaults_are_off_path_identity() {
 /// `follow_os_theme` on then off must not flatten the profile tab.
 #[test]
 fn profile_theme_survives_sweeps_and_drives_chrome() {
+    let _render_globals = crate::test_lock::render_globals_lock();
     let authored = Theme::ODYSSEY;
     let Some(mut app) = build_app(authored) else {
         eprintln!("skipping: no PTY available");
