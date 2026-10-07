@@ -20,6 +20,11 @@ roadmap.
 
 ## v0.17.0: International Text (in development)
 
+Shell startup corrections retain existing Bash DEBUG hooks, forward zsh
+startup files and restore the authored `ZDOTDIR`, and preserve fish vendor
+data defaults. Behavioral tests require prompt marks from available shells;
+missing shell binaries produce explicit skip tokens.
+
 Wide-glyph wrap padding is distinguished from logical source spaces through
 eager and lazy reflow, search, selection/copy, export, and snapshot restore.
 Bounded source ownership and northern Indic, Tamil, Telugu, Kannada, and

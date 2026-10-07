@@ -19,7 +19,7 @@ use crate::pty::CommandBuilder;
 #[cfg(any(unix, windows))]
 use super::detect::ShellKind;
 #[cfg(unix)]
-use super::scripts::{bash_rcfile, fish_conf, zsh_rcfile};
+use super::scripts::{bash_rcfile, fish_conf, zsh_rcfile, zsh_startup_file};
 #[cfg(windows)]
 use super::snippets::snippet;
 
@@ -68,12 +68,29 @@ pub(super) fn apply_spawn_integration_in_dir(
             }
         }
         ShellKind::Zsh => {
-            let path = dir.join(".zshrc");
-            if write_if_needed(&path, &zsh_rcfile()).is_ok() {
-                let original = std::env::var_os("ZDOTDIR")
-                    .or_else(|| std::env::var_os("HOME"))
-                    .unwrap_or_default();
-                command.env("ODYTTY_ORIGINAL_ZDOTDIR", original);
+            let files = [
+                (".zshenv", zsh_startup_file(".zshenv", true)),
+                (".zprofile", zsh_startup_file(".zprofile", true)),
+                (".zshrc", zsh_rcfile()),
+                (".zlogin", zsh_startup_file(".zlogin", false)),
+                (".zlogout", zsh_startup_file(".zlogout", false)),
+            ];
+            if files
+                .iter()
+                .all(|(name, body)| write_if_needed(&dir.join(name), body).is_ok())
+            {
+                let original = std::env::var_os("ZDOTDIR");
+                command.env(
+                    "ODYTTY_ORIGINAL_ZDOTDIR_SET",
+                    if original.is_some() { "1" } else { "" },
+                );
+                command.env(
+                    "ODYTTY_ORIGINAL_ZDOTDIR",
+                    original
+                        .or_else(|| std::env::var_os("HOME"))
+                        .unwrap_or_default(),
+                );
+                command.env("ODYTTY_ZSH_WRAPPER_DIR", dir);
                 command.env("ZDOTDIR", dir);
             }
         }
@@ -84,12 +101,11 @@ pub(super) fn apply_spawn_integration_in_dir(
                 && write_if_needed(&vendor.join("odytty.fish"), fish_conf()).is_ok()
             {
                 let mut data_dirs = base.into_os_string();
-                if let Some(existing) = std::env::var_os("XDG_DATA_DIRS")
-                    && !existing.is_empty()
-                {
-                    data_dirs.push(":");
-                    data_dirs.push(existing);
-                }
+                let existing = std::env::var_os("XDG_DATA_DIRS")
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+                data_dirs.push(":");
+                data_dirs.push(existing);
                 command.env("XDG_DATA_DIRS", data_dirs);
             }
         }

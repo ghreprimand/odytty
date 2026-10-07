@@ -752,7 +752,19 @@ The Bash wrapper is also compatible with Bash 3.2. Bash 4.4+ removes the
 prompt-only Kitty disambiguation flag through `PS0` after readline accepts a
 command; older Bash uses a prompt-guarded first-real-command DEBUG boundary.
 Both paths remove the flag before child execution and retain existing scalar or
-array-valued `PROMPT_COMMAND` hooks.
+array-valued `PROMPT_COMMAND` hooks. Existing DEBUG traps run in the
+DEBUG context with the incoming command status preserved. The shared Bash
+wrapper gives local spawns and SSH bootstrap the same hook chaining.
+
+Unix zsh injection writes forwarding `.zshenv`, `.zprofile`, `.zlogin`, and
+`.zlogout` files alongside `.zshrc` before changing the spawn environment.
+Changes to `ZDOTDIR` in user startup files are carried into later files; the
+user's directory is restored before sourcing `.zshrc` and remains restored
+for the interactive session. Unset and explicitly empty directory states
+remain distinct. A failed wrapper write leaves the spawn command unchanged.
+Fish prepends its integration data directory to explicit `XDG_DATA_DIRS`, or
+to `/usr/local/share:/usr/share` when that variable is unset or empty.
+These Unix startup paths do not change Windows PowerShell injection.
 
 #### Store Logical-Line Marks
 

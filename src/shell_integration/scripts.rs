@@ -34,19 +34,44 @@ pub(super) fn bash_rcfile() -> String {
     bash_integration_rc()
 }
 
+// Restore the exact authored state, including an explicitly empty ZDOTDIR.
+#[cfg(unix)]
+const ZSH_RESTORE_DIR: &str = r#"if [ -n "${ODYTTY_ORIGINAL_ZDOTDIR_SET-}" ]; then
+  export ZDOTDIR="$ODYTTY_ORIGINAL_ZDOTDIR"
+else
+  unset ZDOTDIR
+fi
+"#;
+
+#[cfg(unix)]
+pub(super) fn zsh_startup_file(name: &str, redirect: bool) -> String {
+    let mut body = format!(
+        "{ZSH_RESTORE_DIR}if [ -r \"${{ZDOTDIR-$HOME}}/{name}\" ]; then\n  . \"${{ZDOTDIR-$HOME}}/{name}\"\nfi\n"
+    );
+    if redirect {
+        // Preserve changes made by .zshenv or .zprofile before routing the
+        // interactive rc to the integration wrapper. Noninteractive shells
+        // retain the native directory and do not need an interactive hook.
+        body.push_str(
+            r#"if [ "${ZDOTDIR+x}" = x ]; then
+  export ODYTTY_ORIGINAL_ZDOTDIR_SET=1
+  export ODYTTY_ORIGINAL_ZDOTDIR="$ZDOTDIR"
+else
+  export ODYTTY_ORIGINAL_ZDOTDIR_SET=
+  export ODYTTY_ORIGINAL_ZDOTDIR="$HOME"
+fi
+case $- in
+  *i*) export ZDOTDIR="$ODYTTY_ZSH_WRAPPER_DIR" ;;
+esac
+"#,
+        );
+    }
+    body
+}
+
 #[cfg(unix)]
 pub(super) fn zsh_rcfile() -> String {
-    format!(
-        r#"if [ -n "${{ODYTTY_ORIGINAL_ZDOTDIR-}}" ] && [ -r "$ODYTTY_ORIGINAL_ZDOTDIR/.zshrc" ]; then
-  . "$ODYTTY_ORIGINAL_ZDOTDIR/.zshrc"
-elif [ -r "$HOME/.zshrc" ]; then
-  . "$HOME/.zshrc"
-fi
-
-{snippet}
-"#,
-        snippet = ZSH_SNIPPET
-    )
+    format!("{}\n{ZSH_SNIPPET}\n", zsh_startup_file(".zshrc", false))
 }
 
 #[cfg(unix)]

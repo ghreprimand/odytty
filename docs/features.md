@@ -1411,6 +1411,10 @@ case OdyTTY still parses marks a shell emits on its own but injects no hooks.
 
 Existing shells do not change until restarted. Bash uses an interactive
 `--rcfile`, so login-shell-only startup files remain the shell's responsibility.
+Existing Bash DEBUG hooks remain active with their incoming command status.
+Zsh forwarding wrappers source user startup files, including `.zshenv` changes
+to `ZDOTDIR`, and restore the user's directory for the session. Fish retains
+explicit vendor data paths or the XDG defaults when no paths are configured.
 
 | Windows shell | Integration behavior |
 | --- | --- |

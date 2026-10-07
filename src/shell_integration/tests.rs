@@ -596,11 +596,6 @@ fn bash_percent_encodes_osc7_cwd_end_to_end() {
 
     let input = format!("cd '{}'\nexit\n", pct_dir.display());
     let out = run_bash_rc(&bash, &rc, &input);
-    if !out.contains("\x1b]133;A") {
-        // Interactive integration did not engage in this environment.
-        let _ = fs::remove_dir_all(&base);
-        return;
-    }
     assert!(
         out.contains("50%25off"),
         "cwd with % must be percent-encoded in the OSC 7 payload: {out:?}"
@@ -624,20 +619,13 @@ fn zsh_prompt_mark_reaches_the_wire_as_real_escape_bytes() {
     // arm needs `$'...'`. Drive a real zsh with the production snippet and
     // assert the rendered prompt carries the bytes, not their spelling.
     let Some(zsh) = find_zsh() else {
-        eprintln!("skipping: no zsh on this host");
         return;
     };
     let dir = temp_integration_dir("zsh-prompt-mark");
     fs::create_dir_all(&dir).expect("mkdir");
     fs::write(dir.join(".zshrc"), format!("PS1='P%# '\n{ZSH_SNIPPET}")).expect("write rc");
 
-    let (stdout, stderr) = run_zsh_zdotdir(&zsh, &dir, "exit\n");
-    if !stdout.contains("\x1b]133;A") {
-        // Interactive integration did not engage in this environment.
-        eprintln!("skipping: zsh ran no interactive prompt, no 133;A on stdout");
-        let _ = fs::remove_dir_all(&dir);
-        return;
-    }
+    let (_, stderr) = run_zsh_zdotdir(&zsh, &dir, "exit\n");
     assert!(
         stderr.contains("\x1b]133;B\x07"),
         "the prompt must carry the real OSC 133;B bytes: {stderr:?}"
@@ -704,11 +692,6 @@ fn bash_encodes_hostile_osc7_cwd_end_to_end() {
         base.display()
     );
     let out = run_bash_rc(&bash, &rc, &input);
-    if !out.contains("\x1b]133;A") {
-        // Interactive integration did not engage in this environment.
-        let _ = fs::remove_dir_all(&base);
-        return;
-    }
 
     // The injected control sequence must never appear as raw bytes.
     assert!(
@@ -753,7 +736,7 @@ fn shell_kind_detects_program_basename() {
 }
 
 #[cfg(unix)]
-fn temp_integration_dir(name: &str) -> PathBuf {
+pub(super) fn temp_integration_dir(name: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!(
         "odytty-shell-integration-{name}-{}",
         std::process::id()
@@ -763,11 +746,10 @@ fn temp_integration_dir(name: &str) -> PathBuf {
 }
 
 /// Locate a `bash` binary for the behavioral OSC-133 tests. Returns `None`
-/// (self-skip) where bash is absent so the tests stay green on minimal
-/// build hosts; where present (Linux/macOS dev + CI legs) they exercise the
-/// real DEBUG-trap / PROMPT_COMMAND interaction faithfully to nf1-repro.md.
+/// where bash is absent, with an explicit ODYTTY_TEST_SKIP token. Available
+/// shells must emit prompt marks before any behavioral assertion runs.
 #[cfg(unix)]
-fn find_bash() -> Option<PathBuf> {
+pub(super) fn find_bash() -> Option<PathBuf> {
     [
         "/bin/bash",
         "/usr/bin/bash",
@@ -776,7 +758,11 @@ fn find_bash() -> Option<PathBuf> {
     ]
     .into_iter()
     .map(PathBuf::from)
-    .find(|path| path.exists())
+    .find(|path| path.is_file())
+    .or_else(|| {
+        eprintln!("ODYTTY_TEST_SKIP: bash absent");
+        None
+    })
 }
 
 /// Drive an interactive bash with our rcfile, feed `input`, and return raw
@@ -784,7 +770,7 @@ fn find_bash() -> Option<PathBuf> {
 /// `exit\n`); stdin EOF after the write is a second guard so the child can
 /// never wedge.
 #[cfg(unix)]
-fn run_bash_rc(bash: &Path, rc: &Path, input: &str) -> String {
+pub(super) fn run_bash_rc(bash: &Path, rc: &Path, input: &str) -> String {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
 
@@ -812,7 +798,12 @@ fn run_bash_rc(bash: &Path, rc: &Path, input: &str) -> String {
         .write_all(input.as_bytes())
         .expect("write stdin");
     let output = child.wait_with_output().expect("wait bash");
-    String::from_utf8_lossy(&output.stdout).into_owned()
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        stdout.contains("\x1b]133;A"),
+        "available bash must emit prompt-start marks"
+    );
+    stdout
 }
 
 /// Like [`run_bash_rc`] but with extra environment variables set on the
@@ -844,13 +835,18 @@ fn run_bash_rc_env(bash: &Path, rc: &Path, input: &str, env: &[(&str, &str)]) ->
         .write_all(input.as_bytes())
         .expect("write stdin");
     let output = child.wait_with_output().expect("wait bash");
-    String::from_utf8_lossy(&output.stdout).into_owned()
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        stdout.contains("\x1b]133;A"),
+        "available bash must emit prompt-start marks"
+    );
+    stdout
 }
 
 /// Locate a `zsh` binary for the behavioral prompt tests. Returns `None`
-/// (self-skip) where zsh is absent, matching [`find_bash`].
+/// with an explicit ODYTTY_TEST_SKIP token where zsh is absent.
 #[cfg(unix)]
-fn find_zsh() -> Option<PathBuf> {
+pub(super) fn find_zsh() -> Option<PathBuf> {
     [
         "/bin/zsh",
         "/usr/bin/zsh",
@@ -859,7 +855,11 @@ fn find_zsh() -> Option<PathBuf> {
     ]
     .into_iter()
     .map(PathBuf::from)
-    .find(|path| path.exists())
+    .find(|path| path.is_file())
+    .or_else(|| {
+        eprintln!("ODYTTY_TEST_SKIP: zsh absent");
+        None
+    })
 }
 
 /// Drive an interactive zsh whose `ZDOTDIR` is `dir`, the same mechanism the
@@ -892,6 +892,10 @@ fn run_zsh_zdotdir(zsh: &Path, dir: &Path, input: &str) -> (String, String) {
         .write_all(input.as_bytes())
         .expect("write stdin");
     let output = child.wait_with_output().expect("wait zsh");
+    assert!(
+        output.stdout.windows(7).any(|bytes| bytes == b"\x1b]133;A"),
+        "available zsh must emit prompt-start marks"
+    );
     (
         String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
@@ -899,7 +903,7 @@ fn run_zsh_zdotdir(zsh: &Path, dir: &Path, input: &str) -> (String, String) {
 }
 
 /// Build an rcfile that loads a user PROMPT_COMMAND helper BEFORE the real
-/// `BASH_SNIPPET` — the realistic `.bashrc` ordering nf1-repro.md exercises.
+/// `BASH_SNIPPET`, matching the interactive startup order.
 #[cfg(unix)]
 fn write_bash_rc_with_user_helper(dir: &Path) -> PathBuf {
     fs::create_dir_all(dir).expect("dir");
@@ -917,8 +921,7 @@ fn write_bash_rc_with_user_helper(dir: &Path) -> PathBuf {
 #[cfg(unix)]
 #[test]
 fn bash_reports_real_exit_status_past_a_user_prompt_command() {
-    // NF1-B fails-before/passes-after (faithful to nf1-repro.md §4): with a
-    // user PROMPT_COMMAND helper present, running `false` (exit 1) must
+    // With a user PROMPT_COMMAND helper present, running `false` must
     // report 133;D;1, never 133;D;0. Before the prepended capturer, the
     // helper clobbered $? first and the reporter read 0.
     let Some(bash) = find_bash() else {
@@ -928,12 +931,6 @@ fn bash_reports_real_exit_status_past_a_user_prompt_command() {
     let rc = write_bash_rc_with_user_helper(&dir);
 
     let out = run_bash_rc(&bash, &rc, "false\nexit\n");
-    // Environment self-skip: if interactive integration did not engage at
-    // all (no prompt-start marker), do not assert on an inert stream.
-    if !out.contains("\x1b]133;A") {
-        let _ = fs::remove_dir_all(&dir);
-        return;
-    }
     assert!(
         out.contains("\x1b]133;D;1\x07"),
         "failed command must report exit 1: {out:?}"
@@ -969,11 +966,6 @@ fn bash_key_enhancement_default_bind_kills_previous_word() {
         "printf 'OUT<%s>\\n' one two\x1b[127;5u\nexit\n",
         &[("ODYTTY_KEY_ENHANCE", "1")],
     );
-    // Self-skip if interactive integration/readline did not engage.
-    if !out.contains("\x1b]133;A") {
-        let _ = fs::remove_dir_all(&dir);
-        return;
-    }
     assert!(
         out.contains("OUT<one>"),
         "the surviving word must run: {out:?}"
@@ -1042,10 +1034,6 @@ fn bash_key_enhancement_adds_at_prompt_and_removes_before_commands() {
         "printf 'CAP<%s>\\n' \"${__ODYTTY_BASH_HAS_PS0:-0}\"\nprintf 'PS0-CHECK<%s>\\n' \"$PS0\"\nprintf 'OUT\\n'\nexit\n",
         &[("ODYTTY_KEY_ENHANCE", "1")],
     );
-    if !out.contains("\x1b]133;A") {
-        let _ = fs::remove_dir_all(&dir);
-        return;
-    }
 
     let add = out
         .find("\x1b[=1;2u")
@@ -1115,10 +1103,6 @@ fn bash_legacy_key_enhancement_falls_back_at_first_debug_boundary() {
         "printf 'LEGACY-OUT\\n'\nexit\n",
         &[("ODYTTY_KEY_ENHANCE", "1")],
     );
-    if !out.contains("\x1b]133;A") {
-        let _ = fs::remove_dir_all(&dir);
-        return;
-    }
     let add = out
         .find("\x1b[=1;2u")
         .expect("prompt must add Kitty disambiguation");
@@ -1152,11 +1136,9 @@ fn bash_emits_no_phantom_output_start_before_first_prompt() {
     let rc = write_bash_rc_with_user_helper(&dir);
 
     let out = run_bash_rc(&bash, &rc, "echo hi\nexit\n");
-    let Some(first_a) = out.find("\x1b]133;A") else {
-        // Integration did not engage in this environment; self-skip.
-        let _ = fs::remove_dir_all(&dir);
-        return;
-    };
+    let first_a = out
+        .find("\x1b]133;A")
+        .expect("available bash must emit prompt-start marks");
     assert!(
         !out[..first_a].contains("\x1b]133;C"),
         "phantom OutputStart before the first prompt: {out:?}"
@@ -1186,10 +1168,6 @@ fn bash_button_helper_emits_exact_wire_bytes() {
          odytty_button_clear 9\n\
          exit\n",
     );
-    if !out.contains("\x1b]133;A") {
-        let _ = fs::remove_dir_all(&dir);
-        return;
-    }
     assert!(
         out.contains(
             "\x1b]133;P;odytty-button;code=42;icon=run;scope=sticky\x07\
@@ -1233,10 +1211,6 @@ fn bash_button_helper_degrades_to_plain_label_without_discovery_env() {
          odytty_button_clear\n\
          exit\n",
     );
-    if !out.contains("\x1b]133;A") {
-        let _ = fs::remove_dir_all(&dir);
-        return;
-    }
     assert!(
         out.contains("PlainLabel"),
         "label must still print without the discovery env: {out:?}"
@@ -1269,10 +1243,6 @@ fn bash_button_helper_rejects_bad_codes_without_emitting() {
          odytty_button 5; echo rc2=$?\n\
          exit\n",
     );
-    if !out.contains("\x1b]133;A") {
-        let _ = fs::remove_dir_all(&dir);
-        return;
-    }
     assert!(
         !out.contains("odytty-button;code="),
         "rejected invocations must not emit a define: {out:?}"

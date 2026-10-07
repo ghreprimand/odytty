@@ -29,9 +29,8 @@ pub fn snippet(kind: ShellKind) -> &'static str {
 // deliberately no separate setting gating its emission. Advertising click-events
 // only tells the terminal the shell CAN reposition on a click; the actual
 // click-to-position action is gated on the consumer side by the `sh_click`
-// setting (default off), so emitting the attribute here changes no default
-// behavior. A snippet only ever ships when shell integration is enabled (also
-// off by default), and threading a settings value through these static const
+// setting. A snippet ships only while shell integration is enabled; both
+// settings default on. Threading a settings value through these static const
 // snippets would be strictly worse for no behavioral gain. Re-asserting it on
 // every prompt (`A`, not just once) keeps it correct across resets.
 // PROMPT_COMMAND coexistence (NF1/NF1-B): a user's pre-existing PROMPT_COMMAND
@@ -136,10 +135,10 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
 
   __odytty_debug_trap() {
     if [ -n "${__ODYTTY_PROMPT_EXECUTING-}" ]; then
-      return
+      return "${1:-0}"
     fi
     case "$BASH_COMMAND" in
-      __odytty_status_capture*|__odytty_prompt_command*|__odytty_debug_trap*|__odytty_append_prompt_command*|__odytty_prepend_prompt_command*) return ;;
+      __odytty_status_capture*|__odytty_prompt_command*|__odytty_debug_trap*|__odytty_append_prompt_command*|__odytty_prepend_prompt_command*) return "${1:-0}" ;;
     esac
     # Bash <4.4 never expands PS0. At the first real command boundary after a
     # prompt, remove the prompt-only Kitty disambiguation bit here instead.
@@ -153,6 +152,7 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
     fi
     printf '\e]133;C\a'
     __ODYTTY_COMMAND_STARTED=1
+    return "${1:-0}"
   }
 
   __odytty_append_prompt_command() {
@@ -264,7 +264,23 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
   esac
   __odytty_prepend_prompt_command __odytty_status_capture
   __odytty_append_prompt_command __odytty_prompt_command
-  trap '__odytty_debug_trap' DEBUG
+  # trap -p supplies shell-quoted code. Decode it once, then evaluate it in
+  # the DEBUG context after restoring the original status for the user hook.
+  # DEBUG output from a traced command substitution would corrupt trap -p.
+  # Disable function tracing only while capturing, then restore its state.
+  __ODYTTY_HAD_FUNCTRACE=
+  case $- in *T*) __ODYTTY_HAD_FUNCTRACE=1; set +T ;; esac
+  __ODYTTY_USER_DEBUG_TRAP=$(trap -p DEBUG)
+  if [ -n "$__ODYTTY_HAD_FUNCTRACE" ]; then set -T; fi
+  unset __ODYTTY_HAD_FUNCTRACE
+  if [ -n "$__ODYTTY_USER_DEBUG_TRAP" ]; then
+    __ODYTTY_USER_DEBUG_TRAP=${__ODYTTY_USER_DEBUG_TRAP#trap -- }
+    __ODYTTY_USER_DEBUG_TRAP=${__ODYTTY_USER_DEBUG_TRAP% DEBUG}
+    eval "__ODYTTY_USER_DEBUG_TRAP=$__ODYTTY_USER_DEBUG_TRAP"
+    trap '__odytty_debug_trap "$?"; eval "$__ODYTTY_USER_DEBUG_TRAP"' DEBUG
+  else
+    trap '__odytty_debug_trap' DEBUG
+  fi
 fi
 "#;
 

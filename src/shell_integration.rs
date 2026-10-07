@@ -34,3 +34,7 @@ pub use snippets::{snippet, snippet_for_shell};
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "shell_integration/startup_tests.rs"]
+mod startup_tests;
