@@ -1056,7 +1056,7 @@ impl App {
         let scrollback_len = self.scrollback_len();
         let Some(offset) = self
             .search
-            .viewport_offset_for_current(scrollback_len, self.grid)
+            .viewport_offset_for_current(scrollback_len, self.focused_grid())
         else {
             return;
         };

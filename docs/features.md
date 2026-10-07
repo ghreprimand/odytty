@@ -708,7 +708,9 @@ The prefix is captured only in a multi-pane tab. A single-pane shell receives
 
 Each pane owns an independent PTY, terminal model, scrollback, viewport,
 selection, search, and cursor. Selection and search highlights render in their
-own pane, while the search query bar stays on the focused pane.
+own pane, while the search query bar stays on the focused pane. Page scrolling,
+search jumps, copy-mode caret following, line selection, and the touchpad
+scroll bound measure the focused pane's own rows and columns.
 
 A click in the focused pane behaves as in a single-pane tab: a program with
 mouse reporting on receives it, Shift selects locally instead, and a

@@ -1136,6 +1136,9 @@ impl App {
         };
         let scrollback_len = terminal.screen().scrollback_len();
         let cursor = terminal.screen().cursor();
+        // The focused pane's own grid (not the window grid) bounds the visible
+        // rows and the selected columns.
+        let grid = terminal.screen().dimensions();
         // Scope the ladder to selections that touch the input region's rows;
         // anything else keeps today's fall-through contract (a selection over
         // unrelated output does not hijack Delete/Backspace).
@@ -1176,7 +1179,7 @@ impl App {
                 range,
                 cursor,
                 scrollback_len,
-                self.grid.rows,
+                grid.rows,
                 modes,
             );
         }
@@ -1184,12 +1187,12 @@ impl App {
         let Some(visible_row) = input_row.checked_sub(scrollback_len) else {
             return SelectionDeleteOutcome::FallThrough;
         };
-        if visible_row >= self.grid.rows {
+        if visible_row >= grid.rows {
             return SelectionDeleteOutcome::FallThrough;
         }
         // R4: clamp the selection to the exact input span [start_col, end_col).
         let Some((selected_start, selected_end)) =
-            selected_columns_on_row(range, input_row, self.grid.columns)
+            selected_columns_on_row(range, input_row, grid.columns)
         else {
             // Touches the region span but not this row: single-row region, so
             // unreachable in practice; be conservative.

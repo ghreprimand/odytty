@@ -217,7 +217,7 @@ impl App {
         // Defensive: cap a single malformed giant PixelDelta at one viewport
         // height so a driver glitch cannot leap across all of scrollback. Never
         // reached in normal input.
-        let vp_rows = (self.grid.rows.max(1)) as f32;
+        let vp_rows = (self.grid_of(token).rows.max(1)) as f32;
         d_rows = d_rows.clamp(-vp_rows, vp_rows);
 
         let scrollback_len = self.scrollback_len_of(token);
@@ -327,15 +327,15 @@ impl App {
     /// Arm (or re-arm) the glide follower for `token` after a user-initiated
     /// wheel/keyboard scroll moved the integer offset. `start_visual` is where
     /// the follower was rendering before the jump, so a notch stream keeps
-    /// chasing without a reset. The lag is clamped to one viewport height so a
-    /// rapid burst cannot leave a long laggy crawl. No-op when the glide is
-    /// ineligible (off / multipane / alt-screen / selecting) or the lag is
+    /// chasing without a reset. The lag is clamped to one viewport height (the
+    /// pane's own rows) so a rapid burst cannot leave a long laggy crawl. No-op when the glide is
+    /// ineligible (off / alt-screen / selecting) or the lag is
     /// already negligible, leaving the byte-identical instant-scroll path.
     pub(super) fn arm_scroll_glide_of(&mut self, token: SessionToken, start_visual: f32) {
         if !self.scroll_glide_eligible_of(token) {
             return;
         }
-        let vp_rows = self.grid.rows.max(1) as f32;
+        let vp_rows = self.grid_of(token).rows.max(1) as f32;
         if let Some(session) = self.sessions.get_mut(token) {
             let logical = session.viewport.offset();
             let logical_f = logical as f32;

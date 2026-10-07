@@ -145,7 +145,7 @@ impl App {
 
     fn select_line(&mut self, point: CellPoint) {
         let scrollback_len = self.scrollback_len();
-        let Some(range) = selection::line_range_at(point, self.grid) else {
+        let Some(range) = selection::line_range_at(point, self.focused_grid()) else {
             return;
         };
 
@@ -230,7 +230,7 @@ impl App {
         };
         let scrollback_len = self.scrollback_len();
         let offset = self.viewport.offset();
-        let Some(range) = selection::line_range_at(point, self.grid) else {
+        let Some(range) = selection::line_range_at(point, self.focused_grid()) else {
             return;
         };
         let focus_unit = selection::absolute_range_from_visible(range, offset, scrollback_len);
@@ -450,7 +450,7 @@ impl App {
                 subcell_round_up,
                 cursor,
                 scrollback_len,
-                self.grid.rows,
+                terminal.screen().dimensions().rows,
             )
         };
         let Some(delta) = delta else {
@@ -532,10 +532,37 @@ impl App {
         right_half != self.bidi_cell_is_right_to_left(point)
     }
 
-    /// Number of rows a Shift+PageUp/PageDown press scrolls: one screenful less
-    /// one row of overlap for continuity (at least one row).
+    /// Number of rows a Shift+PageUp/PageDown press scrolls: one screenful of
+    /// the focused pane less one row of overlap for continuity (at least one
+    /// row).
     pub(super) fn page_lines(&self) -> usize {
-        self.grid.rows.saturating_sub(1).max(1)
+        self.focused_grid().rows.saturating_sub(1).max(1)
+    }
+
+    /// The focused pane's own grid. `self.grid` is the window content grid,
+    /// which is the focused pane's size only on a single-pane tab (returned
+    /// unchanged there); in a split tab this is the focused terminal's size.
+    pub(super) fn focused_grid(&self) -> Dimensions {
+        self.grid_of(self.sessions.active_id())
+    }
+
+    /// The grid of session `token`: the window content grid when it is the
+    /// lone pane of the active single-pane tab, else that session's terminal
+    /// size (the window grid if the session is gone or its lock is poisoned).
+    pub(super) fn grid_of(&self, token: SessionToken) -> Dimensions {
+        if self.sessions.active_is_single_pane() && token == self.sessions.active_id() {
+            return self.grid;
+        }
+        self.sessions
+            .get(token)
+            .and_then(|session| {
+                session
+                    .terminal
+                    .lock()
+                    .ok()
+                    .map(|t| t.screen().dimensions())
+            })
+            .unwrap_or(self.grid)
     }
 
     /// Current scrollback length from the shared model (0 if the lock is

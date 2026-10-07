@@ -176,7 +176,7 @@ impl App {
         let Some(caret_row) = self.copy_mode.as_ref().map(|cm| cm.cursor().row) else {
             return;
         };
-        let rows = self.grid.rows;
+        let rows = self.focused_grid().rows;
         if rows == 0 {
             return;
         }
