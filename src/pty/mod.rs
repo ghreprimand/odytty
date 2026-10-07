@@ -109,7 +109,10 @@ pub enum ForegroundJob {
     /// is running in the foreground.
     Running,
     /// The foreground could not be determined (PTY closed, child exited, no
-    /// foreground group, or the query errored). Treated as "safe to close".
+    /// foreground group, the query errored, or Windows ConPTY). The close
+    /// confirmations treat it as "safe to close"; destructive paths that act
+    /// without asking (consuming a fresh window when a layout opens) treat it
+    /// as busy.
     Unknown,
 }
 

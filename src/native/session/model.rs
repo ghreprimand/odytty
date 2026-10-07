@@ -569,24 +569,40 @@ impl WorkspaceSet {
     /// PRISTINE-CONSUME: true when the whole set is exactly one untouched,
     /// freshly-spawned workspace — the state a bare launch produces. Used at
     /// open-layout time to decide whether an append should CONSUME this default
-    /// workspace (replace it) rather than leave it beside the restored set, so a
-    /// layout opened onto a fresh window yields exactly what was saved.
+    /// workspace (replace it, closing its pane without asking) rather than leave
+    /// it beside the restored set, so a layout opened onto a fresh window yields
+    /// exactly what was saved.
     ///
-    /// Judged on SHAPE facts only — never shell activity: one workspace still
-    /// bearing its generated ([`default_workspace_name`]) name, no host binding,
-    /// a single tab with no title override, and that tab a single leaf pane (no
-    /// splits). ANY real state — a second workspace, a rename, a host binding, a
-    /// split, or an extra tab — is not pristine and appends as before.
+    /// Shape: one workspace still bearing its generated
+    /// ([`default_workspace_name`]) name, with no host binding and no launch
+    /// profile, holding a single tab with no title override, not zoomed, tiled,
+    /// and a single leaf pane. The pane: a local shell (no remote destination,
+    /// no attached session-host session, no launch profile), writable, and
+    /// known to be idle at its prompt. A foreground job that is running, or
+    /// that cannot be read (`Unknown`: every Windows ConPTY session, a poisoned
+    /// lock), is not pristine, so the caller asks before replacing it. ANY
+    /// other state appends as before.
     pub(in crate::native) fn is_single_pristine_workspace(&self) -> bool {
         if self.workspaces.len() != 1 {
             return false;
         }
         let ws = &self.workspaces[0];
-        ws.name == default_workspace_name(0)
+        let shape = ws.name == default_workspace_name(0)
             && ws.default_profile.is_none()
+            && ws.launch_profile.is_none()
             && ws.tabs.len() == 1
             && ws.tabs[0].title_override.is_none()
-            && ws.tabs[0].layout.is_single_pane()
+            && !ws.tabs[0].zoomed
+            && ws.tabs[0].arrangement == crate::native::float_layout::Arrangement::Tiled
+            && ws.tabs[0].layout.is_single_pane();
+        shape
+            && self.sessions.get(&ws.tabs[0].focused).is_some_and(|pane| {
+                pane.remote_destination.is_none()
+                    && pane.attached_session_id.is_none()
+                    && pane.launch_profile.is_none()
+                    && !pane.read_only
+                    && pane.foreground_job_state() == crate::pty::ForegroundJob::None
+            })
     }
 
     /// The token of the focused pane of the active tab - the `Deref` target.

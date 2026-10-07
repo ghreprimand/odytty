@@ -2627,6 +2627,17 @@ impl App {
         }
     }
 
+    /// Test seam: set the active headless pane's foreground-job state.
+    #[cfg(test)]
+    pub(in crate::native) fn set_active_foreground_job_for_test(
+        &self,
+        job: crate::pty::ForegroundJob,
+    ) {
+        if let Some(headless) = self.sessions.active().headless_session() {
+            headless.set_foreground_job(job);
+        }
+    }
+
     /// Test seam: the window's `CloseRequested` handler.
     #[cfg(test)]
     pub(in crate::native) fn request_window_close_for_test(&mut self) {

@@ -1175,8 +1175,9 @@ because the process model differs at the foundation.
   or assignment failed at spawn time, termination degrades to terminating the
   root process only, and descendants may survive. There is no Windows equivalent
   of the POSIX foreground process group, so foreground-job detection always
-  reports an unknown state — the documented safe default the shared contract
-  already treats as safe to close.
+  reports an unknown state. The close confirmations treat it as idle and do
+  not prompt; opening a saved layout treats it as busy, so it asks before
+  replacing the window's only pane instead of closing it silently.
 - **Environment and paths.** Environment variables are inherited and augmented
   at spawn. Path handling accommodates drive letters throughout, including
   drive-letter working directories reported by shell integration, and file

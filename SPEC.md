@@ -1558,7 +1558,10 @@ scope rather than silently inheriting deferred work from a prior release.
   **Replace** the current workspaces with the saved set, **Add** the saved
   workspace(s) beside them, or **Cancel** — while a fresh window holding a single
   untouched default workspace skips the prompt and lets the layout consume that
-  workspace. On Unix a pane may
+  workspace. Untouched means one tiled, unzoomed tab with one writable local
+  shell, opened without a launch profile on the pane or workspace, whose
+  foreground job is known to be idle; a running or unreadable job (always on
+  Windows) prompts. On Unix a pane may
   carry a detached session-host id and reattach on restore when that host is
   still alive (falling back to a fresh shell silently); Windows stores no ids
   and always restores fresh. A pane opened on a remote host records

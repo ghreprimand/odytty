@@ -576,12 +576,33 @@ fn open_layout_onto_pristine_window_opens_without_a_prompt() {
     // raises a "not found" notice, but never the mode dialog).
     let mut app = app_or_skip!();
     assert_eq!(app.workspace_count_for_test(), 1);
+    // The lone pane is a shell known to be idle at its prompt.
+    app.set_active_foreground_job_for_test(crate::pty::ForegroundJob::None);
 
     app.open_layout_for_test("no-such-layout");
     assert!(
         !app.confirm_open_layout_open_for_test(),
         "a pristine window opens a layout directly, no prompt"
     );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn open_layout_asks_when_the_lone_pane_job_is_busy_or_unknown() {
+    // A running job, or one that cannot be read (every Windows ConPTY pane),
+    // is real state: opening a layout asks instead of closing the pane.
+    for job in [
+        crate::pty::ForegroundJob::Running,
+        crate::pty::ForegroundJob::Unknown,
+    ] {
+        let mut app = app_or_skip!();
+        app.set_active_foreground_job_for_test(job);
+        app.open_layout_for_test("no-such-layout");
+        assert!(app.confirm_open_layout_open_for_test(), "{job:?} asks");
+    }
 }
 
 #[cfg_attr(

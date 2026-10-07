@@ -586,22 +586,29 @@ impl Session {
         }
     }
 
-    /// True only when this is a local session whose foreground job is running.
-    /// An attached session reports `false` (the foreground job lives in the
-    /// remote host and cannot be queried locally), so confirm-close never blocks
-    /// closing an attached window — closing it cleanly detaches anyway.
-    pub(in crate::native) fn foreground_job_running(&self) -> bool {
+    /// The session's foreground-job state, three-way. `Unknown` covers every
+    /// case the job cannot be read: an attached session (the job lives in the
+    /// remote host), a poisoned PTY lock, and every Windows ConPTY session,
+    /// whose PTY never reports a foreground job.
+    pub(in crate::native) fn foreground_job_state(&self) -> ForegroundJob {
         match &self.source {
             SessionSource::Local { pty } => pty
                 .lock()
-                .is_ok_and(|pty| pty.foreground_job() == ForegroundJob::Running),
+                .map_or(ForegroundJob::Unknown, |pty| pty.foreground_job()),
             #[cfg(unix)]
-            SessionSource::Attached { .. } => false,
+            SessionSource::Attached { .. } => ForegroundJob::Unknown,
             #[cfg(test)]
-            SessionSource::Headless { session } => {
-                session.foreground_job() == ForegroundJob::Running
-            }
+            SessionSource::Headless { session } => session.foreground_job(),
         }
+    }
+
+    /// True only when this is a local session whose foreground job is known to
+    /// be running. The confirmation prompts use it, so `Unknown` (an attached
+    /// session, a poisoned lock, Windows ConPTY) never raises a prompt;
+    /// destructive paths that act without asking read
+    /// [`Self::foreground_job_state`] and treat `Unknown` as busy.
+    pub(in crate::native) fn foreground_job_running(&self) -> bool {
+        self.foreground_job_state() == ForegroundJob::Running
     }
 }
 

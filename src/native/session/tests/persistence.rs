@@ -275,12 +275,120 @@ fn append_from_snapshot_appends_all_workspaces_of_a_multi_workspace_layout() {
     assert_eq!(set.active_workspace_index(), 2);
 }
 
+/// A fresh launch: one default workspace whose lone pane is a local shell
+/// known to be idle at its prompt. The headless test session reports
+/// `Unknown` until told otherwise.
+fn idle_fresh_launch() -> WorkspaceSet {
+    let set = WorkspaceSet::new(build_session(), None);
+    set_pane_job(&set, crate::pty::ForegroundJob::None);
+    set
+}
+
+fn set_pane_job(set: &WorkspaceSet, job: crate::pty::ForegroundJob) {
+    let token = set.workspaces[0].tabs[0].focused;
+    set.sessions
+        .get(&token)
+        .and_then(Session::headless_session)
+        .expect("headless pane")
+        .set_foreground_job(job);
+}
+
 /// PRISTINE-CONSUME: a bare launch is exactly one untouched default
 /// workspace, so the predicate reads `true`.
 #[test]
 fn is_single_pristine_workspace_true_for_a_fresh_launch() {
-    let set = WorkspaceSet::new(build_session(), None);
+    let set = idle_fresh_launch();
     assert!(set.is_single_pristine_workspace());
+}
+
+/// PRISTINE-CONSUME judges the lone pane too: a running or unreadable
+/// foreground job, a remote or attached session, a launch profile on the pane
+/// or the workspace, a read-only pane, and a stacked or zoomed tab each make
+/// the window real state, so opening a layout asks instead of closing it.
+#[test]
+fn is_single_pristine_workspace_false_for_a_pane_with_real_state() {
+    for job in [
+        crate::pty::ForegroundJob::Running,
+        crate::pty::ForegroundJob::Unknown,
+    ] {
+        let set = idle_fresh_launch();
+        set_pane_job(&set, job);
+        assert!(!set.is_single_pristine_workspace(), "{job:?}");
+    }
+    type PaneEdit = fn(&mut Session);
+    let pane_cases: [(&str, PaneEdit); 4] = [
+        ("remote", |pane| {
+            pane.remote_destination = Some("edge".to_owned())
+        }),
+        ("attached", |pane| {
+            pane.attached_session_id = Some("s-1".to_owned())
+        }),
+        ("pane profile", |pane| {
+            pane.launch_profile = Some("work".to_owned())
+        }),
+        ("read-only", |pane| pane.read_only = true),
+    ];
+    for (label, mutate) in pane_cases {
+        let mut set = idle_fresh_launch();
+        let token = set.workspaces[0].tabs[0].focused;
+        mutate(set.sessions.get_mut(&token).expect("pane"));
+        assert!(!set.is_single_pristine_workspace(), "{label}");
+    }
+    let mut profiled = idle_fresh_launch();
+    profiled.workspaces[0].launch_profile = Some("work".to_owned());
+    assert!(
+        !profiled.is_single_pristine_workspace(),
+        "workspace profile"
+    );
+    let mut stacked = idle_fresh_launch();
+    stacked.workspaces[0].tabs[0].arrangement = crate::native::float_layout::Arrangement::Stacked;
+    assert!(!stacked.is_single_pristine_workspace(), "stacked");
+    let mut zoomed = idle_fresh_launch();
+    zoomed.workspaces[0].tabs[0].zoomed = true;
+    assert!(!zoomed.is_single_pristine_workspace(), "zoomed");
+}
+
+/// A busy lone pane is never consumed by the append path: the saved set lands
+/// beside it and its session survives.
+#[test]
+fn append_keeps_a_busy_lone_pane() {
+    let mut set = WorkspaceSet::new(build_session(), None);
+    set_pane_job(&set, crate::pty::ForegroundJob::Running);
+    let busy = set.workspaces[0].tabs[0].focused;
+    let layout = crate::native::persistence::ShapeSnapshot {
+        version: crate::native::persistence::SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: vec![crate::native::persistence::WorkspaceShape {
+            name: "saved".to_owned(),
+            default_profile: None,
+            launch_profile: None,
+            active_tab: 0,
+            tabs: vec![crate::native::persistence::TabShape {
+                arrangement: Default::default(),
+                title: None,
+                focused_leaf: 0,
+                layout: crate::native::persistence::PaneShape::Leaf {
+                    cwd: None,
+                    session_host_id: None,
+                    remote_host: None,
+                    launch_profile: None,
+                    read_only: false,
+                },
+            }],
+        }],
+    };
+    let mut handed = Vec::new();
+    let _ = set.append_from_snapshot_with(
+        &layout,
+        None,
+        fake_spawner(&mut handed),
+        no_remote_spawner(),
+    );
+    assert_eq!(set.workspace_count(), 2, "appended beside the busy pane");
+    assert!(
+        set.sessions.contains_key(&busy),
+        "the busy session survives"
+    );
 }
 
 /// PRISTINE-CONSUME: every kind of real state defeats the pristine check —
@@ -325,7 +433,7 @@ fn is_single_pristine_workspace_false_for_any_real_state() {
 /// and the pristine session is reaped from the arena.
 #[test]
 fn append_consumes_a_pristine_workspace_on_open() {
-    let mut set = WorkspaceSet::new(build_session(), None);
+    let mut set = idle_fresh_launch();
     let pristine_token = set.workspaces[0].tabs[0].focused;
     assert!(set.sessions.contains_key(&pristine_token));
 

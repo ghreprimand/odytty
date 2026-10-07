@@ -1615,8 +1615,9 @@ feature validates against.
         Layout — from the command palette and the workspace-rail / content /
         empty-tab-strip right-click menus. Saving over an existing name prompts
         replace-or-rename; opening a layout onto a populated window prompts
-        Replace / Add / Cancel, while a single pristine default workspace is
-        consumed silently.
+        Replace / Add / Cancel, while a single pristine default workspace (one
+        idle, writable, local shell with no launch profile) is consumed
+        silently; Windows always prompts because its foreground job is unknown.
   - [x] Unix session-host reattach on restore: an alive per-pane session-host id
         reattaches; a dead one opens a fresh shell silently, with a compact
         "N of M sessions reattached" notice. Windows stores no ids (all fresh).

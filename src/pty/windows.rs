@@ -16,8 +16,8 @@
 //!   must be closed in the parent immediately after `CreatePseudoConsole`, or
 //!   reads never observe EOF.
 //! - There is no POSIX foreground process group, so [`PtySession::foreground_job`]
-//!   always returns [`ForegroundJob::Unknown`] — the documented safe default the
-//!   shared contract already treats as "safe to close".
+//!   always returns [`ForegroundJob::Unknown`]: the close confirmations treat
+//!   it as "safe to close", and opening a layout treats it as busy and asks.
 //!
 //! ConPTY is a VT translation layer: the child's Win32 console-API activity is
 //! rendered to VT sequences on the output pipe, so output can differ from a raw

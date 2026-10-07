@@ -1138,8 +1138,12 @@ contains real state, choose how to apply it:
 | **Add** | Appends the saved workspaces beside the current ones |
 | **Cancel** | Leaves the window untouched |
 
-A fresh window with one untouched default workspace skips this prompt and
-replaces that placeholder. When no layouts exist, the picker explains how to
+A fresh window skips this prompt and replaces its placeholder only when it
+holds one untouched default workspace whose single tiled tab has one writable
+local shell, opened without a launch profile, that is idle at its prompt. A
+running program, a remote or attached session, a launch profile, a read-only
+pane, or a stacked or zoomed tab is real state and gets the prompt. On Windows
+the shell's foreground job cannot be read, so opening a layout always asks. When no layouts exist, the picker explains how to
 create one.
 
 **Delete Layout: NAME** in the command palette deletes the layout listed under
