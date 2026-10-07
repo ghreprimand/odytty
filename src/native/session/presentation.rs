@@ -220,6 +220,10 @@ impl Session {
     /// and copy the wrong bytes. The field set and order match that former
     /// active-only block exactly, so the active-tab path stays byte-identical.
     pub(in crate::native) fn invalidate_layout_dependent_state(&mut self) {
+        // Output fades belong to the old row layout, including width-only reflow.
+        self.row_fade_starts.clear();
+        self.row_fade_dimensions = None;
+        self.row_fade_next_frame = None;
         self.selection.clear();
         self.selection_block = false;
         self.pointer_drag = PointerDrag::None;

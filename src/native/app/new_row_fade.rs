@@ -1,39 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! VE4 new-output fade-in — rows of freshly arrived output at the live tail
-//! fade their TEXT in over a short ease-out ramp instead of appearing
-//! instantly. Cell backgrounds render exactly as normal from the first frame;
-//! only the foreground ink (glyphs, combining marks, ligatures, underline and
-//! strikethrough decorations, color glyphs) ramps. The original mechanism — an
-//! opaque background-color veil quad decaying over each new row — read as a
-//! dark from-black flash on translucent windows (the veil started at alpha 1.0
-//! while the surrounding cell backgrounds composed the window opacity), so it
-//! was replaced by this per-row foreground alpha ramp.
-//!
-//! Row tracking is app-side scrollback-delta (D-VE4F-1): at the live tail
-//! (`viewport_offset == 0`) every new line of output grows `scrollback_len` by
-//! exactly one as the oldest visible row scrolls into scrollback, so the
-//! `scrollback_len` delta since the previous rebuild (capped at `grid.rows`) is
-//! the count of newly arrived rows entering the bottom of the viewport. The
-//! bottom `delta` entries of [`App::row_fade_starts`] are stamped `Some(now)`;
-//! older entries shift upward to follow their rows.
-//!
-//! RV1 interaction (D-VE4F-4 revised): the veil satisfied the readability
-//! floor by construction (fully rendered ink underneath, merely obscured). The
-//! text ramp instead starts at [`NEW_ROW_FADE_MIN_ALPHA`] — never 0 — and
-//! resolves to the exact RV1-floored color within the configured ramp
-//! (`new_output_fade_ms`, 1s max). A short, bounded, operator-opt-in ramp from
-//! a visible floor to the floored steady state satisfies the RV1 contract's
-//! intent: steady-state readability is untouched, and no frame ever renders
-//! invisible ink.
-//!
-//! Off-path contract (D-VE4F-6 / §7): with `new_output_fade` off,
-//! [`App::update_row_fade`] clears `row_fade_starts` and returns immediately, so
-//! the vector is always empty, [`App::new_row_fade_deadline`] is `None` (no
-//! extra wakes), [`App::new_row_fade_text_multipliers`] answers `None` (the
-//! vertex builders take their exact inert path), and
-//! [`App::new_row_fade_overlay_signature`] is constant `Inert` — that render
-//! path is byte-identical to before this feature existed. The feature is on by
-//! default; the off contract above is what a user who turns it off gets.
+//! Fade foreground ink for newly pushed live rows; the cursor row is exempt.
+//! Retained history length is only a coordinate measure. The core's physical
+//! push count identifies new output even while capped history evicts old rows.
+//! Off, reduced motion, history viewing and layout discontinuities snap.
+//! The single-pane renderer consumes these multipliers; split panes do not.
 
 use super::*;
 
@@ -64,39 +34,37 @@ impl App {
         Duration::from_millis(self.settings.new_output_fade_ms as u64)
     }
 
-    /// Refresh the per-row fade-start instants once per rebuild, before the
-    /// overlay-quad emission. Off / scrolled-back / geometry-changed all snap
-    /// (clear, no fade); only the live tail with the feature on stamps new
-    /// rows. Bumps [`App::row_fade_epoch`] whenever a fade is still active so
-    /// each animation frame reclassifies the render cache (the quad alphas move
-    /// while the cell content does not).
-    pub(in crate::native) fn update_row_fade(&mut self, now: Instant, scrollback_len: usize) {
+    /// Refresh foreground fade starts from the snapshot's push count. Layout
+    /// changes snap; active ramps advance the render signature and wake timer.
+    pub(in crate::native) fn update_row_fade(&mut self, now: Instant, pushed_rows: u64) {
         // Off path or scrolled back into history (D-VE4F-3): never populate;
-        // snap to the live content and record the baseline length.
+        // snap to the live content and record the baseline push count.
         if self.settings.reduced_motion
             || !self.settings.new_output_fade
             || self.viewport.offset() > 0
         {
             self.row_fade_starts.clear();
             self.row_fade_next_frame = None;
-            self.last_scrollback_len_for_fade = scrollback_len;
+            self.last_output_pushes_for_fade = pushed_rows;
             return;
         }
         let rows = self.grid.rows;
-        // Geometry discontinuity (resize / first frame, D-VE4F-11): resize the
-        // tracking vector and snap — a new grid is not a stream of new output.
-        if self.row_fade_starts.len() != rows {
+        // A new layout or reset counter is not a stream of new output.
+        if self.row_fade_starts.len() != rows
+            || self.row_fade_dimensions != Some(self.grid)
+            || pushed_rows < self.last_output_pushes_for_fade
+        {
             self.row_fade_starts.clear();
             self.row_fade_starts.resize(rows, None);
+            self.row_fade_dimensions = Some(self.grid);
             self.row_fade_next_frame = None;
-            self.last_scrollback_len_for_fade = scrollback_len;
+            self.last_output_pushes_for_fade = pushed_rows;
             return;
         }
-        // New rows = the scrollback growth since the previous rebuild, capped at
-        // the grid height (a burst larger than the viewport fades at most every
-        // visible row once). D-VE4F-2.
-        let delta = scrollback_len
-            .saturating_sub(self.last_scrollback_len_for_fade)
+        // A burst stamps at most the current grid height. A reset/wrap of the
+        // count snaps above rather than attributing replacement state to output.
+        let delta = usize::try_from(pushed_rows.saturating_sub(self.last_output_pushes_for_fade))
+            .unwrap_or(rows)
             .min(rows);
         if delta > 0 {
             // Shift existing fades up to follow their rows, then stamp the new
@@ -107,7 +75,7 @@ impl App {
                 *entry = Some(now);
             }
         }
-        self.last_scrollback_len_for_fade = scrollback_len;
+        self.last_output_pushes_for_fade = pushed_rows;
         // Settle finished rows so the deadline + signature go idle once every
         // fade completes (bounded wake: the loop stops waking when nothing is
         // animating).
@@ -769,3 +737,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "new_row_fade_audit_tests.rs"]
+mod audit_tests;

@@ -398,3 +398,6 @@ fn is_selection_delete_key(logical: &WinitKey) -> bool {
         WinitKey::Named(NamedKey::Delete) | WinitKey::Named(NamedKey::Backspace)
     )
 }
+
+#[cfg(test)]
+mod feedback_state_audit_tests;

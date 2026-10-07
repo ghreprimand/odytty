@@ -164,6 +164,10 @@ their ordinary behavior; at an enhanced Bash or Zsh prompt,
 `Ctrl+Backspace` remains distinct and word-deletes. Fish continues to manage
 its own keyboard protocol.
 
+Clipboard consent owns consumed physical keys through their releases, so held
+keys do not leak into the shell when the prompt closes. Only fresh presses
+make consent decisions. About diagnostics copy shows the clipboard result.
+
 ### Paste Safety
 
 OdyTTY's risky-paste confirmation is a structural safeguard for text entering
@@ -1860,6 +1864,9 @@ presentation control remains independently configurable in Settings or
 [Runtime Knobs](runtime-knobs.md); `reduced_motion =
 on` makes slide, trail, glow, easing, and new-output fade static or instant
 while preserving their saved choices.
+
+Single-pane new-output fading uses pushed rows, including full history, and
+snaps on width-only resize; split panes do not apply the fade.
 
 ### Electric Blue
 

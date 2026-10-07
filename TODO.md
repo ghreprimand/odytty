@@ -25,6 +25,11 @@ startup files and restore the authored `ZDOTDIR`, and preserve fish vendor
 data defaults. Behavioral tests require prompt marks from available shells;
 missing shell binaries produce explicit skip tokens.
 
+Single-pane output fading follows newly pushed rows after history eviction
+and snaps on width-only reflow. Clipboard consent retains all consumed held
+keys until release and requires fresh presses for decisions. About copy
+feedback reports the actual clipboard result through both input routes.
+
 Wide-glyph wrap padding is distinguished from logical source spaces through
 eager and lazy reflow, search, selection/copy, export, and snapshot restore.
 Bounded source ownership and northern Indic, Tamil, Telugu, Kannada, and
@@ -1369,8 +1374,8 @@ a floor; surpassing it is the standing ambition.
         DPI-scaled frame in the theme border color inside the padding band.
   - [x] New-output fade (`new_output_fade`, on by default): the foreground ink
         of freshly arrived output rows fades in over a 250 ms ramp at the live
-        tail; backgrounds render normally from the first frame, and scrollback
-        and resize snap.
+        tail in single-pane rendering, including full history; backgrounds
+        render normally, and scrollback viewing and width/height resize snap.
 - [x] Follow-OS dark/light theme (`follow_os_theme`, off by default):
       switches between `os_theme_dark` and `os_theme_light` based on the
       desktop color-scheme signal. Live on Wayland; on X11 seed direction at

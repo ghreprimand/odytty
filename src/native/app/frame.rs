@@ -430,6 +430,7 @@ impl App {
                 let (
                     mut snapshot,
                     scrollback_len,
+                    output_pushes,
                     cursor_style,
                     cursor_blinking,
                     terminal_revision,
@@ -496,6 +497,7 @@ impl App {
                         .map(|map| (map, snapshot.clone()));
                     let cursor_style = terminal.cursor_style();
                     let cursor_blinking = terminal.cursor_blinking();
+                    let output_pushes = terminal.screen().pushed_row_count();
                     let terminal_revision = terminal.render_revision();
                     let ambiguous_wide = terminal.ambiguous_wide();
                     let gutter_input = self.gutter_frame_input(&terminal, offset);
@@ -504,6 +506,7 @@ impl App {
                     (
                         snapshot,
                         scrollback_len,
+                        output_pushes,
                         cursor_style,
                         cursor_blinking,
                         terminal_revision,
@@ -583,11 +586,9 @@ impl App {
                 // Frame-overlay cell-paint manifest (see overlay_registry).
                 // Order = paint precedence; new slots strictly after the
                 // existing four and no-op until their feature ships.
-                // VE4 new-output fade: refresh the per-row fade-start
-                // instants from the scrollback delta before building the
-                // overlay context, so the fade quads this frame reflect
-                // this rebuild's new rows. No-op while the knob is off.
-                self.update_row_fade(now, scrollback_len);
+                // Sampled with the snapshot: retained history can stay full
+                // while newly pushed output rows continue to arrive.
+                self.update_row_fade(now, output_pushes);
                 let ctx = self.overlay_ctx(
                     scrollback_len,
                     cell,

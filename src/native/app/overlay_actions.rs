@@ -813,10 +813,11 @@ impl App {
                     self.spawn_open_or_notice(&argv);
                 }
             }
-            // ABOUT: copy the diagnostics block to the clipboard. The overlay
-            // stays open; the panel already showed its "copied" confirmation.
+            // Copy feedback follows the clipboard backend's result.
             OverlayOutcome::SettingsCopyDiagnostics(text) => {
-                let _ = self.clipboard.write_text(&text);
+                let copied = self.clipboard.write_text(&text).is_some();
+                self.overlay.set_diagnostics_copy_result(copied);
+                self.request_selection_redraw();
             }
             OverlayOutcome::ContextMenuCopyFile(uri) => {
                 self.flush_pending_overlay_settings();

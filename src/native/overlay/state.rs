@@ -251,6 +251,10 @@ impl OverlayUi {
         self.panel.set_about(about);
     }
 
+    pub(in crate::native) fn set_diagnostics_copy_result(&mut self, copied: bool) {
+        self.panel.set_diagnostics_copy_result(copied);
+    }
+
     pub(in crate::native) fn sync_external_palette_status(&mut self, display: &str) {
         self.panel.sync_external_palette_status(display);
     }

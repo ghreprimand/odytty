@@ -582,6 +582,13 @@ response is accepted. `on` is a compatibility opt-in that permits writes without
 a prompt and emits only a bounded, content-free notice. Linux PRIMARY remains a
 separate target; macOS and Windows have no PRIMARY surface.
 
+The consent prompt retains each consumed physical key until its release, even
+when the request is canceled or the active session changes. Repeats cannot
+approve or deny a request; consent requires a fresh press. Tracking is capped
+at 256 distinct held keys. Overflow consumes all input until an OS focus
+boundary settles that exceptional state. Regular held keys retain ownership
+across focus cancellation until release.
+
 OSC 52 reads (`... ; ? ST`) are disabled by default because replying with
 clipboard contents lets a remote program exfiltrate local data. With the
 default `osc52_read = off`, the core queues no request and sends no reply.
@@ -592,6 +599,9 @@ clipboard reads produce an OSC 52 reply. The reply is bounded by the same
 clipboard text over the limit is refused whole, with no reply sent (a
 truncated reply would hand the requester corrupted contents), and a failure
 notice names the size.
+
+About diagnostics copy reports success only after the clipboard write succeeds;
+a rejected write shows a failure message in the same panel.
 
 ### Private State And Diagnostic Files
 
@@ -1654,10 +1664,11 @@ scope rather than silently inheriting deferred work from a prior release.
   their independent terminal output behavior but never receive cursor-animation
   wakes without an active consumer.
 
-- New-output fade (`new_output_fade`, on by default): the text of freshly
-  arrived rows fades in over a short ramp at the live tail — foreground ink
-  only, from a visible floor; backgrounds render as normal from the first
-  frame. Scrollback and resize snap.
+- New-output fade (`new_output_fade`, on by default): in single-pane rendering,
+  freshly pushed rows fade at the live tail, including when history is full.
+  Only foreground ink ramps from a visible floor; backgrounds render normally.
+  Scrollback viewing and all grid-size changes snap. Split panes do not apply
+  this fade.
 
 - Themed window border (`window_border`, off by default): an optional thin
   border around the terminal grid in the theme's `border` role color, drawn
@@ -2346,9 +2357,9 @@ Cursor motion trail (`cursor_trail`, on by default since v0.6.0): a short fading
 after-image that trails the cursor as it glides between cells, drawn behind the cursor block
 in the theme cursor color. Only visible while cursor slide (`cursor_motion`) is
 also on; fully decays as the glide settles. New-output fade (`new_output_fade`,
-on by default): the text of freshly arrived rows fades in over a short ramp at
-the live tail (foreground ink only; backgrounds are never veiled). Both effects
-landed in the Tier-3 sequencing after bloom and CRT profile were proven.
+on by default): newly pushed rows fade at the live tail in single-pane
+rendering, including full history. Foreground ink alone ramps; backgrounds
+are never veiled. Width/height reflow snaps instead of fading old rows.
 
 GPU quality / per-effect settings panel controls follow.
 

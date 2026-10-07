@@ -61,6 +61,18 @@ impl SettingsPanel {
         SettingsPanelOutcome::Consumed
     }
 
+    /// Publish the backend result; requesting a copy does not imply success.
+    pub(in crate::native) fn set_diagnostics_copy_result(&mut self, copied: bool) {
+        self.message = Some(
+            if copied {
+                "Diagnostics copied to clipboard."
+            } else {
+                "Could not copy diagnostics to clipboard."
+            }
+            .to_owned(),
+        );
+    }
+
     /// Act on the focused About row: open a project link, or copy diagnostics.
     pub(super) fn activate_about_row(&mut self) -> SettingsPanelOutcome {
         if self.selected == ABOUT_COPY_ROW {
@@ -69,7 +81,7 @@ impl SettingsPanel {
                 .as_ref()
                 .map(AboutInfo::diagnostics_block)
                 .unwrap_or_default();
-            self.message = Some("Diagnostics copied to clipboard.".to_owned());
+            self.message = None;
             return SettingsPanelOutcome::CopyToClipboard(text);
         }
         if let Some(link) = ABOUT_LINKS.get(self.selected) {

@@ -219,7 +219,8 @@ pub(in crate::native) struct Session {
     pub(in crate::native) cursor_slide_from_px: [f32; 2],
     pub(in crate::native) cursor_streak: crate::native::app::cursor_streak::CursorStreakState,
     pub(in crate::native) row_fade_starts: Vec<Option<Instant>>,
-    pub(in crate::native) last_scrollback_len_for_fade: usize,
+    pub(in crate::native) last_output_pushes_for_fade: u64,
+    pub(in crate::native) row_fade_dimensions: Option<crate::core::Dimensions>,
     pub(in crate::native) row_fade_epoch: u64,
     /// Stable next-frame boundary for active new-row fades; `None` at rest.
     pub(in crate::native) row_fade_next_frame: Option<Instant>,

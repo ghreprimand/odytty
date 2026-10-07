@@ -20,6 +20,11 @@ impl Screen {
         &self.host_output
     }
 
+    /// Physical rows pushed independently of retained-history eviction/reflow.
+    pub(crate) fn pushed_row_count(&self) -> u64 {
+        self.scrollback.pushed_row_count()
+    }
+
     pub fn scrollback_len(&self) -> usize {
         self.scrollback.physical_len(self.dimensions.columns)
     }

@@ -702,7 +702,7 @@ impl SettingsPanel {
                     .as_ref()
                     .map(super::AboutInfo::diagnostics_block)
                     .unwrap_or_default();
-                self.message = Some("Diagnostics copied to clipboard.".to_owned());
+                self.message = None;
                 return SettingsPanelOutcome::CopyToClipboard(text);
             }
             _ => {}

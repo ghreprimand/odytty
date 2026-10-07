@@ -18,6 +18,7 @@ use super::{App, OverlayFragment, SessionToken};
 
 const NOTICE_RATE_LIMIT: Duration = Duration::from_secs(1);
 const PROMPT_ROWS: usize = 3;
+const MAX_CAPTURED_KEYS: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SessionConsent {
@@ -51,7 +52,10 @@ pub(in crate::native) enum PromptDecision {
 pub(in crate::native) struct Osc52WriteState {
     pending: Option<PendingWrite>,
     session_consents: Vec<(SessionToken, SessionConsent)>,
-    captured_key: Option<PhysicalKey>,
+    captured_keys: Vec<PhysicalKey>,
+    // If distinct held keys exceed the bound, fail closed until an OS focus
+    // boundary settles the overflow. Ordinary cancellation retains ownership.
+    capture_overflow: bool,
     last_notice_at: Option<Instant>,
     focus_observed: bool,
 }
@@ -173,7 +177,8 @@ impl Osc52WriteState {
 impl App {
     pub(in crate::native) fn cancel_osc52_prompt(&mut self) {
         let prompt_was_visible = self.osc52_write.pending.take().is_some();
-        self.osc52_write.captured_key = None;
+        // Down edges consumed by this window still own their repeat/up edges.
+        // Canceling a clipboard request does not deliver those presses to PTY.
         if prompt_was_visible {
             self.request_selection_redraw();
         }
@@ -181,6 +186,10 @@ impl App {
 
     pub(in crate::native) fn observe_osc52_window_focus(&mut self) {
         self.osc52_write.focus_observed = true;
+        if self.osc52_write.capture_overflow {
+            self.osc52_write.captured_keys.clear();
+            self.osc52_write.capture_overflow = false;
+        }
     }
 
     fn apply_osc52_write(&mut self, selection: ClipboardSelection, text: &str, now: Instant) {
@@ -249,22 +258,32 @@ impl App {
         physical: PhysicalKey,
         event_type: KeyEventType,
     ) -> bool {
-        if self.osc52_write.captured_key == Some(physical) {
+        if self.osc52_write.capture_overflow {
+            return true;
+        }
+        if let Some(index) = self
+            .osc52_write
+            .captured_keys
+            .iter()
+            .position(|key| *key == physical)
+        {
             if event_type == KeyEventType::Release {
-                self.osc52_write.captured_key = None;
+                self.osc52_write.captured_keys.swap_remove(index);
             }
             return true;
         }
         if self.osc52_write.pending.is_none() {
             return false;
         }
-        if event_type == KeyEventType::Release {
+        // Repeats inherited from before the prompt are never consent decisions.
+        if event_type != KeyEventType::Press {
             return true;
         }
-        if event_type == KeyEventType::Press {
-            self.osc52_write.captured_key = Some(physical);
+        if self.osc52_write.captured_keys.len() == MAX_CAPTURED_KEYS {
+            self.osc52_write.capture_overflow = true;
+            return true;
         }
-
+        self.osc52_write.captured_keys.push(physical);
         if let Some(decision) = prompt_decision(binding_key, self.modifiers) {
             self.resolve_osc52_prompt(decision);
         }
@@ -493,5 +512,33 @@ mod tests {
         state.retain_live_sessions(&[other]);
         assert_eq!(state.consent_for(session), None);
         assert_eq!(state.consent_for(other), Some(SessionConsent::Deny));
+    }
+}
+
+#[cfg(test)]
+mod capture_bound_tests {
+    use super::*;
+    #[test]
+    fn feedback_osc52_capture_is_bounded_and_focus_settles_overflow() {
+        use winit::keyboard::NativeKeyCode;
+        let (mut app, _) = crate::native::test_support::headless_app_for_test();
+        app.queue_osc52_prompt_for_test();
+        for code in 0..=MAX_CAPTURED_KEYS as u32 {
+            assert!(app.handle_osc52_prompt_key(
+                &WinitKey::Character("x".into()),
+                PhysicalKey::Unidentified(NativeKeyCode::Xkb(code)),
+                KeyEventType::Press
+            ));
+        }
+        assert_eq!(app.osc52_write.captured_keys.len(), MAX_CAPTURED_KEYS);
+        assert!(app.osc52_write.capture_overflow);
+        assert!(app.handle_osc52_prompt_key(
+            &WinitKey::Character("x".into()),
+            PhysicalKey::Unidentified(NativeKeyCode::Xkb(999)),
+            KeyEventType::Repeat
+        ));
+        app.observe_osc52_window_focus();
+        assert!(!app.osc52_write.capture_overflow);
+        assert!(app.osc52_write.captured_keys.is_empty());
     }
 }
