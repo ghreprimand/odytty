@@ -229,9 +229,18 @@ fn shell_expand_argv(bin: &str, quoted_words: &str) -> Vec<u8> {
 }
 
 #[cfg(unix)]
-fn assert_unix_roundtrip(shell: ShellKind, bin: &str, path_bytes: &[u8]) {
-    if !shell_available(bin) {
-        eprintln!("skip {bin} argv roundtrip: binary not installed");
+fn roundtrip_shell_available(test: &str, bin: &str) -> bool {
+    crate::native::test_support::availability::available(
+        test,
+        bin,
+        shell_available(bin),
+        std::env::var_os("ODYTTY_REQUIRE_SHELL_TESTS").is_some(),
+    )
+}
+
+#[cfg(unix)]
+fn assert_unix_roundtrip(test: &str, shell: ShellKind, bin: &str, path_bytes: &[u8]) {
+    if !roundtrip_shell_available(test, bin) {
         return;
     }
     let quoted = quote_unix(path_bytes, shell)
@@ -243,6 +252,7 @@ fn assert_unix_roundtrip(shell: ShellKind, bin: &str, path_bytes: &[u8]) {
         got, expected,
         "{bin} roundtrip mismatch for path_bytes={path_bytes:?}; quoted={quoted}"
     );
+    eprintln!("VALIDATION_EXECUTED test={test} shell={bin}");
 }
 
 #[cfg(unix)]
@@ -258,9 +268,24 @@ fn installed_shells_roundtrip_hostile_utf8_path_bytes() {
         b"/tmp/dir/",
     ];
     for path in cases {
-        assert_unix_roundtrip(ShellKind::Bash, "bash", path);
-        assert_unix_roundtrip(ShellKind::Zsh, "zsh", path);
-        assert_unix_roundtrip(ShellKind::Fish, "fish", path);
+        assert_unix_roundtrip(
+            "installed_shells_roundtrip_hostile_utf8_path_bytes",
+            ShellKind::Bash,
+            "bash",
+            path,
+        );
+        assert_unix_roundtrip(
+            "installed_shells_roundtrip_hostile_utf8_path_bytes",
+            ShellKind::Zsh,
+            "zsh",
+            path,
+        );
+        assert_unix_roundtrip(
+            "installed_shells_roundtrip_hostile_utf8_path_bytes",
+            ShellKind::Fish,
+            "fish",
+            path,
+        );
     }
 }
 
@@ -275,9 +300,24 @@ fn installed_shells_roundtrip_non_utf8_and_control_bytes() {
         b"/tmp/a\rb",
     ];
     for path in cases {
-        assert_unix_roundtrip(ShellKind::Bash, "bash", path);
-        assert_unix_roundtrip(ShellKind::Zsh, "zsh", path);
-        assert_unix_roundtrip(ShellKind::Fish, "fish", path);
+        assert_unix_roundtrip(
+            "installed_shells_roundtrip_non_utf8_and_control_bytes",
+            ShellKind::Bash,
+            "bash",
+            path,
+        );
+        assert_unix_roundtrip(
+            "installed_shells_roundtrip_non_utf8_and_control_bytes",
+            ShellKind::Zsh,
+            "zsh",
+            path,
+        );
+        assert_unix_roundtrip(
+            "installed_shells_roundtrip_non_utf8_and_control_bytes",
+            ShellKind::Fish,
+            "fish",
+            path,
+        );
     }
 }
 
@@ -290,8 +330,7 @@ fn installed_shells_roundtrip_multi_path_batch_order() {
         (ShellKind::Zsh, "zsh"),
         (ShellKind::Fish, "fish"),
     ] {
-        if !shell_available(bin) {
-            eprintln!("skip {bin} multi-path roundtrip: binary not installed");
+        if !roundtrip_shell_available("installed_shells_roundtrip_multi_path_batch_order", bin) {
             continue;
         }
         let mut words = String::new();
@@ -306,6 +345,9 @@ fn installed_shells_roundtrip_multi_path_batch_order() {
         }
         let got = shell_expand_argv(bin, &words);
         assert_eq!(got, expected, "{bin} multi-path order/bytes");
+        eprintln!(
+            "VALIDATION_EXECUTED test=installed_shells_roundtrip_multi_path_batch_order shell={bin}"
+        );
     }
 }
 
@@ -617,9 +659,24 @@ fn installed_shells_roundtrip_plan_named_metacharacter_paths() {
         b"/tmp/dir/",
     ];
     for path in cases {
-        assert_unix_roundtrip(ShellKind::Bash, "bash", path);
-        assert_unix_roundtrip(ShellKind::Zsh, "zsh", path);
-        assert_unix_roundtrip(ShellKind::Fish, "fish", path);
+        assert_unix_roundtrip(
+            "installed_shells_roundtrip_plan_named_metacharacter_paths",
+            ShellKind::Bash,
+            "bash",
+            path,
+        );
+        assert_unix_roundtrip(
+            "installed_shells_roundtrip_plan_named_metacharacter_paths",
+            ShellKind::Zsh,
+            "zsh",
+            path,
+        );
+        assert_unix_roundtrip(
+            "installed_shells_roundtrip_plan_named_metacharacter_paths",
+            ShellKind::Fish,
+            "fish",
+            path,
+        );
     }
 }
 
@@ -641,8 +698,7 @@ fn installed_shells_roundtrip_via_positional_parameter() {
         (ShellKind::Zsh, "zsh"),
         (ShellKind::Fish, "fish"),
     ] {
-        if !shell_available(bin) {
-            eprintln!("skip {bin} $1 roundtrip: binary not installed");
+        if !roundtrip_shell_available("installed_shells_roundtrip_via_positional_parameter", bin) {
             continue;
         }
         for path in cases {
@@ -672,6 +728,9 @@ fn installed_shells_roundtrip_via_positional_parameter() {
                 "{bin} $1 roundtrip mismatch path={path:?} quoted={quoted}"
             );
         }
+        eprintln!(
+            "VALIDATION_EXECUTED test=installed_shells_roundtrip_via_positional_parameter shell={bin}"
+        );
     }
 }
 
@@ -696,8 +755,16 @@ fn mixed_shell_powershell_payload_stays_one_bash_literal_argument() {
             116, 112, 117, 116, 32, 80, 87, 78, 69, 68, 59, 35, 39
         ]
     );
-    assert_unix_roundtrip(ShellKind::Bash, "bash", path);
-    if shell_available("bash") {
+    assert_unix_roundtrip(
+        "mixed_shell_powershell_payload_stays_one_bash_literal_argument",
+        ShellKind::Bash,
+        "bash",
+        path,
+    );
+    if roundtrip_shell_available(
+        "mixed_shell_powershell_payload_stays_one_bash_literal_argument",
+        "bash",
+    ) {
         let got = shell_expand_argv("bash", &quoted);
         let mut expected = path.to_vec();
         expected.push(0);
@@ -727,8 +794,18 @@ fn mixed_shell_non_utf8_fish_escape_and_bash_byte_roundtrip() {
     assert_eq!(fish, "\\X2f\\X74\\X6d\\X70\\X2f\\Xff");
     let bash = quote_unix(path, ShellKind::Bash).unwrap();
     assert_eq!(bash, "$'\\x2f\\x74\\x6d\\x70\\x2f\\xff'");
-    assert_unix_roundtrip(ShellKind::Bash, "bash", path);
-    assert_unix_roundtrip(ShellKind::Fish, "fish", path);
+    assert_unix_roundtrip(
+        "mixed_shell_non_utf8_fish_escape_and_bash_byte_roundtrip",
+        ShellKind::Bash,
+        "bash",
+        path,
+    );
+    assert_unix_roundtrip(
+        "mixed_shell_non_utf8_fish_escape_and_bash_byte_roundtrip",
+        ShellKind::Fish,
+        "fish",
+        path,
+    );
 }
 
 #[cfg(windows)]

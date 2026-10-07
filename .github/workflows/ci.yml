@@ -69,7 +69,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig1-dev libfreetype6-dev
+            pkg-config libfontconfig1-dev libfreetype6-dev mesa-vulkan-drivers zsh fish
 
       # Cache only the dependency-download dirs (~/.cargo), NOT `target`.
       # `target` grows without bound across runs, and with `restore-keys`
@@ -116,6 +116,21 @@ jobs:
         run: >-
           cargo check --manifest-path fuzz/parser_graphics/Cargo.toml
           --locked --bins
+
+      # Linux must execute the required WGSL/draw and shell-byte validation.
+      - name: Required software GPU and shell validation
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        run: bash scripts/ci-validation.sh
+
+      - name: GPU validation availability (macOS/Windows)
+        if: runner.os != 'Linux'
+        timeout-minutes: 5
+        run: >-
+          cargo test --locked --lib -- --test-threads=1 --show-output
+          cursor_glow_shader_and_pipeline_validate
+          cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws
+          programming_ligature_vertices_submit_through_the_real_cell_pipeline
 
       # Linux/Windows: a single `cargo test --locked` attempt, parallel.
       # Step-level timeout: a wedged test must fail THIS step in ~15 min, not
@@ -351,6 +366,7 @@ jobs:
           python3 .github/scripts/dynamic-analysis-test.py
           python3 .github/scripts/derive-version-test.py
           python3 .github/scripts/workflow-policy-test.py
+          python3 scripts/ci-validation-test.py
 
       - name: Documentation convergence fixtures and status check
         run: |

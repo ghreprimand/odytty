@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Shared helpers for native tests.
 
+pub(in crate::native) mod availability;
+
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;

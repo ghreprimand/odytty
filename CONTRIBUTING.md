@@ -288,6 +288,19 @@ Two distinct icon paths, do not conflate them:
 
 ## Test battery
 
+Linux CI installs Mesa Vulkan drivers, zsh, and fish, then runs
+`bash scripts/ci-validation.sh`. This required check selects a software Vulkan
+adapter and verifies execution markers for three shader/pipeline tests and
+four quoting tests in each of bash, zsh, and fish. Missing prerequisites,
+missing execution markers, and failed assertions fail the check.
+
+Outside this check, these pipeline and quoting tests emit named
+`VALIDATION_SKIP` lines for unavailable GPU prerequisites or Unix shells. Use `cargo test --locked -- --show-output` to retain
+those lines; the Rust harness still reports an early-returning test as `ok`,
+so that count alone does not establish execution. Dedicated CI validation steps
+retain successful test output on Linux, macOS, and Windows. Unix shell round trips
+are not compiled on Windows; GPU validation there uses available adapters.
+
 The default `cargo test` run is bounded and deterministic. Platform-gated cases
 and PTY smokes that need optional host applications report unavailable or
 skipped work separately from executed assertions. Integration test buckets

@@ -545,31 +545,62 @@ fn synchronized_output_hold_retains_trail_glow_and_streak_inputs() {
     assert_eq!(held_streak, Some(streak), "held frame retains the streak");
 }
 
+// Required CI validation uses a software Vulkan adapter; optional local tests
+// retain the default backend selection and report unavailable prerequisites.
+fn validation_device(
+    test: &str,
+    label: &'static str,
+) -> Option<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+    let required = std::env::var_os("ODYTTY_REQUIRE_GPU_TESTS").is_some();
+    let init_guard = crate::test_lock::device_creation_lock();
+    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+    if required {
+        descriptor.backends = wgpu::Backends::VULKAN;
+    }
+    let instance = wgpu::Instance::new(descriptor);
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        force_fallback_adapter: required,
+        compatible_surface: None,
+    }));
+    if !crate::native::test_support::availability::available(
+        test,
+        "GPU-adapter",
+        adapter.is_ok(),
+        required,
+    ) {
+        return None;
+    }
+    let adapter = adapter.expect("availability checked");
+    let device = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some(label),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(),
+        experimental_features: wgpu::ExperimentalFeatures::disabled(),
+        memory_hints: wgpu::MemoryHints::default(),
+        trace: wgpu::Trace::Off,
+    }));
+    if !crate::native::test_support::availability::available(
+        test,
+        "GPU-device",
+        device.is_ok(),
+        required,
+    ) {
+        return None;
+    }
+    drop(init_guard);
+    let (device, queue) = device.expect("availability checked");
+    Some((instance, adapter, device, queue))
+}
+
 #[test]
 fn cursor_glow_shader_and_pipeline_validate() {
-    // Serialize driver init against every other parallel test creating a device.
-    let init_guard = crate::test_lock::device_creation_lock();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
-        force_fallback_adapter: false,
-        compatible_surface: None,
-    })) else {
-        return;
-    };
-    let Ok((device, _queue)) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("cursor-glow-pipeline-test"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            memory_hints: wgpu::MemoryHints::default(),
-            trace: wgpu::Trace::Off,
-        }))
+    const TEST: &str = "cursor_glow_shader_and_pipeline_validate";
+    let Some((_instance, _adapter, device, _queue)) =
+        validation_device(TEST, "cursor-glow-pipeline-test")
     else {
         return;
     };
-    drop(init_guard);
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("cursor-glow-pipeline-test-bgl"),
         entries: &[
@@ -603,33 +634,19 @@ fn cursor_glow_shader_and_pipeline_validate() {
     });
     let _pipeline =
         create_cursor_glow_pipeline(&device, wgpu::TextureFormat::Rgba8UnormSrgb, &layout);
+    eprintln!("VALIDATION_EXECUTED test={TEST}");
 }
 
 #[test]
 fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
     use wgpu::util::DeviceExt as _;
 
-    // Serialize driver init against every other parallel test creating a device.
-    let init_guard = crate::test_lock::device_creation_lock();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
-        force_fallback_adapter: false,
-        compatible_surface: None,
-    })) else {
+    const TEST: &str = "cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws";
+    let Some((_instance, _adapter, device, queue)) =
+        validation_device(TEST, "cursor-streak-bound-draw-test")
+    else {
         return;
     };
-    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("cursor-streak-bound-draw-test"),
-        required_features: wgpu::Features::empty(),
-        required_limits: wgpu::Limits::default(),
-        experimental_features: wgpu::ExperimentalFeatures::disabled(),
-        memory_hints: wgpu::MemoryHints::default(),
-        trace: wgpu::Trace::Off,
-    })) else {
-        return;
-    };
-    drop(init_guard);
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("cursor-streak-bound-draw-test-bgl"),
         entries: &[
@@ -779,33 +796,19 @@ fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
         error.is_none(),
         "the real 32-byte viewport binding and submitted streak draw must validate: {error:?}"
     );
+    eprintln!("VALIDATION_EXECUTED test={TEST}");
 }
 
 #[test]
 fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
     use wgpu::util::DeviceExt as _;
 
-    // Serialize driver init against every other parallel test creating a device.
-    let init_guard = crate::test_lock::device_creation_lock();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
-        force_fallback_adapter: false,
-        compatible_surface: None,
-    })) else {
+    const TEST: &str = "programming_ligature_vertices_submit_through_the_real_cell_pipeline";
+    let Some((_instance, _adapter, device, queue)) =
+        validation_device(TEST, "ligature-cell-draw-test")
+    else {
         return;
     };
-    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("ligature-cell-draw-test"),
-        required_features: wgpu::Features::empty(),
-        required_limits: wgpu::Limits::default(),
-        experimental_features: wgpu::ExperimentalFeatures::disabled(),
-        memory_hints: wgpu::MemoryHints::default(),
-        trace: wgpu::Trace::Off,
-    })) else {
-        return;
-    };
-    drop(init_guard);
 
     let font = text::load_bundled_font().expect("bundled font");
     let fonts = StyleFonts::regular(font);
@@ -987,6 +990,7 @@ fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
         error.is_none(),
         "the contextual atlas and real cell-pipeline draw must validate: {error:?}"
     );
+    eprintln!("VALIDATION_EXECUTED test={TEST}");
 }
 
 #[test]
