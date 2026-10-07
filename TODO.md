@@ -1922,6 +1922,10 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       deduplicates canonical roots and files, and reports depth truncation.
       Entry-bound prefixes follow filesystem enumeration order before sorting;
       custom fontconfig-only directories remain outside the picker scan.
+- [x] Host symbol fallback prefers Regular filename variants within provider
+      hints, keeps load-failure fallthrough, and preserves valid fontconfig
+      records when another record is malformed. Linux runtime candidates use
+      sorted regular-style preference; Windows and macOS retain static tails.
 - [x] Runtime fallback faces are parsed once and shared across codepoints;
       over-limit collections reconstruct only the selected face instead of
       retaining the full collection. Directory-only discovery also accepts

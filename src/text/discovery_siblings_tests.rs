@@ -7,15 +7,22 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 
-fn temp_root(tag: &str) -> PathBuf {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "odytty-discovery-siblings-{tag}-{}-{serial}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp font root");
-    dir
+struct TempRoot(PathBuf);
+impl std::ops::Deref for TempRoot {
+    type Target = PathBuf;
+    fn deref(&self) -> &PathBuf {
+        &self.0
+    }
+}
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+fn temp_root(tag: &str) -> TempRoot {
+    TempRoot(crate::test_dirs::fresh_temp_dir(&format!(
+        "discovery-{tag}"
+    )))
 }
 
 fn loadable_face() -> PathBuf {
@@ -31,7 +38,7 @@ fn host_nerd_face_falls_through_an_unloadable_best_match() {
     std::fs::write(root.join("SymbolsNerdFont-Regular.ttf"), b"not a font").expect("write");
     let patched = root.join("HackNerdFont-Regular.ttf");
     std::fs::copy(loadable_face(), &patched).expect("copy loadable face");
-    let dirs = std::slice::from_ref(&root);
+    let dirs = std::slice::from_ref(&root.0);
 
     assert_eq!(
         resolve_symbol_font_path_in(dirs),
@@ -45,35 +52,32 @@ fn host_nerd_face_falls_through_an_unloadable_best_match() {
         "the loadable patched face joins the chain: {sources:?}"
     );
     assert!(resolve_symbol_font_in(dirs).is_some());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn linux_symbol_tail_hint_falls_through_an_unloadable_first_match() {
-    // Name order puts the broken "-A" file first for both Noto Symbols hints.
+    // The regular variant ranks first but fails; the unnamed face loads.
     let root = temp_root("linux-tail");
-    std::fs::write(root.join("NotoSansSymbols2-A.ttf"), b"not a font").expect("write");
-    let regular = root.join("NotoSansSymbols2-Regular.ttf");
+    std::fs::write(root.join("NotoSansSymbols2-Regular.ttf"), b"not a font").expect("write");
+    let regular = root.join("NotoSansSymbols2.ttf");
     std::fs::copy(loadable_face(), &regular).expect("copy loadable face");
-    let faces = symbols::linux_symbol_fallback_faces(std::slice::from_ref(&root));
+    let faces = symbols::linux_symbol_fallback_faces(std::slice::from_ref(&root.0));
     let sources: Vec<_> = faces.iter().map(|(source, _)| source.clone()).collect();
     assert_eq!(sources, [SymbolFontSource::Host(regular)]);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[cfg(windows)]
 #[test]
 fn windows_symbol_tail_hint_falls_through_an_unloadable_first_match() {
-    // Name order puts the broken "seguisym-a" file before "seguisym".
+    // The regular variant ranks first but fails; the unnamed face loads.
     let root = temp_root("windows-tail");
-    std::fs::write(root.join("seguisym-a.ttf"), b"not a font").expect("write");
+    std::fs::write(root.join("seguisym-regular.ttf"), b"not a font").expect("write");
     let regular = root.join("seguisym.ttf");
     std::fs::copy(loadable_face(), &regular).expect("copy loadable face");
-    let faces = symbols::windows_symbol_fallback_faces(std::slice::from_ref(&root));
+    let faces = symbols::windows_symbol_fallback_faces(std::slice::from_ref(&root.0));
     let sources: Vec<_> = faces.iter().map(|(source, _)| source.clone()).collect();
     assert_eq!(sources, [SymbolFontSource::Host(regular)]);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[cfg(any(windows, all(unix, not(target_os = "macos"))))]
@@ -88,9 +92,8 @@ fn a_hint_whose_first_match_an_earlier_hint_loaded_adds_nothing() {
     let face = root.join(name);
     std::fs::copy(loadable_face(), &face).expect("copy loadable face");
     #[cfg(windows)]
-    let faces = symbols::windows_symbol_fallback_faces(std::slice::from_ref(&root));
+    let faces = symbols::windows_symbol_fallback_faces(std::slice::from_ref(&root.0));
     #[cfg(not(windows))]
-    let faces = symbols::linux_symbol_fallback_faces(std::slice::from_ref(&root));
+    let faces = symbols::linux_symbol_fallback_faces(std::slice::from_ref(&root.0));
     assert_eq!(faces.len(), 1);
-    let _ = std::fs::remove_dir_all(root);
 }

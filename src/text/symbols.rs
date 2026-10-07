@@ -95,8 +95,8 @@ const LINUX_SYMBOL_FALLBACK_HINTS: &[&str] = &[
 ];
 
 /// Resolve the Linux/Unix system symbol-fallback tail (see
-/// [`LINUX_SYMBOL_FALLBACK_HINTS`]): for each hint, in priority order, the first
-/// file under `dirs` whose normalized stem contains it, loaded and de-duplicated
+/// [`LINUX_SYMBOL_FALLBACK_HINTS`]): for each hint, choose a matching regular
+/// variant first, then the shortest stem, loaded and de-duplicated
 /// by path. Returns `(source, font)` pairs index-aligned with how the chain is
 /// built. Absent faces are skipped silently.
 #[cfg(all(test, unix, not(target_os = "macos")))]
@@ -136,7 +136,7 @@ const WINDOWS_SYMBOL_FALLBACK_HINTS: &[&str] = &["seguisym", "segmdl2", "cambria
 
 /// Resolve the Windows system symbol-fallback tail (see
 /// [`WINDOWS_SYMBOL_FALLBACK_HINTS`]): for each hint, in priority order, the
-/// first file under `dirs` whose normalized stem contains it, loaded and
+/// regular-preferred file under `dirs` whose normalized stem contains it,
 /// de-duplicated by path. Returns `(source, font)` pairs index-aligned with how
 /// the chain is built. Absent faces are skipped silently. Mirrors
 /// [`linux_symbol_fallback_faces`].
@@ -156,7 +156,7 @@ fn windows_symbol_fallback_faces_in_inventory(
 }
 
 /// Shared body of the Linux and Windows static symbol tails: for each hint, in
-/// priority order, the first file whose normalized stem contains it,
+/// priority order, a regular-preferred file whose normalized stem contains it,
 /// de-duplicated by path across hints: a hint whose first match an earlier
 /// hint already loaded adds nothing. A matching file that fails to load falls
 /// through to the hint's next match instead of dropping the hint, trying at
@@ -169,12 +169,13 @@ fn hinted_fallback_faces(
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for hint in hints {
-        let matches = inventory
+        let mut matches: Vec<_> = inventory
             .files()
             .iter()
             .filter(|f| normalize_family(&file_stem(f)).contains(hint))
-            .take(MAX_SYMBOL_FONT_CANDIDATES);
-        for path in matches {
+            .collect();
+        matches.sort_by_key(|path| symbol_style_rank(path));
+        for path in matches.into_iter().take(MAX_SYMBOL_FONT_CANDIDATES) {
             if seen.contains(path) {
                 break;
             }
@@ -447,7 +448,7 @@ const FONTCONFIG_HELPER_DEADLINE: std::time::Duration = std::time::Duration::fro
 const FONTCONFIG_HELPER_MAX_OUTPUT: usize = 1024 * 1024;
 
 /// Run one bounded fontconfig query. `Ok(None)` means the helper ran but had
-/// no usable answer (missing, failed, or not UTF-8), which is an ordinary
+/// no usable answer (missing or failed), which is an ordinary
 /// negative; a deadline or output-cap breach is [`FontconfigStalled`].
 #[cfg(all(unix, not(target_os = "macos")))]
 fn run_fontconfig(program: &str, args: &[&str]) -> Result<Option<String>, FontconfigStalled> {
@@ -457,10 +458,23 @@ fn run_fontconfig(program: &str, args: &[&str]) -> Result<Option<String>, Fontco
         FONTCONFIG_HELPER_DEADLINE,
         FONTCONFIG_HELPER_MAX_OUTPUT,
     ) {
-        Ok(output) if output.status.success() => Ok(String::from_utf8(output.stdout).ok()),
+        Ok(output) if output.status.success() => Ok(Some(fontconfig_text(&output.stdout))),
         Ok(_) | Err(BoundedRunError::Spawn | BoundedRunError::Io) => Ok(None),
         Err(BoundedRunError::TimedOut | BoundedRunError::OutputTooLarge) => Err(FontconfigStalled),
     }
+}
+
+/// Drop malformed UTF-8 records individually rather than losing the listing.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn fontconfig_text(bytes: &[u8]) -> String {
+    let mut text = String::with_capacity(bytes.len());
+    for line in bytes.split(|byte| *byte == b'\n') {
+        if let Ok(line) = std::str::from_utf8(line) {
+            text.push_str(line);
+            text.push('\n');
+        }
+    }
+    text
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -519,8 +533,8 @@ fn cached_runtime_font_face(path: &Path, face_index: u32) -> Option<std::sync::A
 
 /// Host faces covering `ch`, in preference order, as `(path, face index)`.
 ///
-/// `fc-match`'s answer leads because it applies the host's own fontconfig
-/// preferences; `fc-list` then supplies every remaining provider. Duplicates
+/// The sorted `fc-match` fallback list leads with a regular-style preference;
+/// `fc-list` then supplies remaining providers. Duplicates
 /// are dropped so a face is never loaded twice, and the list is bounded because
 /// a pathological host font set should cost a bounded number of load attempts
 /// on a cache miss, not an unbounded scan.
@@ -532,14 +546,22 @@ fn cached_runtime_font_face(path: &Path, face_index: u32) -> Option<std::sync::A
 /// removes the guess instead of hardening it.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn symbol_font_candidates(ch: char) -> Result<Vec<(PathBuf, u32)>, FontconfigStalled> {
-    let charset = format!(":charset={:x}", ch as u32);
+    symbol_font_candidates_with(ch, run_fontconfig)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn symbol_font_candidates_with(
+    ch: char,
+    mut query: impl FnMut(&str, &[&str]) -> Result<Option<String>, FontconfigStalled>,
+) -> Result<Vec<(PathBuf, u32)>, FontconfigStalled> {
+    let charset = format!(":charset={:x}:style=Regular", ch as u32);
     let mut found: Vec<(PathBuf, u32)> = Vec::new();
 
-    if let Some(text) = run_fontconfig("fc-match", &["-f", FC_RECORD_FORMAT, &charset])? {
+    if let Some(text) = query("fc-match", &["-s", "-f", FC_RECORD_FORMAT_NL, &charset])? {
         found.extend(text.lines().filter_map(parse_fc_record));
     }
 
-    found.extend(fc_list_covering(ch)?);
+    found.extend(fc_list_covering_with(ch, &mut query)?);
 
     Ok(bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES))
 }
@@ -554,20 +576,25 @@ fn symbol_font_candidates(ch: char) -> Result<Vec<(PathBuf, u32)>, FontconfigSta
 /// candidate list still leads with `fc-match` because its ranking reflects
 /// host preferences; this listing exists so a caller can ask which candidates
 /// carry a real coverage claim.
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(test, unix, not(target_os = "macos")))]
 fn fc_list_covering(ch: char) -> Result<Vec<(PathBuf, u32)>, FontconfigStalled> {
+    fc_list_covering_with(ch, &mut run_fontconfig)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn fc_list_covering_with(
+    ch: char,
+    query: &mut impl FnMut(&str, &[&str]) -> Result<Option<String>, FontconfigStalled>,
+) -> Result<Vec<(PathBuf, u32)>, FontconfigStalled> {
     let charset = format!(":charset={:x}", ch as u32);
     let mut found: Vec<(PathBuf, u32)> = Vec::new();
-    if let Some(text) = run_fontconfig("fc-list", &["-f", FC_RECORD_FORMAT_NL, &charset])? {
+    if let Some(text) = query("fc-list", &["-f", FC_RECORD_FORMAT_NL, &charset])? {
         found.extend(text.lines().filter_map(parse_fc_record));
     }
     Ok(bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES))
 }
 
-/// fontconfig format string for one `path<TAB>index` record.
-#[cfg(all(unix, not(target_os = "macos")))]
-const FC_RECORD_FORMAT: &str = "%{file}\t%{index}";
-/// The same, newline-terminated, for the multi-record `fc-list` query.
+/// Newline-terminated `path<TAB>index` records for fontconfig listings.
 #[cfg(all(unix, not(target_os = "macos")))]
 const FC_RECORD_FORMAT_NL: &str = "%{file}\t%{index}\n";
 
@@ -651,8 +678,15 @@ fn resolve_symbol_font_path_in_inventory(inventory: &FontFileInventory) -> Optio
     host_symbol_font_paths(inventory).into_iter().next()
 }
 
+/// Prefer explicit regular variants, then unadorned or shorter stems.
+fn symbol_style_rank(path: &Path) -> (bool, usize) {
+    let stem = normalize_family(&file_stem(path));
+    (!stem.contains("regular"), stem.len())
+}
+
 /// Every host symbol / Nerd font under `inventory` in preference order: by
-/// hint rank (lower is stronger), then inventory order. The first entry is
+/// hint rank, regular-style preference, then shortest normalized stem. Equal
+/// ranks retain inventory order. The first entry is
 /// [`resolve_symbol_font_path_in_inventory`]'s answer.
 fn host_symbol_font_paths(inventory: &FontFileInventory) -> Vec<PathBuf> {
     let mut ranked: Vec<(usize, &PathBuf)> = inventory
@@ -667,7 +701,7 @@ fn host_symbol_font_paths(inventory: &FontFileInventory) -> Vec<PathBuf> {
         })
         .collect();
     // Stable: equal ranks keep inventory order.
-    ranked.sort_by_key(|(rank, _)| *rank);
+    ranked.sort_by_key(|(rank, path)| (*rank, symbol_style_rank(path)));
     ranked.into_iter().map(|(_, path)| path.clone()).collect()
 }
 
@@ -720,3 +754,7 @@ pub(super) fn bounded_unique_for_test(
 pub(super) fn fc_list_covering_for_test(ch: char) -> Vec<(PathBuf, u32)> {
     fc_list_covering(ch).unwrap_or_default()
 }
+
+#[cfg(test)]
+#[path = "symbol_ranking_tests.rs"]
+mod ranking_tests;

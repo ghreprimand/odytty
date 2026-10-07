@@ -2768,6 +2768,15 @@ entries admitted before the entry bound are sorted by name, but a truncated
 directory's admitted prefix follows filesystem order. Custom fontconfig-only
 directories are not included in this scan.
 
+Host symbol selection preserves provider-hint priority and prefers explicit
+Regular variants, then shorter normalized filename stems within a hint. The
+Linux and Windows static symbol tails use the same preference; macOS keeps its
+fixed system-tail paths. Unloadable faces fall through under the existing
+eight-candidate cap. Linux runtime fontconfig candidates use the sorted
+regular-preferred fallback list and omit malformed UTF-8 records individually,
+so one record cannot discard every usable provider. Windows and macOS do not
+run these queries.
+
 ### Render Color Emoji
 
 The accepted direction is a separate

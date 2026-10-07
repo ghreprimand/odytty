@@ -351,6 +351,14 @@ files are scanned once; depth limits report truncation. Entry limits admit a
 filesystem-order prefix, then sort that prefix by name. Directories known only
 to custom fontconfig configuration are outside the picker scan.
 
+Host symbol faces and the Linux/Windows static symbol tails
+prefer explicit Regular variants, then shorter filename stems, within each
+provider hint. Unloadable candidates still fall through under the same attempt
+limit. Runtime fontconfig fallback on Linux uses its sorted regular-preferred
+list and discards malformed UTF-8 records individually. macOS keeps its fixed
+system-tail order and shares the host Nerd-face preference; Windows does not
+run fontconfig queries.
+
 With `wheel_zoom` enabled, `Ctrl`+wheel changes the live font size when the
 running application has not claimed mouse reporting. Each effective step shows
 a compact centered font-size HUD, replaces the previous value during a gesture,
