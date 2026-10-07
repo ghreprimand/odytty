@@ -1003,7 +1003,12 @@ impl Screen {
     /// no-op rather than guess. See [`crate::core::input_region`] for the model and
     /// the certainty gate.
     pub fn input_region(&self) -> Option<crate::core::input_region::InputRegion> {
-        crate::core::input_region::derive_input_region(
+        use crate::core::input_region::{EditRegionReport, InputCertainty};
+        let signal = match self.active_edit_region.as_ref() {
+            Some(EditRegionReport::Valid(signal)) => Some(signal),
+            Some(EditRegionReport::Invalid) | None => None,
+        };
+        let mut region = crate::core::input_region::derive_input_region(
             &self.rows,
             self.scrollback.physical_len(self.dimensions.columns),
             self.dimensions.columns,
@@ -1012,8 +1017,13 @@ impl Screen {
             // shifted row.
             self.active_prompt_input_start(),
             self.cursor,
-            self.active_edit_region.as_ref(),
-        )
+            signal,
+        )?;
+        if matches!(self.active_edit_region, Some(EditRegionReport::Invalid)) {
+            region.certainty = InputCertainty::Unknown;
+            region.row_spans.clear();
+        }
+        Some(region)
     }
 
     pub fn hyperlink(&self, id: LinkId) -> Option<&Hyperlink> {

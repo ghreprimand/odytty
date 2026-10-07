@@ -1343,28 +1343,26 @@ fn no_signal_decoration_is_heuristically_deletable_by_design() {
     );
 }
 
-/// B2/T18 (consumer side), updated for NF14-R: a malformed edit-region report
-/// is ignored — the region falls back to the heuristic path, which under
-/// Option R means the single-row heuristic DELETE (identical to the no-signal
-/// case), not a panic and not a bogus Exact-tier edit.
+/// Recognized malformed reports suppress edit synthesis, including after a
+/// valid report. Missing reports retain the separate stock heuristic policy.
 #[test]
-fn malformed_edit_region_report_degrades_to_heuristic_delete() {
-    let Some((mut app, bytes)) = app_with_recording_writer(
-        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=;cur=zzz\x07",
-    ) else {
-        return;
-    };
-    app.force_selection_for_test(0, 2, 0, 4);
-    app.set_pointer_cell_for_test(5, 10);
-
-    app.drive_named_key_for_test(NamedKey::Delete);
-
-    let written = bytes.lock().expect("bytes").clone();
-    assert_eq!(
-        written,
-        [b"\x1b[D".repeat(3), b"\x1b[3~".repeat(3)].concat(),
-        "a malformed report degrades to the same heuristic delete as no signal"
-    );
+fn malformed_edit_region_report_blocks_selection_delete() {
+    for report in ["len=;cur=zzz", "len=3;cur=3;nl=1,1", "len=3;cur=3;nl=2,1"] {
+        let content = format!(
+            "\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07\x1b]133;P;odytty-edit;{report}\x07"
+        );
+        let Some((mut app, bytes)) = app_with_recording_writer(content.as_bytes()) else {
+            return;
+        };
+        app.force_selection_for_test(0, 2, 0, 4);
+        app.set_pointer_cell_for_test(5, 10);
+        app.drive_named_key_for_test(NamedKey::Delete);
+        assert!(bytes.lock().expect("bytes").is_empty(), "{report}");
+        assert_eq!(
+            app.click_hint_text_for_test(),
+            Some("Selection can't be edited here")
+        );
+    }
 }
 
 /// Wrapped-input content for the B1 (R5 soft-wrap) tests: prompt "$ " with the

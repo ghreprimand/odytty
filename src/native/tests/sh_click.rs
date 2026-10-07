@@ -446,6 +446,19 @@ fn hard_newline_buffer_click_is_a_noop() {
 }
 
 #[test]
+fn malformed_edit_report_blocks_click_travel() {
+    for report in ["len=;cur=zzz", "len=5;cur=5;nl=1,1", "len=5;cur=5;nl=2,1"] {
+        let mut content = live_prompt_click_enabled().to_vec();
+        content.extend_from_slice(b"\x1b]133;P;odytty-edit;len=5;cur=5\x07");
+        content.extend_from_slice(format!("\x1b]133;P;odytty-edit;{report}\x07").as_bytes());
+        let Some((mut app, bytes)) = build_app(&content) else {
+            return;
+        };
+        assert!(click_at(&mut app, &bytes, 0, 2).is_empty(), "{report}");
+    }
+}
+
+#[test]
 fn alt_screen_click_is_inert() {
     // F11: a full-screen app on the alternate screen owns its layout; the
     // explicit alt-screen gate keeps click-to-position from ever firing there.

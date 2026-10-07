@@ -913,3 +913,107 @@ fn bundled_snippets_enable_click_events_through_dispatch() {
         );
     }
 }
+
+// Project-authored edit metadata covers complete grammar admission.
+fn parsed_edit_report(payload: &[u8]) -> Option<crate::core::input_region::EditRegionSignal> {
+    let parts: Vec<&[u8]> = payload.split(|byte| *byte == b';').collect();
+    crate::core::input_region::parse_edit_region_osc(&parts)
+}
+
+#[test]
+fn edit_report_rejects_trailing_fields() {
+    assert!(parsed_edit_report(b"P;odytty-edit;len=4;cur=2;nl=1;extra=7").is_none());
+}
+
+#[test]
+fn edit_report_rejects_duplicate_newline_field() {
+    assert!(parsed_edit_report(b"P;odytty-edit;len=4;cur=2;nl=1;nl=2").is_none());
+}
+
+#[test]
+fn edit_report_rejects_newline_at_buffer_end() {
+    assert!(parsed_edit_report(b"P;odytty-edit;len=4;cur=2;nl=4").is_none());
+}
+
+#[test]
+fn edit_report_rejects_duplicate_newline_offsets() {
+    assert!(parsed_edit_report(b"P;odytty-edit;len=4;cur=2;nl=1,1").is_none());
+}
+
+#[test]
+fn edit_report_rejects_unordered_newline_offsets() {
+    assert!(parsed_edit_report(b"P;odytty-edit;len=4;cur=2;nl=2,1").is_none());
+}
+
+#[test]
+fn edit_report_preserves_ordered_and_omitted_newline_lists() {
+    let omitted = parsed_edit_report(b"P;odytty-edit;len=4;cur=2").unwrap();
+    assert_eq!((omitted.len, omitted.cur), (4, 2));
+    assert!(omitted.newlines.is_empty());
+    let ordered = parsed_edit_report(b"P;odytty-edit;len=4;cur=2;nl=0,2,3").unwrap();
+    assert_eq!(ordered.newlines, [0, 2, 3]);
+    assert!(parsed_edit_report(b"P;odytty-edit;len=4;cur=2;nl=").is_none());
+}
+
+#[test]
+fn malformed_edit_reports_invalidate_exact_geometry_until_valid_report() {
+    for malformed in [
+        "len=4;cur=4;nl=1;extra=7",
+        "len=4;cur=4;nl=1;nl=2",
+        "len=4;cur=4;nl=4",
+        "len=4;cur=4;nl=1,1",
+        "len=4;cur=4;nl=2,1",
+        "len=x;cur=4",
+        "len=4;cur=5",
+    ] {
+        let mut terminal = Terminal::new(20, 3);
+        terminal.advance(b"\x1b]133;A\x07$ \x1b]133;B\x07abcd");
+        terminal.advance(b"\x1b]133;P;odytty-edit;len=4;cur=4\x07");
+        let before = terminal.input_region().unwrap();
+        assert_eq!(
+            before.certainty,
+            crate::core::input_region::InputCertainty::Exact
+        );
+        terminal.advance(format!("\x1b]133;P;odytty-edit;{malformed}\x07").as_bytes());
+        let invalid = terminal.input_region().unwrap();
+        assert_eq!(
+            invalid.certainty,
+            crate::core::input_region::InputCertainty::Unknown,
+            "{malformed}"
+        );
+        assert!(invalid.row_spans.is_empty());
+        terminal.advance(b"\x1b]133;P;odytty-edit2;len=4;cur=4\x07");
+        assert_eq!(terminal.input_region().unwrap(), invalid);
+        terminal.advance(b"\x1b]133;P;odytty-edit;len=4;cur=4\x07");
+        assert_eq!(terminal.input_region().unwrap(), before);
+    }
+}
+
+#[test]
+fn unknown_edit_report_names_leave_exact_geometry_unchanged() {
+    let mut terminal = Terminal::new(20, 3);
+    terminal.advance(b"\x1b]133;A\x07$ \x1b]133;B\x07abcd");
+    terminal.advance(b"\x1b]133;P;odytty-edit;len=4;cur=4\x07");
+    let before = terminal.input_region().unwrap();
+    terminal.advance(b"\x1b]133;P;odytty-edit2;len=x;cur=4\x07");
+    assert_eq!(terminal.input_region().unwrap(), before);
+}
+
+#[test]
+fn malformed_edit_report_state_survives_alternate_screen_and_ends_at_prompt_boundary() {
+    let mut terminal = Terminal::new(20, 3);
+    terminal.advance(b"\x1b]133;A\x07$ \x1b]133;B\x07abcd");
+    terminal.advance(b"\x1b]133;P;odytty-edit;len=4;cur=4;nl=1,1\x07");
+    let invalid = terminal.input_region().unwrap();
+    assert_eq!(
+        invalid.certainty,
+        crate::core::input_region::InputCertainty::Unknown
+    );
+    terminal.advance(b"\x1b[?1049h\x1b[?1049l");
+    assert_eq!(terminal.input_region().unwrap(), invalid);
+    terminal.advance(b"\r\n\x1b]133;A\x07$ \x1b]133;B\x07abcd");
+    assert_eq!(
+        terminal.input_region().unwrap().certainty,
+        crate::core::input_region::InputCertainty::RightEdgeUnknown
+    );
+}

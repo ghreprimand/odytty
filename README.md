@@ -137,6 +137,7 @@ sessions.
   safety](docs/features.md#paste-safety), and [shell
   integration](docs/features.md#shell-integration) prompt and command-output
   actions, with [notifications](docs/notifications.md) and pane monitors.
+  Malformed edit reports disable prompt edits until geometry is known again.
 - **Workspaces and remote work:** tabs, panes, named workspaces, layouts,
   restore, [named launch profiles](docs/profiles.md), Unix detached sessions,
   an SSH connection manager, optional `tmux` persistence, and a searchable

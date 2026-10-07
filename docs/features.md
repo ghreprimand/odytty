@@ -1342,6 +1342,12 @@ OSC 133 prompt marks enable prompt jumps, deleting selected editable prompt
 input, command-status gutters, click-to-position support when the shell
 advertises it, and verified command-output actions.
 
+Malformed recognized edit-region reports disable selection-delete and
+click-to-position until a valid report or a new prompt boundary. Reports
+with extra fields, duplicate or unordered newline offsets, or an offset at
+the buffer end are refused. Unknown signal names remain ignored on all
+platforms.
+
 Shell integration is on by default. Newly spawned local `bash`, `zsh`, and
 `fish` shells load OdyTTY's wrapper after their normal shell config; the
 wrapper only adds prompt-mark hooks and never edits your rc files. Set

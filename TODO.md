@@ -125,6 +125,9 @@ claim acceptance on other platforms. The release notes are in
       and skip clipboard access when read-only input is refused, including
       primary paste, prefix passthrough, Clear Input, context-menu Cut,
       click-to-position, and selected-input deletion.
+- [x] Refuse malformed private edit-region reports, including duplicate or
+      unordered newline offsets and trailing fields, and suppress prompt
+      editing until valid metadata or a new prompt boundary arrives.
 - [x] Scrollback export as plain text and sanitized self-contained HTML
       from the command palette or terminal menu. It shares the command-output
       writer, cap, and native dialog, uses `[image]` placeholders, adds no application metadata

@@ -802,6 +802,13 @@ These are deliberately fail-safe: no boundary means no prompt-aware
 deletion, no advertised click support means no click-to-position, and stale local
 state is cleared rather than acted on speculatively.
 
+Recognized `OSC 133;P;odytty-edit` reports require exactly `len`, `cur`,
+and at most one `nl` field. Newline offsets must increase strictly and be
+less than `len`. Malformed reports invalidate editable geometry until a
+valid report or a prompt boundary arrives, so selection-delete and
+click-to-position send no edit bytes. Unknown signal names remain ignored.
+This parser behavior is shared by Linux, macOS, and Windows.
+
 ### Cursor Keys & Paste Pass-Through
 
 Cursor-key and paste handling is intentionally a thin pass-through, so the shell

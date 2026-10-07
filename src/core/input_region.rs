@@ -97,6 +97,14 @@ pub struct EditRegionSignal {
     pub newlines: Vec<usize>,
 }
 
+/// Admission state of the latest recognized edit report. Invalid reports
+/// suppress exact geometry until a valid report or prompt boundary arrives.
+#[derive(Clone, Debug)]
+pub(in crate::core) enum EditRegionReport {
+    Valid(EditRegionSignal),
+    Invalid,
+}
+
 /// Derive the live input region from stock screen state (B-DESIGN §2.3).
 ///
 /// * `rows` — the visible viewport rows (top to bottom).
@@ -437,9 +445,11 @@ fn walk_assignment(
 /// `parts` are the `;`-split parts after `133` (so `parts[0] == b"P"`).
 /// Malformed payloads, unknown signal names (versioning: a future
 /// `odytty-edit2` is ignored by this parser), and `cur > len` all return
-/// `None` — the caller leaves existing state untouched and never panics.
+/// `None`. The caller invalidates geometry for malformed recognized reports;
+/// unknown signal names leave existing state untouched.
 pub(in crate::core) fn parse_edit_region_osc(parts: &[&[u8]]) -> Option<EditRegionSignal> {
-    if parts.first().copied() != Some(b"P".as_slice())
+    if !(4..=5).contains(&parts.len())
+        || parts.first().copied() != Some(b"P".as_slice())
         || parts.get(1).copied() != Some(b"odytty-edit".as_slice())
     {
         return None;
@@ -456,7 +466,7 @@ pub(in crate::core) fn parse_edit_region_osc(parts: &[&[u8]]) -> Option<EditRegi
             let mut offsets = Vec::new();
             for entry in list.split(|&b| b == b',') {
                 let offset = parse_usize_ascii(entry)?;
-                if offset > len {
+                if offset >= len || offsets.last().is_some_and(|previous| *previous >= offset) {
                     return None;
                 }
                 offsets.push(offset);

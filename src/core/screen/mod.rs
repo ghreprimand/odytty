@@ -429,7 +429,7 @@ pub struct Screen {
     /// lifecycle as `active_prompt_input_start` (cleared by `A`/`C`/`D` and
     /// reset); consumed by [`Screen::input_region`] to make the input region's
     /// right edge exact. `None` until a shell emits the private OSC.
-    active_edit_region: Option<super::input_region::EditRegionSignal>,
+    active_edit_region: Option<super::input_region::EditRegionReport>,
     /// Active OSC 133 `A` prompt-start boundary and whether its logical line is
     /// safe for the live-prompt collapse used during width-changing resize.
     active_prompt_start: Option<ActivePromptStart>,
@@ -512,7 +512,7 @@ struct StoredScreen {
     active_prompt_input_start: Option<ActivePromptInputStart>,
     /// Private edit-region report saved with the primary buffer (same
     /// isolation rationale as `active_prompt_input_start`).
-    active_edit_region: Option<super::input_region::EditRegionSignal>,
+    active_edit_region: Option<super::input_region::EditRegionReport>,
     /// OSC 133 `A` prompt-start anchor saved with the primary buffer.
     active_prompt_start: Option<ActivePromptStart>,
 }
@@ -634,11 +634,18 @@ impl Screen {
         // B-DESIGN §3.1): a cooperating shell's line editor publishing its
         // authoritative buffer length + cursor on every redraw. Pure advisory
         // state for [`Self::input_region`]; no grid write, no mark stamping.
-        // A malformed payload (or an unknown/versioned signal name) is ignored
-        // and leaves existing state untouched.
+        // Malformed recognized reports invalidate exact geometry. Unknown or
+        // versioned signal names leave existing state untouched.
         if code == Some(b'P') {
-            if let Some(signal) = super::input_region::parse_edit_region_osc(parts) {
-                self.active_edit_region = Some(signal);
+            if parts.first().copied() == Some(b"P".as_slice())
+                && parts.get(1).copied() == Some(b"odytty-edit".as_slice())
+            {
+                use super::input_region::{EditRegionReport, parse_edit_region_osc};
+                self.active_edit_region = Some(
+                    parse_edit_region_osc(parts)
+                        .map(EditRegionReport::Valid)
+                        .unwrap_or(EditRegionReport::Invalid),
+                );
                 return;
             }
             // OdyTTY-private button run (`133;P;odytty-button;…`, Button
