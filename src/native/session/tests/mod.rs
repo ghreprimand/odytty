@@ -33,6 +33,7 @@ mod persistence;
 mod presentation;
 mod reparent;
 mod resize_retry;
+mod scrollback_trim;
 mod stable_identity;
 mod transport;
 mod window_merge;

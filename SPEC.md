@@ -956,6 +956,20 @@ sequence, protocol, or activity heuristic; the marker coexists with the
 remote-binding badge and clears only through the already-defined tab and
 workspace viewing semantics.
 
+### Scrollback Front Eviction
+
+When history reaches its cap, new output advances a scrolled pane's offset
+by the number of physical rows pushed, preserving the viewed text until it is
+evicted. The view then pins at the oldest retained row. Live views remain at
+the bottom. The saved search-return offset follows the same anchor, while an
+open search retains its query and options. Search matches are discarded and refreshed
+against the new row origin. A command-scoped search keeps its revision guard
+and cannot widen after eviction.
+Stale selection, hover spans, button presses, hints and copy-mode coordinates
+are cleared. Eviction does not reset visible-row fade state. Grid reflow keeps
+its existing full layout reset. The same bookkeeping applies on Linux Wayland,
+Linux X11, macOS and Windows, and to background panes.
+
 ### IME Composition
 
 IME input is enabled at window creation (`Window::set_ime_allowed(true)`) so

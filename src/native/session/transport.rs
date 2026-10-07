@@ -464,6 +464,9 @@ impl Session {
             .lock()
             .map(|terminal| terminal.scrollback_trim_epoch())
             .unwrap_or(0);
+        let last_scrollback_pushes = crate::native::lock_recover(&terminal)
+            .screen()
+            .pushed_row_count();
         Self {
             id,
             terminal,
@@ -519,6 +522,7 @@ impl Session {
             copy_mode: None,
             search_restore_viewport: None,
             last_scrollback_len: 0,
+            last_scrollback_pushes,
             last_scrollback_trim_epoch,
             cursor_blink: CursorBlinkState::new(crate::native::app::CURSOR_BLINK_INTERVAL),
             cursor_anim_alpha: 1.0,

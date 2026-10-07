@@ -96,6 +96,15 @@ impl SearchUi {
         self.refreshed_generation = None;
     }
 
+    /// Eviction invalidates absolute matches, but keeps the query and options.
+    /// A scoped search retains its revision guard, so it cannot silently widen
+    /// to unrelated command output after the origin moves.
+    pub(super) fn invalidate_for_trim(&mut self) {
+        self.matches.clear();
+        self.current = None;
+        self.refreshed_generation = None;
+    }
+
     pub(super) fn reset_for_reflow(&mut self) {
         self.close();
     }

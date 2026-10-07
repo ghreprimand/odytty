@@ -204,6 +204,8 @@ pub(in crate::native) struct Session {
     pub(in crate::native) copy_mode: Option<CopyModeState>,
     pub(in crate::native) search_restore_viewport: Option<usize>,
     pub(in crate::native) last_scrollback_len: usize,
+    /// Physical output-row baseline, shared by rendering and trim reconciliation.
+    pub(in crate::native) last_scrollback_pushes: u64,
     /// Last scrollback front-trim epoch reconciled into absolute-coordinate UI
     /// state. A mismatch means row zero moved and stale selections cannot be
     /// trusted to name the same bytes.

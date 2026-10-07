@@ -691,20 +691,21 @@ mod tests {
         // Scroll the active pane back into history and record its baseline.
         app.viewport.scroll_up(5, 100);
         app.last_scrollback_len = 100;
+        app.last_scrollback_pushes = 100;
         assert_eq!(app.viewport.offset(), 5);
         // 10 rows of new output arrive while scrolled back: the pane stays pinned
         // to the same absolute rows (offset += delta) and the baseline advances.
-        let offset = app.anchor_viewport_for_render(110);
+        let offset = app.anchor_viewport_for_render(110, 110);
         assert_eq!(offset, 15, "stayed scrolled: 5 + 10 new rows");
         assert_eq!(app.last_scrollback_len, 110, "baseline advanced");
         // No further growth on the next rebuild: no movement, no accrued jump.
-        let offset2 = app.anchor_viewport_for_render(110);
+        let offset2 = app.anchor_viewport_for_render(110, 110);
         assert_eq!(offset2, 15);
         assert_eq!(app.last_scrollback_len, 110);
         // Back at the live tail, fresh output is NOT anchored (appears at the
         // bottom immediately), but the baseline still tracks.
         app.viewport.reset_to_live();
-        let live = app.anchor_viewport_for_render(130);
+        let live = app.anchor_viewport_for_render(130, 130);
         assert_eq!(live, 0, "live tail: new output is not anchored");
         assert_eq!(app.last_scrollback_len, 130);
     }

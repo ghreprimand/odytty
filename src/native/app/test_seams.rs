@@ -2078,15 +2078,20 @@ impl App {
 
     /// Test seam: run one active-pane render frame's viewport anchor exactly as
     /// the single-pane RedrawRequested path does (read the active terminal's
-    /// scrollback length, then `anchor_viewport_for_render`), returning the
+    /// scrollback length and push count, then `anchor_viewport_for_render`),
+    /// returning the
     /// resolved offset. GPU-free slice of the real render loop, so a viewport
     /// regression can drive the production anchor without a window.
     #[cfg(test)]
     pub(in crate::native) fn anchor_viewport_for_render_frame_for_test(&mut self) -> usize {
-        let scrollback_len = crate::native::lock_recover(&self.terminal)
-            .screen()
-            .scrollback_len();
-        self.anchor_viewport_for_render(scrollback_len)
+        let (scrollback_len, pushed_rows) = {
+            let terminal = crate::native::lock_recover(&self.terminal);
+            (
+                terminal.screen().scrollback_len(),
+                terminal.screen().pushed_row_count(),
+            )
+        };
+        self.anchor_viewport_for_render(scrollback_len, pushed_rows)
     }
 
     /// Test seam: the active session's scrollback-growth baseline

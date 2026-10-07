@@ -179,3 +179,29 @@ fn wide_padding_is_omitted_from_actual_selection_copy() {
         assert_eq!(app.selection_text_for_test().as_deref(), Some(text));
     }
 }
+
+#[test]
+fn trim_output_copy_path_keeps_scrolled_view_and_open_search() {
+    let settings = Settings {
+        scrollback_lines: 4.0,
+        ..Default::default()
+    };
+    let (mut app, terminal) =
+        headless_app_with(NativeOptions::default(), Dimensions::new(20, 8), settings);
+    for _ in 0..16 {
+        terminal.lock().expect("terminal").advance(b"match\r\n");
+    }
+    // Establish the existing history before choosing a viewport or selection.
+    assert!(app.copy_shortcut_text_for_test().is_none());
+    app.anchor_viewport_for_render_frame_for_test();
+    app.scroll_up_for_test(2);
+    app.drive_search_for_test("match");
+    app.set_selection_range_for_test(0, 0, 0, 4);
+    assert!(app.selection_text_for_test().is_some());
+    terminal.lock().expect("terminal").advance(b"new\r\n");
+    assert!(app.copy_shortcut_text_for_test().is_none());
+    assert_eq!(app.viewport_offset_for_test(), 3);
+    assert!(app.search_open_for_test());
+    assert_eq!(app.search_query_for_test(), "match");
+    assert_eq!(app.search_match_count_for_test(), 0);
+}

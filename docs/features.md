@@ -1198,6 +1198,14 @@ action through Settings → Input, in the **Key bindings** row, or `keybinds`:
 keybinds = ctrl+alt+p=command-palette
 ```
 
+At the scrollback limit, new output keeps the viewed text in place until it
+is evicted, then pins the view at the oldest retained row. An open search query
+survives and its saved return position follows the same anchor. If history
+shrinks, the offset is clamped. Matches refresh for the surviving text; a command-scoped
+search remains restricted to its original revision. Selection, hover targets,
+hints and copy mode clear when eviction invalidates their row coordinates.
+Resizing still resets the layout-dependent state.
+
 ### Summon A Quick Terminal
 
 `quick_terminal` is off by default. When on, OdyTTY keeps a dedicated summonable

@@ -870,7 +870,8 @@ impl App {
             // split or background pane stays pinned to its absolute rows instead
             // of sliding under fresh output, and its baseline stays current so
             // collapsing the split back to a single pane applies no jump.
-            let offset = session.anchor_viewport_for_render(scrollback_len);
+            let offset = session
+                .anchor_viewport_for_render(scrollback_len, terminal.screen().pushed_row_count());
             // SCROLL-GLIDE (per-pane): advance THIS pane's follower one frame
             // toward its just-anchored offset and snapshot at the FLOORED
             // follower row. The sub-row remainder (`scroll_frac_offset`) is baked

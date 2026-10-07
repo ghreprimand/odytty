@@ -160,11 +160,24 @@ impl Session {
     /// scrolled-back pane (foreground, background split, or the focused pane of
     /// a split tab) stays pinned to the same absolute rows as fresh PTY output
     /// arrives, and the baseline stays current so collapsing a split back to a
-    /// single pane applies no accumulated jump. A no-op at the live tail
-    /// (offset 0) and when nothing grew.
-    pub(in crate::native) fn anchor_viewport_for_render(&mut self, scrollback_len: usize) -> usize {
-        let added = scrollback_len.saturating_sub(self.last_scrollback_len);
+    /// single pane applies no accumulated jump. The physical push count also
+    /// anchors output while retained history is capped. Trim reconciliation
+    /// consumes the same baseline, so a render cannot count those rows twice.
+    /// The live tail (offset 0) stays live.
+    pub(in crate::native) fn anchor_viewport_for_render(
+        &mut self,
+        scrollback_len: usize,
+        pushed_rows: u64,
+    ) -> usize {
+        let added = usize::try_from(pushed_rows.saturating_sub(self.last_scrollback_pushes))
+            .unwrap_or(usize::MAX);
         self.viewport.anchor_after_growth(added, scrollback_len);
+        if let Some(offset) = &mut self.search_restore_viewport
+            && *offset > 0
+        {
+            *offset = offset.saturating_add(added).min(scrollback_len);
+        }
+        self.last_scrollback_pushes = pushed_rows;
         self.last_scrollback_len = scrollback_len;
         self.viewport.clamp(scrollback_len);
         self.viewport.offset()
@@ -207,23 +220,8 @@ impl Session {
         self.synchronized_output_hold.clear();
     }
 
-    /// Clear every piece of UI state whose coordinates are tied to the row /
-    /// scrollback layout, so a reflow never leaves a selection, hover span,
-    /// search match, hint label, or copy-mode caret pointing at cells the text
-    /// no longer occupies.
-    ///
-    /// Run for EVERY session a resize reflows, not just the active one (NF21-3):
-    /// [`WorkspaceSet::resize_all_panes`] reflows every tab's panes, but the clear that
-    /// followed it in `App::apply_grid_resize` went through `Deref` = the ACTIVE
-    /// session only. A background tab that crossed the reflow keeping stale
-    /// absolute-row coordinates would, on switch-back, highlight the wrong text
-    /// and copy the wrong bytes. The field set and order match that former
-    /// active-only block exactly, so the active-tab path stays byte-identical.
-    pub(in crate::native) fn invalidate_layout_dependent_state(&mut self) {
-        // Output fades belong to the old row layout, including width-only reflow.
-        self.row_fade_starts.clear();
-        self.row_fade_dimensions = None;
-        self.row_fade_next_frame = None;
+    /// Drop coordinates that no longer name the same retained text.
+    fn clear_absolute_coordinate_state(&mut self) {
         self.selection.clear();
         self.selection_block = false;
         self.pointer_drag = PointerDrag::None;
@@ -231,35 +229,42 @@ impl Session {
         self.last_selection_autoscroll = None;
         self.report_button = None;
         self.swallow_open_left_release = false;
-        // B3: a reflow strands the latched press's viewport coordinates; the
-        // same-span release check would misfire against re-wrapped rows.
+        // A moved row origin makes the latched button hit unsafe to reuse.
         self.pressed_button = None;
         self.pointer_cell = None;
         self.pointer_px = None;
         self.hovered_hyperlink = None;
         self.hovered_path = None;
-        // UX-A (Phase 11): drop the armed-underline span alongside the hovered
-        // path it mirrors; a reflow makes its old row coords stale.
         self.hovered_path_cells = None;
-        // INTERACTIVE-URLS: drop the hovered-URL span too; its row coords are
-        // equally stale after a reflow.
         self.hovered_url = None;
         self.hovered_url_cells = None;
-        // Reflow changes the row/scrollback layout; return to the live bottom so
-        // the offset is never stale against the new geometry.
+        self.hints = None;
+        self.copy_mode = None;
+    }
+
+    /// A reflow replaces the row layout, so its viewport, overlays and fades
+    /// must restart for every resized session, including background panes.
+    pub(in crate::native) fn invalidate_layout_dependent_state(&mut self) {
+        self.row_fade_starts.clear();
+        self.row_fade_dimensions = None;
+        self.row_fade_next_frame = None;
+        self.clear_absolute_coordinate_state();
         self.viewport.reset_to_live();
-        // Search closes because its absolute row matches were computed against
-        // the old layout.
         self.search.reset_for_reflow();
         self.search_restore_viewport = None;
-        // HINTS label spans are absolute rows against the old layout; a reflow
-        // makes them stale, so close the modal.
-        self.hints = None;
-        // COPY-MODE (C13): the caret + selection anchor are absolute-buffer
-        // coords computed against the old scrollback/row layout; a reflow
-        // re-wraps those rows and leaves them stale. Close the modal alongside
-        // the other absolute-row overlays.
-        self.copy_mode = None;
+    }
+
+    /// Front eviction moves the absolute row origin without replacing the
+    /// visible grid. Anchor retained text before dropping stale coordinates.
+    fn reconcile_scrollback_trim(&mut self, scrollback_len: usize, pushed_rows: u64) {
+        self.anchor_viewport_for_render(scrollback_len, pushed_rows);
+        self.clear_absolute_coordinate_state();
+        self.search.invalidate_for_trim();
+        self.viewport.clamp(scrollback_len);
+        if let Some(offset) = &mut self.search_restore_viewport {
+            *offset = (*offset).min(scrollback_len);
+        }
+        self.needs_rebuild = true;
     }
 
     /// Drop the transient pointer-input latches so an active-session change
@@ -385,9 +390,19 @@ impl WorkspaceSet {
     /// this at the start of each redraw before clipboard requests or painting.
     pub(in crate::native) fn reconcile_scrollback_trims(&mut self) {
         for session in self.sessions.values_mut() {
-            let epoch = crate::native::lock_recover(&session.terminal).scrollback_trim_epoch();
-            if epoch != session.last_scrollback_trim_epoch {
-                session.invalidate_layout_dependent_state();
+            let trim = {
+                let terminal = crate::native::lock_recover(&session.terminal);
+                let epoch = terminal.scrollback_trim_epoch();
+                (epoch != session.last_scrollback_trim_epoch).then(|| {
+                    (
+                        epoch,
+                        terminal.screen().scrollback_len(),
+                        terminal.screen().pushed_row_count(),
+                    )
+                })
+            };
+            if let Some((epoch, scrollback_len, pushed_rows)) = trim {
+                session.reconcile_scrollback_trim(scrollback_len, pushed_rows);
                 session.last_scrollback_trim_epoch = epoch;
             }
         }
@@ -409,13 +424,13 @@ impl WorkspaceSet {
         }
     }
 
-    /// Reconcile the scrollback-growth baseline (`last_scrollback_len`) of every
-    /// pane of the active tab to its terminal's current scrollback length,
+    /// Reconcile the scrollback length and physical push baselines of every
+    /// pane of the active tab to its terminal's current output state,
     /// WITHOUT anchoring the viewport. Called on activation (tab / workspace
     /// switch): a tab keeps producing output while it is backgrounded, but it is
-    /// not rendered, so `anchor_viewport_for_render` never runs and its baseline
-    /// freezes at the length from its last on-screen frame. Without this, the
-    /// first render after switching back computes `added = current - stale`
+    /// not rendered. Without an eviction to reconcile, its push baseline can
+    /// freeze at the count from its last on-screen frame. Without this, the
+    /// first render after switching back counts the accumulated row pushes
     /// (all the backgrounded growth at once) and `anchor_after_growth` yanks a
     /// scrolled-up viewport toward the top of scrollback, stranding fresh output
     /// offscreen below — the user returns to a tab "stuck scrolled up" with new
@@ -434,10 +449,9 @@ impl WorkspaceSet {
         };
         for token in tab.layout.leaves() {
             if let Some(session) = self.sessions.get_mut(&token) {
-                let len = crate::native::lock_recover(&session.terminal)
-                    .screen()
-                    .scrollback_len();
-                session.last_scrollback_len = len;
+                let terminal = crate::native::lock_recover(&session.terminal);
+                session.last_scrollback_len = terminal.screen().scrollback_len();
+                session.last_scrollback_pushes = terminal.screen().pushed_row_count();
             }
         }
     }
