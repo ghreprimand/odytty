@@ -210,3 +210,24 @@ fn osc_palette_set_query_and_resets() {
     assert_eq!(colors.palette_color(1), None);
     assert_eq!(colors.palette_color(2), None);
 }
+
+#[test]
+fn osc52_rejects_noncanonical_base64_without_clipboard_requests() {
+    let mut terminal = Terminal::new(10, 2);
+    for payload in ["TWFuA", "TR==", "TQ="] {
+        terminal.advance(&osc52("c", payload));
+        assert!(
+            terminal.take_clipboard_requests().is_empty(),
+            "tail must be valid"
+        );
+        assert!(terminal.take_host_output().is_empty());
+    }
+    terminal.advance(&osc52("c", "TQ=="));
+    assert_eq!(
+        terminal.take_clipboard_requests(),
+        vec![ClipboardRequest::Write {
+            selection: ClipboardSelection::Clipboard,
+            text: "M".to_owned(),
+        }]
+    );
+}

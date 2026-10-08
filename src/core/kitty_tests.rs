@@ -1352,3 +1352,56 @@ fn kitty_repeated_number_creates_a_second_image_and_resolves_newest() {
         "the number must resolve to the most recently transmitted image"
     );
 }
+
+#[test]
+fn base64_decoder_reserve_obeys_the_decoded_limit() {
+    let bytes = super::kitty::test_decode_base64(b"TQ==", 1).unwrap();
+    assert_eq!(bytes, b"M");
+    assert!(bytes.capacity() <= 1, "reserve must obey the decoded cap");
+    assert!(super::kitty::test_decode_base64(b"TWE=", 1).is_err());
+    assert!(super::kitty::test_decode_base64(b"TQ==", 0).is_err());
+    assert!(super::kitty::test_decode_base64(b"", 0).unwrap().is_empty());
+}
+
+#[test]
+fn base64_decoder_rejects_a_lone_trailing_sextet() {
+    for payload in [b"A".as_slice(), b"TWFuA"] {
+        assert!(super::kitty::test_decode_base64(payload, 16).is_err());
+    }
+}
+
+#[test]
+fn base64_decoder_rejects_nonzero_unused_tail_bits() {
+    for payload in [b"TR".as_slice(), b"TR==", b"TWF", b"TWF="] {
+        assert!(super::kitty::test_decode_base64(payload, 16).is_err());
+    }
+    for payload in [b"TQ".as_slice(), b"TQ=="] {
+        assert_eq!(super::kitty::test_decode_base64(payload, 1).unwrap(), b"M");
+    }
+    for payload in [b"TWE".as_slice(), b"TWE="] {
+        assert_eq!(super::kitty::test_decode_base64(payload, 2).unwrap(), b"Ma");
+    }
+}
+
+#[test]
+fn base64_decoder_rejects_padding_that_does_not_match_the_tail() {
+    for payload in [b"=".as_slice(), b"==", b"TQ=", b"TWE==", b"TWFu="] {
+        assert!(super::kitty::test_decode_base64(payload, 16).is_err());
+    }
+}
+
+#[test]
+fn kitty_raw_image_rejects_noncanonical_base64_tail_through_parser() {
+    let mut control = Terminal::new(4, 2);
+    control.advance(b"\x1b_Gf=32,a=T,t=d,s=1,v=1,i=1;/wAA/w==\x1b\\");
+    assert_eq!(control.visible_graphics(0).len(), 1);
+    let mut terminal = Terminal::new(4, 2);
+    terminal.advance(b"\x1b_Gf=32,a=T,t=d,s=1,v=1,i=1;/wAA/x==\x1b\\");
+    assert!(terminal.visible_graphics(0).is_empty());
+    assert!(
+        terminal
+            .take_host_output()
+            .windows(b"invalid-payload".len())
+            .any(|s| s == b"invalid-payload")
+    );
+}

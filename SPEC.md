@@ -592,6 +592,10 @@ an explicit queue. Selectors `c` and `p` target the regular clipboard and
 PRIMARY selection; an empty selector defaults to the regular clipboard. Decoded
 payloads are capped at 64 KiB and invalid base64 or non-UTF-8 payloads are
 dropped without grid leakage or a host reply.
+The shared Kitty, iTerm2, and OSC 52 base64 decoder bounds its initial reserve
+and each append by the decoded limit. Valid padded and unpadded tails remain
+accepted; lone trailing sextets, nonzero unused bits, and mismatched padding
+are rejected on Linux Wayland, Linux X11, macOS, and Windows.
 
 Writes use the `osc52_write` policy (`ask` by default; `on` or `off` available)
 at the native authority boundary. Every permitted write must originate from the

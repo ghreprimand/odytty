@@ -455,3 +455,21 @@ fn iterm2_zero_length_payload_is_rejected() {
     t.advance(b"\x1b]1337;File=inline=1:\x07");
     assert!(t.visible_graphics(0).is_empty());
 }
+
+#[test]
+fn iterm2_rejects_lone_base64_sextet_after_a_complete_image() {
+    let mut png = png_rgba(2, 2);
+    // Container decoders allow trailing bytes; align the valid control to a
+    // complete base64 group so the added sextet decodes no additional byte.
+    while !png.len().is_multiple_of(3) {
+        png.push(0);
+    }
+    let encoded = b64(&png);
+    let mut control = Terminal::new(40, 12);
+    control.advance(format!("\x1b]1337;File=inline=1:{encoded}\x07").as_bytes());
+    assert_eq!(control.visible_graphics(0).len(), 1);
+    let mut terminal = Terminal::new(40, 12);
+    terminal.advance(format!("\x1b]1337;File=inline=1:{encoded}A\x07").as_bytes());
+    assert!(terminal.visible_graphics(0).is_empty());
+    assert_cursor(&terminal, 0, 0);
+}

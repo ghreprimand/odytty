@@ -1170,6 +1170,9 @@ a floor; surpassing it is the standing ambition.
       with caps, image/placement ids, Kitty OK/error responses via the
       host-output seam, cursor policy (`C=1`), quiet mode, and deterministic
       protocol fixtures including robustness cases.
+  - [x] Shared Kitty, iTerm2, and OSC 52 base64 decoding caps its reserve and
+        byte appends, and rejects lone sextets, nonzero tail bits, and
+        mismatched padding while preserving valid unpadded payloads.
   - [x] PNG (`f=100`) payload decode via a constrained direct `png`
         crate dependency; header-level cap checks, RGBA8 normalization, chunked
         PNG fixtures, and explicit malformed/oversized/dimension-mismatch

@@ -69,6 +69,13 @@ container formats.
 | `t` | Temp file - like `f`, deleted after read | ✅ with security restrictions |
 | `s` | POSIX shared memory - payload is a base64-encoded segment name | ✅ on Unix; rejected as unsupported on Windows |
 
+Base64 payloads accept padded and unpadded canonical tails. A lone trailing
+sextet, nonzero unused tail bits, and mismatched padding are rejected. The
+initial allocation and each decoded-byte append are bounded by the transport's
+decoded limit, including the 4,096-byte path and shared-memory name limit.
+The same decoder validates iTerm2 image payloads and OSC 52 clipboard text.
+These rules apply on Linux Wayland, Linux X11, macOS, and Windows.
+
 ### Chunked transfer
 
 Large payloads can be split across multiple APC commands using `m=1` (more

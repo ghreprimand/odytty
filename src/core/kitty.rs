@@ -1526,7 +1526,9 @@ fn parse_char(value: &str) -> Option<char> {
 }
 
 fn decode_base64(input: &[u8], max_decoded: usize) -> Result<Vec<u8>, KittyError> {
-    let mut out = Vec::with_capacity(input.len().saturating_mul(3) / 4);
+    // Named transports can carry large encoded input with a small decoded cap.
+    // Bound the reserve as well as each append, including padded inputs.
+    let mut out = Vec::with_capacity((input.len().saturating_mul(3) / 4).min(max_decoded));
     let mut accumulator = 0u32;
     let mut bits = 0u8;
     let mut padding = 0u8;
@@ -1547,14 +1549,20 @@ fn decode_base64(input: &[u8], max_decoded: usize) -> Result<Vec<u8>, KittyError
         bits += 6;
         while bits >= 8 {
             bits -= 8;
-            out.push(((accumulator >> bits) & 0xff) as u8);
-            if out.len() > max_decoded {
+            if out.len() >= max_decoded {
                 return Err(KittyError::PayloadTooLarge);
             }
+            out.push(((accumulator >> bits) & 0xff) as u8);
             accumulator &= (1u32 << bits) - 1;
         }
     }
 
+    // Unpadded tails of two or three sextets are permitted, but a lone sextet
+    // cannot encode a byte. Unused bits must be zero and padding, when present,
+    // must match the tail rather than silently discard malformed input.
+    if bits == 6 || accumulator != 0 || !matches!((padding, bits), (0, _) | (1, 2) | (2, 4)) {
+        return Err(KittyError::InvalidPayload);
+    }
     Ok(out)
 }
 

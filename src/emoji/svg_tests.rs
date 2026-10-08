@@ -578,3 +578,19 @@ fn a_root_glyph_is_held_to_the_same_raster_budget() {
         "fifteen layers render"
     );
 }
+
+#[test]
+fn extreme_turbulence_is_refused_before_conversion_and_rasterization() {
+    let document = format!(
+        r#"{SVG_OPEN}<filter id="f"><feTurbulence numOctaves="4294967295" stitchTiles="stitch"/></filter><g id="glyph1" filter="url(#f)">{RED_RECT}</g></svg>"#
+    );
+    // Assert the parse-boundary refusal before invoking the color entry point.
+    // If the guard regresses, fail here without entering the hostile renderer.
+    assert!(!parsed_within_limits(document.as_bytes()));
+    assert!(
+        super::render(&document_table(&document), 1, 16, 16).is_none(),
+        "refused SVG leaves the monochrome path available"
+    );
+    let control = format!(r#"{SVG_OPEN}<g id="glyph1">{RED_RECT}</g></svg>"#);
+    assert!(super::render(&document_table(&control), 1, 16, 16).is_some());
+}
