@@ -216,3 +216,64 @@ fn new_window_chord_is_idempotent_while_a_request_is_pending() {
     let _ = app.take_new_window_request_for_test();
     assert!(!app.has_pending_new_window_for_test());
 }
+
+#[test]
+fn reload_conflict_prompt_survives_real_input_and_cancel() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let mut app = build_app().expect("headless App");
+    app.open_key_bindings_overlay_for_test();
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    app.drive_overlay_key_for_test(WinitKey::Character("p".into()), true, true);
+    assert!(app.overlay_capturing_chord_for_test());
+    let before = app.overlay_signature_for_test();
+    app.apply_reloaded_settings_for_test(Settings {
+        window_opacity: 55.0,
+        ..Settings::default()
+    });
+    let rendered = app.render_overlay_rows_for_test(120, 40).join("\n");
+    assert!(rendered.contains("reassign to"), "{rendered}");
+    assert!(rendered.contains("[Enter] yes  [Esc] no"), "{rendered}");
+    assert!(rendered.contains("Configuration reloaded"), "{rendered}");
+    assert_ne!(app.overlay_signature_for_test(), before);
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Escape), false, false);
+    assert!(!app.overlay_capturing_chord_for_test());
+    assert!(app.overlay_open_for_test());
+    assert_eq!(
+        app.live_action_for_chord_for_test(&WinitKey::Character("p".into()), true, true),
+        Some(BindableAction::CommandPalette)
+    );
+}
+
+#[test]
+fn reload_close_prompt_survives_real_input_and_cancel() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let mut app = build_app().expect("headless App");
+    app.open_key_bindings_overlay_for_test();
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    app.drive_overlay_key_for_test(WinitKey::Character("j".into()), true, true);
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Escape), false, false);
+    app.apply_reloaded_settings_for_test(Settings::default());
+    let rendered = app.render_overlay_rows_for_test(120, 40).join("\n");
+    assert!(
+        rendered.contains("Unsaved keybinding changes."),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("[S] save  [D] discard  [C] keep editing"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("Configuration reloaded"), "{rendered}");
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Escape), false, false);
+    assert!(app.overlay_open_for_test());
+    assert!(
+        !app.render_overlay_rows_for_test(120, 40)
+            .join("\n")
+            .contains("Unsaved keybinding changes.")
+    );
+    assert!(
+        app.render_overlay_rows_for_test(120, 40)
+            .join("\n")
+            .contains("ctrl+shift+j *"),
+        "the unsaved editor binding survives cancellation"
+    );
+}

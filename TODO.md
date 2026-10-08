@@ -1037,7 +1037,8 @@ not a stretch goal.
 - [x] Configuration reload preserves pending settings edits, open text buffers,
       and theme drafts while updating the clean baseline.
 - [x] Keybinding reload preserves accepted overrides and active capture, conflict,
-      and unsaved-close prompts while updating the discard baseline.
+      and unsaved-close prompts while updating the discard baseline. Questions and
+      controls remain visible alongside reload notices, including theme text entry.
 - [x] Atomic settings writeback.
   - [x] `Ctrl+S` in the settings panel persists the live-applied diff to the
         same `odytty.conf` path used by startup/live reload.

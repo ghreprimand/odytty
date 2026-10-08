@@ -193,11 +193,7 @@ impl KeyRemapUi {
     fn request_close(&mut self) -> KeyRemapOutcome {
         if self.is_dirty() {
             self.pending_close_prompt = true;
-            // The choices go on their own line, as in the conflict prompt, so
-            // they are never the part a narrow modal cuts off.
-            self.message = Some(
-                "Unsaved keybinding changes.\n[S] save  [D] discard  [C] keep editing".to_owned(),
-            );
+            self.message = self.modal_prompt();
             KeyRemapOutcome::Consumed
         } else {
             KeyRemapOutcome::Cancel(self.base.clone())
@@ -255,14 +251,36 @@ impl KeyRemapUi {
             .min(ACTIONS.len().saturating_sub(capacity))
     }
 
+    /// Questions and controls come from modal state; transient feedback follows.
+    fn modal_prompt(&self) -> Option<String> {
+        if self.pending_close_prompt {
+            return Some(
+                "Unsaved keybinding changes.\n[S] save  [D] discard  [C] keep editing".to_owned(),
+            );
+        }
+        self.conflict.as_ref().map(|conflict| {
+            format!(
+                "{} is bound to {}, reassign to {}?\n[Enter] yes  [Esc] no",
+                format_key_chord(conflict.chord),
+                bindable_action_display_name(conflict.conflicts_with),
+                bindable_action_display_name(conflict.for_action),
+            )
+        })
+    }
+
     /// The message as display lines: each `\n` segment word-wrapped to `width`
     /// (left unwrapped while the width is unknown).
     fn message_lines(&self, width: usize) -> Vec<String> {
-        let Some(message) = &self.message else {
-            return Vec::new();
-        };
-        message
-            .lines()
+        let prompt = self.modal_prompt();
+        prompt
+            .as_deref()
+            .into_iter()
+            .chain(
+                self.message
+                    .as_deref()
+                    .filter(|message| Some(*message) != prompt.as_deref()),
+            )
+            .flat_map(str::lines)
             .flat_map(|line| {
                 // A line that fits is kept as written (hint spacing intact).
                 let wrapped = if width == 0 || line.chars().count() <= width {
@@ -445,16 +463,7 @@ impl KeyRemapUi {
                     for_action: action,
                     conflicts_with: other,
                 });
-                // The confirm/cancel key hints go on their OWN line so a narrow
-                // overlay never tail-truncates them off the end of the question
-                // (field use found the `[Enter]/[Esc]` tail clipped on normal
-                // window widths). `visible_lines` splits the message on `\n`.
-                self.message = Some(format!(
-                    "{} is bound to {} — reassign to {}?\n[Enter] yes  [Esc] no",
-                    format_key_chord(chord),
-                    bindable_action_display_name(other),
-                    bindable_action_display_name(action)
-                ));
+                self.message = self.modal_prompt();
                 KeyRemapOutcome::Consumed
             }
             None => self.commit_binding(action, chord),
@@ -590,7 +599,8 @@ impl KeyRemapUi {
             capture: self.capture.map(bindable_action_display_name),
             conflict: self.conflict.as_ref().map(|c| {
                 format!(
-                    "{}->{}",
+                    "{}:{}->{}",
+                    format_key_chord(c.chord),
                     bindable_action_display_name(c.conflicts_with),
                     bindable_action_display_name(c.for_action)
                 )
@@ -1407,5 +1417,53 @@ mod tests {
             panic!("conflict confirmation previews");
         };
         assert_eq!(settings.window_opacity, 55.0);
+    }
+    #[test]
+    fn reload_keeps_conflict_question_and_controls_visible() {
+        let mut ui = ui();
+        ui.handle_input(OverlayInput::Activate);
+        ui.deliver_chord(Some(char_chord(true, true, 'p')));
+        let before = ui.render_signature();
+        ui.refresh(&Settings::default());
+        let rendered = ui
+            .visible_lines(80, 30)
+            .into_iter()
+            .map(|line| line.text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("reassign to"), "{rendered}");
+        assert!(rendered.contains("[Enter] yes  [Esc] no"), "{rendered}");
+        assert!(rendered.contains("Configuration reloaded"), "{rendered}");
+        assert_ne!(ui.render_signature(), before);
+        ui.deliver_chord(Some(named(KeyBindingNamedKey::Escape)));
+        assert!(!ui.is_capturing_chord());
+        assert!(ui.overrides.is_empty());
+    }
+
+    #[test]
+    fn reload_keeps_dirty_close_question_and_choices_visible() {
+        let mut ui = ui();
+        ui.handle_input(OverlayInput::Activate);
+        ui.deliver_chord(Some(char_chord(true, true, 'j')));
+        ui.handle_input(OverlayInput::Close);
+        ui.refresh(&Settings::default());
+        let rendered = ui
+            .visible_lines(80, 30)
+            .into_iter()
+            .map(|line| line.text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains("Unsaved keybinding changes."),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("[S] save  [D] discard  [C] keep editing"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("Configuration reloaded"), "{rendered}");
+        ui.handle_input(OverlayInput::Close);
+        assert!(!ui.pending_close_prompt);
+        assert!(ui.is_dirty());
     }
 }

@@ -2095,3 +2095,25 @@ fn reload_keeps_conflicting_pending_value_and_accepts_external_baseline() {
     panel.commit_value("font_size", "30");
     assert_eq!(panel.edits.changed_count(), 0);
 }
+
+#[test]
+fn reload_keeps_settings_close_choices_visible() {
+    let mut panel = SettingsPanel::new(&Settings::default());
+    select_key(&mut panel, "synthetic_styles");
+    panel.handle_input(OverlayInput::Activate);
+    panel.handle_input(OverlayInput::Close);
+    panel.handle_input(OverlayInput::Close);
+    assert!(panel.pending_close_prompt);
+    panel.refresh(&Settings::default());
+    let rendered = panel
+        .visible_lines(80, 30)
+        .into_iter()
+        .map(|line| line.text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    for choice in ["[S] Save", "[D] Discard", "[C] Cancel"] {
+        assert!(rendered.contains(choice), "{rendered}");
+    }
+    panel.handle_input(OverlayInput::Char('c'));
+    assert!(!panel.pending_close_prompt);
+}

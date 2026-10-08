@@ -405,7 +405,9 @@ keybinds row, select an action, and press the new chord. Capture is via `Enter`
 after selecting a row; `Backspace` resets one row to its default; `R` resets all;
 binding a chord already in use prompts to reassign or cancel. Reassigning a pane
 key leaves the action that had it unbound. The selected row stays on screen as
-you move through the list, and long hints wrap to the editor width. The editor covers
+you move through the list, and long hints wrap to the editor width. Configuration
+reload keeps the reassign question and unsaved-close choices visible, with its
+notice on separate lines. The editor covers
 all bindable actions and writes the result back to `odytty.conf` byte-identically
 to a hand-typed entry.
 

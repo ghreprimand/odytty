@@ -435,6 +435,18 @@ impl ThemeBuilder {
             .collect()
     }
 
+    /// Active text-entry instructions are independent of transient feedback.
+    fn editing_prompt(&self) -> Option<String> {
+        self.editing.as_ref().map(|editing| match editing {
+            EditMode::Color { field, .. } => format!(
+                "Editing {}: type #rrggbb, Enter applies, Esc cancels.",
+                field.label(),
+            ),
+            EditMode::Name { .. } => "Save as: type a theme name, Enter writes .theme, Esc cancels.".to_owned(),
+            EditMode::Seed { .. } => "Generate from seed: type an accent #rrggbb, Enter authors a readable theme, Esc cancels.".to_owned(),
+        })
+    }
+
     /// The single source of truth for the builder body: emits each rendered line
     /// paired with its pointer hit zone. Both [`ThemeBuilder::visible_lines`] and
     /// [`ThemeBuilder::visible_hit_map`] project from this, so the rendered
@@ -527,9 +539,22 @@ impl ThemeBuilder {
             None,
         ));
 
-        // Transient status region: always exactly two rows (wrapped, then
-        // padded), so a status appearing, changing, or clearing never shifts
-        // the rows below it.
+        // Keep editing controls visible when feedback changes or reloads.
+        if let Some(prompt) = self.editing_prompt()
+            && self.message.as_deref() != Some(prompt.as_str())
+        {
+            for line in wrap_words(&prompt, body_width.saturating_sub(4)) {
+                if rows.len() >= body_height {
+                    rows.truncate(body_height);
+                    return rows;
+                }
+                rows.push(inert(format!("    {line}"), None));
+            }
+        }
+
+        // Transient feedback uses two wrapped, padded rows. Independent editing
+        // instructions above it may add rows; the remaining role capacity is
+        // computed from the complete header below.
         let status_rows: Vec<String> = self
             .message
             .as_deref()
@@ -747,18 +772,14 @@ impl ThemeBuilder {
             buffer: hex(color),
             replace_on_input: true,
         });
-        self.message = Some(format!(
-            "Editing {}: type #rrggbb, Enter applies, Esc cancels.",
-            field.label()
-        ));
+        self.message = self.editing_prompt();
     }
 
     fn begin_name_edit(&mut self) {
         self.editing = Some(EditMode::Name {
             buffer: self.spec.name.clone(),
         });
-        self.message =
-            Some("Save as: type a theme name, Enter writes .theme, Esc cancels.".to_owned());
+        self.message = self.editing_prompt();
     }
 
     /// Begin seed-entry for contrast-aware generation (U3): pre-fill the buffer
@@ -768,10 +789,7 @@ impl ThemeBuilder {
         self.editing = Some(EditMode::Seed {
             buffer: hex(self.spec.cursor),
         });
-        self.message = Some(
-            "Generate from seed: type an accent #rrggbb, Enter authors a readable theme, Esc cancels."
-                .to_owned(),
-        );
+        self.message = self.editing_prompt();
     }
 
     /// Author a complete theme from a single seed accent (U3): hand the seed,

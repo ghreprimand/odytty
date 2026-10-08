@@ -889,3 +889,28 @@ fn reload_preserves_open_theme_text_edit_and_rebases_cancel_theme() {
         ThemeBuilderOutcome::Cancel(Theme::PLAIN)
     );
 }
+
+#[test]
+fn reload_keeps_theme_edit_instructions_visible() {
+    for input in [
+        OverlayInput::Activate,
+        OverlayInput::Save,
+        OverlayInput::Char('g'),
+    ] {
+        let mut builder = ThemeBuilder::new(&Settings::default());
+        builder.handle_input(input);
+        assert!(builder.editing.is_some());
+        builder.refresh(&Settings::default());
+        let rendered = builder
+            .visible_lines(80, 80)
+            .into_iter()
+            .map(|line| line.text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("Enter"), "{rendered}");
+        assert!(rendered.contains("Esc cancels"), "{rendered}");
+        assert!(rendered.contains("Configuration reloaded"), "{rendered}");
+        builder.handle_input(OverlayInput::Close);
+        assert!(builder.editing.is_none());
+    }
+}

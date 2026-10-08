@@ -250,3 +250,26 @@ fn config_reload_preserves_theme_draft_after_overlay_input() {
         draft
     );
 }
+
+#[test]
+fn reload_theme_name_prompt_survives_real_input_and_cancel() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let mut app = app_with_theme(distinctive_theme());
+    app.open_theme_builder_for_test();
+    app.drive_overlay_key_for_test(WinitKey::Character("s".into()), true, false);
+    let before = app.overlay_signature_for_test();
+    app.apply_reloaded_settings_for_test(Settings::default());
+    let rendered = app.render_overlay_rows_for_test(120, 60).join("\n");
+    assert!(rendered.contains("Save as:"), "{rendered}");
+    assert!(rendered.contains("Esc cancels"), "{rendered}");
+    assert!(rendered.contains("Configuration reloaded"), "{rendered}");
+    assert_ne!(app.overlay_signature_for_test(), before);
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Escape), false, false);
+    assert!(
+        app.overlay_signature_for_test()
+            .theme_builder
+            .editing
+            .is_none()
+    );
+    assert!(app.overlay_open_for_test());
+}

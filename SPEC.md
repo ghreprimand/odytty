@@ -492,7 +492,9 @@ section. Saves use a same-directory temporary file followed by rename; OdyTTY
 does not truncate the config file in place. The keybinding editor preserves
 accepted overrides, active chord capture, conflict confirmation, and the
 unsaved-close prompt during configuration reload. Discard restores the newly
-loaded bindings and other settings. Numeric keyboard steps and pointer
+loaded bindings and other settings. Conflict and close questions stay visible
+with their controls; reload feedback appears separately. Theme text-entry
+instructions also remain visible during reload. Numeric keyboard steps and pointer
 buttons share the catalog step grid. Background visibility rejects invalid or
 out-of-range input before converting it to cell opacity. Image selection and
 its dependent treatment and opacity changes are applied together. Selecting

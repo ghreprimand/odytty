@@ -117,6 +117,9 @@ Builder on the highlighted theme.
 
 ### Theme Builder
 
+Active color, save-name and generation-seed entry retain their Enter/Esc
+instructions when a configuration reload or validation message appears.
+
 The Theme Builder (default `Ctrl+Shift+B`) is a no-file way to author user
 themes. You can clone an existing theme, capture the colors a pane is currently
 displaying (see [Create theme from current
