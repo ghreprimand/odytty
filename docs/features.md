@@ -1848,7 +1848,8 @@ stopped; its remote file is still cleaned up.
 ### Manage Detached Sessions
 
 On Unix, detached sessions can be managed inside the window as well as from the
-CLI.
+CLI. Opt-in navigator previews redact shell-quoted Authorization credentials
+and all Cookie header pairs using the same rules as unquoted headers.
 The `session-attach` action, `Ctrl+Shift+A`, and **Manage Sessions** all open the
 Session Navigator, whose rows include the live detached-session registry
 alongside workspaces, tabs, and panes (see

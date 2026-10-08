@@ -1763,7 +1763,8 @@ feature validates against.
       keyboard-driven bounded snapshot of workspaces, tabs, live panes, and
       detached sessions. Live rows focus their stable token and detached rows
       attach without leaving the window. The default never includes output;
-      `navigator_preview` provides an explicit bounded redacted preview. The
+      `navigator_preview` provides an explicit bounded redacted preview, including
+      shell-quoted Authorization and Cookie headers. The
       Live close actions require confirmation; reopen launches a fresh shell
       from a bounded process-lifetime directory/profile history.
       default chord and the full bindable

@@ -373,7 +373,7 @@ fn redact_preview(value: &str) -> String {
 /// `Set-Cookie:` redact the rest of the row, since every pair is a secret;
 /// any other label redacts one word.
 fn redact_label_value(label: &str, following: &[&str], redacted: &mut Vec<String>) -> usize {
-    let label = label.trim_end_matches(':').to_ascii_lowercase();
+    let label = normalized_sensitive_label(label);
     if following.is_empty() {
         return 0;
     }
@@ -481,8 +481,15 @@ fn fold_latin_lookalike(ch: char) -> char {
     }
 }
 
+/// Match shell-quoted header labels without changing their displayed spelling.
+fn normalized_sensitive_label(word: &str) -> String {
+    word.trim_start_matches(['"', '\''])
+        .trim_end_matches(':')
+        .to_ascii_lowercase()
+}
+
 fn is_sensitive_label(word: &str) -> bool {
-    let normalized = word.trim_end_matches(':').to_ascii_lowercase();
+    let normalized = normalized_sensitive_label(word);
     matches!(
         normalized.as_str(),
         "authorization" | "bearer" | "cookie" | "set-cookie"

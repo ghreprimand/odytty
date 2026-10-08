@@ -718,7 +718,8 @@ off by default. Before presentation it redacts values of sensitive keys
 (`password=`, `token=`, `key:`, including Cyrillic or Greek lookalike
 spellings), the value after a sensitive option (`--password VALUE`,
 `--api-token VALUE`) and after `-u`/`--user` given `user:password`,
-`Authorization:` credentials after their scheme, every `Cookie:` pair, long
+`Authorization:` credentials after their scheme and every `Cookie:` or
+`Set-Cookie:` pair, including shell-quoted headers, long
 hex or base64 tokens, and remote `user@host:port` forms. A row is redacted
 whole before it is cut to the display width. Redaction is best-effort: it
 cannot recognise every secret, such as a bare short password typed alone or a

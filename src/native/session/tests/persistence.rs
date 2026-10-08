@@ -395,34 +395,42 @@ fn append_keeps_a_busy_lone_pane() {
 /// a second workspace, a rename, a host binding, a split, or an extra tab.
 #[test]
 fn is_single_pristine_workspace_false_for_any_real_state() {
+    let fresh_pristine = || {
+        let set = idle_fresh_launch();
+        assert!(
+            set.is_single_pristine_workspace(),
+            "the unmodified fixture is pristine"
+        );
+        set
+    };
     // A second workspace.
-    let mut two = WorkspaceSet::new(build_session(), None);
+    let mut two = fresh_pristine();
     two.push_workspace(build_session_with_id(SessionToken(1)));
     assert!(!two.is_single_pristine_workspace(), "two workspaces");
 
     // A renamed sole workspace.
-    let mut renamed = WorkspaceSet::new(build_session(), None);
+    let mut renamed = fresh_pristine();
     renamed.rename_workspace(0, "prod".to_owned());
     assert!(!renamed.is_single_pristine_workspace(), "renamed");
 
     // A host-bound sole workspace.
-    let mut bound = WorkspaceSet::new(build_session(), None);
+    let mut bound = fresh_pristine();
     bound.set_active_workspace_default_profile(Some("edge".to_owned()));
     assert!(!bound.is_single_pristine_workspace(), "host-bound");
 
     // A split sole workspace (two panes in the one tab).
-    let mut split = WorkspaceSet::new(build_session(), None);
+    let mut split = fresh_pristine();
     split.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
     assert!(!split.is_single_pristine_workspace(), "split");
 
     // A sole workspace with a second tab.
-    let mut two_tabs = WorkspaceSet::new(build_session(), None);
+    let mut two_tabs = fresh_pristine();
     let extra = two_tabs.push_arena_only(build_session_with_id(SessionToken(1)));
     two_tabs.workspaces[0].tabs.push(Tab::single(extra));
     assert!(!two_tabs.is_single_pristine_workspace(), "two tabs");
 
     // A renamed tab title on the sole tab.
-    let mut titled = WorkspaceSet::new(build_session(), None);
+    let mut titled = fresh_pristine();
     let token = titled.workspaces[0].tabs[0].focused;
     titled.set_title_override(token, Some("build".to_owned()));
     assert!(!titled.is_single_pristine_workspace(), "tab titled");

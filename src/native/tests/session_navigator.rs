@@ -695,3 +695,41 @@ fn assert_preview_redacts(line: &str, secret: &str) {
         "preview leaked {secret:?}: {preview:?}"
     );
 }
+
+/// Project-authored shell header samples use short values so the entropy
+/// backstop cannot hide a missed label or an unconsumed cookie pair.
+#[test]
+fn navigator_preview_redacts_quoted_header_values() {
+    for (line, secrets) in [
+        (
+            r#"curl -H "Authorization: Bearer shortcred""#,
+            &["shortcred"][..],
+        ),
+        (
+            "curl -H 'Authorization: Basic shortbasic'",
+            &["shortbasic"][..],
+        ),
+        (
+            r#"curl -H "Cookie: sid=first; theme=second; csrf=third""#,
+            &["first", "second", "third"][..],
+        ),
+        (
+            "curl -H 'Set-Cookie: sid=fourth; other=fifth'",
+            &["fourth", "fifth"][..],
+        ),
+        (
+            "Cookie: sid=sixth; other=seventh; extra=eighth",
+            &["sixth", "seventh", "eighth"][..],
+        ),
+        (
+            "Set-Cookie: sid=ninth; other=tenth",
+            &["ninth", "tenth"][..],
+        ),
+    ] {
+        let preview = preview_for_line(line);
+        for secret in secrets {
+            assert!(!preview.contains(secret), "{secret} survived: {preview:?}");
+        }
+        assert!(preview.contains("[redacted]"), "{preview:?}");
+    }
+}
