@@ -432,6 +432,12 @@ impl KeyBindings {
             if override_.action.is_pane_action() {
                 continue;
             }
+            // The parser and the editor already refuse a bare typing key for a
+            // global action; refuse it here too so an override built any other
+            // way cannot take that key away from the shell.
+            if override_.chord.is_unmodified_typing_key() {
+                continue;
+            }
             // Keep-last by action (an override replaces this action's prior
             // chord) AND keep-last by chord: remove any binding that already
             // owns this chord for a DIFFERENT action so a chord resolves to
@@ -1274,6 +1280,57 @@ mod prefix_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_runtime_table_refuses_a_bare_typing_key_for_a_global_action() {
+        let overrides = [
+            KeyBindingOverride {
+                chord: char_chord('q', false, false, false, false),
+                action: BindableAction::NewTab,
+            },
+            KeyBindingOverride {
+                chord: named_chord(KeyBindingNamedKey::Enter, false, true, false, false),
+                action: BindableAction::CloseTab,
+            },
+            // Other named keys stay bindable alone.
+            KeyBindingOverride {
+                chord: named_chord(KeyBindingNamedKey::Delete, false, false, false, false),
+                action: BindableAction::CopyMode,
+            },
+        ];
+        let bindings = KeyBindings::from_overrides(&overrides);
+        assert_eq!(
+            bindings.action_for_chord(char_chord('q', false, false, false, false)),
+            None,
+            "a bare letter keeps typing"
+        );
+        assert_eq!(
+            bindings.action_for_chord(named_chord(
+                KeyBindingNamedKey::Enter,
+                false,
+                true,
+                false,
+                false
+            )),
+            None,
+            "Shift+Enter keeps reaching the shell"
+        );
+        assert_eq!(
+            bindings.chords_for_action(BindableAction::NewTab),
+            KeyBindings::default().chords_for_action(BindableAction::NewTab),
+            "the refused override leaves the default chord in place"
+        );
+        assert_eq!(
+            bindings.action_for_chord(named_chord(
+                KeyBindingNamedKey::Delete,
+                false,
+                false,
+                false,
+                false
+            )),
+            Some(BindableAction::CopyMode)
+        );
+    }
 
     #[test]
     fn default_key_bindings_have_no_duplicate_chords() {

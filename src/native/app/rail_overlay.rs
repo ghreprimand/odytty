@@ -480,8 +480,9 @@ impl App {
     /// `default()` (not revealed) is a frame-to-frame constant, so the pinned /
     /// no-autohide path keeps its byte-identical cache behavior; when revealed,
     /// the visibility + geometry + a hash of the rail's visual state (active
-    /// index, tab count, hover, titles) make a reveal / hide / switch / rename /
-    /// hover / auto-width change reclassify to a Full rebuild.
+    /// index, workspace count, hover, names, and the progress, activity and
+    /// bound badges) make a reveal / hide / switch / rename / badge / hover /
+    /// auto-width change reclassify to a Full rebuild.
     pub(super) fn rail_overlay_render_signature(&self, cell: CellSize) -> RailOverlaySignature {
         use std::hash::{Hash, Hasher};
         let Some(side) = self.rail_autohide_side() else {
@@ -501,11 +502,14 @@ impl App {
         source.tab_count().hash(&mut hasher);
         for idx in 0..source.tab_count() {
             source.tab_title(idx).hash(&mut hasher);
-            // The progress badge the floating rail paints for a workspace.
+            // The badges the floating rail paints for a workspace: progress,
+            // unseen activity, and the bound-profile marker.
             source
                 .tab_progress(idx)
                 .map(tab_bar::progress_badge)
                 .hash(&mut hasher);
+            source.tab_activity(idx).hash(&mut hasher);
+            source.tab_bound(idx).hash(&mut hasher);
         }
         // Hover state changes the highlighted slot, so a hover move while
         // revealed must repaint.

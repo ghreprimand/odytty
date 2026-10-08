@@ -419,11 +419,12 @@ A chord is `+`-joined modifiers plus one key:
   (`enter`, `backspace`, `esc`, `tab`, `space`, `pageup`, `pagedown`, `home`,
   `end`, `delete`, `insert`, `up`/`down`/`left`/`right`); or `f1`–`f24`.
 - `+` and `=` cannot be used as the bound key character.
-- A global action cannot take a key that types text or edits a command line
-  (a character, `space`, `tab`, `backspace`, `enter`, or `esc`) without `ctrl`,
-  `alt`, or `super`: the config skips such an entry with a warning, and the
-  in-app editor asks for another chord. Named keys such as `f9`, `insert`, or the
-  arrows may be bound alone. Pane-action second keys are exempt.
+- A global action cannot take one of six typing keys (a character, `space`,
+  `tab`, `backspace`, `enter`, or `esc`) without `ctrl`, `alt`, or `super`: the
+  config skips such an entry with a warning, the in-app editor asks for another
+  chord, and the live binding table ignores it. Every other named key, including
+  `delete`, `home`, `end`, `pageup`, `pagedown`, `insert`, the arrows, and
+  `f1`-`f24`, may be bound alone. Pane-action second keys are exempt.
 
 ### Bindable actions
 

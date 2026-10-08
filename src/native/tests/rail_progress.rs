@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! A background workspace's progress rollup reaches the workspace rail: a
-//! progress report from one of its panes changes what the floating rail
+//! A background workspace's progress, unseen activity, and bound-profile
+//! marker reach the workspace rail: each changes what the floating rail
 //! paints, so its render cache repaints.
 
 use super::*;
 use crate::native::test_support::{headless_app_with_writer, headless_writer};
 
-#[test]
-fn background_workspace_progress_repaints_the_floating_rail() {
+/// A revealed floating rail over two workspaces; returns the App and the
+/// first (now background) workspace's terminal.
+fn revealed_rail_app() -> (App, Arc<Mutex<Terminal>>) {
     let (mut app, background) = headless_app_with_writer(
         NativeOptions::default(),
         Dimensions::new(80, 24),
@@ -27,6 +28,12 @@ fn background_workspace_progress_repaints_the_floating_rail() {
     app.force_rail_reveal_for_test();
     assert!(app.rail_overlay_visible_for_test());
     app.drain_progress_for_test();
+    (app, background)
+}
+
+#[test]
+fn background_workspace_progress_repaints_the_floating_rail() {
+    let (mut app, background) = revealed_rail_app();
     let before = app.rail_overlay_content_hash_for_test();
 
     // The first workspace, now in the background, reports 50% progress.
@@ -40,5 +47,32 @@ fn background_workspace_progress_repaints_the_floating_rail() {
         app.rail_overlay_content_hash_for_test(),
         before,
         "the progress rollup changes the floating rail's content"
+    );
+}
+
+#[test]
+fn background_workspace_activity_repaints_the_floating_rail() {
+    let (mut app, background) = revealed_rail_app();
+    let before = app.rail_overlay_content_hash_for_test();
+    // A bell in the background workspace latches its unseen-activity badge.
+    background.lock().expect("terminal").advance(b"\x07");
+    let _ = app.drain_bells_for_test();
+    assert!(app.workspace_activity_for_test(0), "activity latched");
+    assert_ne!(
+        app.rail_overlay_content_hash_for_test(),
+        before,
+        "the activity badge changes the floating rail's content"
+    );
+}
+
+#[test]
+fn binding_the_active_workspace_repaints_the_floating_rail() {
+    let (mut app, _background) = revealed_rail_app();
+    let before = app.rail_overlay_content_hash_for_test();
+    app.set_workspace_binding_for_test(Some("alpha".to_owned()));
+    assert_ne!(
+        app.rail_overlay_content_hash_for_test(),
+        before,
+        "the bound marker changes the floating rail's content"
     );
 }

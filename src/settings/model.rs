@@ -133,11 +133,13 @@ pub struct KeyChord {
 }
 
 impl KeyChord {
-    /// Whether this chord is a key that types text or edits a command line
-    /// (a character, Space, Tab, Backspace, Enter or Escape) pressed without
-    /// Ctrl, Alt or Super. Bound to a global action it would take that key
-    /// away from every shell, so the global table refuses it; pane-prefix
-    /// second keys are bare by design and are exempt.
+    /// Whether this chord is a character, Space, Tab, Backspace, Enter or
+    /// Escape pressed without Ctrl, Alt or Super. Bound to a global action it
+    /// would take that key away from every shell, so the config parser, the
+    /// editor, and the runtime table all refuse it. The rule is exactly these
+    /// six: other named keys (Delete, Home, End, PageUp, PageDown, Insert, the
+    /// arrows, F-keys) stay bindable alone. Pane-prefix second keys are bare by
+    /// design and are exempt.
     pub fn is_unmodified_typing_key(&self) -> bool {
         let m = self.modifiers;
         if m.ctrl || m.alt || m.super_key {

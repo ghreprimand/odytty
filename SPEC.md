@@ -1208,8 +1208,9 @@ remain one command per prefix transaction.
   default, `R` resets all, conflict prompt on clash, writes to `odytty.conf` via
   the preservation-first writeback path). A global action never takes an
   unmodified typing key (a character, Space, Tab, Backspace, Enter, or Escape
-  without Ctrl, Alt, or Super); the editor refuses it and the config skips it
-  with a warning. See
+  without Ctrl, Alt, or Super); the editor refuses it, the config skips it with
+  a warning, and the live binding table ignores it. Other named keys, such as
+  Delete, Home, End, and the arrows, stay bindable alone. See
   [`docs/keybindings.md`](docs/keybindings.md) for the full keyboard reference.
 
 - Keyboard copy mode (`copy-mode` action, `Ctrl+Shift+Space` by default): a
