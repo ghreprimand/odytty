@@ -1774,10 +1774,11 @@ feature validates against.
       detached sessions. Live rows focus their stable token and detached rows
       attach without leaving the window. The default never includes output;
       `navigator_preview` provides an explicit bounded redacted preview, including
-      shell-quoted Authorization and Cookie headers. The
+      shell-quoted Authorization and Cookie headers, with compact or spaced
+      cookie values.
       Live close actions require confirmation; reopen launches a fresh shell
       from a bounded process-lifetime directory/profile history.
-      default chord and the full bindable
+      The default chord and the full bindable
       action set are catalogued in [`docs/keybindings.md`](docs/keybindings.md).
   - [x] Attach dedup + New tab / Replace prompt: attaching a session already
         open in a tab focuses the existing tab; otherwise the `AttachChoice`

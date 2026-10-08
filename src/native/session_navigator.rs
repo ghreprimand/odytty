@@ -337,7 +337,13 @@ fn redact_preview(value: &str) -> String {
     let mut redacted = Vec::with_capacity(words.len());
     let mut index = 0;
     while let Some(word) = words.get(index) {
-        if let Some((key, has_value)) = sensitive_assignment_key(word) {
+        if let Some(prefix) = cookie_header_prefix(word) {
+            // A cookie header can attach its first pair to the colon. Consume
+            // the entire remaining row before generic assignment parsing.
+            redacted.push(prefix.to_owned());
+            redacted.push("[redacted]".to_owned());
+            break;
+        } else if let Some((key, has_value)) = sensitive_assignment_key(word) {
             if !has_value && is_sensitive_label(key) && words.get(index + 1).is_some() {
                 redacted.push(key.to_owned());
                 index += redact_label_value(key, &words[index + 1..], &mut redacted);
@@ -364,6 +370,17 @@ fn redact_preview(value: &str) -> String {
         index += 1;
     }
     bound(&redacted.join(" "))
+}
+
+/// Preserve the label of a quoted or unquoted cookie header, even when the
+/// first value is attached to its colon. Other assignments keep their policy.
+fn cookie_header_prefix(word: &str) -> Option<&str> {
+    let (label, _) = word.split_once(':')?;
+    matches!(
+        normalized_sensitive_label(label).as_str(),
+        "cookie" | "set-cookie"
+    )
+    .then_some(&word[..label.len() + 1])
 }
 
 /// Redact what follows a sensitive label or a valueless `key:` (`following`
@@ -619,6 +636,34 @@ mod tests {
         assert_eq!(
             redact_preview("PATH=/usr/bin ls -la"),
             "PATH=/usr/bin ls -la"
+        );
+    }
+
+    /// Project-authored headers keep every value short to avoid entropy redaction.
+    #[test]
+    fn preview_redacts_compact_and_spaced_cookie_headers() {
+        let mut actual = Vec::new();
+        let mut expected = Vec::new();
+        for label in ["Cookie", "Set-Cookie", "cOoKiE", "sEt-CoOkIe"] {
+            for quote in ["", "\"", "'"] {
+                for space in ["", " "] {
+                    let prefix = format!("{quote}{label}:");
+                    let input = format!("curl -H {prefix}{space}a=first; b=second; c=third{quote}");
+                    actual.push(redact_preview(&input));
+                    expected.push(format!("curl -H {prefix} [redacted]"));
+                }
+            }
+        }
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn preview_redacts_compact_cookie_pairs_before_truncation() {
+        let prefix = "ab ".repeat(24);
+        let input = format!("{prefix}Cookie:a=first; b=second; c=third");
+        assert_eq!(
+            redact_preview(&input),
+            format!("{prefix}Cookie: [redacted]")
         );
     }
 }

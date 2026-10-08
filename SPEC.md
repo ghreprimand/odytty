@@ -2100,8 +2100,9 @@ that closed while the picker was open, including when names are duplicated.
   progress, unread state, and profile. The default collects no command output;
   opt-in `navigator_preview` shows at most eight frozen, redacted live-pane
   lines without polling or mutation. Shell-quoted Authorization and Cookie headers
-  follow the same redaction rules as unquoted headers. Selecting a live row focuses
-  its stable token.
+  follow the same redaction rules as unquoted headers. Cookie and Set-Cookie
+  headers redact the rest of the row with or without a space after the colon.
+  Selecting a live row focuses its stable token.
   Typing always filters; row commands are Ctrl chords (`Ctrl+R`, `Ctrl+D`,
   `Ctrl+M`, `Ctrl+X`, `Ctrl+O`, and `Ctrl+I`/`Ctrl+P` with a sibling window).
   Navigator `Ctrl+X` closes live tab/workspace rows only after an explicit

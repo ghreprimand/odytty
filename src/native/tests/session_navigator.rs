@@ -733,3 +733,26 @@ fn navigator_preview_redacts_quoted_header_values() {
         assert!(preview.contains("[redacted]"), "{preview:?}");
     }
 }
+
+/// Project-authored short cookie values test the frozen snapshot preview path.
+#[test]
+fn navigator_preview_redacts_compact_cookie_headers() {
+    let mut leaked = Vec::new();
+    for label in ["Cookie", "Set-Cookie"] {
+        for quote in ["", "\"", "'"] {
+            for space in ["", " "] {
+                let line =
+                    format!("curl -H {quote}{label}:{space}a=first; b=second; c=third{quote}");
+                let preview = preview_for_line(&line);
+                assert!(preview.contains("[redacted]"), "{preview:?}");
+                if ["first", "second", "third"]
+                    .iter()
+                    .any(|secret| preview.contains(secret))
+                {
+                    leaked.push(preview);
+                }
+            }
+        }
+    }
+    assert!(leaked.is_empty(), "cookie values survived: {leaked:?}");
+}
