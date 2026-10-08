@@ -14,6 +14,8 @@
 //! form for one. The `Protocol` field is reserved (config-only) and is carried
 //! through an edit opaquely rather than surfaced as a control.
 
+use std::cell::Cell;
+
 use crate::connection_hosts::{ConnectionHost, ConnectionHostSource, is_valid_adhoc_part};
 use crate::ssh_connect::ProbeClass;
 use crate::theme::Srgb;
@@ -195,7 +197,7 @@ pub(super) struct ConnectionFormSignature {
     test: TestState,
     /// The IdentityFile browser state (FORM-UX): `None` when the form shows its
     /// fields, else the browser's query + selection so a repaint tracks it.
-    browse: Option<(String, usize, usize)>,
+    browse: Option<(String, usize, usize, usize)>,
 }
 
 /// The in-form IdentityFile key browser (FORM-UX). A seeded, type-to-filter
@@ -211,6 +213,9 @@ struct KeyBrowse {
     query: String,
     filtered: Vec<usize>,
     selected: usize,
+    scroll_offset: Cell<usize>,
+    rendered_offset: Cell<usize>,
+    visible_rows: Cell<usize>,
 }
 
 impl KeyBrowse {
@@ -241,6 +246,38 @@ impl KeyBrowse {
         } else if self.selected >= self.filtered.len() {
             self.selected = self.filtered.len() - 1;
         }
+        self.scroll_offset.set(0);
+        self.visible_rows.set(0);
+    }
+
+    /// Keep the selection within the rendered candidate window.
+    fn follow_selection(&self, room: usize) -> usize {
+        let offset = if room == 0 {
+            0
+        } else {
+            let start = self
+                .scroll_offset
+                .get()
+                .min(self.selected)
+                .min(self.filtered.len().saturating_sub(room));
+            if self.selected >= start.saturating_add(room) {
+                self.selected.saturating_add(1).saturating_sub(room)
+            } else {
+                start
+            }
+        };
+        self.scroll_offset.set(offset);
+        offset
+    }
+
+    /// Prompt, footer and rows beyond the last rendered window are inert.
+    fn cursor_at_row(&self, row: usize) -> Option<usize> {
+        let within = row.checked_sub(1)?;
+        if within >= self.visible_rows.get() {
+            return None;
+        }
+        let cursor = self.rendered_offset.get().checked_add(within)?;
+        (cursor < self.filtered.len()).then_some(cursor)
     }
 
     fn move_selection(&mut self, delta: isize) {
@@ -249,6 +286,7 @@ impl KeyBrowse {
         }
         let max = self.filtered.len() as isize - 1;
         self.selected = (self.selected as isize + delta).clamp(0, max) as usize;
+        self.follow_selection(self.visible_rows.get());
     }
 
     /// The path the current selection would fill in, if any.
@@ -586,17 +624,13 @@ impl ConnectionForm {
     ) -> ConnectionFormOutcome {
         // While the key browser is open a click selects (and accepts) a row.
         if let Some(browse) = self.browse.as_mut() {
-            // Row 0 is the browser prompt; candidate rows follow it.
-            if row >= 1 {
-                let cursor = row - 1;
-                if cursor < browse.filtered.len() {
-                    browse.selected = cursor;
-                    if let Some(path) = browse.selected_path() {
-                        self.identity_file = path.to_owned();
-                        self.invalidate_test();
-                    }
-                    self.browse = None;
+            if let Some(cursor) = browse.cursor_at_row(row) {
+                browse.selected = cursor;
+                if let Some(path) = browse.selected_path() {
+                    self.identity_file = path.to_owned();
+                    self.invalidate_test();
                 }
+                self.browse = None;
             }
             return ConnectionFormOutcome::Consumed;
         }
@@ -976,6 +1010,16 @@ impl ConnectionForm {
         body_width: usize,
         body_height: usize,
     ) -> Vec<ConnectionFormLine> {
+        if body_height == 0 {
+            browse.visible_rows.set(0);
+            browse.scroll_offset.set(0);
+            return Vec::new();
+        }
+        let footer_reserve = usize::from(body_height > 3);
+        let room = body_height.saturating_sub(1 + footer_reserve);
+        browse.visible_rows.set(room.min(browse.filtered.len()));
+        let scroll_offset = browse.follow_selection(room);
+        browse.rendered_offset.set(scroll_offset);
         let mut lines = Vec::with_capacity(body_height.min(browse.filtered.len() + 3));
         lines.push(ConnectionFormLine {
             text: truncate_for_width(
@@ -1001,14 +1045,17 @@ impl ConnectionForm {
                 });
             }
         } else {
-            // Reserve the last row for the footer hint when there is room.
-            let footer_reserve = usize::from(body_height > 3);
-            let room = body_height.saturating_sub(1 + footer_reserve);
-            for (row, &idx) in browse.filtered.iter().take(room).enumerate() {
+            for (row, &idx) in browse
+                .filtered
+                .iter()
+                .skip(scroll_offset)
+                .take(room)
+                .enumerate()
+            {
                 let name = basename(&browse.candidates[idx]);
                 lines.push(ConnectionFormLine {
                     text: truncate_for_width(name, body_width),
-                    focused: row == browse.selected,
+                    focused: scroll_offset + row == browse.selected,
                     bold: false,
                     swatch: None,
                 });
@@ -1082,10 +1129,14 @@ impl ConnectionForm {
             tristates: vec![self.integration, self.reuse, self.tmux],
             error: self.error.clone(),
             test: self.test.clone(),
-            browse: self
-                .browse
-                .as_ref()
-                .map(|b| (b.query.clone(), b.selected, b.filtered.len())),
+            browse: self.browse.as_ref().map(|b| {
+                (
+                    b.query.clone(),
+                    b.selected,
+                    b.filtered.len(),
+                    b.scroll_offset.get(),
+                )
+            }),
         }
     }
 }
@@ -1636,6 +1687,72 @@ mod tests {
         assert_eq!(form.identity_browse_chip_span(72), None);
     }
 
+    fn short_key_browser() -> ConnectionForm {
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.open_key_browse((0..10).map(|i| format!("/fixtures/keys/key{i}")).collect());
+        form
+    }
+
+    #[test]
+    fn key_browser_footer_cannot_accept_an_invisible_candidate() {
+        let mut form = short_key_browser();
+        let lines = form.visible_lines(72, 5);
+        assert_eq!(lines[3].text, "key2");
+        assert!(lines[4].text.contains("[Enter]"));
+        form.handle_pointer_press(4, 0, 72);
+        assert!(form.browsing(), "footer is inert");
+        assert!(form.identity_file.is_empty());
+    }
+
+    #[test]
+    fn key_browser_click_before_redraw_uses_the_last_visible_window() {
+        let mut form = short_key_browser();
+        form.visible_lines(72, 5);
+        form.handle_input(OverlayInput::End);
+        form.handle_pointer_press(1, 0, 72);
+        assert_eq!(form.identity_file, "/fixtures/keys/key0");
+    }
+
+    #[test]
+    fn key_browser_query_change_invalidates_old_pointer_rows() {
+        let mut form = short_key_browser();
+        form.visible_lines(72, 5);
+        typed(&mut form, "key9");
+        form.handle_pointer_press(1, 0, 72);
+        assert!(form.browsing());
+        assert!(form.identity_file.is_empty());
+        let lines = form.visible_lines(72, 5);
+        assert_eq!(lines[1].text, "key9");
+        form.handle_pointer_press(1, 0, 72);
+        assert_eq!(form.identity_file, "/fixtures/keys/key9");
+    }
+
+    #[test]
+    fn key_browser_end_keeps_the_accepted_candidate_visible() {
+        let mut form = short_key_browser();
+        form.visible_lines(72, 5);
+        form.handle_input(OverlayInput::End);
+        let lines = form.visible_lines(72, 5);
+        let focused: Vec<_> = lines.iter().filter(|line| line.focused).collect();
+        assert_eq!(focused.len(), 1);
+        assert_eq!(focused[0].text, "key9");
+        form.handle_input(OverlayInput::Activate);
+        assert_eq!(form.identity_file, "/fixtures/keys/key9");
+    }
+
+    #[test]
+    fn key_browser_click_uses_the_rendered_scrolled_candidate() {
+        let mut form = short_key_browser();
+        form.visible_lines(72, 5);
+        form.handle_input(OverlayInput::End);
+        let lines = form.visible_lines(72, 5);
+        assert_eq!(lines[1].text, "key7");
+        form.handle_pointer_press(1, 0, 72);
+        assert!(!form.browsing());
+        assert_eq!(form.identity_file, "/fixtures/keys/key7");
+    }
+
     #[test]
     fn key_browser_pick_fills_the_field_and_closes() {
         let mut form = ConnectionForm::new();
@@ -1709,6 +1826,7 @@ mod tests {
         let mut form = ConnectionForm::new();
         form.open_add(Vec::new());
         form.open_key_browse(vec!["/k/id_ed25519".to_owned(), "/k/id_rsa".to_owned()]);
+        form.visible_lines(80, 10);
         // Row 0 is the prompt; row 2 is the second candidate.
         assert_eq!(
             form.handle_pointer_press(2, 0, 80),

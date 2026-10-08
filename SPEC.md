@@ -1975,7 +1975,9 @@ that closed while the picker was open, including when names are duplicated.
   connection** form writes or edits a single block with a byte-span splice that
   leaves every other block, comment, and unknown field byte-for-byte untouched,
   carries an optional `IdentityFile` path (adds `ssh -i`, never a stored secret)
-  and a reserved `Protocol` field, and offers a **Test connection** probe that
+  and a reserved `Protocol` field. The identity-key browser keeps the selected
+  candidate visible and accepts clicks only on rendered candidate rows. The
+  form offers a **Test connection** probe that
   reports an honest tri-state result without ever handling a password. A host-row
   right-click menu opens the selected host in a new tab or a fresh host-bound
   workspace, binds the current workspace to it, or (for OdyTTY-owned rows) edits

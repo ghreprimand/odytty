@@ -1767,6 +1767,9 @@ the selected OdyTTY-owned host. OpenSSH-imported rows are read-only.
 | Overrides | Integration, Reuse, and Tmux, each set to inherit, on, or off |
 | Appearance | Theme, font, and title |
 
+The identity-key browser scrolls to keep its selected candidate visible. Only
+visible candidate rows accept a click; its prompt and footer are inert.
+
 Saving appends a new block or edits the existing block in place while
 preserving every other block, comment, and unknown field byte-for-byte.
 `ssh-copy-id` remains the once-only path away from password prompts.
