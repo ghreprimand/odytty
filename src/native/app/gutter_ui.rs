@@ -319,6 +319,21 @@ mod tests {
         else {
             return;
         };
+        // Prerequisite, separate from the behavior under test: the fixture
+        // uses PROMPT_COMMAND arrays, which need Bash 5.1 or later (macOS
+        // ships 3.2). An older Bash skips; a new enough one must pass.
+        let version = Command::new(&bash)
+            .args(["-c", "echo ${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]}"])
+            .output()
+            .expect("query the Bash version");
+        let version: Vec<u32> = String::from_utf8_lossy(&version.stdout)
+            .split_whitespace()
+            .filter_map(|part| part.parse().ok())
+            .collect();
+        if version.as_slice() < [5, 1].as_slice() {
+            eprintln!("skipping: Bash {version:?} predates PROMPT_COMMAND arrays");
+            return;
+        }
         let dir =
             std::env::temp_dir().join(format!("odytty-fedora-bash-gutter-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -346,7 +361,7 @@ mod tests {
         std::fs::write(&wrapper, crate::shell_integration::bash_integration_rc())
             .expect("write OdyTTY Bash wrapper");
 
-        let mut child = Command::new(bash)
+        let mut child = Command::new(&bash)
             .arg("--rcfile")
             .arg(&wrapper)
             .arg("-i")
@@ -364,14 +379,34 @@ mod tests {
             .expect("Bash stdin")
             .write_all(b"true\nfalse\nexit\n")
             .expect("drive Bash");
-        let output = child.wait_with_output().expect("wait for Bash");
-        if !output.stdout.windows(6).any(|window| window == b"]133;A") {
+        // Bounded: read stdout on its own thread and give Bash 30 s to exit,
+        // so a wedged shell fails this test instead of hanging the run.
+        let mut stdout = child.stdout.take().expect("Bash stdout");
+        let reader = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut stdout, &mut bytes);
+            bytes
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while child.try_wait().expect("poll Bash").is_none() {
+            if std::time::Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = std::fs::remove_dir_all(&dir);
+                panic!("Bash did not exit within 30 s");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let stdout = reader.join().expect("Bash stdout reader");
+        // Bash ran with the integration rcfile, so a missing prompt mark is a
+        // failure of the executed behavior, not a missing prerequisite.
+        if !stdout.windows(6).any(|window| window == b"]133;A") {
             let _ = std::fs::remove_dir_all(&dir);
-            return;
+            panic!("the integrated Bash emitted no OSC 133 prompt mark");
         }
 
         let mut terminal = crate::core::Terminal::new(COLS, ROWS);
-        terminal.advance(&output.stdout);
+        terminal.advance(&stdout);
         let marks = terminal.prompt_marks();
         let quads = command_status_gutter_quads(
             &marks,

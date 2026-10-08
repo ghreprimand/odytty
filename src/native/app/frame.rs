@@ -350,17 +350,19 @@ impl App {
         // output / occluded / frame-callback throttled), which is not a
         // stall - see the field docs on `redraws_delivered`.
         self.redraws_delivered = self.redraws_delivered.saturating_add(1);
+        // A lost device stays lost: skip every GPU step (geometry, uploads,
+        // acquire, present) instead of re-entering the renderer on each
+        // later keyboard, PTY, or resize redraw. The terminal model and
+        // sessions keep running; only presentation is paused. Detected before
+        // queued settings are flushed, so their apply sees the loss and skips
+        // its GPU work.
+        if !self.gpu_device_lost && self.gpu.as_ref().is_some_and(GpuState::is_device_lost) {
+            self.enter_gpu_device_lost();
+        }
         self.flush_pending_overlay_settings();
         self.sessions.reconcile_scrollback_trims();
         self.handle_terminal_clipboard_requests();
         self.update_window_title();
-        // A lost device stays lost: skip every GPU step (geometry, uploads,
-        // acquire, present) instead of re-entering the renderer on each
-        // later keyboard, PTY, or resize redraw. The terminal model and
-        // sessions keep running; only presentation is paused.
-        if !self.gpu_device_lost && self.gpu.as_ref().is_some_and(GpuState::is_device_lost) {
-            self.enter_gpu_device_lost();
-        }
         if self.gpu_device_lost {
             return false;
         }

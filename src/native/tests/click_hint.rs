@@ -208,3 +208,39 @@ fn misclick_off_a_path_does_not_raise_the_hint() {
         "clicks off a path are never mis-clicks"
     );
 }
+
+/// The hover memo skips the filesystem while the row is unchanged; the open
+/// action probes again, so a path removed since the hover opens nothing and
+/// the stale hover clears.
+#[test]
+fn a_path_removed_after_the_hover_is_not_opened() {
+    let Some(mut app) = build_app(PATH) else {
+        return;
+    };
+    app.set_interactive_paths_for_test(true);
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+    hover_on_path(&mut app);
+    assert!(app.hovered_path_for_test().is_some(), "the path resolved");
+    // The file is removed; the row text and cwd are unchanged.
+    app.set_test_path_probe_for_test(MapProbe::new([]));
+    assert!(
+        app.revalidated_hovered_path_for_test().is_none(),
+        "the open action sees the removal"
+    );
+    assert!(
+        app.hovered_path_for_test().is_none(),
+        "the stale hover clears"
+    );
+}
+
+#[test]
+fn a_path_that_still_exists_stays_openable() {
+    let Some(mut app) = build_app(PATH) else {
+        return;
+    };
+    app.set_interactive_paths_for_test(true);
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+    hover_on_path(&mut app);
+    assert!(app.revalidated_hovered_path_for_test().is_some());
+    assert!(app.hovered_path_for_test().is_some());
+}

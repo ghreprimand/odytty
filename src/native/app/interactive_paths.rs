@@ -659,22 +659,22 @@ mod spawn_reap_tests {
     use super::spawn_detached;
     use std::time::{Duration, Instant};
 
-    /// True while ANY direct child of this process named `comm` exists in any
+    /// The pids of every direct child of this process named `comm`, in any
     /// state (running or zombie). Reads `/proc/<pid>/stat` for every numeric
     /// /proc entry; comm is parenthesised in field 2, state is field 3 (after
-    /// the closing paren, immune to spaces in comm), ppid is field 4.
-    fn have_child_named(comm: &str) -> bool {
-        let my_pid = std::process::id();
+    /// the closing paren, immune to spaces in comm), ppid is field 4. An
+    /// unreadable `/proc` fails the test instead of reading as "no children".
+    fn children_named(comm: &str) -> Vec<u32> {
+        let my_pid = std::process::id().to_string();
         let needle = format!("({comm})");
-        let Ok(entries) = std::fs::read_dir("/proc") else {
-            return false;
-        };
+        let entries = std::fs::read_dir("/proc").expect("/proc is readable");
+        let mut pids = Vec::new();
         for entry in entries.flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
-            if !name.bytes().all(|b| b.is_ascii_digit()) {
+            let Ok(pid) = name.parse::<u32>() else {
                 continue;
-            }
+            };
             let Ok(stat) = std::fs::read_to_string(format!("/proc/{name}/stat")) else {
                 continue;
             };
@@ -687,25 +687,31 @@ mod spawn_reap_tests {
             }
             let mut rest = stat[close + 1..].split_whitespace();
             let _state = rest.next();
-            if rest.next() == Some(&my_pid.to_string()) {
-                return true;
+            if rest.next() == Some(my_pid.as_str()) {
+                pids.push(pid);
             }
         }
-        false
+        pids
     }
 
     /// A spawned opener child is REAPED after it exits - it must not linger as
     /// a zombie until process exit. `true` exits immediately, so within the
     /// deadline the child must disappear from our /proc children entirely.
-    /// Fails before the reaper fix: the dropped `Child` is never waited on, so
-    /// the zombie persists for the lifetime of the test binary.
+    /// Only `true` children that appeared with this spawn are watched, so a
+    /// sibling test's `true` cannot satisfy or fail it. Fails before the
+    /// reaper fix: the dropped `Child` is never waited on, so the zombie
+    /// persists for the lifetime of the test binary.
     #[test]
     fn spawn_detached_reaps_exited_child() {
+        let before = children_named("true");
         spawn_detached(&["true".to_owned()]).expect("spawn `true`");
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
-            if !have_child_named("true") {
-                return; // reaped: no running or zombie `true` child remains
+            if children_named("true")
+                .iter()
+                .all(|pid| before.contains(pid))
+            {
+                return; // reaped: no new running or zombie `true` child remains
             }
             std::thread::sleep(Duration::from_millis(25));
         }

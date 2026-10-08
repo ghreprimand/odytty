@@ -592,7 +592,15 @@ impl App {
         let reserve_was = self.tab_reserve();
 
         let next_options = self.options_for_settings(&next_settings);
-        let (text_rebuilt, padding_changed) = match self.gpu.as_mut() {
+        // A lost device stays untouched: the settings still apply to the
+        // model and sessions, and no font, atlas, texture, or pipeline work
+        // runs against the lost device.
+        let live_gpu = if self.gpu_device_lost {
+            None
+        } else {
+            self.gpu.as_mut()
+        };
+        let (text_rebuilt, padding_changed) = match live_gpu {
             Some(gpu) => {
                 let text_rebuilt = match gpu
                     .apply_text_options(&next_options, next_settings.effective_stem_darken())
@@ -702,7 +710,7 @@ impl App {
         // for the reload, so one arena sweep applies the whole model state
         // consistently.
         self.apply_model_state_to_all_sessions();
-        if let Some(gpu) = self.gpu.as_mut() {
+        if let Some(gpu) = self.gpu.as_mut().filter(|_| !self.gpu_device_lost) {
             gpu.set_theme(self.effective_theme);
             gpu.set_visual(self.visual);
             gpu.set_text_gamma(self.settings.text_gamma);

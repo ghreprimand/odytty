@@ -370,6 +370,23 @@ impl App {
         )
     }
 
+    /// The cursor shape over the terminal grid for the current hover state:
+    /// a hand on any hovered target, the arrow while a program reports the
+    /// mouse, and the I-beam over plain text.
+    pub(super) fn grid_cursor_icon(&self) -> CursorIcon {
+        if self.hovered_hyperlink.is_some()
+            || self.hovered_path.is_some()
+            || self.hovered_url.is_some()
+            || self.hovered_button.is_some()
+        {
+            CursorIcon::Pointer
+        } else if self.mouse_reporting_enabled() {
+            CursorIcon::Default
+        } else {
+            CursorIcon::Text
+        }
+    }
+
     pub(super) fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
         self.window_pointer_px = Some((x_px, y_px));
         let Some(cell) = self.resolved_cell() else {
@@ -697,17 +714,7 @@ impl App {
         // OdyTTY previously never set. The hovered spans are permanently `None`
         // while their features are off, so the default decision is unchanged. OSC
         // 8 wins ties (cosmetically identical icon; precedence matters for click).
-        let grid_icon = if self.hovered_hyperlink.is_some()
-            || self.hovered_path.is_some()
-            || self.hovered_url.is_some()
-            || self.hovered_button.is_some()
-        {
-            CursorIcon::Pointer
-        } else if self.mouse_reporting_enabled() {
-            CursorIcon::Default
-        } else {
-            CursorIcon::Text
-        };
+        let grid_icon = self.grid_cursor_icon();
         self.apply_cursor_icon(grid_icon);
         if self.pointer_drag.is_selecting() {
             // NF21-8 button-held guard (grid analogue of SLIDER-GUARD): only

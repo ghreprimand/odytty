@@ -104,11 +104,18 @@ impl App {
             return false;
         }
 
+        // The history length and the visible rows are read under one lock,
+        // so output that grows or trims history in between cannot shift every
+        // label's absolute row.
         let offset = self.viewport.offset();
-        let scrollback_len = self.scrollback_len();
-        let window_start = scrollback_len - offset.min(scrollback_len);
-
-        let visible = crate::native::lock_recover(&self.terminal).visible_search_rows(offset);
+        let (window_start, visible) = {
+            let terminal = crate::native::lock_recover(&self.terminal);
+            let scrollback_len = terminal.screen().scrollback_len();
+            (
+                scrollback_len - offset.min(scrollback_len),
+                terminal.visible_search_rows(offset),
+            )
+        };
         let search_rows: Vec<_> = visible.iter().map(|r| r.as_search_row()).collect();
         let matches = hints::scan(&search_rows, HintKinds::all());
 

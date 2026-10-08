@@ -525,6 +525,11 @@ mod tests {
         assert_eq!(tab_leaves(source), vec![vec![first.0]]);
         assert_eq!(source.hold_session, None, "the hold travels with the pane");
         assert_eq!(source.ime_session, None, "the composition is dropped");
+        assert_eq!(
+            source.ime_settled_owner,
+            Some(moving),
+            "a late commit from the moved pane is refused here"
+        );
         assert!(source.focus_reports_for_test.contains(&(moving, false)));
         let new_window = &host.windows[1];
         assert!(new_window.owns_session(moving));

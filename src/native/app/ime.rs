@@ -32,7 +32,7 @@ impl App {
     pub(in crate::native) fn handle_ime(&mut self, ime: Ime) {
         match ime {
             Ime::Enabled | Ime::Disabled => {
-                self.ime_session = None;
+                self.end_ime_composition();
                 self.set_ime_preedit(String::new());
             }
             Ime::Preedit(text, _cursor) => {
@@ -44,9 +44,14 @@ impl App {
                     self.note_cursor_keyboard_activity(std::time::Instant::now());
                 }
                 if text.is_empty() {
-                    self.ime_session = None;
-                } else if self.ime_session.is_none() {
-                    self.ime_session = Some(self.sessions.active_id());
+                    self.end_ime_composition();
+                } else {
+                    // Composition text is shown on the active pane, so a new
+                    // composition starts there and settles any earlier one.
+                    self.ime_settled_owner = None;
+                    if self.ime_session.is_none() {
+                        self.ime_session = Some(self.sessions.active_id());
+                    }
                 }
                 self.set_ime_preedit(text);
                 // KDE/Wayland can answer a cursor-area update with another
@@ -58,8 +63,15 @@ impl App {
                 }
             }
             Ime::Commit(text) => {
+                let active = self.sessions.active_id();
                 let origin = self.ime_session.take();
-                let accepts_commit = origin.is_none() || origin == Some(self.sessions.active_id());
+                let settled = self.ime_settled_owner.take();
+                let accepts_commit = match origin {
+                    Some(owner) => owner == active,
+                    // A composition that ended on another pane can still
+                    // deliver its commit late; it never reaches this pane.
+                    None => settled.is_none_or(|owner| owner == active),
+                };
                 if !text.is_empty() && accepts_commit {
                     self.note_cursor_keyboard_activity(std::time::Instant::now());
                 }
@@ -68,6 +80,18 @@ impl App {
                     self.commit_ime_text(&text);
                 }
             }
+        }
+    }
+
+    /// End the current composition (an empty pre-edit or an enable/disable
+    /// edge). An owner other than the active pane is kept as settled, so a
+    /// commit delivered after the edge is still refused on this pane until a
+    /// new composition starts here.
+    fn end_ime_composition(&mut self) {
+        if let Some(owner) = self.ime_session.take()
+            && owner != self.sessions.active_id()
+        {
+            self.ime_settled_owner = Some(owner);
         }
     }
 
@@ -246,22 +270,45 @@ mod tests {
     const ROWS: usize = 6;
     const COLS: usize = 40;
 
-    fn build_app() -> Option<App> {
+    #[derive(Clone, Default)]
+    struct RecordingWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for RecordingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("bytes").extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A headless App whose PTY writes are recorded, so each test can assert
+    /// exactly what reached the shell.
+    fn build_app() -> (App, std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
         let d = Dimensions::new(COLS, ROWS);
-        let (mut app, _terminal) = crate::native::test_support::headless_app_with(
+        let recorder = RecordingWriter::default();
+        let written = recorder.0.clone();
+        let writer: crate::native::pty::PtyWriter =
+            std::sync::Arc::new(std::sync::Mutex::new(Box::new(recorder)));
+        let (mut app, _terminal) = crate::native::test_support::headless_app_with_writer(
             crate::native::options::NativeOptions::default(),
             d,
             Settings::default(),
+            writer,
         );
         app.grid = d;
-        Some(app)
+        (app, written)
+    }
+
+    fn pty_bytes(written: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> Vec<u8> {
+        written.lock().expect("bytes").clone()
     }
 
     #[test]
     fn no_composition_is_inert_and_paints_nothing() {
-        let Some(app) = build_app() else {
-            return;
-        };
+        let (app, _written) = build_app();
         assert!(app.ime_preedit.is_empty());
         assert_eq!(app.ime_overlay_signature(), OverlayFragment::Inert);
         let mut snapshot = Terminal::new(COLS, ROWS).snapshot();
@@ -272,9 +319,7 @@ mod tests {
 
     #[test]
     fn preedit_stores_and_paints_at_cursor_then_commit_clears() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let (mut app, written) = build_app();
         app.handle_ime(Ime::Preedit("ab".to_owned(), Some((2, 2))));
         assert_eq!(app.ime_preedit, "ab");
         assert!(matches!(
@@ -292,17 +337,20 @@ mod tests {
             "pre-edit reads as provisional via underline"
         );
 
-        // Commit clears the pre-edit (the bytes go to the PTY).
+        assert!(
+            pty_bytes(&written).is_empty(),
+            "a pre-edit never reaches the PTY"
+        );
+        // Commit clears the pre-edit and the bytes go to the PTY.
         app.handle_ime(Ime::Commit("ab".to_owned()));
         assert!(app.ime_preedit.is_empty());
+        assert_eq!(pty_bytes(&written), b"ab");
         assert_eq!(app.ime_overlay_signature(), OverlayFragment::Inert);
     }
 
     #[test]
     fn disable_clears_stale_preedit() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let (mut app, written) = build_app();
         app.handle_ime(Ime::Preedit("x".to_owned(), None));
         assert_eq!(app.ime_preedit, "x");
         app.handle_ime(Ime::Disabled);
@@ -310,13 +358,15 @@ mod tests {
             app.ime_preedit.is_empty(),
             "a cancelled IME leaves no ghost"
         );
+        assert!(
+            pty_bytes(&written).is_empty(),
+            "a cancelled pre-edit writes nothing"
+        );
     }
 
     #[test]
     fn meaningful_ime_activity_rearms_cursor_visibility_without_empty_edges() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let (mut app, _written) = build_app();
 
         app.cursor_blink.park();
         app.handle_ime(Ime::Enabled);
@@ -367,9 +417,7 @@ mod tests {
         // C9: with the search box open, an IME commit must land in the search
         // field - not leak to the shell behind it. Before the fix the finalized
         // text went straight to the PTY and the query stayed empty.
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let (mut app, written) = build_app();
         app.open_search_for_test();
         assert!(app.search_open_for_test());
         assert_eq!(app.search_query_for_test(), "");
@@ -381,6 +429,7 @@ mod tests {
             "hi",
             "IME commit must feed the open search field, not the PTY"
         );
+        assert!(pty_bytes(&written).is_empty(), "nothing leaks to the shell");
     }
 
     #[test]
@@ -390,9 +439,7 @@ mod tests {
         // shell behind it. Committing "01" lands in the overlay's query box; its
         // "> 01" prompt line proves the commit reached the overlay. Before the
         // fix the finalized text went to the PTY and the query stayed empty.
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let (mut app, written) = build_app();
         app.open_connections_with_synthetic_hosts_for_test(3);
         assert!(app.overlay_open_for_test());
 
@@ -407,5 +454,6 @@ mod tests {
             "IME commit must land in the overlay's type-to-filter query, not the \
              PTY behind it; rows: {rows:?}"
         );
+        assert!(pty_bytes(&written).is_empty(), "nothing leaks to the shell");
     }
 }

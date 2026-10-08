@@ -113,11 +113,12 @@ fn report_upload_failure(job: &RemoteUploadJob, reason: String) {
 /// `ssh`, and clean up the local temp. Returns a short reason on any failure so
 /// the caller can surface it; never leaves a partial paste.
 ///
-/// The local temp is created privately: on Unix with `O_CREAT|O_EXCL` and mode
-/// `0600`, so a pre-planted symlink or a world-readable file in the shared temp
-/// dir cannot be reused for the briefly-staged paste; on Windows the per-user
-/// temp directory is already ACL'd to the current user, so a plain create
-/// matches that guarantee.
+/// The local temp is created privately and exclusively: on Unix with
+/// `O_CREAT|O_EXCL` and mode `0600`, so a pre-planted symlink or a
+/// world-readable file in the shared temp dir cannot be reused for the
+/// briefly-staged paste; on Windows with an exclusive create in the per-user
+/// temp directory, which inherits that directory's ACL. A write that fails
+/// after the create removes the file.
 fn perform_upload(job: &RemoteUploadJob, png: &[u8], remote_path: &str) -> Result<(), String> {
     // Reuse the remote file's basename for the local temp, so both carry the
     // same unguessable name; the local file lives only for the transfer.
@@ -125,35 +126,13 @@ fn perform_upload(job: &RemoteUploadJob, png: &[u8], remote_path: &str) -> Resul
         .file_name()
         .ok_or_else(|| "bad remote path".to_owned())?;
     let local = std::env::temp_dir().join(file_name);
-    write_private_temp(&local, png).map_err(|err| format!("temp write: {err}"))?;
+    super::private_temp::write_private_temp(&local, png)
+        .map_err(|err| format!("temp write: {err}"))?;
 
     let result = stream_upload(job, &local, remote_path);
     // Best-effort local cleanup regardless of upload outcome.
     let _ = std::fs::remove_file(&local);
     result
-}
-
-/// Create `path` privately and write `bytes`.
-///
-/// Unix: `O_CREAT|O_EXCL` with mode `0600` so the pasted image cannot land in a
-/// world-readable file and a pre-planted symlink at the target path cannot be
-/// followed (the exclusive create fails instead). Non-Unix: the per-user temp
-/// directory is ACL'd to the current user, so a plain write suffices.
-#[cfg(unix)]
-fn write_private_temp(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)?;
-    file.write_all(bytes)
-}
-
-#[cfg(not(unix))]
-fn write_private_temp(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::write(path, bytes)
 }
 
 fn stream_upload(

@@ -111,3 +111,23 @@ fn shared_device_health_is_global_and_cannot_clear_a_paused_window() {
     assert!(app.gpu_device_lost);
     assert!(!app.watchdog_state().render_owed);
 }
+
+/// Settings queued while the device is lost still apply to the model on the
+/// next redraw; only their GPU work is skipped (headless here, so the test
+/// pins the logical half and the ordering that detects the loss first).
+#[test]
+fn queued_settings_still_apply_logically_after_device_loss() {
+    let mut app = idle_app();
+    app.enter_gpu_device_lost();
+    let mut settings = app.settings.clone();
+    settings.selection_opacity = if settings.selection_opacity > 0.5 {
+        0.25
+    } else {
+        0.75
+    };
+    let wanted = settings.selection_opacity;
+    app.queue_overlay_settings(settings);
+    assert!(!app.on_redraw_requested());
+    assert_eq!(app.settings.selection_opacity, wanted);
+    assert!(app.gpu_device_lost, "the pause is unchanged");
+}

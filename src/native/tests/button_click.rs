@@ -599,3 +599,24 @@ fn open_modifier_click_skips_the_button_arm() {
     release(&mut app);
     assert!(drain(&bytes).is_empty());
 }
+
+/// A chip that program output draws under a resting pointer takes the hover
+/// and the hand cursor without any pointer motion.
+#[test]
+fn a_chip_drawn_under_a_resting_pointer_takes_the_hover_and_hand_cursor() {
+    let (mut app, _terminal, _bytes) = build_app(b"$ ", true);
+    move_to_cell(&mut app, 0, 3);
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Text,
+        "plain text under the pointer before the chip"
+    );
+    app.advance_primary_terminal_for_test(
+        b"\x1b]133;P;odytty-button;code=7\x07Run!\x1b]133;P;odytty-button;end\x07",
+    );
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Pointer,
+        "the new chip under the resting pointer shows the hand"
+    );
+}

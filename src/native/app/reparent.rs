@@ -141,7 +141,9 @@ impl App {
             .is_some_and(|token| tokens.contains(&token))
         {
             self.ime_preedit.clear();
-            self.ime_session = None;
+            // The moved pane's late commit must not reach the pane left
+            // active here.
+            self.ime_settled_owner = self.ime_session.take();
         }
         if self
             .context_command_handle

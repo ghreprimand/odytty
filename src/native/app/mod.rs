@@ -137,6 +137,7 @@ mod image_paste;
 mod ime;
 mod interaction;
 pub(in crate::native) mod interactive_paths;
+mod private_temp;
 // Key precedence, command routing, encoding, and held-exit behavior. Extracted
 // from this file without behavior change.
 mod keyboard;

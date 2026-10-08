@@ -1196,6 +1196,14 @@ impl App {
         self.settings.interactive_paths_editor = spec.to_owned();
     }
 
+    /// Test seam: the hovered path as the open action re-probes it.
+    #[cfg(test)]
+    pub(in crate::native) fn revalidated_hovered_path_for_test(
+        &mut self,
+    ) -> Option<crate::paths::Resolved> {
+        self.revalidated_hovered_path()
+    }
+
     /// Test seam (INTERACTIVE-PATHS / C3): drive the Ctrl+click open gate
     /// directly and report whether it fired. Returns `false` (no spawn) when the
     /// feature is off, the Ctrl gate is unmet, or no path is hovered — the cases

@@ -57,15 +57,33 @@ impl App {
         }
     }
 
-    /// Re-resolve every hover target (OSC 8 link, bare URL, path) against the
-    /// current content. Used before a click acts on them and after output, so
-    /// text that changed under a stationary pointer never leaves a stale target.
-    /// Each update is a no-op without a change, and the path probe stays
-    /// memoized on the hovered row's text and cwd.
+    /// Re-resolve every hover target (OSC 8 link, button chip, bare URL, path)
+    /// against the current content. Used before a click acts on them and after
+    /// output, so text or a chip that changed under a stationary pointer never
+    /// leaves a stale target or cursor shape. Each update is a no-op without a
+    /// change, and the path probe stays memoized on the hovered row's text and
+    /// cwd. The cursor shape is set again only when a target changed, so a
+    /// pointer resting on chrome or a divider keeps its shape.
     pub(super) fn refresh_hover_targets(&mut self) {
+        let before = self.hover_target_state();
         self.update_hover_hyperlink();
+        self.update_hover_button();
         self.update_hover_path();
         self.update_hover_url();
+        if self.hover_target_state() != before {
+            let icon = self.grid_cursor_icon();
+            self.apply_cursor_icon(icon);
+        }
+    }
+
+    /// Which hover targets are present, for change detection.
+    fn hover_target_state(&self) -> [bool; 4] {
+        [
+            self.hovered_hyperlink.is_some(),
+            self.hovered_button.is_some(),
+            self.hovered_path.is_some(),
+            self.hovered_url.is_some(),
+        ]
     }
 
     /// Frame hook: when the terminal's render revision moved since the hover
@@ -622,6 +640,27 @@ impl App {
     /// is an argv-only [`super::interactive_paths::spawn_detached`] of the
     /// dispatch vector ([`super::interactive_paths::path_open_argv`]) - never a
     /// shell string.
+    /// The hovered path, probed again now. The hover memo skips the
+    /// filesystem while the row text and cwd are unchanged, so a file that was
+    /// removed, created, or changed type since then is only seen here. A path
+    /// that no longer resolves to the same target clears the hover and opens
+    /// nothing.
+    pub(super) fn revalidated_hovered_path(&mut self) -> Option<crate::paths::Resolved> {
+        let hovered = self.hovered_path.clone()?;
+        let fresh = self.resolved_hovered_path_with_cells();
+        if fresh.as_ref().map(|(resolved, _)| resolved) == Some(&hovered) {
+            return Some(hovered);
+        }
+        self.hovered_path = None;
+        self.hovered_path_cells = None;
+        self.hover_path_probe_key = None;
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+        None
+    }
+
     pub(super) fn try_open_hovered_path(&mut self) -> bool {
         if !self.settings.interactive_paths {
             return false;
@@ -633,7 +672,7 @@ impl App {
         ) {
             return false;
         }
-        let Some(resolved) = self.hovered_path.clone() else {
+        let Some(resolved) = self.revalidated_hovered_path() else {
             return false;
         };
         if interactive_path_open_kind(&self.settings, &resolved)
