@@ -1948,6 +1948,10 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       records when another record is malformed. Linux runtime candidates use
       a sorted Regular-style preference filtered by coverage before the cap;
       Windows and macOS retain static tails.
+- [x] DEC selective erase and rectangle erase, fill, and copy destination writes
+      sever overwritten right-edge wrap seams before resize. Protected surviving
+      edges and attribute-only changes retain wraps; wide-pair repair covers the
+      edge outside an addressed rectangle.
 - [x] Core font-regression fixtures are portable across Linux, macOS and
       Windows; host font exercises are explicit extras. Refused SVG cache tests
       observe actual render attempts, and color probes accept v1/SVG coverage.

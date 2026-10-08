@@ -314,3 +314,113 @@ fn decsace_resets_to_stream_on_decstr_and_ris() {
         });
     }
 }
+
+// Project-authored ASCII fixtures exercise parser writes and subsequent reflow.
+fn assert_edge_write_severs(sequence: &[u8], expected: &str) {
+    let mut terminal = Terminal::new(4, 3);
+    terminal.advance(b"abcdef");
+    assert!(terminal.visible_search_rows(0)[0].wrapped);
+    terminal.advance(sequence);
+    assert_eq!(row_text(&terminal, 0), expected);
+    assert!(!terminal.visible_search_rows(0)[0].wrapped);
+    terminal.resize(8, 3);
+    assert_eq!(row_text(&terminal, 0).trim_end(), expected.trim_end());
+    assert_eq!(row_text(&terminal, 1).trim_end(), "ef");
+}
+
+#[test]
+fn decsel_edge_erase_severs_before_reflow() {
+    for sequence in [b"\x1b[1;3H\x1b[?K".as_slice(), b"\x1b[1;3H\x1b[?2K"] {
+        assert_edge_write_severs(
+            sequence,
+            if sequence.ends_with(b"?2K") {
+                "    "
+            } else {
+                "ab  "
+            },
+        );
+    }
+}
+
+#[test]
+fn decsed_edge_erase_severs_before_reflow() {
+    // Protect the continuation so DECSED 0 retains it while erasing row 0.
+    assert_edge_write_severs(b"\x1b[1\"q\x1b[2;1Hef\x1b[0\"q\x1b[1;3H\x1b[?J", "ab  ");
+}
+
+#[test]
+fn decera_edge_erase_severs_before_reflow() {
+    assert_edge_write_severs(b"\x1b[1;3;1;4$z", "ab  ");
+}
+
+#[test]
+fn decsera_edge_erase_severs_before_reflow() {
+    assert_edge_write_severs(b"\x1b[1;3;1;4${", "ab  ");
+}
+
+#[test]
+fn decfra_edge_fill_severs_before_reflow() {
+    assert_edge_write_severs(b"\x1b[88;1;3;1;4$x", "abXX");
+}
+
+#[test]
+fn deccra_destination_edge_severs_before_reflow() {
+    assert_edge_write_severs(b"\x1b[2;1;2;2;1;1;3$v", "abef");
+}
+
+#[test]
+fn interior_writes_and_attribute_changes_preserve_wrap() {
+    for sequence in [
+        b"\x1b[1;2H\x1b[?1K".as_slice(),
+        b"\x1b[1;2;1;3$z",
+        b"\x1b[1;2;1;3${",
+        b"\x1b[88;1;2;1;3$x",
+        b"\x1b[2;1;2;2;1;1;2$v",
+        b"\x1b[1;1;1;4;1$r",
+        b"\x1b[1;1;1;4;1$t",
+    ] {
+        let mut terminal = Terminal::new(4, 3);
+        terminal.advance(b"abcdef");
+        terminal.advance(sequence);
+        assert!(terminal.visible_search_rows(0)[0].wrapped, "{sequence:?}");
+    }
+}
+
+#[test]
+fn selective_erase_preserves_protected_edge_but_severs_unprotected_edge() {
+    for sequence in [
+        b"\x1b[1;1H\x1b[?2K".as_slice(),
+        b"\x1b[1;1;1;4${",
+        b"\x1b[1;1H\x1b[?J",
+    ] {
+        let mut terminal = Terminal::new(4, 3);
+        terminal.advance(b"ab\x1b[1\"qcd\x1b[0\"qef");
+        terminal.advance(sequence);
+        assert_eq!(row_text(&terminal, 0), "  cd");
+        assert!(terminal.visible_search_rows(0)[0].wrapped);
+        let mut terminal = Terminal::new(4, 3);
+        terminal.advance(b"\x1b[1\"qab\x1b[0\"qcdef");
+        terminal.advance(sequence);
+        assert_eq!(row_text(&terminal, 0), "ab  ");
+        assert!(!terminal.visible_search_rows(0)[0].wrapped);
+    }
+}
+
+#[test]
+fn wide_pair_repair_at_edge_severs_wrap() {
+    for sequence in [
+        b"\x1b[1;3;1;3$z".as_slice(),
+        b"\x1b[1;3;1;3${",
+        b"\x1b[88;1;3;1;3$x",
+        b"\x1b[2;1;2;1;1;1;3$v",
+        b"\x1b[1;3H\x1b[?1K",
+    ] {
+        let mut terminal = Terminal::new(4, 3);
+        terminal.advance("ab\u{4e16}ef".as_bytes());
+        terminal.advance(sequence);
+        assert!(!terminal.screen().cell(0, 3).unwrap().wide_continuation);
+        assert!(!terminal.visible_search_rows(0)[0].wrapped, "{sequence:?}");
+        terminal.resize(8, 3);
+        assert_eq!(row_text(&terminal, 1).trim_end(), "ef");
+    }
+}

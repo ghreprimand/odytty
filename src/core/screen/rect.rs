@@ -167,7 +167,7 @@ impl Screen {
                 cell.layout_padding = false;
                 self.rows[row][dest_left + column_offset] = cell;
             }
-            sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
+            self.finish_rect_write(row, dest_left + width == self.dimensions.columns);
         }
 
         self.pending_wrap = false;
@@ -181,7 +181,6 @@ impl Screen {
             return;
         };
         let cell = self.fill_cell(param_or(params, 0, b' ' as usize));
-        let blank = self.current_blank();
 
         for row in rect.top..=rect.bottom {
             // Labeled button spans overlapping the filled range are released.
@@ -195,7 +194,7 @@ impl Screen {
             for column in rect.left..=rect.right {
                 self.rows[row][column] = cell;
             }
-            sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
+            self.finish_rect_write(row, rect.right + 1 == self.dimensions.columns);
         }
 
         self.pending_wrap = false;
@@ -263,12 +262,14 @@ impl Screen {
                     end: rect.right + 1,
                 },
             );
+            let writes_edge = rect.right + 1 == self.dimensions.columns
+                && (!selective || !self.rows[row][rect.right].protected);
             for column in rect.left..=rect.right {
                 if !selective || !self.rows[row][column].protected {
                     self.rows[row][column] = blank;
                 }
             }
-            sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
+            self.finish_rect_write(row, writes_edge);
         }
         self.pending_wrap = false;
         self.mark_dirty();
@@ -296,12 +297,25 @@ impl Screen {
                 end: right + 1,
             },
         );
+        let writes_edge = right + 1 == self.dimensions.columns && !self.rows[row][right].protected;
         for column in left..=right {
             if !self.rows[row][column].protected {
                 self.rows[row][column] = blank;
             }
         }
+        self.finish_rect_write(row, writes_edge);
+    }
+
+    /// An edge overwrite ends the old logical line, including wide-pair repair
+    /// that blanks its continuation just outside the addressed rectangle.
+    fn finish_rect_write(&mut self, row: usize, writes_edge: bool) {
+        let edge = self.dimensions.columns - 1;
+        let before_repair = self.rows[row][edge];
+        let blank = self.current_blank();
         sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
+        if writes_edge || self.rows[row][edge] != before_repair {
+            self.sever_soft_wrap(row);
+        }
     }
 
     fn fill_cell(&self, value: usize) -> Cell {

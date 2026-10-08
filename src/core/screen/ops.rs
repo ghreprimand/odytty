@@ -52,7 +52,7 @@ impl Screen {
     /// must be cleared at the seam or the next resize fuses UNRELATED rows
     /// into one logical line. Out-of-range rows are ignored so callers can
     /// pass computed seam indices without bounds gymnastics.
-    fn sever_soft_wrap(&mut self, row: usize) {
+    pub(super) fn sever_soft_wrap(&mut self, row: usize) {
         if let Some(line) = self.rows.get_mut(row) {
             line.wrapped = false;
         }

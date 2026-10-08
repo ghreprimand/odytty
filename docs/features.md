@@ -1925,7 +1925,10 @@ timeout reaps it.
 Generated wide-glyph wrap padding occupies a visual cell without adding text
 to search, copy, or scrollback export. Typed spaces at soft-wrap boundaries
 remain logical source text. Eager and lazy reflow preserve this distinction
-on Linux Wayland, Linux X11, macOS, and Windows.
+on Linux Wayland, Linux X11, macOS, and Windows. DEC selective erases and
+rectangle erase, fill, and copy destination writes sever an overwritten right
+edge before reflow; a protected surviving edge and attribute-only edits retain
+the existing logical line. Wide-pair repair that blanks the edge severs it too.
 
 Snapshot format v6 preserves layout-padding provenance and G0/G1 character-set
 designation and SO/SI selection, so an ACS box-drawing run survives reattach.

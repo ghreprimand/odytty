@@ -307,6 +307,10 @@ and DECSERA are implemented. DECCRA uses a snapshot-copy strategy: the source
 cells are copied into a temporary buffer before the destination write, so
 overlapping regions produce correct results without requiring a scratch page.
 Rectangle coordinates are 1-based, inclusive, and clamp to the visible page.
+Erases, fills, and copy destination writes that reach the right edge sever the
+old soft-wrap seam before reflow. Selective erase retains the seam when the
+protected edge survives. Wide-pair repair that blanks the edge also severs it;
+interior writes and attribute-only changes preserve the seam.
 
 With DECOM active, row coordinates are relative to the active vertical scroll
 margins; columns remain screen-relative (horizontal margins are not implemented).
