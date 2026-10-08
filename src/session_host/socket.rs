@@ -354,11 +354,7 @@ mod tests {
 
     impl TempDir {
         fn new(prefix: &str) -> Self {
-            use std::sync::atomic::{AtomicU64, Ordering};
-            static SEQ: AtomicU64 = AtomicU64::new(0);
-            let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-            let path = env::temp_dir().join(format!("{prefix}-{}-{seq}", std::process::id()));
-            fs::create_dir(&path).expect("create temp dir");
+            let path = crate::test_dirs::fresh_socket_dir(prefix);
             Self { path }
         }
 

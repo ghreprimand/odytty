@@ -732,18 +732,8 @@ struct TempDir {
 
 impl TempDir {
     fn new(prefix: &str) -> Self {
-        // Per-test isolation: pid + a process-global monotonic counter guarantee a
-        // unique directory across processes (pid) and within one (the counter is
-        // the deciding factor). We deliberately keep this name SHORT and omit a
-        // nanos timestamp: the host appends `<base>/odytty/session-<id>.sock`, and
-        // on macOS the temp base is a long `/var/folders/.../T/` path, so an
-        // `AF_UNIX` socket under a verbose, timestamped base overflows the 104-byte
-        // `sun_path` limit and `bind()` fails. Keep `prefix` to a short tag.
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static SEQ: AtomicU64 = AtomicU64::new(0);
-        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("{prefix}-{}-{seq}", std::process::id()));
-        fs::create_dir(&path).expect("create temp dir");
+        // Nested session socket paths need a short base on macOS.
+        let path = crate::test_dirs::fresh_socket_dir(prefix);
         Self { path }
     }
 

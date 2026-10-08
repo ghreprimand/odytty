@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+#[path = "../src/test_dirs/allocation.rs"]
+pub mod scratch_dirs;
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use odytty::connection_hosts::{
     AppendHostOutcome, ConnectionHost, ConnectionHostSource, HostsEditOutcome, append_adhoc_host,
@@ -17,13 +19,7 @@ struct TempDir {
 
 impl TempDir {
     fn new(prefix: &str) -> Self {
-        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "odytty-security-{prefix}-{}-{sequence}",
-            std::process::id()
-        ));
-        fs::create_dir(&path).expect("create synthetic temporary directory");
+        let path = scratch_dirs::fresh_temp_dir(prefix);
         Self { path }
     }
 

@@ -20,19 +20,16 @@
 //! 5. end the child and assert the host process reaps cleanly — no orphaned
 //!    daemon and no stale socket.
 //!
-//! Hermetic: a synthetic runtime base under the OS temp dir (the host creates
+//! Hermetic: a synthetic runtime base under a short socket directory (the host creates
 //! and `0700`-locks its own `odytty/` runtime dir inside it), a trivial
 //! controlled `/bin/sh` child, and bounded timeouts. No real user data.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::core::Terminal;
 use crate::native::attach::{AttachClient, resolve_session_socket};
-
-static UNIQUE: AtomicU64 = AtomicU64::new(0);
 
 /// Locate the built `odytty` binary next to the test executable
 /// (`target/<profile>/odytty`). `cargo test` builds the bin automatically, so it
@@ -53,20 +50,10 @@ fn odytty_bin() -> PathBuf {
     );
 }
 
-/// A unique synthetic runtime base under the OS temp dir. The host creates and
+/// A unique synthetic runtime base under a short socket directory. The host creates and
 /// `0700`-locks `<base>/odytty/` itself; we only own the outer dir for cleanup.
 fn unique_base() -> PathBuf {
-    // Keep this base SHORT: the host binds `<base>/odytty/session-<id>.sock`
-    // (plus a `.sock.lock`), and on macOS the temp base is a long
-    // `/var/folders/.../T/` path, so a verbose unique dir overflows the 104-byte
-    // `AF_UNIX` sun_path limit and `bind()` fails.
-    let base = std::env::temp_dir().join(format!(
-        "ode_{}_{}",
-        std::process::id(),
-        UNIQUE.fetch_add(1, Ordering::SeqCst)
-    ));
-    std::fs::create_dir_all(&base).expect("create runtime base");
-    base
+    crate::test_dirs::fresh_socket_dir("ode")
 }
 
 /// Spawns the real session-host subprocess and reaps it on drop so a failed

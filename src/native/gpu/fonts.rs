@@ -417,14 +417,7 @@ mod tests {
     use super::*;
 
     fn startup_fixture_dir() -> PathBuf {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "odytty-startup-fonts-{}-{serial}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("create startup font fixture directory");
-        dir
+        crate::test_dirs::fresh_temp_dir("osf")
     }
 
     fn bundled_regular_path() -> PathBuf {

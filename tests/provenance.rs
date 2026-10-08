@@ -13,6 +13,10 @@
 // pure-function tests need no imports. Gating them keeps the windows-latest
 // leg free of unused-import/dead-code warnings.
 #[cfg(unix)]
+#[path = "../src/test_dirs/allocation.rs"]
+pub mod scratch_dirs;
+
+#[cfg(unix)]
 use std::fs;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
@@ -240,8 +244,7 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?} failed");
 }
 
-/// Minimal self-cleaning temp directory (mirrors the helper in `tests/cli.rs`;
-/// the integration-test crates are separate, so it cannot be shared).
+/// Self-cleaning directory using the allocator shared with other test crates.
 #[cfg(unix)]
 struct TempDir {
     path: PathBuf,
@@ -250,11 +253,7 @@ struct TempDir {
 #[cfg(unix)]
 impl TempDir {
     fn new(prefix: &str) -> Self {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static SEQ: AtomicU64 = AtomicU64::new(0);
-        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("{prefix}-{}-{seq}", std::process::id()));
-        fs::create_dir(&path).expect("create temp dir");
+        let path = scratch_dirs::fresh_temp_dir(prefix);
         Self { path }
     }
 

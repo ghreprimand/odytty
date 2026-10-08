@@ -16,7 +16,7 @@ use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::Duration;
 
@@ -129,12 +129,7 @@ impl Drop for Fixture {
 }
 
 fn fixture() -> Fixture {
-    // Synthetic entropy only: no host usernames, homes, or machine paths.
-    static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
-    let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let tag = format!("odyctl-{:x}-{sequence:x}", std::process::id());
-    let dir = std::env::temp_dir().join(tag);
-    fs::create_dir(&dir).expect("private fixture directory");
+    let dir = crate::test_dirs::fresh_socket_dir("odc");
     fs::set_permissions(&dir, Permissions::from_mode(0o700)).expect("dir mode 0700");
     let socket = dir.join("control.sock");
     Fixture { dir, socket }
@@ -874,22 +869,15 @@ fn symlinked_parent_binds_on_the_resolved_directory_only() {
     // the link. The link's own chain therefore adds no exposure: redirecting it
     // can only reach another directory that already passes the owner-only checks.
     let real = fixture();
-    let alias_root = {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
-        let tag = format!("odyctl-link-{:x}-{sequence:x}", std::process::id());
-        let dir = std::env::temp_dir().join(tag);
-        fs::create_dir(&dir).expect("alias root");
-        fs::set_permissions(&dir, Permissions::from_mode(0o700)).expect("alias root mode");
-        dir
-    };
+    let alias = fixture();
+    let alias_root = &alias.dir;
     let linked_parent = alias_root.join("via-link");
     std::os::unix::fs::symlink(&real.dir, &linked_parent).expect("symlink parent");
     let socket = linked_parent.join("control.sock");
     let (submission, _queue) = dispatch::channel(false);
     let bind_result = Server::bind(&socket, submission, || true);
     let _ = fs::remove_file(&linked_parent);
-    let _ = fs::remove_dir_all(&alias_root);
+    let _ = fs::remove_dir_all(alias_root);
     let server = bind_result.expect("resolved owner-only parent binds");
     let resolved = fs::canonicalize(&real.dir).expect("real dir");
     assert!(

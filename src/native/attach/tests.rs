@@ -9,7 +9,6 @@
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -29,20 +28,10 @@ use crate::session_host::protocol::{
 use crate::session_host::{runtime_dir_path, session_socket_path};
 use winit::event::MouseButton as WinitMouseButton;
 
-static UNIQUE: AtomicU64 = AtomicU64::new(0);
-
 /// A `0700` runtime dir owned by the current uid, satisfying
 /// `validate_socket_parent`. Best-effort cleanup is left to the OS temp reaper.
 fn unique_runtime_dir() -> PathBuf {
-    // Keep this base SHORT: the resolved socket is `<base>/odytty/session-<id>.sock`
-    // and on macOS the temp base is a long `/var/folders/.../T/` path, so a verbose
-    // unique dir overflows the 104-byte `AF_UNIX` sun_path limit and `bind()` fails.
-    let dir = std::env::temp_dir().join(format!(
-        "oda_{}_{}",
-        std::process::id(),
-        UNIQUE.fetch_add(1, Ordering::SeqCst)
-    ));
-    std::fs::create_dir_all(&dir).expect("create runtime dir");
+    let dir = crate::test_dirs::fresh_socket_dir("oda");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
         .expect("chmod 0700 runtime dir");
     dir

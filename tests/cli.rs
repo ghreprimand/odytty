@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #![cfg(unix)]
 
+#[path = "../src/test_dirs/allocation.rs"]
+pub mod scratch_dirs;
+
 use std::fs;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -625,18 +628,7 @@ struct TempDir {
 
 impl TempDir {
     fn new(prefix: &str) -> Self {
-        // Keep this directory name SHORT (pid + a process-global counter, no nanos
-        // timestamp). The CLI session-host binds `<base>/odytty/session-<id>.sock`
-        // and, on macOS, `std::env::temp_dir()` is a long `/var/folders/.../T/`
-        // path; a verbose, nanos-timestamped base overflows the 104-byte AF_UNIX
-        // `sun_path` limit and the host refuses to bind. pid disambiguates across
-        // processes and the counter within one, matching the lib-test and e2e
-        // helpers. Pass a short `prefix`.
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static SEQ: AtomicU64 = AtomicU64::new(0);
-        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("{prefix}-{}-{seq}", std::process::id()));
-        fs::create_dir(&path).expect("create temp dir");
+        let path = scratch_dirs::fresh_socket_dir(prefix);
         Self { path }
     }
 

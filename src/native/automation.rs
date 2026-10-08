@@ -378,18 +378,59 @@ mod tests {
         assert!(!runtime.is_running());
     }
 
-    // Fixture directory names stay short: macOS places `temp_dir()` under
-    // `/var/folders/...`, and `sun_path` allows 104 bytes there.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    struct FixtureDir(PathBuf);
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    impl FixtureDir {
+        fn new(prefix: &str) -> Self {
+            let dir = Self(crate::test_dirs::fresh_temp_dir(prefix));
+            crate::state_dir::prepare_private_dir(&dir.0).expect("owner-private fixture dir");
+            dir
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    impl Drop for FixtureDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn same_prefix_fixture_dirs_keep_independent_ownership_and_cleanup() {
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let spawn = || {
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let dir = FixtureDir::new("oa-r");
+                fs::write(dir.0.join("owned"), b"fixture").expect("marker");
+                barrier.wait();
+                dir
+            })
+        };
+        let left = spawn();
+        let right = spawn();
+        let left = left.join().expect("left fixture");
+        let right = right.join().expect("right fixture");
+        assert_ne!(left.0, right.0);
+        let left_path = left.0.clone();
+        let right_path = right.0.clone();
+        drop(left);
+        assert!(!left_path.exists());
+        assert!(right_path.join("owned").exists());
+        drop(right);
+        assert!(!right_path.exists());
+    }
+
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn stale_cleanup_removes_dead_socket_but_preserves_live_and_non_socket_entries() {
         use std::os::unix::net::UnixListener;
-        use std::sync::atomic::{AtomicU64, Ordering};
 
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let tag = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("oa-c{:x}-{tag:x}", std::process::id()));
-        fs::create_dir(&dir).expect("create fixture dir");
+        let fixture = FixtureDir::new("oa-c");
+        let dir = &fixture.0;
 
         let stale = dir.join("control-2147483647.sock");
         let live = dir.join(format!("control-{}.sock", std::process::id()));
@@ -398,7 +439,7 @@ mod tests {
         let live_listener = UnixListener::bind(&live).expect("live socket");
         fs::write(&decoy, b"not a socket").expect("decoy");
 
-        cleanup_stale_endpoints(&dir).expect("cleanup");
+        cleanup_stale_endpoints(dir).expect("cleanup");
         assert!(!stale.exists(), "dead owner's socket removed");
         assert!(live.exists(), "live owner's socket preserved");
         assert!(decoy.exists(), "non-socket entry preserved");
@@ -407,7 +448,6 @@ mod tests {
         drop(live_listener);
         let _ = fs::remove_file(live);
         let _ = fs::remove_file(decoy);
-        let _ = fs::remove_dir(dir);
     }
 
     #[cfg(target_os = "linux")]
@@ -422,12 +462,9 @@ mod tests {
     #[test]
     fn stale_cleanup_identity_check_preserves_a_replacement_socket() {
         use std::os::unix::net::UnixListener;
-        use std::sync::atomic::{AtomicU64, Ordering};
 
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let tag = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("oa-r{:x}-{tag:x}", std::process::id()));
-        fs::create_dir(&dir).expect("create fixture dir");
+        let fixture = FixtureDir::new("oa-r");
+        let dir = &fixture.0;
         let path = dir.join("control-2147483647.sock");
         let first = UnixListener::bind(&path).expect("first socket");
         let first_metadata = fs::symlink_metadata(&path).expect("first metadata");
@@ -440,18 +477,13 @@ mod tests {
 
         drop(replacement);
         let _ = fs::remove_file(path);
-        let _ = fs::remove_dir(dir);
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn unix_runtime_bind_and_shutdown_own_one_endpoint_lifecycle() {
-        use std::sync::atomic::{AtomicU64, Ordering};
-
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let tag = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("oa-l{:x}-{tag:x}", std::process::id()));
-        crate::state_dir::prepare_private_dir(&dir).expect("owner-private fixture dir");
+        let fixture = FixtureDir::new("oa-l");
+        let dir = &fixture.0;
         let endpoint = dir.join(format!("control-{}.sock", std::process::id()));
         let mut runtime = AutomationRuntime::default();
 
@@ -466,8 +498,6 @@ mod tests {
         runtime.shutdown();
         assert!(!runtime.is_running());
         assert!(!endpoint.exists(), "owned endpoint removed on shutdown");
-
-        let _ = fs::remove_dir(dir);
     }
 
     /// A running endpoint reconciles every tick; none of those ticks may build
@@ -475,12 +505,8 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn a_running_endpoint_reconciles_without_building_the_wake_callback() {
-        use std::sync::atomic::{AtomicU64, Ordering};
-
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let tag = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("oa-r{:x}-{tag:x}", std::process::id()));
-        crate::state_dir::prepare_private_dir(&dir).expect("owner-private fixture dir");
+        let fixture = FixtureDir::new("oa-r");
+        let dir = &fixture.0;
         let endpoint = dir.join(format!("control-{}.sock", std::process::id()));
 
         let mut runtime = AutomationRuntime::default();
@@ -496,18 +522,15 @@ mod tests {
             );
         }
         runtime.shutdown();
-        let _ = fs::remove_dir(dir);
     }
 
     #[cfg(target_os = "linux")]
     #[test]
     fn listener_fault_tears_down_and_retries_only_after_off_and_on() {
-        use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let tag = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("oa-f{:x}-{tag:x}", std::process::id()));
-        crate::state_dir::prepare_private_dir(&dir).expect("owner-private fixture dir");
+        let fixture = FixtureDir::new("oa-f");
+        let dir = &fixture.0;
         let endpoint = dir.join(format!("control-{}.sock", std::process::id()));
         let wakes = std::sync::Arc::new(AtomicUsize::new(0));
         let wake = {
@@ -573,7 +596,5 @@ mod tests {
             "disabling a faulted endpoint tears it down"
         );
         assert!(runtime.queue.is_none() && !endpoint.exists());
-
-        let _ = fs::remove_dir(dir);
     }
 }
