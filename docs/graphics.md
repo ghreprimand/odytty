@@ -358,9 +358,10 @@ On Unix, files are opened with `O_NOFOLLOW`. A symlink inside `/tmp` pointing to
 any data is read. The directory is bound to the path that passed the
 allowlist check: OdyTTY checks containment on the parent's canonical path, then
 opens that directory by walking each of its components from `/` with
-`O_NOFOLLOW`, and opens the file relative to the resulting handle. A link
-planted anywhere on the path during or after the check refuses the transfer
-with `EPERM:path-not-allowed` instead of redirecting the read.
+`O_NOFOLLOW`, and opens the file relative to the resulting handle. A link met
+during that component walk refuses admission with `EPERM:path-not-allowed`. A
+pathname change after the directory is bound cannot redirect the read: the
+file is still opened in the directory that was admitted.
 
 On Windows, the file is opened as the reparse point itself and a handle that
 carries the reparse-point attribute is rejected, so a final-component link is

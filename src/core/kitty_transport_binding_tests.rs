@@ -123,31 +123,60 @@ fn transport_paths_outside_the_temp_roots_stay_refused() {
 // Unix: deterministic rebinding at the interleaving points.
 // ---------------------------------------------------------------------------
 
+/// Project-authored bytes placed outside the injected admitted root. A read
+/// redirected through a planted link would return exactly these bytes.
+#[cfg(unix)]
+const OUTSIDE: &[u8] = b"outside control bytes";
+
+/// A fixture whose only admitted root is its `allowed` child, with an
+/// `outside` sibling holding the outside control file `passwd`. The injected
+/// root keeps the control project-authored and inside the fixture.
+#[cfg(unix)]
+struct Confined {
+    allowed: PathBuf,
+    outside: PathBuf,
+    _roots: test_hooks::RootsGuard,
+    _fixture: FixtureDir,
+}
+
+#[cfg(unix)]
+impl Confined {
+    fn new(tag: &str) -> Self {
+        let fixture = FixtureDir::new(tag);
+        let allowed = fixture.child_dir("allowed");
+        let outside = fixture.child_dir("outside");
+        std::fs::write(outside.join("passwd"), OUTSIDE).expect("seed outside control file");
+        let roots = test_hooks::restrict_roots(&[&allowed]);
+        Self {
+            allowed,
+            outside,
+            _roots: roots,
+            _fixture: fixture,
+        }
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn ancestor_swapped_after_admission_cannot_redirect_the_read() {
-    // `/etc/passwd` is a readable regular file outside every admitted root on
-    // Linux and macOS. The fixture never writes to it.
-    let outside = std::fs::read("/etc/passwd").expect("read the outside control file");
-    assert_ne!(outside, ADMITTED);
-
-    let fixture = FixtureDir::new("ancestor");
-    let stage = fixture.child_dir("stage");
+    let confined = Confined::new("ancestor");
+    let stage = confined.allowed.join("stage");
+    std::fs::create_dir(&stage).expect("create admitted directory");
     std::fs::write(stage.join("passwd"), ADMITTED).expect("seed admitted file");
-    let held = fixture.0.join("stage-held");
-    let swap_from = stage.clone();
+    let held = confined.allowed.join("stage-held");
+    let (swap_from, target) = (stage.clone(), confined.outside.clone());
     let _hook = test_hooks::install(move |point| {
         if point == Stage::AfterAdmission {
             std::fs::rename(&swap_from, &held).expect("move admitted directory");
-            std::os::unix::fs::symlink("/etc", &swap_from).expect("plant ancestor link");
+            std::os::unix::fs::symlink(&target, &swap_from).expect("plant ancestor link");
         }
     });
 
     let result = transport::read_file_transport(&path_bytes(&stage.join("passwd")), 1 << 20);
     assert_ne!(
         result,
-        Ok(outside),
-        "a directory swapped after admission must not redirect the read outside the temp roots"
+        Ok(OUTSIDE.to_vec()),
+        "a directory swapped after admission must not redirect the read outside the admitted root"
     );
     assert_eq!(
         result,
@@ -156,59 +185,58 @@ fn ancestor_swapped_after_admission_cannot_redirect_the_read() {
     );
 }
 
-/// Swap `link` between a symlink to `/etc` and the real directory parked at
+/// Swap `link` between a symlink to `target` and the real directory parked at
 /// `held`, once per admission interleaving point.
 #[cfg(unix)]
-fn toggle_link(link: &Path, held: &Path) {
+fn toggle_link(link: &Path, held: &Path, target: &Path) {
     if std::fs::symlink_metadata(link).is_ok_and(|m| m.file_type().is_symlink()) {
         std::fs::remove_file(link).expect("remove planted link");
         std::fs::rename(held, link).expect("restore admitted directory");
     } else {
         std::fs::rename(link, held).expect("park admitted directory");
-        std::os::unix::fs::symlink("/etc", link).expect("plant ancestor link");
+        std::os::unix::fs::symlink(target, link).expect("plant ancestor link");
     }
 }
 
 #[cfg(unix)]
 #[test]
 fn ancestor_flipped_during_admission_cannot_redirect_the_read() {
-    let outside = std::fs::read("/etc/passwd").expect("read the outside control file");
-    assert_ne!(outside, ADMITTED);
-
-    let fixture = FixtureDir::new("admit-flip");
-    let held = fixture.child_dir("stage-held");
+    let confined = Confined::new("admit-flip");
+    let held = confined.allowed.join("stage-held");
+    std::fs::create_dir(&held).expect("create admitted directory");
     std::fs::write(held.join("passwd"), ADMITTED).expect("seed admitted file");
-    let stage = fixture.0.join("stage");
-    std::os::unix::fs::symlink("/etc", &stage).expect("plant ancestor link");
+    let stage = confined.allowed.join("stage");
+    std::os::unix::fs::symlink(&confined.outside, &stage).expect("plant ancestor link");
     // An adversary flips the ancestor at every admission interleaving point:
     // a link when the directory is resolved or opened, the real directory when
     // its containment is judged.
-    let (link, park) = (stage.clone(), held.clone());
+    let (link, park, target) = (stage.clone(), held.clone(), confined.outside.clone());
     let _hook = test_hooks::install(move |point| {
         if point == Stage::DuringAdmission {
-            toggle_link(&link, &park);
+            toggle_link(&link, &park, &target);
         }
     });
 
     let result = transport::read_file_transport(&path_bytes(&stage.join("passwd")), 1 << 20);
     assert_ne!(
         result,
-        Ok(outside),
-        "admission must not hand out a directory outside the temp roots"
+        Ok(OUTSIDE.to_vec()),
+        "admission must not hand out a directory outside the admitted root"
     );
 }
 
 #[cfg(unix)]
 #[test]
 fn ancestor_swapped_during_admission_refuses_the_path() {
-    let fixture = FixtureDir::new("admit-swap");
-    let stage = fixture.child_dir("stage");
+    let confined = Confined::new("admit-swap");
+    let stage = confined.allowed.join("stage");
+    std::fs::create_dir(&stage).expect("create admitted directory");
     std::fs::write(stage.join("passwd"), ADMITTED).expect("seed admitted file");
-    let held = fixture.0.join("stage-held");
-    let (link, park) = (stage.clone(), held.clone());
+    let held = confined.allowed.join("stage-held");
+    let (link, park, target) = (stage.clone(), held.clone(), confined.outside.clone());
     let _hook = test_hooks::install(move |point| {
         if point == Stage::DuringAdmission {
-            toggle_link(&link, &park);
+            toggle_link(&link, &park, &target);
         }
     });
 
@@ -216,7 +244,23 @@ fn ancestor_swapped_during_admission_refuses_the_path() {
     assert_eq!(
         result,
         Err(TransportError::PathNotAllowed),
-        "a link planted on the admitted path after it was resolved refuses admission"
+        "a link met while walking the admitted path refuses admission"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn injected_root_admits_its_own_files_and_refuses_the_outside_control() {
+    let confined = Confined::new("roots");
+    std::fs::write(confined.allowed.join("image.dat"), ADMITTED).expect("seed admitted file");
+    assert_eq!(
+        transport::read_file_transport(&path_bytes(&confined.allowed.join("image.dat")), 4096),
+        Ok(ADMITTED.to_vec())
+    );
+    assert_eq!(
+        transport::read_file_transport(&path_bytes(&confined.outside.join("passwd")), 4096),
+        Err(TransportError::PathNotAllowed),
+        "the outside control lies outside the only admitted root"
     );
 }
 

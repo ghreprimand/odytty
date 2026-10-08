@@ -382,9 +382,10 @@ the reference implementation.
   `src/core/kitty_transport.rs`). Containment is verified by canonicalizing the
   *parent* directory and checking the prefix, because the file itself may not
   exist at validation time. On Unix the directory is then opened by walking
-  those canonical components from `/` with `O_NOFOLLOW`, so a link planted on
-  the path after the check refuses the transfer. Files are opened with `O_NOFOLLOW` on Unix so the
-  kernel rejects symlinks. Windows opens the final component with
+  those canonical components from `/` with `O_NOFOLLOW`: a link met during
+  that walk refuses admission, and a pathname change after the directory is
+  bound cannot redirect the read. Files are opened with `O_NOFOLLOW` on Unix so
+  the kernel rejects symlinks. Windows opens the final component with
   `FILE_FLAG_OPEN_REPARSE_POINT` and rejects an opened handle carrying
   `FILE_ATTRIBUTE_REPARSE_POINT`. Both checks prevent a final-component link
   from being followed before the regular-file check. The temporary-file

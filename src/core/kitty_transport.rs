@@ -19,10 +19,10 @@
 //!    checks containment on the parent's canonical path, then opens that
 //!    directory by walking each canonical component from `/` with
 //!    `O_NOFOLLOW`, and opens the file relative to the resulting handle. A
-//!    link planted anywhere on the way refuses admission. Windows requires the
-//!    opened file handle's own final location to lie inside an allowed root.
-//!    A directory swapped during or after the check therefore cannot redirect
-//!    the read.
+//!    link met during that component walk refuses admission, and a pathname
+//!    change after the directory is bound cannot redirect the read. Windows
+//!    requires the opened file handle's own final location to lie inside an
+//!    allowed root.
 //!
 //! 3. **Decode bombs**: a 1-byte file claiming to be a 100MP PNG.
 //!    Mitigated by enforcing the ImageStore byte cap on the raw file read
@@ -132,6 +132,10 @@ impl TransportError {
 /// Returns the set of canonical directory prefixes that file transports
 /// may read from. Each entry is a canonicalized absolute path.
 fn allowed_temp_dirs() -> Vec<PathBuf> {
+    #[cfg(test)]
+    if let Some(roots) = test_hooks::allowed_roots() {
+        return roots;
+    }
     let mut dirs = Vec::new();
 
     // Always include /tmp and /dev/shm.
@@ -1024,6 +1028,33 @@ pub(super) mod test_hooks {
 
     thread_local! {
         static HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
+        static ROOTS: RefCell<Option<Vec<std::path::PathBuf>>> = const { RefCell::new(None) };
+    }
+
+    /// Replace the admitted temp roots for this thread with the canonical
+    /// forms of `roots` until the returned guard drops, so a test can place
+    /// its outside control inside a directory it owns.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(in crate::core) fn restrict_roots(roots: &[&std::path::Path]) -> RootsGuard {
+        let canonical = roots
+            .iter()
+            .map(|root| std::fs::canonicalize(root).expect("canonicalize injected root"))
+            .collect();
+        ROOTS.with(|cell| *cell.borrow_mut() = Some(canonical));
+        RootsGuard
+    }
+
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(in crate::core) struct RootsGuard;
+
+    impl Drop for RootsGuard {
+        fn drop(&mut self) {
+            ROOTS.with(|cell| *cell.borrow_mut() = None);
+        }
+    }
+
+    pub(super) fn allowed_roots() -> Option<Vec<std::path::PathBuf>> {
+        ROOTS.with(|cell| cell.borrow().clone())
     }
 
     /// Install a hook for this thread until the returned guard drops.

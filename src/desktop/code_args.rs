@@ -13,11 +13,19 @@
 //! digits ignored, so `python3.12` is `python`), so wrappers such as `env`,
 //! `nice` or `flatpak-spawn --host` do not hide it:
 //!
-//! * shells (`sh bash dash zsh ksh mksh ash yash posh rbash fish csh tcsh
-//!   elvish nu xonsh`): after a flag cluster containing `c`, or `--command`
-//!   or `--init-command`, the first operand is code. A file value inside the
-//!   shell's own options is refused too. `sh -c CODE sh %f` stays accepted:
-//!   the file is a positional parameter there, not code;
+//! * shells: options are read with each shell's own arity, so an option
+//!   operand (`bash -o posix`, `fish -d all`) cannot hide a later code option.
+//!   For `sh bash dash zsh ksh mksh ash yash posh rbash csh tcsh`, after a
+//!   flag cluster containing `c` the first operand is code; `-o` takes the
+//!   next element, as do `-O` for `bash`, `-R` for `ksh`, `-T` for `mksh`,
+//!   `--rcfile` and `--init-file` for `bash`, and `--rcfile` and `--profile`
+//!   for `yash`. For `fish`, the argument of `-c`, `-C`, `--command` or
+//!   `--init-command` is code. Any shell option outside these tables, an
+//!   operand letter that is not last in its cluster, and every option of
+//!   `elvish nu xonsh` leave the arity unknown, so a file value anywhere
+//!   after such an option is refused. A file value inside the shell's own
+//!   options, or as an option's operand, is refused too. `sh -c CODE sh %f`
+//!   stays accepted: the file is a positional parameter there, not code;
 //! * option-code interpreters: `python pypy guile` `-c`; `perl` `-e -E`;
 //!   `ruby lua luajit Rscript osascript` `-e`; `node nodejs bun` `-e -p
 //!   --eval --print`; `julia` `-e -E --eval --print`; `php` `-r -B -R -E`;
@@ -49,7 +57,7 @@ pub(super) fn reaches_code_argument(argv: &[String], carries_path: &[bool]) -> b
         }
         let rest = i + 1..argv.len();
         match interpreter(element) {
-            Some(Kind::Shell) => shell_code_reached(argv, rest, &carries),
+            Some(Kind::Shell(shell)) => shell_code_reached(argv, rest, &carries, shell),
             Some(Kind::OptionCode { short, long }) => {
                 option_code_reached(argv, rest, &carries, short, long)
             }
@@ -67,7 +75,7 @@ pub(super) fn reaches_code_argument(argv: &[String], carries_path: &[bool]) -> b
 }
 
 enum Kind {
-    Shell,
+    Shell(Shell),
     OptionCode {
         short: &'static [char],
         long: &'static [&'static str],
@@ -85,8 +93,28 @@ fn interpreter(element: &str) -> Option<Kind> {
     let base = element.rsplit('/').next().unwrap_or(element);
     let name = base.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
     Some(match name {
-        "sh" | "bash" | "dash" | "zsh" | "ksh" | "mksh" | "ash" | "yash" | "posh" | "rbash"
-        | "fish" | "csh" | "tcsh" | "elvish" | "nu" | "xonsh" => Kind::Shell,
+        "bash" | "rbash" => Kind::Shell(Shell::Posix {
+            operand_letters: &['o', 'O'],
+            long_operands: &["rcfile", "init-file"],
+        }),
+        "ksh" => Kind::Shell(Shell::Posix {
+            operand_letters: &['o', 'R'],
+            long_operands: &[],
+        }),
+        "mksh" => Kind::Shell(Shell::Posix {
+            operand_letters: &['o', 'T'],
+            long_operands: &[],
+        }),
+        "yash" => Kind::Shell(Shell::Posix {
+            operand_letters: &['o'],
+            long_operands: &["rcfile", "profile"],
+        }),
+        "sh" | "dash" | "zsh" | "ash" | "posh" | "csh" | "tcsh" => Kind::Shell(Shell::Posix {
+            operand_letters: &['o'],
+            long_operands: &[],
+        }),
+        "fish" => Kind::Shell(Shell::Fish),
+        "elvish" | "nu" | "xonsh" => Kind::Shell(Shell::Unparsed),
         "python" | "pypy" | "guile" => Kind::OptionCode {
             short: &['c'],
             long: &[],
@@ -132,12 +160,150 @@ fn is_option(element: &str) -> bool {
     element.len() > 1 && (element.starts_with('-') || element.starts_with('+'))
 }
 
-/// `sh -c CODE`: a flag cluster containing `c` (or `--command`,
-/// `--init-command`) makes the first operand code.
+/// How a recognized shell reads its options.
+#[derive(Clone, Copy)]
+enum Shell {
+    /// A POSIX-style shell: a cluster containing `c` makes the first operand
+    /// code, and the listed letters and long options take the next element.
+    Posix {
+        operand_letters: &'static [char],
+        long_operands: &'static [&'static str],
+    },
+    /// `fish`, read like its getopt table: `-c` and `-C` take code.
+    Fish,
+    /// A shell whose option arity is not modelled: any option is ambiguous.
+    Unparsed,
+}
+
+/// Letters that take the next element in at least one POSIX-style shell. In a
+/// shell that does not list the letter its arity is unknown.
+const POSIX_OPERAND_LETTERS: &[char] = &['o', 'O', 'R', 'T'];
+
+/// Long options every POSIX-style shell here reads without an operand.
+const POSIX_LONG_FLAGS: &[&str] = &[
+    "norc",
+    "noprofile",
+    "login",
+    "posix",
+    "restricted",
+    "verbose",
+    "noediting",
+    "debugger",
+    "version",
+    "help",
+];
+
+/// `fish` short options with an argument; the argument of `c` and `C` is code.
+const FISH_OPERAND_LETTERS: &[char] = &['c', 'C', 'p', 'd', 'f', 'D', 'o'];
+const FISH_FLAG_LETTERS: &[char] = &['h', 'P', 'i', 'l', 'N', 'n', 'v'];
+const FISH_LONG_OPERANDS: &[&str] = &[
+    "profile",
+    "profile-startup",
+    "debug",
+    "debug-output",
+    "debug-stack-frames",
+    "features",
+];
+const FISH_LONG_FLAGS: &[&str] = &[
+    "help",
+    "interactive",
+    "login",
+    "no-execute",
+    "no-config",
+    "private",
+    "print-rusage-self",
+    "print-debug-categories",
+    "version",
+];
+
+/// How one shell option element is read.
+enum ShellOption {
+    /// The option stands alone; `command` when it makes the first operand code.
+    Flag { command: bool },
+    /// The option also consumes the next element as its operand.
+    TakesNext { command: bool },
+    /// The option's argument is code: attached, or the next element.
+    Code { attached: bool },
+    /// The option's arity is unknown.
+    Ambiguous,
+}
+
+fn shell_option(shell: Shell, element: &str) -> ShellOption {
+    let long = element.strip_prefix("--").map(|o| {
+        o.split_once('=')
+            .map_or((o, false), |(name, _)| (name, true))
+    });
+    match shell {
+        Shell::Posix {
+            operand_letters,
+            long_operands,
+        } => match long {
+            Some((_, true)) => ShellOption::Flag { command: false },
+            Some((name, false)) if long_operands.contains(&name) => {
+                ShellOption::TakesNext { command: false }
+            }
+            Some((name, false)) if POSIX_LONG_FLAGS.contains(&name) => {
+                ShellOption::Flag { command: false }
+            }
+            Some(_) => ShellOption::Ambiguous,
+            None => {
+                let cluster = &element[1..];
+                let command = cluster.contains('c');
+                let mut letters = cluster.chars().peekable();
+                while let Some(letter) = letters.next() {
+                    if !POSIX_OPERAND_LETTERS.contains(&letter) {
+                        continue;
+                    }
+                    if !operand_letters.contains(&letter) || letters.peek().is_some() {
+                        return ShellOption::Ambiguous;
+                    }
+                    return ShellOption::TakesNext { command };
+                }
+                ShellOption::Flag { command }
+            }
+        },
+        Shell::Fish => match long {
+            Some(("command" | "init-command", attached)) => ShellOption::Code { attached },
+            Some((_, true)) => ShellOption::Flag { command: false },
+            Some((name, false)) if FISH_LONG_OPERANDS.contains(&name) => {
+                ShellOption::TakesNext { command: false }
+            }
+            Some((name, false)) if FISH_LONG_FLAGS.contains(&name) => {
+                ShellOption::Flag { command: false }
+            }
+            Some(_) => ShellOption::Ambiguous,
+            None => {
+                let cluster = &element[1..];
+                for (at, letter) in cluster.char_indices() {
+                    if FISH_FLAG_LETTERS.contains(&letter) {
+                        continue;
+                    }
+                    if !FISH_OPERAND_LETTERS.contains(&letter) {
+                        return ShellOption::Ambiguous;
+                    }
+                    let attached = at + letter.len_utf8() < cluster.len();
+                    return match (letter, attached) {
+                        ('c' | 'C', attached) => ShellOption::Code { attached },
+                        (_, true) => ShellOption::Flag { command: false },
+                        (_, false) => ShellOption::TakesNext { command: false },
+                    };
+                }
+                ShellOption::Flag { command: false }
+            }
+        },
+        Shell::Unparsed => ShellOption::Ambiguous,
+    }
+}
+
+/// `sh -c CODE`, `fish -c CODE`: options are read with the shell's own arity,
+/// so an option operand never ends the scan early. A file value inside the
+/// options or as an option operand is refused, and so is one anywhere after an
+/// option whose arity is unknown.
 fn shell_code_reached(
     argv: &[String],
     rest: std::ops::Range<usize>,
     carries: &impl Fn(usize) -> bool,
+    shell: Shell,
 ) -> bool {
     let mut command = false;
     let mut operand = None;
@@ -155,14 +321,27 @@ fn shell_code_reached(
         if carries(j) {
             return true;
         }
-        let long = element
-            .strip_prefix("--")
-            .map(|o| o.split('=').next().unwrap_or(o));
-        command |= match long {
-            Some(name) => matches!(name, "command" | "init-command"),
-            None => element[1..].contains('c') || element == "-C",
-        };
-        j += 1;
+        match shell_option(shell, element) {
+            ShellOption::Flag { command: c } => {
+                command |= c;
+                j += 1;
+            }
+            ShellOption::Code { attached: true } => j += 1,
+            ShellOption::TakesNext { command: c } => {
+                command |= c;
+                if j + 1 < rest.end && carries(j + 1) {
+                    return true;
+                }
+                j += 2;
+            }
+            ShellOption::Code { attached: false } => {
+                if j + 1 < rest.end && carries(j + 1) {
+                    return true;
+                }
+                j += 2;
+            }
+            ShellOption::Ambiguous => return (j + 1..rest.end).any(carries),
+        }
     }
     command && operand.is_some_and(carries)
 }
@@ -313,6 +492,72 @@ mod tests {
             "bash --rcfile=%f",
         ] {
             assert!(refused(exec), "{exec} must be refused");
+        }
+    }
+
+    #[test]
+    fn shell_option_operands_do_not_hide_a_later_code_option() {
+        for exec in [
+            "bash -o posix -c %f",
+            "bash +o history -c %f",
+            "bash -O extglob -c %f",
+            "bash -euo pipefail -c %f",
+            "bash -c -o posix %f",
+            "bash -co posix %f",
+            "bash --rcfile rc -c %f",
+            "bash --init-file rc -c %f",
+            "zsh -o posix -c %f",
+            "dash -o noglob -c %f",
+            "ksh -R xref -c %f",
+            "mksh -T tty -c %f",
+            "yash --profile rc -c %f",
+            "env bash -o posix -c %f",
+            "fish -d all -c %f",
+            "fish --debug all --command %f",
+            "fish -p prof -C %f",
+            "fish -ic %f",
+            "fish -c true -c %f",
+            "fish --init-command=true -c %f",
+        ] {
+            assert!(refused(exec), "{exec} must be refused");
+        }
+    }
+
+    #[test]
+    fn shell_options_of_unknown_arity_refuse_a_later_file_value() {
+        for exec in [
+            "bash --unknown x -c %f",
+            "bash -oc posix %f",
+            "sh -T tty -c %f",
+            "fish --unknown x -c %f",
+            "fish -X x -c %f",
+            "nu --config cfg -c %f",
+            "elvish -c %f",
+            "xonsh -c %f",
+            "bash -o %f",
+            "bash --rcfile %f",
+        ] {
+            assert!(refused(exec), "{exec} must be refused");
+        }
+    }
+
+    #[test]
+    fn shell_options_with_operands_still_run_the_selected_file() {
+        for exec in [
+            "bash -o posix %f",
+            "bash -euo pipefail %f",
+            "bash -O extglob -x %f",
+            "bash --norc %f",
+            "bash -o posix -c true sh %f",
+            "fish -d all %f",
+            "fish -c true %f",
+            "fish --command=true %f",
+            "nu %f",
+            "xonsh %f",
+            "elvish %f",
+        ] {
+            let argv = exec_to_argv(exec, PATH).unwrap_or_else(|| panic!("{exec} offered"));
+            assert_eq!(argv.last().map(String::as_str), Some(PATH), "{exec}");
         }
     }
 
