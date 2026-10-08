@@ -381,6 +381,7 @@ impl App {
             self.raise_neutral_notice(ATTACHED_ELSEWHERE_NOTICE.to_owned());
             return;
         }
+        self.settle_pointer_for_modal();
         self.overlay.open_attach_choice(session_id);
     }
 

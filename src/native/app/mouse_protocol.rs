@@ -20,15 +20,17 @@ pub(super) fn owned_release_bit(button: WinitMouseButton) -> u8 {
 }
 
 impl App {
-    /// Settle terminal pointer latches when a pointer-owning modal (copy
-    /// mode or the rename prompt) opens. A button the program saw pressed,
-    /// or a held left button driving a local gesture, now belongs to the
-    /// window: its later release is consumed instead of reaching the
-    /// program unpaired or finishing a gesture the modal interrupted. A live
-    /// divider drag settles as it does for an overlay.
+    /// Settle terminal pointer latches when a surface that keeps the
+    /// selection opens: copy mode, the rename prompt, a context menu, and the
+    /// close, layout-open, and attach confirmations. A button the program saw
+    /// pressed, or a held left button driving a local gesture or a divider
+    /// drag, now belongs to the window: its later release is consumed instead
+    /// of reaching the program unpaired or finishing a gesture the surface
+    /// interrupted. Ownership is recorded before the divider settles, because
+    /// settling clears the held-left flag. The selection is kept for Copy.
     pub(super) fn settle_pointer_for_modal(&mut self) {
-        self.finish_divider_drag();
         self.own_held_buttons();
+        self.finish_divider_drag();
         self.report_button = None;
         self.pointer_drag = PointerDrag::None;
         self.drag_anchor_unit = None;

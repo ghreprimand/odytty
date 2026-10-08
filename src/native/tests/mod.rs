@@ -235,6 +235,7 @@ mod notifications;
 mod os_theme;
 mod overlay_pointer;
 mod overlay_registry;
+mod overlay_release_ownership;
 mod overlay_rendered_rows;
 mod overlay_small_window;
 mod palette_targets;

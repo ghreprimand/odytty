@@ -27,11 +27,20 @@ impl App {
     /// does NOT call `reset_pointer_state_for_overlay`: that would clear the
     /// selection the Copy item needs. No pointer cell (e.g. before the first
     /// move) means no menu.
+    /// Open a context menu from the right press at the pointer. The menu
+    /// owns that press, so its release is consumed even when the menu closes
+    /// first, and never reaches a mouse-reporting program.
+    pub(super) fn open_context_menu_for_right_press(&mut self, surface: ContextMenuSurface) {
+        self.owned_releases |= super::mouse_protocol::owned_release_bit(WinitMouseButton::Right);
+        self.open_context_menu(surface);
+    }
+
     pub(super) fn open_context_menu(&mut self, surface: ContextMenuSurface) {
         // Unlike full overlays the context menu preserves terminal selection,
-        // so it does not use `reset_pointer_state_for_overlay`. It must still
-        // settle a divider before capturing subsequent left-button releases.
-        self.finish_divider_drag();
+        // so it does not use `reset_pointer_state_for_overlay`. It still takes
+        // ownership of held buttons, ends drags and report latches, and
+        // settles a divider before capturing subsequent releases.
+        self.settle_pointer_for_modal();
         // The rename/close target token rides on the surface: a `TabSlot`
         // right-click targets THAT tab (NF-F7-1); every other surface has no
         // tab target.

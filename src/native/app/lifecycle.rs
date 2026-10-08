@@ -404,6 +404,7 @@ impl App {
                 && self.sessions.any_foreground_job_running_except(session)
             {
                 self.cancel_chrome_drags();
+                self.settle_pointer_for_modal();
                 self.overlay.open_confirm_close();
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
@@ -1183,6 +1184,7 @@ impl App {
         if self.settings.confirm_close && self.foreground_job_running() {
             // The dialog takes the pointer; a chrome drag must not survive it.
             self.cancel_chrome_drags();
+            self.settle_pointer_for_modal();
             self.overlay.open_confirm_close();
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();

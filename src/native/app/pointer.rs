@@ -521,7 +521,7 @@ impl App {
                         | TabHit::AutohideToggle
                         | TabHit::None => ContextMenuSurface::TabStripEmpty,
                     };
-                    self.open_context_menu(surface);
+                    self.open_context_menu_for_right_press(surface);
                     return;
                 }
                 (
@@ -541,7 +541,7 @@ impl App {
                         | TabHit::AutohideToggle
                         | TabHit::None => ContextMenuSurface::WorkspaceRailEmpty,
                     };
-                    self.open_context_menu(surface);
+                    self.open_context_menu_for_right_press(surface);
                     return;
                 }
                 (WinitMouseButton::Right, ElementState::Released, Some(_)) => return,
@@ -557,7 +557,7 @@ impl App {
                     let surface = self
                         .empty_chrome_menu_surface()
                         .unwrap_or(ContextMenuSurface::TabStripEmpty);
-                    self.open_context_menu(surface);
+                    self.open_context_menu_for_right_press(surface);
                     return;
                 }
                 _ => {}
@@ -695,7 +695,7 @@ impl App {
         // local selection. In a plain shell the gate is skipped and the menu
         // opens. No enable bool: the report gate IS the off switch (D-IN2-1).
         if button == WinitMouseButton::Right && state == ElementState::Pressed {
-            self.open_context_menu(ContextMenuSurface::Content);
+            self.open_context_menu_for_right_press(ContextMenuSurface::Content);
             return;
         }
 
@@ -1348,13 +1348,14 @@ impl App {
     /// Clearing on entry is sufficient: nothing can re-arm `report_button` while
     /// the overlay is open, so it is guaranteed `None` on close.
     pub(super) fn reset_pointer_state_for_overlay(&mut self) {
+        // A button still held from before the overlay opened is released
+        // later; that release belongs to the window, not the program. It is
+        // recorded first, because divider settlement clears the held-left flag.
+        self.own_held_buttons();
         // Settle an owned divider gesture before the overlay captures its
         // release. Settlement is independent of the pointer-state clearing below
         // and synchronizes the model with its local, ConPTY, or attached backend.
         self.finish_divider_drag();
-        // A button still held from before the overlay opened is released
-        // later; that release belongs to the window, not the program.
-        self.own_held_buttons();
         self.selection.clear();
         self.selection_block = false;
         self.pointer_drag = PointerDrag::None;

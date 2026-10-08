@@ -167,6 +167,7 @@ impl App {
             // workspace, so the result is exactly the saved set. No prompt.
             self.instantiate_layout(name, LayoutPlacement::Add);
         } else {
+            self.settle_pointer_for_modal();
             self.overlay.open_confirm_open_layout(name.to_owned());
             self.request_selection_redraw();
         }
