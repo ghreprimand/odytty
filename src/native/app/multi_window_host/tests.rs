@@ -422,7 +422,6 @@ pub(in crate::native::app) fn headless() -> App {
 fn with_profile_test_root<R>(f: impl FnOnce(&Path) -> R) -> R {
     use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
-    let _guard = crate::test_lock::test_env_lock();
     let base = std::env::temp_dir().join(format!(
         "odytty-multiwindow-profile-{}-{}",
         std::process::id(),
@@ -432,27 +431,9 @@ fn with_profile_test_root<R>(f: impl FnOnce(&Path) -> R) -> R {
             .as_nanos()
     ));
     std::fs::create_dir_all(&base).expect("create synthetic profile root");
-    let previous = [
-        ("HOME", std::env::var_os("HOME")),
-        ("XDG_CONFIG_HOME", std::env::var_os("XDG_CONFIG_HOME")),
-        ("APPDATA", std::env::var_os("APPDATA")),
-    ];
-    // SAFETY: the process-wide test environment lock is held and all values
-    // are restored even if the fixture assertion unwinds.
-    unsafe {
-        std::env::set_var("HOME", &base);
-        std::env::set_var("XDG_CONFIG_HOME", &base);
-        std::env::set_var("APPDATA", &base);
-    }
-    let result = catch_unwind(AssertUnwindSafe(|| f(&base)));
-    unsafe {
-        for (key, value) in previous {
-            match value {
-                Some(value) => std::env::set_var(key, value),
-                None => std::env::remove_var(key),
-            }
-        }
-    }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        crate::native::tests::config_env::with_config_base(&base, true, || f(&base))
+    }));
     let _ = std::fs::remove_dir_all(base);
     match result {
         Ok(value) => value,

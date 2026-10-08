@@ -26,27 +26,12 @@ fn key(app: &mut App, key: WinitKey, ctrl: bool) {
 /// under the shared env lock for the whole window; that lock is taken before
 /// `render_globals_lock`, and no test takes them in the other order.
 fn with_empty_env_config_base<R>(tag: &str, f: impl FnOnce() -> R) -> R {
-    let _env = crate::test_lock::test_env_lock();
     let base = std::env::temp_dir().join(format!("odytty-{tag}-env-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
-    let keys = ["HOME", "XDG_CONFIG_HOME", "APPDATA"];
-    let previous: Vec<_> = keys.iter().map(std::env::var_os).collect();
-    // SAFETY: held under `test_env_lock`; restored before the guard drops.
-    unsafe {
-        for key in keys {
-            std::env::set_var(key, &base);
-        }
-    }
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-    unsafe {
-        for (key, value) in keys.iter().zip(previous) {
-            match value {
-                Some(value) => std::env::set_var(key, value),
-                None => std::env::remove_var(key),
-            }
-        }
-    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        super::config_env::with_config_base(&base, true, f)
+    }));
     let _ = std::fs::remove_dir_all(&base);
     match result {
         Ok(value) => value,
