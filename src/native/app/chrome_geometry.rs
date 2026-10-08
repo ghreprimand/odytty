@@ -777,13 +777,21 @@ impl App {
     /// (F4-P4). Gathers the pixel geometry (padding, surface width) from the
     /// resolved live or injected surface - 0 defaults keep the left rail (which
     /// needs neither) usable before either exists - and defers the snap/clamp math to
-    /// [`rail_width_cols_from_pointer`].
+    /// [`rail_width_cols_from_pointer`]. A pinned right rail measures from its
+    /// drawn outer edge, which is grid-aligned, not from the surface edge, so a
+    /// surface remainder narrower than a cell cannot change the width on a
+    /// drag that has not moved. The floating rail keeps the window-edge basis.
     pub(super) fn rail_width_from_pointer(&self, px_x: f64, cell: CellSize) -> Option<u16> {
         let side = self.effective_rail_seam_side()?;
-        let (surface_w, pad) = self
+        let (mut surface_w, pad) = self
             .resolved_surface()
             .map(|(width, _height, padding)| (width as f32, padding.as_f32()))
             .unwrap_or((0.0, 0.0));
+        if side == RailSide::Right && !self.rail_autohide_active() {
+            let outer_edge =
+                self.rail_origin_px(cell)[0] + self.rail_cols() as f32 * cell.width as f32;
+            surface_w = outer_edge + pad;
+        }
         Some(rail_width_cols_from_pointer(
             side,
             px_x as f32,
@@ -832,6 +840,8 @@ impl App {
         let next = crate::settings::TabRailWidth::Manual(cols);
         if self.settings.tab_rail_width != next {
             self.settings.tab_rail_width = next;
+            self.overlay
+                .rebase_settings_panel_onto_external(&self.settings);
             self.rail_seam_clicks = ClickTracker::default();
             self.recompute_grid_for_tab_bar();
             self.needs_rebuild = true;
@@ -867,6 +877,8 @@ impl App {
             return;
         }
         self.settings.tab_rail_width = crate::settings::TabRailWidth::Auto;
+        self.overlay
+            .rebase_settings_panel_onto_external(&self.settings);
         self.recompute_grid_for_tab_bar();
         self.persist_rail_width();
         self.needs_rebuild = true;
@@ -923,15 +935,15 @@ impl App {
     }
 
     /// The manual bar height (rows) a seam-drag pointer at `px_y` maps to.
-    /// Gathers the window padding (0 default keeps it usable headlessly for
-    /// tests) and defers the pure snap/clamp math to [`tab_bar_rows_from_pointer`].
+    /// Reads the window padding from the resolved live or injected surface, the
+    /// same basis as [`Self::tab_bar_seam_y_px`] and the rail width mapper (0
+    /// before either exists), and defers the pure snap/clamp math to
+    /// [`tab_bar_rows_from_pointer`].
     pub(super) fn tab_bar_height_from_pointer(&self, px_y: f64, cell: CellSize) -> u16 {
         let pad = self
-            .gpu
-            .as_ref()
-            .map(GpuState::window_padding)
-            .unwrap_or(WindowPadding::ZERO)
-            .as_f32();
+            .resolved_surface()
+            .map(|(_, _, padding)| padding.as_f32())
+            .unwrap_or(0.0);
         tab_bar_rows_from_pointer(
             px_y as f32,
             pad,

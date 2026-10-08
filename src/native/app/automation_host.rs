@@ -460,9 +460,10 @@ mod tests {
         host.windows[0].begin_divider_drag_for_test(0);
         assert!(host.windows[0].divider_drag_active_for_test());
         let reply = apply(&mut host, instance, Action::Focus { target: tab });
-        assert!(
-            !matches!(reply, Reply::Error(ErrorCode::Busy)),
-            "a divider gesture settles instead of refusing: {reply:?}"
+        assert_eq!(
+            reply,
+            Reply::Applied(tab),
+            "a divider gesture settles and the focus applies"
         );
         assert!(
             !host.windows[0].divider_drag_active_for_test(),
@@ -492,6 +493,41 @@ mod tests {
     /// The headless window spawns nothing, so creation routes leave the active
     /// identity unchanged; the reply must then be `unavailable`, never a
     /// pre-existing identity reported as newly created.
+    /// A split refused after focusing a pane that was not active restores the
+    /// previous focus, so the `unavailable` reply changes nothing.
+    #[test]
+    fn a_refused_split_of_another_pane_keeps_the_previous_focus() {
+        let (mut host, instance) = enabled_host();
+        let first = host.windows[0].active_session_token_for_test();
+        let dims = crate::core::Dimensions::new(40, 12);
+        let terminal = Arc::new(Mutex::new(crate::core::Terminal::new(40, 12)));
+        let writer: crate::native::pty::PtyWriter = Arc::new(Mutex::new(Box::new(std::io::sink())));
+        host.windows[0].seed_headless_split_pane_for_test(true, terminal, writer, dims);
+        let second = host.windows[0].active_session_token_for_test();
+        assert_ne!(first, second, "the new pane is focused");
+        let pane = ObjectId {
+            instance,
+            kind: ObjectKind::Pane,
+            serial: first.0,
+        };
+        assert_eq!(
+            apply(
+                &mut host,
+                instance,
+                Action::Split {
+                    pane,
+                    direction: SplitDirection::Rows,
+                },
+            ),
+            Reply::Error(ErrorCode::Unavailable)
+        );
+        assert_eq!(
+            host.windows[0].active_session_token_for_test(),
+            second,
+            "focus returns to the pane that was active"
+        );
+    }
+
     #[test]
     fn creation_without_a_new_activation_reports_unavailable() {
         let (mut host, instance) = enabled_host();

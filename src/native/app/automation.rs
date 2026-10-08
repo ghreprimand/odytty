@@ -310,6 +310,7 @@ impl App {
         pane: u64,
         direction: SplitDirection,
     ) -> Result<u64, ErrorCode> {
+        let previous = self.sessions.active_id();
         if !self.automation_focus(ObjectKind::Pane, pane) {
             return Err(ErrorCode::StaleIdentity);
         }
@@ -320,9 +321,15 @@ impl App {
         };
         self.split_active_pane(axis);
         let serial = self.sessions.active_id().0;
-        (serial != before)
-            .then_some(serial)
-            .ok_or(ErrorCode::Unavailable)
+        if serial == before {
+            // A refused split leaves focus where it was before the request,
+            // so an `unavailable` reply has no side effect.
+            if previous.0 != before {
+                self.automation_focus(ObjectKind::Pane, previous.0);
+            }
+            return Err(ErrorCode::Unavailable);
+        }
+        Ok(serial)
     }
 
     pub(in crate::native) fn automation_rename(

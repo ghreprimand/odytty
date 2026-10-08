@@ -152,4 +152,66 @@ mod tests {
             "a receiver lost with its window is dropped"
         );
     }
+    /// An origin window with a pending broadcast paste confirmation and a
+    /// sibling window holding one receiver plus a pane not yet in the set.
+    /// Returns the host, the receiver's bytes, and the later pane's token and
+    /// bytes.
+    #[allow(clippy::type_complexity)]
+    fn pending_broadcast_paste() -> (
+        super::super::MultiWindowHost,
+        Arc<Mutex<Vec<u8>>>,
+        SessionToken,
+        Arc<Mutex<Vec<u8>>>,
+    ) {
+        let mut origin = headless();
+        origin.handle_palette_action_for_test("toggle-broadcast");
+        let mut sibling = headless();
+        let _ = recorded_split(&mut sibling);
+        let (receiver, received) = recorded_split(&mut sibling);
+        let (later, later_bytes) = recorded_split(&mut sibling);
+        let mut host = host_of(vec![origin, sibling]);
+        host.windows[1].focus_session_token_for_test(receiver);
+        host.windows[1].handle_palette_action_for_test("toggle-broadcast");
+        host.service_broadcast();
+        host.windows[0].inject_paste_text_for_test("first\nsecond");
+        host.windows[0].handle_paste_shortcut_for_test();
+        assert!(
+            host.windows[0].risky_paste_pending_for_test(),
+            "a multi-line broadcast paste asks first"
+        );
+        host.windows[1].focus_session_token_for_test(later);
+        host.windows[1].handle_palette_action_for_test("toggle-broadcast");
+        (host, received, later, later_bytes)
+    }
+
+    #[test]
+    fn a_set_change_in_another_window_withdraws_a_pending_broadcast_paste() {
+        let (mut host, received, later, later_bytes) = pending_broadcast_paste();
+        assert!(host.windows[0].is_broadcast_receiver(later), "the set grew");
+        host.service_broadcast();
+        assert!(
+            !host.windows[0].risky_paste_pending_for_test(),
+            "the confirmation named the old set and is withdrawn"
+        );
+        host.windows[0].confirm_risky_paste_for_test(false);
+        host.service_broadcast();
+        assert!(received.lock().expect("bytes").is_empty());
+        assert!(later_bytes.lock().expect("bytes").is_empty());
+    }
+
+    #[test]
+    fn a_broadcast_paste_confirmed_before_the_window_syncs_sends_nothing() {
+        let (mut host, received, _later, later_bytes) = pending_broadcast_paste();
+        // Confirmed before this window observed the change.
+        host.windows[0].confirm_risky_paste_for_test(false);
+        host.service_broadcast();
+        assert!(
+            received.lock().expect("bytes").is_empty(),
+            "a receiver the dialog named gets nothing from a stale confirmation"
+        );
+        assert!(
+            later_bytes.lock().expect("bytes").is_empty(),
+            "a receiver the dialog never named gets nothing"
+        );
+    }
 }

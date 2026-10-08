@@ -51,7 +51,18 @@ fn main() -> Result<()> {
         Ok(None) => {}
     }
 
-    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    // Every other argument is read as text. A non-Unicode argument (non-UTF-8
+    // bytes on Unix, an unpaired surrogate on Windows) is refused with a fixed
+    // message; `std::env::args` would panic on it.
+    let args = match cli::unicode_args(&os_args) {
+        Ok(args) => args,
+        Err(position) => {
+            #[cfg(windows)]
+            attach_parent_console_for_cli(&["argument".into()]);
+            eprintln!("odytty: argument {position} is not valid Unicode; use odytty --help");
+            std::process::exit(2);
+        }
+    };
 
     // Windows GUI-subsystem builds start with no console, so a CLI invocation
     // run from a shell would otherwise print nothing (stdout is null and Rust

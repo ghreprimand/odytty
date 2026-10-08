@@ -38,7 +38,7 @@ impl App {
             text,
             bracketed: false,
             file_shell: None,
-            broadcast: false,
+            broadcast: None,
         });
         self.reset_pointer_state_for_overlay();
         self.overlay.open_risky_paste(RiskyPasteDialog {
@@ -132,7 +132,12 @@ impl App {
         };
         let _source = pending.source;
         self.return_to_live();
-        if pending.broadcast {
+        if let Some(generation) = pending.broadcast {
+            // The confirmation named one set of receivers. A change made in
+            // any window since then makes it stale, and nothing is sent.
+            if crate::native::lock_recover(&self.broadcast).generation() != generation {
+                return;
+            }
             self.broadcast_paste(&text);
         }
         self.deliver_paste_text(&text);
@@ -163,7 +168,7 @@ impl App {
             text,
             bracketed,
             file_shell: None,
-            broadcast: true,
+            broadcast: Some(crate::native::lock_recover(&self.broadcast).generation()),
         });
         self.reset_pointer_state_for_overlay();
         self.overlay.open_risky_paste(RiskyPasteDialog {
@@ -215,7 +220,7 @@ impl App {
             text,
             bracketed,
             file_shell: Some(shell),
-            broadcast: false,
+            broadcast: None,
         });
         self.reset_pointer_state_for_overlay();
         self.overlay.open_risky_paste(RiskyPasteDialog {

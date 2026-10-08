@@ -1558,6 +1558,19 @@ impl App {
         self.rail_width_from_pointer(x, self.resolved_cell()?)
     }
 
+    /// Test seam: drive the rail seam drag and the double-click reset
+    /// directly. With an overlay open the pointer cannot reach the seam, so
+    /// these pin the draft rebase those paths share with the top-bar height.
+    #[cfg(test)]
+    pub(in crate::native) fn drag_rail_seam_to_pointer_for_test(&mut self, x: f64) {
+        self.drag_rail_seam_to_pointer(x);
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn reset_rail_width_to_auto_for_test(&mut self) {
+        self.reset_rail_width_to_auto();
+    }
+
     /// Test seam: force a manual tab-bar height in rows and reflow, so the
     /// bottom-seam drag / reservation tests start from a deterministic band.
     #[cfg(test)]

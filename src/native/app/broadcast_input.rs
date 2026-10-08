@@ -158,19 +158,20 @@ impl App {
         if self
             .pending_text_paste
             .as_ref()
-            .is_some_and(|pending| pending.broadcast)
+            .is_some_and(|pending| pending.broadcast.is_some())
         {
             self.cancel_pending_text_paste();
         }
         self.repaint_broadcast_labels();
     }
 
-    /// Repaint this window's panes when the set changed since the last
-    /// repaint (the window owner calls this after any window changed it).
+    /// Withdraw a stale broadcast paste confirmation and repaint this
+    /// window's panes when the set changed since the last repaint (the window
+    /// owner calls this after any window changed it).
     pub(in crate::native) fn sync_broadcast_labels(&mut self) {
         let generation = crate::native::lock_recover(&self.broadcast).generation();
         if generation != self.broadcast_seen_generation {
-            self.repaint_broadcast_labels();
+            self.after_broadcast_membership_change();
         }
     }
 

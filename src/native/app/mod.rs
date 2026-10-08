@@ -336,9 +336,10 @@ struct PendingTextPaste {
     text: String,
     bracketed: bool,
     file_shell: Option<crate::shell_integration::ShellKind>,
-    /// The confirmation was opened for a broadcast paste: committing it fans
-    /// the text out to every receiver.
-    broadcast: bool,
+    /// The confirmation was opened for a broadcast paste, with the set
+    /// generation it disclosed: committing it fans the text out to every
+    /// receiver, and only while the set is still that generation.
+    broadcast: Option<u64>,
 }
 
 /// Human-readable byte size for the image paste-through confirm prompt (F6-i7):

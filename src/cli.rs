@@ -36,6 +36,18 @@ use odytty::text::{self, FontInventoryEntry};
 use odytty::theme::{self, Theme, VisualEffect, relative_luminance};
 
 /// Return stdout for a supported CLI introspection flag.
+/// The command-line arguments as text, or the 1-based position of the first
+/// argument that is not valid Unicode (non-UTF-8 bytes on Unix, an unpaired
+/// surrogate on Windows). Arguments other than `control` endpoints are read as
+/// text, so such an argument is refused with a fixed message instead of
+/// panicking inside `std::env::args`.
+pub fn unicode_args(args: &[OsString]) -> Result<Vec<String>, usize> {
+    args.iter()
+        .enumerate()
+        .map(|(index, arg)| arg.to_str().map(str::to_owned).ok_or(index + 1))
+        .collect()
+}
+
 pub fn output_for_args(args: &[String]) -> Option<String> {
     match args.first().map(String::as_str) {
         Some("--list-fonts") => Some(list_fonts_output()),
@@ -1031,6 +1043,40 @@ fn action_value(action: BindableAction) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unicode_args_pass_text_through() {
+        let args = [
+            OsString::from("--working-directory"),
+            OsString::from("dir-\u{e9}"),
+        ];
+        assert_eq!(
+            unicode_args(&args),
+            Ok(vec![
+                "--working-directory".to_owned(),
+                "dir-\u{e9}".to_owned()
+            ])
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_non_utf8_unix_argument_is_refused_by_position() {
+        use std::os::unix::ffi::OsStringExt;
+        let args = [
+            OsString::from("--working-directory"),
+            OsString::from_vec(vec![b'/', 0xff, b'x']),
+        ];
+        assert_eq!(unicode_args(&args), Err(2));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_unpaired_surrogate_windows_argument_is_refused_by_position() {
+        use std::os::windows::ffi::OsStringExt;
+        let args = [OsString::from_wide(&[0x0061, 0xD800])];
+        assert_eq!(unicode_args(&args), Err(1));
+    }
 
     fn strings(args: &[&str]) -> Vec<String> {
         args.iter().map(|arg| (*arg).to_owned()).collect()

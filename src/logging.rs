@@ -199,6 +199,16 @@ impl RotatingLog {
     }
 
     fn write_all_inner(&mut self, buf: &[u8]) -> io::Result<()> {
+        let truncated;
+        let buf = if buf.len() as u64 > self.max_bytes {
+            truncated = bounded_record(buf, self.max_bytes);
+            truncated.as_slice()
+        } else {
+            buf
+        };
+        if self.file.is_some() {
+            self.follow_shared_file()?;
+        }
         if self.file.is_some() && self.written.saturating_add(buf.len() as u64) > self.max_bytes {
             self.rotate()?;
         }
@@ -219,6 +229,29 @@ impl RotatingLog {
         file.write_all(buf)?;
         self.written = self.written.saturating_add(buf.len() as u64);
         Ok(())
+    }
+
+    /// Another OdyTTY process may append to or rotate the same named log.
+    /// Before each write, re-read the size at the path, and reopen when the
+    /// held handle no longer has that size (the path was rotated away and
+    /// now names a different file, or no file). The cap then counts every
+    /// process's appends, and writes never continue on a renamed file.
+    fn follow_shared_file(&mut self) -> io::Result<()> {
+        let held = self
+            .file
+            .as_ref()
+            .and_then(|file| file.metadata().ok())
+            .map(|meta| meta.len());
+        match fs::metadata(&self.path) {
+            Ok(meta) if Some(meta.len()) == held => {
+                self.written = meta.len();
+                Ok(())
+            }
+            _ => {
+                self.file = None;
+                self.open()
+            }
+        }
     }
 
     fn open(&mut self) -> io::Result<()> {
@@ -265,6 +298,28 @@ impl RotatingLog {
         // diagnostics.
         let _ = io::stderr().write_all(b"odytty: secure state log disabled\n");
     }
+}
+
+/// Marker that ends a record cut to the log cap.
+const TRUNCATED_MARKER: &[u8] = b" [record truncated]\n";
+
+/// A record longer than the whole cap, cut so the record plus the marker fit
+/// in `max_bytes`, at a UTF-8 boundary so the kept text stays valid.
+fn bounded_record(buf: &[u8], max_bytes: u64) -> Vec<u8> {
+    let room = usize::try_from(max_bytes)
+        .unwrap_or(usize::MAX)
+        .saturating_sub(TRUNCATED_MARKER.len());
+    let mut keep = room.min(buf.len());
+    if let Err(error) = std::str::from_utf8(&buf[..keep])
+        && error.error_len().is_none()
+    {
+        keep = error.valid_up_to();
+    }
+    let mut out = Vec::with_capacity(keep + TRUNCATED_MARKER.len());
+    out.extend_from_slice(&buf[..keep]);
+    out.extend_from_slice(TRUNCATED_MARKER);
+    out.truncate(usize::try_from(max_bytes).unwrap_or(usize::MAX));
+    out
 }
 
 /// `MakeWriter` handing out tee writers over the shared rotating log.
@@ -485,6 +540,65 @@ mod tests {
         assert_eq!(
             fs::read_to_string(temp.path().join(ROTATED_LOG_FILE)).expect("rotated log"),
             "abcdefghij\n"
+        );
+    }
+
+    #[test]
+    fn a_record_longer_than_the_cap_is_cut_to_the_cap() {
+        let temp = TempDir::new("odytty-log-oversized-record");
+        let path = temp.path().join(LOG_FILE);
+        let mut log = RotatingLog::new(path.clone(), 32);
+        log.write_all_swallowing(&[b'x'; 100]);
+        let written = fs::read(&path).expect("current log");
+        assert!(
+            written.len() <= 32,
+            "the record is bounded: {}",
+            written.len()
+        );
+        assert!(written.ends_with(TRUNCATED_MARKER), "the cut is marked");
+    }
+
+    #[test]
+    fn a_cut_record_keeps_whole_utf8_characters() {
+        let record = "\u{e9}".repeat(20);
+        let cut = bounded_record(record.as_bytes(), 25);
+        let text = std::str::from_utf8(&cut).expect("valid UTF-8");
+        assert!(text.ends_with(" [record truncated]\n"), "{text:?}");
+        assert!(cut.len() <= 25);
+    }
+
+    #[test]
+    fn another_appender_counts_toward_the_cap() {
+        let temp = TempDir::new("odytty-log-shared-cap");
+        let path = temp.path().join(LOG_FILE);
+        let mut first = RotatingLog::new(path.clone(), 24);
+        let mut second = RotatingLog::new(path.clone(), 24);
+        first.write_all_swallowing(b"first-a\n");
+        second.write_all_swallowing(b"second-a\n");
+        // 17 bytes are on disk; this 8-byte record would pass the cap.
+        first.write_all_swallowing(b"first-b\n");
+        assert_eq!(fs::read_to_string(&path).expect("current log"), "first-b\n");
+        assert_eq!(
+            fs::read_to_string(temp.path().join(ROTATED_LOG_FILE)).expect("rotated log"),
+            "first-a\nsecond-a\n"
+        );
+    }
+
+    #[test]
+    fn an_appender_follows_a_rotation_made_by_another() {
+        let temp = TempDir::new("odytty-log-shared-rotation");
+        let path = temp.path().join(LOG_FILE);
+        let mut first = RotatingLog::new(path.clone(), 24);
+        let mut second = RotatingLog::new(path.clone(), 24);
+        first.write_all_swallowing(b"0123456789\n");
+        second.write_all_swallowing(b"abcdefghij\n");
+        // The second appender rotates the shared file away.
+        second.write_all_swallowing(b"klmnopqrst\n");
+        first.write_all_swallowing(b"after\n");
+        assert_eq!(
+            fs::read_to_string(&path).expect("current log"),
+            "klmnopqrst\nafter\n",
+            "the first appender writes to the current file, not the rotated one"
         );
     }
 

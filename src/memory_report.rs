@@ -41,8 +41,8 @@
 //! destination is the OS temp directory (no developer path is baked into the
 //! source) and the env var name is generic.
 
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 /// Env gate. `1`/`true` enables sampling at [`DEFAULT_SAMPLE_SECS`]; a positive
@@ -64,9 +64,12 @@ static INTERVAL: OnceLock<Option<Duration>> = OnceLock::new();
 /// Monotonic per-process sample counter, included in every line so captures are
 /// orderable without relying on the clock.
 static SEQ: AtomicU64 = AtomicU64::new(0);
-/// Set once after the header line is written, so repeated samples in one process
-/// append data lines without re-emitting the legend.
-static HEADER_WRITTEN: OnceLock<()> = OnceLock::new();
+/// Whether this process has written the header line, so repeated samples
+/// append data lines without re-emitting the legend. Held across the header and
+/// the data line, so concurrent appends cannot write a data line ahead of the
+/// header, and set only after the header write succeeds, so a failed header is
+/// retried with the next sample.
+static HEADER_WRITTEN: Mutex<bool> = Mutex::new(false);
 
 /// The sampling period, or `None` when the diagnostic is off. Reads the env var
 /// exactly once; every subsequent call is a single atomic load.
@@ -373,8 +376,9 @@ gpu_graphics_textures={g5} gpu_vertex_buffers={g6}",
 /// [`sample_interval`] is `Some`, so the off path costs one atomic load. Any I/O
 /// error is silently ignored - a diagnostic must never perturb the terminal.
 pub fn append_report(report: &MemoryReport) {
-    use std::io::Write;
-
+    let mut header_written = HEADER_WRITTEN
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     let epoch_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -393,15 +397,71 @@ pub fn append_report(report: &MemoryReport) {
         return;
     };
 
-    if HEADER_WRITTEN.set(()).is_ok() {
-        let _ = writeln!(
-            file,
+    let _ = write_report(&mut file, &mut header_written, seq, epoch_ms, report);
+}
+
+/// Write the header first when `header_written` is unset, then one data line.
+/// The flag is set only once the header write succeeded; a failed header
+/// writes no data line, so the next sample writes the header again.
+fn write_report(
+    out: &mut impl std::io::Write,
+    header_written: &mut bool,
+    seq: u64,
+    epoch_ms: u128,
+    report: &MemoryReport,
+) -> std::io::Result<()> {
+    if !*header_written {
+        writeln!(
+            out,
             "# odytty-memory-report v{} start_epoch_ms={epoch_ms}\n# {LEGEND}",
             env!("CARGO_PKG_VERSION"),
-        );
+        )?;
+        *header_written = true;
+    }
+    writeln!(out, "{}", format_report_line(seq, epoch_ms, report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct FailingWriter;
+
+    impl std::io::Write for FailingWriter {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("refused"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
 
-    let _ = writeln!(file, "{}", format_report_line(seq, epoch_ms, report));
+    #[test]
+    fn a_failed_header_is_written_again_before_the_next_data_line() {
+        let report = MemoryReport::default();
+        let mut header_written = false;
+        assert!(write_report(&mut FailingWriter, &mut header_written, 0, 1, &report).is_err());
+        assert!(
+            !header_written,
+            "a failed header is not recorded as written"
+        );
+        let mut out = Vec::new();
+        write_report(&mut out, &mut header_written, 1, 2, &report).expect("written");
+        let text = String::from_utf8(out).expect("utf-8");
+        assert!(
+            text.starts_with("# odytty-memory-report v"),
+            "the retry starts with the header: {text:?}"
+        );
+        assert!(header_written);
+        let mut out = Vec::new();
+        write_report(&mut out, &mut header_written, 2, 3, &report).expect("written");
+        let text = String::from_utf8(out).expect("utf-8");
+        assert!(
+            !text.starts_with('#'),
+            "the header is written once: {text:?}"
+        );
+    }
 }
 
 /// Parse one `Name:   <n> kB` line of a Linux `/proc/<pid>/status` file into

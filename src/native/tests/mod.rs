@@ -188,6 +188,7 @@ mod alt_scroll;
 mod attach_e2e;
 mod background_model_sync;
 mod button_click;
+mod chrome_seam_basis;
 mod click_hint;
 mod clipboard_paste;
 mod close_confirm;

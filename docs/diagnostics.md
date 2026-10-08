@@ -88,10 +88,14 @@ retention behavior:
 - **`odytty.log` rotates at a 2 MiB threshold.** When a write would exceed it,
   the current file is rotated to `odytty.log.1` (replacing any prior `.1`) and a
   fresh `odytty.log` is started. With one predecessor kept, on-disk usage
-  normally stays around **4 MiB total**. A single write larger than the threshold
-  is still written whole, and separate OdyTTY processes do not share rotation
-  accounting, so this is not a strict aggregate cap. An oversized file left by
-  an earlier run rotates before the first new append.
+  normally stays around **4 MiB total**. A single record larger than the
+  threshold is cut to it and ends with `[record truncated]`. Separate OdyTTY
+  processes appending to the same log read its size on disk before each write,
+  so the threshold counts every process's records, and a process whose file was
+  rotated away by another reopens the current file. Two processes rotating at
+  the same moment can still replace each other's `.1`, so this is a best-effort
+  bound, not a strict aggregate cap. An oversized file left by an earlier run
+  rotates before the first new append.
 - **`panic.log` is intentionally uncapped.** It is written only on an actual
   crash-to-abort, and the process exits immediately after a single record (one
   metadata line plus a backtrace), so it does not grow during normal use. This
