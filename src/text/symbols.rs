@@ -533,8 +533,9 @@ fn cached_runtime_font_face(path: &Path, face_index: u32) -> Option<std::sync::A
 
 /// Host faces covering `ch`, in preference order, as `(path, face index)`.
 ///
-/// The sorted `fc-match` fallback list leads with a regular-style preference;
-/// `fc-list` then supplies remaining providers. Duplicates
+/// The sorted `fc-match` fallback list requests a regular-style preference and
+/// is intersected with `fc-list` coverage before the load cap. Remaining
+/// covering providers follow in listing order. Duplicates
 /// are dropped so a face is never loaded twice, and the list is bounded because
 /// a pathological host font set should cost a bounded number of load attempts
 /// on a cache miss, not an unbounded scan.
@@ -561,7 +562,10 @@ fn symbol_font_candidates_with(
         found.extend(text.lines().filter_map(parse_fc_record));
     }
 
-    found.extend(fc_list_covering_with(ch, &mut query)?);
+    let covering = fc_list_covering_with(ch, &mut query)?;
+    let coverage: std::collections::HashSet<_> = covering.iter().collect();
+    found.retain(|face| coverage.contains(face));
+    found.extend(covering);
 
     Ok(bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES))
 }
@@ -570,12 +574,10 @@ fn symbol_font_candidates_with(
 ///
 /// Distinct from `fc-match`, whose answer is not a coverage claim: `fc-match`
 /// always names a best-effort face whether or not any installed font covers
-/// the requested charset, which is why the resolver checks every candidate
-/// with [`font_provides_outline_glyph`] before installing it. Only `fc-list`
-/// filters to faces whose charset genuinely includes the codepoint. The
-/// candidate list still leads with `fc-match` because its ranking reflects
-/// host preferences; this listing exists so a caller can ask which candidates
-/// carry a real coverage claim.
+/// the requested charset. Only `fc-list` filters to faces whose charset
+/// genuinely includes the codepoint. Its coverage set filters the preference
+/// list before the cap; [`font_provides_outline_glyph`] then validates each
+/// selected face before installing it.
 #[cfg(all(test, unix, not(target_os = "macos")))]
 fn fc_list_covering(ch: char) -> Result<Vec<(PathBuf, u32)>, FontconfigStalled> {
     fc_list_covering_with(ch, &mut run_fontconfig)
@@ -591,7 +593,9 @@ fn fc_list_covering_with(
     if let Some(text) = query("fc-list", &["-f", FC_RECORD_FORMAT_NL, &charset])? {
         found.extend(text.lines().filter_map(parse_fc_record));
     }
-    Ok(bounded_unique(found, MAX_SYMBOL_FONT_CANDIDATES))
+    // Query output is byte-capped. Keep its coverage set intact until the
+    // sorted preference list has been intersected, then cap load candidates.
+    Ok(found)
 }
 
 /// Newline-terminated `path<TAB>index` records for fontconfig listings.

@@ -328,8 +328,9 @@ v2 faces, so PUA prompt icons work without a host-installed Nerd font and
 remain compatible with configs from either Nerd Font era.
 
 Bundled and discovered system families both resolve without hand-written
-configuration. A partial family name chooses one matching family: shortest
-normalized name first, then alphabetical order. Bold, italic, and bold-italic
+configuration. A partial family name filters to fixed-pitch faces, then chooses
+one matching family: shortest normalized name first, then alphabetical order.
+Bold, italic, and bold-italic
 faces come from that family and prefer normal width before weight distance.
 This selection rule is shared by Linux, macOS, and Windows.
 
@@ -350,8 +351,9 @@ and brightness inputs preserve the original colors. These bounds apply on
 Linux, macOS, and Windows.
 
 Linux discovery honors absolute `XDG_DATA_HOME` and
-`XDG_DATA_DIRS` font directories, using the standard data directories when
-those values are empty or invalid. Common profile font directories are also
+`XDG_DATA_DIRS` font directories, retaining standard system font roots as
+lower-priority fallbacks when not explicitly configured. Common profile font
+directories are also
 checked when present. At most 64 configured XDG system roots are considered.
 Windows and macOS keep their platform font directories. Aliased roots and
 files are scanned once; depth limits report truncation. Entry limits admit a
@@ -361,8 +363,9 @@ to custom fontconfig configuration are outside the picker scan.
 Host symbol faces and the Linux/Windows static symbol tails
 prefer explicit Regular variants, then shorter filename stems, within each
 provider hint. Unloadable candidates still fall through under the same attempt
-limit. Runtime fontconfig fallback on Linux uses its sorted regular-preferred
-list and discards malformed UTF-8 records individually. macOS keeps its fixed
+limit. Runtime fontconfig fallback on Linux requests a sorted Regular-style
+preference, filters it by `fc-list` coverage before the cap, and discards
+malformed UTF-8 records individually. macOS keeps its fixed
 system-tail order and shares the host Nerd-face preference; Windows does not
 run fontconfig queries.
 

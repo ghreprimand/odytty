@@ -100,7 +100,9 @@ fn runtime_fontconfig_query_requests_sorted_regular_preferred_candidates() {
                 assert!(args.last().unwrap().ends_with(":style=Regular"));
                 Ok(Some("first.ttf\t0\nsecond.ttc\t3\n".to_owned()))
             }
-            "fc-list" => Ok(Some("first.ttf\t0\nthird.ttf\t0\n".to_owned())),
+            "fc-list" => Ok(Some(
+                "first.ttf\t0\nsecond.ttc\t3\nthird.ttf\t0\n".to_owned(),
+            )),
             _ => panic!("unexpected helper"),
         }
     })
@@ -114,4 +116,52 @@ fn runtime_fontconfig_query_requests_sorted_regular_preferred_candidates() {
             (PathBuf::from("third.ttf"), 0)
         ]
     );
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn runtime_candidates_filter_coverage_before_the_attempt_cap() {
+    let candidates = symbol_font_candidates_with('x', |program, _| {
+        Ok(Some(match program {
+            "fc-match" => {
+                let mut text = String::new();
+                for index in 0..MAX_SYMBOL_FONT_CANDIDATES {
+                    text.push_str(&format!("uncovered{index}.ttf\t0\n"));
+                }
+                text.push_str("preferred.ttc\t2\n");
+                text
+            }
+            "fc-list" => {
+                let mut text = String::new();
+                for index in 0..MAX_SYMBOL_FONT_CANDIDATES {
+                    text.push_str(&format!("covering{index}.ttf\t0\n"));
+                }
+                text.push_str("preferred.ttc\t2\n");
+                text
+            }
+            _ => panic!("unexpected helper"),
+        }))
+    })
+    .expect("query candidates");
+    assert_eq!(candidates.len(), MAX_SYMBOL_FONT_CANDIDATES);
+    assert_eq!(candidates[0], (PathBuf::from("preferred.ttc"), 2));
+    assert!(
+        candidates
+            .iter()
+            .all(|(path, _)| !path.to_str().unwrap().starts_with("uncovered"))
+    );
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn runtime_candidates_have_no_faces_when_coverage_is_empty() {
+    let candidates = symbol_font_candidates_with('x', |program, _| {
+        Ok(Some(match program {
+            "fc-match" => "uncovered.ttf\t0\n".to_owned(),
+            "fc-list" => String::new(),
+            _ => panic!("unexpected helper"),
+        }))
+    })
+    .expect("query candidates");
+    assert!(candidates.is_empty());
 }

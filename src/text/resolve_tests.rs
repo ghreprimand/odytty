@@ -172,3 +172,29 @@ fn style_variants_still_use_weight_distance_within_normal_width() {
     let bold = fixture.write("z-bold.ttf", "Ody Mono", 700, 5, false);
     assert_eq!(fixture.resolve("Ody Mono").bold, Some(bold));
 }
+
+#[test]
+fn partial_family_skips_shorter_proportional_matches() {
+    let fixture = FixtureDir::new();
+    let mut bytes = metadata_face("Ody Sans", 400, 5, false);
+    let post = bytes
+        .windows(4)
+        .position(|tag| tag == b"post")
+        .expect("post record");
+    let offset = u32::from_be_bytes(bytes[post + 8..post + 12].try_into().unwrap()) as usize;
+    bytes[offset + 12..offset + 16].copy_from_slice(&0u32.to_be_bytes());
+    let proportional = fixture.0.join("a-proportional.ttf");
+    std::fs::write(&proportional, bytes).expect("write authored proportional metadata");
+    let regular = fixture.write("b-mono.ttf", "Ody Sans Mono", 400, 5, false);
+    let bold = fixture.write("c-bold.ttf", "Ody Sans Mono", 700, 5, false);
+    let resolved = fixture.resolve("Ody");
+    assert_eq!(resolved.regular, regular);
+    assert_eq!(resolved.bold, Some(bold));
+    assert!(
+        matches!(
+            try_resolve_font_family("Ody Sans", std::slice::from_ref(&fixture.0)),
+            Err(FontResolveError::NotMonospace)
+        ),
+        "an exact proportional family stays a rejection"
+    );
+}

@@ -291,7 +291,10 @@ shaped that way while `script_shaping` is on. Each owner is shaped on its own wi
 Latin, Arabic, and emoji paths, does not form reph and mishandles ZWJ/ZWNJ
 requests in these scripts. The face is the first that maps every scalar: a
 `symbol_map` override, the style face, then the fallback chain and runtime
-resolver. Shaped glyphs keep their pen positions; the run is centered in the
+resolver. On Linux, both Wayland and X11 runtime candidates are filtered by
+fontconfig coverage before the eight-face load cap; macOS and Windows retain
+their static fallback chains. Shaped glyphs keep their pen positions; the run
+is centered in the
 owner's span when it fits, otherwise scaled uniformly to fit down to a 0.6
 floor, then clipped at the span edges. An owner with no covering face, a
 pending runtime answer, a `.notdef` result, or no atlas room keeps the

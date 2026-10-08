@@ -96,6 +96,8 @@ fn linux_font_roots(
     data_dirs: Option<&std::ffi::OsStr>,
 ) -> Vec<PathBuf> {
     let mut roots = vec![
+        PathBuf::from("/usr/share/fonts"),
+        PathBuf::from("/usr/local/share/fonts"),
         PathBuf::from("/run/current-system/sw/share/fonts"),
         PathBuf::from("/run/current-system/profile/share/fonts"),
     ];
@@ -117,7 +119,11 @@ fn linux_font_roots(
             PathBuf::from("/usr/share"),
         ];
     }
-    roots.extend(system.into_iter().rev().map(|path| path.join("fonts")));
+    for path in system.into_iter().rev().map(|path| path.join("fonts")) {
+        // Move an explicitly configured standard root to its XDG priority.
+        roots.retain(|root| *root != path);
+        roots.push(path);
+    }
     let user_data = data_home
         .map(Path::new)
         .filter(|path| path.is_absolute())

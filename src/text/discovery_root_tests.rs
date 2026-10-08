@@ -115,3 +115,35 @@ fn linux_data_roots_ignore_relative_values_and_keep_standard_defaults() {
     assert!(roots.contains(&PathBuf::from("/usr/share/fonts")));
     assert!(!roots.iter().any(|path| path.starts_with("relative")));
 }
+
+#[cfg(not(any(target_os = "macos", windows)))]
+#[test]
+fn linux_standard_roots_survive_replacement_xdg_dirs_at_lower_priority() {
+    let tree = TempTree::new();
+    let configured = tree.0.join("configured");
+    let roots = linux_font_roots(None, None, Some(configured.as_os_str()));
+    let configured_index = roots
+        .iter()
+        .position(|p| *p == configured.join("fonts"))
+        .unwrap();
+    for standard in ["/usr/local/share/fonts", "/usr/share/fonts"] {
+        let index = roots
+            .iter()
+            .position(|p| p == Path::new(standard))
+            .expect("standard fallback");
+        assert!(
+            index < configured_index,
+            "configured roots have scan priority"
+        );
+    }
+    let dirs = std::env::join_paths([Path::new("/usr/share"), &configured]).unwrap();
+    let roots = linux_font_roots(None, None, Some(&dirs));
+    assert_eq!(
+        roots
+            .iter()
+            .filter(|p| *p == Path::new("/usr/share/fonts"))
+            .count(),
+        1
+    );
+    assert_eq!(roots.last(), Some(&PathBuf::from("/usr/share/fonts")));
+}

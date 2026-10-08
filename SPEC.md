@@ -2770,8 +2770,9 @@ rationale that governs the `protected`-omit and `blink:false`-omit golden
 decisions elsewhere.
 
 Font-family resolution matches real OpenType family names. Exact normalized
-matches take precedence; a partial name selects the shortest normalized family
-name, with alphabetical ties, before choosing regular and style faces. Style
+matches take precedence; a partial name filters to fixed-pitch faces before
+selecting the shortest normalized family name, with alphabetical ties, before
+choosing regular and style faces. Style
 faces prefer normal width before canonical weight, as regular faces do. These
 rules apply on Linux, macOS, and Windows; missing styles use the regular face.
 
@@ -2788,8 +2789,9 @@ coverage allocation. Non-finite contrast and brightness controls use exact
 color passthrough. These guards apply on Linux, macOS, and Windows.
 
 Font discovery on Linux honors absolute `XDG_DATA_HOME` and `XDG_DATA_DIRS`
-font directories, with standard defaults for invalid or empty values, and
-checks common profile font directories when present. It considers at most 64
+font directories, retaining standard system font roots at lower priority when
+not explicitly configured, and checks common profile font directories when
+present. It considers at most 64
 configured XDG system roots. macOS and Windows keep their platform roots.
 Canonical roots and font files are admitted once; exceeding the depth limit
 reports truncation without dropping eligible shallower siblings. Directory
@@ -2802,7 +2804,8 @@ Regular variants, then shorter normalized filename stems within a hint. The
 Linux and Windows static symbol tails use the same preference; macOS keeps its
 fixed system-tail paths. Unloadable faces fall through under the existing
 eight-candidate cap. Linux runtime fontconfig candidates use the sorted
-regular-preferred fallback list and omit malformed UTF-8 records individually,
+fallback list with a Regular-style preference request, filtered by `fc-list`
+coverage before the cap, and omit malformed UTF-8 records individually,
 so one record cannot discard every usable provider. Windows and macOS do not
 run these queries.
 

@@ -1926,14 +1926,16 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
 - [x] Monochrome coverage rejects invalid scales and oversized pixel bounds
       before allocation; non-finite contrast and brightness controls preserve
       input colors on every platform.
-- [x] Font discovery honors Linux XDG data roots and common profile roots,
+- [x] Font discovery honors Linux XDG data roots, standard system fallback roots,
+      and common profile roots,
       deduplicates canonical roots and files, and reports depth truncation.
       Entry-bound prefixes follow filesystem enumeration order before sorting;
       custom fontconfig-only directories remain outside the picker scan.
 - [x] Host symbol fallback prefers Regular filename variants within provider
       hints, keeps load-failure fallthrough, and preserves valid fontconfig
       records when another record is malformed. Linux runtime candidates use
-      sorted regular-style preference; Windows and macOS retain static tails.
+      a sorted Regular-style preference filtered by coverage before the cap;
+      Windows and macOS retain static tails.
 - [x] Core font-regression fixtures are portable across Linux, macOS and
       Windows; host font exercises are explicit extras. Refused SVG cache tests
       observe actual render attempts, and color probes accept v1/SVG coverage.

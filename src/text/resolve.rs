@@ -70,8 +70,8 @@ impl std::fmt::Display for FontResolveError {
 /// monospace (see [`is_monospace`]); a proportional font is rejected
 /// (`Err(NotMonospace)`) so the caller can either surface that or fall back to
 /// the bundled face. The family is matched against the real `name`-table
-/// family (not the filename stem) and the regular face is chosen by OS/2 weight
-/// (closest to 400, upright). Style variants are discovered by metadata but not
+/// family (not the filename stem) and the regular face prefers normal width,
+/// then OS/2 weight closest to 400 and upright posture. Style variants are discovered by metadata but not
 /// opened. Pure with respect to `dirs`, so tests can supply a fixture directory.
 pub fn try_resolve_font_family(
     query: &str,
@@ -122,34 +122,26 @@ pub fn try_resolve_font_family(
             partial.push((f.clone(), meta));
         }
     }
-    let matched = if exact.is_empty() {
-        // A partial query resolves one family, so its styles cannot come from
-        // another family that happens to contain the same query.
-        let selected = partial
-            .iter()
-            .map(|(_, meta)| normalize_family(&meta.family))
-            .min_by_key(|key| (key.len(), key.clone()));
-        partial
-            .into_iter()
-            .filter(|(_, meta)| Some(normalize_family(&meta.family)) == selected)
-            .collect()
-    } else {
-        exact
-    };
+    let matched = if exact.is_empty() { partial } else { exact };
     if matched.is_empty() {
         return Err(FontResolveError::NotFound);
     }
 
-    // Keep the monospace faces; a family that matched by name but offers no
-    // monospace face reports NotMonospace (the old name-hit-but-proportional
-    // behaviour), so the caller can surface a precise reason.
-    let monospace: Vec<(PathBuf, FaceMeta)> = matched
+    // Filter before selecting a partial family: a shorter proportional match
+    // must not hide a longer fixed-pitch match. Exact name hits still report
+    // NotMonospace when that family has no eligible face.
+    let mut monospace: Vec<(PathBuf, FaceMeta)> = matched
         .into_iter()
         .filter(|(path, meta)| path_is_monospace(path, meta))
         .collect();
     if monospace.is_empty() {
         return Err(FontResolveError::NotMonospace);
     }
+    let selected = monospace
+        .iter()
+        .map(|(_, meta)| normalize_family(&meta.family))
+        .min_by_key(|key| (key.len(), key.clone()));
+    monospace.retain(|(_, meta)| Some(normalize_family(&meta.family)) == selected);
 
     // Select the regular face by metadata (closest to weight 400, upright),
     // prefer normal width before weight, and never use filename length.
