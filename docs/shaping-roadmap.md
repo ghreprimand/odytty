@@ -105,7 +105,9 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
   transforms, clips, and composites rasterize into premultiplied RGBA after
   bitmap and v0 sources decline the glyph, preserving both established paths.
   Gradient interpolation uses premultiplied linear-light RGB; radial gaps
-  remain transparent and sweep extension retains the signed interval position.
+  remain transparent. Nondegenerate sweeps admit equivalent rays inside intervals
+  below zero or above one turn, pad to the nearest boundary outside them, and
+  retain the signed outside parameter for repeat/reflect extension.
   Atlas admission checks both device dimensions and the bitmap/key cell span
   before reusing a color slot.
 - **Extended ligature coverage beyond ASCII.** Landed as the curated allowlist

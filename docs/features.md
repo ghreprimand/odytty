@@ -588,12 +588,12 @@ It supports bitmap strikes through Noto Color Emoji (CBDT/CBLC) and Apple Color
 Emoji (sbix), static COLR/CPAL v0 layers, and COLR v1 Paint graphs including
 solid fills, linear/radial/sweep gradients, affine transforms, clipping, and
 the standard composite modes. Gradient colors interpolate in premultiplied
-linear-light RGB. Radial gaps stay transparent and sweep padding respects
-both sides of the normalized interval. A COLR v1 glyph whose Paint graph would
-exceed
-the fixed visit, pixel-work, or live-buffer budget at its slot size uses the
-monochrome fallback. Directory discovery recognizes stock Windows
-Segoe UI Emoji and other parseable COLR/CPAL faces. The shared raster and atlas
+linear-light RGB. Radial gaps stay transparent. Nondegenerate sweep padding
+respects both sides of the callback interval, including equivalent rays shifted
+by one turn. A COLR v1 glyph whose Paint graph would exceed the fixed visit,
+pixel-work, or live-buffer budget at its slot size uses the monochrome fallback.
+Directory discovery recognizes stock Windows Segoe UI Emoji and other parseable
+COLR/CPAL faces. The shared raster and atlas
 logic is platform-neutral. Atlas admission checks both texture dimensions
 against the device limit and requires matching key/bitmap cell spans.
 Oversized atlases decline color lookups without discarding resident pixels.

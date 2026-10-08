@@ -605,7 +605,8 @@ impl PreparedBrush {
                 extend,
             } => {
                 // Skrifa supplies clockwise angles, possibly outside [0, 360).
-                // Wrap the observed ray, preserving its signed interval position.
+                // Prefer an equivalent ray inside the callback interval. Outside it,
+                // Pad chooses the nearest boundary; Repeat/Reflect keep the signed ray.
                 let angle = (-(point.y - center.y).atan2(point.x - center.x).to_degrees())
                     .rem_euclid(360.0);
                 let span = end_angle - start_angle;
@@ -615,7 +616,26 @@ impl PreparedBrush {
                     }
                     if angle < *start_angle { 0.0 } else { 1.0 }
                 } else {
-                    (angle - start_angle) / span
+                    let lower = start_angle.min(*end_angle);
+                    let upper = start_angle.max(*end_angle);
+                    let rays = [angle, angle - 360.0, angle + 360.0];
+                    let ray = rays
+                        .into_iter()
+                        .find(|ray| (lower..=upper).contains(ray))
+                        .unwrap_or_else(|| {
+                            if matches!(extend, Extend::Pad) {
+                                rays.into_iter()
+                                    .min_by(|a, b| {
+                                        let distance =
+                                            |ray: f32| (ray - ray.clamp(lower, upper)).abs();
+                                        distance(*a).total_cmp(&distance(*b))
+                                    })
+                                    .unwrap_or(angle)
+                            } else {
+                                angle
+                            }
+                        });
+                    (ray - start_angle) / span
                 };
                 sample_stops(stops, extend_t(t, *extend))
             }

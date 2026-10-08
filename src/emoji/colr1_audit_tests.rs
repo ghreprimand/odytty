@@ -212,3 +212,58 @@ fn gradient_transfer_handles_transparent_stops_and_preserves_solid_bytes() {
     assert_eq!(painter.layers[0].pixmap.data(), &[32, 16, 8, 64]);
     assert!(!painter.failed);
 }
+
+fn assert_sweep_color(brush: PreparedBrush, angle: f32, expected: [f32; 4]) {
+    let radians = angle.to_radians();
+    let actual = brush.sample(Point::from_xy(radians.cos(), -radians.sin()));
+    for (channel, expected) in actual.into_iter().zip(expected) {
+        assert!((channel - expected).abs() < 0.00001, "{actual:?}");
+    }
+}
+
+#[test]
+fn sweep_negative_interval_uses_equivalent_interior_ray() {
+    for extend in [Extend::Pad, Extend::Repeat, Extend::Reflect] {
+        assert_sweep_color(
+            sweep(-90.0, 90.0, extend),
+            300.0,
+            [5.0 / 6.0, 0.0, 1.0 / 6.0, 1.0],
+        );
+        // A span that does not divide one turn also pins Repeat/Reflect.
+        assert_sweep_color(sweep(-80.0, 80.0, extend), 300.0, [0.875, 0.0, 0.125, 1.0]);
+    }
+}
+
+#[test]
+fn sweep_shifted_positive_interval_uses_equivalent_interior_ray() {
+    for extend in [Extend::Pad, Extend::Repeat, Extend::Reflect] {
+        assert_sweep_color(sweep(450.0, 540.0, extend), 135.0, [0.5, 0.0, 0.5, 1.0]);
+    }
+}
+
+#[test]
+fn sweep_shifted_pad_chooses_the_nearest_boundary() {
+    assert_sweep_color(
+        sweep(450.0, 540.0, Extend::Pad),
+        225.0,
+        [0.0, 0.0, 1.0, 1.0],
+    );
+    assert_sweep_color(sweep(-90.0, 90.0, Extend::Pad), 135.0, [0.0, 0.0, 1.0, 1.0]);
+    assert_sweep_color(sweep(-90.0, 90.0, Extend::Pad), 225.0, [1.0, 0.0, 0.0, 1.0]);
+}
+
+#[test]
+fn sweep_equivalent_interior_rays_keep_the_same_color() {
+    for (start, end) in [(-90.0, 90.0), (90.0, 180.0), (450.0, 540.0)] {
+        for angle in [start + 0.25 * (end - start), start + 0.75 * (end - start)] {
+            let t = (angle - start) / (end - start);
+            for turn in [-360.0, 0.0, 360.0] {
+                assert_sweep_color(
+                    sweep(start, end, Extend::Pad),
+                    angle + turn,
+                    [1.0 - t, 0.0, t, 1.0],
+                );
+            }
+        }
+    }
+}

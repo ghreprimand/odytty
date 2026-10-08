@@ -1296,7 +1296,8 @@ a floor; surpassing it is the standing ambition.
         transforms, clips, and all standard composite modes; synthetic v1-only
         fixture plus a Windows CI stock-font coverage census.
   - [x] COLR v1 gradient sampling: transparent radial gaps, sweep interval
-        padding and repeat/reflect extension, and premultiplied linear-light
+        padding, equivalent interior rays below zero or above one turn,
+        repeat/reflect extension, and premultiplied linear-light
         interpolation with exact opaque/translucent midpoint pixel fixtures.
   - [x] SVG-in-OT rasterization as the last color source through resvg, with
         document, nesting, expansion, resource, and raster limits; refused
