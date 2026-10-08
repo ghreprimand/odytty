@@ -224,3 +224,29 @@ fn the_ordinary_theme_editor_still_opens_on_a_clone_of_the_active_theme() {
         "the clone path must not pick up the live OSC 11 override"
     );
 }
+
+#[test]
+fn config_reload_preserves_theme_draft_after_overlay_input() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let mut app = app_with_theme(distinctive_theme());
+    app.open_theme_builder_for_test();
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::ArrowRight), false, false);
+    app.flush_pending_overlay_settings_for_test();
+    let draft = app.theme_builder_draft_for_test().expect("open builder");
+    assert_ne!(
+        draft.foreground,
+        distinctive_theme().foreground,
+        "nudge changes the draft"
+    );
+    let reloaded = Settings {
+        theme: distinctive_theme(),
+        window_opacity: 55.0,
+        ..Settings::default()
+    };
+    app.apply_reloaded_settings_for_test(reloaded);
+    assert_eq!(
+        app.theme_builder_draft_for_test()
+            .expect("open builder after reload"),
+        draft
+    );
+}

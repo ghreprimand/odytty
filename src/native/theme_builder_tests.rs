@@ -849,3 +849,43 @@ fn help_line_persists_and_status_region_is_fixed_height() {
         "clearing the status must not shift the role rows"
     );
 }
+
+#[test]
+fn reload_preserves_committed_draft_and_rebases_cancel_theme() {
+    let base = Settings::default();
+    let mut builder = ThemeBuilder::new(&base);
+    assert!(matches!(
+        builder.handle_input(OverlayInput::Right),
+        ThemeBuilderOutcome::Preview(_)
+    ));
+    let draft = builder.draft_for_test();
+    let reloaded = Settings {
+        theme: Theme::PLAIN,
+        ..base
+    };
+    builder.refresh(&reloaded);
+    assert_eq!(builder.draft_for_test(), draft);
+    assert_eq!(
+        builder.handle_input(OverlayInput::Close),
+        ThemeBuilderOutcome::Cancel(Theme::PLAIN)
+    );
+}
+
+#[test]
+fn reload_preserves_open_theme_text_edit_and_rebases_cancel_theme() {
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    builder.handle_input(OverlayInput::Activate);
+    builder.handle_input(OverlayInput::Char('1'));
+    let editing = builder.render_signature().editing;
+    let reloaded = Settings {
+        theme: Theme::PLAIN,
+        ..Settings::default()
+    };
+    builder.refresh(&reloaded);
+    assert_eq!(builder.render_signature().editing, editing);
+    builder.handle_input(OverlayInput::Close);
+    assert_eq!(
+        builder.handle_input(OverlayInput::Close),
+        ThemeBuilderOutcome::Cancel(Theme::PLAIN)
+    );
+}

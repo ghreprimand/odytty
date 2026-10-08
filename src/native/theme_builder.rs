@@ -16,6 +16,8 @@ use super::overlay::{OverlayInput, PointerButton};
 pub(super) struct ThemeBuilder {
     original: Theme,
     spec: ThemeSpec,
+    /// Last clean authoring state used to detect pending draft changes.
+    baseline_spec: ThemeSpec,
     selected: usize,
     scroll: usize,
     editing: Option<EditMode>,
@@ -317,8 +319,11 @@ impl ThemeBuilder {
     }
 
     pub(super) fn refresh(&mut self, settings: &Settings) {
-        if self.editing.is_none() {
+        if self.editing.is_none() && self.spec == self.baseline_spec {
             *self = Self::from_theme(settings.theme);
+        } else {
+            self.original = settings.theme;
+            self.message = Some("Configuration reloaded; theme draft preserved.".to_owned());
         }
     }
 
@@ -360,6 +365,7 @@ impl ThemeBuilder {
     pub(super) fn save_succeeded(&mut self, saved_name: &str, path: &Path, changed: usize) {
         self.spec.name = saved_name.to_owned();
         self.original = self.preview_theme();
+        self.baseline_spec = self.spec.clone();
         let snap_note = match self.save_snap_count {
             0 => String::new(),
             1 => " Snapped 1 role to AA on save.".to_owned(),
@@ -607,6 +613,7 @@ impl ThemeBuilder {
         };
         Self {
             original: theme,
+            baseline_spec: spec.clone(),
             spec,
             selected: 0,
             scroll: 0,

@@ -67,6 +67,10 @@ list. Settings from the empty tab strip, a workspace slot, or the empty
 workspace rail opens Layout directly.
 
 Edits apply live, but the config file is not changed until you press `Ctrl+S`.
+A configuration reload preserves pending edits, open text entry, search, and
+navigation. Pending values stay in the editor even when the same setting
+changes in the file; other settings adopt the reloaded values. Theme-builder
+drafts also survive reloads, and cancelling restores the reloaded theme.
 Saving uses a preservation-first writeback: comments, blank lines, key order,
 and unknown or future keys stay in place, while changed keys are rewritten and
 missing changed keys are appended. OdyTTY saves through a same-directory

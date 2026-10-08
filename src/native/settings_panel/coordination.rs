@@ -64,54 +64,17 @@ impl SettingsPanel {
     }
 
     pub(in crate::native) fn refresh(&mut self, settings: &Settings) {
-        let selected_key = self
-            .entries
-            .get(self.selected)
-            .map(|entry| entry.key)
-            .unwrap_or("theme");
-        self.edits = SettingsEditOverlay::new(settings);
-        self.query.clear();
-        self.search_active = false;
-        self.all_entries = self.edits.settings().setting_info();
-        self.entries = self.all_entries.clone();
-        // Reset to Level 1 on a config reload.
-        self.level = SettingsLevel::SectionList;
-        self.section_selected = 0;
-        self.section_scroll = 0;
-        self.pending_close_prompt = false;
-        self.path_picker = None;
-        self.selected = self
-            .entries
-            .iter()
-            .position(|entry| entry.key == selected_key)
-            .unwrap_or(0);
-        self.editing = None;
-        self.message = None;
-        self.clamp();
+        let had_draft = self.edits.changed_count() > 0 || self.editing.is_some();
+        self.rebase_onto_external(settings);
+        if had_draft {
+            self.message = Some(
+                "Configuration reloaded; pending settings and active edits preserved.".to_owned(),
+            );
+        }
     }
 
-    /// Live-apply seam (`SettingsApplySource::OverlayEdit`): a value committed in
-    /// the panel (step/cycle/slider) or a Save re-read of the config is routed
-    /// back here so the preview/save takes effect immediately. This MUST preserve
-    /// the panel's navigation state — the current level, the drilled-into section
-    /// filter, an active search, and any unsaved dirty edits in `self.edits`.
-    ///
-    /// SETTINGS-PANEL-STATE-FIX:
-    ///   - Bug B: do NOT call `apply_search_filter()` unconditionally. With no
-    ///     active query it replaces the section-filtered list with ALL settings,
-    ///     leaking the user out of their section. Use the section/search-aware
-    ///     `refresh_entries_after_commit()` instead (the same rebuild the commit
-    ///     path uses), which preserves the SectionDetail filter at Level 2, the
-    ///     search filter in search mode, and the full list only at Level 1.
-    ///   - Bug C: do NOT call the level-resetting `refresh()`. On a live apply the
-    ///     incoming `settings` (re-read via `Settings::from_env` on Save) can
-    ///     differ from the in-panel edit overlay, so the old
-    ///     `if self.edits.settings() != settings { self.refresh(settings); }`
-    ///     fired spuriously and yanked the user back to Level 1. The applied
-    ///     values are already reflected in `self.edits` (the commit path updated
-    ///     it; Save calls `save_succeeded`/`mark_saved`), so we keep `self.edits`
-    ///     as the source of truth and never touch `self.level`,
-    ///     `self.section_selected`, or `self.search_active` here.
+    /// Reflect accepted panel edits without changing the clean baseline or
+    /// navigation. The edit overlay already owns the applied values.
     pub(in crate::native) fn apply_settings(&mut self, _settings: &Settings) {
         // Avoid rebuilding the settings inventory during repeated live edits: the
         // OverlayEdit echo carries values the panel already committed into
@@ -177,7 +140,7 @@ impl SettingsPanel {
         }
     }
 
-    /// Reconcile an externally-applied `Settings` from a picker into the edit
+    /// Reconcile externally-applied settings from a picker or reload into the edit
     /// overlay as the new clean baseline, while preserving pending panel edits
     /// and navigation state.
     pub(in crate::native) fn rebase_onto_external(&mut self, settings: &Settings) {

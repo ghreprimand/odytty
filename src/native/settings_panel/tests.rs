@@ -1096,19 +1096,19 @@ fn editing_a_filtered_row_exits_search_cleanly() {
 }
 
 #[test]
-fn refresh_clears_active_search() {
+fn refresh_preserves_active_search() {
     let mut panel = SettingsPanel::new(&Settings::default());
-    let total = panel.render_signature().entries.len();
     let _ = panel.handle_input(OverlayInput::Char('/'));
     for ch in "cursor".chars() {
         let _ = panel.handle_input(OverlayInput::Char(ch));
     }
     assert!(panel.is_searching());
+    let before = panel.render_signature();
     panel.refresh(&Settings::default());
     let sig = panel.render_signature();
-    assert!(!sig.search_active);
-    assert!(sig.query.is_empty());
-    assert_eq!(sig.entries.len(), total);
+    assert!(sig.search_active);
+    assert_eq!(sig.query, "cursor");
+    assert_eq!(sig.entries, before.entries);
 }
 
 #[test]
@@ -1454,13 +1454,8 @@ fn dirty_close_prompt_flow() {
     assert_eq!(outcome, SettingsPanelOutcome::DiscardAndClose);
     assert!(!panel.render_signature().pending_close_prompt);
 
-    // Re-show the prompt with a fresh edit. Use a different setting to
-    // avoid the double-toggle cancellation (the previous edit is still in
-    // the edits field since DiscardAndClose doesn't reset the panel edits —
-    // that's the overlay/App layer's job). Use `visual` which starts at
-    // "off" and hasn't been toggled yet, giving a net 1 change.
-    // First reset the edits to a clean state.
-    panel.refresh(&Settings::default());
+    // Start a new panel after DiscardAndClose, as the App layer does.
+    panel = SettingsPanel::new(&Settings::default());
     select_key(&mut panel, "visual");
     let _ = panel.handle_input(OverlayInput::Right); // cycle visual → "ambient"
     let _ = panel.handle_input(OverlayInput::Close); // Level 2 → Level 1
@@ -2061,4 +2056,42 @@ fn search_arrows_leave_settings_and_query_unchanged() {
         assert_eq!(panel.handle_input(input), SettingsPanelOutcome::Consumed);
         assert_eq!(panel.render_signature(), before);
     }
+}
+
+#[test]
+fn reload_preserves_pending_settings_navigation_and_text_edit() {
+    let mut panel = SettingsPanel::new(&Settings::default());
+    select_key(&mut panel, "font_size");
+    panel.handle_input(OverlayInput::Right);
+    let pending = panel.edits.changes();
+    panel.handle_input(OverlayInput::Activate);
+    panel.handle_input(OverlayInput::Char('2'));
+    let before = panel.render_signature();
+    let reloaded = Settings {
+        window_opacity: 55.0,
+        ..Settings::default()
+    };
+    panel.refresh(&reloaded);
+    let after = panel.render_signature();
+    assert_eq!(panel.edits.changes(), pending);
+    assert_eq!(after.level, before.level);
+    assert_eq!(after.editing_key, before.editing_key);
+    assert_eq!(after.editing_buffer, before.editing_buffer);
+    assert_eq!(panel.edits.settings().window_opacity, 55.0);
+}
+
+#[test]
+fn reload_keeps_conflicting_pending_value_and_accepts_external_baseline() {
+    let base = Settings::default();
+    let mut panel = SettingsPanel::new(&base);
+    panel.commit_value("font_size", "24");
+    let reloaded = Settings {
+        font_size_px: 30.0,
+        ..base
+    };
+    panel.refresh(&reloaded);
+    assert_eq!(panel.edits.settings().font_size_px, 24.0);
+    assert_eq!(panel.edits.changed_count(), 1);
+    panel.commit_value("font_size", "30");
+    assert_eq!(panel.edits.changed_count(), 0);
 }

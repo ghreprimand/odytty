@@ -495,7 +495,10 @@ automatic wallpaper readability retain explicit tokens through later edits.
 **Live reload.** The native app polls the resolved config path at a one-second
 cadence from the existing event-loop wake path, without a watcher thread or
 `inotify` dependency. When the file changes, new settings are applied
-immediately. Env-pinned keys are preserved: any setting that was supplied via
+immediately. Pending in-app settings edits and open text edits survive a reload;
+pending values take precedence in the editor when the same key changes in the
+file. Unedited keys adopt the new configuration. Unsaved theme-builder drafts
+also survive, with Cancel restoring the newly loaded theme. Env-pinned keys are preserved: any setting that was supplied via
 `ODYTTY_*` at startup is held at that value for the session lifetime; live
 reload cannot override it.
 
