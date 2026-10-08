@@ -371,6 +371,9 @@ impl App {
         // title changing the longest tab title has no other trigger. A
         // no-change frame is a single width comparison.
         self.reconcile_rail_auto_width();
+        // A composition's candidate window follows layout and cursor moves
+        // made since its last pre-edit.
+        self.follow_ime_cursor_area();
         // C4: clear the GPU image-viewer texture the frame after the
         // viewer overlay closes, so the closed-viewer frame is
         // byte-identical to the no-viewer path.

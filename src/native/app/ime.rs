@@ -179,17 +179,53 @@ impl App {
     }
 
     /// Best-effort placement of the IME candidate window at the terminal cursor.
-    /// Skipped when the GPU (and thus cell metrics) is not yet present.
-    fn update_ime_cursor_area(&self) {
-        let (Some(window), Some(gpu)) = (self.window.as_ref(), self.gpu.as_ref()) else {
+    /// Skipped until cell metrics are known.
+    fn update_ime_cursor_area(&mut self) {
+        let Some(area) = self.ime_cursor_area() else {
             return;
         };
-        let cell = gpu.cell();
-        let [x, y] = self.ime_cursor_area_origin_px(cell, gpu.window_padding().as_f32());
-        window.set_ime_cursor_area(
-            PhysicalPosition::new(x, y),
-            PhysicalSize::new(cell.width, cell.height),
-        );
+        self.ime_cursor_area_sent = Some(area);
+        if let Some(window) = self.window.as_ref() {
+            let ([x, y], [width, height]) = area;
+            window.set_ime_cursor_area(
+                PhysicalPosition::new(x, y),
+                PhysicalSize::new(width, height),
+            );
+        }
+    }
+
+    /// The candidate-window area for the current cursor cell: its window
+    /// pixel origin and the cell size.
+    fn ime_cursor_area(&self) -> Option<([f32; 2], [u32; 2])> {
+        let cell = self.resolved_cell()?;
+        let origin = self.ime_cursor_area_origin_px(cell, self.window_pad_px());
+        Some((origin, [cell.width, cell.height]))
+    }
+
+    /// Keep the candidate window on the cursor cell while a composition shows
+    /// text: a window resize or a program moving the cursor relocates it on
+    /// the next redraw (a pane layout change ends the composition). The area
+    /// is reissued only when it moved and only while the pre-edit is nonempty,
+    /// so an empty pre-edit a platform sends in answer to an update can never
+    /// start a feedback loop.
+    pub(super) fn follow_ime_cursor_area(&mut self) {
+        if self.ime_preedit.is_empty() {
+            self.ime_cursor_area_sent = None;
+            return;
+        }
+        if self.ime_cursor_area() != self.ime_cursor_area_sent {
+            self.update_ime_cursor_area();
+        }
+    }
+
+    /// Test seam: run the redraw's candidate-window follow step and return
+    /// the area last sent.
+    #[cfg(test)]
+    pub(in crate::native) fn follow_ime_cursor_area_for_test(
+        &mut self,
+    ) -> Option<([f32; 2], [u32; 2])> {
+        self.follow_ime_cursor_area();
+        self.ime_cursor_area_sent
     }
 
     /// Window pixel position of the cursor cell the candidate window anchors

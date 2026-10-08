@@ -307,6 +307,10 @@ pub(in crate::native) struct App {
     /// Escape. Holds the rail auto-hide open for its lifetime (see
     /// `rail_pinned_open`).
     pub(super) rail_ws_drag: Option<RailWorkspaceDrag>,
+    /// The IME candidate-window area last sent to the platform (origin and
+    /// cell size, window pixels) while a composition showed text. A redraw
+    /// reissues it only when the anchor moved.
+    pub(super) ime_cursor_area_sent: Option<([f32; 2], [u32; 2])>,
     /// TOP-TAB-DRAG: the in-flight top-strip tab reorder gesture.
     pub(super) top_tab_drag: Option<TopTabDrag>,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
@@ -877,6 +881,7 @@ impl App {
             rail_autohide: rail_autohide::RailAutohide::default(),
             last_rail_pointer_px: None,
             rail_ws_drag: None,
+            ime_cursor_area_sent: None,
             top_tab_drag: None,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: !provisional,

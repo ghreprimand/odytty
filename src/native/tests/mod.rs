@@ -223,6 +223,7 @@ mod graphics_anim;
 mod grid_scale;
 mod held_launch;
 mod image_paste;
+mod ime_candidate_follow;
 mod ime_ownership;
 mod input_keys;
 mod input_latch_lifecycle;

@@ -336,6 +336,10 @@ child-enabled bracketed paste retain their existing byte behavior.
 
 IME pre-edit appears inline at the cursor and committed text is sent to the
 shell. This supports CJK input methods and compose-key or dead-key accents.
+The input method's candidate window anchors at the focused pane's cursor
+cell and follows it while a composition shows text: a window resize or a
+program moving the cursor relocates it on the next frame. A split, close or
+other pane layout change ends the composition, as switching panes does.
 
 The terminal bell (`BEL`) has no audible mode:
 

@@ -45,7 +45,6 @@ pub(in crate::native) struct TopTabDrag {
     /// Pointer distance from the grabbed slot's leading edge, in pixels.
     pub(in crate::native) grab_offset_x: f64,
     slot_span_px: f64,
-    pub(in crate::native) pointer_x: f64,
     pub(in crate::native) armed: bool,
     pub(in crate::native) drop_idx: usize,
     pub(in crate::native) tear_out: bool,
@@ -60,7 +59,6 @@ impl TopTabDrag {
             press_y,
             grab_offset_x: 0.0,
             slot_span_px: 0.0,
-            pointer_x: press_x,
             armed: false,
             drop_idx: idx,
             tear_out: false,
@@ -80,7 +78,6 @@ impl TopTabDrag {
     }
 
     pub(in crate::native) fn update_arm(&mut self, x: f64, y: f64) -> bool {
-        self.pointer_x = x;
         if !self.armed {
             let dx = x - self.press_x;
             let dy = y - self.press_y;
@@ -106,12 +103,11 @@ pub(in crate::native) struct RailWorkspaceDrag {
     /// Physical-pixel X/Y of the initial press — the threshold origin.
     press_x: f64,
     press_y: f64,
-    /// Pointer distance from the grabbed slot's top edge, in pixels.
+    /// Pointer distance from the grabbed slot's top edge, in pixels. With the
+    /// slot span it places the dragged slot's centre, which picks the drop
+    /// index; nothing is drawn at the pointer itself.
     pub(in crate::native) grab_offset_y: f64,
     slot_span_px: f64,
-    /// Latest physical-pixel Y. The render layer maps this to the floating
-    /// proxy's top row, keeping the grabbed slot under the pointer.
-    pub(in crate::native) pointer_y: f64,
     /// `true` once motion crossed [`CHROME_DRAG_THRESHOLD_PX`]: the gesture is a
     /// drag, so release commits a reorder rather than a click activate.
     pub(in crate::native) armed: bool,
@@ -129,7 +125,6 @@ impl RailWorkspaceDrag {
             press_y,
             grab_offset_y: 0.0,
             slot_span_px: 0.0,
-            pointer_y: press_y,
             armed: false,
             drop_idx: idx,
         }
@@ -140,7 +135,6 @@ impl RailWorkspaceDrag {
     /// never disarms). Returns whether the gesture is armed (a drag) after this
     /// sample, so the caller only tracks a drop target while dragging.
     pub(in crate::native) fn update_arm(&mut self, x: f64, y: f64) -> bool {
-        self.pointer_y = y;
         if !self.armed {
             let dx = x - self.press_x;
             let dy = y - self.press_y;
@@ -1574,9 +1568,10 @@ impl App {
         }
         self.rail_ws_drag = Some(drag);
         if armed {
-            // A grabbing cursor and a fresh frame for the whole drag. The proxy
-            // follows every pointer sample, even while its insertion boundary
-            // remains unchanged.
+            // A grabbing cursor and a fresh frame for each armed sample. The
+            // rail draws the slot order previewed at `drop_idx` with its gap and
+            // insertion indicator; no element follows the pointer between
+            // insertion boundaries.
             self.apply_cursor_icon(CursorIcon::Grabbing);
             self.invalidate_chrome_drag_frame();
         }
