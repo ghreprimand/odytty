@@ -269,6 +269,10 @@ const SHAPE_AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(1500);
 const CWD_CHECKPOINT_SETTLE: Duration = Duration::from_secs(5);
 /// Minimum spacing between cwd-only checkpoint writes (the write budget).
 const CWD_CHECKPOINT_MIN_INTERVAL: Duration = Duration::from_secs(60);
+/// How long a failed shape save waits before the autosave or cwd checkpoint
+/// tries again, so a full or unwritable disk costs one attempt (and one
+/// warning) per interval.
+const SHAPE_SAVE_RETRY: Duration = Duration::from_secs(30);
 
 /// A press landing on the context menu within this window of it opening is
 /// treated as a stale queued click and swallowed (see `context_menu_opened_at`).

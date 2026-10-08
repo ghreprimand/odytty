@@ -530,6 +530,7 @@ impl Session {
             cursor_slide_deadline: None,
             cursor_slide_start: None,
             cursor_slide_from_px: [0.0, 0.0],
+            cursor_slide_cell: None,
             cursor_streak: crate::native::app::cursor_streak::CursorStreakState::default(),
             row_fade_starts: Vec::new(),
             last_output_pushes_for_fade: 0,

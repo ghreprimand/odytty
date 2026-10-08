@@ -98,3 +98,24 @@ fn font_zero_writes_back_under_its_canonical_key() {
     let _ = fs::remove_file(path);
     let _ = fs::remove_dir(dir);
 }
+
+/// A settings apply that publishes its switches and then fails restores the
+/// settings still in effect through the same publication.
+#[test]
+fn republishing_the_settings_in_effect_undoes_a_published_reload() {
+    let _render_globals = crate::test_lock::render_globals_lock();
+    let in_effect = Settings::default();
+    let mut attempted = in_effect.clone();
+    attempted.font_zero = !in_effect.font_zero;
+    attempted.ligatures = !in_effect.ligatures;
+    attempted.script_shaping = !in_effect.script_shaping;
+    let mut next = in_effect.clone();
+    assert!(apply_reloadable_values(&mut next, attempted.clone()));
+    assert_eq!(font_zero_enabled(), attempted.font_zero);
+    assert_eq!(ligatures_enabled(), attempted.ligatures);
+    // The text options failed to apply: the App republishes what it kept.
+    publish_render_globals(&in_effect);
+    assert_eq!(font_zero_enabled(), in_effect.font_zero);
+    assert_eq!(ligatures_enabled(), in_effect.ligatures);
+    assert_eq!(script_shaping_enabled(), in_effect.script_shaping);
+}

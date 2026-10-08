@@ -555,6 +555,11 @@ impl App {
     /// `close_active_tab` guard, so no `active()` Deref panics during teardown).
     pub(super) fn close_workspace_at(&mut self, idx: usize) {
         self.finish_divider_drag();
+        // An index that names no workspace (a menu or picker that went stale
+        // while it was open) closes nothing and never signals exit.
+        if idx >= self.sessions.workspace_count() {
+            return;
+        }
         // Exit keys on the last workspace: guard before reaping so the shutdown
         // path tears sessions down exactly as it does for the last tab.
         if self.sessions.workspace_count() <= 1 {
@@ -564,8 +569,8 @@ impl App {
         self.record_navigator_closed_workspace(idx);
         // Close-active-workspace acts on the active one; switch to the target
         // first so a background slot's `×` closes THAT workspace.
-        if idx != self.sessions.active_workspace_index() {
-            let _ = self.sessions.switch_workspace(idx);
+        if idx != self.sessions.active_workspace_index() && !self.sessions.switch_workspace(idx) {
+            return;
         }
         let _ = self.sessions.close_active_workspace();
         self.flash_rail_autohide();

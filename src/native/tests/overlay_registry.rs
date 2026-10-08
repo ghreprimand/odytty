@@ -576,6 +576,80 @@ fn motion_slides_between_adjacent_cells_then_settles() {
     );
 }
 
+/// A cell-size change (font or scale) that keeps the grid snaps a glide in
+/// flight instead of finishing it in the old cell's pixels.
+#[test]
+fn a_cell_size_change_mid_glide_snaps_the_cursor() {
+    let settings = Settings {
+        cursor_motion: true,
+        ..Default::default()
+    };
+    let Some(mut app) = build_app(settings) else {
+        return;
+    };
+    let mut prev = content_snapshot();
+    prev.cursor = Position { row: 0, column: 0 };
+    app.set_last_presented_snapshot_for_test(prev);
+    let mut cur = content_snapshot();
+    cur.cursor = Position { row: 0, column: 1 };
+    let t0 = Instant::now();
+    app.update_cursor_motion(t0, &cur, cell(CELL_W, CELL_H));
+    assert!(
+        app.cursor_render_params().offset[0] < 0.0,
+        "a glide is armed"
+    );
+    app.set_last_presented_snapshot_for_test(cur.clone());
+    app.update_cursor_motion(
+        t0 + Duration::from_millis(10),
+        &cur,
+        cell(CELL_W + 2, CELL_H + 4),
+    );
+    assert_eq!(
+        app.cursor_render_params().offset,
+        [0.0, 0.0],
+        "the new cell size snaps the cursor"
+    );
+    assert_eq!(app.animation_deadline(), None);
+}
+
+/// A second nearby move during a glide starts from where the cursor is
+/// drawn, so the drawn position does not jump back to the previous cell.
+#[test]
+fn a_move_during_a_glide_starts_from_the_drawn_position() {
+    let settings = Settings {
+        cursor_motion: true,
+        ..Default::default()
+    };
+    let Some(mut app) = build_app(settings) else {
+        return;
+    };
+    let cell = cell(CELL_W, CELL_H);
+    let mut first = content_snapshot();
+    first.cursor = Position { row: 0, column: 0 };
+    app.set_last_presented_snapshot_for_test(first);
+    let mut second = content_snapshot();
+    second.cursor = Position { row: 0, column: 1 };
+    let t0 = Instant::now();
+    app.update_cursor_motion(t0, &second, cell);
+    app.set_last_presented_snapshot_for_test(second.clone());
+    let mid = t0 + Duration::from_millis(20);
+    app.update_cursor_motion(mid, &second, cell);
+    let drawn = app.cursor_render_params().offset[0];
+    assert!(
+        drawn < 0.0 && drawn > -(CELL_W as f32),
+        "partway into the first glide: {drawn}"
+    );
+    let mut third = content_snapshot();
+    third.cursor = Position { row: 0, column: 2 };
+    app.update_cursor_motion(mid, &third, cell);
+    let restarted = app.cursor_render_params().offset[0];
+    assert!(
+        (restarted - (drawn - CELL_W as f32)).abs() < 0.01,
+        "the new glide starts at the drawn position: {restarted} vs {}",
+        drawn - CELL_W as f32
+    );
+}
+
 /// The shipped defaults glide ordinary typing without a trail smear; reduced
 /// motion still snaps the cursor and parks its wake.
 #[test]

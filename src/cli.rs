@@ -466,7 +466,7 @@ fn read_attach_snapshot(client: &mut SessionHostClient) -> AnyResult<Vec<u8>> {
 
 #[cfg(unix)]
 fn generate_session_id() -> String {
-    format!("s-{}-{}", std::process::id(), now_unix_ms())
+    odytty::session_host::new_session_id()
 }
 
 /// Native window options for a **live** `odytty attach <id>`.

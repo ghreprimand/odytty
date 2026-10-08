@@ -123,7 +123,10 @@ mod tests {
         // disk, the disabled opt-in path never reads it.
         let dir = temp_dir("odytty-connections-ui");
         let hosts_path = dir.join(CONNECTION_HOSTS_FILE_NAME);
-        let ssh_path = dir.join(".ssh-config-synthetic");
+        // The exact candidate the resolver forms for this home, so the
+        // disabled case is refused at the resolver, not by a wrong path.
+        fs::create_dir_all(dir.join(".ssh")).expect("synthetic .ssh directory");
+        let ssh_path = dir.join(".ssh").join("config");
         fs::write(&hosts_path, b"Host owned\nHostName owned.example.invalid\n")
             .expect("write synthetic owned hosts");
         fs::write(&ssh_path, b"Host remote\nHostName remote.example.invalid\n")
@@ -138,6 +141,19 @@ mod tests {
                 .map(|entry| entry.alias.as_str())
                 .collect::<Vec<_>>(),
             vec!["owned"]
+        );
+
+        // Control: enabled, the same file is the one that loads.
+        let on = resolve_connection_paths(&dir, true, Some(&dir));
+        assert_eq!(on.ssh_config.as_deref(), Some(ssh_path.as_path()));
+        let enabled = crate::settings::Settings {
+            ssh_config_hosts: true,
+            ..crate::settings::Settings::default()
+        };
+        let on_entries = load_connection_hosts(&enabled, &on);
+        assert!(
+            on_entries.iter().any(|entry| entry.alias == "remote"),
+            "the synthetic config sits where the enabled resolver reads"
         );
 
         fs::remove_dir_all(dir).ok();

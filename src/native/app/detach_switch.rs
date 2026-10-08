@@ -192,7 +192,7 @@ impl App {
         runtime_base: Option<PathBuf>,
         spawner: impl FnOnce(&HostConfig) -> std::io::Result<()>,
     ) -> std::io::Result<String> {
-        let session_id = format!("s-{}-{}", std::process::id(), now_unix_ms());
+        let session_id = crate::session_host::new_session_id();
         let mut config = HostConfig::new(session_id.clone());
         config.runtime_base = runtime_base;
         config.command = HostCommand::DefaultShell { working_directory };

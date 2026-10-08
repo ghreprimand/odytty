@@ -2961,6 +2961,12 @@ impl App {
         self.autosave_saves
     }
 
+    /// Test seam: make later shape writes fail (or succeed again).
+    #[cfg(test)]
+    pub(in crate::native) fn set_autosave_write_failure_for_test(&mut self, fail: bool) {
+        self.autosave_fail_writes = fail;
+    }
+
     /// Test seam (WP2): whether a debounced autosave write is currently pending.
     #[cfg(test)]
     pub(in crate::native) fn autosave_pending_for_test(&self) -> bool {

@@ -83,8 +83,10 @@ impl App {
     /// [`App::animation_deadline`] contributes nothing.
     ///
     /// Snap (no slide) on any discontinuity: first frame, a dimension change
-    /// (resize/reflow), scrolled-back viewport, an unfocused window, a hidden
-    /// cursor, or a jump longer than [`MAX_SLIDE_CELLS`].
+    /// (resize/reflow), a cell-size change (font or scale) that kept the grid,
+    /// scrolled-back viewport, an unfocused window, a hidden cursor, or a jump
+    /// longer than [`MAX_SLIDE_CELLS`]. A move that arrives mid-glide starts
+    /// from where the cursor is drawn, not from its previous cell.
     pub(in crate::native) fn update_cursor_motion(
         &mut self,
         now: Instant,
@@ -101,11 +103,17 @@ impl App {
         let prior = self
             .last_cursor_comparison_snapshot
             .map(|s| (s.cursor, s.dimensions));
+        let cell_size = (cell.width, cell.height);
+        let cell_changed = self
+            .cursor_slide_cell
+            .replace(cell_size)
+            .is_some_and(|previous| previous != cell_size);
         // Discontinuities that must teleport rather than glide.
         let snap = match prior {
             None => true,
             Some((_, dims)) => dims != snapshot.dimensions,
-        } || !snapshot.cursor_visible
+        } || cell_changed
+            || !snapshot.cursor_visible
             || !self.focused
             || self.viewport.offset() != 0;
         if snap {
@@ -118,7 +126,17 @@ impl App {
             let dcol = from.column as f32 - to.column as f32;
             let drow = from.row as f32 - to.row as f32;
             if dcol.abs() + drow.abs() <= MAX_SLIDE_CELLS {
-                self.cursor_slide_from_px = [dcol * cell.width as f32, drow * cell.height as f32];
+                // Mid-glide, the cursor is drawn `cursor_anim_offset` away
+                // from `from`; start the new glide there so it never jumps.
+                let in_flight = if self.cursor_slide_start.is_some() {
+                    self.cursor_anim_offset
+                } else {
+                    [0.0, 0.0]
+                };
+                self.cursor_slide_from_px = [
+                    dcol * cell.width as f32 + in_flight[0],
+                    drow * cell.height as f32 + in_flight[1],
+                ];
                 self.cursor_slide_start = Some(now);
             } else {
                 self.cursor_slide_start = None;

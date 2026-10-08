@@ -29,6 +29,12 @@ pub(super) struct PendingConnectionProbe {
 /// can never keep the form spinning.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(6);
 
+/// How long the probe waits for the stderr reader after the child is gone. A
+/// descendant that inherited stderr (a `ProxyCommand`, for example) can hold
+/// the pipe open past the child's exit; the probe then classifies from what
+/// was read so far and leaves the reader to finish on its own.
+const PROBE_STDERR_GRACE: Duration = Duration::from_millis(500);
+
 /// Spawn the probe on a detached worker thread. Fire-and-forget: the worker owns
 /// the command, sender, and proxy; the caller returns immediately with the
 /// receiver end already stored.
@@ -83,42 +89,53 @@ fn run_probe(command: SshCommand) -> Result<ProbeClass, String> {
     // own thread into a bounded buffer; the thread creation is fallible (LOW-02),
     // and if it cannot start the probe classifies from the exit status alone
     // (stderr is unavailable, but the tri-state is still driven, never hung).
+    // The reader hands its text back over a channel so the probe can stop
+    // waiting for it after a bounded grace (see `PROBE_STDERR_GRACE`).
     let reader = child.stderr.take().and_then(|pipe| {
-        match crate::spawn_util::spawn_named("odytty-probe-stderr", move || drain_bounded(pipe)) {
-            Ok(handle) => Some(handle),
+        let (tx, rx) = std::sync::mpsc::channel();
+        match crate::spawn_util::spawn_named("odytty-probe-stderr", move || {
+            let _ = tx.send(drain_bounded(pipe));
+        }) {
+            Ok(_detached) => Some(rx),
             Err(err) => {
                 tracing::warn!("probe stderr reader spawn failed: {err}");
                 None
             }
         }
     });
-    let join_stderr = |reader: Option<std::thread::JoinHandle<String>>| -> String {
-        reader
-            .and_then(|handle| handle.join().ok())
-            .unwrap_or_default()
-    };
 
     let deadline = Instant::now() + PROBE_TIMEOUT;
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let stderr = join_stderr(reader);
+                let stderr = collect_stderr(reader.as_ref(), PROBE_STDERR_GRACE);
                 return Ok(classify_probe(status.success(), &stderr));
             }
             Ok(None) => {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    // Reader sees EOF once the child is reaped; join to reclaim
-                    // it rather than detaching.
-                    let _ = join_stderr(reader);
+                    let _ = collect_stderr(reader.as_ref(), PROBE_STDERR_GRACE);
                     return Ok(ProbeClass::Unreachable);
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            Err(err) => return Err(format!("probe wait failed: {err}")),
+            Err(err) => {
+                // Never leave the child running or unreaped on a failed poll.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("probe wait failed: {err}"));
+            }
         }
     }
+}
+
+/// The reader's text, or what is known so far (empty) when it has not
+/// finished within `grace`. A reader that never started yields nothing.
+fn collect_stderr(reader: Option<&std::sync::mpsc::Receiver<String>>, grace: Duration) -> String {
+    reader
+        .and_then(|rx| rx.recv_timeout(grace).ok())
+        .unwrap_or_default()
 }
 
 /// Continuously read the child's stderr to EOF, retaining at most
@@ -170,6 +187,54 @@ mod tests {
             PROBE_STDERR_CAP,
             "retained buffer must be clamped to the cap"
         );
+    }
+
+    /// Counts every byte handed out, so a test can see the source was drained
+    /// to its end, not only that the kept text was capped.
+    struct CountingReader {
+        remaining: usize,
+        consumed: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
+    impl std::io::Read for CountingReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = buf.len().min(self.remaining);
+            buf[..n].fill(b'x');
+            self.remaining -= n;
+            self.consumed.set(self.consumed.get() + n);
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn drain_reader_consumes_the_whole_source_past_the_cap() {
+        let total = PROBE_STDERR_CAP * 4 + 17;
+        let consumed = std::rc::Rc::new(std::cell::Cell::new(0));
+        let reader = CountingReader {
+            remaining: total,
+            consumed: std::rc::Rc::clone(&consumed),
+        };
+        let drained = drain_reader(reader, PROBE_STDERR_CAP);
+        assert_eq!(drained.len(), PROBE_STDERR_CAP);
+        assert_eq!(consumed.get(), total, "the pipe is drained to EOF");
+    }
+
+    #[test]
+    fn a_reader_held_open_past_the_child_does_not_hold_the_probe() {
+        let (_tx, rx) = std::sync::mpsc::channel::<String>();
+        let start = Instant::now();
+        assert_eq!(collect_stderr(Some(&rx), Duration::from_millis(20)), "");
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "the wait is bounded by the grace"
+        );
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send("Permission denied".to_owned()).expect("send");
+        assert_eq!(
+            collect_stderr(Some(&rx), Duration::from_millis(20)),
+            "Permission denied"
+        );
+        assert_eq!(collect_stderr(None, Duration::from_millis(20)), "");
     }
 
     #[test]

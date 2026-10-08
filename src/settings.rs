@@ -45,6 +45,7 @@ pub(crate) use paths::{config_base_dir_from_env, resolve_theme_file};
 pub use paths::{config_file_path, normalize_name, theme_dir_path};
 pub use reload::{
     ConfigReloadPoller, SettingsReloadOutcome, SettingsReloader, apply_reloadable_values,
+    publish_render_globals,
 };
 pub use runtime::*;
 pub use writeback::{

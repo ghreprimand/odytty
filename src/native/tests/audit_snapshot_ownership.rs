@@ -470,3 +470,66 @@ fn structural_write_satisfies_pending_cwd_checkpoint() {
         "cwd state was included in the structural write"
     );
 }
+
+#[test]
+fn a_failed_shape_autosave_is_retried_instead_of_looking_saved() {
+    use std::time::{Duration, Instant};
+
+    let start = Instant::now();
+    let mut app = primary_autosave_app();
+    app.run_shape_autosave_for_test(start);
+    app.rename_workspace_for_test(0, "renamed");
+    let changed = start + Duration::from_secs(1);
+    app.run_shape_autosave_for_test(changed);
+    assert!(app.autosave_pending_for_test(), "the rename arms a write");
+
+    app.set_autosave_write_failure_for_test(true);
+    let due = changed + Duration::from_secs(2);
+    app.run_shape_autosave_for_test(due);
+    assert_eq!(app.autosave_saves_for_test(), 0, "the write failed");
+    assert!(
+        app.autosave_pending_for_test(),
+        "a failed write stays pending for a retry"
+    );
+
+    app.set_autosave_write_failure_for_test(false);
+    app.run_shape_autosave_for_test(due + Duration::from_secs(29));
+    assert_eq!(app.autosave_saves_for_test(), 0, "the retry waits");
+    app.run_shape_autosave_for_test(due + Duration::from_secs(30));
+    assert_eq!(
+        app.autosave_saves_for_test(),
+        1,
+        "the retry saves the shape"
+    );
+    assert!(!app.autosave_pending_for_test());
+}
+
+#[test]
+fn a_failed_cwd_checkpoint_is_retried_instead_of_looking_saved() {
+    use std::time::{Duration, Instant};
+
+    let start = Instant::now();
+    let mut app = primary_autosave_app();
+    app.run_shape_autosave_for_test(start);
+    advance_cwd(&mut app, "/synthetic/cwd-retry");
+    let changed = start + Duration::from_secs(1);
+    app.run_shape_autosave_for_test(changed);
+    let deadline = app
+        .cwd_checkpoint_deadline_for_test()
+        .expect("a checkpoint is armed");
+
+    app.set_autosave_write_failure_for_test(true);
+    app.run_shape_autosave_for_test(deadline);
+    assert_eq!(app.autosave_saves_for_test(), 0, "the write failed");
+    let retry = deadline + Duration::from_secs(30);
+    assert_eq!(
+        app.cwd_checkpoint_deadline_for_test(),
+        Some(retry),
+        "a failed checkpoint is re-armed"
+    );
+
+    app.set_autosave_write_failure_for_test(false);
+    app.run_shape_autosave_for_test(retry);
+    assert_eq!(app.autosave_saves_for_test(), 1, "the retry saves the cwd");
+    assert_eq!(app.cwd_checkpoint_deadline_for_test(), None);
+}

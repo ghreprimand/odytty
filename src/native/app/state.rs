@@ -657,6 +657,9 @@ pub(in crate::native) struct App {
     /// can assert exactly-once without touching the filesystem.
     #[cfg(test)]
     pub(super) autosave_saves: u32,
+    /// Test-only: make shape writes fail, as a full disk would.
+    #[cfg(test)]
+    pub(super) autosave_fail_writes: bool,
     pub(in crate::native) startup_error: Option<NativeError>,
     /// This window holds one reference on the process-wide secure-input
     /// counter. True only while the wish is on and this window has keyboard
@@ -982,6 +985,8 @@ impl App {
             last_cwd_checkpoint: None,
             #[cfg(test)]
             autosave_saves: 0,
+            #[cfg(test)]
+            autosave_fail_writes: false,
             startup_error: None,
             secure_input_held: false,
             secure_wish_broadcast: false,

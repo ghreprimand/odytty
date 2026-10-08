@@ -225,22 +225,29 @@ impl SettingsReloader {
     }
 }
 
+/// Publish the process-wide atlas and shaping switches `settings` names. A
+/// settings apply whose text options then fail republishes the settings still
+/// in effect, so the globals never describe a configuration that did not apply.
+pub fn publish_render_globals(settings: &Settings) {
+    super::set_synthetic_styles_enabled(settings.synthetic_styles);
+    super::set_geometric_boxdraw_enabled(settings.geometric_boxdraw);
+    super::set_ligatures_enabled(settings.ligatures);
+    super::set_script_shaping_enabled(settings.script_shaping);
+    super::set_ligature_ss01_enabled(settings.ligature_ss01);
+    super::set_ligature_ss02_enabled(settings.ligature_ss02);
+    super::set_font_zero_enabled(settings.font_zero);
+    super::set_symbol_fallback_enabled(settings.symbol_fallback);
+    super::set_symbol_font_path(settings.symbol_font.clone());
+    super::set_symbol_map(settings.symbol_map.clone());
+}
+
 pub fn apply_reloadable_values(current: &mut Settings, mut reloaded: Settings) -> bool {
     reloaded.native_autoclose = current.native_autoclose;
     // Republish the synthetic-styles kill switch process-wide so the renderer's
     // atlas-build seam observes a live toggle on the next `apply_text_options`,
     // even when nothing else changed. Idempotent: re-storing the same value is
     // harmless, and the renderer only rebuilds when the value actually flips.
-    super::set_synthetic_styles_enabled(reloaded.synthetic_styles);
-    super::set_geometric_boxdraw_enabled(reloaded.geometric_boxdraw);
-    super::set_ligatures_enabled(reloaded.ligatures);
-    super::set_script_shaping_enabled(reloaded.script_shaping);
-    super::set_ligature_ss01_enabled(reloaded.ligature_ss01);
-    super::set_ligature_ss02_enabled(reloaded.ligature_ss02);
-    super::set_font_zero_enabled(reloaded.font_zero);
-    super::set_symbol_fallback_enabled(reloaded.symbol_fallback);
-    super::set_symbol_font_path(reloaded.symbol_font.clone());
-    super::set_symbol_map(reloaded.symbol_map.clone());
+    publish_render_globals(&reloaded);
     if *current == reloaded {
         return false;
     }

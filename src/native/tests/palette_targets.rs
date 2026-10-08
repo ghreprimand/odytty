@@ -131,3 +131,22 @@ fn workspace_rows_never_act_on_a_workspace_that_became_active_later() {
         assert!(!app.rename_overlay_open_for_test(), "{id}");
     }
 }
+
+/// Every caller resolves its index at execution time; the close itself still
+/// refuses an index that names no workspace instead of closing the active one
+/// or signalling exit.
+#[test]
+fn closing_a_workspace_index_that_names_none_does_nothing() {
+    let mut app = three_workspaces();
+    app.close_workspace_at_for_test(7);
+    assert_eq!(app.workspace_names_for_test(), ["w0", "w1", "w2"]);
+    assert!(!app.pending_exit_for_test());
+
+    let mut single = headless_app();
+    single.close_workspace_at_for_test(1);
+    assert_eq!(single.workspace_count_for_test(), 1);
+    assert!(
+        !single.pending_exit_for_test(),
+        "a stale index never exits the app"
+    );
+}

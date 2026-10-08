@@ -219,6 +219,9 @@ pub(in crate::native) struct Session {
     pub(in crate::native) cursor_slide_deadline: Option<Instant>,
     pub(in crate::native) cursor_slide_start: Option<Instant>,
     pub(in crate::native) cursor_slide_from_px: [f32; 2],
+    /// The cell size (width, height) the last slide update measured in. A
+    /// different size (a font or scale change that kept the grid) snaps.
+    pub(in crate::native) cursor_slide_cell: Option<(u32, u32)>,
     pub(in crate::native) cursor_streak: crate::native::app::cursor_streak::CursorStreakState,
     pub(in crate::native) row_fade_starts: Vec<Option<Instant>>,
     pub(in crate::native) last_output_pushes_for_fade: u64,

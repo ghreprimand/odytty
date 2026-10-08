@@ -230,11 +230,10 @@ impl App {
         handle: CommandRangeHandle,
         part: CommandRangePart,
     ) {
-        let Some(range) = self.command_selection_range(handle, part) else {
-            self.command_action_unavailable_notice();
-            return;
-        };
-        let Some(text) = self.absolute_selection_text(range, false) else {
+        // Resolve and read under one terminal revision, as export does: output
+        // that trims or resets the buffer between the two makes the copy
+        // unavailable instead of copying rows that now mean something else.
+        let Some(text) = self.command_text_for_handle(handle, part) else {
             self.command_action_unavailable_notice();
             return;
         };
@@ -333,6 +332,17 @@ impl App {
     }
 
     fn command_output_text_for_handle(&self, handle: CommandRangeHandle) -> Option<String> {
+        self.command_text_for_handle(handle, CommandRangePart::Output)
+    }
+
+    /// The text of `part` of the command `handle` names, resolved and read
+    /// under one terminal revision; `None` when the handle no longer resolves
+    /// or the terminal changed while the text was read.
+    fn command_text_for_handle(
+        &self,
+        handle: CommandRangeHandle,
+        part: CommandRangePart,
+    ) -> Option<String> {
         let (verified, generation, dimensions) = {
             let terminal = crate::native::lock_recover(&self.terminal);
             let generation = terminal.render_revision();
@@ -350,8 +360,7 @@ impl App {
             )?;
             (range, generation, dimensions)
         };
-        let (start, end) =
-            verified_command_cell_range(verified, CommandRangePart::Output, dimensions.columns);
+        let (start, end) = verified_command_cell_range(verified, part, dimensions.columns);
         let text = self.absolute_selection_text(
             AbsoluteSelectionRange {
                 start: AbsoluteCellPoint {

@@ -44,8 +44,8 @@ pub use host::{
 };
 #[cfg(unix)]
 pub use registry::{
-    SessionMetadata, kill_session, list_live_sessions, now_unix_ms, read_session_metadata,
-    write_session_metadata,
+    SessionMetadata, kill_session, list_live_sessions, new_session_id, now_unix_ms,
+    read_session_metadata, write_session_metadata,
 };
 #[cfg(unix)]
 pub(crate) use socket::SocketReadDeadline;

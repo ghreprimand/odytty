@@ -283,6 +283,18 @@ fn socket_created_unix_ms(path: &Path) -> Result<u128> {
         .as_millis())
 }
 
+/// A new managed session id, `s-<pid>-<unix ms>-<n>`. `n` counts the ids this
+/// process has made, so two made in the same millisecond still differ.
+pub fn new_session_id() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    session_id_from(std::process::id(), now_unix_ms(), n)
+}
+
+fn session_id_from(pid: u32, unix_ms: u128, n: u64) -> String {
+    format!("s-{pid}-{unix_ms}-{n}")
+}
+
 pub fn now_unix_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -326,4 +338,25 @@ fn unescape_metadata_value(value: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod id_tests {
+    use super::*;
+
+    #[test]
+    fn ids_made_in_the_same_millisecond_differ() {
+        assert_ne!(session_id_from(7, 1_000, 0), session_id_from(7, 1_000, 1));
+        assert_ne!(new_session_id(), new_session_id());
+    }
+
+    #[test]
+    fn a_new_id_is_a_safe_socket_name() {
+        let id = session_id_from(u32::MAX, u128::from(u64::MAX), u64::MAX);
+        assert!(id.len() <= 128);
+        assert!(
+            id.bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        );
+    }
 }

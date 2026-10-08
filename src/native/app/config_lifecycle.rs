@@ -304,7 +304,7 @@ impl App {
             }
         };
         if changed {
-            self.write_shape_snapshot();
+            let _ = self.write_shape_snapshot();
         }
     }
 
@@ -600,6 +600,9 @@ impl App {
                     Ok(changed) => changed,
                     Err(err) => {
                         tracing::warn!(error = %err, "config reload ignored: text options apply failed");
+                        // The reload published its switches before the font
+                        // load failed; put back the ones still in effect.
+                        crate::settings::publish_render_globals(&self.settings);
                         return;
                     }
                 };
@@ -1011,8 +1014,10 @@ impl App {
         if let Some(deadline) = self.autosave_deadline
             && now >= deadline
         {
-            self.autosave_deadline = None;
-            self.write_shape_snapshot();
+            // A failed write keeps the shape unsaved and retries later instead
+            // of looking saved until the next mutation.
+            self.autosave_deadline =
+                (!self.write_shape_snapshot()).then_some(now + SHAPE_SAVE_RETRY);
         }
         self.run_cwd_checkpoint(now);
     }
@@ -1041,9 +1046,10 @@ impl App {
             })
         });
         if now >= deadline {
-            self.cwd_checkpoint_deadline = None;
             self.last_cwd_checkpoint = Some(now);
-            self.write_shape_snapshot();
+            if !self.write_shape_snapshot() {
+                self.cwd_checkpoint_deadline = Some(now + SHAPE_SAVE_RETRY);
+            }
         }
     }
 
@@ -1054,34 +1060,48 @@ impl App {
         if !self.autosave_is_primary || self.sessions.is_empty() {
             return;
         }
-        self.write_shape_snapshot();
+        let _ = self.write_shape_snapshot();
     }
 
     /// Capture the live workspace shape and persist it atomically (sub-ODP 8c).
-    /// Best-effort: a write error is logged, never fatal. Under `cfg(test)` the
-    /// disk write is replaced by a counter bump so the debounce-coalescing tests
-    /// can assert exactly-once behavior without touching the filesystem.
-    pub(super) fn write_shape_snapshot(&mut self) {
+    /// Best-effort: a write error is logged, never fatal. Returns whether the
+    /// snapshot was saved; the saved-cwd baseline and the pending cwd
+    /// checkpoint are settled only then. Under `cfg(test)` the disk write is
+    /// replaced by a counter bump (or an injected failure) so the
+    /// debounce-coalescing tests can assert exactly-once behavior without
+    /// touching the filesystem.
+    pub(super) fn write_shape_snapshot(&mut self) -> bool {
         // Ownership is enforced here, not only by the callers: every path that
         // persists the shared snapshot (autosave, exit, profile binding edits)
         // goes through this writer, and only the primary window owns it.
         if !self.autosave_is_primary {
-            return;
+            return false;
         }
-        // Every snapshot captures the current cwds, so it also satisfies any
-        // pending cwd-only checkpoint.
-        self.saved_cwd_fingerprint = Some(self.sessions.cwd_fingerprint());
-        self.cwd_checkpoint_deadline = None;
+        let cwd_fingerprint = self.sessions.cwd_fingerprint();
         #[cfg(test)]
-        {
+        let saved = if self.autosave_fail_writes {
+            false
+        } else {
             self.autosave_saves += 1;
-        }
+            true
+        };
         #[cfg(not(test))]
-        {
+        let saved = {
             let snapshot = self.sessions.capture_shape();
-            if let Err(err) = crate::native::persistence::save_snapshot(&snapshot) {
-                tracing::warn!("workspace shape autosave failed: {err}");
+            match crate::native::persistence::save_snapshot(&snapshot) {
+                Ok(()) => true,
+                Err(err) => {
+                    tracing::warn!("workspace shape autosave failed: {err}");
+                    false
+                }
             }
+        };
+        if saved {
+            // Every snapshot captures the current cwds, so it also satisfies
+            // any pending cwd-only checkpoint.
+            self.saved_cwd_fingerprint = Some(cwd_fingerprint);
+            self.cwd_checkpoint_deadline = None;
         }
+        saved
     }
 }
