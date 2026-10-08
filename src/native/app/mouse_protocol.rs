@@ -8,7 +8,79 @@
 use super::*;
 use crate::native::layout::grid_dims_for_rect;
 
+/// The [`App::owned_releases`] bit of a reportable mouse button; `0` for a
+/// button that is never reported (back, forward, and other extra buttons).
+pub(super) fn owned_release_bit(button: WinitMouseButton) -> u8 {
+    match map_winit_mouse_button(button) {
+        Some(CoreMouseButton::Left) => 1,
+        Some(CoreMouseButton::Middle) => 2,
+        Some(CoreMouseButton::Right) => 4,
+        _ => 0,
+    }
+}
+
 impl App {
+    /// Settle terminal pointer latches when a pointer-owning modal (copy
+    /// mode or the rename prompt) opens. A button the program saw pressed,
+    /// or a held left button driving a local gesture, now belongs to the
+    /// window: its later release is consumed instead of reaching the
+    /// program unpaired or finishing a gesture the modal interrupted. A live
+    /// divider drag settles as it does for an overlay.
+    pub(super) fn settle_pointer_for_modal(&mut self) {
+        self.finish_divider_drag();
+        self.own_held_buttons();
+        self.report_button = None;
+        self.pointer_drag = PointerDrag::None;
+        self.drag_anchor_unit = None;
+        self.last_selection_autoscroll = None;
+        self.grid_left_held = false;
+        self.pressed_button = None;
+        self.swallow_open_left_release = false;
+    }
+
+    /// Mark the buttons still held from before a window surface opened as
+    /// window-owned: the button the program saw pressed and a held left
+    /// button. Callers then drop the report latch.
+    pub(super) fn own_held_buttons(&mut self) {
+        if let Some(button) = self.report_button {
+            self.owned_releases |= match button {
+                CoreMouseButton::Left => 1,
+                CoreMouseButton::Middle => 2,
+                CoreMouseButton::Right => 4,
+                _ => 0,
+            };
+        }
+        if self.pointer_left_held {
+            self.owned_releases |= 1;
+        }
+    }
+
+    /// A press captured by an open overlay or a pointer-owning modal belongs
+    /// to the window until its release, wherever that release arrives.
+    pub(super) fn own_modal_button(&mut self, state: ElementState, button: WinitMouseButton) {
+        let bit = owned_release_bit(button);
+        if state == ElementState::Pressed {
+            self.owned_releases |= bit;
+        } else {
+            self.owned_releases &= !bit;
+        }
+    }
+
+    /// Record a window-owned press and consume a window-owned release.
+    /// Returns `true` when `button`'s release belongs to a press the window
+    /// owned, so the caller drops the event. A press only clears a stale bit
+    /// and never consumes.
+    pub(super) fn consume_owned_release(
+        &mut self,
+        state: ElementState,
+        button: WinitMouseButton,
+    ) -> bool {
+        let bit = owned_release_bit(button);
+        let owned = self.owned_releases & bit != 0;
+        self.owned_releases &= !bit;
+        state == ElementState::Released && owned
+    }
+
     pub(super) fn mouse_protocol(&self) -> MouseProtocol {
         self.terminal
             .lock()

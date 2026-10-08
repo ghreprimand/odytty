@@ -231,6 +231,7 @@ impl App {
             // An overlay opened mid-drag owns this button event; the chrome
             // gesture it interrupted ends uncommitted, clearing its badge.
             self.cancel_chrome_drags();
+            self.own_modal_button(state, button);
             self.handle_overlay_pointer_button(state, button);
             return;
         }
@@ -241,9 +242,16 @@ impl App {
         // still swallows silently.
         if self.modal_captures_pointer() {
             self.cancel_chrome_drags();
+            self.own_modal_button(state, button);
             if self.rename_state.is_some() {
                 self.handle_rename_pointer_button(state, button);
             }
+            return;
+        }
+        // The release of a press an overlay or modal owned is consumed here,
+        // even once that surface has closed, before any chrome, selection, or
+        // report routing. A new press clears a stale bit and routes normally.
+        if self.consume_owned_release(state, button) {
             return;
         }
         // RAIL-DRAG: an in-flight workspace-rail drag owns the left button for
@@ -1345,6 +1353,9 @@ impl App {
         // release. Settlement is independent of the pointer-state clearing below
         // and synchronizes the model with its local, ConPTY, or attached backend.
         self.finish_divider_drag();
+        // A button still held from before the overlay opened is released
+        // later; that release belongs to the window, not the program.
+        self.own_held_buttons();
         self.selection.clear();
         self.selection_block = false;
         self.pointer_drag = PointerDrag::None;

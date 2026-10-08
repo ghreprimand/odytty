@@ -172,6 +172,9 @@ impl App {
             // window, stranding the grid selection's held flag. Drop it so a
             // `CursorMoved` on focus regain cannot resume a buttonless drag.
             self.grid_left_held = false;
+            // The release of a window-owned press may be delivered elsewhere;
+            // a later release here is a new gesture's, never consumed.
+            self.owned_releases = 0;
             // Same NF21-8 class for the rename/save-layout text field: a
             // press-drag interrupted by an alt-tab never sees its release, so
             // `rename_dragging` would otherwise stay armed and a later bare

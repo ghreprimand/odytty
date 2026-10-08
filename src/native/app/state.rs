@@ -607,6 +607,15 @@ pub(in crate::native) struct App {
     /// without the button physically down. `CursorMoved` carries no button
     /// state, so this flag is the reliable held-button seam for the grid path.
     pub(super) grid_left_held: bool,
+    /// Reportable mouse buttons (see [`owned_release_bit`]) still physically
+    /// held whose press belonged to the window rather than the terminal: a
+    /// press captured by an open overlay or a pointer-owning modal (copy mode,
+    /// the rename prompt), or a button already held when such a modal opened.
+    /// Its release is consumed even after the modal has closed, so a
+    /// mouse-reporting program never sees a release without its press. A new
+    /// press of the same button clears its bit first (the release was lost),
+    /// and focus loss clears every bit.
+    pub(super) owned_releases: u8,
     /// INTERACTIVE-PATHS (Phase 7): the process `$HOME`, cached once at startup
     /// (it never changes mid-process) so `~`-prefixed path spans can be expanded
     /// at hover time without a per-move `getenv`. `None` when `$HOME` is unset or
@@ -957,6 +966,7 @@ impl App {
             overlay_left_held: false,
             pointer_left_held: false,
             grid_left_held: false,
+            owned_releases: 0,
             // D-10: resolve the interactive-paths `~` home through the shared
             // `restore_home_dir` helper so it uses `%USERPROFILE%` on Windows,
             // not a `HOME` that is normally unset there (which left `~`

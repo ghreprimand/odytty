@@ -226,6 +226,7 @@ mod interactive_urls;
 mod key_remap_wiring;
 mod ligature_setting;
 mod local_key_capture;
+mod modal_release_latch;
 mod mouse_rect;
 mod multipane_labels;
 mod navigator_pane_close;

@@ -587,6 +587,7 @@ impl App {
             cursor,
             anchor: None,
         });
+        self.settle_pointer_for_modal();
         self.rename_dragging = false;
         self.rename_clicks = ClickTracker::default();
         self.request_selection_redraw();

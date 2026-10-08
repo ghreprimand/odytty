@@ -67,6 +67,7 @@ impl App {
             column: cursor.column,
         };
         self.copy_mode = Some(CopyModeState::new(start));
+        self.settle_pointer_for_modal();
         self.follow_copy_mode_caret();
         self.request_selection_redraw();
         true
