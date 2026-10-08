@@ -158,10 +158,20 @@ impl App {
     /// grab through focus/geometry transitions without delivering the paired
     /// button release; treating those boundaries as drag completion prevents an
     /// arbitrary sub-cell ratio and stale PTY size from becoming permanent.
+    ///
+    /// The left button that grabbed the divider belongs to the divider until
+    /// its release. When the gesture settles early (a key press, a new press,
+    /// or a surface boundary) while that button is still held, the window
+    /// keeps ownership of the later release, so it never reaches a
+    /// mouse-reporting program unpaired. The paired release itself clears the
+    /// held flag before settling, so it records nothing.
     pub(super) fn finish_divider_drag(&mut self) -> bool {
         let Some(target) = self.divider_drag.take() else {
             return false;
         };
+        if self.pointer_left_held {
+            self.owned_releases |= super::mouse_protocol::owned_release_bit(WinitMouseButton::Left);
+        }
         self.pointer_left_held = false;
         if let Some((content, cell)) = self.multipane_geometry() {
             let pad = self.window_pad_px();
@@ -1351,8 +1361,7 @@ impl App {
     /// the overlay is open, so it is guaranteed `None` on close.
     pub(super) fn reset_pointer_state_for_overlay(&mut self) {
         // A button still held from before the overlay opened is released
-        // later; that release belongs to the window, not the program. It is
-        // recorded first, because divider settlement clears the held-left flag.
+        // later; that release belongs to the window, not the program.
         self.own_held_buttons();
         // Settle an owned divider gesture before the overlay captures its
         // release. Settlement is independent of the pointer-state clearing below

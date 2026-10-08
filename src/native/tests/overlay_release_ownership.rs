@@ -244,3 +244,138 @@ fn divider_drag_interrupted_by(surface: &str) {
         "{surface}: the divider's release never reaches the program"
     );
 }
+
+/// Press on the split's divider and return the pointer position over the
+/// reporting pane's content.
+fn grab_divider(app: &mut App) -> (f64, f64) {
+    let (tiled, inner) = app
+        .focused_pane_rects_for_test()
+        .expect("two-pane geometry");
+    let divider_x = f64::from(tiled[0] - 0.5);
+    let y = f64::from(inner[1] + inner[3] / 2.0);
+    app.set_pointer_px_for_test(divider_x, y);
+    button(app, WinitMouseButton::Left, true);
+    assert!(app.divider_drag_active_for_test(), "divider drag");
+    (f64::from(inner[0] + inner[2] / 2.0), y)
+}
+
+/// Close the surface with Escape, return over the reporting pane and let the
+/// divider's left button go: nothing reaches the program.
+fn release_over_content_reports_nothing(
+    app: &mut App,
+    recorded: &Recorded,
+    content: (f64, f64),
+    what: &str,
+) {
+    escape(app);
+    assert!(
+        !app.overlay_open_for_test()
+            && !app.context_menu_open_for_test()
+            && !app.modal_captures_pointer_for_test(),
+        "{what}: closed by one Escape"
+    );
+    app.pointer_move_for_test(content.0, content.1);
+    take(recorded);
+    button(app, WinitMouseButton::Left, false);
+    assert_eq!(
+        take(recorded),
+        "",
+        "{what}: the divider's release never reaches the program"
+    );
+}
+
+#[test]
+fn a_divider_drag_interrupted_by_the_settings_chord_keeps_its_left_release() {
+    let (mut app, recorded) = split_reporting_app();
+    let content = grab_divider(&mut app);
+    // The real keyboard route, not the direct palette action: Ctrl+Shift+,
+    // is the default Settings chord on every platform.
+    app.drive_char_with_mods_for_test(',', true, true);
+    assert!(app.overlay_open_for_test(), "the chord opened Settings");
+    assert!(!app.divider_drag_active_for_test(), "the divider settled");
+    release_over_content_reports_nothing(&mut app, &recorded, content, "settings chord");
+}
+
+#[test]
+fn a_divider_drag_interrupted_by_the_copy_mode_chord_keeps_its_left_release() {
+    let (mut app, recorded) = split_reporting_app();
+    let content = grab_divider(&mut app);
+    // Ctrl+Shift+Space is the default copy-mode chord on every platform.
+    app.drive_raw_key_event_for_test(
+        WinitKey::Named(NamedKey::Space),
+        WinitKey::Named(NamedKey::Space),
+        PhysicalKey::Code(KeyCode::Space),
+        crate::input::Modifiers {
+            ctrl: true,
+            shift: true,
+            ..crate::input::Modifiers::default()
+        },
+        KeyEventType::Press,
+    );
+    assert!(
+        app.modal_captures_pointer_for_test(),
+        "the chord entered copy mode"
+    );
+    assert!(!app.divider_drag_active_for_test(), "the divider settled");
+    release_over_content_reports_nothing(&mut app, &recorded, content, "copy-mode chord");
+}
+
+#[test]
+fn a_key_press_during_a_divider_drag_keeps_its_left_release() {
+    let (mut app, recorded) = split_reporting_app();
+    let content = grab_divider(&mut app);
+    app.drive_named_key_for_test(NamedKey::ArrowLeft);
+    assert!(!app.divider_drag_active_for_test(), "the key settled it");
+    app.pointer_move_for_test(content.0, content.1);
+    take(&recorded);
+    button(&mut app, WinitMouseButton::Left, false);
+    assert_eq!(
+        take(&recorded),
+        "",
+        "no unpaired release reaches the program"
+    );
+    // The next click is an ordinary reported click.
+    button(&mut app, WinitMouseButton::Left, true);
+    button(&mut app, WinitMouseButton::Left, false);
+    let reports = take(&recorded);
+    assert!(
+        reports.contains("\x1b[<0;") && reports.ends_with('m'),
+        "a new left click reports both halves: {reports:?}"
+    );
+}
+
+#[test]
+fn a_right_press_during_a_divider_drag_opens_a_menu_that_keeps_the_left_release() {
+    let (mut app, recorded) = split_reporting_app();
+    let content = grab_divider(&mut app);
+    app.set_shift_modifier_for_test(true);
+    button(&mut app, WinitMouseButton::Right, true);
+    assert!(
+        app.context_menu_open_for_test(),
+        "the right press opened a menu"
+    );
+    assert!(!app.divider_drag_active_for_test(), "the divider settled");
+    // Shift is let go first: a release with Shift held is never reported.
+    app.set_shift_modifier_for_test(false);
+    release_over_content_reports_nothing(&mut app, &recorded, content, "right press");
+    button(&mut app, WinitMouseButton::Right, false);
+    assert_eq!(take(&recorded), "", "the menu's right release is consumed");
+}
+
+#[test]
+fn a_paired_divider_release_still_ends_the_drag_once() {
+    let (mut app, recorded) = split_reporting_app();
+    let content = grab_divider(&mut app);
+    button(&mut app, WinitMouseButton::Left, false);
+    assert!(!app.divider_drag_active_for_test());
+    assert_eq!(take(&recorded), "", "the divider's own release is consumed");
+    // Nothing stays owned: the next click reports both halves.
+    app.pointer_move_for_test(content.0, content.1);
+    button(&mut app, WinitMouseButton::Left, true);
+    button(&mut app, WinitMouseButton::Left, false);
+    let reports = take(&recorded);
+    assert!(
+        reports.contains("\x1b[<0;") && reports.ends_with('m'),
+        "a later click reports both halves: {reports:?}"
+    );
+}

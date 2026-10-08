@@ -26,11 +26,16 @@ impl App {
     /// pressed, or a held left button driving a local gesture or a divider
     /// drag, now belongs to the window: its later release is consumed instead
     /// of reaching the program unpaired or finishing a gesture the surface
-    /// interrupted. Ownership is recorded before the divider settles, because
-    /// settling clears the held-left flag. The selection is kept for Copy.
+    /// interrupted. A chrome gesture (a tab or workspace reorder with any
+    /// pending live tear-out, or a rail or tab-bar seam resize) ends
+    /// uncommitted, so motion with the button still held drives the surface,
+    /// not the gesture beneath it. The selection is kept for Copy.
     pub(super) fn settle_pointer_for_modal(&mut self) {
         self.own_held_buttons();
         self.finish_divider_drag();
+        self.cancel_chrome_drags();
+        self.rail_seam_drag = false;
+        self.tab_bar_seam_drag = false;
         self.report_button = None;
         self.pointer_drag = PointerDrag::None;
         self.drag_anchor_unit = None;

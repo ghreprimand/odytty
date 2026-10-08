@@ -25,8 +25,11 @@ impl App {
     /// owns that press, so its release is consumed even when the menu closes
     /// first, and never reaches a mouse-reporting program.
     pub(super) fn open_context_menu_for_right_press(&mut self, surface: ContextMenuSurface) {
-        self.owned_releases |= super::mouse_protocol::owned_release_bit(WinitMouseButton::Right);
         self.open_context_menu(surface);
+        if self.overlay.is_context_menu() {
+            self.owned_releases |=
+                super::mouse_protocol::owned_release_bit(WinitMouseButton::Right);
+        }
     }
 
     /// Open the right-click context menu (IN2) at the cached pointer cell, with
@@ -36,11 +39,6 @@ impl App {
     /// clear the selection the Copy item needs. No pointer cell (e.g. before
     /// the first move) means no menu.
     pub(super) fn open_context_menu(&mut self, surface: ContextMenuSurface) {
-        // Unlike full overlays the context menu preserves terminal selection,
-        // so it does not use `reset_pointer_state_for_overlay`. It still takes
-        // ownership of held buttons, ends drags and report latches, and
-        // settles a divider before capturing subsequent releases.
-        self.settle_pointer_for_modal();
         // The rename/close target token rides on the surface: a `TabSlot`
         // right-click targets THAT tab (NF-F7-1); every other surface has no
         // tab target.
@@ -55,6 +53,13 @@ impl App {
         let Some(spawn) = self.overlay_pointer_cell() else {
             return;
         };
+        // Unlike full overlays the context menu preserves terminal selection,
+        // so it does not use `reset_pointer_state_for_overlay`. Once it is
+        // certain to open, it takes ownership of held buttons, ends drags,
+        // chrome gestures and report latches, and settles a divider before
+        // capturing subsequent releases. A press that opens no menu changes
+        // none of them.
+        self.settle_pointer_for_modal();
         let copy_enabled = self.selection.range().is_some();
         let editable_selection = self.editable_input_selection_for_context_menu();
         let prompt_editing_hint =

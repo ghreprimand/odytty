@@ -231,6 +231,7 @@ mod key_remap_wiring;
 mod layout_overwrite_identity;
 mod ligature_setting;
 mod local_key_capture;
+mod menu_entry_chrome_gestures;
 mod modal_release_latch;
 mod mouse_rect;
 mod multipane_labels;
