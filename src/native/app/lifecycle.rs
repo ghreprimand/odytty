@@ -1083,6 +1083,7 @@ impl App {
             &initial_snapshot,
         ));
         self.last_presented_snapshot = Some(initial_snapshot.clone());
+        self.last_presented_is_window_frame = true;
         // ID3/U5: seed the background-image pass from the launch config
         // so the very first frame already reflects an `image` treatment
         // (no-op / off path when no image is configured).

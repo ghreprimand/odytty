@@ -175,6 +175,7 @@ impl App {
         self.last_cursor_comparison_snapshot =
             Some(crate::native::session::CursorComparison::of(&snapshot));
         self.last_presented_snapshot = Some(snapshot);
+        self.last_presented_is_window_frame = true;
     }
 
     pub(super) fn update_held_cursor_frame(&mut self, now: Instant) -> bool {
@@ -334,6 +335,7 @@ impl App {
         comparison.cursor = effect_cursor;
         self.last_cursor_comparison_snapshot = Some(comparison);
         self.last_presented_snapshot = Some(presented);
+        self.last_presented_is_window_frame = false;
         self.last_presented_cursor_style = cursor_style;
         self.last_presented_cursor_blinking = cursor_blinking;
         effects

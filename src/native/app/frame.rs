@@ -397,7 +397,10 @@ impl App {
             if was_holding && !is_holding && single_pane {
                 self.clear_cursor_streak();
             }
-            if is_holding {
+            // A retained pane-local snapshot from a split that has since
+            // collapsed is not a window frame: draw this frame normally, which
+            // stores a window frame for the hold to reuse from the next one.
+            if is_holding && self.last_presented_is_window_frame {
                 let _ = self.update_held_cursor_frame(now);
             } else if !single_pane {
                 // Multi-pane active tab: branch to the per-pane render
@@ -936,6 +939,7 @@ impl App {
                 let mut held_snapshot = snapshot;
                 held_snapshot.cursor_visible = base_cursor_visible;
                 self.last_presented_snapshot = Some(held_snapshot);
+                self.last_presented_is_window_frame = true;
                 self.last_cursor_comparison_snapshot = Some(cursor_comparison);
                 self.last_presented_cursor_style = cursor_style;
                 self.last_presented_cursor_blinking = cursor_blinking;

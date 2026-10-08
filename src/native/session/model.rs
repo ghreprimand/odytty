@@ -89,7 +89,15 @@ pub(in crate::native) struct Session {
     pub(in crate::native) synchronized_output_hold: SynchronizedOutputHold,
     /// Last GPU-presented snapshot. Single-pane tab chrome is included so a
     /// held blink or synchronized-output frame retains its rendered geometry.
+    /// A split frame stores the pane's own pane-local snapshot here instead
+    /// (the Session Navigator previews it).
     pub(in crate::native) last_presented_snapshot: Option<Snapshot>,
+    /// Whether `last_presented_snapshot` is a whole-window single-pane frame.
+    /// The single-pane synchronized-output hold re-presents that snapshot as
+    /// the window, so after a split collapses it must not reuse a pane-local
+    /// one (pane dimensions, no window origin): it takes one normal rebuild
+    /// first.
+    pub(in crate::native) last_presented_is_window_frame: bool,
     /// What this pane presented in the latest split-tab frame, kept so a
     /// synchronized-output hold on this pane can present it again while the
     /// other panes update. Replaced by every split frame; ignored unless it

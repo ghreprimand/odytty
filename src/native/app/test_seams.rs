@@ -1918,6 +1918,7 @@ impl App {
         let mut held = decorated.clone();
         held.cursor_visible = snapshot.cursor_visible;
         self.last_presented_snapshot = Some(held);
+        self.last_presented_is_window_frame = true;
         self.last_cursor_comparison_snapshot = Some(comparison);
         self.last_presented_cursor_style = crate::core::CursorStyle::Block;
         (decorated, content, self.cursor_render_params(), streak)

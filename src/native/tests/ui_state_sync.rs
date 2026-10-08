@@ -321,3 +321,69 @@ fn synchronized_output_holds_only_the_pane_inside_its_batch() {
         vec!["A3", "B3"]
     );
 }
+
+/// After a split collapses to one pane, the survivor's retained snapshot is
+/// the pane-local one its split frames stored. A synchronized-output batch
+/// that starts right then must not re-present that snapshot as the window: the
+/// first single-pane frame draws normally and stores a window frame.
+#[test]
+fn a_hold_after_a_split_collapses_draws_a_window_frame_first() {
+    let (mut app, first_terminal) = headless_app_with(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        Settings::default(),
+    );
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 416, WindowPadding::ZERO);
+    let first = app.active_session_token_for_test();
+    let second_terminal = Arc::new(Mutex::new(Terminal::new(40, 24)));
+    app.seed_headless_split_pane_for_test(
+        true,
+        Arc::clone(&second_terminal),
+        crate::native::test_support::headless_writer(),
+        Dimensions::new(40, 24),
+    );
+    let second = app.active_session_token_for_test();
+    assert_ne!(first, second);
+    app.reflow_active_panes_for_test();
+    write(&first_terminal, b"\x1b[HA1");
+    write(&second_terminal, b"\x1b[HB1");
+    // The split frame's focused-cursor pass, as `rebuild_multipane` runs it,
+    // stores the focused pane's own pane-local snapshot.
+    let mut pane = second_terminal.lock().expect("terminal").snapshot();
+    let _ = app.advance_multipane_cursor_effects_for_test(
+        std::time::Instant::now(),
+        &mut pane,
+        cell(8, 16),
+        [400.0, 0.0],
+    );
+    let (pane_dims, _) = app
+        .held_snapshot_geometry_for_test()
+        .expect("the split frame stored the focused pane's snapshot");
+    assert!(
+        pane_dims.columns < 80,
+        "a pane-local snapshot: {pane_dims:?}"
+    );
+
+    // Collapse the split so the second pane survives alone, then open a batch.
+    app.focus_session_token_for_test(first);
+    app.close_focused_pane_for_test();
+    assert_eq!(app.active_session_token_for_test(), second);
+    // Test geometry is held per session; give the survivor the window's.
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 416, WindowPadding::ZERO);
+    app.reflow_active_panes_for_test();
+    assert!(
+        app.active_session_grid_dims_for_test().0 > pane_dims.columns,
+        "the survivor takes the window width"
+    );
+    write(&second_terminal, b"\x1b[?2026h\x1b[HB2");
+    let _ = app.redraw_single_pane_probe_for_test();
+    let (dims, _) = app
+        .held_snapshot_geometry_for_test()
+        .expect("a single-pane frame was stored");
+    assert!(
+        dims.columns > pane_dims.columns,
+        "the first frame after the collapse is a window frame, not the pane-local one: {dims:?}"
+    );
+}

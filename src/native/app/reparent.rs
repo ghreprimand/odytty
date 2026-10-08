@@ -243,6 +243,7 @@ impl App {
         for token in tokens {
             if let Some(session) = self.sessions.get_mut(*token) {
                 session.last_presented_snapshot = None;
+                session.last_presented_is_window_frame = false;
                 session.multipane_presented = None;
                 session.last_render_signature = None;
                 session.last_cursor_comparison_snapshot = None;
