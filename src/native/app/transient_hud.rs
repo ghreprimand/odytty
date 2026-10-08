@@ -66,35 +66,26 @@ impl TransientHud {
 
     /// Paint a compact, centered one-row chip. Indexed black/bright-white uses
     /// the active terminal palette and remains readable under the plain theme;
-    /// no alpha or animation is involved.
+    /// no animation is involved. Both render paths draw the chip's background
+    /// opaque: the split path as its own top layer, the single-pane path
+    /// through [`chip_span`] in the window's opaque cell span.
     pub(super) fn paint(&self, snapshot: &mut Snapshot) {
         let Some(text) = self.text.as_deref() else {
             return;
         };
         let columns = snapshot.dimensions.columns;
         let rows = snapshot.dimensions.rows;
-        if columns < 3 || rows == 0 {
+        let Some((start_col, row, width)) = chip_span(text, columns, rows) else {
             return;
-        }
-
-        let message: Vec<char> = text
-            .chars()
-            .filter(|ch| !ch.is_control())
-            .take(columns.saturating_sub(2))
-            .collect();
-        if message.is_empty() {
-            return;
-        }
-        let width = message.len() + 2;
-        let start_col = columns.saturating_sub(width) / 2;
-        let row = rows / 2;
+        };
+        let message = text.chars().filter(|ch| !ch.is_control()).take(width - 2);
         let attrs = hud_attrs();
         let row_start = row * columns;
 
         for col in start_col..start_col + width {
             snapshot.cells[row_start + col] = Cell::new(' ', attrs);
         }
-        for (offset, ch) in message.into_iter().enumerate() {
+        for (offset, ch) in message.enumerate() {
             snapshot.cells[row_start + start_col + 1 + offset] = Cell::new(ch, attrs);
         }
     }
@@ -107,6 +98,25 @@ impl TransientHud {
     pub(super) fn text_for_test(&self) -> Option<&str> {
         self.text.as_deref()
     }
+}
+
+/// The chip's `(left column, row, width)` in a `columns` x `rows` grid, or
+/// `None` when nothing would paint. The painter and the single-pane opaque
+/// span share it, so the opaque cells are exactly the painted chip.
+fn chip_span(text: &str, columns: usize, rows: usize) -> Option<(usize, usize, usize)> {
+    if columns < 3 || rows == 0 {
+        return None;
+    }
+    let shown = text
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .take(columns - 2)
+        .count();
+    if shown == 0 {
+        return None;
+    }
+    let width = shown + 2;
+    Some(((columns - width) / 2, rows / 2, width))
 }
 
 fn hud_attrs() -> Attrs {
@@ -150,11 +160,17 @@ impl App {
         self.show_transient_hud(format!("Font {value} px"));
     }
 
+    /// A window overlay or rename prompt owns the frame, so the chip stays
+    /// hidden in both render paths.
+    fn transient_hud_suppressed(&self) -> bool {
+        self.overlay.is_open() || self.rename_state.is_some()
+    }
+
     /// Paint window-level feedback only when no modal surface owns the frame.
     /// This keeps prompts and settings authoritative instead of allowing a
     /// late presentation chip to overwrite their cells.
     pub(super) fn paint_transient_hud_cells(&self, snapshot: &mut Snapshot) {
-        if self.overlay.is_open() || self.rename_state.is_some() {
+        if self.transient_hud_suppressed() {
             return;
         }
         self.transient_hud.paint(snapshot);
@@ -167,22 +183,13 @@ impl App {
         content: PaneRect,
         cell: CellSize,
     ) -> Option<(Snapshot, [f32; 2])> {
-        if self.overlay.is_open() || self.rename_state.is_some() {
+        if self.transient_hud_suppressed() {
             return None;
         }
         let text = self.transient_hud.text()?;
         let (columns, rows) =
             crate::native::layout::grid_dims_for_rect(content, cell.width, cell.height);
-        if columns < 3 || rows == 0 {
-            return None;
-        }
-        let message_width = text.chars().filter(|ch| !ch.is_control()).count();
-        if message_width == 0 {
-            return None;
-        }
-        let width = message_width.saturating_add(2).min(columns);
-        let left = columns.saturating_sub(width) / 2;
-        let top = rows / 2;
+        let (left, top, width) = chip_span(text, columns, rows)?;
         let colors: DynamicColors = crate::native::lock_recover(&self.terminal)
             .dynamic_colors()
             .clone();
@@ -201,6 +208,18 @@ impl App {
                 content.y + top as f32 * cell.height as f32,
             ],
         ))
+    }
+
+    /// The single-pane chip's `(left, top, width, height)` in content cells,
+    /// or `None` while no chip paints. Joins the single-pane opaque span so
+    /// the chip background matches the split path's opaque top layer.
+    pub(super) fn transient_hud_content_rect(&self) -> Option<(usize, usize, usize, usize)> {
+        if self.transient_hud_suppressed() {
+            return None;
+        }
+        let text = self.transient_hud.text()?;
+        let (left, top, width) = chip_span(text, self.grid.columns, self.grid.rows)?;
+        Some((left, top, width, 1))
     }
 
     pub(super) fn transient_hud_deadline(&self) -> Option<Instant> {
@@ -309,5 +328,157 @@ mod tests {
         let mut single = blank_snapshot(20, 5);
         app.paint_transient_hud_cells(&mut single);
         assert!(single.cells.iter().all(|cell| *cell == Cell::default()));
+    }
+
+    /// Paint the single-pane HUD into a blank content snapshot and return the
+    /// painted cells' `(left, top, width)`.
+    fn painted_chip(app: &App) -> (usize, usize, usize) {
+        let mut content = blank_snapshot(app.grid.columns, app.grid.rows);
+        app.paint_transient_hud_cells(&mut content);
+        let painted: Vec<usize> = (0..content.cells.len())
+            .filter(|&i| content.cells[i] != Cell::default())
+            .collect();
+        let first = *painted.first().expect("chip painted");
+        let last = *painted.last().expect("chip painted");
+        let columns = app.grid.columns;
+        assert_eq!(first / columns, last / columns, "one-row chip");
+        (first % columns, first / columns, last - first + 1)
+    }
+
+    #[test]
+    fn single_pane_hud_chip_is_held_opaque_like_the_split_layer() {
+        let dims = Dimensions::new(80, 24);
+        let (mut app, _terminal) =
+            headless_app_with(NativeOptions::default(), dims, Settings::default());
+        assert!(
+            app.settings.cell_bg_opacity < 1.0,
+            "default content is translucent"
+        );
+        assert_eq!(
+            app.single_pane_opaque_region_for_frame(1.0),
+            None,
+            "no HUD, no span"
+        );
+
+        app.transient_hud
+            .show("Font 21 px".to_owned(), Instant::now());
+        let (left, top, width) = painted_chip(&app);
+        let reserve = app.tab_reserve();
+        let expected = crate::grid::CellRegion {
+            left: left + reserve.left_reserved_cols(),
+            top: top + reserve.top_rows,
+            width,
+            height: 1,
+        };
+        // Opaque window at the default cell opacity, and a translucent window:
+        // the chip's cells are exactly the opaque span in both.
+        assert_eq!(app.single_pane_opaque_region_for_frame(1.0), Some(expected));
+        assert_eq!(app.single_pane_opaque_region_for_frame(0.5), Some(expected));
+
+        // Fully opaque content needs no span, keeping that path byte-identical.
+        app.settings.cell_bg_opacity = 1.0;
+        assert_eq!(app.single_pane_opaque_region_for_frame(1.0), None);
+        assert_eq!(app.single_pane_opaque_region_for_frame(0.5), Some(expected));
+
+        // A modal surface owns the span and hides the chip.
+        app.open_settings_overlay_for_test();
+        let overlay = app.single_pane_opaque_region_for_frame(0.5);
+        assert!(overlay.is_some() && overlay != Some(expected));
+    }
+
+    #[test]
+    fn hud_span_tracks_truncation_on_a_narrow_grid() {
+        let dims = Dimensions::new(6, 3);
+        let (mut app, _terminal) =
+            headless_app_with(NativeOptions::default(), dims, Settings::default());
+        app.grid = dims;
+        app.transient_hud
+            .show("Font 21 px".to_owned(), Instant::now());
+        let (left, top, width) = painted_chip(&app);
+        assert_eq!((left, top, width), (0, 1, 6));
+        assert_eq!(app.transient_hud_content_rect(), Some((0, 1, 6, 1)));
+        let narrow = PaneRect {
+            x: 0.0,
+            y: 0.0,
+            w: 60.0,
+            h: 60.0,
+        };
+        let cell = CellSize {
+            width: 10,
+            height: 20,
+            baseline: 15,
+        };
+        let (panel, _) = app.build_transient_hud_top(narrow, cell).expect("chip");
+        assert_eq!(panel.dimensions, Dimensions::new(6, 1));
+    }
+
+    /// The emitted background alpha of the HUD chip: fully opaque inside the
+    /// frame's span at the default cell opacity, as the split path's top
+    /// layer builds it, while the surrounding content keeps its opacity.
+    #[test]
+    fn single_pane_hud_background_draws_opaque() {
+        let _guard = crate::test_lock::render_globals_lock();
+        let Ok(font) = crate::text::load_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let atlas = crate::text::GlyphAtlas::build(&font, 24.0);
+        let dims = Dimensions::new(20, 5);
+        let (mut app, _terminal) =
+            headless_app_with(NativeOptions::default(), dims, Settings::default());
+        app.grid = dims;
+        app.transient_hud
+            .show("Font 21 px".to_owned(), Instant::now());
+        let mut content = blank_snapshot(20, 5);
+        app.paint_transient_hud_cells(&mut content);
+        let opacity = app.settings.cell_bg_opacity;
+        let build = |region| {
+            let mut out = Vec::new();
+            crate::grid::build_cell_vertices_with_focus_dim_and_origin_into(
+                &mut out,
+                &content,
+                &atlas,
+                &[],
+                0.0,
+                [0.0, 0.0],
+                crate::grid::BackgroundTreatmentParams::default(),
+                opacity,
+                1.0,
+                region,
+                crate::grid::ChromePin::NONE,
+            );
+            out
+        };
+        // The first quad starting at the cell's corner is its background:
+        // the builder emits every background before any glyph.
+        let cell = atlas.cell;
+        let bg_alpha = |verts: &[crate::grid::Vertex], row: usize, col: usize| {
+            let corner = [
+                (col as u32 * cell.width) as f32,
+                (row as u32 * cell.height) as f32,
+            ];
+            verts
+                .iter()
+                .step_by(crate::grid::INSTANCES_PER_QUAD)
+                .find(|vertex| vertex.pos == corner)
+                .map(|vertex| vertex.color[3])
+                .expect("chip cell has a background quad")
+        };
+        let (left, top, width) = painted_chip(&app);
+        let span = app.single_pane_opaque_region_for_frame(1.0);
+        assert!(span.is_some_and(|r| r.left == left && r.top == top && r.width == width));
+        let with_span = build(span);
+        let without = build(None);
+        for col in left..left + width {
+            assert_eq!(
+                bg_alpha(&with_span, top, col),
+                1.0,
+                "chip cell {col} is opaque"
+            );
+            assert!(
+                bg_alpha(&without, top, col) < 1.0,
+                "unforced chip cell {col} is translucent"
+            );
+        }
     }
 }

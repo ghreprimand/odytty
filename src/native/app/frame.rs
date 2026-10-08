@@ -841,17 +841,11 @@ impl App {
                         .is_some_and(GpuState::transparency_capable);
                     self.effective_window_bg_alpha(capable)
                 };
-                // TRANSPARENCY (MENU-OPACITY): while the window is
-                // translucent, hold the open overlay panel's cell span
-                // opaque so a menu/settings/picker stays readable without
-                // resealing the whole window. `None` on the opaque path
-                // (and when no overlay is open) keeps that path
-                // byte-identical.
-                let overlay_opaque_region = if win_bg_alpha < 1.0 {
-                    self.single_pane_overlay_opaque_region()
-                } else {
-                    None
-                };
+                // TRANSPARENCY (MENU-OPACITY): while content cells draw
+                // below full opacity, hold the open overlay panel, rename
+                // band, or HUD chip opaque so it matches the split path's
+                // opaque top layer without resealing the whole window.
+                let overlay_opaque_region = self.single_pane_opaque_region_for_frame(win_bg_alpha);
                 // VE4 new-output fade: map the content-row multipliers
                 // captured above into decorated-snapshot coordinates —
                 // chrome band rows above and rail columns beside the

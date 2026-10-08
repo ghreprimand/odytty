@@ -127,7 +127,7 @@ impl App {
                 ctx.viewport_offset,
                 ctx.scrollback_len,
                 ctx.grid,
-                self.themed_selection_style(),
+                self.themed_selection_style(&self.active_session_presentation_theme()),
             );
         }
     }
@@ -140,7 +140,34 @@ impl App {
             ctx.viewport_offset,
             ctx.scrollback_len,
             ctx.grid,
-            self.themed_search_style(),
+            self.themed_search_style(&self.active_session_presentation_theme()),
+        );
+    }
+
+    /// Paint one pane's selection and search highlights with that pane's own
+    /// presentation theme. The multi-pane render loop calls this for every
+    /// pane, so a profile pane and a plain pane side by side each use their
+    /// own selection and search roles.
+    pub(in crate::native) fn paint_session_overlays(
+        &self,
+        snapshot: &mut Snapshot,
+        pane_grid: Dimensions,
+        viewport_offset: usize,
+        scrollback_len: usize,
+        session: &crate::native::session::Session,
+        focused: bool,
+    ) {
+        let theme = self.session_presentation_theme(session);
+        self.paint_pane_overlays(
+            snapshot,
+            pane_grid,
+            viewport_offset,
+            scrollback_len,
+            &session.selection,
+            session.selection_block,
+            &session.search,
+            focused,
+            &theme,
         );
     }
 
@@ -156,8 +183,9 @@ impl App {
     /// cells inside the smaller pane grid.
     ///
     /// Themed styles ([`Self::themed_selection_style`] /
-    /// [`Self::themed_search_style`]) depend only on the active theme + settings,
-    /// not on the pane, so they resolve from `&self`. The interactive search
+    /// [`Self::themed_search_style`]) resolve from `theme`, the pane's own
+    /// presentation theme, so a profile pane keeps its own selection and search
+    /// roles beside a differently themed neighbour. The interactive search
     /// QUERY BAR paints only for the focused pane (`focused`): only it receives
     /// search keystrokes, so a background pane shows its matches but not a stale
     /// bar stamped over its last content row.
@@ -175,6 +203,7 @@ impl App {
         selection_block: bool,
         search: &crate::native::search_ui::SearchUi,
         focused: bool,
+        theme: &Theme,
     ) {
         if let Some(range) = selection.range() {
             selection::apply_selection_highlight(
@@ -184,7 +213,7 @@ impl App {
                 viewport_offset,
                 scrollback_len,
                 pane_grid,
-                self.themed_selection_style(),
+                self.themed_selection_style(theme),
             );
         }
         if focused {
@@ -196,7 +225,7 @@ impl App {
                 viewport_offset,
                 scrollback_len,
                 pane_grid,
-                self.themed_search_style(),
+                self.themed_search_style(theme),
             );
         } else {
             // Background pane: its own match highlights only, never the bar.
@@ -206,7 +235,7 @@ impl App {
                 viewport_offset,
                 scrollback_len,
                 pane_grid,
-                self.themed_search_style(),
+                self.themed_search_style(theme),
             );
         }
     }
@@ -276,6 +305,7 @@ impl App {
             self.selection_block,
             &self.search,
             true,
+            &self.active_session_presentation_theme(),
         );
     }
 
@@ -313,7 +343,7 @@ impl App {
         ctx: &OverlayCtx,
         out: &mut Vec<SolidQuad>,
     ) {
-        let color = self.scroll_indicator_color();
+        let color = self.scroll_indicator_color(&self.active_session_presentation_theme());
         if let Some(quad) = scroll_indicator_quad_with_padding(
             ctx.viewport_offset,
             ctx.scrollback_len,

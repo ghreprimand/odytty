@@ -397,10 +397,9 @@ impl App {
         overlay_rect(&self.overlay, self.grid.columns, self.grid.rows)
     }
 
-    /// Test seam (PROMPT-OPACITY): the single-pane opaque cell span held opaque
-    /// under a translucent window — covers an open overlay panel or, taking
-    /// precedence, the rename/prompt band. `None` when neither is open (the
-    /// byte-identical opaque path also passes `None`).
+    /// Test seam (PROMPT-OPACITY): the single-pane opaque cell span: the
+    /// rename/prompt band, else an open overlay panel, else the HUD chip.
+    /// `None` when none of them shows.
     #[cfg(test)]
     pub(in crate::native) fn single_pane_overlay_opaque_region_for_test(
         &self,
@@ -592,6 +591,59 @@ impl App {
     pub(in crate::native) fn set_active_profile_theme_for_test(&mut self, theme: Option<Theme>) {
         self.sessions.active_mut().profile_theme = theme;
         self.present_active_session_chrome();
+    }
+
+    /// Stamp one pane with a profile theme without changing focus, as a
+    /// profile-launched pane carries it.
+    #[cfg(test)]
+    pub(in crate::native) fn set_session_profile_theme_for_test(
+        &mut self,
+        token: crate::native::session::SessionToken,
+        theme: Option<Theme>,
+    ) {
+        if let Some(session) = self.sessions.get_mut(token) {
+            session.profile_theme = theme;
+        }
+        self.present_active_session_chrome();
+    }
+
+    /// Select columns `start..=end` of absolute row 0 in one pane.
+    #[cfg(test)]
+    pub(in crate::native) fn set_session_selection_for_test(
+        &mut self,
+        token: crate::native::session::SessionToken,
+        start: usize,
+        end: usize,
+    ) {
+        use crate::selection::{AbsoluteCellPoint, AbsoluteSelectionRange};
+        if let Some(session) = self.sessions.get_mut(token) {
+            session.selection_block = false;
+            session.selection.set_range(AbsoluteSelectionRange {
+                start: AbsoluteCellPoint {
+                    row: 0,
+                    column: start,
+                },
+                end: AbsoluteCellPoint {
+                    row: 0,
+                    column: end,
+                },
+            });
+        }
+    }
+
+    /// Paint one pane's highlights through the multi-pane render loop's
+    /// per-pane painter, at the live tail of a snapshot sized to the pane.
+    #[cfg(test)]
+    pub(in crate::native) fn paint_session_overlays_for_test(
+        &self,
+        token: crate::native::session::SessionToken,
+        snapshot: &mut Snapshot,
+        focused: bool,
+    ) {
+        if let Some(session) = self.sessions.get(token) {
+            let grid = snapshot.dimensions;
+            self.paint_session_overlays(snapshot, grid, 0, 0, session, focused);
+        }
     }
 
     /// Test seam (v0.14 profiles): open a New Tab with an explicit named profile

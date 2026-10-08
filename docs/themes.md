@@ -520,7 +520,11 @@ Two settings change how the active theme is rendered:
 
 - **`themed_ui_roles`** (default on) lets the theme's semantic role colors drive
   OdyTTY's own overlay and UI chrome, so the picker, settings panel, and other
-  surfaces pick up the selected theme rather than a fixed palette.
+  surfaces pick up the selected theme rather than a fixed palette. Selection,
+  search matches, hint badges, and the scroll indicator use the theme of the
+  pane they belong to: a pane opened from a profile with its own theme keeps
+  that theme's selection and search colors, including beside a differently
+  themed pane in the same split.
 - **Color-vision-deficiency adaptation** (`cvd_mode`, default off; `cvd_strength`,
   default `1.0`) applies OKLab daltonization to the theme's 16 ANSI slots plus
   the cursor, selection, and search colors at render time, without altering the

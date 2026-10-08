@@ -137,14 +137,17 @@ impl App {
     /// with it the surface) down by the reserved rows and right by the reserved
     /// columns, so the span the renderer sees is that rect plus the reservation.
     /// Holding these cells opaque keeps the surface readable while the terminal
-    /// cells around it scale with the window opacity. `None` when neither a
-    /// rename nor an overlay is open; the caller also passes `None` on the opaque
-    /// window path so that path stays byte-identical.
+    /// cells around it scale with the window opacity. With neither open, the
+    /// transient HUD chip takes the span while it shows, matching the split
+    /// path's opaque HUD layer. `None` when none of the three is shown.
     pub(super) fn single_pane_overlay_opaque_region(&self) -> Option<crate::grid::CellRegion> {
-        let (left, top, width, height) = self.rename_band_content_rect().or_else(|| {
-            overlay_rect(&self.overlay, self.grid.columns, self.grid.rows)
-                .map(|rect| (rect.left, rect.top, rect.width, rect.height))
-        })?;
+        let (left, top, width, height) = self
+            .rename_band_content_rect()
+            .or_else(|| {
+                overlay_rect(&self.overlay, self.grid.columns, self.grid.rows)
+                    .map(|rect| (rect.left, rect.top, rect.width, rect.height))
+            })
+            .or_else(|| self.transient_hud_content_rect())?;
         let reserve = self.tab_reserve();
         Some(crate::grid::CellRegion {
             left: left + reserve.left_reserved_cols(),
@@ -152,6 +155,22 @@ impl App {
             width,
             height,
         })
+    }
+
+    /// The single-pane opaque span to hand the renderer this frame. It is
+    /// needed whenever content cells draw below full opacity: under window
+    /// transparency or with `cell_bg_opacity` below 1.0. At full content
+    /// opacity every cell is already opaque, so `None` keeps that path
+    /// byte-identical.
+    pub(super) fn single_pane_opaque_region_for_frame(
+        &self,
+        win_bg_alpha: f32,
+    ) -> Option<crate::grid::CellRegion> {
+        if win_bg_alpha < 1.0 || self.settings.cell_bg_opacity < 1.0 {
+            self.single_pane_overlay_opaque_region()
+        } else {
+            None
+        }
     }
 
     pub(super) fn any_chrome_shown(&self) -> bool {

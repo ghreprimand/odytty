@@ -357,7 +357,7 @@ impl App {
                 ctx.viewport_offset,
                 ctx.scrollback_len,
                 ctx.grid,
-                self.themed_selection_style(),
+                self.themed_selection_style(&self.active_session_presentation_theme()),
             );
         }
 

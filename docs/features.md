@@ -797,8 +797,10 @@ rendering and rejects cell input until it expands again.
 During interactive window resize, a centered transient HUD reports the final
 debounced terminal geometry as `columns × rows`. The initial nonzero configure
 is silent, minimize events are ignored, and later updates clear 750 ms after the
-last applied resize. The same static treatment works in single- and multi-pane,
-plain-theme, effects, and reduced-motion paths without changing PTY state.
+last applied resize. The same static treatment, with a fully opaque chip
+background under window transparency or a translucent cell background, works in
+single- and multi-pane, plain-theme, effects, and reduced-motion paths without
+changing PTY state.
 
 Inline image placements are also per-pane and clipped to the pane's
 sub-rectangle. Optional inactive-pane dimming uses `inactive_pane_dim`, defaults
@@ -2094,8 +2096,9 @@ Windows uses DWM. In an environment without alpha compositing, the setting has
 no visible effect.
 
 An open menu, picker, or settings panel remains the same themed, opaque surface
-in one-pane and split-pane tabs without making the whole window opaque. The
-terminal behind it continues to show the desktop.
+in one-pane and split-pane tabs without making the whole window opaque, also
+when only `cell_bg_opacity` is below 1.0. The terminal behind it continues to
+show the desktop.
 
 A configured background image is part of the background layer. With
 transparency enabled, it also becomes translucent and composes over the

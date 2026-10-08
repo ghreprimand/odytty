@@ -63,7 +63,18 @@ impl App {
     /// one, otherwise the global [`Self::effective_theme`]. CVD mode/strength
     /// apply on top of a profile theme exactly as they do for the global theme.
     pub(super) fn active_session_presentation_theme(&self) -> Theme {
-        match self.sessions.active().profile_theme.as_ref() {
+        self.session_presentation_theme(self.sessions.active())
+    }
+
+    /// The CVD-adapted theme one pane presents: its authored profile theme
+    /// when it has one, otherwise the global [`Self::effective_theme`]. Pane
+    /// role styling (selection, search, hints, scroll indicator) resolves from
+    /// this, so each pane of a split paints with its own theme's roles.
+    pub(super) fn session_presentation_theme(
+        &self,
+        session: &crate::native::session::Session,
+    ) -> Theme {
+        match session.profile_theme.as_ref() {
             Some(profile) => crate::native::cvd_theme::effective_theme(
                 profile,
                 self.settings.cvd_mode,

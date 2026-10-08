@@ -1047,14 +1047,12 @@ impl App {
             let Some(session) = self.sessions.get(token) else {
                 continue;
             };
-            self.paint_pane_overlays(
+            self.paint_session_overlays(
                 &mut pane.snapshot,
                 pane_grid,
                 viewport_offset,
                 scrollback_len,
-                &session.selection,
-                session.selection_block,
-                &session.search,
+                session,
                 is_focused,
             );
             self.paint_pane_attention_cell(

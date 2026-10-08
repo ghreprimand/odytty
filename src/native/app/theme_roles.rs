@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Theme-role-derived render styling for the native app.
 //!
-//! Mechanically split out of `app/mod.rs` to keep that file under the
-//! source-size cap; no behavior or API change. These `App` methods turn the
-//! active (effective) theme's roles — `selection`, `search`, and the
-//! scroll-indicator foreground — into the concrete colors the renderer draws,
-//! flooring foregrounds over their fills through the RV1 minimum-contrast
-//! machinery so they stay legible at the active `min_contrast` (identity at the
-//! default 1.0). They live in a child module so they can reach `App`'s private
-//! fields and the sibling free helpers directly; callers in `app/mod.rs` reach
-//! them through `pub(super)`.
+//! These `App` methods turn a pane's presentation theme roles (`selection`,
+//! `search`, and the scroll-indicator foreground) into the concrete colors the
+//! renderer draws, flooring foregrounds over their fills through the RV1
+//! minimum-contrast machinery. Callers pass the owning pane's theme from
+//! [`App::session_presentation_theme`], so a profile pane paints its own roles
+//! and each pane of a split keeps its own colors.
 
 use super::*;
 
@@ -18,8 +15,8 @@ use super::*;
 const SEARCH_ACTIVE_BRIGHTEN: f32 = 0.35;
 
 impl App {
-    pub(super) fn scroll_indicator_color(&self) -> [f32; 4] {
-        let (r, g, b) = self.effective_theme.foreground;
+    pub(super) fn scroll_indicator_color(&self, theme: &Theme) -> [f32; 4] {
+        let (r, g, b) = theme.foreground;
         let mut color = text::foreground_linear(Color::Rgb(r, g, b));
         color[3] = 0.62;
         color
@@ -44,22 +41,15 @@ impl App {
     /// `selection_opacity == 1.0` the effective fill equals the opaque role
     /// color (the `composite_over` endpoint is exact), so the whole style — fill
     /// and floored fg alike — is byte-identical to a fully-opaque selection.
-    pub(super) fn themed_selection_style(&self) -> Option<SelectionStyle> {
+    pub(super) fn themed_selection_style(&self, theme: &Theme) -> Option<SelectionStyle> {
         if !self.themed_ui_roles {
             return None;
         }
-        let role_fill = [
-            self.effective_theme.selection.0,
-            self.effective_theme.selection.1,
-            self.effective_theme.selection.2,
-        ];
-        let fill = effective_selection_fill(
-            role_fill,
-            self.effective_theme.background,
-            self.settings.selection_opacity,
-        );
+        let role_fill = [theme.selection.0, theme.selection.1, theme.selection.2];
+        let fill =
+            effective_selection_fill(role_fill, theme.background, self.settings.selection_opacity);
         let fg = floor_fg_over(
-            self.effective_theme.foreground,
+            theme.foreground,
             fill,
             self.settings.effective_min_contrast(),
         );
@@ -70,26 +60,22 @@ impl App {
     /// black-on-yellow) when the operator opts out. Non-active matches use the
     /// theme `search` role; the active match uses a brightened OKLab derivative
     /// of it. Both foregrounds are RV1-floored over their fills.
-    pub(super) fn themed_search_style(&self) -> Option<SearchStyle> {
+    pub(super) fn themed_search_style(&self, theme: &Theme) -> Option<SearchStyle> {
         if !self.themed_ui_roles {
             return None;
         }
-        let fill = [
-            self.effective_theme.search.0,
-            self.effective_theme.search.1,
-            self.effective_theme.search.2,
-        ];
-        let fill_lin = srgb_tuple_to_linear(self.effective_theme.search);
+        let fill = [theme.search.0, theme.search.1, theme.search.2];
+        let fill_lin = srgb_tuple_to_linear(theme.search);
         let active_fill_lin =
             crate::color::mix_oklab(fill_lin, [1.0, 1.0, 1.0], SEARCH_ACTIVE_BRIGHTEN);
         let active_fill = linear_to_srgb_tuple(active_fill_lin);
         let fg = floor_fg_over(
-            self.effective_theme.foreground,
+            theme.foreground,
             fill,
             self.settings.effective_min_contrast(),
         );
         let active_fg = floor_fg_over(
-            self.effective_theme.foreground,
+            theme.foreground,
             active_fill,
             self.settings.effective_min_contrast(),
         );
@@ -105,16 +91,16 @@ impl App {
     /// badge reads as distinct from a passive search highlight, with the label
     /// foreground RV1-floored over the badge fill (trap #4). Returns `None` when
     /// themed UI roles are off, preserving the high-contrast default badge.
-    pub(super) fn themed_hint_style(&self) -> Option<super::hints_ui::HintStyle> {
+    pub(super) fn themed_hint_style(&self, theme: &Theme) -> Option<super::hints_ui::HintStyle> {
         if !self.themed_ui_roles {
             return None;
         }
-        let fill_lin = srgb_tuple_to_linear(self.effective_theme.search);
+        let fill_lin = srgb_tuple_to_linear(theme.search);
         let badge_fill_lin =
             crate::color::mix_oklab(fill_lin, [1.0, 1.0, 1.0], SEARCH_ACTIVE_BRIGHTEN);
         let fill = linear_to_srgb_tuple(badge_fill_lin);
         let fg = floor_fg_over(
-            self.effective_theme.foreground,
+            theme.foreground,
             fill,
             self.settings.effective_min_contrast(),
         );

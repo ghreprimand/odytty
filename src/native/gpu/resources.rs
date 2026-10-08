@@ -415,14 +415,14 @@ pub(in crate::native) struct GpuState {
     /// this to `1.0` — the window stays translucent and only the panel's own
     /// cell span is held opaque (see `overlay_opaque_region`).
     pub(super) window_bg_alpha: f32,
-    /// TRANSPARENCY (MENU-OPACITY): while the window is translucent AND an
-    /// overlay panel is merged into the single-pane snapshot, the panel's cell
-    /// span (in the built snapshot's coordinates, after tab-chrome decoration).
-    /// The cell-vertex builder forces these cells' backgrounds fully opaque so
-    /// the panel stays a readable surface while the terminal cells around it keep
-    /// the window opacity. `None` (the default, the opaque window path, and every
-    /// multi-pane frame — where the overlay is a separate opaque layer) is the
-    /// byte-identical path.
+    /// TRANSPARENCY (MENU-OPACITY): while content cells draw below full
+    /// opacity AND an overlay panel, rename band, or HUD chip is merged into the
+    /// single-pane snapshot, that surface's cell span (in the built snapshot's
+    /// coordinates, after tab-chrome decoration). The cell-vertex builder forces
+    /// these cells' backgrounds fully opaque so the surface stays readable while
+    /// the terminal cells around it keep their opacity. `None` (the default, the
+    /// fully opaque content path, and every multi-pane frame, where these
+    /// surfaces are separate opaque layers) is the byte-identical path.
     pub(super) overlay_opaque_region: Option<grid::CellRegion>,
     /// VE4 new-output fade: per-content-row FOREGROUND alpha multipliers plus
     /// the decorated-snapshot chrome offsets, set by the single-pane render
@@ -1299,10 +1299,10 @@ impl GpuState {
         }
     }
 
-    /// TRANSPARENCY (MENU-OPACITY): set the overlay panel's opaque cell span for
-    /// the upcoming single-pane frame, or `None` to force no cells. Only
-    /// meaningful while the window is translucent and an overlay is merged into
-    /// the snapshot; the App passes `None` on the opaque window path and on every
+    /// TRANSPARENCY (MENU-OPACITY): set the single-pane surface's opaque cell
+    /// span for the upcoming frame, or `None` to force no cells. Only meaningful
+    /// while content cells draw below full opacity and a surface is merged into
+    /// the snapshot; the App passes `None` on the fully opaque path and on every
     /// multi-pane frame (there the overlay is a separate opaque layer), keeping
     /// those paths byte-identical. A cheap store — the builder reads it on the
     /// next update.

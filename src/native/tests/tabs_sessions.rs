@@ -4342,6 +4342,7 @@ fn per_pane_overlay_paints_a_selection_even_for_a_background_pane() {
         app.selection_block,
         &app.search,
         false,
+        &app.effective_theme_for_test(),
     );
     assert_eq!(
         changed_cells(&before, &snap),
@@ -4378,6 +4379,7 @@ fn per_pane_overlay_gates_the_search_bar_to_the_focused_pane() {
         app.selection_block,
         &app.search,
         true,
+        &app.effective_theme_for_test(),
     );
 
     // Background pane: the same match highlights, but NO query bar — the bar is
@@ -4393,6 +4395,7 @@ fn per_pane_overlay_gates_the_search_bar_to_the_focused_pane() {
         app.selection_block,
         &app.search,
         false,
+        &app.effective_theme_for_test(),
     );
 
     assert!(

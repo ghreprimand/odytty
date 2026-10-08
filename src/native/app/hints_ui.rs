@@ -162,7 +162,7 @@ impl App {
             &self.hints,
             ctx.viewport_offset,
             ctx.scrollback_len,
-            self.themed_hint_style(),
+            self.themed_hint_style(&self.active_session_presentation_theme()),
         );
     }
 
