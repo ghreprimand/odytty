@@ -914,3 +914,65 @@ fn reload_keeps_theme_edit_instructions_visible() {
         assert!(builder.editing.is_none());
     }
 }
+
+#[test]
+fn reload_role_window_matches_focus_hits_arrows_and_signature() {
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    builder.visible_lines(68, 15);
+    builder.handle_input(OverlayInput::End);
+    builder.handle_input(OverlayInput::Activate);
+    let before = builder.render_signature().scroll;
+    builder.refresh(&Settings::default());
+    let lines = builder.visible_lines(68, 15);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.focused && line.text.contains('[')),
+        "{lines:?}"
+    );
+    let first = builder
+        .visible_hit_map(68, 15)
+        .into_iter()
+        .find_map(|zone| match zone {
+            BuilderZone::Field { index, .. } => Some(index),
+            _ => None,
+        })
+        .expect("role rows fit");
+    assert!(first > before);
+    assert_eq!(builder.render_signature().scroll, first);
+    assert_eq!(builder.scroll_indicator(15), (true, false));
+}
+
+#[test]
+fn validation_role_window_keeps_the_edit_buffer_visible() {
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    builder.visible_lines(68, 15);
+    builder.handle_input(OverlayInput::End);
+    builder.handle_input(OverlayInput::Activate);
+    builder.handle_input(OverlayInput::Char('#'));
+    builder.handle_input(OverlayInput::Activate);
+    let lines = builder.visible_lines(68, 15);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.focused && line.text.contains("[#]")),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn role_window_keeps_free_wheel_scroll_until_keyboard_navigation() {
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    builder.visible_lines(68, 15);
+    builder.scroll_lines(6);
+    let lines = builder.visible_lines(68, 15);
+    assert!(!lines.iter().any(|line| line.focused));
+    assert_eq!(builder.render_signature().scroll, 6);
+    builder.handle_input(OverlayInput::Down);
+    assert!(
+        builder
+            .visible_lines(68, 15)
+            .iter()
+            .any(|line| line.focused)
+    );
+}

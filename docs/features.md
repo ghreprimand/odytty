@@ -97,7 +97,8 @@ The keybinding editor keeps accepted overrides and in-progress capture or
 confirmation across configuration reloads. Discard restores the reloaded
 bindings and other settings. Conflict and close questions retain their controls
 while a reload notice appears separately. Theme text edits keep their Enter/Esc
-instructions alongside reload and validation feedback.
+instructions alongside reload and validation feedback. The edited color role and
+its input buffer remain visible whenever at least one role row fits.
 Saving uses a preservation-first writeback: comments, blank lines, key order,
 and unknown or future keys stay in place, while changed keys are rewritten and
 missing changed keys are appended. OdyTTY saves through a same-directory

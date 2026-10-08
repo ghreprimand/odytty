@@ -273,3 +273,72 @@ fn reload_theme_name_prompt_survives_real_input_and_cancel() {
     );
     assert!(app.overlay_open_for_test());
 }
+
+#[test]
+fn short_theme_role_edit_survives_reload_apply_and_cancel() {
+    let _guard = crate::test_lock::render_globals_lock();
+    for cancel in [false, true] {
+        let mut app = app_with_theme(distinctive_theme());
+        app.open_theme_builder_for_test();
+        app.render_overlay_rows_for_test(120, 20);
+        app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::End), false, false);
+        app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+        for ch in "#123456".chars() {
+            app.drive_overlay_key_for_test(
+                WinitKey::Character(ch.to_string().into()),
+                false,
+                false,
+            );
+        }
+        let before = app.render_overlay_rows_for_test(120, 20).join("\n");
+        assert!(
+            before
+                .lines()
+                .any(|line| line.contains('>') && line.contains("[#123456]")),
+            "{before}"
+        );
+        let signature = app.overlay_signature_for_test();
+        app.apply_reloaded_settings_for_test(Settings {
+            theme: distinctive_theme(),
+            window_opacity: 55.0,
+            ..Settings::default()
+        });
+        let after = app.render_overlay_rows_for_test(120, 20).join("\n");
+        assert!(
+            after
+                .lines()
+                .any(|line| line.contains('>') && line.contains("[#123456]")),
+            "{after}"
+        );
+        assert!(after.contains("Configuration reloaded"), "{after}");
+        assert!(
+            app.overlay_signature_for_test().theme_builder.scroll > signature.theme_builder.scroll
+        );
+        app.drive_overlay_key_for_test(
+            WinitKey::Named(if cancel {
+                NamedKey::Escape
+            } else {
+                NamedKey::Enter
+            }),
+            false,
+            false,
+        );
+        assert!(
+            app.overlay_signature_for_test()
+                .theme_builder
+                .editing
+                .is_none()
+        );
+        assert!(app.overlay_open_for_test());
+        assert_eq!(
+            app.theme_builder_draft_for_test()
+                .expect("open editor")
+                .palette[15],
+            if cancel {
+                distinctive_theme().palette[15]
+            } else {
+                (0x12, 0x34, 0x56)
+            }
+        );
+    }
+}

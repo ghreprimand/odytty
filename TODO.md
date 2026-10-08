@@ -1044,6 +1044,7 @@ not a stretch goal.
 - [x] Keybinding reload preserves accepted overrides and active capture, conflict,
       and unsaved-close prompts while updating the discard baseline. Questions and
       controls remain visible alongside reload notices, including theme text entry.
+      Edited color roles and buffers stay visible when feedback reduces role capacity.
 - [x] Atomic settings writeback.
   - [x] `Ctrl+S` in the settings panel persists the live-applied diff to the
         same `odytty.conf` path used by startup/live reload.

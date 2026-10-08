@@ -118,7 +118,10 @@ Builder on the highlighted theme.
 ### Theme Builder
 
 Active color, save-name and generation-seed entry retain their Enter/Esc
-instructions when a configuration reload or validation message appears.
+instructions when a configuration reload or validation message appears. When
+at least one role row fits, the edited color and its input buffer stay visible
+as those instructions change the role-list height. Idle wheel scrolling stays
+independent of selection until keyboard navigation.
 
 The Theme Builder (default `Ctrl+Shift+B`) is a no-file way to author user
 themes. You can clone an existing theme, capture the colors a pane is currently

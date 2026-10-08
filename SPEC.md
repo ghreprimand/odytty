@@ -498,7 +498,9 @@ accepted overrides, active chord capture, conflict confirmation, and the
 unsaved-close prompt during configuration reload. Discard restores the newly
 loaded bindings and other settings. Conflict and close questions stay visible
 with their controls; reload feedback appears separately. Theme text-entry
-instructions also remain visible during reload. Numeric keyboard steps and pointer
+instructions also remain visible during reload. When a role row fits, the edited
+color and input buffer remain visible as feedback changes the role-list height.
+Numeric keyboard steps and pointer
 buttons share the catalog step grid. Background visibility rejects invalid or
 out-of-range input before converting it to cell opacity. Image selection and
 its dependent treatment and opacity changes are applied together. Selecting

@@ -20,6 +20,8 @@ pub(super) struct ThemeBuilder {
     baseline_spec: ThemeSpec,
     selected: usize,
     scroll: usize,
+    /// Wheel scrolling may move focus out of view until keyboard navigation.
+    scroll_pinned: bool,
     editing: Option<EditMode>,
     message: Option<String>,
     /// Which OKLCH channel the Left/Right arrows currently drive, and which
@@ -387,7 +389,7 @@ impl ThemeBuilder {
         ThemeBuilderSignature {
             original: self.original.name,
             selected: self.selected,
-            scroll: self.scroll,
+            scroll: self.role_window_start(self.last_role_capacity.get()),
             editing: self.editing.as_ref().map(|editing| match editing {
                 EditMode::Color { field, buffer, .. } => ThemeBuilderEditSignature::Color {
                     field: field.key(),
@@ -594,7 +596,8 @@ impl ThemeBuilder {
         self.last_role_capacity
             .set(body_height.saturating_sub(rows.len()));
 
-        for (index, field) in FIELDS.iter().enumerate().skip(self.scroll) {
+        let start = self.role_window_start(self.last_role_capacity.get());
+        for (index, field) in FIELDS.iter().enumerate().skip(start) {
             if rows.len() >= body_height {
                 break;
             }
@@ -642,6 +645,7 @@ impl ThemeBuilder {
             spec,
             selected: 0,
             scroll: 0,
+            scroll_pinned: false,
             editing: None,
             message: None,
             channel: OklchChannel::Lightness,
@@ -897,8 +901,10 @@ impl ThemeBuilder {
     /// panel's wheel scroll. The next keyboard navigation re-clamps scroll to the
     /// selection.
     pub(super) fn scroll_lines(&mut self, delta: isize) {
+        let start = self.role_window_start(self.last_role_capacity.get());
         let max = FIELDS.len().saturating_sub(1) as isize;
-        self.scroll = (self.scroll as isize + delta).clamp(0, max) as usize;
+        self.scroll = (start as isize).saturating_add(delta).clamp(0, max) as usize;
+        self.scroll_pinned = true;
     }
 
     /// Hidden role rows above / below the visible window, for the shared ▲/▼
@@ -914,7 +920,8 @@ impl ThemeBuilder {
         if capacity == 0 || FIELDS.len() <= capacity {
             return (false, false);
         }
-        (self.scroll > 0, self.scroll + capacity < FIELDS.len())
+        let start = self.role_window_start(capacity);
+        (start > 0, start + capacity < FIELDS.len())
     }
 
     /// Handle a left/right press inside the builder body (U2 Step 2/3).
@@ -1112,21 +1119,28 @@ impl ThemeBuilder {
         self.clamp();
     }
 
+    /// Resolve the actual role window after the complete header determines its
+    /// capacity. Active edits always follow their role; idle wheel scrolling
+    /// may leave selection outside the window until keyboard navigation.
+    fn role_window_start(&self, capacity: usize) -> usize {
+        let start = self.scroll.min(FIELDS.len().saturating_sub(1));
+        if self.scroll_pinned && self.editing.is_none() {
+            return start;
+        }
+        let focused = match &self.editing {
+            Some(EditMode::Color { field, .. }) => FIELDS
+                .iter()
+                .position(|candidate| candidate == field)
+                .unwrap_or(self.selected),
+            Some(EditMode::Name { .. } | EditMode::Seed { .. }) | None => self.selected,
+        };
+        start.clamp(focused.saturating_sub(capacity.max(1) - 1), focused)
+    }
+
     fn clamp(&mut self) {
         self.selected = self.selected.min(FIELDS.len().saturating_sub(1));
-        if self.selected < self.scroll {
-            self.scroll = self.selected;
-        }
-        // Follow the selection through the *real* visible window recorded by the
-        // last render, not a fixed slack: on a short overlay the role list fits
-        // far fewer than 8 rows, so the old constant scrolled the selection off
-        // screen (the ThemeBuilder half of OVERLAY-SMALL-WINDOW). `max(1)` keeps
-        // the selection visible before the first render seeds the capacity.
-        let visible_slack = self.last_role_capacity.get().max(1);
-        if self.selected >= self.scroll + visible_slack {
-            self.scroll = self.selected.saturating_sub(visible_slack - 1);
-        }
-        self.scroll = self.scroll.min(FIELDS.len().saturating_sub(1));
+        self.scroll_pinned = false;
+        self.scroll = self.role_window_start(self.last_role_capacity.get());
     }
 
     /// The selected role's live authoring contrast against its floor partner
