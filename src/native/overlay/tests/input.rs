@@ -531,12 +531,15 @@ fn overwrite_layout_confirm_keyboard_three_way() {
     assert!(!overlay.is_open(), "dialog closes on replace");
 
     let mut overlay = OverlayUi::default();
-    overlay.open_confirm_overwrite_layout("dev".to_owned(), LayoutSaveKind::Workspace(3));
+    overlay.open_confirm_overwrite_layout(
+        "dev".to_owned(),
+        LayoutSaveKind::Workspace(crate::native::session::SessionToken(3)),
+    );
     assert_eq!(
         overlay.handle_input(OverlayInput::Char('r')),
         OverlayOutcome::RenameLayoutInstead {
             name: "dev".to_owned(),
-            kind: LayoutSaveKind::Workspace(3),
+            kind: LayoutSaveKind::Workspace(crate::native::session::SessionToken(3)),
         }
     );
 
@@ -567,12 +570,15 @@ fn overwrite_layout_confirm_click_regions() {
     );
 
     let mut overlay = OverlayUi::default();
-    overlay.open_confirm_overwrite_layout("work".to_owned(), LayoutSaveKind::Workspace(1));
+    overlay.open_confirm_overwrite_layout(
+        "work".to_owned(),
+        LayoutSaveKind::Workspace(crate::native::session::SessionToken(1)),
+    );
     assert_eq!(
         overlay.confirm_overwrite_layout_click(2, rename_col),
         OverlayOutcome::RenameLayoutInstead {
             name: "work".to_owned(),
-            kind: LayoutSaveKind::Workspace(1),
+            kind: LayoutSaveKind::Workspace(crate::native::session::SessionToken(1)),
         }
     );
 

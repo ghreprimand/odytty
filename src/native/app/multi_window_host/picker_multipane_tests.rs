@@ -2,9 +2,9 @@
 //! The move and merge pickers through the real request path with split
 //! windows: a palette action raises the request, the host opens the picker, and
 //! the origin banner and candidate numeral reach every visible pane of every
-//! multi-pane window. Cancel clears them all. The window-event decode needs a
-//! live event loop, so the keypress is the decoded `PickerKey`, exactly as the
-//! single-pane picker tests drive it.
+//! multi-pane window. Cancel clears them all. A winit key event cannot be
+//! built outside winit, so keypresses enter either as the decoded `PickerKey`
+//! or through the host's key routing below the event conversion.
 
 use super::tests::{headless, host_of};
 use super::*;
@@ -214,4 +214,62 @@ fn selecting_a_candidate_leaves_no_picker_chrome_on_the_split_windows() {
             "window {window}: {rows:?}"
         );
     }
+}
+
+fn key_input(
+    code: winit::keyboard::KeyCode,
+    pressed: bool,
+    repeat: bool,
+    logical: &winit::keyboard::Key,
+) -> picker_keys::PickerKeyInput<'_> {
+    picker_keys::PickerKeyInput {
+        physical: winit::keyboard::PhysicalKey::Code(code),
+        pressed,
+        repeat,
+        logical,
+    }
+}
+
+/// The key that closed the picker keeps its repeats and release out of the
+/// windows afterwards; a later press of the same key routes normally.
+#[test]
+fn the_key_that_closed_the_picker_keeps_its_release_out_of_the_windows() {
+    use winit::keyboard::{Key, KeyCode, NamedKey};
+    let mut host = host_of(vec![split_window(2), split_window(2)]);
+    open_through_the_palette(&mut host, 0, "move-pane-to-window");
+    let escape = Key::Named(NamedKey::Escape);
+    assert!(host.route_picker_input(key_input(KeyCode::Escape, true, false, &escape)));
+    assert!(host.picker.is_none(), "Escape cancelled the picker");
+    assert!(
+        host.route_picker_input(key_input(KeyCode::Escape, true, true, &escape)),
+        "a repeat of the consumed key is dropped"
+    );
+    assert!(
+        host.route_picker_input(key_input(KeyCode::Escape, false, false, &escape)),
+        "its release is dropped"
+    );
+    assert!(
+        !host.route_picker_input(key_input(KeyCode::Escape, false, false, &escape)),
+        "a second release is not the consumed one"
+    );
+    assert!(
+        !host.route_picker_input(key_input(KeyCode::Escape, true, false, &escape)),
+        "a new press with no picker routes to the window"
+    );
+}
+
+/// A text of more than one character is not a picker numeral, even when it
+/// starts with one.
+#[test]
+fn a_multi_character_text_is_not_a_picker_numeral() {
+    use winit::keyboard::{Key, KeyCode};
+    let mut host = host_of(vec![split_window(2), split_window(2)]);
+    open_through_the_palette(&mut host, 0, "move-pane-to-window");
+    let text = Key::Character("12".into());
+    assert!(!host.route_picker_input(key_input(KeyCode::Digit1, true, false, &text)));
+    assert!(host.picker.is_some(), "the picker stays open");
+    assert_eq!(host.windows.len(), 2, "nothing moved");
+    let one = Key::Character("1".into());
+    assert!(host.route_picker_input(key_input(KeyCode::Digit1, true, false, &one)));
+    assert!(host.picker.is_none(), "a single numeral selects");
 }

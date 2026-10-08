@@ -376,6 +376,8 @@ pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
             )
         }),
         picker: None,
+        picker_consumed_keys: Vec::new(),
+        process_exit_selected: false,
         quick: QuickTerminalController::new(QuickTerminalSettings::default()),
         quick_live: Arc::new(Mutex::new(None)),
         quick_pending_config: None,
@@ -710,6 +712,40 @@ fn selecting_a_candidate_merges_this_into_it_and_retires_the_source() {
     assert!(
         host.index_of(source_id).is_none(),
         "source id no longer live"
+    );
+}
+
+/// A focused source's focused pane becomes a background pane of the target;
+/// a program that asked for focus reports hears it leave.
+#[test]
+fn a_whole_window_merge_reports_focus_out_for_the_focused_source_pane() {
+    let mut source = headless();
+    let focused = source.active_session_token_for_test();
+    source
+        .workspace_set()
+        .get(focused)
+        .expect("pane")
+        .terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\x1b[?1004h");
+    source.set_window_focus_for_test(true);
+    source.last_active_session = focused;
+    let mut target = headless();
+    target
+        .workspace_set_mut()
+        .rekey_sole_session_for_test(SessionToken(500));
+    let mut host = host_of(vec![source, target]);
+
+    host.open_picker(0, MergeDirection::MergeThisInto);
+    host.handle_picker_key(PickerKey::Select(1));
+
+    assert_eq!(host.windows.len(), 1, "the merge committed");
+    assert!(
+        host.windows[0]
+            .focus_reports_for_test
+            .contains(&(focused, false)),
+        "the moved focused pane is told it lost focus"
     );
 }
 
@@ -1364,6 +1400,42 @@ fn restaging_invalidates_an_earlier_registration_generation() {
         captured_at_dispatch, current,
         "a worker holding the earlier generation must not match the current one"
     );
+}
+
+/// Closing the last window selects process exit and latches it, so the
+/// maintenance pass that follows starts no optional work; closing one of
+/// several windows does not.
+#[test]
+fn closing_the_last_window_latches_process_exit() {
+    let mut host = host_of(vec![headless(), headless()]);
+    assert!(!host.select_window_close(1), "a sibling remains");
+    assert!(!host.process_exit_selected);
+    assert_eq!(host.windows.len(), 1);
+    assert!(host.select_window_close(0), "the last window exits");
+    assert!(host.process_exit_selected);
+}
+
+/// Teardown invalidates an in-flight deferred registration the same way a
+/// restage does, so a worker that resolves after the host ended drops its
+/// grab instead of storing it.
+#[test]
+fn host_teardown_invalidates_an_in_flight_registration_generation() {
+    let host = host_of(vec![headless()]);
+    let generation = Arc::clone(&host.quick_registration_generation);
+    let captured_at_dispatch = generation.load(Ordering::SeqCst);
+    let windows = host.into_windows();
+    assert_eq!(windows.len(), 1);
+    assert_ne!(
+        generation.load(Ordering::SeqCst),
+        captured_at_dispatch,
+        "a worker holding the dispatch generation no longer matches"
+    );
+
+    let host = host_of(vec![headless()]);
+    let generation = Arc::clone(&host.quick_registration_generation);
+    let captured_at_dispatch = generation.load(Ordering::SeqCst);
+    drop(host);
+    assert_ne!(generation.load(Ordering::SeqCst), captured_at_dispatch);
 }
 
 #[test]

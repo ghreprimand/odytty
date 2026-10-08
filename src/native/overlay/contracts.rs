@@ -29,13 +29,15 @@ use crate::settings::Settings;
 
 /// Which Save as Layout a pending action refers to (OVERWRITE-WARN). Carried by
 /// the overwrite-confirm dialog so its Replace / different-name arms can re-drive
-/// the right save path: the whole application, or one workspace by rail index.
+/// the right save path: the whole application, or one workspace by its creation
+/// identity, so a rail change while the dialog is open cannot retarget it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) enum LayoutSaveKind {
     /// Save every workspace as one layout (the primary "Save as Layout…").
     WholeApp,
-    /// Save the single workspace at this rail index ("Save Workspace as Layout…").
-    Workspace(usize),
+    /// Save the single workspace with this creation identity ("Save Workspace
+    /// as Layout…"), resolved to its current rail index when the save runs.
+    Workspace(crate::native::session::SessionToken),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

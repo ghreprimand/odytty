@@ -548,15 +548,15 @@ impl App {
     /// Reopen the "Layout name:" prompt for a different name after an overwrite
     /// collision (OVERWRITE-WARN "Rename" arm), seeded with the colliding `seed`
     /// so the user can edit it. `kind` restores the same save target — the whole
-    /// app or the workspace at a rail index — that hit the collision.
+    /// app or the same workspace by identity — that hit the collision.
     pub(super) fn reopen_layout_name_prompt(&mut self, kind: LayoutSaveKind, seed: String) {
         let target = match kind {
             LayoutSaveKind::WholeApp => RenameTarget::SaveAllLayout,
-            LayoutSaveKind::Workspace(idx) => {
-                let Some(anchor) = self.workspace_prompt_anchor(idx) else {
+            LayoutSaveKind::Workspace(identity) => {
+                if self.sessions.workspace_index_of(identity).is_none() {
                     return;
-                };
-                RenameTarget::SaveLayout(anchor)
+                }
+                RenameTarget::SaveLayout(identity)
             }
         };
         self.begin_rename(target, seed);

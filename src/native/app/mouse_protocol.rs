@@ -101,21 +101,30 @@ impl App {
 
     /// The user-input PTY write seam for pointer, palette, prefix, and
     /// selection-edit paths. Bytes for a read-only pane are dropped here
-    /// (`pane_accepts_input`), so a new caller is gated by default.
-    pub(super) fn write_pty_bytes(&self, bytes: &[u8]) {
+    /// (`pane_accepts_input`), so a new caller is gated by default. Returns
+    /// whether the bytes were delivered; a failed write or flush raises the
+    /// same input-not-delivered notice as typed keys.
+    pub(super) fn write_pty_bytes(&mut self, bytes: &[u8]) -> bool {
         if !self.active_pane_accepts_input() {
-            return;
+            return false;
         }
-        self.write_pty_protocol_bytes(bytes);
+        let delivered = self.write_pty_protocol_bytes(bytes);
+        if !delivered {
+            self.raise_input_not_delivered_notice();
+        }
+        delivered
     }
 
     /// Ungated write for terminal-state replies that are not user input (focus
-    /// reports). Never route typed or pointer input through this.
-    fn write_pty_protocol_bytes(&self, bytes: &[u8]) {
-        if let Ok(mut writer) = self.writer.lock() {
-            let _ = writer.write_all(bytes);
-            let _ = writer.flush();
-        }
+    /// reports). Never route typed or pointer input through this. Returns
+    /// whether both the write and the flush succeeded.
+    fn write_pty_protocol_bytes(&self, bytes: &[u8]) -> bool {
+        let Ok(mut writer) = self.writer.lock() else {
+            return false;
+        };
+        let written = writer.write_all(bytes).is_ok();
+        let flushed = writer.flush().is_ok();
+        written && flushed
     }
 
     pub(super) fn send_mouse_report(
@@ -142,8 +151,7 @@ impl App {
         }
 
         self.return_to_live();
-        self.write_pty_bytes(&bytes);
-        true
+        self.write_pty_bytes(&bytes)
     }
 
     /// Encode an SGR-pixel (1016) mouse report from the cached physical pointer
@@ -232,10 +240,15 @@ impl App {
         };
 
         // Focus reports are terminal state, not typed input: a read-only pane
-        // still receives them.
-        self.write_pty_protocol_bytes(&bytes);
+        // still receives them. Best effort: a failed report raises no notice,
+        // and only a delivered one is recorded.
+        let delivered = self.write_pty_protocol_bytes(&bytes);
         #[cfg(test)]
-        self.focus_reports_for_test.push((session, focused));
+        if delivered {
+            self.focus_reports_for_test.push((session, focused));
+        }
+        #[cfg(not(test))]
+        let _ = delivered;
     }
 
     pub(super) fn handle_reported_mouse_input(

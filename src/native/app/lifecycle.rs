@@ -532,12 +532,18 @@ impl App {
         else {
             return;
         };
+        // Best effort, as for the active pane: a failed report raises no
+        // notice, and only a delivered one is recorded.
+        let delivered = session.writer.lock().is_ok_and(|mut writer| {
+            let written = writer.write_all(&bytes).is_ok();
+            writer.flush().is_ok() && written
+        });
         #[cfg(test)]
-        self.focus_reports_for_test.push((token, focused));
-        if let Ok(mut writer) = session.writer.lock() {
-            let _ = writer.write_all(&bytes);
-            let _ = writer.flush();
+        if delivered {
+            self.focus_reports_for_test.push((token, focused));
         }
+        #[cfg(not(test))]
+        let _ = delivered;
     }
 
     pub(super) fn apply_user_event(&mut self, event: UserEvent) -> bool {

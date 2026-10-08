@@ -55,8 +55,11 @@ impl App {
         // rather than silently overwriting — on every save path, prompt-free
         // palette entry included.
         if persistence::layout_exists(&name) {
+            let Some(identity) = self.sessions.workspace_identity(idx) else {
+                return;
+            };
             self.overlay
-                .open_confirm_overwrite_layout(name, LayoutSaveKind::Workspace(idx));
+                .open_confirm_overwrite_layout(name, LayoutSaveKind::Workspace(identity));
             self.request_selection_redraw();
             return;
         }
@@ -148,7 +151,16 @@ impl App {
     /// force-write the layout, clobbering the existing file, routed by `kind`.
     pub(super) fn overwrite_layout_confirmed(&mut self, name: &str, kind: LayoutSaveKind) {
         match kind {
-            LayoutSaveKind::Workspace(idx) => self.write_workspace_layout(idx, name),
+            // The dialog names a workspace, not a rail position: a workspace
+            // that closed while it was open is reported, never replaced by
+            // whichever workspace now holds its position.
+            LayoutSaveKind::Workspace(identity) => match self.sessions.workspace_index_of(identity)
+            {
+                Some(idx) => self.write_workspace_layout(idx, name),
+                None => self.raise_open_notice(
+                    "The workspace closed, so the layout was not saved.".to_owned(),
+                ),
+            },
             LayoutSaveKind::WholeApp => self.write_all_workspaces_layout(name),
         }
     }

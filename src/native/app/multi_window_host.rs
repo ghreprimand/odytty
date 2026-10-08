@@ -192,6 +192,11 @@ pub(in crate::native) struct MultiWindowHost {
     /// Builds a window around moved content (no shell spawn).
     adopt: AdoptFactory,
     picker: Option<ActiveMergePicker>,
+    /// Physical keys whose press the merge picker consumed; their repeats and
+    /// release are dropped even after the picker closes.
+    picker_consumed_keys: Vec<winit::keyboard::PhysicalKey>,
+    /// Set once closing the last window selected process exit.
+    process_exit_selected: bool,
     /// The single quick-terminal lifecycle (v0.15.0 A). Disabled until
     /// `configure_quick_terminal` is called with an enabled setting, so the
     /// ordinary window path is unaffected by default.
@@ -297,6 +302,8 @@ impl MultiWindowHost {
             factory,
             adopt,
             picker: None,
+            picker_consumed_keys: Vec::new(),
+            process_exit_selected: false,
             quick: QuickTerminalController::new(QuickTerminalSettings::default()),
             quick_live: Arc::new(Mutex::new(None)),
             quick_pending_config: None,
@@ -337,8 +344,17 @@ impl MultiWindowHost {
     /// Consume the host, returning every live window for deterministic teardown
     /// (reap shells, save shape) in `run_native`. Window 0 is the primary.
     pub(in crate::native) fn into_windows(mut self) -> Vec<App> {
+        self.shutdown_quick_registration();
         self.automation.shutdown();
         std::mem::take(&mut self.windows)
+    }
+
+    /// End the quick-terminal shortcut registration for good: release a live
+    /// grab and invalidate any deferred registration still in flight, so a
+    /// late worker result never stores a grab after the host has ended.
+    /// Idempotent; reached from `exiting`, `into_windows`, and `Drop`.
+    fn shutdown_quick_registration(&mut self) {
+        self.take_live_adapter();
     }
 
     /// Persist only an ordinary, restorable primary window on clean shutdown.
@@ -598,17 +614,34 @@ impl MultiWindowHost {
     /// Resolve a window close: remove only that window while siblings remain,
     /// reaping its sessions on the way out; exit the process on the last window.
     fn close_window(&mut self, idx: usize, event_loop: &ActiveEventLoop) {
+        if self.select_window_close(idx) {
+            event_loop.exit();
+        }
+    }
+
+    /// Close window `idx`: remove it while siblings remain, or select process
+    /// exit when it is the last. Returns `true` when process exit was
+    /// selected; the host then starts no further optional work (shortcut
+    /// registration, the automation endpoint, file drop, new windows) for
+    /// the rest of the shutdown.
+    fn select_window_close(&mut self, idx: usize) -> bool {
         let id = self.windows[idx].process_window_id();
         if self.live_tab_contains(id) {
             self.cancel_live_tab();
             let Some(index) = self.index_of(id) else {
-                return;
+                return false;
             };
-            return self.close_window(index, event_loop);
+            return self.select_window_close(index);
         }
         match resolve_window_close(self.windows.len(), idx) {
-            WindowCloseAction::ExitProcess => event_loop.exit(),
-            WindowCloseAction::RemoveWindow(i) => self.remove_closed_window(i),
+            WindowCloseAction::ExitProcess => {
+                self.process_exit_selected = true;
+                true
+            }
+            WindowCloseAction::RemoveWindow(i) => {
+                self.remove_closed_window(i);
+                false
+            }
         }
     }
 
@@ -872,8 +905,15 @@ impl MultiWindowHost {
             Some(pair) => pair,
             None => return,
         };
+        // The source's focused pane becomes a background pane of the target,
+        // so a program that asked for focus reports hears it leave, as a tab
+        // or pane move reports. Sent only once the merge committed.
+        let focus_out = source.focused.then_some(source.last_active_session);
         match execute_window_merge(target, source) {
             Ok(_plan) => {
+                if let Some(token) = focus_out {
+                    target.send_focus_report_to(token, false);
+                }
                 // The source arena is now empty: retire the window WITHOUT a
                 // session shutdown (its PTYs moved and are live in the target).
                 // Explicitly drain and release its now-idle GPU surface before
@@ -1580,27 +1620,6 @@ fn implies_pending_work(event: &WindowEvent) -> bool {
     )
 }
 
-/// Decode a merge-picker keypress. Only a pressed 1-9 digit or Escape is
-/// intercepted; everything else returns `None` and falls through to the window.
-fn decode_picker_key(event: &winit::event::KeyEvent) -> Option<PickerKey> {
-    if event.state != ElementState::Pressed {
-        return None;
-    }
-    match &event.logical_key {
-        WinitKey::Named(NamedKey::Escape) => Some(PickerKey::Cancel),
-        WinitKey::Character(s) => {
-            let digit = s.chars().next().and_then(|c| c.to_digit(10))?;
-            let numeral = u8::try_from(digit).ok()?;
-            if (1..=9).contains(&numeral) {
-                Some(PickerKey::Select(numeral))
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
-}
-
 impl ApplicationHandler<UserEvent> for MultiWindowHost {
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         self.cancel_live_tab();
@@ -1632,23 +1651,19 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
             self.shared.note_activity();
         }
 
-        // While a merge picker is open, digit/Escape drive the picker and never
-        // reach the terminal. Every other key falls through to the focused
-        // window unchanged.
-        if self.picker.is_some()
-            && let WindowEvent::KeyboardInput { event: ref key, .. } = event
-            && let Some(action) = decode_picker_key(key)
-        {
-            self.handle_picker_key(action);
-            self.refresh();
-            return;
-        }
-
         let Some(idx) = window_index_for(&self.windows, window_id) else {
-            // Stale event for a torn-down surface: drop it.
+            // Stale event for a torn-down surface: drop it, picker keys
+            // included, so it can neither cancel nor commit a live picker.
             self.refresh();
             return;
         };
+        // While a merge picker is open, digit/Escape drive the picker and never
+        // reach the terminal, and neither do their repeats and releases. Every
+        // other key falls through to the focused window unchanged.
+        if self.route_picker_key(&event) {
+            self.refresh();
+            return;
+        }
         // v0.15.0 A: quick-terminal hide-on-focus-loss. When the dedicated quick
         // window loses focus and the policy is set, hide it (preserving its
         // session) so it never lingers over other work. The App still processes
@@ -1838,9 +1853,15 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         // Close highest index first so lower indices stay valid.
         for i in to_close.into_iter().rev() {
             self.close_window(i, event_loop);
-            if self.windows.is_empty() {
+            if self.windows.is_empty() || self.process_exit_selected {
                 break;
             }
+        }
+        // The last window closed and the process is exiting: start nothing
+        // new while the event loop winds down.
+        if self.process_exit_selected {
+            self.refresh();
+            return;
         }
 
         // v0.15.0 A: dispatch the deferred global-shortcut registration once,
@@ -1899,6 +1920,7 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
     /// its thread, so the foreign backend never outlives the display it borrows.
     /// A no-op when no listener was started. Inert off Linux.
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.shutdown_quick_registration();
         #[cfg(target_os = "linux")]
         {
             self.wayland_drop.take();
@@ -1906,8 +1928,16 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
     }
 }
 
+impl Drop for MultiWindowHost {
+    fn drop(&mut self) {
+        self.shutdown_quick_registration();
+    }
+}
+
 #[path = "multi_window_host/broadcast.rs"]
 mod broadcast;
+#[path = "multi_window_host/picker_keys.rs"]
+mod picker_keys;
 
 mod live_tab_drag;
 #[path = "multi_window_host/reparent.rs"]
