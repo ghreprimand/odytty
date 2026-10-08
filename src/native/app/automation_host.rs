@@ -490,9 +490,6 @@ mod tests {
         assert!(rows[0].hidden && !rows[0].focused);
     }
 
-    /// The headless window spawns nothing, so creation routes leave the active
-    /// identity unchanged; the reply must then be `unavailable`, never a
-    /// pre-existing identity reported as newly created.
     /// A split refused after focusing a pane that was not active restores the
     /// previous focus, so the `unavailable` reply changes nothing.
     #[test]
@@ -528,6 +525,9 @@ mod tests {
         );
     }
 
+    /// The headless window spawns nothing, so creation routes leave the active
+    /// identity unchanged; the reply must then be `unavailable`, never a
+    /// pre-existing identity reported as newly created.
     #[test]
     fn creation_without_a_new_activation_reports_unavailable() {
         let (mut host, instance) = enabled_host();

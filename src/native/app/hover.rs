@@ -624,22 +624,6 @@ impl App {
         true
     }
 
-    /// INTERACTIVE-PATHS (Phase 8 / C3): modifier+click open for a resolved
-    /// path span under the pointer (Ctrl on Linux, Cmd on macOS). Chained in the
-    /// pointer Pressed arm AFTER
-    /// [`Self::try_open_hovered_hyperlink`] (OSC 8 wins ties) and BEFORE
-    /// `begin_selection`, so when this returns `false` the selection path is
-    /// byte-identical.
-    ///
-    /// Returns `false` immediately - opening nothing, starting no selection
-    /// change - when the feature is off, the open-modifier gate is not
-    /// satisfied, or no live path span sits under the pointer. The gate reused
-    /// is exactly the hyperlink one ([`hyperlink_action_allowed`]): the platform
-    /// open modifier required (Ctrl on Linux, Cmd on macOS), suppressed under
-    /// mouse reporting unless Shift overrides. The open itself
-    /// is an argv-only [`super::interactive_paths::spawn_detached`] of the
-    /// dispatch vector ([`super::interactive_paths::path_open_argv`]) - never a
-    /// shell string.
     /// The hovered path, probed again now. The hover memo skips the
     /// filesystem while the row text and cwd are unchanged, so a file that was
     /// removed, created, or changed type since then is only seen here. A path
@@ -661,6 +645,22 @@ impl App {
         None
     }
 
+    /// INTERACTIVE-PATHS (Phase 8 / C3): modifier+click open for a resolved
+    /// path span under the pointer (Ctrl on Linux, Cmd on macOS). Chained in the
+    /// pointer Pressed arm AFTER
+    /// [`Self::try_open_hovered_hyperlink`] (OSC 8 wins ties) and BEFORE
+    /// `begin_selection`, so when this returns `false` the selection path is
+    /// byte-identical.
+    ///
+    /// Returns `false` immediately - opening nothing, starting no selection
+    /// change - when the feature is off, the open-modifier gate is not
+    /// satisfied, or no live path span sits under the pointer. The gate reused
+    /// is exactly the hyperlink one ([`hyperlink_action_allowed`]): the platform
+    /// open modifier required (Ctrl on Linux, Cmd on macOS), suppressed under
+    /// mouse reporting unless Shift overrides. The open itself
+    /// is an argv-only [`super::interactive_paths::spawn_detached`] of the
+    /// dispatch vector ([`super::interactive_paths::path_open_argv`]) - never a
+    /// shell string.
     pub(super) fn try_open_hovered_path(&mut self) -> bool {
         if !self.settings.interactive_paths {
             return false;

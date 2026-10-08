@@ -35,7 +35,6 @@ use odytty::shell_integration;
 use odytty::text::{self, FontInventoryEntry};
 use odytty::theme::{self, Theme, VisualEffect, relative_luminance};
 
-/// Return stdout for a supported CLI introspection flag.
 /// The command-line arguments as text, or the 1-based position of the first
 /// argument that is not valid Unicode (non-UTF-8 bytes on Unix, an unpaired
 /// surrogate on Windows). Arguments other than `control` endpoints are read as
@@ -48,6 +47,7 @@ pub fn unicode_args(args: &[OsString]) -> Result<Vec<String>, usize> {
         .collect()
 }
 
+/// Return stdout for a supported CLI introspection flag.
 pub fn output_for_args(args: &[String]) -> Option<String> {
     match args.first().map(String::as_str) {
         Some("--list-fonts") => Some(list_fonts_output()),

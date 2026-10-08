@@ -21,12 +21,6 @@ pub(super) fn point_outside_rect(px: f64, py: f64, rect: [f32; 4]) -> bool {
 }
 
 impl App {
-    /// Open the right-click context menu (IN2) at the cached pointer cell, with
-    /// Copy enabled iff a selection exists and Paste enabled iff the clipboard
-    /// holds text — the per-item gating snapshot the menu renders. Deliberately
-    /// does NOT call `reset_pointer_state_for_overlay`: that would clear the
-    /// selection the Copy item needs. No pointer cell (e.g. before the first
-    /// move) means no menu.
     /// Open a context menu from the right press at the pointer. The menu
     /// owns that press, so its release is consumed even when the menu closes
     /// first, and never reaches a mouse-reporting program.
@@ -35,6 +29,12 @@ impl App {
         self.open_context_menu(surface);
     }
 
+    /// Open the right-click context menu (IN2) at the cached pointer cell, with
+    /// Copy enabled iff a selection exists and Paste enabled iff the active
+    /// pane accepts input: the per-item gating snapshot the menu renders.
+    /// Deliberately does NOT call `reset_pointer_state_for_overlay`: that would
+    /// clear the selection the Copy item needs. No pointer cell (e.g. before
+    /// the first move) means no menu.
     pub(super) fn open_context_menu(&mut self, surface: ContextMenuSurface) {
         // Unlike full overlays the context menu preserves terminal selection,
         // so it does not use `reset_pointer_state_for_overlay`. It still takes
