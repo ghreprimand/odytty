@@ -742,28 +742,36 @@ mod spawn_reap_tests {
     }
 
     /// A spawned opener child is REAPED after it exits - it must not linger as
-    /// a zombie until process exit. `true` exits immediately, so within the
-    /// deadline the child must disappear from our /proc children entirely.
-    /// Only `true` children that appeared with this spawn are watched, so a
-    /// sibling test's `true` cannot satisfy or fail it. Fails before the
-    /// reaper fix: the dropped `Child` is never waited on, so the zombie
-    /// persists for the lifetime of the test binary.
+    /// a zombie until process exit. The child runs `true` through a symlink
+    /// with a name unique to this test process, so its `comm` is that name
+    /// and no other test's child can satisfy or fail the check. It exits
+    /// immediately, so within the deadline it must disappear from our /proc
+    /// children entirely. Fails before the reaper fix: the dropped `Child` is
+    /// never waited on, so the zombie persists for the lifetime of the test
+    /// binary.
     #[test]
     fn spawn_detached_reaps_exited_child() {
-        let before = children_named("true");
-        spawn_detached(&["true".to_owned()]).expect("spawn `true`");
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-reap-");
+        // `comm` keeps at most 15 bytes of the executable name.
+        let name = format!("odyreap{:x}", std::process::id() & 0xff_ffff);
+        let helper = dir.join(&name);
+        let target = ["/usr/bin/true", "/bin/true"]
+            .into_iter()
+            .find(|path| std::path::Path::new(path).exists())
+            .expect("a `true` executable");
+        std::os::unix::fs::symlink(target, &helper).expect("helper symlink");
+        spawn_detached(&[helper.to_string_lossy().into_owned()]).expect("spawn the helper");
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
-            if children_named("true")
-                .iter()
-                .all(|pid| before.contains(pid))
-            {
-                return; // reaped: no new running or zombie `true` child remains
+            if children_named(&name).is_empty() {
+                let _ = std::fs::remove_dir_all(&dir);
+                return; // reaped: no running or zombie helper child remains
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+        let _ = std::fs::remove_dir_all(&dir);
         panic!(
-            "spawned `true` child was never reaped: still a child of this \
+            "the spawned helper was never reaped: still a child of this \
              process (zombie) 10s after spawn_detached returned"
         );
     }

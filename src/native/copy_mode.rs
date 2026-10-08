@@ -7,8 +7,6 @@
 //! routes keys, paints the derived range, follows the caret, and copies text.
 //! This state machine has no GPU, window, clipboard, or key-routing side effects.
 
-#![allow(dead_code)]
-
 use crate::core::Snapshot;
 use crate::selection::{
     AbsoluteCellPoint, AbsoluteSelectionRange, is_selection_word_char, normalize_absolute_range,
@@ -25,19 +23,14 @@ pub const LINE_END_COLUMN: usize = usize::MAX;
 /// What kind of selection the cursor is currently driving.
 ///
 /// `Normal` = a navigable cursor with no anchored selection. `Char` grows a
-/// character-wise range from the anchor; `Line` spans full rows. `Block` is the
-/// reserved MOUSE-RECT seam — column/rectangular selection lands later with the
-/// mouse block-select item so a single block-range implementation serves both;
-/// it is intentionally not constructed yet.
+/// character-wise range from the anchor; `Line` spans full rows. Copy mode has
+/// no rectangular selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SelectKind {
     #[default]
     Normal,
     Char,
     Line,
-    /// Reserved column/rectangular selection (MOUSE-RECT). Not constructed in
-    /// v1 core; range derivation returns `None` for it until block selection is wired.
-    Block,
 }
 
 /// A partially-entered multi-key motion. Only `gg` (go-to-top) needs one in v1;
@@ -286,7 +279,8 @@ impl CopyModeState {
     }
 
     /// Whether a selection is currently anchored (`v` / `V` started, not yet
-    /// cleared).
+    /// cleared). Only tests read it; the host derives the range directly.
+    #[cfg(test)]
     pub fn is_selecting(&self) -> bool {
         self.anchor.is_some() && self.mode != SelectKind::Normal
     }
@@ -317,7 +311,7 @@ impl CopyModeState {
                     },
                 })
             }
-            SelectKind::Normal | SelectKind::Block => None,
+            SelectKind::Normal => None,
         }
     }
 
