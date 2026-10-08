@@ -159,6 +159,13 @@ shells and full-screen terminal applications:
 | Pointer input | Broad mouse reporting, including X10, normal, button-event, any-event, focus events, UTF-8, SGR, urxvt, legacy encodings, and SGR-pixel mode 1016 |
 | Keyboard input | Mode-aware legacy encoding, negotiated Kitty keyboard protocol, and IME composition |
 
+DECSERA erases character and cluster payloads while retaining stored cell
+rendition and protection, including blanks produced by wide-pair boundary
+repair. Erased hyperlink metadata is cleared. DECERA, DECSEL and DECSED keep
+the current-blank rendition policy.
+These terminal-core rules are shared by Linux Wayland, Linux X11, macOS and
+Windows.
+
 SGR-pixel mode reports true physical pixel coordinates from the native window.
 In a split, coordinates are relative to the focused pane and clamped to that
 pane's own pixel size, so a drag past its edge never reports a point outside

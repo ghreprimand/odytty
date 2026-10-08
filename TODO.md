@@ -1953,6 +1953,10 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
 - [x] Monochrome atlas construction admits font metrics before allocation;
       device dimensions and a 192 MiB bitmap budget also bound dynamic growth
       on Linux Wayland, Linux X11, macOS and Windows.
+
+- [x] DECSERA retains stored cell rendition and protection when clearing
+      characters and wide-pair fragments, with parser and reflow regressions.
+      DECERA, DECSEL and DECSED keep the current-blank compatibility policy.
 - [x] Monochrome coverage rejects invalid scales and oversized pixel bounds
       before allocation; non-finite contrast and brightness controls preserve
       input colors on every platform.

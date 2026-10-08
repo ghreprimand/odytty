@@ -303,8 +303,11 @@ DECSTBM and DECSCA protection state (`"q`); unimplemented selectors respond
 invalid per xterm convention.
 
 **Rectangle operations** (`src/core/screen/rect.rs`). DECCRA, DECFRA, DECERA,
-and DECSERA are implemented. DECCRA uses a snapshot-copy strategy: the source
-cells are copied into a temporary buffer before the destination write, so
+and DECSERA are implemented. DECSERA clears erasable character and cluster
+payloads while retaining each cell's stored SGR and protection attributes.
+DECERA uses the current blank rendition. DECSEL and DECSED retain the
+current-blank compatibility policy rather than DECSERA's retained rendition.
+DECCRA uses a snapshot-copy strategy: the source cells are copied into a temporary buffer before the destination write, so
 overlapping regions produce correct results without requiring a scratch page.
 Rectangle coordinates are 1-based, inclusive, and clamp to the visible page.
 Erases, fills, and copy destination writes that reach the right edge sever the
@@ -314,10 +317,12 @@ interior writes and attribute-only changes preserve the seam.
 
 With DECOM active, row coordinates are relative to the active vertical scroll
 margins; columns remain screen-relative (horizontal margins are not implemented).
-After every rectangle write, affected rows are sanitized via `sanitize_wide_row`:
+After every rectangle write, affected rows use the shared wide-pair sanitizer:
 any wide glyph whose pair is severed at a rectangle boundary has both cells
-replaced with the current blank, preventing orphan continuation cells. The `Cell`
-protection bit is set by DECSCA (`CSI Ps " q`): Ps=1 protects, Ps=0/2 clears.
+cleared, preventing orphan continuation cells. DECSERA repair blanks retain
+each half's stored SGR and protection; other rectangle writes use the current
+blank. Erased hyperlink metadata is cleared. The `Cell` protection bit is set
+by DECSCA (`CSI Ps " q`): Ps=1 protects, Ps=0/2 clears.
 The bit is omitted from `Cell`'s `Debug` output when `false` so existing oracle
 golden fixtures remain stable across code changes that add new cells.
 

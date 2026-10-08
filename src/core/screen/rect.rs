@@ -210,7 +210,7 @@ impl Screen {
     }
 
     /// DECSERA (`CSI Pt;Pl;Pb;Pr $ {`): erase only unprotected cells in a
-    /// rectangle.
+    /// rectangle, retaining stored rendition and protection.
     pub(super) fn selective_erase_rect(&mut self, params: &Params) {
         let Some(rect) = self.rect_from_params(params, 0) else {
             return;
@@ -266,10 +266,15 @@ impl Screen {
                 && (!selective || !self.rows[row][rect.right].protected);
             for column in rect.left..=rect.right {
                 if !selective || !self.rows[row][column].protected {
-                    self.rows[row][column] = blank;
+                    let cell = self.rows[row][column];
+                    self.rows[row][column] = if selective {
+                        erase_character_retaining_attrs(cell)
+                    } else {
+                        blank
+                    };
                 }
             }
-            self.finish_rect_write(row, writes_edge);
+            self.finish_rect_write_with_attrs(row, writes_edge, selective);
         }
         self.pending_wrap = false;
         self.mark_dirty();
@@ -309,10 +314,22 @@ impl Screen {
     /// An edge overwrite ends the old logical line, including wide-pair repair
     /// that blanks its continuation just outside the addressed rectangle.
     fn finish_rect_write(&mut self, row: usize, writes_edge: bool) {
+        self.finish_rect_write_with_attrs(row, writes_edge, false);
+    }
+
+    fn finish_rect_write_with_attrs(&mut self, row: usize, writes_edge: bool, retain_attrs: bool) {
         let edge = self.dimensions.columns - 1;
         let before_repair = self.rows[row][edge];
         let blank = self.current_blank();
-        sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
+        if retain_attrs {
+            sanitize_wide_row_with(
+                &mut self.rows[row],
+                self.ambiguous_wide,
+                erase_character_retaining_attrs,
+            );
+        } else {
+            sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
+        }
         if writes_edge || self.rows[row][edge] != before_repair {
             self.sever_soft_wrap(row);
         }
@@ -486,4 +503,11 @@ fn reverse_rect_attr_mask(params: &Params) -> RectAttrMask {
         }
     }
     mask
+}
+
+/// Clearing a glyph also clears retained scalars and wide/layout provenance.
+fn erase_character_retaining_attrs(cell: Cell) -> Cell {
+    let mut attrs = cell.attrs;
+    attrs.hyperlink = None;
+    Cell::new_protected(' ', attrs, cell.protected)
 }

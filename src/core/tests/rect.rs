@@ -424,3 +424,119 @@ fn wide_pair_repair_at_edge_severs_wrap() {
         assert_eq!(row_text(&terminal, 1).trim_end(), "ef");
     }
 }
+
+// Project-authored parser fixtures compare stored rendition with current SGR.
+#[test]
+fn decsera_keeps_stored_rendition_and_clears_cluster_payload() {
+    let mut terminal = Terminal::new(8, 2);
+    terminal.advance(b"\x1b[1;2;3;4:3;5;7;8;9;38;2;10;20;30;48;5;27;58;5;42m");
+    terminal.advance("A\u{0301}".as_bytes());
+    terminal.advance(b"\x1b[32;43mB\x1b[0;45m\x1b[2;4H");
+    let before_a = terminal.screen().cell(0, 0).unwrap();
+    let before_b = terminal.screen().cell(0, 1).unwrap();
+    assert_eq!(before_a.combining(), &['\u{0301}']);
+    let cursor = terminal.screen().cursor();
+    terminal.advance(b"\x1b[1;1;1;2${");
+    for (column, before) in [(0, before_a), (1, before_b)] {
+        let cell = terminal.screen().cell(0, column).unwrap();
+        assert_eq!(cell.attrs, before.attrs);
+        assert_eq!(cell.ch, ' ');
+        assert!(cell.combining().is_empty());
+        assert!(!cell.wide_continuation && !cell.layout_padding);
+        assert_eq!(cell.protected, before.protected);
+    }
+    assert_eq!(terminal.screen().cursor(), cursor);
+    terminal.resize(12, 2);
+    assert_eq!(terminal.screen().cell(0, 0).unwrap().attrs, before_a.attrs);
+    assert_eq!(terminal.screen().cell(0, 1).unwrap().attrs, before_b.attrs);
+}
+
+#[test]
+fn decsera_wide_boundary_repair_keeps_each_cells_rendition() {
+    // Address each half separately, then the whole pair. Attributes can differ
+    // between halves after an attribute rectangle modifies the continuation.
+    for (left, right) in [(2, 2), (3, 3), (2, 3)] {
+        let mut terminal = Terminal::new(6, 2);
+        terminal.advance(b"\x1b[31;44;1ma");
+        terminal.advance("\u{4e16}\u{0301}".as_bytes());
+        terminal.advance(b"b\x1b[2*x\x1b[1;3;1;3;4$r\x1b[0;45m");
+        let before = terminal.snapshot();
+        let cursor = terminal.screen().cursor();
+        terminal.advance(format!("\x1b[1;{left};1;{right}${{").as_bytes());
+        for column in [1, 2] {
+            let cell = terminal.screen().cell(0, column).unwrap();
+            assert_eq!(
+                cell.attrs, before.cells[column].attrs,
+                "{left}..{right}, {column}"
+            );
+            assert_eq!(cell.ch, ' ');
+            assert!(cell.combining().is_empty());
+            assert!(!cell.wide_continuation);
+        }
+        assert_eq!(terminal.screen().cell(0, 0).unwrap(), before.cells[0]);
+        assert_eq!(terminal.screen().cell(0, 3).unwrap(), before.cells[3]);
+        assert_eq!(terminal.screen().cursor(), cursor);
+    }
+}
+
+#[test]
+fn decsera_retains_protected_clusters_and_rendition() {
+    let mut terminal = Terminal::new(8, 2);
+    terminal.advance(b"\x1b[1\"q\x1b[31;44;1m");
+    terminal.advance("P\u{0301}\u{4e16}\u{0301}".as_bytes());
+    terminal.advance(b"\x1b[0\"q\x1b[32;43mU\x1b[0;45m");
+    let before = terminal.snapshot();
+    terminal.advance(b"\x1b[1;1;1;4${");
+    assert_eq!(&terminal.snapshot().cells[..3], &before.cells[..3]);
+    assert_eq!(terminal.screen().cell(0, 3).unwrap().ch, ' ');
+    assert_eq!(
+        terminal.screen().cell(0, 3).unwrap().attrs,
+        before.cells[3].attrs
+    );
+}
+
+#[test]
+fn ordinary_and_line_selective_erase_keep_current_blank_policy() {
+    for sequence in [
+        b"\x1b[1;1;1;2$z".as_slice(),
+        b"\x1b[1;1H\x1b[?2K",
+        b"\x1b[1;1H\x1b[?2J",
+    ] {
+        let mut terminal = Terminal::new(6, 2);
+        terminal.advance(b"\x1b[31;44;1mAB\x1b[0;45m");
+        terminal.advance(sequence);
+        let mut expected = Attrs::default();
+        expected.background = Color::Indexed(5);
+        assert_eq!(terminal.screen().cell(0, 0).unwrap().attrs, expected);
+        assert_eq!(terminal.screen().cell(0, 1).unwrap().attrs, expected);
+    }
+}
+
+#[test]
+fn decsera_wide_edge_repair_keeps_attrs_and_severs_reflow() {
+    let mut terminal = Terminal::new(4, 3);
+    terminal.advance(b"\x1b[31;44;1mab");
+    terminal.advance("\u{4e16}ef".as_bytes());
+    let attrs = terminal.screen().cell(0, 3).unwrap().attrs;
+    assert!(terminal.visible_search_rows(0)[0].wrapped);
+    terminal.advance(b"\x1b[0;45m\x1b[1;3;1;3${");
+    assert_eq!(terminal.screen().cell(0, 2).unwrap().attrs, attrs);
+    assert_eq!(terminal.screen().cell(0, 3).unwrap().attrs, attrs);
+    assert!(!terminal.visible_search_rows(0)[0].wrapped);
+    terminal.resize(8, 3);
+    assert_eq!(row_text(&terminal, 1).trim_end(), "ef");
+    assert_eq!(terminal.screen().cell(0, 3).unwrap().attrs, attrs);
+}
+
+#[test]
+fn decsera_clears_hyperlink_when_erasing_its_character() {
+    let mut terminal = Terminal::new(6, 2);
+    terminal.advance(b"\x1b[31;44;1m\x1b]8;;https://example.invalid/decsera\x1b\\A\x1b]8;;\x1b\\");
+    let mut expected = terminal.screen().cell(0, 0).unwrap().attrs;
+    assert!(expected.hyperlink.is_some());
+    expected.hyperlink = None;
+    terminal.advance(b"\x1b[0;45m\x1b[1;1;1;1${");
+    let cell = terminal.screen().cell(0, 0).unwrap();
+    assert_eq!(cell.ch, ' ');
+    assert_eq!(cell.attrs, expected);
+}

@@ -1802,6 +1802,15 @@ fn active_prompt_start_visible_row(
 /// and any wide lead whose continuation slot no longer carries the flag
 /// (including a wide lead shifted into the last column with no room to follow).
 fn sanitize_wide_row(row: &mut [Cell], blank: Cell, ambiguous_wide: bool) {
+    sanitize_wide_row_with(row, ambiguous_wide, |_| blank);
+}
+
+/// Repair orphaned wide cells with the erase policy of the current operation.
+fn sanitize_wide_row_with(
+    row: &mut [Cell],
+    ambiguous_wide: bool,
+    mut erase: impl FnMut(Cell) -> Cell,
+) {
     let columns = row.len();
     for index in 0..columns {
         if row[index].wide_continuation {
@@ -1813,7 +1822,7 @@ fn sanitize_wide_row(row: &mut [Cell], blank: Cell, ambiguous_wide: bool) {
                     ambiguous_wide,
                 ) == 2;
             if !lead_ok {
-                row[index] = blank;
+                row[index] = erase(row[index]);
             }
         } else if super::char_width::owner_display_width(
             row[index].ch,
@@ -1823,7 +1832,7 @@ fn sanitize_wide_row(row: &mut [Cell], blank: Cell, ambiguous_wide: bool) {
         {
             let cont_ok = index + 1 < columns && row[index + 1].wide_continuation;
             if !cont_ok {
-                row[index] = blank;
+                row[index] = erase(row[index]);
             }
         }
     }
