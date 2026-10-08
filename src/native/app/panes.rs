@@ -296,6 +296,31 @@ fn pane_relative_cell(
     })
 }
 
+/// Map an absolute physical pointer position to the nearest cell of a pane's
+/// drawn grid, for a selection drag that the pane already owns. Unlike
+/// [`pane_relative_cell`], a point in the padding, the leading remainder, a
+/// divider, another pane, the tab chrome, or past the window edge clamps to
+/// the nearest edge cell; only a collapsed grid (no complete cell on either
+/// axis) has no cell. New presses and hover keep the strict mapping.
+fn pane_clamped_cell(
+    inner: PaneRect,
+    origin: [f32; 2],
+    cell: CellSize,
+    x_px: f64,
+    y_px: f64,
+) -> Option<CellPoint> {
+    let (columns, rows) = grid_dims_for_rect(inner, cell.width, cell.height);
+    if columns == 0 || rows == 0 {
+        return None;
+    }
+    let column = ((x_px as f32 - origin[0]).max(0.0) / cell.width.max(1) as f32) as usize;
+    let row = ((y_px as f32 - origin[1]).max(0.0) / cell.height.max(1) as f32) as usize;
+    Some(CellPoint {
+        row: row.min(rows - 1),
+        column: column.min(columns - 1),
+    })
+}
+
 /// Copy a rectangular sub-region of `src` into a new snapshot of size
 /// `width`×`height`, starting at cell `(top, left)`. Used to crop a painted
 /// window-overlay snapshot down to the panel's opaque rect so it composites as
@@ -459,6 +484,28 @@ impl App {
         // test-only display gate.
         pane_relative_cell(inner, origin, cell, x_px, y_px)
             .map(|point| self.bidi_logical_point(point))
+    }
+
+    /// The focused pane's cell nearest an explicit window-pixel coordinate,
+    /// for a held selection drag that began in that pane (see
+    /// [`pane_clamped_cell`]). `None` on a single-pane tab, when the geometry
+    /// is unavailable, or when the focused leaf is collapsed.
+    pub(super) fn active_pane_clamped_cell_at(&self, x_px: f64, y_px: f64) -> Option<CellPoint> {
+        let (inner, origin, cell) = self.focused_pane_grid()?;
+        pane_clamped_cell(inner, origin, cell, x_px, y_px)
+            .map(|point| self.bidi_logical_point(point))
+    }
+
+    /// The drag-autoscroll basis of the focused pane in a split tab: the
+    /// pointer's Y measured from the pane's first drawn row, and the pane's
+    /// drawn grid size. The edge bands then sit on the pane's own first and
+    /// last rows, not the window's. `None` on a single-pane tab or without a
+    /// cached pointer or geometry.
+    pub(super) fn focused_pane_autoscroll_basis(&self) -> Option<(f64, Dimensions)> {
+        let (_, y_px) = self.pointer_px?;
+        let (inner, origin, cell) = self.focused_pane_grid()?;
+        let (columns, rows) = grid_dims_for_rect(inner, cell.width, cell.height);
+        Some((y_px - f64::from(origin[1]), Dimensions::new(columns, rows)))
     }
 
     /// Whether the cached window pointer lies inside any split leaf's actual

@@ -870,7 +870,10 @@ not a stretch goal.
         and `~` as word characters.
   - [x] Triple-click selects the full line.
   - [x] Dragging in top/bottom edge bands scrolls the viewport at a bounded
-        rate while extending selection.
+        rate while extending selection. In a split the bands are the focused
+        pane's own first and last rows, and a held drag that leaves the pane
+        (padding, a divider, another pane, the window edge, or the top tab bar)
+        clamps to the pane's nearest edge cell without moving focus.
   - [x] Selection anchors use absolute scrollback rows and project into the
         current viewport for highlight/copy.
   - [x] `selection_drag_extend` (default on): double-click-then-drag extends by

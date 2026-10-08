@@ -513,7 +513,13 @@ impl App {
         // over gets its widget hover set and the other cleared. Under workspace-
         // rail auto-hide, only the pinned-rail lookup is skipped: the floating
         // rail is handled earlier, while the top strip remains hoverable.
-        let chrome_hit = if self.rail_autohide_active() {
+        // A held grid selection owns the pointer: dragging it over the tab
+        // chrome keeps extending and scrolling the selection instead of
+        // hovering a tab or rail slot, the same as the seam hovers above.
+        let held_selection = self.pointer_drag.is_selecting() && self.grid_left_held;
+        let chrome_hit = if held_selection {
+            None
+        } else if self.rail_autohide_active() {
             self.current_top_bar_hit()
         } else {
             self.current_chrome_hit()
@@ -571,7 +577,15 @@ impl App {
             return;
         }
         // The terminal cell under the pointer (see `content_pointer_cell`).
-        let point = self.content_pointer_cell(x_px, y_px, cell, padding);
+        // A held selection in a split resolves against the pane it began in,
+        // clamped to that pane's nearest edge cell, so a drag across padding, a
+        // divider, another pane, or the chrome keeps extending it. Presses and
+        // hover keep the strict drawn-grid mapping.
+        let point = if held_selection && !self.sessions.active_is_single_pane() {
+            self.active_pane_clamped_cell_at(x_px, y_px)
+        } else {
+            self.content_pointer_cell(x_px, y_px, cell, padding)
+        };
         // The scroll-thumb drag and selection autoscroll below take
         // content-relative Y: the top bar (and chrome gap) removed once.
         let (_, chrome_dy) = self.tab_chrome_offset_px(cell);

@@ -265,8 +265,21 @@ impl App {
         // returns a cap of 1, which makes the helper yield exactly ±1/0 —
         // byte-identical to the historical fixed one-row-per-tick autoscroll.
         let max_rows = self.settings.autoscroll_max_rows();
-        let delta =
-            selection::drag_autoscroll_step_with_padding(y_px, cell, self.grid, padding, max_rows);
+        // A split pane scrolls when the pointer reaches its own first or last
+        // drawn row, measured from where its grid is drawn; `self.grid` is the
+        // whole window's content grid.
+        let delta = match self.focused_pane_autoscroll_basis() {
+            Some((pane_y, pane_grid)) => selection::drag_autoscroll_step_with_padding(
+                pane_y,
+                cell,
+                pane_grid,
+                WindowPadding::ZERO,
+                max_rows,
+            ),
+            None => selection::drag_autoscroll_step_with_padding(
+                y_px, cell, self.grid, padding, max_rows,
+            ),
+        };
         if delta == 0 {
             return;
         }

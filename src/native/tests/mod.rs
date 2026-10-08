@@ -263,6 +263,7 @@ mod smart_ctrl_c;
 mod split_pane_grid;
 mod split_pane_pointer;
 mod split_pane_reports;
+mod split_selection_drag;
 mod synchronized_output;
 mod tabs_sessions;
 mod theme_capture;
