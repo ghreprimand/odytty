@@ -336,6 +336,27 @@ impl Session {
         self.needs_rebuild = true;
     }
 
+    /// Read this session's terminal trim epoch and baseline, and rebase or
+    /// reset retained coordinates when rows were evicted since the last read.
+    /// Deferred while the alternate screen is active.
+    fn reconcile_scrollback_trim_now(&mut self) {
+        let current = {
+            let terminal = crate::native::lock_recover(&self.terminal);
+            if terminal.on_alternate_screen() {
+                return;
+            }
+            (
+                terminal.scrollback_trim_epoch(),
+                ScrollbackCoordinateBaseline::read(terminal.screen()),
+            )
+        };
+        if current.0 != self.last_scrollback_trim_epoch {
+            self.reconcile_scrollback_trim(current.1);
+            self.last_scrollback_trim_epoch = current.0;
+        }
+        self.scrollback_coordinate_baseline = current.1;
+    }
+
     /// Drop the transient pointer-input latches so an active-session change
     /// cannot leave them stranded on the outgoing session or phantom-hovering on
     /// the incoming one (NF21-8 / NF21-9). Unlike
@@ -456,23 +477,27 @@ impl WorkspaceSet {
 
     /// Reconcile front eviction before painting or using absolute text coordinates.
     /// Defer while the alternate screen is active, preserving primary-buffer state.
+    /// Visits every session in every workspace; called once per redraw and by
+    /// explicit text actions (copy, copy mode, hints, search).
     pub(in crate::native) fn reconcile_scrollback_trims(&mut self) {
         for session in self.sessions.values_mut() {
-            let current = {
-                let terminal = crate::native::lock_recover(&session.terminal);
-                if terminal.on_alternate_screen() {
-                    continue;
-                }
-                (
-                    terminal.scrollback_trim_epoch(),
-                    ScrollbackCoordinateBaseline::read(terminal.screen()),
-                )
-            };
-            if current.0 != session.last_scrollback_trim_epoch {
-                session.reconcile_scrollback_trim(current.1);
-                session.last_scrollback_trim_epoch = current.0;
+            session.reconcile_scrollback_trim_now();
+        }
+    }
+
+    /// The per-input-event form of [`Self::reconcile_scrollback_trims`]: only
+    /// the panes of the active tab, whose coordinates pointer and key input
+    /// resolve against. Background tabs and workspaces are reconciled by the
+    /// next redraw, so a flooding background pane holding its terminal lock
+    /// never delays pointer motion, buttons, wheel, or keys.
+    pub(in crate::native) fn reconcile_active_tab_scrollback_trims(&mut self) {
+        let Some(tab) = self.active_tab_ref() else {
+            return;
+        };
+        for token in tab.layout.leaves() {
+            if let Some(session) = self.sessions.get_mut(&token) {
+                session.reconcile_scrollback_trim_now();
             }
-            session.scrollback_coordinate_baseline = current.1;
         }
     }
 

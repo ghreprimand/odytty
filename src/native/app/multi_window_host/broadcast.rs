@@ -193,6 +193,11 @@ mod tests {
             !host.windows[0].risky_paste_pending_for_test(),
             "the confirmation named the old set and is withdrawn"
         );
+        assert_eq!(
+            host.windows[0].open_notice_message_for_test().as_deref(),
+            Some("Broadcast receivers changed; paste not sent."),
+            "the withdrawal is announced"
+        );
         host.windows[0].confirm_risky_paste_for_test(false);
         host.service_broadcast();
         assert!(received.lock().expect("bytes").is_empty());
@@ -212,6 +217,11 @@ mod tests {
         assert!(
             later_bytes.lock().expect("bytes").is_empty(),
             "a receiver the dialog never named gets nothing"
+        );
+        assert_eq!(
+            host.windows[0].open_notice_message_for_test().as_deref(),
+            Some("Broadcast receivers changed; paste not sent."),
+            "the voided confirmation is announced"
         );
     }
 }

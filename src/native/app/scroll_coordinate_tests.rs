@@ -383,3 +383,130 @@ fn a_session_created_on_the_alternate_screen_seeds_the_primary_baseline() {
     assert!(offset > 0 && offset < 16);
     assert_eq!(app.anchor_viewport_for_render_frame_for_test(), offset);
 }
+
+/// Pointer motion, buttons, wheel, and keys reconcile only the active tab's
+/// panes. A background tab whose terminal lock is held (a pump parsing a
+/// flood) must not stall them; it is reconciled by the next redraw.
+#[test]
+fn input_events_do_not_wait_on_a_background_tab_terminal() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    use winit::keyboard::{KeyCode, PhysicalKey};
+    let dims = Dimensions::new(40, 6);
+    let (mut app, first) = headless_app_with(NativeOptions::default(), dims, Settings::default());
+    app.set_test_cell_for_test(crate::text::CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    });
+    let second = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    app.push_headless_session_for_test(
+        second.clone(),
+        crate::native::test_support::headless_writer(),
+        dims,
+    );
+    let background = if Arc::ptr_eq(&app.terminal, &first) {
+        second
+    } else {
+        first
+    };
+    let (locked_tx, locked_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let holder = std::thread::spawn(move || {
+        let _guard = background.lock().expect("background terminal");
+        locked_tx.send(()).expect("signal");
+        let _ = release_rx.recv_timeout(Duration::from_secs(10));
+    });
+    locked_rx.recv().expect("the background lock is held");
+    let start = Instant::now();
+    app.update_pointer_cell(20.5, 20.5);
+    app.handle_mouse_input(ElementState::Pressed, WinitMouseButton::Left);
+    app.handle_mouse_input(ElementState::Released, WinitMouseButton::Left);
+    app.handle_mouse_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
+    let key = WinitKey::Named(NamedKey::ArrowLeft);
+    app.handle_key_event(
+        key.clone(),
+        key,
+        PhysicalKey::Code(KeyCode::ArrowLeft),
+        KeyEventType::Press,
+    );
+    let elapsed = start.elapsed();
+    let _ = release_tx.send(());
+    holder.join().expect("holder");
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "input waited {elapsed:?} on a background tab's terminal"
+    );
+}
+
+/// A command whose rows survive while older history is evicted at the
+/// limit. Filler rows come first, so the trim takes only them.
+fn command_under_trimming() -> (App, Arc<Mutex<Terminal>>) {
+    let dims = Dimensions::new(40, 6);
+    let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
+    {
+        let mut terminal = terminal.lock().expect("terminal");
+        terminal.set_scrollback_limit(20);
+        for row in 0..20 {
+            terminal.advance(format!("filler {row:02}\r\n").as_bytes());
+        }
+        terminal.advance(
+            b"\x1b]133;A\x07$ show\r\n\x1b]133;C\x07kept output\r\n\x1b]133;D;0\x07\x1b]133;A\x07$ ",
+        );
+    }
+    (app, terminal)
+}
+
+/// Evict filler rows without any key, pointer, or redraw reconcile.
+fn evict_filler(terminal: &Arc<Mutex<Terminal>>) {
+    let mut terminal = terminal.lock().expect("terminal");
+    let epoch = terminal.scrollback_trim_epoch();
+    for row in 0..12 {
+        terminal.advance(format!("more {row:02}\r\n").as_bytes());
+    }
+    assert_ne!(terminal.scrollback_trim_epoch(), epoch, "rows were evicted");
+}
+
+/// The save dialog's result arrives as a user event. Rows evicted after the
+/// last reconcile, before the handle was taken, must not make a command that
+/// still resolves read as unavailable. (Output after the handle was taken
+/// changes its generation and is refused by design.)
+#[test]
+fn a_command_export_dialog_result_reconciles_eviction_before_reading() {
+    let (mut app, terminal) = command_under_trimming();
+    app.sessions.reconcile_scrollback_trims();
+    evict_filler(&terminal);
+    let handle = app.command_handle_for_test().expect("complete command");
+    app.pending_command_exports.insert(
+        7,
+        super::command_output::PendingCommandExport {
+            session: app.sessions.active_id(),
+            handle,
+        },
+    );
+    let target = std::env::temp_dir().join("odytty-unwritten-export.txt");
+    app.finish_command_export_dialog(
+        7,
+        crate::native::save_dialog::SaveDialogSelection::Selected(target),
+    );
+    // The headless App has no event proxy, so the export stops at the
+    // writer hand-off with its own notice; the command itself resolved.
+    let notice = app.open_notice_message_for_test().unwrap_or_default();
+    assert!(
+        !notice.contains("Command action unavailable"),
+        "the surviving command is not reported unavailable: {notice:?}"
+    );
+}
+
+#[test]
+fn a_command_copy_reconciles_eviction_before_reading() {
+    let (mut app, terminal) = command_under_trimming();
+    app.sessions.reconcile_scrollback_trims();
+    evict_filler(&terminal);
+    let handle = app.command_handle_for_test().expect("complete command");
+    app.copy_command_range_from_handle(handle, crate::core::CommandRangePart::Output);
+    assert_eq!(
+        app.last_clipboard_write_for_test().as_deref(),
+        Some("kept output")
+    );
+}

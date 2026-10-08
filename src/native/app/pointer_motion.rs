@@ -388,7 +388,7 @@ impl App {
     }
 
     pub(super) fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
-        self.sessions.reconcile_scrollback_trims();
+        self.sessions.reconcile_active_tab_scrollback_trims();
         self.window_pointer_px = Some((x_px, y_px));
         let Some(cell) = self.resolved_cell() else {
             return;

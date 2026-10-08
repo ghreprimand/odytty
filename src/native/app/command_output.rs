@@ -233,6 +233,9 @@ impl App {
         // Resolve and read under one terminal revision, as export does: output
         // that trims or resets the buffer between the two makes the copy
         // unavailable instead of copying rows that now mean something else.
+        // Eviction already settled is reconciled first, so only a trim during
+        // the read refuses.
+        self.sessions.reconcile_active_tab_scrollback_trims();
         let Some(text) = self.command_text_for_handle(handle, part) else {
             self.command_action_unavailable_notice();
             return;
@@ -387,6 +390,7 @@ impl App {
     }
 
     pub(super) fn begin_command_output_export_from_handle(&mut self, handle: CommandRangeHandle) {
+        self.sessions.reconcile_active_tab_scrollback_trims();
         let Some(text) = self.command_output_text_for_handle(handle) else {
             self.command_action_unavailable_notice();
             return;
@@ -453,6 +457,12 @@ impl App {
             self.command_action_unavailable_notice();
             return;
         }
+        // The dialog result arrives as a user event, not key or pointer input,
+        // so eviction not yet reconciled is settled here first: a handle that
+        // still resolves at this revision is exported instead of reported
+        // unavailable. Output since the dialog opened changes the revision and
+        // still refuses.
+        self.sessions.reconcile_active_tab_scrollback_trims();
         let Some(text) = self.command_output_text_for_handle(pending.handle) else {
             self.command_action_unavailable_notice();
             return;

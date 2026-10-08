@@ -401,8 +401,10 @@ pub(in crate::native) struct App {
     pub(super) ime_session: Option<SessionToken>,
     /// Owner of a composition that ended (empty pre-edit or an IME edge) on a
     /// pane that is no longer active. Its late commit is refused; a new
-    /// pre-edit clears it.
+    /// pre-edit clears it, and it lapses after [`IME_LATE_COMMIT_WINDOW`].
     pub(super) ime_settled_owner: Option<SessionToken>,
+    /// When [`Self::ime_settled_owner`] was recorded.
+    pub(super) ime_settled_at: Option<Instant>,
     #[cfg(test)]
     pub(super) focus_reports_for_test: Vec<(SessionToken, bool)>,
     #[cfg(test)]
@@ -907,6 +909,7 @@ impl App {
             ime_preedit: String::new(),
             ime_session: None,
             ime_settled_owner: None,
+            ime_settled_at: None,
             #[cfg(test)]
             focus_reports_for_test: Vec::new(),
             #[cfg(test)]

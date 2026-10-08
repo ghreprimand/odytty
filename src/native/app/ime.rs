@@ -22,6 +22,13 @@ use crate::core::{Attrs, Cell, Snapshot, UnderlineStyle};
 
 use super::*;
 
+/// How long a composition that ended on another pane keeps refusing a
+/// commit on the active pane. A platform delivers a cancelled composition's
+/// late commit together with the edge that ended it; a commit after this
+/// window (an emoji picker, a voice or on-screen keyboard insertion without a
+/// pre-edit) belongs to the active pane.
+pub(super) const IME_LATE_COMMIT_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+
 fn preedit_needs_cursor_area(text: &str) -> bool {
     !text.is_empty()
 }
@@ -49,6 +56,7 @@ impl App {
                     // Composition text is shown on the active pane, so a new
                     // composition starts there and settles any earlier one.
                     self.ime_settled_owner = None;
+                    self.ime_settled_at = None;
                     if self.ime_session.is_none() {
                         self.ime_session = Some(self.sessions.active_id());
                     }
@@ -65,7 +73,11 @@ impl App {
             Ime::Commit(text) => {
                 let active = self.sessions.active_id();
                 let origin = self.ime_session.take();
-                let settled = self.ime_settled_owner.take();
+                let settled_at = self.ime_settled_at.take();
+                let settled = self
+                    .ime_settled_owner
+                    .take()
+                    .filter(|_| settled_at.is_some_and(|at| at.elapsed() < IME_LATE_COMMIT_WINDOW));
                 let accepts_commit = match origin {
                     Some(owner) => owner == active,
                     // A composition that ended on another pane can still
@@ -85,14 +97,21 @@ impl App {
 
     /// End the current composition (an empty pre-edit or an enable/disable
     /// edge). An owner other than the active pane is kept as settled, so a
-    /// commit delivered after the edge is still refused on this pane until a
-    /// new composition starts here.
+    /// commit delivered with the edge is still refused on this pane. A new
+    /// composition here, or [`IME_LATE_COMMIT_WINDOW`] passing, lifts it.
     fn end_ime_composition(&mut self) {
         if let Some(owner) = self.ime_session.take()
             && owner != self.sessions.active_id()
         {
             self.ime_settled_owner = Some(owner);
+            self.ime_settled_at = Some(std::time::Instant::now());
         }
+    }
+
+    /// Age the settled composition's edge, as if `by` had passed since it.
+    #[cfg(test)]
+    pub(in crate::native) fn age_ime_settled_edge_for_test(&mut self, by: std::time::Duration) {
+        self.ime_settled_at = self.ime_settled_at.and_then(|at| at.checked_sub(by));
     }
 
     /// C9: finalize an IME commit under the SAME overlay/search/modal gate the

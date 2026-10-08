@@ -1504,6 +1504,9 @@ that closed while the picker was open, including when names are duplicated.
   bracketed-paste mode with the shared encoder. Any paste containing a line
   break opens the confirmation with receiver, hidden, and remote counts;
   Cancel sends nothing anywhere, and Escape is otherwise ordinary input. A
+  change to the set in any window withdraws an open confirmation, or voids
+  one accepted before the change was seen, with the notice `Broadcast
+  receivers changed; paste not sent.` and nothing sent to any pane. A
   receiver whose write fails is dropped with a notice naming its title.
   Receivers in other windows are queued and delivered by the process window
   owner after each event; a receiver whose pane no window owns is dropped.

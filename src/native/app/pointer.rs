@@ -208,7 +208,7 @@ impl App {
     /// first, then an in-progress local selection drag, then TUI mouse
     /// reporting, then local selection / hyperlink-open / middle-click paste.
     pub(super) fn handle_mouse_input(&mut self, state: ElementState, button: WinitMouseButton) {
-        self.sessions.reconcile_scrollback_trims();
+        self.sessions.reconcile_active_tab_scrollback_trims();
         if button == WinitMouseButton::Left {
             self.pointer_left_held = state == ElementState::Pressed;
         }
@@ -942,7 +942,7 @@ impl App {
     /// first, then TUI reporting, then local scrollback movement at the
     /// configured per-notch multiplier.
     pub(super) fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {
-        self.sessions.reconcile_scrollback_trims();
+        self.sessions.reconcile_active_tab_scrollback_trims();
         // UX4-P1: an open overlay captures the wheel to scroll its list,
         // before TUI reporting or scrollback movement.
         if self.overlay.is_open() {

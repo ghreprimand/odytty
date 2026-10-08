@@ -136,6 +136,7 @@ impl App {
             // The confirmation named one set of receivers. A change made in
             // any window since then makes it stale, and nothing is sent.
             if crate::native::lock_recover(&self.broadcast).generation() != generation {
+                self.broadcast_paste_withdrawn_notice();
                 return;
             }
             self.broadcast_paste(&text);

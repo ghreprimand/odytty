@@ -1029,7 +1029,11 @@ focused pane anyway.
 Escape is ordinary input here: it reaches every receiver, so shells and editors
 still see it. `Ctrl+Shift+X` is the escape hatch. It empties the set, withdraws a
 pending broadcast paste confirmation, works while a menu or confirmation is
-open, and is never sent to any shell.
+open, and is never sent to any shell. Any change to the set, made in any
+window while a broadcast paste confirmation is open, withdraws it the same
+way; a confirmation accepted just before the change reached this window sends
+nothing to any pane. Both show the notice `Broadcast receivers changed; paste
+not sent.`
 
 Keys are encoded once, for the focused pane's keyboard mode, and every
 receiver gets those same bytes; a receiver whose program asked for a different

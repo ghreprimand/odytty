@@ -32,7 +32,7 @@ impl App {
         physical: PhysicalKey,
         event_type: KeyEventType,
     ) {
-        self.sessions.reconcile_scrollback_trims();
+        self.sessions.reconcile_active_tab_scrollback_trims();
         let consumed_locally = match event_type {
             KeyEventType::Press => {
                 self.locally_consumed_keys.retain(|key| *key != physical);

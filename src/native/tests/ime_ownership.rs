@@ -96,3 +96,17 @@ fn a_commit_without_a_composition_reaches_the_active_pane() {
     app.handle_ime(Ime::Commit("\u{e9}".to_owned()));
     assert_eq!(bytes(&first), "\u{e9}".as_bytes());
 }
+
+#[test]
+fn a_direct_commit_after_a_cancelled_composition_reaches_the_new_pane() {
+    let (mut app, [_, b], [first, second]) = two_panes();
+    app.handle_ime(Ime::Preedit("\u{4e2d}".to_owned(), None));
+    app.focus_session_token_for_test(b);
+    app.handle_ime(Ime::Preedit(String::new(), None));
+    // An emoji picker or on-screen keyboard commits later without any
+    // pre-edit; the cancelled composition's refusal has lapsed by then.
+    app.age_ime_settled_edge_for_test(std::time::Duration::from_secs(2));
+    app.handle_ime(Ime::Commit("\u{1f600}".to_owned()));
+    assert_eq!(bytes(&second), "\u{1f600}".as_bytes());
+    assert!(bytes(&first).is_empty(), "nothing reaches the old pane");
+}

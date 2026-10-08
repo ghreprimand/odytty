@@ -153,7 +153,8 @@ impl App {
         self.after_broadcast_membership_change();
     }
 
-    /// Withdraw a stale broadcast paste confirmation and repaint the labels.
+    /// Withdraw a stale broadcast paste confirmation, saying so, and repaint
+    /// the labels.
     fn after_broadcast_membership_change(&mut self) {
         if self
             .pending_text_paste
@@ -161,8 +162,15 @@ impl App {
             .is_some_and(|pending| pending.broadcast.is_some())
         {
             self.cancel_pending_text_paste();
+            self.broadcast_paste_withdrawn_notice();
         }
         self.repaint_broadcast_labels();
+    }
+
+    /// The one-line notice for a broadcast paste that was not sent because
+    /// the receivers changed after its confirmation opened.
+    pub(super) fn broadcast_paste_withdrawn_notice(&mut self) {
+        self.raise_open_notice("Broadcast receivers changed; paste not sent.".to_owned());
     }
 
     /// Withdraw a stale broadcast paste confirmation and repaint this
