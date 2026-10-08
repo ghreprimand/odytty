@@ -94,23 +94,33 @@ fn osc7_accepts_injected_local_hostname() {
 }
 
 #[test]
-fn osc7_injected_hostname_match_is_case_and_fqdn_tolerant() {
+fn osc7_injected_hostname_exact_match_is_case_insensitive() {
     let mut terminal = Terminal::new(8, 3);
-    terminal.set_local_hostname(Some("testhost.example.invalid".to_owned()));
-
-    terminal.advance(&osc7_bel("file://TESTHOST/home/user/case"));
-    assert_eq!(
-        terminal.current_working_directory(),
-        Some("/home/user/case")
-    );
+    terminal.set_local_hostname(Some("fixture.example.invalid".to_owned()));
+    terminal.advance(&osc7_bel("file://FIXTURE.EXAMPLE.INVALID/fixture"));
+    assert_eq!(terminal.current_working_directory(), Some("/fixture"));
     assert!(terminal.take_working_directory_changed());
+}
 
-    terminal.advance(&osc7_bel("file://testhost.local/home/user/short"));
-    assert_eq!(
-        terminal.current_working_directory(),
-        Some("/home/user/short")
-    );
-    assert!(terminal.take_working_directory_changed());
+#[test]
+fn osc7_shared_hostname_label_does_not_establish_local_authority() {
+    for local in ["fixture.example.invalid", "fixture"] {
+        let mut terminal = Terminal::new(8, 3);
+        terminal.set_local_hostname(Some(local.to_owned()));
+        terminal.advance(&osc7_bel("file://localhost/safe"));
+        assert!(terminal.take_working_directory_changed());
+        for host in ["fixture.remote.invalid", "fixture.other.invalid"] {
+            terminal.advance(&osc7_bel(&format!("file://{host}/remote")));
+            assert_eq!(terminal.current_working_directory(), Some("/safe"));
+            assert!(!terminal.take_working_directory_changed());
+            assert!(terminal.take_host_output().is_empty());
+        }
+        if local.contains('.') {
+            terminal.advance(&osc7_bel("file://fixture/remote"));
+            assert_eq!(terminal.current_working_directory(), Some("/safe"));
+            assert!(!terminal.take_working_directory_changed());
+        }
+    }
 }
 
 #[test]
@@ -298,13 +308,76 @@ fn osc7_windows_network_and_device_paths_leave_cwd_unchanged() {
     }
 }
 
-#[cfg(unix)]
-#[test]
-fn osc7_unix_double_slash_path_remains_local_metadata() {
+// Project-authored file URL fixtures exercise the real OSC parser on every OS.
+fn assert_osc7_refused(payload: &str) {
     let mut terminal = Terminal::new(8, 3);
-    terminal.advance(&osc7_bel("file:////fixture/share"));
+    terminal.advance(b"AB");
+    terminal.advance(&osc7_bel("file://localhost/safe"));
+    assert!(terminal.take_working_directory_changed());
+    let before = terminal.snapshot();
+    terminal.advance(&osc7_bel(payload));
     assert_eq!(
         terminal.current_working_directory(),
-        Some("//fixture/share")
+        Some("/safe"),
+        "{payload}"
     );
+    assert!(!terminal.take_working_directory_changed(), "{payload}");
+    assert!(terminal.take_host_output().is_empty(), "{payload}");
+    assert_eq!(terminal.snapshot(), before, "{payload}");
+}
+
+#[test]
+fn osc7_network_shaped_paths_are_refused_on_every_platform() {
+    for payload in [
+        "file:////fixture.invalid/share",
+        "file://localhost//fixture.invalid/share",
+        "file:///%2Ffixture.invalid/share",
+        "file://localhost/%2ffixture.invalid/share",
+        "file://localhost/%2F%2Ffixture.invalid/share",
+    ] {
+        assert_osc7_refused(payload);
+    }
+}
+
+#[test]
+fn osc7_literal_and_decoded_backslashes_are_refused() {
+    for payload in [
+        r"file:///fixture\name",
+        "file:///fixture%5Cname",
+        "file:///fixture%5cname",
+        "file:///%5Cfixture.invalid/share",
+        "file:///%5C%5C?%5CC:%5Cfixture",
+        "file:///%5C%5C.%5Cpipe%5Cfixture",
+        "file:///C:/fixture%5Cname",
+    ] {
+        assert_osc7_refused(payload);
+    }
+}
+
+#[test]
+fn osc7_decoded_ascii_controls_are_refused() {
+    for byte in (0u8..=31).chain(std::iter::once(127)) {
+        assert_osc7_refused(&format!("file:///fixture%{byte:02X}name"));
+    }
+}
+
+#[test]
+fn osc7_decoded_unicode_controls_are_refused() {
+    for byte in 0x80u8..=0x9f {
+        assert_osc7_refused(&format!("file:///fixture%C2%{byte:02X}name"));
+    }
+}
+
+#[test]
+fn osc7_slash_drive_paths_and_safe_escaped_characters_remain_valid() {
+    let mut terminal = Terminal::new(8, 3);
+    terminal.advance(&osc7_bel("file:///C:/fixture%20name%3Bpart%25"));
+    let expected = if cfg!(windows) {
+        "C:/fixture name;part%"
+    } else {
+        "/C:/fixture name;part%"
+    };
+    assert_eq!(terminal.current_working_directory(), Some(expected));
+    assert!(terminal.take_working_directory_changed());
+    assert!(terminal.take_host_output().is_empty());
 }

@@ -739,9 +739,11 @@ active pane's working directory. It does not copy scrollback or the running
 program, and a pane without a tracked directory opens in the default one.
 Windows refuses network/device cwd prefixes before filesystem probes or child
 creation, including restored layouts and profile launches. Refused OSC 7
-reports leave the previous directory unchanged. Invalid spawn directories fall
-back to a local home or the default directory. Unix double-slash paths retain
-their local semantics.
+reports leave the previous directory unchanged. OSC 7 refuses decoded controls,
+backslashes, and paths starting with two slashes on every platform. A supplied
+local hostname must match in full, case-insensitively; a shared first DNS label
+is insufficient. Invalid spawn directories fall back to a local home or the
+default directory.
 
 ### Adjust The Tab Bar
 

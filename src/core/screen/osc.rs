@@ -2,9 +2,8 @@
 //! OSC (Operating System Command) payload parsing helpers, split out of the
 //! parent module for the modularity cap: OSC string reassembly, OSC 7
 //! working-directory URL decoding, OSC 52 clipboard selection parsing, xterm
-//! `rgb:` color parse/format, and the indexed-color sRGB table. These are pure
-//! free functions moved verbatim from `super` (private `fn` widened to
-//! `pub(super)` so the parent module can still call them).
+//! `rgb:` color parse/format, and the indexed-color sRGB table. The screen
+//! module uses these pure helpers without filesystem access.
 
 use super::*;
 
@@ -34,9 +33,9 @@ pub(super) fn osc_string(parts: &[&[u8]]) -> String {
 ///
 /// An empty host or `localhost` (ASCII case-insensitive) is always accepted. A
 /// front end may also inject the local hostname; when present, an OSC 7 host
-/// matching that name is accepted too. Matching is case-insensitive and tolerant
-/// of short-vs-FQDN forms by comparing both full names and the leading label
-/// before the first `.`. Any other host causes the OSC 7 to be ignored.
+/// matching that full name is accepted too, case-insensitively. A shared first
+/// label or a short/FQDN spelling difference does not establish a local host.
+/// Any other host causes the OSC 7 to be ignored.
 /// Rationale: a `file://` URL with a foreign host names a path on *another*
 /// machine. The core cannot resolve hostnames itself (it stays deterministic
 /// and filesystem-free), so the local name is live front-end config, not
@@ -48,11 +47,9 @@ pub(super) fn osc_string(parts: &[&[u8]]) -> String {
 /// - A missing path (no `/` after the authority) is ignored.
 /// - A malformed percent-escape (`%` without two following hex digits, or a
 ///   trailing/truncated `%`) ignores the whole OSC 7 rather than guessing.
-/// - A decoded NUL byte (`%00`) is rejected: NUL can never appear in a valid
-///   path and accepting it risks truncation bugs downstream.
-/// - Windows network/device paths with two leading separators are ignored,
-///   including percent-encoded and mixed slash/backslash forms. Unix retains
-///   local double-slash paths.
+/// - Decoded control characters and backslashes are rejected.
+/// - Paths with two leading slashes are ignored on every platform, including
+///   percent-encoded forms. OSC 7 cannot supply network or device directories.
 /// - Surviving non-UTF-8 bytes are replaced lossily so a malformed path can
 ///   never desync the parser.
 pub(super) fn parse_osc7_cwd(parts: &[&[u8]], local_hostname: Option<&str>) -> Option<String> {
@@ -86,12 +83,13 @@ pub(super) fn parse_osc7_cwd(parts: &[&[u8]], local_hostname: Option<&str>) -> O
 
     let decoded = percent_decode_path(path)?;
     let cwd = String::from_utf8_lossy(&decoded).into_owned();
+    if cwd.starts_with("//") || cwd.chars().any(|ch| ch == '\\' || ch.is_control()) {
+        return None;
+    }
     // On Windows, `file:///C:/...` parses to a path with a leading slash before
     // the drive letter (`/C:/...`) which Windows cannot stat, breaking relative
-    // interactive-path resolution. Strip it via a cfg-gated shadowing `let` so
-    // Linux/macOS production builds are byte-identical (and there is no
-    // unreachable trailing expression that `-D warnings` would reject on
-    // Windows).
+    // interactive-path resolution. Only Windows normalizes this drive prefix;
+    // Unix keeps the URL's leading slash.
     #[cfg(windows)]
     let cwd = strip_leading_drive_slash(cwd);
     if !crate::cwd::permitted(std::path::Path::new(&cwd)) {
@@ -124,22 +122,7 @@ fn osc7_host_is_local(host: &[u8], local_hostname: Option<&str>) -> bool {
     let Some(local_hostname) = local_hostname.filter(|hostname| !hostname.is_empty()) else {
         return false;
     };
-    hostname_matches(host, local_hostname)
-}
-
-fn hostname_matches(host: &str, local_hostname: &str) -> bool {
-    if host.eq_ignore_ascii_case(local_hostname) {
-        return true;
-    }
-    let host_label = leading_label(host);
-    let local_label = leading_label(local_hostname);
-    !host_label.is_empty()
-        && !local_label.is_empty()
-        && host_label.eq_ignore_ascii_case(local_label)
-}
-
-fn leading_label(host: &str) -> &str {
-    host.split_once('.').map(|(label, _)| label).unwrap_or(host)
+    host.eq_ignore_ascii_case(local_hostname)
 }
 
 /// Percent-decode a path's bytes. Returns `None` on a malformed escape or a

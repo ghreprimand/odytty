@@ -575,10 +575,12 @@ Delivered compatibility work under that policy:
         `file://host/path`, percent-decode the path, accept empty/`localhost`
         hosts (foreign hosts ignored), store advisory cwd string state with a
         `take_working_directory_changed` poll flag, and survive RIS. Malformed
-        URLs / truncated escapes / `%00` / oversized payloads are ignored
+        URLs / truncated escapes / control characters / backslashes / network-shaped
+        paths are ignored
         non-panicking; OSC 7 emits no response and never leaks into the grid.
         Windows network/device cwd prefixes are refused before filesystem probes
-        and ConPTY child creation; Unix double-slash paths retain local semantics.
+        and ConPTY child creation. OSC 7 refuses double-slash paths on every
+        platform and requires exact case-insensitive injected hostnames.
         OSC 6 accepted-and-ignored. Native consumers subsequently landed for
         recent-directory history, spawn-directory inheritance, duplicate
         tabs/windows, layouts, persistence, and interactive paths.

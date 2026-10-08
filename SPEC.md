@@ -1678,11 +1678,13 @@ that closed while the picker was open, including when names are duplicated.
   `Screen::take_working_directory_changed`). The parser requires the `file://`
   scheme (case-insensitive), splits the authority, and percent-decodes the path.
   An empty host, `localhost`, or the front end's supplied local hostname is
-  accepted. Matching is case-insensitive and allows short/FQDN forms. Foreign
+  accepted. Matching requires the full name, case-insensitively; shared DNS
+  labels and short/FQDN substitutions are refused. Foreign
   hosts are ignored rather than stored as misleading local paths; the core
   never resolves hostnames and remains deterministic and filesystem-free.
   Robustness: non-`file://` URLs,
-  missing path, malformed or truncated percent-escapes, and decoded NUL (`%00`)
+  missing path, malformed or truncated percent-escapes, decoded control
+  characters, backslashes, and paths starting with two slashes
   all ignore the OSC and leave the stored path unchanged; non-UTF-8 bytes are
   replaced lossily; payloads are bounded by the parser's 128 KiB OSC cap.
 
@@ -1690,7 +1692,8 @@ that closed while the picker was open, including when names are duplicated.
   including UNC and device paths. Restored and interactive cwd validation and
   ConPTY spawn apply the same check before filesystem probes or child creation;
   an invalid directory falls back to a permitted home or the default directory.
-  Unix double-slash paths retain their local semantics.
+  OSC 7 refuses double-slash paths on every platform before storing them.
+  This OSC boundary does not alter explicit-directory input handling.
 
   No
   response is emitted and no filesystem access occurs. RIS leaves the stored
