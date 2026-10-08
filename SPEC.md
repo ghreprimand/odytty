@@ -3068,14 +3068,19 @@ color coverage depends on the selected font.
 
 ### Bound Emoji Atlas Capacity
 
-`ColorGlyphAtlas` capacity is bounded and
-corruption-safe as implemented. The atlas starts at 16 columns by four rows,
-grows in four-row chunks, and caps at 4096 resident color glyph/cluster slots.
-At the cap, a new insertion returns `ColorGlyphAtlasError::Full`; existing
-slots stay lookupable, no slot is overwritten, `revision` is unchanged, and a
-failed insert does not mark the atlas dirty. The renderer therefore degrades by
-omitting the new color run and leaving fallback rendering visible.
+`ColorGlyphAtlas` holds at most 16,384 resident color glyph/cluster slots,
+four times the former 4,096 limit. It uses 16 columns and grows in complete
+four-row pages. Both texture dimensions stay within the active device limit;
+the CPU bitmap is also capped at 256 MiB. Checked size arithmetic and fallible
+reservation precede allocation and growth. Zero, overflowing, over-budget or
+device-incompatible initial cell geometry declines color residency and uses a
+transparent 1x1 texture, preserving cell metrics and monochrome fallback.
+Startup and scale/font rebuilds use the same device-bound constructor.
 
-No eviction
-policy is added until observed workloads prove 4096 resident color glyphs is too
-small.
+At a slot, bitmap or device limit, a new insertion returns
+`ColorGlyphAtlasError::Full`; existing compatible slots stay lookupable,
+no slot is overwritten, `revision` is unchanged, and a failed insert does not
+mark the atlas dirty. The renderer omits refused color runs and leaves fallback
+rendering visible. No eviction policy is added. The bound applies on Linux
+Wayland, Linux X11, macOS and Windows; this is a capacity change, with no
+measured performance claim.

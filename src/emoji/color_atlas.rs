@@ -11,7 +11,8 @@ use crate::atlas::CellSize;
 
 const ATLAS_COLS: u32 = 16;
 const ATLAS_GROW_ROWS: u32 = 4;
-const MAX_COLOR_GLYPH_SLOTS: u32 = 4096;
+const MAX_COLOR_GLYPH_SLOTS: u32 = 16384;
+const MAX_COLOR_BITMAP_BYTES: usize = 256 * 1024 * 1024;
 
 /// Stable identity for a shaped color glyph or cluster.
 ///
@@ -94,6 +95,7 @@ pub struct ColorGlyphAtlas {
     pub height: u32,
     pub data: Vec<u8>,
     pub cell: CellSize,
+    enabled: bool,
     cols: u32,
     capacity_rows: u32,
     next_slot: u32,
@@ -106,22 +108,43 @@ pub struct ColorGlyphAtlas {
 
 impl ColorGlyphAtlas {
     pub fn new(cell: CellSize) -> Self {
-        let width = ATLAS_COLS * max_slot_width(cell);
-        let height = ATLAS_GROW_ROWS * cell.height.max(1);
-        Self {
+        Self::with_texture_dimension_limit(cell, u32::MAX)
+    }
+
+    /// Allocate only a complete, bounded initial page that fits the device.
+    /// Refused geometry retains the cell metrics and a transparent 1x1 texture;
+    /// every lookup/insertion declines, leaving monochrome fallback visible.
+    pub fn with_texture_dimension_limit(cell: CellSize, max_dimension: u32) -> Self {
+        let layout = initial_layout(cell, max_dimension);
+        let mut data = Vec::new();
+        let layout = layout.filter(|(_, _, bytes)| data.try_reserve_exact(*bytes).is_ok());
+        let (width, height, enabled) = match layout {
+            Some((width, height, bytes)) => {
+                data.resize(bytes, 0);
+                (width, height, true)
+            }
+            None => {
+                data = vec![0; 4];
+                (1, 1, false)
+            }
+        };
+        let mut atlas = Self {
             width,
             height,
-            data: vec![0; (width * height * 4) as usize],
+            data,
             cell,
+            enabled,
             cols: ATLAS_COLS,
-            capacity_rows: ATLAS_GROW_ROWS,
+            capacity_rows: if enabled { ATLAS_GROW_ROWS } else { 0 },
             next_slot: 0,
-            max_slots: MAX_COLOR_GLYPH_SLOTS,
-            max_texture_dimension: u32::MAX,
+            max_slots: 0,
+            max_texture_dimension: max_dimension,
             slots: HashMap::new(),
             revision: 0,
             dirty: false,
-        }
+        };
+        atlas.set_texture_dimension_limit(max_dimension);
+        atlas
     }
 
     pub fn revision(&self) -> u64 {
@@ -153,7 +176,13 @@ impl ColorGlyphAtlas {
     /// growth page would exceed the limit.
     pub fn set_texture_dimension_limit(&mut self, max_dimension: u32) {
         self.max_texture_dimension = max_dimension;
-        let rows = max_dimension / self.cell.height.max(1);
+        if !self.enabled {
+            self.max_slots = 0;
+            return;
+        }
+        let row_bytes = self.width as usize * self.cell.height as usize * 4;
+        let bitmap_rows = (MAX_COLOR_BITMAP_BYTES / row_bytes) as u32;
+        let rows = (max_dimension / self.cell.height).min(bitmap_rows);
         let reachable_rows = rows / ATLAS_GROW_ROWS * ATLAS_GROW_ROWS;
         self.max_slots = reachable_rows
             .saturating_mul(self.cols)
@@ -162,7 +191,10 @@ impl ColorGlyphAtlas {
     }
 
     pub fn lookup(&self, key: ColorGlyphKey) -> Option<ColorGlyphBounds> {
-        if self.width > self.max_texture_dimension || self.height > self.max_texture_dimension {
+        if !self.enabled
+            || self.width > self.max_texture_dimension
+            || self.height > self.max_texture_dimension
+        {
             return None;
         }
         let slot = self.slots.get(&key)?;
@@ -188,7 +220,10 @@ impl ColorGlyphAtlas {
                 bitmap: width_cells,
             });
         }
-        if self.width > self.max_texture_dimension || self.height > self.max_texture_dimension {
+        if !self.enabled
+            || self.width > self.max_texture_dimension
+            || self.height > self.max_texture_dimension
+        {
             return Err(ColorGlyphAtlasError::Full);
         }
         if let Some(bounds) = self.lookup(key) {
@@ -208,7 +243,9 @@ impl ColorGlyphAtlas {
             return Err(ColorGlyphAtlasError::Full);
         }
 
-        self.grow_for_slot(self.next_slot);
+        if !self.grow_for_slot(self.next_slot) {
+            return Err(ColorGlyphAtlasError::Full);
+        }
         let slot = ColorGlyphSlot {
             slot: self.next_slot,
             width_cells,
@@ -221,16 +258,32 @@ impl ColorGlyphAtlas {
         Ok(self.slot_bounds(slot))
     }
 
-    fn grow_for_slot(&mut self, slot: u32) {
+    fn grow_for_slot(&mut self, slot: u32) -> bool {
         let needed_rows = slot / self.cols + 1;
         if needed_rows <= self.capacity_rows {
-            return;
+            return true;
         }
-        while self.capacity_rows < needed_rows {
-            self.capacity_rows += ATLAS_GROW_ROWS;
+        let capacity_rows = needed_rows.div_ceil(ATLAS_GROW_ROWS) * ATLAS_GROW_ROWS;
+        let Some(height) = capacity_rows.checked_mul(self.cell.height) else {
+            return false;
+        };
+        if height > self.max_texture_dimension {
+            return false;
         }
-        self.height = self.capacity_rows * self.cell.height.max(1);
-        self.data.resize((self.width * self.height * 4) as usize, 0);
+        let Some(bytes) = bitmap_byte_len(self.width, height) else {
+            return false;
+        };
+        if self
+            .data
+            .try_reserve_exact(bytes - self.data.len())
+            .is_err()
+        {
+            return false;
+        }
+        self.data.resize(bytes, 0);
+        self.height = height;
+        self.capacity_rows = capacity_rows;
+        true
     }
 
     fn copy_slot_pixels(&mut self, slot: ColorGlyphSlot, rgba: &[u8]) {
@@ -266,6 +319,25 @@ impl ColorGlyphAtlas {
             (slot / self.cols) * self.cell.height.max(1),
         )
     }
+}
+
+fn bitmap_byte_len(width: u32, height: u32) -> Option<usize> {
+    (width as usize)
+        .checked_mul(height as usize)?
+        .checked_mul(4)
+        .filter(|bytes| *bytes <= MAX_COLOR_BITMAP_BYTES)
+}
+
+fn initial_layout(cell: CellSize, max_dimension: u32) -> Option<(u32, u32, usize)> {
+    if cell.width == 0 || cell.height == 0 {
+        return None;
+    }
+    let width = cell.width.checked_mul(2)?.checked_mul(ATLAS_COLS)?;
+    let height = cell.height.checked_mul(ATLAS_GROW_ROWS)?;
+    if width > max_dimension || height > max_dimension {
+        return None;
+    }
+    Some((width, height, bitmap_byte_len(width, height)?))
 }
 
 fn max_slot_width(cell: CellSize) -> u32 {
@@ -456,3 +528,6 @@ mod tests {
         assert_eq!(atlas.height, initial_height);
     }
 }
+
+#[cfg(test)]
+mod capacity_policy_tests;

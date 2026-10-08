@@ -887,8 +887,10 @@ impl GpuState {
             &atlas_texture,
             &atlas_sampler,
         );
-        let mut color_glyph_atlas = ColorGlyphAtlas::new(atlas.cell);
-        color_glyph_atlas.set_texture_dimension_limit(device.limits().max_texture_dimension_2d);
+        let mut color_glyph_atlas = ColorGlyphAtlas::with_texture_dimension_limit(
+            atlas.cell,
+            device.limits().max_texture_dimension_2d,
+        );
         let initial_color_glyph_runs =
             emoji_rasterizer.build_color_glyph_runs(initial_snapshot, &mut color_glyph_atlas);
         let ligatures_enabled = crate::settings::ligatures_enabled();
@@ -1234,9 +1236,10 @@ impl GpuState {
         self.ligature_shaper.clear();
         self.complex_shaper.clear();
         self.refresh_atlas_texture();
-        self.color_glyph_atlas = ColorGlyphAtlas::new(self.atlas.cell);
-        self.color_glyph_atlas
-            .set_texture_dimension_limit(self.device.limits().max_texture_dimension_2d);
+        self.color_glyph_atlas = ColorGlyphAtlas::with_texture_dimension_limit(
+            self.atlas.cell,
+            self.device.limits().max_texture_dimension_2d,
+        );
         self.refresh_color_glyph_atlas_texture();
     }
 

@@ -24,6 +24,10 @@ Settings names startup environment overrides in the selected row's help.
 Saved edits remain in the config file; removing the overriding variable
 allows them to take effect on next launch.
 
+Colour-glyph residency allows 16,384 slots within the device texture limit and
+a 256 MiB bitmap ceiling. Checked construction declines incompatible initial
+pages without changing terminal cell metrics or monochrome fallback.
+
 Scrollback front eviction anchors viewed text and search-return positions
 through new output, clamping at the oldest retained row once that text is
 evicted. Search input survives, and retained selection, drag, hint and copy-mode

@@ -649,6 +649,12 @@ logic is platform-neutral. Atlas admission checks both texture dimensions
 against the device limit and requires matching key/bitmap cell spans.
 Oversized atlases decline color lookups without discarding resident pixels.
 
+Colour-glyph residency is capped at 16,384 slots, the GPU texture limit, and a
+256 MiB CPU bitmap. Initial allocation and later growth are checked before
+reservation. An initial page that cannot fit uses a transparent 1x1 texture
+and monochrome fallback; resident compatible glyphs survive later refusal.
+This policy is shared by Linux Wayland, Linux X11, macOS and Windows.
+
 Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
 supported by the color-glyph renderer. Unicode 17 listed VS16 bases, supported
 modifier-base skin tones, VS16 keycaps, regional-indicator pairs, and fully
