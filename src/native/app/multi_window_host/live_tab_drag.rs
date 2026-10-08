@@ -1095,6 +1095,59 @@ mod tests {
         assert!(!destination.live_drag_destination);
     }
     #[test]
+    fn live_tab_real_pointer_custody_rekeys_actual_app_frames_on_commit_and_cancel() {
+        for commit in [true, false] {
+            let (mut host, tab, _) = armed(true);
+            let source = host.windows[0].process_window_id();
+            let (ordinary, _) = host.windows[0]
+                .redraw_single_pane_probe_for_test()
+                .expect("ordinary frame");
+            assert!(!ordinary.content.live_tab_drag);
+            assert!(host.begin_live_tab(source, tab, |_| Ok(())));
+            let destination = &mut host.windows[1];
+            destination.set_test_cell_for_test(crate::text::CellSize {
+                width: 8,
+                height: 16,
+                baseline: 12,
+            });
+            destination.set_test_surface_for_test(640, 384, WindowPadding::ZERO);
+            let (provisional, update) = destination
+                .redraw_single_pane_probe_for_test()
+                .expect("provisional frame");
+            assert!(provisional.content.live_tab_drag);
+            assert_eq!(update, GeometryUpdate::Full);
+            let (unchanged, update) = destination
+                .redraw_single_pane_probe_for_test()
+                .expect("unchanged provisional frame");
+            assert_eq!(unchanged, provisional);
+            assert_eq!(update, GeometryUpdate::Retained);
+            if commit {
+                assert!(host.commit_live_tab());
+                let destination = host
+                    .windows
+                    .iter_mut()
+                    .find(|app| app.process_window_id() != source)
+                    .expect("committed destination");
+                let (settled, update) = destination
+                    .redraw_single_pane_probe_for_test()
+                    .expect("committed frame");
+                assert!(!settled.content.live_tab_drag);
+                assert_ne!(settled.content, provisional.content);
+                assert_eq!(update, GeometryUpdate::Full);
+            } else {
+                host.cancel_live_tab();
+                assert_eq!(host.windows.len(), 1);
+                assert_eq!(host.windows[0].process_window_id(), source);
+                let (settled, update) = host.windows[0]
+                    .redraw_single_pane_probe_for_test()
+                    .expect("restored source frame");
+                assert!(!settled.content.live_tab_drag);
+                assert_eq!(update, GeometryUpdate::Full);
+            }
+        }
+    }
+
+    #[test]
     fn live_tab_source_input_restores_custody_before_ordinary_ime_routing() {
         let (mut host, tab, _) = armed(false);
         let source = host.windows[0].process_window_id();

@@ -416,7 +416,14 @@ impl App {
                 // rebuild storm (NF21-7).
                 self.sessions.clear_visible_pane_rebuild_flags();
             } else {
-                let Some(cell) = self.gpu.as_ref().map(GpuState::cell) else {
+                let cell = self.gpu.as_ref().map(GpuState::cell);
+                #[cfg(test)]
+                let cell = cell.or_else(|| {
+                    self.single_pane_frame_probe_enabled_for_test
+                        .then(|| self.resolved_cell())
+                        .flatten()
+                });
+                let Some(cell) = cell else {
                     return true;
                 };
                 // The single-pane texture cache is scoped to the session
@@ -821,6 +828,10 @@ impl App {
                 // plain / no-autohide path (`None`) keeps its classification
                 // exactly, so nothing off the revealed-rail path changes.
                 let update = update.retaining_rail_overlay(rail_overlay_data.is_some());
+                #[cfg(test)]
+                {
+                    self.single_pane_frame_probe_for_test = Some((signature.clone(), update));
+                }
                 // TRANSPARENCY: window background alpha for this frame,
                 // computed before the mutable GPU borrow.
                 let win_bg_alpha = {

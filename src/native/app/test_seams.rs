@@ -878,6 +878,21 @@ impl App {
         self.multipane_pane_probe_for_test.clone()
     }
 
+    /// Deliver a dirty single-pane frame through the real redraw handler and
+    /// return its generated signature and final geometry decision. Test cell
+    /// metrics allow snapshot and cache policy to run without GPU presentation.
+    #[cfg(test)]
+    pub(in crate::native) fn redraw_single_pane_probe_for_test(
+        &mut self,
+    ) -> Option<(RenderSignature, GeometryUpdate)> {
+        self.single_pane_frame_probe_for_test = None;
+        self.single_pane_frame_probe_enabled_for_test = true;
+        self.needs_rebuild = true;
+        let _ = self.on_redraw_requested();
+        self.single_pane_frame_probe_enabled_for_test = false;
+        self.single_pane_frame_probe_for_test.take()
+    }
+
     /// The session the last activation reconciled (focus reports, latches).
     #[cfg(test)]
     pub(in crate::native) fn last_active_session_for_test(
