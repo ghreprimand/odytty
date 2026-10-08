@@ -299,21 +299,23 @@ fn pane_relative_cell(
 /// Copy a rectangular sub-region of `src` into a new snapshot of size
 /// `width`×`height`, starting at cell `(top, left)`. Used to crop a painted
 /// window-overlay snapshot down to the panel's opaque rect so it composites as
-/// a clean box over the multi-pane content. Out-of-bounds source cells fall back
-/// to the default cell (defensive; the caller always passes an in-bounds rect).
+/// a clean box over the multi-pane content. A source cell outside either axis
+/// of `src` falls back to the default cell, never to a cell of another row
+/// (defensive; the caller always passes an in-bounds rect).
 fn crop_snapshot(src: &Snapshot, left: usize, top: usize, width: usize, height: usize) -> Snapshot {
     let src_cols = src.dimensions.columns;
-    let mut cells = Vec::with_capacity(width * height);
+    let src_rows = src.dimensions.rows;
+    let mut cells = Vec::with_capacity(width.saturating_mul(height));
     for r in 0..height {
         for c in 0..width {
-            let sr = top + r;
-            let sc = left + c;
-            let cell = src
-                .cells
-                .get(sr * src_cols + sc)
-                .copied()
-                .unwrap_or_default();
-            cells.push(cell);
+            let sr = top.saturating_add(r);
+            let sc = left.saturating_add(c);
+            let cell = if sr < src_rows && sc < src_cols {
+                src.cells.get(sr * src_cols + sc).copied()
+            } else {
+                None
+            };
+            cells.push(cell.unwrap_or_default());
         }
     }
     Snapshot {

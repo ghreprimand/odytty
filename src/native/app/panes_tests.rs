@@ -305,6 +305,20 @@ fn crop_snapshot_out_of_bounds_falls_back_to_default() {
 }
 
 #[test]
+fn crop_snapshot_past_the_right_edge_never_reads_the_next_row() {
+    // Columns past the source width fall back to default even when the flat
+    // index lands on a real cell of the following row.
+    let src = filled_snapshot(3, 3, 'x');
+    let cropped = crop_snapshot(&src, 2, 0, 2, 1);
+    assert_eq!(cropped.cells[0].ch, src.cells[2].ch, "in-bounds (0,2)");
+    assert_eq!(
+        cropped.cells[1],
+        crate::core::Cell::default(),
+        "(0,3) is outside the source, not row 1 column 0"
+    );
+}
+
+#[test]
 fn window_overlay_cell_maps_into_the_content_grid() {
     // Content rect offset from the window origin by (x=10, y=40), for example a
     // tab bar pushes y down. A pointer inside maps to the content-grid cell

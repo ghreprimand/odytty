@@ -434,17 +434,21 @@ mod tests {
     fn sniff_mime_path_refuses_a_fifo_without_blocking() {
         use std::ffi::CString;
         use std::io::Write;
-        use std::time::{SystemTime, UNIX_EPOCH};
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::time::Duration;
 
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("odytty-sniff-{}-{nanos}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("mkdir");
+        /// Removes the owned scratch directory on every exit, including a
+        /// failed assertion.
+        struct OwnedDir(std::path::PathBuf);
+        impl Drop for OwnedDir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir = OwnedDir(crate::test_dirs::fresh_temp_dir("odytty-sniff-"));
 
         // A regular file with PNG magic is still recognized.
-        let png = dir.join("real.png");
+        let png = dir.0.join("real.png");
         std::fs::File::create(&png)
             .and_then(|mut f| f.write_all(b"\x89PNG\r\n\x1a\n"))
             .expect("write png");
@@ -455,17 +459,36 @@ mod tests {
         );
 
         // A FIFO with the same extension has no writer; the sniff must not hang
-        // and must classify it as unopenable/non-regular (None).
-        let fifo = dir.join("trap.png");
+        // and must classify it as unopenable/non-regular (None). It runs on a
+        // worker so a regression fails within the deadline instead of hanging
+        // the test process; the received value proves the call returned.
+        let fifo = dir.0.join("trap.png");
         let cpath = CString::new(fifo.to_str().unwrap()).unwrap();
         let rc = unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) };
         assert_eq!(rc, 0, "mkfifo failed");
-        assert_eq!(
-            sniff_mime_path(fifo.to_str().unwrap()),
-            None,
-            "a FIFO is a non-regular file and must be refused"
-        );
-
-        let _ = std::fs::remove_dir_all(&dir);
+        let (done, result) = std::sync::mpsc::channel();
+        let target = fifo.to_str().unwrap().to_owned();
+        let worker = std::thread::spawn(move || {
+            let _ = done.send(sniff_mime_path(&target));
+        });
+        match result.recv_timeout(Duration::from_secs(10)) {
+            Ok(sniffed) => {
+                assert_eq!(
+                    sniffed, None,
+                    "a FIFO is a non-regular file and must be refused"
+                );
+                worker.join().expect("sniff worker");
+            }
+            Err(_) => {
+                // Release a reader blocked in open so the worker can finish,
+                // then fail: the sniff blocked on a writerless FIFO.
+                let _writer = std::fs::OpenOptions::new()
+                    .write(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(&fifo);
+                let _ = worker.join();
+                panic!("sniffing a writerless FIFO did not return within 10 s");
+            }
+        }
     }
 }

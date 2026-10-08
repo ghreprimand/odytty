@@ -562,49 +562,18 @@ impl App {
         self.begin_rename(target, seed);
     }
 
-    /// Capture a stable member token for the workspace at `idx`. The rename
-    /// target's integer payload carries this token while the modal is open, so
-    /// removing an earlier workspace cannot silently retarget the commit.
-    ///
-    /// `WorkspaceSet` exposes tab tokens only for its active workspace. This
-    /// temporarily selects the requested workspace and restores the original
-    /// selection before returning; no App-level session-change seam runs during
-    /// either model-only switch.
-    fn workspace_prompt_anchor(&mut self, idx: usize) -> Option<usize> {
-        let original = self.sessions.active_workspace_index();
-        if idx != original && !self.sessions.switch_workspace(idx) {
-            return None;
-        }
-        let anchor = self
-            .sessions
-            .token_at_position(0)
-            .and_then(|token| usize::try_from(token.0).ok());
-        if idx != original {
-            let _ = self.sessions.switch_workspace(original);
-        }
-        anchor
+    /// The immutable creation identity of the workspace at `idx`, carried by
+    /// a workspace prompt while it is open. Unlike a member pane, it survives
+    /// the workspace's tabs closing or moving away and a rail reorder.
+    fn workspace_prompt_anchor(&self, idx: usize) -> Option<SessionToken> {
+        self.sessions.workspace_identity(idx)
     }
 
-    /// Re-resolve a workspace prompt's stable member token to its current rail
-    /// index. Every workspace owns at least one tab while it is live. If the
-    /// anchored session was reaped, the prompt target is treated as gone and
-    /// commit becomes a no-op instead of touching the workspace now occupying
-    /// the old index.
-    fn workspace_index_for_prompt_anchor(&mut self, anchor: usize) -> Option<usize> {
-        let token = SessionToken(u64::try_from(anchor).ok()?);
-        let original = self.sessions.active_workspace_index();
-        let count = self.sessions.workspace_count();
-        let mut found = None;
-        for idx in 0..count {
-            let _ = self.sessions.switch_workspace(idx);
-            if self.sessions.position_of_token(token).is_some() {
-                found = Some(idx);
-                break;
-            }
-        }
-        let restore = original.min(self.sessions.workspace_count().saturating_sub(1));
-        let _ = self.sessions.switch_workspace(restore);
-        found
+    /// The current rail index of a workspace prompt's target. `None` once that
+    /// workspace has closed, so commit becomes a no-op instead of touching the
+    /// workspace now occupying the old index.
+    fn workspace_index_for_prompt_anchor(&self, anchor: SessionToken) -> Option<usize> {
+        self.sessions.workspace_index_of(anchor)
     }
 
     /// Shared setup for the rename overlay: seed the field with `text`, park the
@@ -1399,6 +1368,78 @@ mod workspace_prompt_identity_tests {
         assert_eq!(app.workspace_index_for_prompt_anchor(anchor), Some(1));
         assert_eq!(app.sessions.workspace_name(1), Some("target"));
     }
+
+    fn commit_prompt_text(app: &mut App, text: &str) {
+        let state = app
+            .rename_state
+            .as_mut()
+            .expect("rename prompt remains open");
+        state.text = text.to_owned();
+        state.cursor = state.text.chars().count();
+        app.commit_rename();
+    }
+
+    #[test]
+    fn workspace_rename_survives_its_first_tab_closing() {
+        let Some(mut app) = app_with_three_workspaces() else {
+            eprintln!("skipping: no PTY available");
+            return;
+        };
+        assert!(app.sessions.switch_workspace(2));
+        app.sessions
+            .push(session(3, Dimensions::new(80, 24)).expect("second tab"));
+        app.enter_rename_workspace(2);
+        // The workspace's first tab closes; its second tab keeps it alive.
+        assert!(!app.sessions.close_shell_exited(SessionToken(2)));
+        assert_eq!(app.sessions.workspace_count(), 3);
+
+        commit_prompt_text(&mut app, "renamed target");
+        assert_eq!(
+            app.sessions.workspace_names(),
+            ["first", "middle", "renamed target"]
+        );
+    }
+
+    #[test]
+    fn workspace_rename_stays_with_the_workspace_when_its_first_tab_moves() {
+        let Some(mut app) = app_with_three_workspaces() else {
+            eprintln!("skipping: no PTY available");
+            return;
+        };
+        assert!(app.sessions.switch_workspace(2));
+        app.sessions
+            .push(session(3, Dimensions::new(80, 24)).expect("second tab"));
+        app.enter_rename_workspace(2);
+        // The first tab moves to "first"; the prompt must not follow it.
+        assert_eq!(
+            app.sessions.move_tab_to_workspace(SessionToken(2), 0),
+            (true, false)
+        );
+
+        commit_prompt_text(&mut app, "renamed target");
+        assert_eq!(
+            app.sessions.workspace_names(),
+            ["first", "middle", "renamed target"]
+        );
+    }
+
+    #[test]
+    fn save_layout_prompt_survives_a_rail_reorder() {
+        let Some(mut app) = app_with_three_workspaces() else {
+            eprintln!("skipping: no PTY available");
+            return;
+        };
+        app.enter_save_layout_prompt(2);
+        let anchor = match app.rename_state.as_ref().map(|state| state.target) {
+            Some(RenameTarget::SaveLayout(anchor)) => anchor,
+            other => panic!("unexpected prompt target: {other:?}"),
+        };
+        assert!(app.sessions.move_workspace(2, true));
+        let idx = app
+            .workspace_index_for_prompt_anchor(anchor)
+            .expect("workspace still open");
+        assert_eq!(app.sessions.workspace_name(idx), Some("target"));
+    }
 }
 
 #[cfg(test)]
@@ -1434,12 +1475,15 @@ mod rename_mouse_tests {
             "Tab name: "
         );
         assert_eq!(
-            rename_prompt(RenameTarget::Workspace(0)),
+            rename_prompt(RenameTarget::Workspace(SessionToken(0))),
             "Workspace name: "
         );
         // LAYOUT-SURFACE: the Save-as-Layout prompt reuses the modal with its own
         // label so a layout save is never mislabeled as a rename.
-        assert_eq!(rename_prompt(RenameTarget::SaveLayout(0)), "Layout name: ");
+        assert_eq!(
+            rename_prompt(RenameTarget::SaveLayout(SessionToken(0))),
+            "Layout name: "
+        );
         // SAVE-ALL-LAYOUT: the whole-app save prompt shares the "Layout name: "
         // label.
         assert_eq!(rename_prompt(RenameTarget::SaveAllLayout), "Layout name: ");

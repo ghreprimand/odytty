@@ -288,13 +288,14 @@ const SECONDARY_INSTANCE_NOTICE: &str = "Another OdyTTY window owns session rest
 pub(super) enum RenameTarget {
     /// A tab, keyed by its session token.
     Tab(SessionToken),
-    /// A workspace, keyed by its rail index.
-    Workspace(usize),
-    /// A "Save as Layout" name prompt (LAYOUT-SURFACE), keyed by the rail index
-    /// of the workspace being captured. Reuses the rename modal's field / mouse
-    /// selection / signature machinery, but on Enter saves the workspace as a
-    /// named layout instead of renaming it.
-    SaveLayout(usize),
+    /// A workspace, keyed by its immutable creation identity, so the prompt
+    /// keeps its workspace while tabs close, move, or the rail reorders.
+    Workspace(SessionToken),
+    /// A "Save as Layout" name prompt (LAYOUT-SURFACE), keyed by the creation
+    /// identity of the workspace being captured. Reuses the rename modal's
+    /// field / mouse selection / signature machinery, but on Enter saves the
+    /// workspace as a named layout instead of renaming it.
+    SaveLayout(SessionToken),
     /// A "Save as Layout" name prompt for the WHOLE application (SAVE-ALL-LAYOUT):
     /// on Enter, captures every workspace as one named layout. Carries no index —
     /// the capture is session-wide.
