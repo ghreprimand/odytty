@@ -182,10 +182,15 @@ impl ThemePicker {
     }
 
     /// Hidden entries above / below the visible window, for the scroll
-    /// affordance (OVERLAY-SMALL-WINDOW). One body row is the header hint, so
-    /// the entry viewport is `body_height - 1`. `(false, false)` when all fit.
+    /// affordance (OVERLAY-SMALL-WINDOW). The entry viewport is the capacity
+    /// the last render recorded, after the header hint and any wrapped message
+    /// rows (as `ThemeBuilder::scroll_indicator` does); before the first render
+    /// it is `body_height - 1`. `(false, false)` when all fit.
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
-        let window = body_height.saturating_sub(1);
+        let window = match self.last_capacity.get() {
+            0 => body_height.saturating_sub(1),
+            capacity => capacity,
+        };
         (
             self.scroll > 0,
             window > 0 && self.scroll + window < self.entries.len(),
@@ -507,6 +512,32 @@ mod tests {
                 .map(|entry| entry.name)
                 .collect::<Vec<_>>(),
             builtins
+        );
+    }
+
+    /// The down arrow follows the real entry viewport, which the open message
+    /// shrinks below `body_height - 1`: while any entry is hidden below the
+    /// last drawn row, the arrow shows.
+    #[test]
+    fn scroll_indicator_counts_the_message_rows() {
+        let mut picker = ThemePicker::new(&Settings::default());
+        picker.open(&Settings::default());
+        let (width, height) = (40, 10);
+        let last = picker.entries.len() - 1;
+        for selected in 0..=last {
+            picker.set_selection(selected);
+            let lines = picker.visible_lines(width, height);
+            let drawn_last = picker.scroll + picker.last_capacity.get();
+            assert!(lines.len() <= height);
+            assert_eq!(
+                picker.scroll_indicator(height).1,
+                drawn_last < picker.entries.len(),
+                "selection {selected}: the arrow shows exactly when entries are hidden below"
+            );
+        }
+        assert!(
+            picker.last_capacity.get() < height - 1,
+            "the message takes rows"
         );
     }
 

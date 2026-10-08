@@ -13,9 +13,13 @@
 //! operator sees the window close, and the logs name the culprit.
 //!
 //! PRIVACY (hard release rule): panic records carry the panic message,
-//! source location, thread name, and code addresses/symbol names — never PTY
-//! bytes, grid text, or window titles. Panic messages are code-authored
-//! assertion strings; do not interpolate terminal content into panics.
+//! source location, thread name, and code addresses/symbol names. OdyTTY's own
+//! panic messages are code-authored assertion strings; never interpolate PTY
+//! bytes, grid text, or window titles into them. Standard-library panics can
+//! include operand values (a string sliced off a character boundary, the
+//! `Debug` form of an unwrapped error), so a std panic caused by terminal text
+//! can carry some of it. The logs are owner-private, and the message is capped
+//! at [`MAX_PANIC_MESSAGE_BYTES`] to bound how much any record can carry.
 
 use std::backtrace::Backtrace;
 use std::io::{self, Write};
@@ -24,6 +28,10 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const PANIC_LOG_FILE: &str = "panic.log";
+
+/// Longest panic message kept in a record; longer messages are cut at a
+/// character boundary and marked as truncated.
+const MAX_PANIC_MESSAGE_BYTES: usize = 1024;
 
 pub(crate) fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
@@ -67,13 +75,27 @@ fn log_panic_info(info: &PanicHookInfo<'_>) {
 }
 
 fn panic_message(info: &PanicHookInfo<'_>) -> String {
-    if let Some(message) = info.payload().downcast_ref::<&str>() {
-        (*message).to_owned()
+    let message = if let Some(message) = info.payload().downcast_ref::<&str>() {
+        message
     } else if let Some(message) = info.payload().downcast_ref::<String>() {
-        message.clone()
+        message.as_str()
     } else {
-        "non-string panic payload".to_owned()
+        "non-string panic payload"
+    };
+    capped_panic_message(message)
+}
+
+/// `message` cut to at most [`MAX_PANIC_MESSAGE_BYTES`] at a character
+/// boundary, with a marker when anything was dropped.
+fn capped_panic_message(message: &str) -> String {
+    if message.len() <= MAX_PANIC_MESSAGE_BYTES {
+        return message.to_owned();
     }
+    let mut end = MAX_PANIC_MESSAGE_BYTES;
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{} [truncated]", &message[..end])
 }
 
 fn panic_log_dir() -> PathBuf {
@@ -147,6 +169,17 @@ mod tests {
     use super::*;
     use std::fs;
     use std::time::Duration;
+
+    #[test]
+    fn long_panic_messages_are_capped_at_a_character_boundary() {
+        assert_eq!(capped_panic_message("short"), "short");
+        let long = "\u{e9}".repeat(MAX_PANIC_MESSAGE_BYTES);
+        let capped = capped_panic_message(&long);
+        assert!(capped.ends_with(" [truncated]"));
+        let kept = capped.trim_end_matches(" [truncated]");
+        assert!(kept.len() <= MAX_PANIC_MESSAGE_BYTES);
+        assert!(kept.chars().all(|ch| ch == '\u{e9}'), "no split character");
+    }
 
     #[test]
     fn panic_hook_record_writes_parseable_line() {

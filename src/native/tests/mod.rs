@@ -186,6 +186,7 @@ pub(super) fn event_loop_proxy_for_test()
 mod alt_scroll;
 #[cfg(unix)]
 mod attach_e2e;
+mod attach_launch_notice;
 mod background_model_sync;
 mod button_click;
 mod chrome_seam_basis;

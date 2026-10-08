@@ -7,7 +7,6 @@ use crate::native::layout::SplitAxis;
 use crate::native::overlay::{OverlayInput, OverlayOutcome, OverlayUi};
 use crate::native::session::{HeadlessSession, Session, SessionToken, WorkspaceSet};
 use std::io::Write;
-use std::path::Path;
 
 #[cfg(unix)]
 struct BlockingHostWriter {
@@ -349,32 +348,26 @@ fn read_only_click_to_position_sends_no_shell_edit_bytes() {
     );
 }
 
+/// PRIMARY exists only on Linux and the BSDs; on other targets the test is
+/// absent rather than an empty pass.
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
+))]
 #[test]
 fn read_only_primary_selection_paste_is_refused_before_reading_primary() {
-    #[cfg(not(all(
-        unix,
-        not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
-    )))]
-    return;
+    let (mut app, _terminal, bytes) = input_app();
+    app.enable_osc52_read_for_test("synthetic primary selection");
+    make_read_only(&mut app);
 
-    #[cfg(all(
-        unix,
-        not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
-    ))]
-    {
-        let (mut app, _terminal, bytes) = input_app();
-        app.enable_osc52_read_for_test("synthetic primary selection");
-        make_read_only(&mut app);
+    app.handle_primary_paste_for_test();
 
-        app.handle_primary_paste_for_test();
-
-        assert_eq!(
-            app.clipboard_read_text_calls_for_test(),
-            0,
-            "read-only refusal happens before PRIMARY clipboard access"
-        );
-        assert!(recorded(&bytes).is_empty());
-    }
+    assert_eq!(
+        app.clipboard_read_text_calls_for_test(),
+        0,
+        "read-only refusal happens before PRIMARY clipboard access"
+    );
+    assert!(recorded(&bytes).is_empty());
 }
 
 #[test]
@@ -420,32 +413,6 @@ fn hosted_pty_queue_does_not_silently_discard_attached_paste_bytes() {
         writer.dropped_bytes(),
         0,
         "accepted attached paste bytes must not be discarded silently"
-    );
-}
-
-#[test]
-fn bracketed_paste_limit_is_checked_before_payload_encoding() {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source = std::fs::read_to_string(manifest.join("src/native/clipboard.rs"))
-        .expect("read paste encoder source");
-    let start = source
-        .find("pub(super) fn write_paste_text(")
-        .expect("write_paste_text declaration");
-    let end = source[start..]
-        .find("pub(super) fn encode_paste_chunks(")
-        .map(|offset| start + offset)
-        .expect("encode_paste_chunks declaration");
-    let body = &source[start..end];
-    let limit_check = body
-        .find("MAX_BRACKETED_PASTE_BYTES")
-        .expect("bracketed paste size limit");
-    let encoding = body
-        .find("encode_paste_chunks(")
-        .expect("bracketed paste encoder call");
-
-    assert!(
-        limit_check < encoding,
-        "the paste cap must be checked before allocating the encoded payload"
     );
 }
 

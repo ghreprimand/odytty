@@ -78,8 +78,7 @@ fn decode_picker_key(key: &PickerKeyInput<'_>) -> Option<PickerKey> {
                 return None;
             }
             let numeral = u8::try_from(digit).ok()?;
-            (1..=9)
-                .contains(&numeral)
+            crate::native::merge_picker::MergePicker::is_keyboard_selectable(numeral)
                 .then_some(PickerKey::Select(numeral))
         }
         _ => None,

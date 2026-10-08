@@ -168,7 +168,32 @@ impl OverlayUi {
             open_with: self.open_with.render_signature(),
             workspace_picker: self.workspace_picker.render_signature(),
             profile_picker: self.profile_picker.render_signature(),
+            dialog_payload: self.dialog_payload_fingerprint(),
         }
+    }
+
+    /// See [`OverlayRenderSignature::dialog_payload`]. Hashes the debug form of
+    /// the active dialog's carried state, which holds everything its body
+    /// prints; the payloads are small and bounded (the paste preview is at
+    /// most `MAX_ESCAPED_PREVIEW_BYTES`).
+    fn dialog_payload_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let payload = match self.mode {
+            OverlayMode::RiskyPaste => format!("{:?}", self.risky_paste),
+            OverlayMode::ImageView => format!("{:?}", self.image_view_caption),
+            OverlayMode::AttachChoice => format!("{:?}", self.attach_choice_session_id),
+            OverlayMode::ConfirmKillSession => format!("{:?}", self.confirm_kill_session_id),
+            OverlayMode::ConfirmNavigatorClose => format!("{:?}", self.confirm_navigator_close),
+            OverlayMode::DetachSwitchChoice => format!("{:?}", self.detach_switch_cwd),
+            OverlayMode::ConfirmReplaceTab => format!("{:?}", self.confirm_replace_tab),
+            OverlayMode::ConfirmRemoveHost => format!("{:?}", self.confirm_remove_host),
+            OverlayMode::ConfirmOverwriteLayout => format!("{:?}", self.confirm_overwrite_layout),
+            OverlayMode::ConfirmOpenLayout => format!("{:?}", self.confirm_open_layout),
+            _ => return 0,
+        };
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        payload.hash(&mut hasher);
+        hasher.finish()
     }
 }
 
@@ -543,18 +568,10 @@ impl OverlayUi {
                 },
             ],
             OverlayMode::RiskyPaste => {
-                let mut chunks = self
-                    .risky_paste
-                    .escaped_preview
-                    .chars()
-                    .collect::<Vec<_>>()
-                    .chunks(body_width.max(1))
-                    .take(3)
-                    .map(|chunk| chunk.iter().collect::<String>())
-                    .collect::<Vec<_>>();
+                let (mut chunks, overflow) =
+                    chunk_by_columns(&self.risky_paste.escaped_preview, body_width.max(1), 3);
                 chunks.resize(3, String::new());
-                let was_truncated = self.risky_paste.preview_truncated
-                    || self.risky_paste.escaped_preview.chars().count() > body_width.max(1) * 3;
+                let was_truncated = self.risky_paste.preview_truncated || overflow;
                 let detail = if let Some(summary) = self.risky_paste.broadcast {
                     summary.confirm_line()
                 } else if self.risky_paste.one_line_available {
@@ -1113,13 +1130,63 @@ pub(super) fn draw_border(
     }
 }
 
+/// The overlay layout metric: each non-control scalar of `text` with the cells
+/// it takes. A zero-width scalar (combining mark, variation selector, joiner)
+/// after a glyph takes none, because [`write_text`] attaches it to that glyph;
+/// a leading one takes a cell of its own. Wide glyphs take two. Every measure
+/// and cut below uses this, so layout and paint always agree.
+fn glyph_widths(text: &str) -> impl Iterator<Item = (char, usize)> + '_ {
+    let mut after_glyph = false;
+    text.chars().filter(|ch| !ch.is_control()).map(move |ch| {
+        let width = match UnicodeWidthChar::width(ch) {
+            Some(0) if after_glyph => 0,
+            width => width.unwrap_or(1).max(1),
+        };
+        after_glyph = true;
+        (ch, width)
+    })
+}
+
 /// Display width (in terminal cells) of `text`, matching the per-char width
 /// [`write_text`] uses to lay glyphs out.
 pub(in crate::native) fn text_display_width(text: &str) -> usize {
-    text.chars()
-        .filter(|ch| !ch.is_control())
-        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(1).max(1))
-        .sum()
+    glyph_widths(text).map(|(_, width)| width).sum()
+}
+
+/// Split `text` into at most `max_lines` lines of at most `width` display
+/// cells each, by the per-glyph width [`write_text`] uses, so no line is
+/// clipped by the painter. Returns the lines and whether text was left over.
+pub(in crate::native) fn chunk_by_columns(
+    text: &str,
+    width: usize,
+    max_lines: usize,
+) -> (Vec<String>, bool) {
+    if max_lines == 0 || width == 0 {
+        return (Vec::new(), !text.is_empty());
+    }
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    let mut used = 0usize;
+    for (ch, w) in glyph_widths(text) {
+        if used + w > width && !line.is_empty() {
+            if lines.len() + 1 == max_lines {
+                lines.push(line);
+                return (lines, true);
+            }
+            lines.push(std::mem::take(&mut line));
+            used = 0;
+        }
+        if w > width {
+            // A glyph wider than the whole line cannot be shown.
+            return (lines, true);
+        }
+        line.push(ch);
+        used += w;
+    }
+    if !line.is_empty() && lines.len() < max_lines {
+        lines.push(line);
+    }
+    (lines, false)
 }
 
 /// Hard character-truncate `text` to at most `max_width` display cells (the
@@ -1128,11 +1195,7 @@ pub(in crate::native) fn text_display_width(text: &str) -> usize {
 pub(in crate::native) fn fit_chars(text: &str, max_width: usize) -> String {
     let mut out = String::new();
     let mut width = 0usize;
-    for ch in text.chars() {
-        if ch.is_control() {
-            continue;
-        }
-        let w = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
+    for (ch, w) in glyph_widths(text) {
         if width + w > max_width {
             break;
         }
@@ -1230,18 +1293,28 @@ pub(super) fn write_text(
 
     let mut x = column;
     let right = (column + max_width).min(snapshot.dimensions.columns);
-    for ch in text.chars() {
-        if ch.is_control() {
+    // The cell of the last glyph written, which zero-width scalars attach to.
+    let mut owner: Option<usize> = None;
+    for (ch, width) in glyph_widths(text) {
+        if width == 0 {
+            if let Some(owner) = owner {
+                let offset = row * snapshot.dimensions.columns + owner;
+                // A cell that already holds its bound of marks drops the rest.
+                let _ = snapshot.cells[offset].push_combining(ch);
+            }
             continue;
         }
-        let width = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
         if width > 2 || x + width > right {
             break;
         }
         write_cell(snapshot, row, x, ch, attrs);
         if width == 2 {
+            // A real wide tail, so the color-glyph path sizes an emoji to
+            // both cells and the monochrome path skips the spacer.
             write_cell(snapshot, row, x + 1, ' ', attrs);
+            snapshot.cells[row * snapshot.dimensions.columns + x + 1].wide_continuation = true;
         }
+        owner = Some(x);
         x += width;
     }
 }

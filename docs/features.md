@@ -221,19 +221,23 @@ of these conditions are true:
 
 1. A native text paste is requested for the active pane.
 2. The destination child currently reports bracketed-paste mode as disabled.
-3. The original text contains a CR or LF line break, or a Unicode control
-   character other than Tab.
+3. The original text contains a CR or LF line break, a Unicode control
+   character other than Tab, or a direction embedding, override, or isolate
+   control (U+202A to U+202E, U+2066 to U+2069), which can make a command
+   display in a different order from the bytes the shell receives.
 
 | Original text and destination state | Result |
 | --- | --- |
 | Single line with ordinary text, Unicode, or tabs; bracketed paste off | Paste directly |
-| CR, LF, CRLF, empty lines, or another control character; bracketed paste off | Show the risky-paste dialog |
+| CR, LF, CRLF, empty lines, another control character, or a direction override or isolate; bracketed paste off | Show the risky-paste dialog |
 | Any text while the child has bracketed paste on | Preserve the existing bracketed-paste path; no dialog |
 | Any text with `warn_on_risky_paste = off` | Use the historical encoder; no dialog |
 
 Classification examines the complete original transaction before any line
-ending normalization. The dialog escapes controls for display, caps the
-rendered preview at 512 UTF-8 bytes, and reports exact original line and byte
+ending normalization. The dialog escapes controls and invisible format
+characters (direction marks, overrides and isolates, zero-width space,
+byte-order mark, soft hyphen) for display, wraps the preview by display
+columns, caps the rendered preview at 512 UTF-8 bytes, and reports exact original line and byte
 counts even when the preview is truncated. Raw clipboard text stays in
 transient application state: it is not logged, persisted in a workspace,
 placed in diagnostics, or copied into notification text.
@@ -305,6 +309,9 @@ compositors and hardware beyond those remains open. A native Wayland
 `text/uri-list` is one bounded collection: more than 128 files or 256 KiB of
 path bytes refuses the whole gesture and does not leave a leftover confirm.
 A later Wayland uri-list may start a fresh transaction after that refusal.
+A Wayland uri-list that names no local file (another scheme, another host, a
+query or fragment, or a malformed escape) inserts nothing and shows a notice
+saying so.
 X11, macOS, and Windows still see one `DroppedFile` per path, so overflow stays
 refused until cancel or focus-loss; leftover events do not open a fresh
 preview. See
@@ -1286,7 +1293,9 @@ Launcher actions appear in the content menu, while Settings → Themes includes
 an **Open Theme Builder** entry. The command palette also carries **Create
 Theme From Current Colors**, which captures the focused pane's live
 dynamic-color state into a theme draft and opens the builder on it; inside the
-builder, `C` does the same for the draft already being edited. See
+builder, `C` does the same for the draft already being edited, so the capture
+is also reachable from Settings through Settings → Themes → **Open Theme
+Builder**, then `C`. It has no content-menu row of its own. See
 [themes.md](themes.md#create-theme-from-current-colors) for what is captured
 versus derived.
 

@@ -165,6 +165,21 @@ fn capture_is_reachable_from_the_command_palette() {
     );
 }
 
+/// Outside the palette, the capture is reached from Settings: Settings ->
+/// Themes -> Open Theme Builder opens the builder, whose `C` key requests the
+/// same capture. Pinned so the Settings route cannot silently disappear.
+#[test]
+fn capture_is_reachable_from_settings_through_the_theme_builder() {
+    use crate::native::overlay::{OverlayInput, OverlayOutcome, OverlayUi};
+    let mut overlay = OverlayUi::default();
+    let settings = Settings::default();
+    overlay.open_theme_builder(&settings);
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Char('c')),
+        OverlayOutcome::CaptureThemeColors
+    );
+}
+
 // ---------------------------------------------------------------------------
 // (2) No default behavior changes
 // ---------------------------------------------------------------------------

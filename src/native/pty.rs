@@ -117,6 +117,12 @@ pub(super) enum UserEvent {
     /// generic transfer-failure notice.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     WaylandFileDropFailed,
+    /// A native Wayland drop transferred a non-empty `text/uri-list`, but no
+    /// entry named a local file the parser accepts (a non-`file:` scheme, a
+    /// remote host, a query or fragment, a malformed escape, or a NUL). The
+    /// host raises a one-shot notice so the drop is not silently ignored.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    WaylandFileDropNoLocalPaths,
 }
 
 impl UserEvent {
@@ -142,7 +148,8 @@ impl UserEvent {
             | UserEvent::WaylandFileDrop { .. }
             | UserEvent::WaylandFileDropRejected
             | UserEvent::WaylandFileDropUnavailable
-            | UserEvent::WaylandFileDropFailed => None,
+            | UserEvent::WaylandFileDropFailed
+            | UserEvent::WaylandFileDropNoLocalPaths => None,
         }
     }
 

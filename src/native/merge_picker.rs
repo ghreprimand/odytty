@@ -17,17 +17,12 @@
 //! `None` rather than a wrong window (the owner re-validates the resolved id
 //! against live windows before committing a merge).
 
-// Landed ahead of the palette/Session Navigator wiring and the on-device numeral
-// overlay that consume it; exercised by the headless tests below. Allow it to
-// exist before that wiring without tripping the deny-warnings gate.
-#![allow(dead_code)]
-
 use super::window_owner::ProcessWindowId;
 
-/// The highest numeral that is reachable from a single digit key. Windows beyond
-/// this are still listed (and can be shown), but keyboard selection addresses
-/// only the first [`MAX_KEYBOARD_NUMERAL`] candidates; a future revision can page
-/// or fall back to letters. Nine matches the 1-9 digit row.
+/// The highest numeral that is reachable from a single digit key. Only the
+/// first [`MAX_KEYBOARD_NUMERAL`] candidates get a numeral; later candidate
+/// windows are listed without one and cannot be picked from the keyboard. Nine
+/// matches the 1-9 digit row.
 pub(in crate::native) const MAX_KEYBOARD_NUMERAL: u8 = 9;
 
 /// Which way the merge moves relative to the window that opened the picker.
@@ -59,12 +54,16 @@ impl MergeDirection {
 }
 
 /// One offered target: a stable window id, a human label for the numeral badge,
-/// and the 1-based numeral painted inside that window.
+/// and the 1-based numeral painted inside that window, or `None` for a
+/// candidate past [`MAX_KEYBOARD_NUMERAL`], which paints no badge.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::native) struct MergeCandidate {
     pub(in crate::native) id: ProcessWindowId,
+    /// The window's label. The badge paints only the numeral today, so nothing
+    /// reads this yet; it is the only item the dead-code allowance covers.
+    #[allow(dead_code)]
     pub(in crate::native) label: String,
-    pub(in crate::native) numeral: u8,
+    pub(in crate::native) numeral: Option<u8>,
 }
 
 /// The open merge picker: its direction and the ordered candidate windows.
@@ -77,7 +76,8 @@ pub(in crate::native) struct MergePicker {
 impl MergePicker {
     /// Open a picker over `windows` (each `(id, label)` in display order),
     /// EXCLUDING `self_id` (a window can never merge with itself). Numerals are
-    /// assigned 1, 2, 3, ... in order. Returns `None` when there is no other
+    /// assigned 1 through [`MAX_KEYBOARD_NUMERAL`] in order, so no two
+    /// candidates ever share one. Returns `None` when there is no other
     /// window to target, so a picker never opens with an empty candidate set.
     pub(in crate::native) fn open(
         direction: MergeDirection,
@@ -91,9 +91,10 @@ impl MergePicker {
             .map(|(index, (id, label))| MergeCandidate {
                 id: *id,
                 label: label.clone(),
-                // 1-based numeral; `index` is 0-based and bounded by the window
-                // count, so this cannot exceed the process window count.
-                numeral: u8::try_from(index + 1).unwrap_or(u8::MAX),
+                // 1-based numeral for the first nine; none after that.
+                numeral: u8::try_from(index + 1)
+                    .ok()
+                    .filter(|&numeral| Self::is_keyboard_selectable(numeral)),
             })
             .collect();
         if candidates.is_empty() {
@@ -120,7 +121,7 @@ impl MergePicker {
     pub(in crate::native) fn resolve_numeral(&self, numeral: u8) -> Option<ProcessWindowId> {
         self.candidates
             .iter()
-            .find(|candidate| candidate.numeral == numeral)
+            .find(|candidate| candidate.numeral == Some(numeral))
             .map(|candidate| candidate.id)
     }
 
@@ -155,9 +156,9 @@ mod tests {
         let cands = picker.candidates();
         assert_eq!(cands.len(), 2, "self excluded");
         assert_eq!(cands[0].id, b.0);
-        assert_eq!(cands[0].numeral, 1);
+        assert_eq!(cands[0].numeral, Some(1));
         assert_eq!(cands[1].id, c.0);
-        assert_eq!(cands[1].numeral, 2);
+        assert_eq!(cands[1].numeral, Some(2));
         assert!(
             cands.iter().all(|cand| cand.id != a.0),
             "self never a target"
@@ -176,6 +177,26 @@ mod tests {
         assert_eq!(picker.resolve_numeral(2), Some(c.0));
         assert_eq!(picker.resolve_numeral(3), None, "no third candidate");
         assert_eq!(picker.resolve_numeral(0), None, "numerals are 1-based");
+    }
+
+    /// With more candidates than digit keys, only the first nine get a
+    /// numeral and no numeral is shared, however many windows are open.
+    #[test]
+    fn numerals_stop_at_nine_and_are_never_shared() {
+        let origin = window("origin");
+        let mut windows = vec![origin.clone()];
+        windows.extend((0..300).map(|index| window(&format!("w{index}"))));
+        let picker = MergePicker::open(MergeDirection::MergeThisInto, origin.0, &windows).unwrap();
+        let numerals: Vec<Option<u8>> = picker
+            .candidates()
+            .iter()
+            .map(|candidate| candidate.numeral)
+            .collect();
+        assert_eq!(numerals.len(), 300);
+        assert_eq!(&numerals[..9], &(1..=9).map(Some).collect::<Vec<_>>()[..]);
+        assert!(numerals[9..].iter().all(Option::is_none));
+        assert_eq!(picker.resolve_numeral(9), Some(windows[9].0));
+        assert_eq!(picker.resolve_numeral(255), None);
     }
 
     #[test]

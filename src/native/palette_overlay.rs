@@ -723,8 +723,9 @@ fn results_fingerprint(model: &PaletteModel, scroll_offset: usize) -> u64 {
     hasher.finish()
 }
 
-/// Show control characters as visible escapes so a hidden newline or escape
-/// sequence is disclosed. Backslashes stay literal: ordinary labels such as
+/// Show control characters and hidden format characters (see
+/// [`crate::native::display_text::is_hidden_format_char`]) as visible escapes
+/// so a hidden newline, escape sequence, or direction override is disclosed. Backslashes stay literal: ordinary labels such as
 /// Windows paths render unchanged, and control-bearing rows are refused on
 /// activation regardless of how their label reads.
 fn sanitize_label(label: &str) -> String {
@@ -738,6 +739,9 @@ fn sanitize_label(label: &str) -> String {
             '\t' => escaped.push_str("\\t"),
             ch if ch.is_control() => {
                 let _ = write!(escaped, "\\x{:02X}", u32::from(ch));
+            }
+            ch if crate::native::display_text::is_hidden_format_char(ch) => {
+                let _ = write!(escaped, "\\u{{{:X}}}", u32::from(ch));
             }
             ch => escaped.push(ch),
         }

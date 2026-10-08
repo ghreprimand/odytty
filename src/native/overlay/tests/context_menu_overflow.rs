@@ -379,8 +379,14 @@ fn wheel_focus_follows_pointer_and_repeated_same_cell_moves_are_stable() {
 #[test]
 fn app_line_notch_moves_context_menu_window_by_one_row() {
     let mut app = app_with_context_menu();
+    assert_eq!(app.context_menu_scroll_offset_for_test(), 0);
     app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
     assert!(app.context_menu_open_for_test());
+    assert_eq!(
+        app.context_menu_scroll_offset_for_test(),
+        1,
+        "one line notch moves the window by exactly one row"
+    );
     assert_ne!(focus(&app), 0, "wheel leaves focus on a visible menu item");
 }
 

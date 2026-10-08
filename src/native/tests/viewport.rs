@@ -429,6 +429,36 @@ fn wheel_line_delta_maps_notches_to_rows() {
     assert_eq!(wheel_lines(MouseScrollDelta::LineDelta(0.0, 0.0), 16), 0);
 }
 
+/// An out-of-range OS wheel delta is bounded: no overflow panic in a debug
+/// build, no wrapped sign in a release build, and the coalescing carry stays
+/// finite.
+#[test]
+fn huge_or_infinite_wheel_deltas_are_bounded_without_overflow() {
+    for y in [f32::MAX, f32::INFINITY, 1.0e30] {
+        let down = wheel_lines_scaled(MouseScrollDelta::LineDelta(0.0, y), 16, usize::MAX);
+        let up = wheel_lines_scaled(MouseScrollDelta::LineDelta(0.0, -y), 16, usize::MAX);
+        assert!(down > 0, "{y}: sign kept, got {down}");
+        assert!(up < 0, "{y}: sign kept, got {up}");
+        assert_eq!(
+            wheel_lines_scaled(MouseScrollDelta::LineDelta(0.0, y), 16, 3),
+            3000,
+            "{y}: the notch count is capped"
+        );
+    }
+    let mut accum = WheelAccumulator::default();
+    let Some(MouseScrollDelta::LineDelta(_, whole)) =
+        accum.coalesce_scroll(MouseScrollDelta::LineDelta(0.0, f32::INFINITY), 16)
+    else {
+        panic!("a whole notch is emitted");
+    };
+    assert!(whole.is_finite() && whole > 0.0);
+    assert_eq!(
+        accum.coalesce_scroll(MouseScrollDelta::LineDelta(0.0, 1.0), 16),
+        Some(MouseScrollDelta::LineDelta(0.0, 1.0)),
+        "the carry stays finite, so the next notch is ordinary"
+    );
+}
+
 #[test]
 fn wheel_lines_scaled_multiplies_notches_and_preserves_default() {
     // MOUSE-WHEEL-SPEED: the local-scroll path scales notches by the configured

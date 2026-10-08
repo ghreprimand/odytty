@@ -540,7 +540,7 @@ fn bound(value: &str) -> String {
 }
 
 fn sanitize(value: &str) -> String {
-    value.chars().filter(|ch| !ch.is_control()).collect()
+    crate::native::display_text::sanitize_row_text(value)
 }
 
 #[cfg(test)]

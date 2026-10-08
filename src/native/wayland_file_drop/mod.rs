@@ -973,15 +973,24 @@ fn complete_transfer(state: &mut Listener, transfer: Transfer) {
         transfer.offer.finish();
     }
     state.destroy_offer(transfer.offer_id);
-    let paths = state::parse_uri_list(&transfer.bytes);
-    if paths.is_empty() {
-        return;
+    if let Some(event) = completed_drop_event(&transfer.bytes, transfer.window, transfer.generation)
+    {
+        let _ = state.proxy.send_event(event);
     }
-    let _ = state.proxy.send_event(UserEvent::WaylandFileDrop {
-        window: transfer.window,
-        generation: transfer.generation,
-        paths,
-    });
+}
+
+/// The event a completed transfer produces: the parsed local paths, a notice
+/// when a non-empty payload named none, or nothing for an empty payload.
+fn completed_drop_event(bytes: &[u8], window: u64, generation: u64) -> Option<UserEvent> {
+    let paths = state::parse_uri_list(bytes);
+    if !paths.is_empty() {
+        return Some(UserEvent::WaylandFileDrop {
+            window,
+            generation,
+            paths,
+        });
+    }
+    (!bytes.iter().all(u8::is_ascii_whitespace)).then_some(UserEvent::WaylandFileDropNoLocalPaths)
 }
 
 /// Abort an in-flight transfer WITHOUT finishing: destroy its offer and release
@@ -1089,5 +1098,49 @@ mod map_action_tests {
             Some(DropAction::Other)
         );
         assert_eq!(map_action(A::Move | A::Ask), Some(DropAction::Other));
+    }
+}
+
+#[cfg(test)]
+mod completed_drop_tests {
+    use super::completed_drop_event;
+    use crate::native::pty::UserEvent;
+
+    #[test]
+    fn local_paths_are_delivered_to_the_drop_window() {
+        let event = completed_drop_event(b"file:///tmp/a.txt\r\n", 7, 3);
+        let Some(UserEvent::WaylandFileDrop {
+            window,
+            generation,
+            paths,
+        }) = event
+        else {
+            panic!("a local file drop is delivered");
+        };
+        assert_eq!((window, generation), (7, 3));
+        assert_eq!(paths, vec![std::path::PathBuf::from("/tmp/a.txt")]);
+    }
+
+    /// A payload whose every entry is refused raises a notice instead of
+    /// being dropped silently; an empty payload stays silent.
+    #[test]
+    fn a_payload_with_no_local_path_raises_a_notice() {
+        for refused in [
+            &b"https://example.test/a.txt\r\n"[..],
+            b"file://otherhost/tmp/a.txt\r\n",
+            b"file:///tmp/a.txt?query\r\n",
+            b"file:///tmp/a%zz.txt\r\n",
+        ] {
+            assert!(
+                matches!(
+                    completed_drop_event(refused, 1, 1),
+                    Some(UserEvent::WaylandFileDropNoLocalPaths)
+                ),
+                "{:?}",
+                String::from_utf8_lossy(refused)
+            );
+        }
+        assert!(completed_drop_event(b"", 1, 1).is_none());
+        assert!(completed_drop_event(b" \r\n", 1, 1).is_none());
     }
 }

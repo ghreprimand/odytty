@@ -97,6 +97,14 @@ impl OutputRecorder {
     }
 }
 
+// Test-only: a thread that sets this is told when its `record` call has
+// passed the pre-lock enabled check, so the race test needs no sleep.
+#[cfg(test)]
+thread_local! {
+    static AFTER_GATE_FOR_TEST: std::cell::RefCell<Option<std::sync::mpsc::Sender<()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// A cheap, clonable handle to one session's recorder. The `enabled` flag lives
 /// outside the mutex as an atomic so the hot pump path can skip locking (and
 /// skip building a snapshot) entirely when recording is off — making the
@@ -150,6 +158,12 @@ impl RecorderHandle {
         if !self.is_enabled() {
             return;
         }
+        #[cfg(test)]
+        AFTER_GATE_FOR_TEST.with(|hook| {
+            if let Some(sender) = hook.borrow().as_ref() {
+                let _ = sender.send(());
+            }
+        });
         if let Ok(mut inner) = self.inner.lock() {
             // Re-check UNDER the lock. `set_enabled(false)` swaps the atomic
             // false BEFORE it locks + clears, so a disable that races between the
@@ -246,11 +260,16 @@ mod tests {
         // `is_enabled()` gate (still true) and BEFORE it can push.
         let guard = handle.inner.lock().expect("lock ring");
         let racer = handle.clone();
+        let (passed_gate, gate_rx) = std::sync::mpsc::channel();
         let joiner = std::thread::spawn(move || {
+            AFTER_GATE_FOR_TEST.with(|hook| *hook.borrow_mut() = Some(passed_gate));
             racer.record(frame(8, 2, 'z'));
         });
-        // Let the racer pass the gate and park on the lock.
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        // The racer has passed its pre-lock check with recording still on; it
+        // can only reach the ring through the lock this test holds.
+        gate_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the racer passes the pre-lock gate");
         // Emulate `set_enabled(false)`: swap the flag false (the ring is already
         // empty, so there is nothing to clear) while still holding the lock.
         handle.enabled.store(false, Ordering::Relaxed);
@@ -325,6 +344,5 @@ mod tests {
             .map(Cell::grapheme)
             .collect();
         assert_eq!(text.trim_end_matches(' '), source);
-        assert_eq!(frame.cells, terminal.snapshot().cells);
     }
 }

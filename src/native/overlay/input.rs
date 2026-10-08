@@ -26,6 +26,16 @@ use super::contracts::{OverlayInput, OverlayMode, OverlayOutcome, OverlayPointer
 use super::layout::OverlayRect;
 use super::state::OverlayUi;
 
+/// The selection step one wheel event makes in a list picker: toward earlier
+/// rows for a negative delta, later rows for a positive one, none for zero.
+fn wheel_step(lines: isize) -> Option<OverlayInput> {
+    match lines.signum() {
+        -1 => Some(OverlayInput::Up),
+        1 => Some(OverlayInput::Down),
+        _ => None,
+    }
+}
+
 impl OverlayUi {
     /// Deliver a raw captured chord to the key-remap modal (KB-REMAP). Only
     /// called by the App while [`Self::is_capturing_chord`] is `true`.
@@ -512,26 +522,24 @@ impl OverlayUi {
                     OverlayMode::Settings => self.panel.scroll_lines(lines),
                     OverlayMode::ThemeBuilder => self.theme_builder.scroll_lines(lines),
                     OverlayMode::KeyBindings => self.key_remap.scroll_lines(lines),
+                    // One selection step per wheel event; a zero delta moves
+                    // nothing, as in the `scroll_lines` siblings.
                     OverlayMode::FontPicker => {
-                        self.font_picker.handle_input(if lines < 0 {
-                            OverlayInput::Up
-                        } else {
-                            OverlayInput::Down
-                        });
+                        if let Some(step) = wheel_step(lines) {
+                            self.font_picker.handle_input(step);
+                        }
                     }
                     OverlayMode::ThemePicker => {
-                        self.theme_picker.handle_input(if lines < 0 {
-                            OverlayInput::Up
-                        } else {
-                            OverlayInput::Down
-                        });
+                        // The keyboard path's live preview applies to the wheel
+                        // too, so Enter never persists a theme that was not shown.
+                        if let Some(step) = wheel_step(lines) {
+                            return self.handle_theme_picker_input(step);
+                        }
                     }
                     OverlayMode::CommandPalette => {
-                        self.command_palette.handle_input(if lines < 0 {
-                            OverlayInput::Up
-                        } else {
-                            OverlayInput::Down
-                        });
+                        if let Some(step) = wheel_step(lines) {
+                            self.command_palette.handle_input(step);
+                        }
                     }
                     OverlayMode::Replay => self.replay.scroll_lines(lines),
                     OverlayMode::Connections => self.connections.scroll_lines(lines),

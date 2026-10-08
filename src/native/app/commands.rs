@@ -353,6 +353,19 @@ impl App {
         ))
     }
 
+    /// Attach the session named on the command line (`odytty attach <id>`)
+    /// after the window opened its ordinary local tab. A failure (a stale or
+    /// mistyped id, a dead host, or Windows, which has no resumable sessions)
+    /// raises a notice naming the session, so the launch never looks like a
+    /// successful attach to the local shell.
+    pub(in crate::native) fn attach_launch_session(&mut self, session_id: &str) {
+        if let Err(err) = self.attach_session_in_new_tab(None, session_id) {
+            tracing::error!("attach session {session_id} failed: {err}");
+            let shown = crate::native::display_text::sanitize_row_text(session_id);
+            self.raise_open_notice(format!("Could not attach session {shown}: {err}"));
+        }
+    }
+
     /// Route an accepted session from the Attach-Session overlay (Phase 14).
     /// Dedup first: if the session is already open in a tab in this window,
     /// switch to that tab - no duplicate, no prompt (this kills the reported

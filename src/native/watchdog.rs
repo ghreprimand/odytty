@@ -21,8 +21,9 @@
 //!
 //! PRIVACY (hard release rule): the stall record is STATE ONLY — booleans,
 //! counters, and enum names baked into this file. No PTY bytes, no grid
-//! text, no window titles. The seam test below pins the record's charset so
-//! a future edit cannot quietly interpolate free-form strings.
+//! text, no window titles. The seam tests below pin the charset of all three
+//! records (stall, slow retry, callback outstanding) so a future edit cannot
+//! quietly interpolate free-form strings.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
@@ -602,6 +603,96 @@ mod tests {
                 "unexpected value charset: {value} (free-form strings are banned here)"
             );
         }
+    }
+
+    /// The shared state-only charset rule for every watchdog record: a fixed
+    /// prefix, then `key=value` tokens of lowercase names, digits and `_`.
+    fn assert_state_only(record: &str, prefix: &str) {
+        assert!(record.starts_with(prefix), "got: {record}");
+        for token in record[prefix.len()..].split_whitespace() {
+            let (key, value) = token.split_once('=').expect("key=value tokens only");
+            assert!(
+                key.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "unexpected key charset: {key}"
+            );
+            assert!(
+                value
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+                "unexpected value charset: {value}"
+            );
+        }
+    }
+
+    const CALLBACK_PREFIX: &str =
+        "freeze_watchdog: frame owed with compositor callback outstanding for ";
+
+    fn callback_stale_after_ms() -> u64 {
+        u64::try_from(
+            crate::native::app::frame_callback_hatch::FRAME_CALLBACK_STALE_AFTER.as_millis(),
+        )
+        .unwrap()
+    }
+
+    /// A focused, visible Wayland window owes a frame and is never asked to
+    /// draw: one state-only callback record once the stale window passes,
+    /// silence until the re-log interval, then one more.
+    #[test]
+    fn callback_outstanding_record_fires_after_the_stale_window_and_relogs() {
+        let shared = WatchdogShared::new();
+        shared.store_state(&state());
+        shared.note_activity();
+        shared.set_render_owed(true);
+        let since = shared.render_owed_since_ms.load(Ordering::Relaxed);
+        let stale = callback_stale_after_ms();
+        assert_eq!(shared.evaluate(since + stale - 1), None);
+        let record = shared.evaluate(since + stale).expect("callback record");
+        let secs = (stale / 1000).to_string();
+        assert_state_only(&record, &format!("{CALLBACK_PREFIX}{secs}s; "));
+        assert!(record.contains("redraws_delivered=0"));
+        assert_eq!(
+            shared.evaluate(since + stale + 2_000),
+            None,
+            "no immediate relog"
+        );
+        let relog = u64::try_from(RELOG_EVERY.as_millis()).unwrap();
+        assert!(
+            shared
+                .evaluate(since + stale + relog)
+                .is_some_and(|record| record.starts_with(CALLBACK_PREFIX)),
+            "relogs after the interval"
+        );
+    }
+
+    /// Once the callback class fired, a later delivered redraw does not
+    /// switch the episode to the classic stall record; a present opens a fresh
+    /// episode where the classic path works again.
+    #[test]
+    fn callback_record_suppresses_the_classic_record_until_a_present() {
+        let shared = WatchdogShared::new();
+        shared.store_state(&state());
+        shared.note_activity();
+        shared.set_render_owed(true);
+        let since = shared.render_owed_since_ms.load(Ordering::Relaxed);
+        let stale = callback_stale_after_ms();
+        assert!(shared.evaluate(since + stale).is_some());
+        shared.note_redraw_delivered();
+        let stall = u64::try_from(STALL_AFTER.as_millis()).unwrap();
+        assert_eq!(
+            shared.evaluate(since + stale + stall + 1_000),
+            None,
+            "the classic record stays suppressed in this episode"
+        );
+
+        shared.note_present();
+        shared.note_activity();
+        shared.note_redraw_delivered();
+        let pending = shared.pending_since_ms.load(Ordering::Relaxed);
+        let classic = shared.evaluate(pending + stall).expect("classic record");
+        assert!(
+            classic.starts_with("freeze_watchdog: work pending "),
+            "got: {classic}"
+        );
     }
 
     #[test]

@@ -37,16 +37,21 @@ pub(in crate::native) struct PasteAssessment {
 }
 
 /// Inspect original source text. A paste is risky when it contains a CR/LF line
-/// break or a Unicode control character other than tab. Tabs alone remain on
-/// the historical direct path.
+/// break, a Unicode control character other than tab, or a direction
+/// embedding, override, or isolate control (U+202A..U+202E, U+2066..U+2069),
+/// which can make a command line display in a different order from the bytes
+/// the shell receives. Tabs alone remain on the historical direct path.
 pub(in crate::native) fn assess(text: &str) -> PasteAssessment {
     let multiline = text.contains(['\r', '\n']);
     let disallowed_control = text
         .chars()
         .any(|ch| ch.is_control() && !matches!(ch, '\t' | '\r' | '\n'));
+    let direction_control = text
+        .chars()
+        .any(crate::native::display_text::is_bidi_override_or_isolate);
     let (escaped_preview, preview_truncated) = escaped_preview(text);
     PasteAssessment {
-        risky: multiline || disallowed_control,
+        risky: multiline || disallowed_control || direction_control,
         line_count: logical_line_count(text),
         byte_count: text.len(),
         escaped_preview,
@@ -123,8 +128,13 @@ fn escaped_preview(text: &str) -> (String, bool) {
             '\r' => "\\r".to_owned(),
             '\t' => "\\t".to_owned(),
             '\\' => "\\\\".to_owned(),
-            ch if ch.is_control() && (ch as u32) <= 0xff => format!("\\x{:02X}", ch as u32),
-            ch if ch.is_control() => format!("\\u{{{:X}}}", ch as u32),
+            // Every Cc control is at most U+009F.
+            ch if ch.is_control() => format!("\\x{:02X}", ch as u32),
+            // Invisible format characters (direction overrides, zero-width
+            // space, byte-order mark, soft hyphen) are shown, not hidden.
+            ch if crate::native::display_text::is_hidden_format_char(ch) => {
+                format!("\\u{{{:X}}}", ch as u32)
+            }
             ch => ch.to_string(),
         };
         if output.len().saturating_add(escaped.len()) > MAX_ESCAPED_PREVIEW_BYTES {
@@ -187,13 +197,36 @@ mod tests {
     }
 
     #[test]
-    fn all_declared_sources_share_the_same_source_type() {
-        let sources = [
-            PasteSource::Clipboard,
-            PasteSource::Primary,
-            PasteSource::ExternalTextDrop,
-            PasteSource::Automation,
-        ];
-        assert_eq!(sources.len(), 4);
+    fn direction_controls_are_risky_and_hidden_format_characters_are_escaped() {
+        // A one-line command whose display order differs from its bytes.
+        let trojan = "ls \u{202e}txt.hs\u{202c} -l";
+        let assessment = assess(trojan);
+        assert!(assessment.risky);
+        assert_eq!(assessment.line_count, 1);
+        assert!(
+            !assessment.one_line_available,
+            "single-line text has no one-line variant"
+        );
+        assert_eq!(assessment.escaped_preview, "ls \\u{202E}txt.hs\\u{202C} -l");
+        for isolate in ['\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}'] {
+            assert!(assess(&format!("a{isolate}b")).risky, "{isolate:?}");
+        }
+        // Zero-width space, byte-order mark and soft hyphen are shown but are
+        // not a reason to confirm on their own; joiners stay as text.
+        let hidden = assess("a\u{200b}b\u{feff}c\u{ad}d");
+        assert!(!hidden.risky);
+        assert_eq!(hidden.escaped_preview, "a\\u{200B}b\\u{FEFF}c\\u{AD}d");
+        let family = "\u{1f468}\u{200d}\u{1f469}";
+        assert!(!assess(family).risky);
+        assert_eq!(assess(family).escaped_preview, family);
+        assert!(
+            !assess("\u{5d0}\u{200f}b").risky,
+            "a direction mark alone is not risky"
+        );
+    }
+
+    #[test]
+    fn c1_controls_escape_as_hex_bytes() {
+        assert_eq!(assess("a\u{85}b\u{9f}").escaped_preview, "a\\x85b\\x9F");
     }
 }

@@ -688,6 +688,7 @@ impl App {
             | UserEvent::WaylandFileDropRejected
             | UserEvent::WaylandFileDropUnavailable
             | UserEvent::WaylandFileDropFailed
+            | UserEvent::WaylandFileDropNoLocalPaths
             | UserEvent::WaylandTabDragWake => false,
         }
     }

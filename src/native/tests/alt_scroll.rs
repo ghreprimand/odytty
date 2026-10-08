@@ -9,8 +9,8 @@
 //! under DECCKM); primary screen ⇒ no PTY write (local scrollback instead);
 //! reporting-on ⇒ the normal wheel report wins; 1007 disabled ⇒ no arrows.
 //!
-//! Headless (no GPU/window): driven through the real `handle_mouse_wheel`
-//! routing. Skipped when no PTY is available (CI sandboxes).
+//! Headless (no GPU, window, or PTY): driven through the real
+//! `handle_mouse_wheel` routing, so every test runs on every target.
 
 use super::*;
 
@@ -34,8 +34,9 @@ impl Write for RecordingWriter {
 
 /// Build an `App` whose PTY writes are recorded, after feeding `setup` (mode
 /// sequences) into the terminal. The recorder is cleared before return so a test
-/// only sees bytes the wheel produces. Returns `None` when no PTY is available.
-fn app_with_setup_settings(setup: &[u8], settings: Settings) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+/// only sees bytes the wheel produces. The App is headless, so it always
+/// builds.
+fn app_with_setup_settings(setup: &[u8], settings: Settings) -> (App, Arc<Mutex<Vec<u8>>>) {
     let dims = Dimensions::new(COLS, ROWS);
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
@@ -47,10 +48,10 @@ fn app_with_setup_settings(setup: &[u8], settings: Settings) -> Option<(App, Arc
         t.advance(setup);
     }
     bytes.lock().expect("bytes").clear();
-    Some((app, bytes))
+    (app, bytes)
 }
 
-fn app_with_setup(setup: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+fn app_with_setup(setup: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {
     app_with_setup_settings(setup, Settings::default())
 }
 
@@ -70,18 +71,14 @@ fn alt_screen_wheel_up_sends_up_arrows() {
     // Enter the alternate screen (1049h). A wheel-up notch becomes the
     // multiplier-scaled 6 Up cursor keys in CSI form (byte-identical to six
     // real Up presses at the default `scroll_wheel_lines` of 6).
-    let Some((mut app, bytes)) = app_with_setup(b"\x1b[?1049h") else {
-        return;
-    };
+    let (mut app, bytes) = app_with_setup(b"\x1b[?1049h");
     wheel_up(&mut app);
     assert_eq!(recorded(&bytes), b"\x1b[A".repeat(6));
 }
 
 #[test]
 fn alt_screen_wheel_down_sends_down_arrows() {
-    let Some((mut app, bytes)) = app_with_setup(b"\x1b[?1049h") else {
-        return;
-    };
+    let (mut app, bytes) = app_with_setup(b"\x1b[?1049h");
     wheel_down(&mut app);
     assert_eq!(recorded(&bytes), b"\x1b[B".repeat(6));
 }
@@ -91,9 +88,7 @@ fn alt_screen_decckm_uses_ss3_arrows() {
     // DECCKM application-cursor mode (1h) must yield the SS3 form (\x1bOA), the
     // load-bearing encoding trap: a pager in app-cursor mode would not scroll on
     // the CSI form.
-    let Some((mut app, bytes)) = app_with_setup(b"\x1b[?1049h\x1b[?1h") else {
-        return;
-    };
+    let (mut app, bytes) = app_with_setup(b"\x1b[?1049h\x1b[?1h");
     wheel_up(&mut app);
     assert_eq!(recorded(&bytes), b"\x1bOA".repeat(6));
 }
@@ -102,9 +97,7 @@ fn alt_screen_decckm_uses_ss3_arrows() {
 fn primary_screen_wheel_does_not_write_to_pty() {
     // No alternate screen: the wheel moves the local scrollback viewport and
     // never writes to the PTY (alt-scroll translation must not fire).
-    let Some((mut app, bytes)) = app_with_setup(b"") else {
-        return;
-    };
+    let (mut app, bytes) = app_with_setup(b"");
     wheel_up(&mut app);
     assert!(
         recorded(&bytes).is_empty(),
@@ -119,9 +112,7 @@ fn alt_screen_with_mouse_reporting_suppresses_alt_scroll_arrows() {
     // SGR/legacy wheel report depends on a pointer cell position, which a
     // headless app has no GPU metrics to resolve; that encoding is covered by
     // the wheel-zoom report tests. Here we pin only that alt-scroll is off.)
-    let Some((mut app, bytes)) = app_with_setup(b"\x1b[?1049h\x1b[?1000h") else {
-        return;
-    };
+    let (mut app, bytes) = app_with_setup(b"\x1b[?1049h\x1b[?1000h");
     wheel_up(&mut app);
     let out = recorded(&bytes);
     assert_ne!(
@@ -140,9 +131,7 @@ fn alt_screen_with_1007_disabled_sends_nothing() {
     // Alternate scroll explicitly disabled (1007l): the wheel falls through to
     // scrollback movement, which is a no-op on the (scrollback-less) alt screen,
     // so nothing reaches the PTY.
-    let Some((mut app, bytes)) = app_with_setup(b"\x1b[?1049h\x1b[?1007l") else {
-        return;
-    };
+    let (mut app, bytes) = app_with_setup(b"\x1b[?1049h\x1b[?1007l");
     wheel_up(&mut app);
     assert!(
         recorded(&bytes).is_empty(),
@@ -161,9 +150,7 @@ fn alt_scroll_arrow_count_tracks_wheel_lines_setting() {
         scroll_wheel_lines: 3.0,
         ..Settings::default()
     };
-    let Some((mut app, bytes)) = app_with_setup_settings(b"\x1b[?1049h", three) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_setup_settings(b"\x1b[?1049h", three);
     wheel_up(&mut app);
     assert_eq!(
         recorded(&bytes),
@@ -175,9 +162,7 @@ fn alt_scroll_arrow_count_tracks_wheel_lines_setting() {
         scroll_wheel_lines: 6.0,
         ..Settings::default()
     };
-    let Some((mut app, bytes)) = app_with_setup_settings(b"\x1b[?1049h", six) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_setup_settings(b"\x1b[?1049h", six);
     wheel_up(&mut app);
     assert_eq!(
         recorded(&bytes),

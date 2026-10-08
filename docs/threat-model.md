@@ -760,14 +760,15 @@ Three prohibitions apply to every boundary below:
 ### B15 - Risky clipboard and PRIMARY paste
 
 - **Attacker control:** A4 controls every pasted byte and may choose newlines,
-  carriage returns, tabs, escape bytes, terminal controls, empty lines, and an
-  oversized payload. A focus change can race a confirmation UI.
+  carriage returns, tabs, escape bytes, terminal controls, direction
+  overrides that reorder how a command displays, empty lines, and an oversized
+  payload. A focus change can race a confirmation UI.
 - **Trust assumption:** the paste gesture selects the destination pane, not the
   safety of the clipboard contents. A string is never classified by shell
   meaning.
 - **Current default and source anchors:** `src/native/paste_policy.rs` and
-  `src/native/app/paste.rs` hold multiline or disallowed-control-bearing text
-  before any byte reaches the PTY when the child has not enabled
+  `src/native/app/paste.rs` hold multiline, disallowed-control-bearing, or
+  direction-override-bearing text before any byte reaches the PTY when the child has not enabled
   bracketed-paste mode. The overlay receives only escaped presentation data and
   original byte/line counts; raw text remains in App-owned transient state. The
   UI offers Paste, a lossless explicit one-line transform when available, or

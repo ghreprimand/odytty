@@ -895,7 +895,7 @@ fn source_tag(source: ConnectionHostSource) -> &'static str {
 /// Strip control characters so a malformed host name can never inject escape
 /// sequences into the overlay's plain-text rows.
 fn sanitize(text: &str) -> String {
-    text.chars().filter(|ch| !ch.is_control()).collect()
+    crate::native::display_text::sanitize_row_text(text)
 }
 
 fn truncate_for_width(text: &str, max_chars: usize) -> String {

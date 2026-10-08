@@ -691,4 +691,10 @@ pub(in crate::native) struct OverlayRenderSignature {
     pub(in crate::native) open_with: OpenWithOverlaySignature,
     pub(in crate::native) workspace_picker: WorkspacePickerSignature,
     pub(in crate::native) profile_picker: ProfilePickerSignature,
+    /// Fingerprint of the payload the active dialog card prints (paste
+    /// preview, image caption, session id, close target, cwd, host, layout
+    /// name); 0 in every other mode. Opening a second dialog of the same mode
+    /// replaces the first inside one call, with no frame in between, so the
+    /// payload must key the frame cache itself.
+    pub(in crate::native) dialog_payload: u64,
 }

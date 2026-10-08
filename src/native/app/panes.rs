@@ -327,7 +327,13 @@ fn pane_clamped_cell(
 /// a clean box over the multi-pane content. A source cell outside either axis
 /// of `src` falls back to the default cell, never to a cell of another row
 /// (defensive; the caller always passes an in-bounds rect).
-fn crop_snapshot(src: &Snapshot, left: usize, top: usize, width: usize, height: usize) -> Snapshot {
+pub(in crate::native) fn crop_snapshot(
+    src: &Snapshot,
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+) -> Snapshot {
     let src_cols = src.dimensions.columns;
     let src_rows = src.dimensions.rows;
     let mut cells = Vec::with_capacity(width.saturating_mul(height));

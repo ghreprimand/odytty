@@ -164,6 +164,8 @@ mod overlay_registry;
 mod palette_ui;
 mod panes;
 pub(in crate::native) use panes::PresentedPane;
+#[cfg(test)]
+pub(in crate::native) use panes::crop_snapshot;
 mod paste;
 pub(in crate::native) mod platform_opener;
 pub(in crate::native) use multi_window::NewWindowRequest;

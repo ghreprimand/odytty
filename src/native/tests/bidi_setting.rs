@@ -52,41 +52,28 @@ fn frame_plans_a_map(app: &mut App) -> bool {
     app.bidi_frame_map_for_test().is_some()
 }
 
-/// Open Settings and drill into the section holding `bidi_reorder`, with the
-/// selection on that row.
+/// Open Settings inside the Rendering section, which holds `bidi_reorder`,
+/// with the selection on that row.
 fn select_bidi_row(app: &mut App) {
-    app.open_settings_overlay_for_test();
-    for section in 0..24 {
-        for _ in 0..section {
-            key(app, WinitKey::Named(NamedKey::ArrowDown), false);
-        }
-        key(app, WinitKey::Named(NamedKey::Enter), false);
-        let signature = app.overlay_signature_for_test();
-        if let Some(target) = signature
+    app.open_settings_section_for_test("Rendering");
+    let signature = app.overlay_signature_for_test();
+    let target = signature
+        .panel
+        .entries
+        .iter()
+        .position(|entry| entry.key == "bidi_reorder")
+        .expect("the Rendering section lists bidi_reorder");
+    assert!(
+        signature
             .panel
             .entries
             .iter()
-            .position(|entry| entry.key == "bidi_reorder")
-        {
-            assert!(
-                signature
-                    .panel
-                    .entries
-                    .iter()
-                    .any(|entry| entry.key == "ligatures"),
-                "the row sits with the other text-rendering switches"
-            );
-            for _ in signature.panel.selected..target {
-                key(app, WinitKey::Named(NamedKey::ArrowDown), false);
-            }
-            return;
-        }
-        key(app, WinitKey::Named(NamedKey::Escape), false);
-        for _ in 0..section {
-            key(app, WinitKey::Named(NamedKey::ArrowUp), false);
-        }
+            .any(|entry| entry.key == "ligatures"),
+        "the row sits with the other text-rendering switches"
+    );
+    for _ in signature.panel.selected..target {
+        key(app, WinitKey::Named(NamedKey::ArrowDown), false);
     }
-    panic!("no Settings section lists bidi_reorder");
 }
 
 #[test]

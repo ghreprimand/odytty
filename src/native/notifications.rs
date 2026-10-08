@@ -464,4 +464,36 @@ mod tests {
         assert!(!limiter.accept("overflow", now));
         assert!(limiter.accept("after-window", now + RATE_WINDOW));
     }
+
+    /// The same fingerprint is suppressed strictly inside the dedup window and
+    /// accepted again exactly at its end.
+    #[test]
+    fn limiter_dedup_boundary_is_exclusive_at_the_window_end() {
+        let now = Instant::now();
+        let mut limiter = NotificationLimiter::default();
+        assert!(limiter.accept("same", now));
+        assert!(!limiter.accept("same", now + DEDUP_WINDOW - Duration::from_millis(1)));
+        assert!(limiter.accept("same", now + DEDUP_WINDOW));
+        assert!(
+            limiter.accept("other", now + DEDUP_WINDOW),
+            "a different fingerprint is not deduplicated"
+        );
+    }
+
+    /// A full burst whose last accepted fingerprint later falls out of the
+    /// dedup window still denies until the rate window frees a slot: the two
+    /// limits are independent.
+    #[test]
+    fn rate_limit_still_denies_after_the_dedup_window_passes() {
+        let now = Instant::now();
+        let mut limiter = NotificationLimiter::default();
+        for index in 0..RATE_BURST {
+            assert!(limiter.accept(&format!("event-{index}"), now));
+        }
+        let later = now + DEDUP_WINDOW + Duration::from_secs(1);
+        assert!(later < now + RATE_WINDOW);
+        assert!(!limiter.accept(&format!("event-{}", RATE_BURST - 1), later));
+        assert!(!limiter.accept("fresh", later));
+        assert!(limiter.accept("fresh", now + RATE_WINDOW));
+    }
 }

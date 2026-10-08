@@ -114,6 +114,19 @@ pub(super) fn resample_rgba8(
         return None;
     }
     rgba.truncate(needed);
+    // `resize` treats colour and alpha as independent channels, which is only
+    // right for premultiplied pixels: on straight alpha the colour of fully
+    // transparent pixels (often black) bleeds into the semi-transparent edge.
+    // Premultiply in place when alpha varies, resize, then divide back out.
+    // Constant alpha (every opaque image) skips both passes and is unchanged.
+    let varying_alpha = rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .any(|pixel| pixel[3] != rgba[3]);
+    if varying_alpha {
+        premultiply_rgba8(&mut rgba);
+    }
     let source = image::RgbaImage::from_raw(width, height, rgba)?;
     let resampled = image::imageops::resize(
         &source,
@@ -121,7 +134,34 @@ pub(super) fn resample_rgba8(
         target_height,
         image::imageops::FilterType::Triangle,
     );
-    Some(resampled.into_raw())
+    let mut out = resampled.into_raw();
+    if varying_alpha {
+        unpremultiply_rgba8(&mut out);
+    }
+    Some(out)
+}
+
+/// Scale each pixel's colour by its alpha, rounding to nearest.
+fn premultiply_rgba8(rgba: &mut [u8]) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
+        let alpha = u16::from(pixel[3]);
+        for channel in &mut pixel[..3] {
+            *channel = ((u16::from(*channel) * alpha + 127) / 255) as u8;
+        }
+    }
+}
+
+/// Divide premultiplied colour back by alpha, rounding to nearest and
+/// clamping; a fully transparent pixel keeps black colour.
+fn unpremultiply_rgba8(rgba: &mut [u8]) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
+        let alpha = u32::from(pixel[3]);
+        for channel in &mut pixel[..3] {
+            *channel = (u32::from(*channel) * 255 + alpha / 2)
+                .checked_div(alpha)
+                .map_or(0, |value| value.min(255) as u8);
+        }
+    }
 }
 
 pub(super) fn extent_2d(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Extent3d {
@@ -157,6 +197,53 @@ mod tests {
         assert_eq!((width, height), (8, 2));
         assert_eq!(pixels.len(), 8 * 2 * 4);
         assert!(matches!(pixels, Cow::Owned(_)));
+    }
+
+    /// An oversized image whose left half is transparent black and whose
+    /// right half is opaque white: downscaling must not darken the edge with
+    /// the transparent pixels' colour. Each visible output pixel stays white
+    /// whatever its averaged alpha.
+    #[test]
+    fn resampling_straight_alpha_does_not_bleed_transparent_colour() {
+        let (width, height) = (8u32, 2u32);
+        let mut rgba = Vec::new();
+        for _ in 0..height {
+            for x in 0..width {
+                if x < width / 2 {
+                    rgba.extend_from_slice(&[0, 0, 0, 0]);
+                } else {
+                    rgba.extend_from_slice(&[255, 255, 255, 255]);
+                }
+            }
+        }
+        let out = resample_rgba8(rgba, width, height, 3, 1).expect("resampled");
+        for pixel in out.as_chunks::<4>().0.iter() {
+            if pixel[3] > 0 {
+                assert!(
+                    pixel[..3].iter().all(|&channel| channel >= 250),
+                    "edge pixel darkened by transparent colour: {pixel:?}"
+                );
+            }
+        }
+        assert!(
+            out.as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] > 0 && pixel[3] < 255),
+            "an edge pixel blends alpha"
+        );
+    }
+
+    #[test]
+    fn opaque_images_resample_unchanged_by_the_alpha_passes() {
+        let rgba: Vec<u8> = (0..9 * 3)
+            .flat_map(|i| [i as u8, 255 - i as u8, 7, 255])
+            .collect();
+        let expected = {
+            let source = image::RgbaImage::from_raw(9, 3, rgba.clone()).unwrap();
+            image::imageops::resize(&source, 8, 2, image::imageops::FilterType::Triangle).into_raw()
+        };
+        assert_eq!(resample_rgba8(rgba, 9, 3, 8, 2).unwrap(), expected);
     }
 
     #[test]

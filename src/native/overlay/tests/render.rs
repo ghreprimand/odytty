@@ -218,7 +218,7 @@ fn connection_row_menu_production_crop_must_retain_manager_underneath() {
     apply_overlay(&mut snap, &mut overlay);
 
     let composite = overlay_composite_rect(&mut overlay, cols, rows).expect("composite rect");
-    let cropped = crop_snapshot_for_test(
+    let cropped = crate::native::app::crop_snapshot(
         &snap,
         composite.left,
         composite.top,
@@ -243,35 +243,6 @@ fn snapshot_text(snap: &Snapshot) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-/// Mirror of `panes::crop_snapshot` used by production `build_overlay_top`.
-fn crop_snapshot_for_test(
-    src: &Snapshot,
-    left: usize,
-    top: usize,
-    width: usize,
-    height: usize,
-) -> Snapshot {
-    let src_cols = src.dimensions.columns;
-    let mut cells = Vec::with_capacity(width * height);
-    for r in 0..height {
-        for c in 0..width {
-            let cell = src
-                .cells
-                .get((top + r) * src_cols + (left + c))
-                .copied()
-                .unwrap_or_default();
-            cells.push(cell);
-        }
-    }
-    Snapshot {
-        dimensions: Dimensions::new(width, height),
-        cursor: Position { row: 0, column: 0 },
-        cursor_visible: false,
-        colors: src.colors.clone(),
-        cells,
-    }
 }
 
 fn open_navigator_menu_for_render() -> OverlayUi {
@@ -363,7 +334,7 @@ fn navigator_row_menu_production_crop_must_retain_navigator_underlay() {
     // navigator underlay - the bug the operator saw. The production crop instead
     // uses `overlay_composite_rect`, the union of underlay panel + menu box.
     let menu_rect = overlay_rect(&overlay, cols, rows).expect("menu rect");
-    let menu_only = crop_snapshot_for_test(
+    let menu_only = crate::native::app::crop_snapshot(
         &snap,
         menu_rect.left,
         menu_rect.top,
@@ -382,7 +353,7 @@ fn navigator_row_menu_production_crop_must_retain_navigator_underlay() {
         composite.width >= menu_rect.width && composite.height >= menu_rect.height,
         "composite rect must cover at least the menu box: composite={composite:?} menu={menu_rect:?}"
     );
-    let cropped = crop_snapshot_for_test(
+    let cropped = crate::native::app::crop_snapshot(
         &snap,
         composite.left,
         composite.top,
@@ -637,5 +608,51 @@ fn detach_switch_unknown_cwd_shows_default_directory_copy() {
     assert!(
         lines[0].text.contains("default directory"),
         "unknown cwd falls back to a clear default-directory line"
+    );
+}
+
+#[test]
+fn chunk_by_columns_splits_on_display_width_and_reports_overflow() {
+    use super::super::render::chunk_by_columns;
+    assert_eq!(
+        chunk_by_columns("ab\u{4e00}cd", 3, 3),
+        (
+            vec!["ab".to_owned(), "\u{4e00}c".to_owned(), "d".to_owned()],
+            false
+        )
+    );
+    assert_eq!(
+        chunk_by_columns("abcdefg", 3, 2),
+        (vec!["abc".to_owned(), "def".to_owned()], true)
+    );
+    assert_eq!(chunk_by_columns("\u{4e00}", 1, 3), (Vec::new(), true));
+    assert_eq!(chunk_by_columns("", 3, 3), (Vec::new(), false));
+}
+
+/// Overlay rows own cells like terminal text: a wide glyph (CJK or emoji)
+/// gets a real wide tail, a decomposed accent stays one cell with its mark,
+/// and the layout width matches what is painted.
+#[test]
+fn write_text_paints_wide_tails_and_attaches_zero_width_marks() {
+    use super::super::render::write_text;
+    let mut snap = snapshot(20, 1);
+    let text = "\u{4e00}e\u{301}\u{1f600}x";
+    write_text(&mut snap, 0, 0, 20, text, Attrs::default());
+    assert_eq!(snap.cells[0].ch, '\u{4e00}');
+    assert!(snap.cells[1].wide_continuation, "CJK tail is flagged");
+    assert_eq!(snap.cells[2].ch, 'e');
+    assert_eq!(
+        snap.cells[2].combining(),
+        &['\u{301}'],
+        "the mark stays on its base"
+    );
+    assert_eq!(snap.cells[3].ch, '\u{1f600}');
+    assert!(snap.cells[4].wide_continuation, "emoji tail is flagged");
+    assert_eq!(snap.cells[5].ch, 'x');
+    assert_eq!(text_display_width(text), 6);
+    assert_eq!(
+        fit_chars(text, 3),
+        "\u{4e00}e\u{301}",
+        "a cut keeps the mark with its base"
     );
 }

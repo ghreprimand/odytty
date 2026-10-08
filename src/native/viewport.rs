@@ -143,6 +143,11 @@ impl Viewport {
     }
 }
 
+/// Upper bound on wheel notches one event may carry. Real wheels and
+/// compositors report a handful; the bound only keeps arithmetic on a hostile
+/// or broken delta finite.
+const MAX_WHEEL_NOTCHES: f32 = 1000.0;
+
 /// Convert a mouse-wheel delta into a signed row count at the fixed default
 /// step: positive scrolls up into history, negative scrolls toward the live
 /// bottom. Line deltas map each notch to [`WHEEL_STEP_LINES`] rows; pixel deltas
@@ -172,9 +177,14 @@ pub(super) fn wheel_lines_scaled(
             if y == 0.0 {
                 return 0;
             }
-            let step = step_lines.max(1) as isize;
-            let notches = y.abs().ceil().max(1.0) as isize;
-            y.signum() as isize * notches * step
+            let step = isize::try_from(step_lines.max(1)).unwrap_or(isize::MAX);
+            // OS-supplied deltas are untrusted: bound the notch count before
+            // the cast and saturate the product, so an enormous or infinite
+            // delta can neither overflow nor flip sign.
+            let notches = y.abs().ceil().clamp(1.0, MAX_WHEEL_NOTCHES) as isize;
+            (y.signum() as isize)
+                .saturating_mul(notches)
+                .saturating_mul(step)
         }
         MouseScrollDelta::PixelDelta(pos) => {
             let height = (cell_height.max(1)) as f64;
@@ -192,10 +202,12 @@ pub(super) fn wheel_lines_scaled(
 /// multiplier. `cell_height` is floored at 1 to stay finite before GPU metrics
 /// exist.
 fn wheel_delta_notches(delta: MouseScrollDelta, cell_height: u32) -> f64 {
-    match delta {
+    let notches = match delta {
         MouseScrollDelta::LineDelta(_, y) => y as f64,
         MouseScrollDelta::PixelDelta(pos) => pos.y / (cell_height.max(1) as f64),
-    }
+    };
+    // Keep the carry finite for an out-of-range OS delta.
+    notches.clamp(-f64::from(MAX_WHEEL_NOTCHES), f64::from(MAX_WHEEL_NOTCHES))
 }
 
 /// Add a fresh notch delta onto a fractional carry, dropping the stale carry on

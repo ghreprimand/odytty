@@ -43,21 +43,62 @@ fn create_fifo(path: &Path) {
     assert_eq!(result, 0, "create FIFO at {}", path.display());
 }
 
+/// The libtest name of a child probe in this module, derived from the module
+/// path so a moved module cannot leave a hard-coded name matching nothing.
+#[cfg(target_os = "linux")]
+fn probe_test_name(function: &str) -> String {
+    let module = module_path!();
+    let module = module.split_once("::").map_or(module, |(_, rest)| rest);
+    format!("{module}::{function}")
+}
+
+/// Wall time to start the test binary as a child and run one no-op probe on
+/// this machine, measured once. Each probe's budget is added on top, so a
+/// loaded runner's spawn cost does not count against the bounded work.
+#[cfg(target_os = "linux")]
+fn probe_spawn_baseline() -> Duration {
+    static BASELINE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *BASELINE.get_or_init(|| {
+        let started = Instant::now();
+        let result = run_probe(
+            &probe_test_name("baseline_child_probe"),
+            &[],
+            Duration::from_secs(30),
+        );
+        assert_eq!(
+            result,
+            ProbeResult::Exited(true),
+            "the no-op baseline probe ran"
+        );
+        started.elapsed()
+    })
+}
+
 #[cfg(target_os = "linux")]
 fn spawn_bounded_probe(
-    test_name: &str,
+    function: &str,
     envs: &[(&str, &std::ffi::OsStr)],
     budget: Duration,
 ) -> ProbeResult {
+    let baseline = probe_spawn_baseline();
+    run_probe(&probe_test_name(function), envs, baseline + budget)
+}
+
+/// Run one child probe test and wait at most `budget`. It passes only when
+/// the child exits successfully having run exactly one test: a renamed or
+/// moved probe that matches nothing is a failure, not a vacuous pass.
+#[cfg(target_os = "linux")]
+fn run_probe(test_name: &str, envs: &[(&str, &std::ffi::OsStr)], budget: Duration) -> ProbeResult {
+    use std::io::Read;
     use std::os::unix::process::CommandExt;
 
     let exe = std::env::current_exe().expect("resolve test binary");
     let mut command = Command::new(exe);
     command
-        .args(["--exact", test_name, "--nocapture"])
+        .args(["--exact", test_name, "--test-threads", "1"])
         .env(CHILD_ENV, "1")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .process_group(0);
     for (key, value) in envs {
@@ -67,7 +108,14 @@ fn spawn_bounded_probe(
     let deadline = Instant::now() + budget;
     loop {
         if let Some(status) = child.try_wait().expect("poll child probe") {
-            return ProbeResult::Exited(status.success());
+            // libtest's summary is a few hundred bytes, far below the pipe
+            // buffer, so reading after exit cannot have stalled the child.
+            let mut summary = String::new();
+            if let Some(mut stdout) = child.stdout.take() {
+                let _ = stdout.read_to_string(&mut summary);
+            }
+            let ran_one = summary.contains("test result: ok. 1 passed;");
+            return ProbeResult::Exited(status.success() && ran_one);
         }
         if Instant::now() >= deadline {
             kill_probe_group(&mut child);
@@ -92,6 +140,11 @@ enum ProbeResult {
     TimedOut,
 }
 
+/// A probe that does nothing, used to measure the child spawn cost.
+#[cfg(target_os = "linux")]
+#[test]
+fn baseline_child_probe() {}
+
 #[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn palette_history_fifo_child_probe() {
@@ -113,7 +166,7 @@ fn palette_open_does_not_block_on_fifo_history() {
         ("SHELL", std::ffi::OsStr::new("/bin/bash")),
     ];
     let result = spawn_bounded_probe(
-        "native::tests::audit_ui_liveness::palette_history_fifo_child_probe",
+        "palette_history_fifo_child_probe",
         &envs,
         Duration::from_millis(700),
     );
@@ -160,7 +213,7 @@ fn image_view_decode_does_not_block_on_fifo() {
     create_fifo(&image);
     let envs = [("ODYTTY_UI_LIVENESS_IMAGE", image.as_os_str())];
     let result = spawn_bounded_probe(
-        "native::tests::audit_ui_liveness::image_decode_fifo_child_probe",
+        "image_decode_fifo_child_probe",
         &envs,
         Duration::from_millis(700),
     );
@@ -242,7 +295,7 @@ fn glyph_fallback_does_not_wait_for_fontconfig_helper() {
     helper_bin(&bin, "fc-match", "#!/bin/sh\nexec /bin/sleep 30\n");
     let envs = [("PATH", bin.as_os_str())];
     let result = spawn_bounded_probe(
-        "native::tests::audit_ui_liveness::fontconfig_fallback_child_probe",
+        "fontconfig_fallback_child_probe",
         &envs,
         Duration::from_millis(700),
     );

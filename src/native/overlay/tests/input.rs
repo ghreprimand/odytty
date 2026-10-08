@@ -1632,6 +1632,115 @@ fn risky_paste_dialog_shows_bounded_metadata_and_routes_explicit_actions() {
     );
 }
 
+/// The escaped preview is split by display columns: a preview of wide
+/// characters that fits in the three preview lines is painted in full, never
+/// clipped at the right edge of a line counted in characters.
+#[test]
+fn risky_paste_preview_lines_are_split_by_display_columns() {
+    let preview = "\u{4e00}".repeat(40);
+    let mut overlay = OverlayUi::default();
+    overlay.open_risky_paste(RiskyPasteDialog {
+        line_count: 2,
+        byte_count: preview.len(),
+        escaped_preview: preview,
+        preview_truncated: false,
+        one_line_available: false,
+        broadcast: None,
+    });
+    let mut rendered = snapshot(100, 24);
+    apply_overlay(&mut rendered, &mut overlay);
+    let painted = rendered
+        .cells
+        .iter()
+        .filter(|cell| cell.ch == '\u{4e00}')
+        .count();
+    assert_eq!(painted, 40, "every wide preview glyph is painted");
+    let text: String = rendered.cells.iter().map(|cell| cell.ch).collect();
+    assert!(!text.contains("Preview truncated"));
+}
+
+/// Every click region of the risky-paste action line, found on the painted
+/// card rather than assumed: Paste, Paste as One Line (when offered) and
+/// Cancel each act, and the prompt text before them and the other body rows
+/// are inert. Covers both action lines.
+#[test]
+fn risky_paste_action_regions_match_the_painted_action_line() {
+    for one_line_available in [true, false] {
+        let dialog = RiskyPasteDialog {
+            line_count: 2,
+            byte_count: 12,
+            escaped_preview: "first\\nsecond".to_owned(),
+            preview_truncated: false,
+            one_line_available,
+            broadcast: None,
+        };
+        let open = || {
+            let mut overlay = OverlayUi::default();
+            overlay.open_risky_paste(dialog.clone());
+            overlay
+        };
+        let mut painted_overlay = open();
+        let rect = overlay_rect(&painted_overlay, 100, 24).expect("rect");
+        let mut rendered = snapshot(100, 24);
+        apply_overlay(&mut rendered, &mut painted_overlay);
+        let row_text = |row: usize| -> String {
+            rendered.cells[row * 100..(row + 1) * 100]
+                .iter()
+                .map(|cell| cell.ch)
+                .collect()
+        };
+        let action_row = (rect.body_top..rect.body_top + rect.body_height)
+            .find(|&row| row_text(row).contains("[Esc / C] Cancel"))
+            .expect("the action line is painted");
+        let line = row_text(action_row);
+        let column_of = |needle: &str| line.find(needle).expect("label painted");
+        let click = |cell: CellPoint| {
+            let mut overlay = open();
+            overlay.handle_pointer(
+                OverlayPointer::Press {
+                    cell,
+                    button: PointerButton::Left,
+                    x_in_body: None,
+                },
+                rect,
+            )
+        };
+        let at = |column: usize| CellPoint {
+            row: action_row,
+            column,
+        };
+        assert_eq!(
+            click(at(column_of("[Enter / P]"))),
+            OverlayOutcome::RiskyPaste
+        );
+        assert_eq!(
+            click(at(column_of("[Esc / C]") + 3)),
+            OverlayOutcome::RiskyPasteCancel
+        );
+        assert_eq!(click(at(column_of("Choose:"))), OverlayOutcome::Consumed);
+        if one_line_available {
+            assert_eq!(
+                click(at(column_of("[O]"))),
+                OverlayOutcome::RiskyPasteOneLine
+            );
+        } else {
+            assert!(!line.contains("[O]"));
+        }
+        for row in rect.body_top..rect.body_top + rect.body_height {
+            if row != action_row {
+                assert_eq!(
+                    click(CellPoint {
+                        row,
+                        column: rect.body_left + 2,
+                    }),
+                    OverlayOutcome::Consumed,
+                    "body row {row} is inert"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn pointer_press_outside_the_panel_dismisses_settings() {
     let mut overlay = OverlayUi::default();
@@ -1775,11 +1884,14 @@ fn every_back_titled_mode_has_a_live_title_arrow() {
     // starts with `←` MUST have a title-row hit-test that accepts the arrow,
     // or the affordance is click-dead (Esc masks it). This iterates ALL
     // modes so a future `←`-titled mode without coverage fails here rather
-    // than shipping a dead arrow (as Connections, then About, once did).
-    const ALL_MODES: [OverlayMode; 20] = [
+    // than shipping a dead arrow (as Connections, then About, once did). The
+    // exhaustive match below stops compiling when a variant is added, until
+    // the list covers it.
+    const ALL_MODES: [OverlayMode; 27] = [
         OverlayMode::Settings,
         OverlayMode::ThemePicker,
         OverlayMode::ThemeBuilder,
+        OverlayMode::ProfileManager,
         OverlayMode::FontPicker,
         OverlayMode::KeyBindings,
         OverlayMode::Onboarding,
@@ -1793,11 +1905,51 @@ fn every_back_titled_mode_has_a_live_title_arrow() {
         OverlayMode::WorkspacePicker,
         OverlayMode::ProfilePicker,
         OverlayMode::ImageView,
+        OverlayMode::RiskyPaste,
         OverlayMode::ConfirmClose,
         OverlayMode::AttachChoice,
         OverlayMode::ConfirmKillSession,
+        OverlayMode::ConfirmNavigatorClose,
         OverlayMode::DetachSwitchChoice,
+        OverlayMode::ConfirmReplaceTab,
+        OverlayMode::ConfirmRemoveHost,
+        OverlayMode::ConfirmOverwriteLayout,
+        OverlayMode::ConfirmOpenLayout,
     ];
+    fn position(mode: OverlayMode) -> usize {
+        match mode {
+            OverlayMode::Settings => 0,
+            OverlayMode::ThemePicker => 1,
+            OverlayMode::ThemeBuilder => 2,
+            OverlayMode::ProfileManager => 3,
+            OverlayMode::FontPicker => 4,
+            OverlayMode::KeyBindings => 5,
+            OverlayMode::Onboarding => 6,
+            OverlayMode::ContextMenu => 7,
+            OverlayMode::CommandPalette => 8,
+            OverlayMode::Replay => 9,
+            OverlayMode::Connections => 10,
+            OverlayMode::ConnectionForm => 11,
+            OverlayMode::SessionAttach => 12,
+            OverlayMode::OpenWith => 13,
+            OverlayMode::WorkspacePicker => 14,
+            OverlayMode::ProfilePicker => 15,
+            OverlayMode::ImageView => 16,
+            OverlayMode::RiskyPaste => 17,
+            OverlayMode::ConfirmClose => 18,
+            OverlayMode::AttachChoice => 19,
+            OverlayMode::ConfirmKillSession => 20,
+            OverlayMode::ConfirmNavigatorClose => 21,
+            OverlayMode::DetachSwitchChoice => 22,
+            OverlayMode::ConfirmReplaceTab => 23,
+            OverlayMode::ConfirmRemoveHost => 24,
+            OverlayMode::ConfirmOverwriteLayout => 25,
+            OverlayMode::ConfirmOpenLayout => 26,
+        }
+    }
+    for (index, mode) in ALL_MODES.into_iter().enumerate() {
+        assert_eq!(position(mode), index, "{mode:?} is listed once, in order");
+    }
     let mut back_titled = 0;
     for mode in ALL_MODES {
         let overlay = OverlayUi {
@@ -2597,14 +2749,31 @@ fn theme_picker_wheel_scrolls_selection() {
     let rect = overlay_rect(&overlay, 80, 24).expect("rect");
     let before = overlay.render_signature().theme_picker.selected;
 
-    // Wheel down moves selection forward.
+    // Wheel down moves selection forward and previews it, as the keyboard does.
     let outcome = overlay.handle_pointer(OverlayPointer::Wheel { lines: 1 }, rect);
-    assert_eq!(outcome, OverlayOutcome::Consumed);
+    let OverlayOutcome::ApplySettings(previewed) = outcome else {
+        panic!("wheel previews the newly selected theme, got {outcome:?}");
+    };
     let after = overlay.render_signature().theme_picker.selected;
     assert!(
         after > before,
         "wheel down advances selection in theme picker"
     );
+    assert_ne!(previewed.theme, crate::theme::Theme::ODYSSEY);
+    assert_eq!(overlay.settings.theme, previewed.theme);
+
+    // A zero delta moves nothing.
+    assert_eq!(
+        overlay.handle_pointer(OverlayPointer::Wheel { lines: 0 }, rect),
+        OverlayOutcome::Consumed
+    );
+    assert_eq!(overlay.render_signature().theme_picker.selected, after);
+
+    // Esc after a wheel preview restores the theme the picker opened with.
+    let OverlayOutcome::ApplySettings(restored) = overlay.handle_input(OverlayInput::Close) else {
+        panic!("Esc restores the original theme");
+    };
+    assert_eq!(restored.theme, crate::theme::Theme::ODYSSEY);
 }
 
 #[test]
@@ -2746,18 +2915,14 @@ fn theme_builder_title_back_arrow_click_from_picker_returns_to_picker() {
     });
     let settings = overlay.settings.clone();
     overlay.open_theme_picker(&settings);
-    // Simulate opening the builder from the picker (sets builder_from_picker).
-    let _ = overlay.handle_input(OverlayInput::Activate); // OpenBuilder for focused theme
-    // If OpenBuilder wasn't triggered (no customizable theme focused), open manually.
-    if overlay.render_signature().mode != OverlayMode::ThemeBuilder {
-        // Force into ThemeBuilder via the picker outcome path.
-        overlay.open_theme_picker(&settings);
-        // Directly transition as the picker would.
-        overlay.theme_builder.open(&settings);
-        overlay.mode = OverlayMode::ThemeBuilder;
-        overlay.builder_from_picker = true;
-    }
+    // `b` is the picker's open-builder key; the real outcome path must open
+    // the builder and arm `builder_from_picker`, with no manual fallback.
+    assert!(matches!(
+        overlay.handle_input(OverlayInput::Char('b')),
+        OverlayOutcome::ApplySettings(_)
+    ));
     assert_eq!(overlay.render_signature().mode, OverlayMode::ThemeBuilder);
+    assert!(overlay.builder_from_picker);
 
     let rect = overlay_rect(&overlay, 80, 24).expect("rect");
     let outcome = overlay.handle_pointer(

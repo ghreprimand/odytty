@@ -56,6 +56,17 @@ static WISH: AtomicBool = AtomicBool::new(false);
 /// adopt [`WISH`] and must not overwrite it with a freshly loaded config.
 static WISH_ESTABLISHED: AtomicBool = AtomicBool::new(false);
 
+/// Serializes every write of [`WISH`] and [`WISH_ESTABLISHED`], so the first
+/// binder publishes its wish before any later binder can read it, and a
+/// reload write never interleaves with a first bind.
+static WISH_WRITE: Mutex<()> = Mutex::new(());
+
+fn lock_wish_write() -> std::sync::MutexGuard<'static, ()> {
+    WISH_WRITE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
 #[cfg(test)]
 thread_local! {
     static TEST_LOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
@@ -165,24 +176,23 @@ pub fn set_secure_input(enabled: bool) {
     #[cfg(test)]
     let _lock = secure_input_test_guard();
     let ffi = current_ffi();
-    let transition = {
-        let mut state = lock_state();
-        if enabled {
-            let was_zero = state.holders == 0;
-            state.holders = state.holders.saturating_add(1);
-            was_zero
-        } else if state.holders == 0 {
-            false
-        } else {
-            state.holders -= 1;
-            state.holders == 0
-        }
+    // The primitive runs under the state lock, so concurrent acquire and
+    // release calls reach the OS in the same order as their transitions.
+    let mut state = lock_state();
+    let transition = if enabled {
+        let was_zero = state.holders == 0;
+        state.holders = state.holders.saturating_add(1);
+        was_zero
+    } else if state.holders == 0 {
+        false
+    } else {
+        state.holders -= 1;
+        state.holders == 0
     };
-    if enabled && transition {
-        ffi(true);
-    } else if !enabled && transition {
-        ffi(false);
+    if transition {
+        ffi(enabled);
     }
+    drop(state);
 }
 
 /// Whether the macOS primitive is currently enabled. False on Windows and
@@ -201,6 +211,7 @@ pub(crate) fn secure_keyboard_wish() -> bool {
 pub(crate) fn set_secure_keyboard_wish(enabled: bool) {
     #[cfg(test)]
     let _lock = secure_input_test_guard();
+    let _write = lock_wish_write();
     WISH.store(enabled, Ordering::SeqCst);
     WISH_ESTABLISHED.store(true, Ordering::SeqCst);
 }
@@ -216,14 +227,15 @@ pub(crate) fn set_secure_keyboard_wish(enabled: bool) {
 pub(crate) fn bind_window_secure_keyboard_wish(from_settings: bool) -> bool {
     #[cfg(test)]
     let _lock = secure_input_test_guard();
-    if WISH_ESTABLISHED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_ok()
-    {
-        WISH.store(from_settings, Ordering::SeqCst);
-        from_settings
-    } else {
+    // Establishment and the wish it publishes happen under one lock, so a
+    // concurrent second binder cannot see the flag set before the wish is.
+    let _write = lock_wish_write();
+    if WISH_ESTABLISHED.load(Ordering::SeqCst) {
         WISH.load(Ordering::SeqCst)
+    } else {
+        WISH.store(from_settings, Ordering::SeqCst);
+        WISH_ESTABLISHED.store(true, Ordering::SeqCst);
+        from_settings
     }
 }
 

@@ -109,6 +109,14 @@ impl App {
         self.toggle_settings_overlay();
     }
 
+    /// Test seam: open Settings directly inside the named section, through the
+    /// same `SettingsPanel::open_section` entry the context-menu launchers use.
+    #[cfg(test)]
+    pub(in crate::native) fn open_settings_section_for_test(&mut self, name: &str) {
+        self.toggle_settings_overlay();
+        self.overlay.open_settings_section_for_test(name);
+    }
+
     /// Test seam (RAIL-AUTOHIDE-CTL panel coherence): the value string the open
     /// settings panel would render for `key`. Used to prove an external chevron
     /// toggle keeps the panel's Layout row in sync with the live setting.
@@ -799,6 +807,15 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn would_report_mouse_to_pty_for_test(&self) -> bool {
         self.should_report_mouse_to_pty()
+    }
+
+    /// Test seam: the open context menu's first visible item row, measured on
+    /// the window content grid the menu is laid out on.
+    #[cfg(test)]
+    pub(in crate::native) fn context_menu_scroll_offset_for_test(&self) -> usize {
+        let (columns, rows) = self.overlay_grid_dims();
+        self.overlay
+            .context_menu_scroll_offset_for_test(columns, rows)
     }
 
     /// Test seam (UX4-P1): the overlay render signature (mode + panel state).

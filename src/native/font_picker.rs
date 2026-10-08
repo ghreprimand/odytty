@@ -612,7 +612,7 @@ fn wrap_words(text: &str, width: usize) -> Vec<String> {
 /// inject escape sequences nor miscount the display width budget. Mirrors the
 /// sibling pickers' `sanitize`.
 fn sanitize(text: &str) -> String {
-    text.chars().filter(|ch| !ch.is_control()).collect()
+    crate::native::display_text::sanitize_row_text(text)
 }
 
 fn ellipsize(text: &str, width: usize) -> String {

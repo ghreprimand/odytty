@@ -14,9 +14,10 @@
 //! Security/safety: every row's `argv` was built by
 //! [`crate::desktop::exec_to_argv`] (Desktop-Entry quoting, NOT shell) before it
 //! ever reached this overlay; this module only displays the app `Name` and
-//! forwards the pre-built vector. App names are third-party text, so they are
-//! control-char-sanitized before display exactly like session titles — a
-//! malformed `Name` can never inject escape sequences into the plain-text rows.
+//! forwards the pre-built vector. App names are third-party text, so they pass
+//! through the same row sanitizer as session titles
+//! ([`crate::native::display_text::sanitize_row_text`]): a malformed `Name` can
+//! never inject escape sequences or hide characters in the plain-text rows.
 
 use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
@@ -362,17 +363,17 @@ fn row_label(entry: &DesktopApp) -> String {
     sanitize(&entry.name)
 }
 
-/// Strip control characters so a malformed app `Name` can never inject escape
-/// sequences into the overlay's plain-text rows.
+/// Strip control and hidden format characters so a malformed app `Name` can
+/// never inject escape sequences or hide characters in the overlay's rows.
 fn sanitize(text: &str) -> String {
-    text.chars().filter(|ch| !ch.is_control()).collect()
+    crate::native::display_text::sanitize_row_text(text)
 }
 
-fn truncate_for_width(text: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
-    }
-    text.chars().take(max_chars).collect()
+/// Cut `text` to at most `max_columns` display cells, by the same per-glyph
+/// width the overlay painter lays rows out with, so wide characters never
+/// overflow the body.
+fn truncate_for_width(text: &str, max_columns: usize) -> String {
+    super::overlay::fit_chars(text, max_columns)
 }
 
 #[cfg(test)]
@@ -407,6 +408,34 @@ mod tests {
                 overlay.handle_input(OverlayInput::Char(ch)),
                 OpenWithOverlayOutcome::Consumed
             );
+        }
+    }
+
+    /// A desktop-entry name carrying a direction override, an isolate, a
+    /// zero-width space or a byte-order mark shows without them, and a row of
+    /// wide characters is cut by display columns, never past the body width.
+    #[test]
+    fn row_labels_drop_hidden_format_characters_and_fit_display_columns() {
+        let overlay = open(vec![
+            app(
+                "a.desktop",
+                "Ed\u{202e}it\u{2066}or\u{2069}\u{200b}\u{feff}",
+                &["a"],
+            ),
+            app(
+                "b.desktop",
+                "\u{4e00}\u{4e8c}\u{4e09}\u{56db}\u{4e94}",
+                &["b"],
+            ),
+        ]);
+        let lines = overlay.visible_lines(7, 10);
+        assert_eq!(lines[1].text, "Editor");
+        assert_eq!(
+            lines[2].text, "\u{4e00}\u{4e8c}\u{4e09}",
+            "three wide glyphs fill six of seven cells"
+        );
+        for line in &lines {
+            assert!(super::super::overlay::text_display_width(&line.text) <= 7);
         }
     }
 

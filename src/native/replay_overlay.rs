@@ -198,7 +198,10 @@ impl ReplayOverlay {
 }
 
 /// Render a recorded frame's rows as plain strings, each truncated to
-/// `max_width`. Control characters and NULs become spaces; trailing blanks are
+/// `max_width` display cells. Every cell contributes its base character and
+/// the marks and cluster scalars it owns; a wide glyph's tail and layout
+/// padding contribute nothing, so a wide glyph is not followed by an extra
+/// blank. Control characters and NULs become spaces; trailing blanks are
 /// trimmed so short lines do not paint a full-width run of spaces.
 fn frame_rows(frame: &Snapshot, max_width: usize) -> Vec<String> {
     let columns = frame.dimensions.columns;
@@ -211,11 +214,15 @@ fn frame_rows(frame: &Snapshot, max_width: usize) -> Vec<String> {
         let start = row * columns;
         let mut text = String::with_capacity(columns.min(max_width));
         for cell in frame.cells.iter().skip(start).take(columns) {
-            let ch = cell.ch;
-            if ch == '\0' || ch.is_control() {
-                text.push(' ');
-            } else {
-                text.push(ch);
+            if cell.wide_continuation || cell.layout_padding {
+                continue;
+            }
+            for ch in crate::selection::cell_grapheme_chars(cell) {
+                if ch == '\0' || ch.is_control() {
+                    text.push(' ');
+                } else {
+                    text.push(ch);
+                }
             }
         }
         let trimmed = text.trim_end().to_owned();
@@ -236,11 +243,10 @@ fn frame_fingerprint(frame: &Snapshot) -> u64 {
     hasher.finish()
 }
 
-fn truncate_for_width(text: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
-    }
-    text.chars().take(max_chars).collect()
+/// Cut `text` to at most `max_columns` display cells by the overlay painter's
+/// per-glyph width.
+fn truncate_for_width(text: &str, max_columns: usize) -> String {
+    super::overlay::fit_chars(text, max_columns)
 }
 
 #[cfg(test)]
@@ -260,6 +266,22 @@ mod tests {
 
     fn frames(fills: &[char]) -> Vec<Snapshot> {
         fills.iter().map(|&c| frame(8, 3, c)).collect()
+    }
+
+    /// A recorded row keeps every scalar its cells own, adds no blank after a
+    /// wide glyph, and is cut by display columns.
+    #[test]
+    fn frame_rows_keep_cluster_scalars_and_skip_wide_tails() {
+        let mut terminal = crate::core::Terminal::new(12, 2);
+        terminal.advance("e\u{301}\u{e01}\u{e33}\u{4e00}x\r\n\u{4e00}\u{4e8c}\u{4e09}".as_bytes());
+        let snapshot = terminal.snapshot();
+        let rows = frame_rows(&snapshot, 12);
+        assert_eq!(rows[0], "e\u{301}\u{e01}\u{e33}\u{4e00}x");
+        assert_eq!(
+            frame_rows(&snapshot, 5)[1],
+            "\u{4e00}\u{4e8c}",
+            "five cells hold two wide glyphs"
+        );
     }
 
     #[test]

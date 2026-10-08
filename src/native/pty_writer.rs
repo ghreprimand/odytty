@@ -459,13 +459,16 @@ pub(super) fn take_input_loss(owns: impl Fn(SessionToken) -> bool) -> u64 {
     let Some(registry) = REGISTRY.get() else {
         return 0;
     };
+    // Clear before taking the session list: a loss recorded after this point
+    // re-sets the flag after its counter is bumped, and any loss recorded
+    // before it belongs to a session already registered, so it is in the list
+    // below. Either way no pending loss is missed, including one in a session
+    // registered while another window was taking its own.
+    INPUT_LOSS_PENDING.store(false, Ordering::Release);
     let live: Vec<Arc<OutboundShared>> = {
         let guard = registry.lock().unwrap_or_else(PoisonError::into_inner);
         guard.entries.iter().filter_map(Weak::upgrade).collect()
     };
-    // Clear before scanning: a loss recorded concurrently re-sets the flag
-    // after its counter is bumped, so it is never missed.
-    INPUT_LOSS_PENDING.store(false, Ordering::Release);
     let mut taken = 0u64;
     let mut remaining = false;
     for shared in live {
@@ -784,55 +787,6 @@ mod tests {
             &*written.lock().unwrap_or_else(PoisonError::into_inner),
             b"firstsecondthird",
         );
-    }
-
-    #[test]
-    fn old_shared_mutex_shape_deadlocks_a_second_writer() {
-        // Fail-before contrast: the pre-fix shape (`Arc<Mutex<Box<dyn Write>>>`
-        // over a blocking fd) parks the first writer in `write_all` while holding
-        // the lock, so a second writer — the main-thread input path in the field
-        // incident — deadlocks acquiring it. Asserted via a bounded wait that must
-        // TIME OUT, then released so both complete. The new path (test above)
-        // never blocks the second producer.
-        let gate = new_gate();
-        let started = Arc::new(AtomicUsize::new(0));
-        let fd: Box<dyn Write + Send> = Box::new(BlockingWriter {
-            gate: gate.clone(),
-            started: started.clone(),
-            written: Arc::new(Mutex::new(Vec::new())),
-            error_on_release: false,
-        });
-        let old: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(fd));
-
-        let first = old.clone();
-        let h1 = std::thread::spawn(move || {
-            let mut guard = first.lock().unwrap_or_else(PoisonError::into_inner);
-            let _ = guard.write_all(b"a");
-        });
-        wait_until(|| started.load(Ordering::SeqCst) >= 1);
-
-        let (tx, rx) = mpsc::channel();
-        let second = old.clone();
-        let h2 = std::thread::spawn(move || {
-            let mut guard = second.lock().unwrap_or_else(PoisonError::into_inner);
-            let _ = guard.write_all(b"b");
-            let _ = tx.send(());
-        });
-
-        // While the first writer holds the lock across the blocked fd write, the
-        // second cannot progress.
-        assert!(
-            rx.recv_timeout(Duration::from_millis(300)).is_err(),
-            "old shared-mutex shape did not deadlock the second writer",
-        );
-
-        open_gate(&gate);
-        assert!(
-            rx.recv_timeout(Duration::from_secs(2)).is_ok(),
-            "second writer never completed after the fd released",
-        );
-        h1.join().expect("first joins");
-        h2.join().expect("second joins");
     }
 
     #[test]

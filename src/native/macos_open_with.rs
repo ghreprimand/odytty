@@ -59,12 +59,20 @@ mod tests {
     use super::*;
 
     /// Smoke: enumeration runs against a real path on the macOS CI runner
-    /// without panicking. The specific app set is runner-dependent, so this
-    /// asserts only that a `Vec` comes back (it may be empty or non-empty).
+    /// without panicking. The app set is runner-dependent (it may be empty),
+    /// but every row it does return must be launchable: a named app whose
+    /// argv opens the requested file.
     #[test]
-    fn enumerate_does_not_panic_on_real_path() {
+    fn enumerated_rows_are_launchable_for_the_requested_file() {
         let apps = enumerate("/etc/hosts");
-        // Touch the result so the call is not optimized away; no count assert.
-        let _ = apps.len();
+        for app in &apps {
+            assert!(!app.name.is_empty(), "row without a name: {app:?}");
+            assert!(!app.argv.is_empty(), "row without an argv: {app:?}");
+            assert_eq!(
+                app.argv.last().map(String::as_str),
+                Some("/etc/hosts"),
+                "the argv opens the requested file: {app:?}"
+            );
+        }
     }
 }

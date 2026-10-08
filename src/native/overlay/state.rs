@@ -63,17 +63,16 @@ pub(in crate::native) struct OverlayUi {
     /// The pending host session-id carried by the attach-choice dialog (Phase
     /// 14). Set when the dialog opens; the "New tab"/"Replace current" arms emit
     /// it back to the App. Empty when the dialog is not open. The dialog body is
-    /// static text, so this is the only state the mode carries (it does not enter
-    /// the render signature — the card looks identical for any id).
+    /// static text, so this is the only state the mode carries; it still keys the
+    /// render signature through `dialog_payload`.
     pub(super) attach_choice_session_id: String,
     /// The pending host session-id carried by the kill-confirmation dialog
     /// (Manage Sessions). Set when the dialog opens (right-click a session row);
     /// the confirm arm emits it back to the App, which calls
     /// `session_host::kill_session`. Empty when the dialog is not open. The card
-    /// shows a short id hint but does not enter the render signature: the mode
-    /// flips through `close()` between distinct kill dialogs, forcing a repaint,
-    /// so the carried id never needs to gate the cache (same trick as
-    /// `attach_choice_session_id`).
+    /// shows a short id hint, so the id keys the render signature through
+    /// `dialog_payload`: a second kill dialog replacing the first in one call
+    /// produces no frame in between.
     pub(super) confirm_kill_session_id: String,
     /// Stable live target held while the navigator's destructive-action card is
     /// open. The App resolves it again on confirmation so a stale list row is a
@@ -85,9 +84,8 @@ pub(in crate::native) struct OverlayUi {
     /// the default directory). Operator-controlled text (an OSC 7 path), so the
     /// body truncates it to the panel width and it is display-only here — it
     /// re-enters the App only as the `working_directory` of the same spawn config
-    /// `odytty new` uses, never a raw shell arg. Not in the render signature: the
-    /// card layout is identical for any cwd, and the mode flips through `close()`
-    /// between opens, forcing a repaint.
+    /// `odytty new` uses, never a raw shell arg. It keys the render signature
+    /// through `dialog_payload`, since the body prints it.
     pub(super) detach_switch_cwd: String,
     /// Set when a `SaveAndClose` outcome arrives from the settings panel (dirty
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
@@ -111,31 +109,28 @@ pub(in crate::native) struct OverlayUi {
     /// (ODP-5D). Set when the dialog opens (the clicked tab held a running
     /// foreground child); the confirm arm emits it back so the App closes that
     /// tab and opens the host in its slot. `None` when the dialog is not open.
-    /// Not in the render signature: the card layout is identical for any target
-    /// and the mode flips through `close()` between opens, forcing a repaint
-    /// (same trick as `confirm_kill_session_id`).
+    /// It keys the render signature through `dialog_payload`.
     pub(super) confirm_replace_tab: Option<(Box<ConnectionHost>, SessionToken)>,
     /// The pending host carried by the remove-host confirm dialog (ODP-2C). Set
     /// when "Remove…" is chosen on a connection-manager row; the confirm arm
     /// emits it back so the App deletes its `hosts.conf` block. `None` when the
-    /// dialog is not open. Not in the render signature for the same reason as
-    /// `confirm_replace_tab`: the card layout is target-independent and the mode
-    /// flips through `close()` between opens.
+    /// dialog is not open. It keys the render signature through
+    /// `dialog_payload`.
     pub(super) confirm_remove_host: Option<Box<ConnectionHost>>,
     /// The pending save carried by the overwrite-layout confirm dialog
     /// (OVERWRITE-WARN). Set when a Save as Layout resolves to a name that
     /// already exists on disk; carries the resolved layout `name` and which save
     /// it was (whole app vs. one workspace) so the confirm arm can either force
     /// the write (Replace) or reopen the name prompt (a different name). `None`
-    /// when the dialog is not open. Not in the render signature: the card layout
-    /// is name-independent and the mode flips through `close()` between opens.
+    /// when the dialog is not open. It keys the render signature through
+    /// `dialog_payload`.
     pub(super) confirm_overwrite_layout: Option<(String, LayoutSaveKind)>,
     /// The pending open carried by the open-layout mode dialog (LAYOUT-OPEN-MODE).
     /// Set when a layout is opened onto a window that holds real state (not a
     /// single pristine workspace); carries the layout `name` so the confirm arm
     /// can either replace the current workspaces with the saved set or append
-    /// them beside it. `None` when the dialog is not open. Not in the render
-    /// signature for the same reason as `confirm_overwrite_layout`.
+    /// them beside it. `None` when the dialog is not open. It keys the render
+    /// signature through `dialog_payload`.
     pub(super) confirm_open_layout: Option<String>,
 }
 
@@ -232,6 +227,25 @@ impl OverlayUi {
         if target == SettingsTarget::TabsAndPanes {
             self.panel.open_section("Layout");
         }
+    }
+
+    /// Test seam: open Settings directly inside the named section.
+    #[cfg(test)]
+    pub(in crate::native) fn open_settings_section_for_test(&mut self, name: &str) {
+        self.open_settings();
+        self.panel.open_section(name);
+    }
+
+    /// Test seam: the open context menu's first visible item row on a
+    /// `columns` x `rows` content grid.
+    #[cfg(test)]
+    pub(in crate::native) fn context_menu_scroll_offset_for_test(
+        &self,
+        columns: usize,
+        rows: usize,
+    ) -> usize {
+        let rect = self.context_menu.rect(columns, rows);
+        self.context_menu.scroll_offset(rect.body_height)
     }
 
     #[cfg(test)]

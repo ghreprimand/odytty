@@ -1475,6 +1475,7 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             results_len: 0,
             results_fingerprint: 0,
         },
+        dialog_payload: 0,
     }
 }
 

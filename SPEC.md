@@ -1565,7 +1565,7 @@ that closed while the picker was open, including when names are duplicated.
   live through the existing reload seam; `Ctrl+S` writes changed rows back to
   `odytty.conf` with preservation-first writeback (comments, blank lines, and
   unknown keys untouched; same-directory atomic rename). Live theme picker:
-  `Ctrl+Shift+H` lists built-ins, previews each theme on arrow
+  `Ctrl+Shift+H` lists built-ins, previews each theme on arrow or wheel
   navigation, persists the selected built-in with `Enter`, and restores the
   originally active theme with `Esc`. The custom theme builder has landed:
   clone/tweak/author with live preview, OKLCH sliders, and direct hex entry by
@@ -1786,8 +1786,10 @@ that closed while the picker was open, including when names are duplicated.
 
 - Suspicious-paste confirmation (`warn_on_risky_paste`, default on): before a
   native text paste reaches a child with bracketed-paste mode disabled, inspect
-  the original source text for CR/LF line breaks or control characters other
-  than tab. Risky text is held behind a bounded escaped preview with exact
+  the original source text for CR/LF line breaks, control characters other
+  than tab, or direction embedding, override, and isolate controls
+  (U+202A..U+202E, U+2066..U+2069). Risky text is held behind a bounded
+  escaped preview, which also shows invisible format characters, with exact
   original line and byte counts. Paste sends the original text through the
   existing encoder; Paste as One Line, when offered, uses reversible visible
   escaping of line endings and backslashes; Cancel sends nothing. Focus loss,

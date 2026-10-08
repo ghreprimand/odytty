@@ -138,6 +138,11 @@ const WAYLAND_DROP_UNAVAILABLE_NOTICE: &str = "OdyTTY could not start external f
 #[cfg(target_os = "linux")]
 const WAYLAND_DROP_FAILED_NOTICE: &str = "The dropped file was not inserted: OdyTTY could not read the dropped path data (it timed out, exceeded the size limit, or the transfer errored). Paste the path instead.";
 
+/// Notice when a drop's `text/uri-list` arrived but named no local file the
+/// parser accepts, so nothing was inserted. Linux only.
+#[cfg(target_os = "linux")]
+const WAYLAND_DROP_NO_LOCAL_PATHS_NOTICE: &str = "The dropped item was not inserted: it did not name a local file. Only file URIs on this machine are accepted (no other host, query, or fragment). Paste the path instead.";
+
 #[cfg(target_os = "linux")]
 fn quick_surface_policy(event_loop: &ActiveEventLoop) -> QuickSurfacePolicy {
     use winit::platform::wayland::ActiveEventLoopExtWayland;
@@ -799,7 +804,7 @@ impl MultiWindowHost {
                 .find(|app| app.process_window_id() == candidate.id)
             {
                 app.set_merge_picker_moves(moving);
-                app.set_merge_numeral(Some(candidate.numeral));
+                app.set_merge_numeral(candidate.numeral);
             }
         }
         // The origin paints a banner naming the numerals and the cancel key,
@@ -1815,6 +1820,12 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
         #[cfg(target_os = "linux")]
         if matches!(event, UserEvent::WaylandFileDropFailed) {
             self.notify_wayland_drop_limitation(WAYLAND_DROP_FAILED_NOTICE);
+            self.refresh();
+            return;
+        }
+        #[cfg(target_os = "linux")]
+        if matches!(event, UserEvent::WaylandFileDropNoLocalPaths) {
+            self.notify_wayland_drop_limitation(WAYLAND_DROP_NO_LOCAL_PATHS_NOTICE);
             self.refresh();
             return;
         }

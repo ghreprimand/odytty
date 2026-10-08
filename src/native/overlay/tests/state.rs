@@ -8,11 +8,16 @@ use super::*;
 fn settings_save_failure_disarms_close_after_save() {
     // SaveAndClose arms `close_after_save`; if the write fails, the latch
     // must clear so a later plain save cannot close the panel unbidden.
-    let mut overlay = OverlayUi {
-        mode: OverlayMode::Settings,
-        close_after_save: true,
-        ..OverlayUi::default()
-    };
+    let mut overlay = OverlayUi::default();
+    overlay.open_settings();
+    // Arm the latch through the real dirty-close "save" outcome mapping.
+    assert!(matches!(
+        overlay.map_settings_outcome(
+            crate::native::settings_panel::SettingsPanelOutcome::SaveAndClose(Vec::new())
+        ),
+        OverlayOutcome::SaveSettings(_)
+    ));
+    assert!(overlay.close_after_save, "SaveAndClose arms the latch");
     overlay.save_failed("disk full".to_owned());
     assert!(
         !overlay.close_after_save,
@@ -24,9 +29,21 @@ fn settings_save_failure_disarms_close_after_save() {
 fn keybind_save_failure_disarms_close_after_save() {
     let mut overlay = OverlayUi {
         mode: OverlayMode::KeyBindings,
-        key_remap_close_after_save: true,
+        open: true,
         ..OverlayUi::default()
     };
+    // Arm the latch through the shared key-remap outcome mapping that both the
+    // keyboard and the chord-capture paths use.
+    assert!(matches!(
+        overlay.apply_key_remap_outcome(
+            crate::native::key_remap_ui::KeyRemapOutcome::SaveAndClose(Vec::new())
+        ),
+        OverlayOutcome::SaveSettings(_)
+    ));
+    assert!(
+        overlay.key_remap_close_after_save,
+        "SaveAndClose arms the latch"
+    );
     overlay.save_failed("disk full".to_owned());
     assert!(
         !overlay.key_remap_close_after_save,
@@ -50,12 +67,22 @@ fn escape_requests_close_without_mutating_state() {
 #[test]
 fn confirm_close_open_is_idempotent() {
     // TRAP-3: a repeated close request (some window managers fire twice)
-    // must not stack dialogs — open_confirm_close starts with close().
+    // must not stack dialogs: open_confirm_close starts with close(). After
+    // two opens, one confirmation produces ForceClose and closes the overlay,
+    // so no second card is waiting underneath.
     let mut overlay = OverlayUi::default();
     overlay.open_confirm_close();
     overlay.open_confirm_close();
     assert!(overlay.is_open());
     assert_eq!(overlay.render_signature().mode, OverlayMode::ConfirmClose);
+    assert_eq!(
+        overlay.handle_input(OverlayInput::Activate),
+        OverlayOutcome::ForceClose
+    );
+    assert!(
+        !overlay.is_open(),
+        "no second dialog remains after one confirm"
+    );
 }
 
 #[test]
@@ -737,4 +764,32 @@ fn theme_builder_esc_from_settings_returns_to_settings_panel() {
         Some("Themes"),
         "the panel resumes at the Themes section it was left on"
     );
+}
+
+/// A dialog that replaces another of the same mode inside one call (no frame
+/// in between) still changes the render signature when its body differs, so
+/// the frame cache cannot keep the first card's text.
+#[test]
+fn a_same_mode_dialog_with_a_different_payload_changes_the_signature() {
+    let mut overlay = OverlayUi::default();
+    let mut previous = None;
+    let mut seen = Vec::new();
+    let opens: [&dyn Fn(&mut OverlayUi); 6] = [
+        &|o| o.open_confirm_kill_session("s-0001".to_owned()),
+        &|o| o.open_confirm_kill_session("s-0002".to_owned()),
+        &|o| o.open_confirm_open_layout("alpha".to_owned()),
+        &|o| o.open_confirm_open_layout("beta".to_owned()),
+        &|o| o.open_detach_switch_choice("/tmp/one".to_owned()),
+        &|o| o.open_detach_switch_choice("/tmp/two".to_owned()),
+    ];
+    for open in opens {
+        open(&mut overlay);
+        let signature = overlay.render_signature();
+        assert_ne!(Some(&signature), previous.as_ref());
+        assert!(!seen.contains(&signature.dialog_payload));
+        seen.push(signature.dialog_payload);
+        previous = Some(signature);
+    }
+    overlay.open_settings();
+    assert_eq!(overlay.render_signature().dialog_payload, 0);
 }

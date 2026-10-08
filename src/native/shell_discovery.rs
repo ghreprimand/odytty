@@ -49,49 +49,119 @@ const WSL_LIST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2)
 /// UTF-16 distro names, one per line; the parser keeps at most 32 of them.
 #[cfg(windows)]
 const WSL_LIST_MAX_OUTPUT: usize = 64 * 1024;
-/// How long one answer (including "none") is reused before `wsl.exe` runs
-/// again, so reopening a picker does not repeat the wait.
-#[cfg(windows)]
+/// How long a successful answer (including "no distros") is reused before
+/// `wsl.exe` runs again, so reopening a picker does not repeat the wait.
+#[cfg(any(windows, test))]
 const WSL_LIST_REUSE: std::time::Duration = std::time::Duration::from_secs(60);
+/// How long a failed run (timeout, flood, error exit) is reused: long enough
+/// that a burst of picker opens does not rerun a broken helper, short enough
+/// that a transient failure does not hide every distro for a minute.
+#[cfg(any(windows, test))]
+const WSL_FAILED_REUSE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The last `wsl.exe --list` answer: when it was taken, the names, and whether
+/// the run succeeded.
+#[cfg(any(windows, test))]
+type WslListCache = std::sync::Mutex<Option<(std::time::Instant, Vec<String>, bool)>>;
 
 #[cfg(windows)]
-static WSL_LIST_CACHE: std::sync::Mutex<Option<(std::time::Instant, Vec<String>)>> =
-    std::sync::Mutex::new(None);
+static WSL_LIST_CACHE: WslListCache = std::sync::Mutex::new(None);
 
 /// WSL distro names, from a bounded `wsl.exe --list --quiet` run whose answer
-/// is reused for [`WSL_LIST_REUSE`]. A helper that stalls past
-/// [`WSL_LIST_DEADLINE`] or floods its output is killed and yields no distros.
+/// is reused for [`WSL_LIST_REUSE`] ([`WSL_FAILED_REUSE`] after a failure). A
+/// helper that stalls past [`WSL_LIST_DEADLINE`] or floods its output is killed
+/// and yields no distros.
 #[cfg(windows)]
 fn read_wsl_distro_names() -> Vec<String> {
-    let mut cache = WSL_LIST_CACHE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((at, names)) = cache.as_ref()
-        && at.elapsed() < WSL_LIST_REUSE
-    {
-        return names.clone();
+    cached_wsl_distro_names(
+        &WSL_LIST_CACHE,
+        std::time::Instant::now,
+        query_wsl_distro_names,
+    )
+}
+
+/// Serve a fresh cached answer, or run `query` with the cache unlocked, so a
+/// slow `wsl.exe` blocks only the caller that started it and never a picker
+/// opening in another window, and store its answer. `query` returns `None`
+/// for a failed run.
+#[cfg(any(windows, test))]
+fn cached_wsl_distro_names(
+    cache: &WslListCache,
+    now: impl Fn() -> std::time::Instant,
+    query: impl FnOnce() -> Option<Vec<String>>,
+) -> Vec<String> {
+    let lock = || {
+        cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    };
+    if let Some((at, names, succeeded)) = lock().as_ref() {
+        let reuse = if *succeeded {
+            WSL_LIST_REUSE
+        } else {
+            WSL_FAILED_REUSE
+        };
+        if now().saturating_duration_since(*at) < reuse {
+            return names.clone();
+        }
     }
-    let names = query_wsl_distro_names();
-    *cache = Some((std::time::Instant::now(), names.clone()));
+    let answer = query();
+    let succeeded = answer.is_some();
+    let names = answer.unwrap_or_default();
+    *lock() = Some((now(), names.clone(), succeeded));
     names
 }
 
 #[cfg(windows)]
-fn query_wsl_distro_names() -> Vec<String> {
+fn query_wsl_distro_names() -> Option<Vec<String>> {
     use std::process::Command;
 
     let mut command = Command::new("wsl.exe");
     command.args(["--list", "--quiet"]);
     super::app::win_spawn::apply_no_console_window(&mut command);
     match crate::bounded_io::run_bounded(&mut command, WSL_LIST_DEADLINE, WSL_LIST_MAX_OUTPUT) {
-        Ok(output) if output.status.success() => parse_wsl_distro_list(&output.stdout),
-        _ => Vec::new(),
+        Ok(output) if output.status.success() => Some(parse_wsl_distro_list(&output.stdout)),
+        _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The query runs with the cache unlocked: another caller can read the
+    /// cache while it is in progress. A success is reused for the full
+    /// window, a failure only briefly.
+    #[test]
+    fn wsl_list_cache_runs_the_query_unlocked_and_reuses_failures_briefly() {
+        use std::time::{Duration, Instant};
+        let cache: WslListCache = std::sync::Mutex::new(None);
+        let start = Instant::now();
+        let clock = std::cell::Cell::new(start);
+        let now = || clock.get();
+
+        let names = cached_wsl_distro_names(&cache, now, || {
+            assert!(
+                cache.try_lock().is_ok(),
+                "the cache is not held during the query"
+            );
+            None
+        });
+        assert!(names.is_empty());
+        clock.set(start + Duration::from_secs(1));
+        let reused = cached_wsl_distro_names(&cache, now, || panic!("a fresh failure is reused"));
+        assert!(reused.is_empty());
+        clock.set(start + WSL_FAILED_REUSE + Duration::from_secs(1));
+        let names = cached_wsl_distro_names(&cache, now, || Some(vec!["Ubuntu".to_owned()]));
+        assert_eq!(
+            names,
+            ["Ubuntu"],
+            "a failure is retried after the short window"
+        );
+        clock.set(start + WSL_FAILED_REUSE + Duration::from_secs(30));
+        let reused = cached_wsl_distro_names(&cache, now, || panic!("a success is reused"));
+        assert_eq!(reused, ["Ubuntu"]);
+    }
 
     #[test]
     #[cfg(windows)]

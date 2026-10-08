@@ -67,6 +67,7 @@ mod context_menu_ui;
 mod copy_mode;
 mod cursor;
 mod cvd_theme;
+mod display_text;
 mod file_drop;
 mod float_layout;
 mod font_picker;
@@ -332,10 +333,8 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         settings.clone(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
-    if let Some(session_id) = attach_session
-        && let Err(err) = app.attach_session_in_new_tab(None, &session_id)
-    {
-        tracing::error!("attach session {session_id} failed: {err}");
+    if let Some(session_id) = attach_session {
+        app.attach_launch_session(&session_id);
     }
     // WP2: shape autosave and restore belong to the primary instance of a bare
     // `odytty` launch (sub-ODPs 8a/8b). Any CLI argument leaves `bare_launch`
@@ -737,10 +736,13 @@ pub(in crate::native) fn seed_launch_session_model(model: &mut Terminal, setting
 /// The shared terminal model's invariants survive a poisoned panic: the panics
 /// this guards against live in scanner / paint / title code that reads the grid
 /// or appends bytes without leaving it half-mutated, so taking the inner guard
-/// is safe. Recovering keeps the event loop alive instead of converting the next
-/// mouse-move / paint / OSC-title event into a second abort that unwinds across
-/// the AppKit→Rust FFI boundary. **Byte-identical on the happy path** — the
-/// recovery closure runs only when the lock is already poisoned.
+/// is safe. In the running app the panic hook (`panic_log::install_panic_hook`)
+/// aborts on every panic, so no thread unwinds past a held lock and none is
+/// poisoned; recovery matters in tests and in any process that does not
+/// install that hook, where a poisoned lock would otherwise turn the next
+/// pointer, paint, or title event into a second panic. Byte-identical on the
+/// happy path: the recovery closure runs only when the lock is already
+/// poisoned.
 pub(crate) fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
