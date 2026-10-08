@@ -67,8 +67,8 @@ struct ConflictState {
 
 #[derive(Debug, Clone)]
 pub(super) struct KeyRemapUi {
-    /// Full settings present when the modal opened — the base for the live
-    /// `Preview` settings and the value `Cancel` restores to.
+    /// Clean settings baseline from open, save, or external reload. Live
+    /// previews inherit unrelated values, and Cancel restores this baseline.
     base: Settings,
     /// Working override vector (mutated; applied live via `Preview`, persisted
     /// on `Save`). Starts as a clone of `base.key_bindings`.
@@ -126,17 +126,20 @@ impl KeyRemapUi {
         );
     }
 
-    /// Resync from external settings ONLY while idle — never clobber an
-    /// in-progress capture/conflict (the analogue of the theme builder guarding
-    /// its refresh on `editing.is_none()`).
+    /// Adopt the external baseline without discarding accepted bindings or an
+    /// active capture, conflict confirmation, or close prompt.
     pub(super) fn refresh(&mut self, settings: &Settings) {
-        if self.capture.is_none() && self.conflict.is_none() {
-            let selected = self.selected;
-            let scroll = self.scroll;
-            *self = Self::new(settings);
-            self.selected = selected.min(ACTIONS.len() - 1);
-            self.scroll = scroll;
+        let preserve_draft = self.is_dirty()
+            || self.capture.is_some()
+            || self.conflict.is_some()
+            || self.pending_close_prompt;
+        self.base.clone_from(settings);
+        if preserve_draft {
+            self.message = Some("Configuration reloaded; keybinding editing preserved.".to_owned());
+        } else {
+            self.overrides.clone_from(&settings.key_bindings);
         }
+        self.selected = self.selected.min(ACTIONS.len() - 1);
     }
 
     /// True while a row is capturing a chord OR a conflict-confirm is pending.
@@ -178,9 +181,8 @@ impl KeyRemapUi {
         KeyRemapOutcome::Consumed
     }
 
-    /// Whether the working overrides differ from the bindings present when the
-    /// modal opened (or were last saved) — i.e. there are uncommitted edits the
-    /// user could lose. Drives the dirty-close prompt (P1-6).
+    /// Whether the working overrides differ from the current clean baseline.
+    /// Drives the dirty-close prompt.
     fn is_dirty(&self) -> bool {
         self.overrides != self.base.key_bindings
     }
@@ -1320,5 +1322,90 @@ mod tests {
                 .iter()
                 .any(|o| o.action == BindableAction::Hints)
         );
+    }
+    #[test]
+    fn reload_preserves_accepted_keybindings_and_rebases_discard() {
+        let mut ui = ui();
+        ui.handle_input(OverlayInput::Activate);
+        assert!(matches!(
+            ui.deliver_chord(Some(char_chord(true, true, 'j'))),
+            KeyRemapOutcome::Preview(_)
+        ));
+        let pending = ui.overrides.clone();
+        let reloaded = Settings {
+            window_opacity: 55.0,
+            ..Settings::default()
+        };
+        ui.refresh(&reloaded);
+        assert_eq!(ui.overrides, pending);
+        assert!(ui.is_dirty());
+        assert_eq!(ui.live_settings().window_opacity, 55.0);
+        assert_eq!(
+            ui.handle_input(OverlayInput::Close),
+            KeyRemapOutcome::Consumed
+        );
+        assert_eq!(
+            ui.handle_input(OverlayInput::Char('d')),
+            KeyRemapOutcome::Cancel(reloaded)
+        );
+    }
+
+    #[test]
+    fn reload_updates_base_during_active_key_capture() {
+        let mut ui = ui();
+        ui.handle_input(OverlayInput::Activate);
+        let capture = ui.capture;
+        let reloaded = Settings {
+            window_opacity: 55.0,
+            ..Settings::default()
+        };
+        ui.refresh(&reloaded);
+        assert_eq!(ui.capture, capture);
+        let KeyRemapOutcome::Preview(settings) =
+            ui.deliver_chord(Some(char_chord(true, true, 'j')))
+        else {
+            panic!("capture previews");
+        };
+        assert_eq!(settings.window_opacity, 55.0);
+    }
+
+    #[test]
+    fn reload_preserves_dirty_close_prompt() {
+        let mut ui = ui();
+        ui.handle_input(OverlayInput::Activate);
+        ui.deliver_chord(Some(char_chord(true, true, 'j')));
+        ui.handle_input(OverlayInput::Close);
+        assert!(ui.pending_close_prompt);
+        let reloaded = Settings {
+            window_opacity: 55.0,
+            ..Settings::default()
+        };
+        ui.refresh(&reloaded);
+        assert!(ui.pending_close_prompt);
+        assert_eq!(
+            ui.handle_input(OverlayInput::Char('d')),
+            KeyRemapOutcome::Cancel(reloaded)
+        );
+    }
+
+    #[test]
+    fn reload_preserves_conflict_confirmation_and_updates_base() {
+        let mut ui = ui();
+        ui.handle_input(OverlayInput::Activate);
+        ui.deliver_chord(Some(char_chord(true, true, 'p')));
+        assert!(ui.conflict.is_some());
+        let conflict = ui.conflict.clone();
+        let reloaded = Settings {
+            window_opacity: 55.0,
+            ..Settings::default()
+        };
+        ui.refresh(&reloaded);
+        assert_eq!(ui.conflict, conflict);
+        let KeyRemapOutcome::Preview(settings) =
+            ui.deliver_chord(Some(named(KeyBindingNamedKey::Enter)))
+        else {
+            panic!("conflict confirmation previews");
+        };
+        assert_eq!(settings.window_opacity, 55.0);
     }
 }
