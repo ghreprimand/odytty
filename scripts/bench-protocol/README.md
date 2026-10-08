@@ -1,4 +1,4 @@
-# `scripts/bench-protocol/` — comparative benchmark harness
+# `scripts/bench-protocol/` - comparative benchmark harness
 
 Preparation tooling for [`docs/benchmark-protocol.md`](../../docs/benchmark-protocol.md) (protocol version
 `1.5.4`). See [`docs/benchmark-apparatus.md`](../../docs/benchmark-apparatus.md) for what this comparison unit can
@@ -18,8 +18,8 @@ python3 scripts/bench-protocol/bench-protocol.py --self-test
 python3 scripts/bench-protocol/bench-protocol.py --availability
 ```
 
-`--self-test` runs every module's self-tests (well under a second, suitable for
-CI). `--availability` reports, for the live host, which workloads are runnable,
+`--self-test` runs every module's self-tests (about 40 seconds on a development
+workstation, because the collectors self-test scans `/proc` for DRM clients). `--availability` reports, for the live host, which workloads are runnable,
 which are blocked by missing apparatus, and which metrics are unsupported.
 
 Per-module entry points, each with its own `--self-test`:
@@ -114,7 +114,7 @@ published run set that names it as its availability evidence is rejected. Run
 deliberately, it is a bounded diagnostic-only action for the current Hyprland
 native-Wayland session that executes all 168 declared laptop settings in fixed
 implementation and profile order with the production scale-aware controller.
-On this machine it completes and reports no common grid. Two agreeing models count only when they come from
+On the preregistered comparison unit it completes and reports no common grid. Two agreeing models count only when they come from
 distinct, newly emitted oracle sequence records; polling one latest record and
 replaying already-consumed sequences are no-ops. Unprocessed records must be
 appended in strictly increasing sequence order; an inversion, a repeated
@@ -140,7 +140,7 @@ Kitty, Ghostty, and Alacritty once each in that order. WezTerm is never
 launched. All four
 terminals are launched and recorded before any verdict, so one terminal's miss
 or failure never hides the others' evidence, and the action consumes no run
-identity — it is safe to rerun until measurement begins. The create-exclusive
+identity - it is safe to rerun until measurement begins. The create-exclusive
 schema-version-6 public record is written when all four windows map, complete
 the handshake, yield a stable self-consistent grid, and clean up; it preserves
 each raw PTY pixel envelope, observed cell grid, whether that grid reached the
@@ -157,7 +157,7 @@ private directory outside the repository and public output tree.
 Failure or interruption removes the incomplete public reservation while
 retaining private diagnostics. This action creates or consumes no readiness,
 probe, preregistration-anchor, rehearsal, measurement, or run identity. It
-does not suspend Brave or enforce CPU-noise controls because it diagnoses only
+does not stop background browsers or enforce CPU-noise controls because it diagnoses only
 startup geometry.
 
 `--geometry-smoke-output` is an explicitly non-evidence troubleshooting action
@@ -191,10 +191,10 @@ probe gives every preregistered in-scope recipe one bounded
 20-second window-mapping attempt. Record its native-Wayland result, including
 the exact reason for any implementation that starts without an observable
 window, and freeze the qualified set and execution order before publishing the
-record. On this laptop the preregistered execution scope is exactly OdyTTY,
+record. In the preregistered comparison unit the execution scope is exactly OdyTTY,
 Kitty, Ghostty, and Alacritty. WezTerm is recorded as
-`excluded-by-preregistered-machine-scope` because it is known nonfunctional on
-this machine; it receives zero launch, readiness, probe, rehearsal,
+`excluded-by-preregistered-machine-scope` because it is known nonfunctional in the
+comparison unit; it receives zero launch, readiness, probe, rehearsal,
 measurement, and retry attempts. Its generic tracked profile remains available
 for a future machine-specific protocol revision. The canonical profiles are
 tracked at
@@ -219,8 +219,8 @@ only that window, and resizes its outer dimensions from the observed cell size
 toward the 80x24 target. Hyprland tiles new windows to the layout, so a terminal's own initial
 sizing can be overridden before the controller sees the window; floating that
 exact window is what makes the correction possible at all. The resize budget
-is hard-bounded, and when it is spent — or the compositor stops moving the
-grid — the controller releases the child at its stable observed grid and
+is hard-bounded, and when it is spent - or the compositor stops moving the
+grid - the controller releases the child at its stable observed grid and
 records that the target was not reached, instead of ending the preparation
 run. Only after release may the child emit `idle-ready`. No persistent
 compositor rule is installed, and teardown removes the private edge after
@@ -258,12 +258,12 @@ in preregistration and rechecked before measurement.
 Protocol 1.4.0 checks that grid PER IMPLEMENTATION, and 80x24 is a target
 rather than an admission gate. One bounded probe launch per terminal uses that
 terminal's preregistered calibration, and the terminal qualifies when its OWN
-grid is stable and self-consistent — the content envelope equals its integer
+grid is stable and self-consistent - the content envelope equals its integer
 pitch times the observed rows and columns, with a sub-cell remainder. Two
 terminals with different device-pixel pitches both qualify, and so does a
 terminal that reproducibly settles at a different cell count; both differences
 are published as limitations rather than searched away, because the exhaustive
-search proved no common pitch exists on this machine and because refusing a
+search proved no common pitch exists on the preregistered comparison unit and because refusing a
 reproducible startup geometry would discard evidence instead of controlling
 for anything. A run set containing an off-target grid must name that terminal
 in an `off-target-cell-grid` limitation or it does not validate. A terminal
@@ -314,8 +314,8 @@ Launch-failure and no-window outcomes have separate sealed shapes; either stops
 that implementation after its one bounded attempt. The pre-public probe and the
 frozen qualified-only runtime revalidation are explicitly different evidence
 modes. When the historical calibration search is run deliberately it remains
-finite — 105 settings for OdyTTY and 21 for each reference, 168 launches
-within 15,120 seconds — and its published attempts must equal the exact ordered
+finite - 105 settings for OdyTTY and 21 for each reference, 168 launches
+within 15,120 seconds - and its published attempts must equal the exact ordered
 profile setting sequence, with attempt and ordered-list digests recomputed;
 truncated, reordered, duplicate, cherry-picked, or merely resealed lists fail.
 
@@ -366,9 +366,9 @@ Preregistration and the measurement runner decide the CPU power policy with
 one shared detector (`profiles.effective_power_policy`), so a machine cannot
 pin one policy and measure under another. It inspects every cpufreq policy
 rather than the first CPU, and normalizes to `performance` in two cases: a
-`performance` scaling governor on every policy, or — when every policy uses
+`performance` scaling governor on every policy, or - when every policy uses
 the same recognized active-pstate driver (`intel_pstate` or
-`amd-pstate-epp`) and its governor reads `powersave` — a `performance`
+`amd-pstate-epp`) and its governor reads `powersave` - a `performance`
 energy/performance preference on every policy. A uniform non-performance
 governor is reported verbatim, and disagreeing governors are reported as
 `mixed-cpu-power-policy`. Driver evidence is consulted only for the
@@ -438,7 +438,7 @@ because each one exists to prevent a specific, tempting mistake.
    what each workload physically needs. Five of seven require optical capture,
    so they are declared `skip` / `unavailable-hardware` in preregistration
    before any sample is taken. A self-test fails if W3 or W4 ever lose that
-   requirement — throughput endpoints are optical under protocol `1.4.0`, and
+   requirement - throughput endpoints are optical under protocol `1.4.0`, and
    quietly relaxing them to software timing would be the single most damaging
    change possible to this harness's honesty.
 
@@ -449,7 +449,7 @@ because each one exists to prevent a specific, tempting mistake.
    rather than silently falling back.
 
 4. **Non-pass samples carry no number.** The validator refuses any `value` key
-   on a `fail`, `invalid`, `skip`, or `unsupported` sample — a structural
+   on a `fail`, `invalid`, `skip`, or `unsupported` sample - a structural
    rejection, not a check for zero.
 
 5. **Unsupported means unsupported.** A collector that cannot produce a metric
@@ -475,7 +475,7 @@ because each one exists to prevent a specific, tempting mistake.
 9. **A window must actually map.** "The process started" is not W6's endpoint;
    a static, focused, unobscured viewport is. An implementation that spawns
    without mapping a window is excluded with its reason recorded, never
-   measured as a headless process — which would publish an idle cost for
+   measured as a headless process - which would publish an idle cost for
    something that was never on screen.
 
 10. **Display paths are never mixed silently.** An implementation that maps

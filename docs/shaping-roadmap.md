@@ -357,7 +357,7 @@ indices participate in shaping and atlas identity. These cache rules are
 shared across Linux, macOS and Windows, and do not change logical cell,
 selection or copy semantics.
 
-## Tractable candidate work
+## Width ownership details and candidate work
 
 Sequence-aware width uses bounded source ownership without cross-cell visual
 reordering. Unicode 17 listed VS16 bases promote to two cells. Modifier-base

@@ -5,7 +5,7 @@
 # .github/workflows/release.yml stamps the `url` version and `sha256` from the
 # published release, then pushes the updated formula (and the cask) to the tap.
 #
-# This builds the CLI binary from the published GitHub release source tarball —
+# This builds the CLI binary from the published GitHub release source tarball -
 # the same `git archive` tarball the AUR package and the Release workflow use.
 # A locally compiled binary is never quarantined, so it launches without a
 # Gatekeeper warning on any supported macOS (including Intel), which is why the

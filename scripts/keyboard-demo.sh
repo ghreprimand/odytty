@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
-# keyboard-demo.sh — verify the keyboard protocols by eye (docs/features.md).
+# keyboard-demo.sh - verify the keyboard protocols by eye (docs/features.md).
 #
 # Three stages:
 #   1. Query the terminal: the Kitty keyboard flags (`CSI ? u`) and the
@@ -10,7 +10,7 @@
 #      pressed, so Shift+Enter (`CSI 13;2u`), Ctrl+Enter (`CSI 13;5u`),
 #      Ctrl+Backspace (`CSI 127;5u`), and the F-key forms can be eyeballed.
 #   3. modifyOtherKeys level 2: pop the Kitty flag (non-zero Kitty flags
-#      take precedence, so it must be off), set mok2, and echo again — the
+#      take precedence, so it must be off), set mok2, and echo again - the
 #      same chords now arrive as `CSI 27 ; modifier ; codepoint ~`.
 #
 # All protocol state is restored on every exit path (including Ctrl+C and
@@ -24,7 +24,7 @@
 # Windows: Unix shells only. In a native Windows (ConPTY) session, conhost's
 # input converter normalizes enhanced key encodings before applications see
 # them, so stages 2 and 3 would show legacy bytes regardless of the
-# terminal's support — run the demo in a WSL session instead, whose input
+# terminal's support - run the demo in a WSL session instead, whose input
 # path bypasses the converter (see docs/features.md).
 #
 # Usage:  bash scripts/keyboard-demo.sh

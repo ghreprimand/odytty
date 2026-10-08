@@ -30,7 +30,7 @@ Bundled fonts
 --------------------------------------------------------------------------------
 
 Victor Mono  (default body font)
-Copyright (c) 2019-2024 Rune Bjoerneraas
+Copyright © 2024 Rune Bjørnerås (https://rubjo.github.io/victor-mono)
 Licensed under the SIL Open Font License, Version 1.1.
 
 The bundled font files and license text live in `assets/fonts/victor-mono/`.
@@ -44,12 +44,14 @@ The bundled font files and license text live in `assets/fonts/jetbrains-mono/`.
 Nerd Fonts Symbols Only / Symbols Nerd Font Mono  (symbol fallback fonts)
 Bundled from Nerd Fonts `NerdFontsSymbolsOnly`, unmodified, in two versions so
 the glyph pack covers both Nerd Font codepoint eras out of the box:
-  - v3.4.0  — current layout (`assets/fonts/nerd-fonts-symbols/`).
-  - v2.3.3  — legacy layout, fills the PUA slots v3 relocated, e.g. the archway
+  - v3.4.0 - current layout (`assets/fonts/nerd-fonts-symbols/`).
+  - v2.3.3 - legacy layout, fills the PUA slots v3 relocated, e.g. the archway
               `U+F557` and python `U+F81F` (`assets/fonts/nerd-fonts-symbols-v2/`).
 Font-level license: MIT. Aggregated glyph sources include MIT, Apache-2.0,
 CC-BY-4.0, OFL-1.1, and Unlicense components.
 
-The bundled symbols fonts, MIT license text, per-set credits, license references,
-and trademark note live in `assets/fonts/nerd-fonts-symbols/` and
-`assets/fonts/nerd-fonts-symbols-v2/`.
+The bundled symbols fonts and MIT license text live in both directories. The
+per-set credits, license references, and trademark note for the v3.4.0 face are
+in `assets/fonts/nerd-fonts-symbols/NERD-FONTS-GLYPH-LICENSES.md`; the v2.3.3
+face aggregates an older glyph-set selection that the table has not been
+checked against.

@@ -102,7 +102,7 @@ def stable_cell_geometry(geometry: object) -> bool:
     This is the single definition used by preregistration checking, result
     validation, and the runner. It requires the exact device-pixel field set,
     strictly positive integers, and a content envelope that is exactly the
-    integer cell pitch times the observed grid — that is what makes the grid a
+    integer cell pitch times the observed grid - that is what makes the grid a
     usable model of the terminal rather than a stray reading.
 
     It deliberately does NOT require any particular column/row count. The
@@ -154,7 +154,7 @@ def matches_target_grid(geometry: object) -> bool:
 #
 # Every policy is inspected, not just cpu0: heterogeneous CPUs expose one
 # policy per core cluster and they can genuinely disagree. Mixed or unreadable
-# evidence is never normalized — the detector fails closed so that an
+# evidence is never normalized - the detector fails closed so that an
 # unverifiable machine cannot preregister or measure as though its policy were
 # pinned.
 CPU_ROOT = "/sys/devices/system/cpu"
@@ -426,7 +426,7 @@ def profile_records(repo_root: Path, implementation: str) -> list[dict[str, str]
 # the target grid at launch, instead of the controller coercing pixels after
 # the window maps. Ghostty expresses `window-width`/`window-height` in grid
 # cells, and its documentation records that on Linux/GTK the computed window
-# size ignores decorations — so the requested cell grid is only honored with
+# size ignores decorations - so the requested cell grid is only honored with
 # decorations disabled. `none` is the canonical enum value; `false` is the
 # legacy boolean spelling of the same thing and is accepted here so the guard
 # describes the requirement rather than one spelling of it.

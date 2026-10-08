@@ -58,10 +58,10 @@ one-shot monitors for pane activity, 30 seconds of silence, BEL, process exit,
 and an explicit nonzero OSC 133 command status, plus **Clear Pane Monitors**.
 These monitor flags are transient and are not restored.
 
-Named launch profiles ship in v0.14.0. v0.13.0 therefore provides the global
-setting through the established defaults/config/environment resolver and keeps
-the transient pane state separate so the later profile override can use the
-same policy without a second notification model.
+The notification setting is global: it resolves through the established
+defaults/config/environment resolver, and named launch profiles carry no
+notification override. The transient pane state is kept separate from the
+setting.
 
 ## Platform Adapters
 

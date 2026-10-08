@@ -13,7 +13,7 @@
 //!
 //! No external crates: this must build offline (the AUR/Odyssey source builds
 //! run with --frozen/--locked and no network). It must ALSO build cleanly from
-//! the `git archive` release tarball, which has NO `.git` directory — in that
+//! the `git archive` release tarball, which has NO `.git` directory - in that
 //! case the live git lookup returns None and the SHA comes from the
 //! export-subst token committed as `.git_archival.txt` (see the precedence in
 //! `resolve_provenance_sha`).
@@ -70,9 +70,9 @@ fn main() {
 /// The naive `rerun-if-changed=.git/HEAD` is NOT enough: `.git/HEAD` only
 /// changes on a *branch switch*. A commit on the current branch updates the
 /// loose ref file it points at (`.git/refs/heads/<branch>`) or `.git/packed-refs`
-/// (when refs are packed) — never `.git/HEAD`. So HEAD alone lets cargo reuse a
-/// stale build-script output indefinitely (the operator saw yesterday's SHA on a
-/// fresh build). We therefore also watch:
+/// (when refs are packed) - never `.git/HEAD`. So HEAD alone lets cargo reuse a
+/// stale build-script output indefinitely (a fresh build reported the previous
+/// commit's SHA). We therefore also watch:
 ///   - the resolved loose ref file, so a same-branch commit retriggers;
 ///   - `.git/packed-refs`, so a commit against a packed ref retriggers;
 ///   - `.git/index`, so staging/unstaging flips the `-dirty` suffix.
@@ -81,7 +81,7 @@ fn main() {
 /// an unconditional rerun. `.git/HEAD` stays unconditional (it also carries the
 /// commit hash directly in the detached-HEAD case, where there is no ref file to
 /// resolve). Missing `.git` entirely (the `git archive` release tarball) simply
-/// yields no ref file / index to watch — `git_short_sha` then returns `None` and
+/// yields no ref file / index to watch - `git_short_sha` then returns `None` and
 /// `resolve_provenance_sha` falls back to the export-subst token or
 /// "unavailable". Paths use forward slashes, which cargo accepts on every
 /// platform.
@@ -92,8 +92,8 @@ fn emit_git_rerun_triggers() {
     // holds the commit hash itself.
     println!("cargo:rerun-if-changed=.git/HEAD");
 
-    // Watch the ref HEAD points at (loose ref), so a same-branch commit — which
-    // updates that file, not HEAD — retriggers the build script.
+    // Watch the ref HEAD points at (loose ref), so a same-branch commit - which
+    // updates that file, not HEAD - retriggers the build script.
     if let Ok(head) = std::fs::read_to_string(git_dir.join("HEAD"))
         && let Some(ref_path) = head_ref_path(&head)
     {
@@ -105,7 +105,7 @@ fn emit_git_rerun_triggers() {
         }
     }
 
-    // packed-refs (commit against a packed ref) and index (dirty flag) — watch
+    // packed-refs (commit against a packed ref) and index (dirty flag) - watch
     // only when present so a missing file can't force an unconditional rerun.
     for rel in ["packed-refs", "index"] {
         if git_dir.join(rel).exists() {
@@ -118,7 +118,7 @@ fn emit_git_rerun_triggers() {
 /// relative to the `.git` directory (e.g. `refs/heads/master`).
 ///
 /// Returns `None` for a detached HEAD (the file holds a raw commit hash, so
-/// there is no ref to resolve — watching HEAD itself suffices) or for content
+/// there is no ref to resolve - watching HEAD itself suffices) or for content
 /// that doesn't begin with the `ref:` marker.
 fn head_ref_path(head_contents: &str) -> Option<String> {
     let ref_path = head_contents.trim().strip_prefix("ref:")?.trim();
@@ -133,13 +133,13 @@ fn head_ref_path(head_contents: &str) -> Option<String> {
 /// executable itself. The runtime window/title-bar icon is set separately via
 /// winit (`src/native/window_icon.rs`).
 ///
-/// CRITICAL: a build script's own `#[cfg(windows)]` reflects the HOST compiling
-/// the build script, not the TARGET being built. Gate on the
-/// `CARGO_CFG_TARGET_OS` env var cargo sets to the target OS instead, so a
-/// Linux/macOS host cross-compiling to Windows still embeds the icon.
+/// The embed needs a Windows host (the `winresource` build-dependency exists only
+/// there) and a Windows target (`CARGO_CFG_TARGET_OS`; a build script's own
+/// `#[cfg(windows)]` reflects the host, not the target). A cross-build from
+/// another host produces a working exe without the embedded icon.
 ///
 /// Non-fatal by design: a missing toolchain resource compiler or a transient
-/// failure logs a warning and is ignored rather than failing the build — the exe
+/// failure logs a warning and is ignored rather than failing the build - the exe
 /// is fully functional without the embedded icon. The `.ico` is committed
 /// (`dist/windows/odytty.ico`), so it is present in the `git archive` release
 /// tarball too; on the `windows-latest` MSVC runner the bundled `rc.exe`/
@@ -189,10 +189,10 @@ fn rustc_version() -> Option<String> {
 ///
 /// Guard: only consult git when a `.git` entry exists in the crate root itself
 /// (build scripts run with cwd = CARGO_MANIFEST_DIR). A `git archive` tarball has
-/// no `.git`, so this returns `None` — even when the tarball is extracted INSIDE
-/// another git repo (e.g. `odyssey-build` unpacks into the git-tracked
-/// `~/pkgbuilds/` tree). Without this guard, git would walk up to the parent repo
-/// and bake in a wrong, misleading SHA.
+/// no `.git`, so this returns `None` - even when the tarball is extracted INSIDE
+/// another git repo (e.g. a packaging tool unpacking into a git-tracked
+/// directory). Without this guard, git would walk up to the parent repo and bake
+/// in a wrong, misleading SHA.
 fn git_short_sha() -> Option<String> {
     if !std::path::Path::new(".git").exists() {
         return None;
@@ -222,7 +222,7 @@ fn git_short_sha() -> Option<String> {
 
 /// UTC build date as `YYYY-MM-DD`. Honors `SOURCE_DATE_EPOCH` (reproducible
 /// builds) when set and parseable; otherwise uses the current wall clock.
-/// Pure integer date math — no chrono dependency.
+/// Pure integer date math - no chrono dependency.
 fn build_date_utc() -> String {
     let secs = std::env::var("SOURCE_DATE_EPOCH")
         .ok()
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn detached_head_hash_has_no_ref_path() {
-        // A detached HEAD holds a raw commit hash — no ref to resolve (watching
+        // A detached HEAD holds a raw commit hash - no ref to resolve (watching
         // HEAD itself covers it).
         assert_eq!(head_ref_path("9c9fdc0a1b2c3d4e5f\n"), None);
     }

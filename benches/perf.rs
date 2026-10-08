@@ -205,7 +205,7 @@ fn report_ops(name: &str, ops: usize, d: Duration) {
 
 // --- Workload generators (deterministic) -----------------------------------
 
-/// Numeric lines `1\n2\n…n\n`, like `seq 1 n`.
+/// Numeric lines `1\n2\n...n\n`, like `seq 1 n`.
 fn gen_seq(n: usize) -> Vec<u8> {
     let mut s = String::with_capacity(n * 7);
     for i in 1..=n {
@@ -375,7 +375,7 @@ fn gen_rect_copy(ops: usize) -> Vec<u8> {
 
 /// DECSERA mixed-protection erase repeated `ops` times. Each iteration marks the
 /// whole page protected (DECSCA + DECFRA), punches an unprotected sub-rectangle,
-/// then DECSERA-erases the page — so the protection-aware selective erase walks
+/// then DECSERA-erases the page - so the protection-aware selective erase walks
 /// a mixed protection matrix every time.
 fn gen_rect_serase(ops: usize) -> Vec<u8> {
     let mut s = String::new();
@@ -531,7 +531,7 @@ fn run_se_isolation() {
 }
 
 fn main() {
-    println!("odytty perf — {COLS}x{ROWS} grid, best-of timings\n");
+    println!("odytty perf - {COLS}x{ROWS} grid, best-of timings\n");
     if std::env::var_os("ODYTTY_PERF_SE_ONLY").is_some() {
         run_se_isolation();
         return;
@@ -604,7 +604,7 @@ fn main() {
         //
         // Drives the OdyTTY-owned [`OdyParser`] directly against a no-op
         // [`VtDispatch`] sink, isolating parser cost from `Screen` updates. These
-        // numbers are the acceptance reference for the PA2-r clean-room rebuild —
+        // numbers are the acceptance reference for the PA2-r clean-room rebuild -
         // captured before the rebuild lands and again after, with the gap reported
         // in the completion notes. The five workloads mirror the integrated feed
         // benches so each row above pairs with one row below.
@@ -675,7 +675,7 @@ fn main() {
     // same 80x24 frame shape while avoiding the full-suite deep scrollback setup.
     let mut term = feed_all(&gen_plain(profile.snapshot_lines));
 
-    // 6) snapshot() cost — the full Vec<Cell> rebuild done every frame.
+    // 6) snapshot() cost - the full Vec<Cell> rebuild done every frame.
     let snap_ops = profile.snapshot_ops;
     start_row("snapshot()");
     let d = best_of(profile.runs, || {
@@ -694,7 +694,7 @@ fn main() {
     });
     report_ops("snapshot_with_scrollback(1000)", snap_ops, d);
 
-    // 8) build_vertices() — the geometry rebuilt each repaint frame.
+    // 8) build_vertices() - the geometry rebuilt each repaint frame.
     if let Some(font) = font.as_ref() {
         let atlas = GlyphAtlas::build(font, 28.0);
         let snapshot = term.snapshot();
@@ -887,7 +887,7 @@ fn main() {
     report_ops("resize reflow (shallow scrollback)", shallow_ops, d);
 
     // 12) Height-only resize with deep scrollback: width is unchanged, so a
-    //     re-wrap is not logically required — this shows the headroom for a
+    //     re-wrap is not logically required - this shows the headroom for a
     //     width-unchanged fast path (proposal, not done here).
     start_row("resize reflow (height-only, deep)");
     let d = best_of(profile.runs, || {

@@ -4,6 +4,11 @@ This policy governs OdyTTY development and releases while the pre-1.0
 stabilization program is active. It remains in force until a tracked replacement
 states that the program has ended.
 
+Status: the policy applies only while a stabilization or 1.0 decision is open.
+Releases since v0.14.0 shipped later milestones under their own contracts, as
+[`pre-1.0-acceptance.md`](pre-1.0-acceptance.md) records; this page does not
+restrict them.
+
 The purpose of the freeze is to turn current behavior into reproducible
 compatibility, performance, security, platform, and field evidence. Version
 progression and feature count are not evidence of readiness.

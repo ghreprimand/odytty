@@ -183,7 +183,7 @@ environment variable was not set at startup.
 | `interactive_paths_barewords` | `ODYTTY_INTERACTIVE_PATHS_BAREWORDS` | `on`, `off` | `on` |
 | `interactive_paths_click_hint` | `ODYTTY_INTERACTIVE_PATHS_CLICK_HINT` | `on`, `off` | `on` |
 | `interactive_paths_image_inline` | `ODYTTY_INTERACTIVE_PATHS_IMAGE_INLINE` | `on`, `off` | `on` |
-| `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | editor name or argv template | *(empty — use `$EDITOR`)* |
+| `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | editor name or argv template | *(empty - use `$EDITOR`)* |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
 | [`warn_on_risky_paste`](features.md#paste-safety) | `ODYTTY_WARN_ON_RISKY_PASTE` | `on`, `off` | `on` |
 | `shell_exit_closes` | `ODYTTY_SHELL_EXIT_CLOSES` | `workspace`, `app` | `workspace` |
@@ -231,7 +231,7 @@ chord, and the mode never turns on because a program printed a password prompt.
 ### Pad The Content Away From Window And Chrome
 
 `window_padding` inserts a pixel gap between the content grid and every hard
-boundary around it — not just the window edges. A pinned workspace rail's
+boundary around it - not just the window edges. A pinned workspace rail's
 content-facing edge and the tab bar's bottom edge get the same gap, so content
 never touches chrome. Split-pane dividers count too: each pane keeps the same
 gap on every edge that faces a divider, so a pane's text never sits flush
@@ -261,8 +261,8 @@ change.
 
 ### Keep Colored Blocks And Text Legible At Low Opacity
 
-As `window_opacity` drops, colored cell backgrounds — prompt powerline
-segments, button chips, and highlighted status blocks — fade along with the
+As `window_opacity` drops, colored cell backgrounds - prompt powerline
+segments, button chips, and highlighted status blocks - fade along with the
 window and can wash out. `colored_bg_opacity` sets a minimum background
 strength for any cell whose colour differs from the theme default, so those
 blocks stay solid while the plain background still shows the desktop through.
@@ -315,7 +315,7 @@ switch, create, and close shortcuts also reveal it briefly.
 `tab_panel_strength` sets the opacity of the unified panel behind the rail and
 tab bar directly: `1.0` composes the chrome bands nearly fully opaque at any
 window opacity, `0.0` turns the panel off (bare labels over the window
-background), and the ramp between is linear. The default is `0.8` — a strong,
+background), and the ramp between is linear. The default is `0.8` - a strong,
 clearly-present panel that still lets a hint of the window through. The revealed autohide
 overlay, the pinned rail, and the top bar all share one panel translucency, so
 toggling autohide never changes how solid the band looks. (Earlier releases
@@ -324,8 +324,8 @@ a maxed panel weak on a translucent window.)
 
 A small chevron control pinned at the rail's bottom edge toggles auto-hide in
 place, so the escape hatch for the rail lives on the rail itself rather than only
-in settings. Clicking it flips `tab_rail_autohide` and writes the choice back to
-`odytty.conf`; on the revealed overlay the same control turns auto-hide back off.
+in settings. Clicking it flips `workspace_rail_autohide` and writes the choice
+back to `odytty.conf`; on the revealed overlay the same control turns auto-hide back off.
 Cross-platform UI with no platform-specific behavior.
 
 Legacy rail names remain accepted without warnings:
@@ -367,8 +367,8 @@ one-shot actions, rate limits, expiry, and platform behavior.
 
 ### Tune Themes, Fonts, And Rendering
 
-- The accessibility-oriented knobs — `min_contrast`, `cvd_mode` / `cvd_strength`,
-  and `focus_dim` — are covered in depth in
+- The accessibility-oriented knobs - `min_contrast`, `cvd_mode` / `cvd_strength`,
+  and `focus_dim` - are covered in depth in
   [`accessibility.md`](accessibility.md), which explains the contrast floor, the
   OKLab color-vision-deficiency daltonization modes, and the focus/dim controls.
 - `theme = system` is a convenience alias. It enables OS dark/light following
@@ -384,7 +384,7 @@ one-shot actions, rate limits, expiry, and platform behavior.
   since the rail lists workspaces rather than tabs. The older `tab_rail_*`
   config keys and `ODYTTY_TAB_RAIL_*` variables remain fully accepted as legacy
   aliases onto the same settings, so existing configs keep working unchanged.
-  Each name is a pure alias — no separate field, default, or range. When both a
+  Each name is a pure alias - no separate field, default, or range. When both a
   `workspace_rail_*` name and its `tab_rail_*` twin are set for the same field,
   the canonical `workspace_rail_*` value wins.
 
@@ -408,7 +408,7 @@ one-shot actions, rate limits, expiry, and platform behavior.
   falls back to its default seed.
 - `visual = ambient` (the default) and `visual = scanlines` are back-compat
   aliases for OdyTTY's scanline look, which is produced by the CRT post-process
-  (`crt` / `crt_scanline_*`) — the legacy per-cell ambient wash was retired and
+  (`crt` / `crt_scanline_*`) - the legacy per-cell ambient wash was retired and
   folded into it. When no explicit `crt` value is set, an ambient `visual` turns
   the CRT pass on; an explicit `crt` setting always wins, so the two never stack.
   `off`, `none`, and `plain` opt out of the alias.
@@ -445,8 +445,8 @@ one-shot actions, rate limits, expiry, and platform behavior.
   that covers it (color/bitmap-only faces are rejected), which resolves standard
   symbols such as the playback triangle `U+23F5 ⏵`, the record bullet, and
   check/ballot marks that no bundled face carries. Candidates are tried in
-  order — `fc-match`'s preferred answer first, then the remaining providers
-  `fc-list` reports — so a face that fails to load or proves bitmap-only costs a
+  order - `fc-match`'s preferred answer first, then the remaining providers
+  `fc-list` reports - so a face that fails to load or proves bitmap-only costs a
   fallthrough rather than the glyph. The face *index* fontconfig reports is
   honored, which matters for a font collection: face 0 of a collection is
   arbitrary with respect to the request, so ignoring the index can rasterize
@@ -471,13 +471,13 @@ one-shot actions, rate limits, expiry, and platform behavior.
 
 ### Tune Scrolling
 
-- `pixel_scroll` (default on) governs high-resolution, pixel-precise input —
+- `pixel_scroll` (default on) governs high-resolution, pixel-precise input -
   touchpads and hi-res wheels that emit pixel deltas. Such input scrolls the
   viewport by a continuous sub-row amount that tracks physical finger travel
   1:1, rather than quantizing to whole notches. Continuous pixel input is
   tracked directly instead of eased, which avoids the sawtoothing that an easing
   catch-up produces on high-resolution devices. Classic detented wheels emit
-  line deltas and are unaffected — they continue to use `scroll_wheel_lines` as
+  line deltas and are unaffected - they continue to use `scroll_wheel_lines` as
   the per-notch multiplier.
 
   The continuous direct-tracking pixel lane is per-pane: in a split it drives
@@ -491,11 +491,11 @@ one-shot actions, rate limits, expiry, and platform behavior.
 - `scroll_glide` (default on) animates scrollback between discrete wheel
   notches. Detented wheels emit whole notches with no sub-step data, so pixel
   tracking cannot help them; instead the integer viewport offset still jumps
-  instantly per notch, but the rendered view eases toward it over a few frames —
+  instantly per notch, but the rendered view eases toward it over a few frames -
   a forward-chase follower that only ever moves in the scroll direction, so a
   stream of notches cannot sawtooth. On by default; primary screen only. In a
   split, each pane glides independently as an eased follower with pixel-precise
-  sub-cell smoothness — the pane under the pointer, without stealing focus — its
+  sub-cell smoothness - the pane under the pointer, without stealing focus - its
   overflowing partial row clipped to the pane so it never smears across the
   divider into a neighbour.
 
@@ -506,7 +506,7 @@ one-shot actions, rate limits, expiry, and platform behavior.
   alternate-scroll (DECSET 1007) arrow emulation, so classic pagers (`less`,
   `man`, `git log`) that enable alternate-scroll without full mouse tracking
   scroll at the same rows-per-notch as the viewport. Full mouse-reporting TUIs
-  own the wheel — their report carries direction, not magnitude — so the
+  own the wheel - their report carries direction, not magnitude - so the
   multiplier does not apply there, and continuous (touchpad pixel) deltas are
   never multiplied.
 ### Choose Cursor And Background Behavior
@@ -560,8 +560,8 @@ one-shot actions, rate limits, expiry, and platform behavior.
 - Path settings, including `background_image`, open an inline file picker in
   Settings. Directories are enumerated off the UI path so keyboard and mouse
   navigation remain responsive while large folders load. The `background_image`
-  picker also lists two entries at the top — **Default (bundled)** restores the
-  shipped OdyTTY background and **None (no image)** clears it — so the bundled
+  picker also lists two entries at the top - **Default (bundled)** restores the
+  shipped OdyTTY background and **None (no image)** clears it - so the bundled
   default is reachable from the GUI without editing the config.
 
 ### Gate Terminal Clipboard And Named Graphics Authority
@@ -605,13 +605,14 @@ grammar and Settings surface.
 keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste;super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down
 ```
 
-OSC 133 command-output actions are also bindable, with no default chords:
+The OSC 133 command-output actions are also bindable, with no default chords:
 `select-command-output`, `select-command-with-prompt`,
 `copy-command-output`, `copy-command-with-prompt`, `search-command-output`,
 `jump-failed-command-prev`, `jump-failed-command-next`, and
 `export-command-output`. They remain inert when a complete current command
 range is unavailable. Export opens an explicit native save dialog and writes at
-most 32 MiB of sanitized plain text.
+most 32 MiB of sanitized plain text. `notify-command-finished` (Notify When This
+Command Finishes) is bindable the same way.
 
 For a one-off/dev override, pass the same list through `ODYTTY_KEYBINDS`; env
 wins for that session.
@@ -623,15 +624,15 @@ single printable ASCII character except `+` and `=`, the word `comma`,
 `right`.
 
 The in-app keybinding editor is opened from the Settings panel's Keybindings
-row. It covers every bindable action — the core workflow actions plus the
+row. It covers every bindable action - the core workflow actions plus the
 overlay (command palette, connection manager, session replay, theme builder,
 session-attach / Manage Sessions),
-tab, and pane-management actions — writing through to `keybinds`; the
+tab, and pane-management actions - writing through to `keybinds`; the
 `ODYTTY_KEYBINDS` env var can override the same setting for a session.
 
 ## Pane And Interaction Details
 
-### Panes — multiplexer prefix (`pane_prefix`)
+### Panes - multiplexer prefix (`pane_prefix`)
 
 Pane / split management uses a tmux-style **prefix** model: press the prefix
 chord (default `Ctrl+b`), then a pane key. The prefix is captured only when the
@@ -683,7 +684,7 @@ session-scoped override.
 
 When a tab is split into multiple panes, `inactive_pane_dim` applies a subtle
 dim (in OKLab, so hue is preserved) to the non-focused panes so the focused one
-stands out. It accepts `0.0..=1.0`; `0.0` (the default) is off — every pane
+stands out. It accepts `0.0..=1.0`; `0.0` (the default) is off - every pane
 renders undimmed and the multi-pane frame is byte-identical to before this knob
 existed. `0.15`–`0.30` is a subtle recede. The focused pane is never dimmed,
 single-pane tabs are never affected, and the minimum-contrast floor still
@@ -705,7 +706,7 @@ total byte budget (24 MiB); whichever binds first evicts the oldest frames, so
 memory never grows without bound. Turning the setting back off clears the ring
 immediately.
 
-Recording is **local-only**: frames live only in process memory — they are never
+Recording is **local-only**: frames live only in process memory - they are never
 written to disk, logged, or sent anywhere, and they are dropped when the session
 closes or recording is turned off.
 
@@ -732,7 +733,7 @@ Replay" item) to open the replay overlay; rebind the `session-replay` action via
 session-scoped override. `←`/`→` step one frame, `PgUp`/`PgDn` jump ten,
 `Home`/`End` go to the oldest/newest frame, and `Esc` closes it. Replay is
 **presentation-only**: the overlay scrubs a frozen, fully decoupled clone of the
-ring and never mutates the live terminal — the session keeps running underneath
+ring and never mutates the live terminal - the session keeps running underneath
 while you scrub.
 
 The scrub view is a monochrome text preview of the recorded screen at each
@@ -784,14 +785,14 @@ What is restored is **shape only**: workspace names, tab titles and order, and
 each tab's pane split tree (axes + ratios), with every pane reopened at its
 captured working directory running a **fresh interactive shell**. What is
 **never** restored: terminal output, scrollback, environment, or the commands
-that were running — restore never re-runs a captured command. If a pane's saved
+that were running - restore never re-runs a captured command. If a pane's saved
 directory no longer exists it opens at your home directory instead, with a
 single brief notice.
 
 Rules:
 
-- **Only a bare `odytty` restores.** Any command-line argument — a flag, a
-  path, `--working-directory`, `-e COMMAND`, an attach id — starts that launch
+- **Only a bare `odytty` restores.** Any command-line argument - a flag, a
+  path, `--working-directory`, `-e COMMAND`, an attach id - starts that launch
   fresh and suppresses restore. That process also never writes the snapshot,
   while it runs or on quit, so the layout saved by the last bare launch is
   kept for the next one.
@@ -818,7 +819,7 @@ Rules:
 ### Clickable URLs (`interactive_urls`)
 
 `interactive_urls = on` is the **default**: a bare URL that a program printed as
-plain text — `https://example.com`, not wrapped in an OSC 8 hyperlink escape —
+plain text - `https://example.com`, not wrapped in an OSC 8 hyperlink escape -
 gets the pointer (hand) cursor on hover, an armed underline while the platform
 modifier is held, and opens in your browser on Ctrl+click on Linux/Windows or
 Cmd+click on macOS. It is independent of
@@ -827,7 +828,7 @@ separately. The same toggle is in the Settings panel's Input section.
 
 Security mirrors OSC 8 and interactive paths exactly: URLs are **never
 auto-opened** (always an explicit modifier+click), only an allowlisted scheme
-opens (`http`, `https`, `file`, `mailto` — `ftp`/`ssh`/`git` are detected but
+opens (`http`, `https`, `file`, `mailto` - `ftp`/`ssh`/`git` are detected but
 not opened, and `javascript:` and friends never open), and the URL is passed as
 a direct argv vector to the platform opener with **no shell interpolation**.
 Detection is local-only and scans only the hovered row of the focused pane; an
@@ -836,7 +837,7 @@ double-decorated. The URL, OSC 8 link, and path under the pointer are
 re-resolved after output changes the screen and again when a modifier+click
 acts, so text that changes under a stationary pointer never opens the target
 that was there before. Set `interactive_urls = off` (or `ODYTTY_INTERACTIVE_URLS=off`)
-to disable it — the off path never scans, so the hover frame is byte-identical.
+to disable it - the off path never scans, so the hover frame is byte-identical.
 
 Keyboard alternative, regardless of this setting: `Ctrl+Shift+L` (the `hints`
 action) labels every on-screen URL, path, and hash for keyboard quick-select and
@@ -854,13 +855,13 @@ Settings panel's Clipboard section, where its value reads `copy-or-interrupt`
 verbatim.
 
 To still send an interrupt while text is selected, press `Esc` first (which
-clears the selection) and then `Ctrl+C`, or just press `Ctrl+C` twice — the first
+clears the selection) and then `Ctrl+C`, or just press `Ctrl+C` twice - the first
 press copies and clears, so the second interrupts. `Ctrl+Shift+C` is always an
 unambiguous copy regardless of this setting, and a full-screen TUI never holds a
 local selection, so its `Ctrl+C` keeps interrupting.
 
 Paste is unaffected: `Ctrl+Shift+V` pastes. There is deliberately no
-"smart `Ctrl+V`" — plain `Ctrl+V` stays the readline/vi verbatim-insert (`^V`).
+"smart `Ctrl+V`" - plain `Ctrl+V` stays the readline/vi verbatim-insert (`^V`).
 If you want plain `Ctrl+V` to paste anyway, bind it directly:
 
 ```conf
@@ -875,9 +876,9 @@ while off, the pointer path never scans terminal text for paths and the hover
 path is byte-identical to before the feature existed. The same toggle is
 reachable in the Settings panel's Input section.
 
-When on, hovering a path-looking span — absolute (`/etc/hosts`), home-relative
+When on, hovering a path-looking span - absolute (`/etc/hosts`), home-relative
 (`~/notes.md`), explicit-relative (`./build.rs`, `../Cargo.toml`), or a bare
-relative path that contains a slash (`src/main.rs`) — that **resolves to a real
+relative path that contains a slash (`src/main.rs`) - that **resolves to a real
 file or directory** shows the pointer (hand) cursor, the same affordance as an
 OSC 8 hyperlink. Relative paths resolve against the shell's reported working
 directory (OSC 7); `~` expands against `$HOME`. A trailing `:line[:col]` suffix
@@ -898,9 +899,10 @@ rate-limited. Set
 `interactive_paths_click_hint = off` to suppress the chip entirely; it is also
 inert whenever the master `interactive_paths` gate is off.
 
-The cursor affordance is the **only** frame-affecting change — there is no
-underline or other decoration, so with the feature on the rendered frame bytes
-are unchanged and only the mouse cursor shape reflects a hovered path. Detection
+With the feature on, the frame-affecting changes are the mouse cursor shape over
+a hovered path, an underline under the armed path while the open modifier is
+held, and the click-hint chip described above; with the feature off the
+rendered frame bytes are unchanged. Detection
 is **local-only**: candidate spans are never logged, persisted, or sent
 anywhere, and the single filesystem `stat` happens only on a span actually under
 the pointer (the default, feature-off path makes zero `stat` calls). Hover
@@ -913,7 +915,7 @@ works even while a full mouse-tracking TUI has mouse reporting on: a
 modifier+click that lands on a resolved span opens it, while the same click
 anywhere else still reports to the app, so the program keeps its clicks. No
 extra Shift is needed. A right-click over a resolved span adds a **file section**
-to the context menu — Open, Open With…, Copy Path, Copy File, Reveal in File
+to the context menu - Open, Open With…, Copy Path, Copy File, Reveal in File
 Manager ("Open With…" appears only on a regular file, not a directory).
 
 Every open is an **argv vector**, never a shell string, so a path containing
@@ -929,7 +931,7 @@ dispatch:
 | Directory | Linux: `xdg-open <abs>`; macOS: `open <abs>`; Windows: `explorer <abs>` |
 
 "Copy Path" copies the absolute path; "Copy File" copies a `file://<abs>` URI as
-text (the clipboard is text-only — this pastes into file managers as a file
+text (the clipboard is text-only - this pastes into file managers as a file
 reference); "Reveal in File Manager" opens the containing directory on Linux,
 uses `open -R <abs>` on macOS, and uses Explorer `/select,` on Windows.
 
@@ -968,8 +970,8 @@ opens with an empty-state hint. Closed, the overlay is byte-identical to the
 live frame.
 
 **In-terminal image viewer ("Open in OdyTTY").** When the resolved span is an
-image file — extension `.png`, `.jpg`/`.jpeg`, or `.webp` (matching the built-in
-decoders; GIF/BMP/TIFF are not offered) — the file section gains an **Open in
+image file - extension `.png`, `.jpg`/`.jpeg`, or `.webp` (matching the built-in
+decoders; GIF/BMP/TIFF are not offered) - the file section gains an **Open in
 OdyTTY** item. It decodes the image and renders it centered, aspect-preserved,
 over a dimmed backdrop through the existing GPU graphics path; `Esc` (or a click
 away) dismisses it. The viewer is presentation-only: while it is closed the
@@ -994,10 +996,10 @@ With the master gate off there is no image detection and no menu item at all.
 **Editor selection (`interactive_paths_editor`).** A `path:line:col` span opens
 in an editor chosen by: the `interactive_paths_editor` setting (env
 `ODYTTY_INTERACTIVE_PATHS_EDITOR`) if non-empty, else `$EDITOR`/`$VISUAL`, else
-the platform opener (position lost). The value is either a **known editor name** — `vim`,
+the platform opener (position lost). The value is either a **known editor name** - `vim`,
 `nvim`, `vi`, `code`, `emacs`, `emacsclient`, `helix`/`hx`, `sublime`/`subl`,
 `nano`, `micro` (each mapped to its position-flag form, e.g. `code --goto
-F:L:C`, `vim +call cursor(L,C) F`, `nano +L,C F`) — or an **argv template** with
+F:L:C`, `vim +call cursor(L,C) F`, `nano +L,C F`) - or an **argv template** with
 `{file}`, `{line}`, `{col}` placeholders (e.g.
 
 `myeditor --line {line} {file}`). The spec is always whitespace-tokenized into
@@ -1189,10 +1191,9 @@ window: the parsed value is not written to host metadata, and a later unrelated
 
 If an explicitly requested id is dead, the window still opens and stderr reports
 `odytty: attach session <id> failed: <err>`. The headless script/CI form,
-`attach --diagnostic <id>`, prints a one-line status dump (`id=... state=attached
-mode=diagnostic columns=... rows=...
-
-panes=1`) and exits without opening a window.
+`attach --diagnostic <id>`, prints a one-line, tab-separated status dump
+(`id=...`, `state=attached`, `mode=diagnostic`, `columns=...`, `rows=...`,
+`panes=1`) and exits without opening a window.
 
 Host lifecycle is local-only and bounded. Each attach receives a current
 `SnapshotEnvelope` first, then future `Output` and `Invalidate` frames while it
@@ -1273,14 +1274,14 @@ overrides for remote shell integration, connection reuse, and tmux persistence
 a path to an existing SSH private key; when set, the connect argv gains `-i
 <path>` so a key that is not in `~/.ssh/config` still authenticates.
 
-OdyTTY stores only the path — never any key material — and `ssh-copy-id` remains
+OdyTTY stores only the path - never any key material - and `ssh-copy-id` remains
 the once-and-done way off passwords entirely. A `Protocol` key is reserved
 (default and only accepted value `ssh`) so a future transport needs no
 file-format migration; any value is preserved across an edit.
 
 You do not have to hand-edit this file to reach a new host. In the connection
 manager, typing a `[user@]host[:port]` that matches no saved host offers a
-**Connect to: …** row — **Enter** connects, and **Shift+Enter** (or **Ctrl+S**)
+**Connect to: …** row - **Enter** connects, and **Shift+Enter** (or **Ctrl+S**)
 connects and appends a `Host` block here for you. The append is atomic
 (temp-file-and-rename) and preserves the file's existing contents byte-for-byte;
 the new block reads `Host <host>` (no redundant `HostName` when the alias is the
@@ -1292,15 +1293,15 @@ rejected before any connect or write.
 
 You can also add and edit hosts with an in-app form instead of typing directives
 by hand. In the connection manager, **Tab** opens a blank **Add connection**
-form and the **right arrow** (`\u{2192}`) opens an **Edit** form pre-filled from
+form and the **Right** arrow key opens an **Edit** form pre-filled from
 the selected OdyTTY-owned row (`ssh-config`-imported rows are read-only). The
 form carries `Alias`, `HostName`, `User`, and `Port` up front, with an
 **Advanced** section for `IdentityFile`, the three-way `Integration` / `Reuse` /
 `Tmux` overrides (**inherit / on / off**), and `Theme` / `Font` / `Title`. On
-the **IdentityFile** row, **Enter** (while the field is empty) — or a click on
+the **IdentityFile** row, **Enter** (while the field is empty) - or a click on
 the always-visible **[Browse]** chip at the end of the row (whether the field is
-empty or already holds a path) — opens a browser of candidate private keys found
-under `~/.ssh` — filename heuristics only (`id_*`, `*.pem`, `*.key`, and any
+empty or already holds a path) - opens a browser of candidate private keys found
+under `~/.ssh` - filename heuristics only (`id_*`, `*.pem`, `*.key`, and any
 file with a matching `.pub` sibling; `*.pub`, `known_hosts`, `config`, and
 `authorized_keys` are excluded).
 
@@ -1309,14 +1310,14 @@ fills the path, and typing a path by hand stays fully supported (keys can live
 outside `~/.ssh`). A focused-field help line at the bottom of the form explains
 each field as you move through it. Field validation matches the ad-hoc rules; an
 alias collision is refused inline with no write. **Save** (or **Ctrl+S**)
-appends a new block or edits the existing one in place — an edit re-renders only
+appends a new block or edits the existing one in place - an edit re-renders only
 that block and leaves every other block, comment, and unknown field
 byte-for-byte untouched.
 
 **Test connection** runs a non-interactive background probe (`ssh -o
 BatchMode=yes -o ConnectTimeout=5 … exit`) and reports a tri-state result:
 reachable with key/agent auth, reachable but interactive-auth (the expected
-state for a password host — the connect still works, interactively), a host-key
+state for a password host - the connect still works, interactively), a host-key
 mismatch, or unreachable. The probe carries no password and stores nothing
 credential-shaped.
 
@@ -1375,7 +1376,7 @@ tab to a host closes, so a daily-driver host is authenticated roughly once per
 boot rather than once per tab. `remote_persist` (`ODYTTY_REMOTE_PERSIST`) sets
 how long that master lingers: `10m` (the default), `30m`, `1h`, `2h`, or `off`.
 The default `10m` maps to OpenSSH `ControlPersist=600`, which is the historical
-fixed window — so the default is a no-op change and existing behavior is
+fixed window - so the default is a no-op change and existing behavior is
 unchanged. `off` maps to `ControlPersist=no`, tearing the master down with its
 last connection (the pre-persistence posture).
 
@@ -1419,23 +1420,23 @@ reconnect.
 With `remote_image_paste = ask` (the default; `ODYTTY_REMOTE_IMAGE_PASTE=ask`),
 pasting while the clipboard holds an **image** and the active tab is a remote
 integrated SSH session offers to upload it to the remote host. A confirm prompt
-appears in the pane — showing the encoded size and the target host — and nothing
+appears in the pane - showing the encoded size and the target host - and nothing
 is uploaded until **Enter** confirms (**Esc** cancels). On confirmation the
 image is PNG-encoded and streamed over the tab's `ssh` connection (reusing the
 live `ControlMaster` when one is up) into a file created `0600` under an
-unguessable `/tmp/odytty-paste-<random>.png` name. On success a one-line notice
-— `image uploaded <path> · copied to clipboard` — is written into the pane and
+unguessable `/tmp/odytty-paste-<random>.png` name. On success a one-line notice -
+`image uploaded <path> · copied to clipboard` - is written into the pane and
 the remote path is copied to the **local clipboard**; the path is **not** typed
 into the shell (a bare path on an empty prompt would run on the next Enter and
 error).
 
 Paste it (`Ctrl+Shift+V`) into a command wherever the file is wanted. Nothing is
-ever run remotely — it is an upload plus a clipboard copy, not a command. The
+ever run remotely - it is an upload plus a clipboard copy, not a command. The
 feature also engages on reconnected and restored remote tabs.
 
 `remote_image_paste = off` (`ODYTTY_REMOTE_IMAGE_PASTE=off`) disables the feature:
 an image paste on a remote tab does nothing. There is deliberately no silent
-auto-upload mode — confirm-first is the only enabled behavior. The feature only
+auto-upload mode - confirm-first is the only enabled behavior. The feature only
 engages on a remote *integrated* tab; a local tab or an integration-off plain-ssh
 tab pastes exactly as before. Images larger than 10 MiB (PNG-encoded) are refused
 with a one-line notice rather than uploaded.

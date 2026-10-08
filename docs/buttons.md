@@ -1,8 +1,8 @@
-# Buttons — program-defined clickable output
+# Buttons - program-defined clickable output
 
 OdyTTY lets a program mark a run of its own output as a clickable button.
 Clicking the button sends a small, terminal-composed escape sequence back to
-the program — an integer code, nothing else — so command-line tools can offer
+the program - an integer code, nothing else - so command-line tools can offer
 "click to retry", "click to copy", or "click to open" affordances without a
 GUI. Buttons survive scrollback, degrade to plain text in other terminals, and
 are **on by default**.
@@ -21,14 +21,14 @@ example run `scripts/button-demo.sh`.
   the risk class of OSC 8 hyperlinks, which are also enabled by default.
 - **The terminal owns the report.** The click report is composed by OdyTTY
   from the parsed integer code alone. A program cannot supply report bytes:
-  the reply alphabet is exactly `ESC [ ? 0-9 ; ~` — no newline, no carriage
+  the reply alphabet is exactly `ESC [ ? 0-9 ; ~` - no newline, no carriage
   return, no byte a shell or line editor treats as "execute". A hostile
   emitter chooses *which number* arrives, never *what byte shape* arrives.
 - **Graceful degradation.** The native spelling brackets an ordinary text
   label between two private OSC sequences. Terminals that do not implement the
   protocol drop the unknown OSCs and print the label as plain text.
 
-## Tier 2 — native spelling (preferred)
+## Tier 2 - native spelling (preferred)
 
 Define a button by bracketing its label:
 
@@ -64,7 +64,7 @@ Example (printf spelling, bash/zsh):
 printf '\e]133;P;odytty-button;code=42;icon=retry\a[ Retry ]\e]133;P;odytty-button;end\a\n'
 ```
 
-## Tier 1 — iTerm2-compatible spelling
+## Tier 1 - iTerm2-compatible spelling
 
 For programs that already emit iTerm2 custom buttons:
 
@@ -95,7 +95,7 @@ Clicking a live button writes this to the program's input:
 CSI ? 1337 ; code ~
 ```
 
-For `code=42` the exact bytes are `1b 5b 3f 31 33 33 37 3b 34 32 7e` — the
+For `code=42` the exact bytes are `1b 5b 3f 31 33 33 37 3b 34 32 7e` - the
 same report iTerm2 sends for its custom buttons, so existing readers work
 unchanged.
 
@@ -121,12 +121,12 @@ Interaction rules:
 
 Sticky buttons keep working from scrollback: a `[ Retry ]` printed 500 lines
 ago still reports when clicked. The `buttons_sticky` sub-gate (off by default)
-downgrades `sticky` definitions to `block` when disabled — a button surviving a
+downgrades `sticky` definitions to `block` when disabled - a button surviving a
 scroll-away is the one surprising variant, so sticky stays opt-in even with the
 master gate on.
 
 Bounds: at most 16 button spans per line and 8192 distinct buttons overall.
-At the ceiling, **new definitions are refused** — OdyTTY never evicts a button
+At the ceiling, **new definitions are refused** - OdyTTY never evicts a button
 that is still visible, because a visibly dead button is worse than a refused
 new one. Definitions on the alternate screen are refused (full-screen
 applications have real mouse protocols already).

@@ -14,28 +14,27 @@ and the checks used during release preparation.
 
 - [Release notes](releases/README.md) - concise highlights for each release,
   including patch releases from v0.10.0 onward.
-
-- [Install guide](install.md) — setup, updates, checksums, source builds, and
+- [Install guide](install.md) - setup, updates, checksums, source builds, and
   troubleshooting.
-- [Feature reference](features.md) — terminal behavior and native workflows.
-- [Paste safety](features.md#paste-safety) — exact warning triggers, dialog
+- [Feature reference](features.md) - terminal behavior and native workflows.
+- [Paste safety](features.md#paste-safety) - exact warning triggers, dialog
   choices, shell-controlled bracketed-paste behavior, and cancellation rules.
-- [Settings guide](settings-guide.md) — shipped defaults and useful opt-ins.
-- [Runtime reference](runtime-knobs.md) — every setting and command-line
+- [Settings guide](settings-guide.md) - shipped defaults and useful opt-ins.
+- [Runtime reference](runtime-knobs.md) - every setting and command-line
   surface.
 
 ## Use And Customize
 
 - [Named profiles](profiles.md) - reusable launch contexts, the Profile Manager,
   defaults, precedence, launch surfaces, and switching.
-- [Annotated config](odytty.conf.example) — a commented configuration starting
+- [Annotated config](odytty.conf.example) - a commented configuration starting
   point.
-- [Keybindings](keybindings.md) — shortcuts and rebinding.
-- [Buttons](buttons.md) — the program-defined clickable-output protocol.
-- [Accessibility](accessibility.md) — readability and motion controls.
-- [Notifications](notifications.md) — bounded OSC progress, completion, and
+- [Keybindings](keybindings.md) - shortcuts and rebinding.
+- [Buttons](buttons.md) - the program-defined clickable-output protocol.
+- [Accessibility](accessibility.md) - readability and motion controls.
+- [Notifications](notifications.md) - bounded OSC progress, completion, and
   pane-monitor policy.
-- [Diagnostics](diagnostics.md) — logs, recovery, and support information.
+- [Diagnostics](diagnostics.md) - logs, recovery, and support information.
 
 ## Visual System
 

@@ -301,7 +301,7 @@ def capture_windows(pid: int) -> dict[str, object]:
     Windows exposes a working set and its peak through PSAPI, which is the
     platform's own interface and the right one to read. It does not expose a
     proportional set size, and this script does not attempt a per-mapping
-    decomposition through `VirtualQueryEx` — so those are `unmeasured` with the
+    decomposition through `VirtualQueryEx` - so those are `unmeasured` with the
     reason recorded, not filled in from the Linux path.
     """
     import ctypes
@@ -394,7 +394,7 @@ def capture_macos(pid: int) -> dict[str, object]:
     is not directly comparable to it; it is recorded as `rss_bytes` and nothing
     more is claimed for it. A phys-footprint decomposition needs `vmmap`, whose
     output requires elevated privilege for another user's process and whose
-    field semantics differ again — so it is left unmeasured rather than mixed
+    field semantics differ again - so it is left unmeasured rather than mixed
     into a record whose other rows mean something else.
     """
     import subprocess

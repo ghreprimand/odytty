@@ -5,7 +5,7 @@ edition = "2024"
 # Minimum Supported Rust Version. Verified, not aspirational: the fuzz/test
 # suites use a method-resolution/deref-coercion behavior that compiles on 1.96
 # but not 1.95 (see the `rng.pick(...)` sites noted in rust-toolchain.toml), and
-# rust-toolchain.toml pins the build to 1.96.0 — so CI already compiles AT this
+# rust-toolchain.toml pins the build to 1.96.0 - so CI already compiles AT this
 # floor on every run. Keep this in lockstep with rust-toolchain.toml's channel:
 # if that pin moves, this must move with it (and vice versa).
 rust-version = "1.96"
@@ -23,7 +23,7 @@ bundled-symbols-font = []
 # Lint policy lives in the manifest so it is reproducible from a bare
 # `cargo clippy`, not only from the CI flag. This mirrors the existing CI gate
 # (`cargo clippy --all-targets --locked -- -D warnings`): the whole default
-# Clippy set is denied. It cannot introduce new failures — CI already proves the
+# Clippy set is denied. It cannot introduce new failures - CI already proves the
 # tree is Clippy-clean on every push. `priority = -1` lets any future per-lint
 # `allow` override the group. (Pedantic is intentionally NOT enabled: under the
 # `-D warnings` gate it would promote hundreds of style nits to hard errors.)
@@ -40,7 +40,7 @@ bytemuck = { version = "1.25.0", features = ["derive"] }
 # decoders pull the same version), so declaring it directly compiles nothing
 # new; it is declared rather than reached through a re-export so the version is
 # visible to the audit script. Default features keep the pure-Rust
-# `miniz_oxide` backend — no C toolchain, no system zlib, identical on every
+# `miniz_oxide` backend - no C toolchain, no system zlib, identical on every
 # supported platform. Decompression is always bounded at the call site; see
 # `src/core/kitty.rs::decompress_payload`.
 flate2 = "1.1.9"
@@ -58,10 +58,6 @@ harfrust = "=0.8.4"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 png = "0.18.1"
 pollster = "0.4.0"
-# Native save dialogs for explicit command-output export. Linux uses the
-# desktop portal backend on both Wayland and X11; macOS and Windows use rfd's
-# native platform implementations. Exact pin and minimal feature set keep the
-# reviewed dependency surface stable.
 # SVG-in-OpenType color glyphs (`src/emoji/svg.rs`). Apache-2.0 OR MIT.
 # 0.45.1 is the release built on tiny-skia 0.11.4, the rasterizer already used
 # for COLR v1, so no second tiny-skia enters the build. All default features
@@ -70,6 +66,10 @@ pollster = "0.4.0"
 # disabled and node and depth limits checked before conversion, and every
 # external-resource resolver returns nothing.
 resvg = { version = "=0.45.1", default-features = false }
+# Native save dialogs for explicit command-output export. Linux uses the
+# desktop portal backend on both Wayland and X11; macOS and Windows use rfd's
+# native platform implementations. Exact pin and minimal feature set keep the
+# reviewed dependency surface stable.
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
 # Direct use of the already-transitive Fontations stack evaluates guarded COLR
 # v1 Paint graphs. `swash` remains the shaping and bitmap/COLR v0 rasterizer.
@@ -164,7 +164,7 @@ futures-lite = "2"
 # `Win32_System_IO` supplies overlapped pipe deadlines and cancellation;
 # `Win32_System_ProcessStatus` backs the memory-attribution diagnostic's
 # process-level read (`GetProcessMemoryInfo`), which is the Windows equivalent
-# of the Linux `/proc/self/status` source — Windows reads its own interface
+# of the Linux `/proc/self/status` source - Windows reads its own interface
 # rather than inheriting a figure from another platform. All usage is behind
 # `#[cfg(windows)]`, so Unix builds never see this crate.
 [target.'cfg(windows)'.dependencies]
@@ -215,13 +215,14 @@ harness = false
 # The release CI builds on ubuntu-22.04, so the glibc floor is 2.35; `$auto`
 # expands (via dpkg-shlibdeps) to the exact ldd-linked runtime deps with their
 # version floors (libc6, libgcc-s1, libm, and the Fontconfig library linked by
-# the Wayland title-bar text backend, which also uses FreeType through it). The Vulkan and
-# xkbcommon libraries (including libxkbcommon-x11, which winit's X11 backend
-# loads and panics without) are dlopen'd at runtime by winit/wgpu (they never
-# appear in `ldd`), so the runtime set is declared explicitly here, mirroring
-# the AUR runtime set mapped to Debian package names. libwayland-client0 is intentionally omitted: winit dlopens it
-# only on a Wayland session and falls back to X11 otherwise, and it is not in
-# the reference AUR depends.
+# the Wayland title-bar text backend, which also uses FreeType through it).
+# The Vulkan and xkbcommon libraries (including libxkbcommon-x11, which
+# winit's X11 backend loads and panics without) are dlopen'd at runtime by
+# winit/wgpu (they never appear in `ldd`), so the runtime set is declared
+# explicitly here, mirroring the AUR runtime set mapped to Debian package
+# names. libwayland-client0 is intentionally omitted: winit dlopens it only on
+# a Wayland session and falls back to X11 otherwise, and it is not in the
+# reference AUR depends.
 [package.metadata.deb]
 maintainer = "Unfinished Works <maintainers@odytty.unfinished-works.com>"
 copyright = "2026 Unfinished Works and the OdyTTY contributors"

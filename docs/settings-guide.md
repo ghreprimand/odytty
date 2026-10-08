@@ -8,7 +8,7 @@ keys, environment variables, ranges, aliases, and reload behavior.
 
 ## Quick terminal settings
 
-OdyTTY adds `quick_terminal`, `quick_terminal_shortcut`,
+The quick terminal is controlled by `quick_terminal`, `quick_terminal_shortcut`,
 `quick_terminal_edge`, `quick_terminal_coverage`, `quick_terminal_span`,
 `quick_terminal_monitor`, `quick_terminal_animation`,
 `quick_terminal_hide_on_focus_loss`, and `quick_terminal_profile`. Quick access,
@@ -27,9 +27,9 @@ path for this command as well.
 The `active` monitor policy uses the
 monitor of the focused window (falling back to any open window, then the
 primary); pointer position is not used for selection. See the
-[development contract](v0.15.0-foundation.md#quick-terminal-role).
+[quick terminal contract](v0.15.0-foundation.md#quick-terminal-role).
 
-The same development line adds `automation_endpoint` (default off;
+`automation_endpoint` (default off;
 `ODYTTY_AUTOMATION_ENDPOINT`). When enabled after the first presented frame,
 Linux and macOS bind owner-private sockets and Windows binds
 `\\.\pipe\odytty-control-<pid>` with an owner-only DACL. There is no network
@@ -66,14 +66,44 @@ These are the notable active defaults rather than every setting whose value is
 | Colored background strength at 0.9 | Keeps app-painted cells, prompt segments, and button chips from washing out as window opacity drops. | `colored_bg_opacity = 0` |
 | Shell integration | Adds prompt marks, working-directory reports, prompt-aware editing, and button helpers to new supported shells without editing shell rc files. | `shell_integration = off` |
 | Risky-paste confirmation | Holds original multiline or control-bearing text behind an escaped preview when the child has not enabled bracketed-paste mode. Shells and editors such as Fish normally use their own protected bracketed path. | `warn_on_risky_paste = off` is an advanced global opt-out |
-| Prompt key enhancement (off by default) | In integrated Bash and Zsh prompts, gives `Ctrl+Backspace`, `Shift+Enter`, and `Ctrl+Enter` distinct word-edit, newline, and submit behavior. Existing personal bindings win. Enabling it also re-encodes every other `Ctrl+key`, so `Ctrl+C` stops interrupting and `Ctrl+D`/`Ctrl+Z` stop signalling until you bind them back — and readline, unlike ZLE, cannot bind `Ctrl+C` back at all. | `shell_key_enhancement = on` enables it; leave it off for plain prompt input |
 | Click-to-position and command status gutter | Moves the prompt cursor on a supported click and marks completed commands green or red in each visible pane. Both stay inert without shell marks. | `sh_click = off` and `command_status_gutter = off` |
 | Clickable buttons with iTerm2 compatibility | Lets cooperating programs render safe numeric-response buttons and accepts the native and iTerm2 spellings. | `buttons = off`, or only `buttons_iterm_compat = off` |
 | New-output fade at 250 ms | Ramps new foreground text at the live tail in single-pane rendering, including full history; width/height resize snaps and backgrounds appear normally. | `new_output_fade = off` |
 | Clickable URLs | Opens printed allowlisted URLs on modifier-click; output never opens a URL by itself. | `interactive_urls = off` |
+| Programming ligatures | Draws compatible operator sequences such as `->` with the font's ligatures while every terminal cell keeps its place. | `ligatures = off` |
+| Script shaping | Shapes Arabic and the supported complex scripts with the font's own forms, independently of ligatures. | `script_shaping = off` |
 | Cursor motion, scroll glide, bloom, and ambient CRT | Supplies the default motion and post-process character while preserving individual opt-outs and the plain render profile. | Use the corresponding Motion or Post-process rows, or `render_quality = plain` for the direct path |
 
 ## Useful Opt-In Settings
+
+### Prompt Key Enhancement
+
+`shell_key_enhancement` ships off. In integrated Bash and Zsh prompts it gives
+`Ctrl+Backspace`, `Shift+Enter`, and `Ctrl+Enter` distinct word-edit, newline,
+and submit behavior; existing personal bindings win. Enabling it also
+re-encodes every other `Ctrl+key`, so `Ctrl+C` stops interrupting and
+`Ctrl+D`/`Ctrl+Z` stop signalling until you bind them back, and readline,
+unlike ZLE, cannot bind `Ctrl+C` back at all. Leave it off for plain prompt
+input.
+
+```conf
+shell_key_enhancement = on
+```
+
+### Text Shaping And Legibility
+
+`bidi_reorder` ships off. With it on, right-to-left runs such as Hebrew and
+Arabic are drawn in display order on the primary screen; terminal cells, the
+cursor, selection, and copy stay logical. `font_zero` ships off. With it on, `0`
+is drawn with the body font's OpenType `zero` feature (a slashed or dotted
+zero) when the font has one. Both apply live. See the
+[runtime-knob reference](runtime-knobs.md) and
+[`features.md`](features.md#render-text-and-symbols) for the exact behavior.
+
+```conf
+bidi_reorder = on
+font_zero = on
+```
 
 ### Clipboard Choices
 

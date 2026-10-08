@@ -2,8 +2,8 @@
 
 OdyTTY's compatibility evidence is collected against a **version-pinned**
 upstream conformance suite, driven by a harness that refuses to guess. This
-document describes the execution path, the public result format, and — at least
-as importantly — what the current setup cannot tell you.
+document describes the execution path, the public result format, and - at least
+as importantly - what the current setup cannot tell you.
 
 > **The first collected run reports no passes and no failures.** Of eighteen
 > declared cases, twelve are not machine-judgeable at all, four prove only that
@@ -37,7 +37,7 @@ short id is collidable and cannot support a trust decision.
 
 Changing any of those values is a **new pin**, not an update. Record the reason
 in [`DEVLOG.md`](../../DEVLOG.md) and re-run the whole verification path. Never edit a digest to
-make a mismatch pass — a mismatch means the bytes changed, and that is the
+make a mismatch pass - a mismatch means the bytes changed, and that is the
 finding, not an obstacle.
 
 ### Licensing: nothing upstream is vendored
@@ -45,7 +45,7 @@ finding, not an obstacle.
 The upstream tree does not carry a single uniform license statement; individual
 files carry their own notices and those notices differ. Rather than reason about
 that file by file, this repository takes the simple position: **no upstream file
-is copied into the tree in any form** — not sources, not fixtures, not expected
+is copied into the tree in any form** - not sources, not fixtures, not expected
 output, not excerpts. The archive is fetched to an untracked cache outside the
 working tree, built there, and run from there.
 
@@ -111,13 +111,13 @@ and marked `confirmed_against_pin = true`. Submenus nest, so a path is a list:
 The path is not trusted on its own. The suite writes the menu path it actually
 walked into its own log, in dotted form, and the runner compares the two. A run
 whose recorded traversal differs from the declared path is reported as a
-desynchronised harness, not as a product result — see
+desynchronised harness, not as a product result - see
 [Desynchronisation is detected, not assumed away](#desynchronisation-is-detected-not-assumed-away).
 
 ### Only a verdict line can decide an upstream case
 
 The pinned suite writes two kinds of log line: a transcript of what it sent,
-read, and drew, and — rarely — a line stating a conclusion. Only the second
+read, and drew, and - rarely - a line stating a conclusion. Only the second
 kind is treated as an outcome. The complete set is declared in `cases.toml` and
 the runner refuses to read anything else as a result:
 
@@ -185,7 +185,7 @@ dependency tree that can drift between runs.
 ### Verification is a hard gate
 
 `verify` compares the archive digest in constant time and stops on mismatch with
-no override. It then verifies the detached signature — against a trust root it
+no override. It then verifies the detached signature - against a trust root it
 builds itself, not against whatever the machine already trusts.
 
 That default deserves its reasoning: a digest recorded in the same repository
@@ -210,7 +210,7 @@ Two details are deliberate. Only a **primary** key fingerprint counts; a subkey
 fingerprint is not the key's identity, and accepting one would let a key be
 matched by something the pin never named. And the key file itself is **not**
 digest-pinned, because a public key file legitimately changes when subkeys or
-certifications are added — the fingerprint comparison is the control that
+certifications are added - the fingerprint comparison is the control that
 matters.
 
 Residual risk, stated rather than papered over: the key and the archive are
@@ -241,7 +241,7 @@ Windows remains unsupported by this POSIX conformance harness.
 `extract` treats the archive as untrusted input even though it is pinned, and
 refuses absolute paths, parent traversal, symbolic links, hard links, device
 nodes, and FIFOs, along with per-member, total-size, and member-count caps.
-Permissions are normalised rather than inherited — an archive does not get to
+Permissions are normalised rather than inherited - an archive does not get to
 decide that a file is executable.
 
 Links are refused rather than resolved. A link that resolves inside the target
@@ -290,10 +290,10 @@ runner generates:
 
 - every point where the suite stops to read a reply from the terminal scans
   forward to the next `Wait:` line and then to the matching `Done:` line,
-  consuming whatever lies between — so an input line sitting in front of an
+  consuming whatever lies between - so an input line sitting in front of an
   unconsumed pause is eaten;
 - a search for the next input line skips anything bracketed by a `Wait:`/`Done:`
-  pair — so surplus markers ahead of an input are harmless.
+  pair - so surplus markers ahead of an input are harmless.
 
 The asymmetry is the whole design. The generator emits a **margin** of marker
 pairs before every input rather than predicting the exact number of pauses:
@@ -415,7 +415,7 @@ This is the most important limitation on the page.
 
 The harness launches OdyTTY, feeds a fixture through a plain reader, and
 observes the process outcome. It **cannot read back the rendered grid**. A clean
-exit therefore proves that the sequence was consumed without crashing — which is
+exit therefore proves that the sequence was consumed without crashing - which is
 worth knowing, and is not conformance.
 
 So the runner records `ignore`, defined by the schema as *attempted, and
@@ -432,9 +432,9 @@ Results conform to `compat/vttest/schema/result.schema.json`. The schema's
 central rule is that **runner health and compatibility outcome are separate
 fields that are never collapsed**:
 
-- `runner.status` — `ok`, `error`, or `unsupported_platform`. Describes the
+- `runner.status` - `ok`, `error`, or `unsupported_platform`. Describes the
   harness, never the product.
-- `cases[].outcome` — `pass`, `fail`, `skip`, `ignore`, or `unsupported`.
+- `cases[].outcome` - `pass`, `fail`, `skip`, `ignore`, or `unsupported`.
   Describes the product, never the harness.
 
 A cross-field rule enforces the separation: a document whose `runner.status` is
@@ -453,7 +453,7 @@ a clean sheet.
 
 There is no `partial` and no `unknown`. An unclear result is a `fail`, or a
 `skip` with a stated reason. Every non-`pass` outcome **requires** a reason, and
-the validator rejects a document that omits one — an unexplained skip is a
+the validator rejects a document that omits one - an unexplained skip is a
 hidden gap.
 
 Cases that were not run still appear, with `skip`, `ignore`, or `unsupported`.
@@ -462,7 +462,7 @@ that was never written.
 
 ### Shape
 
-Illustrative only — this is the document shape, not a result:
+Illustrative only - this is the document shape, not a result:
 
 ```json
 {
@@ -519,7 +519,7 @@ Additional cross-field rules the validator enforces:
 
 Captured output is scrubbed before it is written. The at-sign rule is blanket:
 any whitespace-delimited token containing an at-sign is replaced wholesale. This
-over-matches on purpose — user-and-host strings, mail addresses, and prompt
+over-matches on purpose - user-and-host strings, mail addresses, and prompt
 fragments all share that shape, and an over-broad redaction costs a little
 readability while a narrow one eventually leaks something real. Home directory
 paths are redacted on both Unix and Windows forms.

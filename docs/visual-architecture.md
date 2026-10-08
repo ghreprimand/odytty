@@ -12,6 +12,7 @@ settings guide in [`docs/runtime-knobs.md`](runtime-knobs.md).
   - [CRT scanline effect and the legacy ambient setting](#crt-scanline-effect-and-the-legacy-ambient-setting)
   - [Coverage atlas (`GlyphAtlas`)](#coverage-atlas-glyphatlas)
   - [Color-glyph atlas (`ColorGlyphAtlas`)](#color-glyph-atlas-colorglyphatlas)
+  - [Shaped runs and display order](#shaped-runs-and-display-order)
 - [Current color model](#current-color-model)
   - [Theme system (landed)](#theme-system-landed)
   - [Dynamic color overrides (OSC 10/11/12, OSC 4)](#dynamic-color-overrides-osc-101112-osc-4)
@@ -19,9 +20,9 @@ settings guide in [`docs/runtime-knobs.md`](runtime-knobs.md).
   - [Color-vision-deficiency adaptation](#color-vision-deficiency-adaptation)
 - [Visual-enhancement direction](#visual-enhancement-direction)
   - [Hard rule (enforced across all tiers)](#hard-rule-enforced-across-all-tiers)
-  - [Tier 1 — Readability-first enhancements](#tier-1--readability-first-enhancements)
-  - [Tier 2 — Identity and depth](#tier-2--identity-and-depth)
-  - [Tier 3 — Atmospheric effects](#tier-3--atmospheric-effects)
+  - [Tier 1 - Readability-first enhancements](#tier-1---readability-first-enhancements)
+  - [Tier 2 - Identity and depth](#tier-2---identity-and-depth)
+  - [Tier 3 - Atmospheric effects](#tier-3---atmospheric-effects)
   - [Theme and appearance system](#theme-and-appearance-system)
   - [In-app configuration UX](#in-app-configuration-ux)
 - [Modularity boundary](#modularity-boundary)
@@ -45,41 +46,41 @@ offscreen target and composited back through a fullscreen pass. The
 The branch is lazy in both directions. The offscreen targets are built on the
 first frame that needs them and released again as soon as `post_active()` goes
 false, so turning the effects off returns their memory instead of keeping it for
-the rest of the session. The release is driven from the consumer side — `render`
-checks it every frame, so the rule holds no matter what mutated the effect stack
-— and `resize` checks it too, so an inactive stack is never rebuilt at a new
+the rest of the session. The release is driven from the consumer side - `render`
+checks it every frame, so the rule holds no matter what mutated the effect stack -
+and `resize` checks it too, so an inactive stack is never rebuilt at a new
 size.
 
 ### Draw order within the scene pass
 
 The canonical scene order is:
 
-1. **Scene clear** — the selected scene attachment is cleared to the theme's
+1. **Scene clear** - the selected scene attachment is cleared to the theme's
    `clear` color: the HDR offscreen target while post-processing is active, or
    the swapchain on the direct path.
-2. **Background image** — the configured wallpaper, when active.
-3. **Background cell quads** — solid color quads covering every cell background
+2. **Background image** - the configured wallpaper, when active.
+3. **Background cell quads** - solid color quads covering every cell background
    (pass 1 of the cell pipeline, instance range `0..background_count`).
-4. **Below-zero images** — Kitty/Sixel placements with `z < 0` drawn by the
+4. **Below-zero images** - Kitty/Sixel placements with `z < 0` drawn by the
    image layer (`image_layer.draw_below`).
-5. **Cursor aura and large-jump follower** — the focused pane's one shape-aware
+5. **Cursor aura and large-jump follower** - the focused pane's one shape-aware
    analytic cursor aura (`cursor_glow`, `src/shaders/cursor_glow.wgsl`) and, when
    one is animating, its elastic large-jump follower
    (`src/shaders/cursor_streak.wgsl`), each drawn in its own pipeline *behind*
    both glyph lanes so text pixels are preserved exactly. Both are emitted only
    for the focused, live-tail pane and clipped to that pane's rect.
-6. **Coverage glyphs and decorations** — glyph coverage quads, underlines, and
+6. **Coverage glyphs and decorations** - glyph coverage quads, underlines, and
    strikethroughs (pass 2 of the cell pipeline, instance range
    `background_count..cell_count`).
-7. **Color-glyph quads** — premultiplied-RGBA color emoji bitmaps drawn by the
+7. **Color-glyph quads** - premultiplied-RGBA color emoji bitmaps drawn by the
    dedicated color-glyph pipeline (instance range
    `0..color_glyph_vertex_count`).
-8. **Cursor and overlays** — the remaining cell-pipeline range,
+8. **Cursor and overlays** - the remaining cell-pipeline range,
    `cell_count..vertex_count`.
-9. **Above/non-negative-z images** — Kitty/Sixel placements with `z >= 0`
+9. **Above/non-negative-z images** - Kitty/Sixel placements with `z >= 0`
    drawn by the image layer (`image_layer.draw_above`).
 
-Steps 2–9 are the scene pass — the sequence that the post-process branch
+Steps 2–9 are the scene pass - the sequence that the post-process branch
 re-targets to the offscreen `Rgba16Float` buffer when an effect is active. The
 in-app **image lightbox** (the C4 viewer overlay; `src/native/image_layer.rs`,
 `OverlayImage`) is the exception:
@@ -89,8 +90,8 @@ in-app **image lightbox** (the C4 viewer overlay; `src/native/image_layer.rs`,
   bloom.
 - It draws a full-viewport dimming scrim (`SCRIM_ALPHA`) and then the fitted
   image (`OVERLAY_FIT_FRACTION` of the viewport, never upscaled) using a
-  dedicated **`Linear`** sampler — distinct from the `Nearest` sampler used for
-  inline terminal-graphics placements — so a scaled-down image is smoothly
+  dedicated **`Linear`** sampler - distinct from the `Nearest` sampler used for
+  inline terminal-graphics placements - so a scaled-down image is smoothly
   interpolated.
 - With `interactive_paths` enabled, it is opened by Ctrl+click on Linux/Windows
   or Cmd+click on macOS over a resolved image path (see
@@ -123,11 +124,11 @@ geometry uploads, while cursor-only frames rewrite only their bounded tail.
 - Atlas texture format: `Rgba8Unorm` (RGB = per-channel coverage, A unused).
 - Coverage filter: a 5-tap `[1,2,3,2,1]/9` energy-conserving LCD filter runs
   over the physical left-to-right subpixel axis at raster time
-  (`src/atlas/mod.rs`: `lcd_filter_subpixel_region`), collapsing vertical-stem
+  (`src/atlas/raster.rs`: `lcd_filter_subpixel_region`), collapsing vertical-stem
   color fringing toward neutral while preserving per-row luminance. It runs only
   for `SubpixelMode::Rgb`/`Bgr`; `Off` coverage is never filtered.
-- Glyph fragment: applies gamma per channel, emits two blend sources — a
-  weighted color and a per-channel weight — for hardware dual-source blending.
+- Glyph fragment: applies gamma per channel, emits two blend sources - a
+  weighted color and a per-channel weight - for hardware dual-source blending.
 - Background fragment: same as the grayscale path (inline scanline wash retired; CRT post-process handles it).
 - Fallback: if the adapter lacks `DUAL_SOURCE_BLENDING`, OdyTTY falls back to
   `SubpixelMode::Off` with a stderr notice; startup never fails because of it
@@ -141,7 +142,7 @@ retired: the cell shaders no longer modulate background brightness inline.
 
 `visual=ambient` and `visual=scanlines` are back-compat aliases: when either is
 set and no explicit `crt` key is present, OdyTTY enables the CRT scanline
-effect as if `crt=on` were specified. An explicit `crt` setting always wins —
+effect as if `crt=on` were specified. An explicit `crt` setting always wins -
 the `visual` key never overrides it. `visual=off`/`none`/`plain` suppress only
 the legacy alias; because CRT and bloom both default on, use `crt=off` and
 `bloom=off` (or `render_quality=plain`) for a plain renderer.
@@ -186,6 +187,21 @@ pipeline's corner and UV interpolation contract. The atlas grows in 4-row
 increments up to a cap of 4096 slots
 (`MAX_COLOR_GLYPH_SLOTS`).
 
+### Shaped runs and display order
+
+*Source: `src/ligature.rs`, `src/complex_shaping/`, `src/core/bidi/`,
+`src/grid/bidi.rs`.*
+
+Text shaping is presentation only. Programming-ligature runs and font-backed
+owner shaping for the supported scripts (`script_shaping`) are drawn as overlays
+over exactly the cells their source text occupies, and the per-cell glyphs they
+replace are not drawn again. When `bidi_reorder` is on (off by default) the
+renderer consumes a bidirectional display plan that places each owner's cells in
+display order on the primary screen. Cell ownership, cursor addressing,
+selection, copy, and search stay logical. See
+[`shaping-roadmap.md`](shaping-roadmap.md) for the supported scripts and the
+exact boundary.
+
 ---
 
 ## Current color model
@@ -220,10 +236,10 @@ falling back to the built-in constant table; cube (16–231) and grayscale
 `DynamicColors` (`src/core/types.rs`) is snapshotted alongside the cell grid
 on every frame. It carries:
 
-- `foreground` / `background` / `cursor` — per-session overrides from OSC
+- `foreground` / `background` / `cursor` - per-session overrides from OSC
   10/11/12; initialized to the theme defaults; reset to `base_colors` on OSC
   reset.
-- `palette[256]` — per-index overrides from OSC 4; `None` entries fall
+- `palette[256]` - per-index overrides from OSC 4; `None` entries fall
   through to the xterm-256 built-in table (`text::indexed_srgb`).
 
 ### Color resolution at render time
@@ -240,7 +256,7 @@ write, so no explicit gamma correction is needed in the output path (only the
 glyph-coverage gamma matters for text rendering).
 
 **The theme update closed the fg/bg/clear-only limitation.** The palette and semantic roles
-are live in the theme. The full theme epic is now complete — see the
+are live in the theme. The full theme epic is now complete - see the
 Theme and appearance system section below and [`docs/themes.md`](themes.md) for details.
 
 ### Color-vision-deficiency adaptation
@@ -255,7 +271,7 @@ theme palette is daltonized in OKLab before it reaches the render path:
   tritan) and re-floors the result so it stays readable.
 - `cvd_strength` (default `1.0`) scales the adaptation; the `off` short-circuit
   leaves the theme byte-for-byte untouched.
-- The scope is **palette-only** — the 16 ANSI colors plus the structural
+- The scope is **palette-only** - the 16 ANSI colors plus the structural
   foreground/background/chrome roles. Indexed-256 cube/grayscale colors and
   application truecolor are **not** remapped.
 
@@ -293,14 +309,14 @@ The plain/fast bypass today is `render_quality = plain`, which forces the
 direct path and disables post-process effects and visual treatments for
 benchmarking and compatibility checks.
 
-### Tier 1 — Readability-first enhancements
+### Tier 1 - Readability-first enhancements
 
 Features in this tier help reading as well as looking better; they are the
 highest-priority additions.
 
 - **Perceptual color pipeline (landed):** linear-space blending is active
   in the render path; OKLab/OKLCH helpers (`dim_perceptual`, `mix_oklab`,
-  `src/color.rs`) are used throughout — by the minimum-contrast lift, by SGR
+  `src/color.rs`) are used throughout - by the minimum-contrast lift, by SGR
   dim-text, and by the focus-dim step. Honest note: `dim_perceptual` applies
   a uniform OKLab scale that reduces algebraically to a uniform linear-RGB scale,
   so for the uniform-dim case it is output-identical to naive per-channel halving
@@ -325,7 +341,7 @@ highest-priority additions.
 - **Stem darkening for light-on-dark text (landed, default-on):** a coverage
   boost that keeps glyph stroke weight on light-on-dark displays.
   `ODYTTY_STEM_DARKEN` / `stem_darken`, range `0.0`–`1.0`, default `0.7`.
-  Applied at rasterization time (`src/atlas/mod.rs`); `0.0` is the
+  Applied at rasterization time (`src/atlas/raster.rs`); `0.0` is the
   byte-identical opt-out to the classic raster.
 - **Nerd-font / symbol fallback (landed):** automatic PUA glyph fallback
   for modern prompt icons (starship, powerlevel10k, eza). The `symbol_fallback`
@@ -334,7 +350,7 @@ highest-priority additions.
   explicit face path and is unset by default (the automatic font search supplies
   the bundled Nerd Fonts Symbols faces when no path is given).
 
-### Tier 2 — Identity and depth
+### Tier 2 - Identity and depth
 
 Distinctive treatments that direct attention without harming legibility.
 
@@ -345,12 +361,12 @@ Distinctive treatments that direct attention without harming legibility.
   search color rather than raw cell inversion.
   `ODYTTY_THEMED_UI_ROLES=off`
   restores the classic inversion behavior.
-- **Focus dimming (landed):** dims the whole grid — both text foreground
-  and background — perceptually in OKLab while the window is unfocused, so it
+- **Focus dimming (landed):** dims the whole grid - both text foreground
+  and background - perceptually in OKLab while the window is unfocused, so it
   recedes visually without color shifts. `ODYTTY_FOCUS_DIM` / `focus_dim`,
   range `0.0`–`1.0`, default `0.0` (off); recommended range `0.15`–`0.30` for
   a subtle recede. Applied in the grid resolve closure *after* SGR-dim and
-  *before* the contrast floor, so legibility is preserved by construction — the
+  *before* the contrast floor, so legibility is preserved by construction - the
   contrast floor sees the dimmed background and re-lifts text if needed. Focused frames
   are never dimmed: the effective amount is always `0.0` when focused, keeping
   focused frames byte-identical to the unfocused-off path.
@@ -367,7 +383,7 @@ Distinctive treatments that direct attention without harming legibility.
 - **Window chrome / padding identity (landed):** themed padding, optional thin
   semantic-role border, and a live window-decoration toggle.
 
-### Tier 3 — Atmospheric effects
+### Tier 3 - Atmospheric effects
 
 These require a post-process pipeline (offscreen render target + composite
 pass), which now exists (VE1) and carries the first effect (VE2). For user-facing

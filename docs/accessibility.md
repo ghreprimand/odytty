@@ -1,9 +1,9 @@
-# OdyTTY — Accessibility
+# OdyTTY - Accessibility
 
 OdyTTY provides controls for legibility. This page collects
 the accessibility-oriented controls: the minimum-contrast target,
 color-vision-deficiency adaptation, dimming, motion, and the bell. Everything
-here is local — there is no telemetry, account, or network call involved in any
+here is local - there is no telemetry, account, or network call involved in any
 of it. For the full config-key table see [`runtime-knobs.md`](runtime-knobs.md);
 for keyboard control see [`keybindings.md`](keybindings.md).
 
@@ -57,14 +57,14 @@ Scope and behavior:
   held so the overall theme stays recognizable. Foreground is not daltonized,
   but it is re-floored against the background like other readable roles.
 - `cvd_strength = 1.0` is full correction; `0.0` is exact bit-for-bit
-  passthrough (identical to `cvd_mode = off`). The adaptation is applied once —
+  passthrough (identical to `cvd_mode = off`). The adaptation is applied once -
   it is not meant to be stacked.
 - Each theme's light/dark appearance is re-inferred from its actual background
   luminance during adaptation, so the correction is anchored correctly for both
   light and dark themes.
 
 Current limitations: application-emitted indexed colors outside the 16 ANSI
-slots — the color cube and grayscale ramp at indices 16–255 — and 24-bit
+slots - the color cube and grayscale ramp at indices 16–255 - and 24-bit
 truecolor output are not remapped. Indices 0–15 resolve through the adapted
 theme palette. A per-cell output lens is future work. With a CVD mode active,
 the Theme Builder's live preview is itself adapted.
@@ -118,7 +118,7 @@ latency:
 - **Continuous pixel scrolling** (`pixel_scroll`) tracks high-resolution wheels
   and touchpads 1:1 on a sub-row lane.
 
-For both scroll features the scroll target snaps immediately — only the visual
+For both scroll features the scroll target snaps immediately - only the visual
 position eases, and it moves solely in the scroll direction, so it cannot
 overshoot.
 
@@ -130,7 +130,7 @@ macOS, and Linux. OdyTTY does not currently read a platform reduced-motion
 preference; that integration remains backlog.
 
 ```conf
-# odytty.conf — disable cursor and output motion while preserving preferences
+# odytty.conf - disable cursor and output motion while preserving preferences
 reduced_motion = on
 ```
 
@@ -138,7 +138,7 @@ It does not disable cursor blinking, smooth scrolling, or continuous pixel
 scrolling. Turn those off explicitly for a fully static terminal:
 
 ```conf
-# odytty.conf — no cursor or scroll motion at all
+# odytty.conf - no cursor or scroll motion at all
 cursor_blink = off
 reduced_motion = on
 scroll_glide = off
@@ -159,7 +159,7 @@ alias that folds into the CRT post-process rather than adding a separate wash
 keeping the contrast floor, turn these off individually:
 
 ```conf
-# odytty.conf — calm, static, with the readability floor intact
+# odytty.conf - calm, static, with the readability floor intact
 bloom = off
 crt = off
 visual = off
@@ -171,13 +171,13 @@ background_treatment = color
 ```
 
 The `render_quality = plain` profile disables post-processing, background
-treatments, dimming, and per-cell stem darkening in one switch — but it also
+treatments, dimming, and per-cell stem darkening in one switch - but it also
 turns off the minimum-contrast floor, so reach for it only when you want the
 hard fast path rather than an accessibility profile.
 
 ## The bell
 
-OdyTTY has **no audible bell** — there is no audio backend at all. The terminal
+OdyTTY has **no audible bell** - there is no audio backend at all. The terminal
 bell (`BEL`) is handled visually or via the window manager.
 
 | Key | Env var | Default | Values |
@@ -185,7 +185,7 @@ bell (`BEL`) is handled visually or via the window manager.
 | `bell` | `ODYTTY_BELL` | `urgent` | `off`, `visual`, `urgent`, `all` |
 
 - `urgent` (default) requests window attention through the window manager, and
-  only while the window is **unfocused** — a focused shell never flashes the
+  only while the window is **unfocused** - a focused shell never flashes the
   taskbar on a tab-completion bell.
 - `visual` paints a brief, readability-safe full-viewport flash (a low-alpha tint
   that decays over ~150 ms; light on dark themes, dark on light).
@@ -233,7 +233,7 @@ presence of your `odytty.conf`. See the Privacy & Data Posture section of
 
 ## See also
 
-- [`runtime-knobs.md`](runtime-knobs.md) — every config key, env var, and default.
-- [`keybindings.md`](keybindings.md) — the full keyboard reference.
-- [`effects.md`](effects.md) — bloom, CRT, retro, background, and motion effects.
-- [`themes.md`](themes.md) — theme format and the built-in library.
+- [`runtime-knobs.md`](runtime-knobs.md) - every config key, env var, and default.
+- [`keybindings.md`](keybindings.md) - the full keyboard reference.
+- [`effects.md`](effects.md) - bloom, CRT, retro, background, and motion effects.
+- [`themes.md`](themes.md) - theme format and the built-in library.

@@ -8,7 +8,7 @@ inactive chrome). A theme is selected with the `theme` setting
 
 There are two kinds of theme:
 
-- **Built-in themes**, selected by name — `odyssey-default` is the fresh-install
+- **Built-in themes**, selected by name - `odyssey-default` is the fresh-install
   default, while `plain` remains available as the pixel-identical pre-theme
   appearance plus a curated library of OdyTTY-original and community themes
   (see [Built-in theme
@@ -46,7 +46,7 @@ Resolution order for the `theme` value:
    known-good palette overrides steps 1 through 4 through the theme seam.
    `resolve_active_theme` checks `follow_external_palette` before any of the
    sources below.
-1. The special value `system` is a config alias — not a built-in name or a file.
+1. The special value `system` is a config alias - not a built-in name or a file.
    It turns on OS dark/light following: OdyTTY selects `os_theme_dark` (default
    `odyssey-classic`) when the OS reports a dark appearance and `os_theme_light` (default
    `odyssey-light`) when it reports light. This is resolved before the steps
@@ -75,8 +75,8 @@ Theme files conventionally use the `.theme` extension.
 ### Live reload
 
 Editing `odytty.conf` to point `theme` at a different built-in or user file
-takes effect on the next reload poll, the same way every other setting reloads
-— no restart needed. (Editing the *contents* of an already-selected theme file
+takes effect on the next reload poll, the same way every other setting reloads -
+no restart needed. (Editing the *contents* of an already-selected theme file
 is picked up the next time the config file itself changes; touch
 `odytty.conf` to force a re-read.)
 
@@ -123,7 +123,7 @@ displaying (see [Create theme from current
 colors](#create-theme-from-current-colors)), edit its foreground/background,
 palette, and role colors, or generate a starting palette from a seed color, then
 save the result. Saving writes `<theme_dir>/<name>.theme` in exactly the
-[file format](#file-format) documented below — so a builder-made theme is an
+[file format](#file-format) documented below - so a builder-made theme is an
 ordinary user theme file you can keep editing by hand. On save, role colors are
 snapped to meet the WCAG AA 4.5 contrast target.
 
@@ -136,7 +136,7 @@ to the parent UI, keeping the displayed theme name and applied colors together.
 ### Create theme from current colors
 
 A running program can repaint the terminal at any time with the dynamic-color
-escape sequences — `OSC 4` for a palette slot, `OSC 10`/`11`/`12` for the
+escape sequences - `OSC 4` for a palette slot, `OSC 10`/`11`/`12` for the
 default foreground, background, and cursor. Shell prompts, editor colorschemes,
 `tmux` configs, and `dircolors` setups all do it, which leaves you looking at a
 set of colors you cannot save, because they only exist as live terminal state.
@@ -159,10 +159,10 @@ capture and they are **derived** from the captured colors:
 
 | Role | How it is derived |
 | --- | --- |
-| `selection` | The background moved 22% toward the foreground — a readable highlight band that does not fight the text over it. |
+| `selection` | The background moved 22% toward the foreground - a readable highlight band that does not fight the text over it. |
 | `search` | The captured `color3` (yellow) blended 45% into the background, keeping the conventional warm search band without overpowering the field. |
 | `border` | The background moved 12% toward the foreground: a structural line that reads as an edge without drawing the eye. |
-| `inactive` | The midpoint between background and foreground — legible but clearly recessive. |
+| `inactive` | The midpoint between background and foreground - legible but clearly recessive. |
 
 Each derivation moves *toward the foreground*, so it darkens on a light field
 and lightens on a dark one with no separate light/dark rule. The light/dark
@@ -170,7 +170,7 @@ and lightens on a dark one with no separate light/dark rule. The light/dark
 starting points, not verdicts: every derived role is editable in the builder
 before you save, and the usual AA contrast snap still applies on save.
 
-Capturing changes nothing on its own — it does not repaint the pane, alter the
+Capturing changes nothing on its own - it does not repaint the pane, alter the
 applied theme, or write a file until you save.
 
 See [docs/keybindings.md](keybindings.md) for the full set of default chords and
@@ -180,12 +180,12 @@ how to rebind them.
 
 OdyTTY ships a curated library of built-in themes, selectable by name with no
 file needed. Every built-in is authored in the theme file format and loaded
-through the same parser as a user theme — there is no privileged construction
-path — so the file format is exercised by the library on every startup.
+through the same parser as a user theme - there is no privileged construction
+path - so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**OdyTTY original** — `plain` and the `odyssey-*` variants are original themes
+**OdyTTY original** - `plain` and the `odyssey-*` variants are original themes
 designed for OdyTTY's public visual identity. The original blue-black palette is
 listed as `odyssey-classic`; its former `odyssey` name remains accepted as a
 compatibility alias. The family name comes from OdysseyOS, a companion Linux
@@ -193,19 +193,19 @@ From Scratch system, but these themes are built into OdyTTY and do not require
 that system. `odyssey-default` is the
 fresh-install default; `plain` reproduces the historical xterm default palette
 byte-for-byte and remains available as an explicit compatibility choice. The `odyssey-*`
-variants span a wide range of moods across dark and light appearances —
+variants span a wide range of moods across dark and light appearances -
 deep-space and interstellar cold, warm atmospheric, cool natural, cosmic nebula,
-natural greens, vivid accents, and light daylight companions — and carry the
+natural greens, vivid accents, and light daylight companions - and carry the
 strongest OdyTTY visual identity. See the [library table](#built-in-theme-library)
 below for the full roster.
 
-**Community** — themes ported from widely-used open-source color-scheme
+**Community** - themes ported from widely-used open-source color-scheme
 palettes, covering both dark and light sides (Solarized, Gruvbox, Nord, Dracula,
 Tokyo Night, Catppuccin, Everforest, Rose Pine, and more). Sources and licenses
 are listed in the [attribution table](#attribution-and-licensing) below; every
 name appears in the [library table](#built-in-theme-library).
 
-**Retro / phosphor** — eight themes inspired by historical display hardware:
+**Retro / phosphor** - eight themes inspired by historical display hardware:
 green-phosphor and amber monochrome variants, an Apple II-inspired green phosphor,
 the Commodore 64 blue-on-purple character screen, and a DOS/CGA sixteen-color text
 palette tuned to the canonical ANSI hue angles. These use deliberately narrow
@@ -315,34 +315,34 @@ or endorsement from any of those vendors.
 | `catppuccin-latte` | light | Community |
 | `one-dark` | dark | Community |
 | `monokai` | dark | Community |
-| `everforest-dark` | dark | Community — forest-toned low-contrast dark palette |
-| `kanagawa` | dark | Community — ink-and-wave dark palette |
-| `rose-pine` | dark | Community — dusky rose and pine palette |
-| `ayu-mirage` | dark | Community — muted blue-gray dark palette |
-| `night-owl` | dark | Community — blue night palette |
-| `palenight` | dark | Community — Material-lineage violet night palette |
-| `github-dark` | dark | Community — GitHub-style dark palette, no affiliation |
-| `zenburn` | dark | Community — low-glare classic dark palette |
-| `oceanic-next` | dark | Community — deep ocean blue-gray palette |
-| `iceberg-dark` | dark | Community — cool blue high-latitude dark palette |
+| `everforest-dark` | dark | Community - forest-toned low-contrast dark palette |
+| `kanagawa` | dark | Community - ink-and-wave dark palette |
+| `rose-pine` | dark | Community - dusky rose and pine palette |
+| `ayu-mirage` | dark | Community - muted blue-gray dark palette |
+| `night-owl` | dark | Community - blue night palette |
+| `palenight` | dark | Community - Material-lineage violet night palette |
+| `github-dark` | dark | Community - GitHub-style dark palette, no affiliation |
+| `zenburn` | dark | Community - low-glare classic dark palette |
+| `oceanic-next` | dark | Community - deep ocean blue-gray palette |
+| `iceberg-dark` | dark | Community - cool blue high-latitude dark palette |
 | `red-planet` | dark | Community - warm, muted planetary palette |
 | `red-planet-dark` | dark | Community variant - deeper canvas, dusty iron-red text, clearer blues |
-| `github-light` | light | Community — GitHub-style light palette, no affiliation |
-| `gruvbox-light` | light | Community — warm retro light palette |
-| `one-light` | light | Community — Atom-style light palette |
-| `ayu-light` | light | Community — bright neutral light palette |
-| `rose-pine-dawn` | light | Community — soft dawn companion to Rose Pine |
-| `tokyo-night-day` | light | Community — Tokyo Night light palette |
-| `papercolor-light` | light | Community — paper-inspired terminal palette |
-| `everforest-light` | light | Community — warm forest light palette |
-| `green-phosphor` | dark | Retro — P1-CRT-inspired green monochrome |
-| `amber-crt` | dark | Retro — P3-amber-inspired monochrome |
-| `ibm-5151` | dark | Retro — IBM 5151-inspired green monochrome, no affiliation |
-| `dos-cga` | dark | Retro — DOS/CGA-inspired ANSI text palette |
-| `apple-ii-green` | dark | Retro — Apple II-inspired green monochrome, no affiliation |
-| `commodore-64` | dark | Retro — Commodore 64-inspired blue screen, no affiliation |
-| `hercules-amber` | dark | Retro — Hercules-card-inspired amber monochrome |
-| `vt220-green` | dark | Retro — DEC VT220-inspired green phosphor, no affiliation |
+| `github-light` | light | Community - GitHub-style light palette, no affiliation |
+| `gruvbox-light` | light | Community - warm retro light palette |
+| `one-light` | light | Community - Atom-style light palette |
+| `ayu-light` | light | Community - bright neutral light palette |
+| `rose-pine-dawn` | light | Community - soft dawn companion to Rose Pine |
+| `tokyo-night-day` | light | Community - Tokyo Night light palette |
+| `papercolor-light` | light | Community - paper-inspired terminal palette |
+| `everforest-light` | light | Community - warm forest light palette |
+| `green-phosphor` | dark | Retro - P1-CRT-inspired green monochrome |
+| `amber-crt` | dark | Retro - P3-amber-inspired monochrome |
+| `ibm-5151` | dark | Retro - IBM 5151-inspired green monochrome, no affiliation |
+| `dos-cga` | dark | Retro - DOS/CGA-inspired ANSI text palette |
+| `apple-ii-green` | dark | Retro - Apple II-inspired green monochrome, no affiliation |
+| `commodore-64` | dark | Retro - Commodore 64-inspired blue screen, no affiliation |
+| `hercules-amber` | dark | Retro - Hercules-card-inspired amber monochrome |
+| `vt220-green` | dark | Retro - DEC VT220-inspired green phosphor, no affiliation |
 | `odyssey-tempest` | dark | OdyTTY original |
 | `odyssey-borealis` | dark | OdyTTY original |
 | `odyssey-plasma` | dark | OdyTTY original |
@@ -366,7 +366,7 @@ or endorsement from any of those vendors.
 
 Every built-in's default foreground/background pair is checked against a
 minimum WCAG perceptual contrast ratio at build/test time. OdyTTY uses a floor
-of **4.0** — just under the WCAG AA 4.5 threshold so that faithful community
+of **4.0** - just under the WCAG AA 4.5 threshold so that faithful community
 palettes (Solarized in particular sits right at the boundary: ~4.1 light,
 ~4.75 dark) retain their authored values in the built-in library.
 
@@ -427,12 +427,12 @@ The theme file format is line-oriented `key = value`, exactly like
 
 - `#` at the **start of a line** begins a full-line comment. (Because colors
   begin with `#`, a `#` is only treated as a comment at the start of a line, or
-  as an inline trailing comment when preceded by whitespace — `color0 = #112233
+  as an inline trailing comment when preceded by whitespace - `color0 = #112233
   # normal black` works.)
 - Blank lines are ignored.
 - Keys are case- and punctuation-insensitive: `color0`, `Color_0`, and
   `COLOR 0` are the same key.
-- **Unknown keys are ignored with a warning** — a theme written for a newer
+- **Unknown keys are ignored with a warning** - a theme written for a newer
   OdyTTY still loads on an older build.
 - A malformed value (bad hex, bad number) warns and leaves that one field at
   its default; one bad line never discards the whole theme.
@@ -466,8 +466,8 @@ Colors are written as `#RRGGBB` or `#RGB` (the leading `#` is optional;
 round-tripped, but none are projected into the running theme:
 
 - The light/dark label shown by `--list-themes` and the in-app Theme Picker is
-  derived at runtime from the theme's background **relative luminance** — a
-  background luminance above `0.18` is treated as light — not from the file's
+  derived at runtime from the theme's background **relative luminance** - a
+  background luminance above `0.18` is treated as light - not from the file's
   `appearance` field, which is retained as metadata only.
 - The appearance column in the [library](#built-in-theme-library) table agrees
   with the file because each built-in's authored `appearance` matches its

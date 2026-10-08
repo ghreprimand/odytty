@@ -177,10 +177,9 @@ Normal terminal text is parsed with the pure-Rust `skrifa` crate and rasterized
 with `ab_glyph_rasterizer`, so it needs no system font library. On Linux, the
 Wayland client-side title-bar text backend (`crossfont`) links the system
 FreeType and Fontconfig libraries, and the build finds them through
-`pkg-config`. The published v0.15.5 Linux binary records `libfontconfig.so.1`
-as a direct shared-library dependency next to libc, libm, and libgcc_s, and
-resolves its FreeType symbols through Fontconfig's own FreeType dependency; a
-local toolchain may also record `libfreetype.so.6` directly. Either way, both
+`pkg-config`. The Linux binary links Fontconfig directly, next to libc, libm,
+and libgcc_s, and reaches FreeType through Fontconfig's own FreeType
+dependency or links it directly, depending on the toolchain. Either way, both
 libraries must be present at run time.
 OdyTTY also runs the Fontconfig `fc-match` and `fc-list` tools to backfill
 symbol glyphs from the host font set. The `.deb`, `.rpm`, and AUR runtime
@@ -331,8 +330,8 @@ a standard mechanism, then let the user choose it.
 
 ## Package Odyssey And LFS
 
-On Odyssey, package OdyTTY as a normal source-build PKGBUILD in `~/pkgbuilds`,
-then build it with:
+On Odyssey, package OdyTTY as a normal source-build PKGBUILD in the
+distribution's PKGBUILD tree, then build it with:
 
 ```sh
 odyssey-build

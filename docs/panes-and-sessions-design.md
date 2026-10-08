@@ -1,4 +1,4 @@
-# Panes & Sessions — Design Document
+# Panes & Sessions - Design Document
 
 Status: **historical design record; implemented and evolved**. This document
 records the decisions that gated the original panes work. It also carries the
@@ -28,7 +28,7 @@ divider-drag boundaries.
 - [4. Input routing & focus model](#4-input-routing--focus-model)
 - [5. Resize (window) generalization](#5-resize-window-generalization)
 - [6. Phase 2 forward-note (don't paint into a corner)](#6-phase-2-forward-note-dont-paint-into-a-corner)
-- [7. Phase 0 decision record — tmux-compatibility keybinding stance](#7-phase-0-decision-record--tmux-compatibility-keybinding-stance)
+- [7. Phase 0 decision record - tmux-compatibility keybinding stance](#7-phase-0-decision-record---tmux-compatibility-keybinding-stance)
 - [8. Test plan (maps to Phase 1 checklist)](#8-test-plan-maps-to-phase-1-checklist)
 - [9. Open items](#9-open-items)
 - [10. Summary of recommended decisions](#10-summary-of-recommended-decisions)
@@ -43,7 +43,7 @@ These reflect the project's standing engineering rules:
    never perturbs the single path.
 2. **`src/core/` never imports windowing/GPU/render code.** All pane/layout
    orchestration lives in `src/native/`. The core `Terminal`/`Screen`/reflow is
-   reused unchanged — a pane is just another `Terminal` driven by another PTY.
+   reused unchanged - a pane is just another `Terminal` driven by another PTY.
 3. **Plain/fast path stays opt-out and default-safe.** Inactive-pane dimming is
    behind a setting and defaults off. Cursor and output animation follow their
    global settings, while `render_quality = plain` and reduced motion preserve
@@ -67,7 +67,7 @@ The baseline model was a **flat list of sessions == the tab strip**:
 - `src/native/session.rs`
   - `Session` owns everything a terminal surface needs: `terminal:
     Arc<Mutex<Terminal>>`, `writer`, `pty`, `pump_thread`, and **all per-surface
-    UI state** — `viewport: Viewport`, `selection: AbsoluteSelectionState`,
+    UI state** - `viewport: Viewport`, `selection: AbsoluteSelectionState`,
     `search: SearchUi`, `hints`, `copy_mode`, cursor-blink/animation fields,
     scrollback-fade state, pointer state, `tab_title`/`title_override`.
   - `SessionSet { sessions: Vec<Session>, active_token: SessionToken, next_token:
@@ -99,7 +99,7 @@ The baseline model was a **flat list of sessions == the tab strip**:
 
 **Key insight:** `Session` is already a perfect "pane." It already owns its own
 scrollback, viewport, selection, search, hints, and cursor state. We do **not**
-need to split per-pane state out of `Session` — we need a containing structure
+need to split per-pane state out of `Session` - we need a containing structure
 that lets one tab hold *several* sessions arranged in a tree.
 
 ---
@@ -149,17 +149,17 @@ backing model remains at least one cell.
 
 Two viable shapes:
 
-- **(A) Sessions inline in tree leaves** — `Leaf(Session)`. Matches the data
+- **(A) Sessions inline in tree leaves** - `Leaf(Session)`. Matches the data
   literally but: (1) lookup-by-`SessionToken` from the pump thread becomes a
   recursive walk of every tab's tree; (2) the borrow checker fights us during
   render, where we walk the tree (shared borrow) while mutating per-pane render
   state (`needs_rebuild`, `last_render_signature`, viewport clamp).
-- **(B, recommended) Session arena + tokens in leaves** — `TabSet` owns
+- **(B, recommended) Session arena + tokens in leaves** - `TabSet` owns
   `sessions: HashMap<SessionToken, Session>`; `PaneNode::Leaf` holds only a
   `SessionToken`. Lookup-by-token (the pump's `Redraw`/`ShellExited` path) stays
   an O(1) map hit, unchanged in spirit from today's `get_mut`. Render destructures
   `let TabSet { sessions, tabs, .. } = self;` then walks `tabs[active].layout`
-  (shared) while `sessions.get_mut(token)` (unique) — separate fields, no borrow
+  (shared) while `sessions.get_mut(token)` (unique) - separate fields, no borrow
   conflict.
 
 **Recommendation: (B), the arena.** It keeps `Session` and `SessionToken`
@@ -190,7 +190,7 @@ with the *existing* single content origin. The multi-pane arm is the only new
 code. This is how we guarantee byte-identity: the old path is literally still the
 old path. (`Deref`/`DerefMut` on `TabSet` resolves to `sessions[tabs[active_tab]
 .focused]`, so existing `self.sessions.<field>` call sites keep compiling and now
-mean "focused pane of the active tab" — the correct meaning for input/cursor.)
+mean "focused pane of the active tab" - the correct meaning for input/cursor.)
 
 ### 2.4 Tab-count semantics
 
@@ -201,7 +201,7 @@ tabs, **not** panes). Panes within a tab do not add tab-strip entries. So:
 - the existing rule "show tab bar when `tab_count() >= 2`" is unchanged;
 - the Phase 0 tab-rename change moves from `Session::title_override` to
   `Tab::title_override` (a tab's title is no longer 1:1 with a session once it can
-  hold multiple panes — recommend showing the focused pane's title, overridable
+  hold multiple panes - recommend showing the focused pane's title, overridable
   per tab). **An earlier change landed `title_override` on `Session`;
   moving it to `Tab` is a tracked Phase 1 sub-task (§9.5).**
 
@@ -215,14 +215,16 @@ accesses silently mean "the active session":
 - `SessionSet: Deref/DerefMut → active()` (`session.rs:407-423`)
 
 **Strategy (confirmed with Research):** keep `Deref` pointed at the **focused pane
-of the active tab**. That is the correct target for the vast majority of sites —
+of the active tab**. That is the correct target for the vast majority of sites -
 every keypress, paste, IME commit, cursor, selection, viewport, search, and
 copy-mode access *should* resolve to the focused pane, and they keep compiling
 unchanged. Then audit the handful of sites that actually mean **"the whole tab"**
 or **"every session"** and rewrite *only those* against explicit tab-level
 methods (`for token in active_tab.leaves()`, `sessions.values_mut()`, etc.).
 
-**Explicit tab-level audit list — every site that must NOT silently use `Deref`:**
+**Explicit tab-level audit list - every site that must NOT silently use `Deref`:**
+(`File:line` references are as of the original design; the code has since been
+decomposed, see [`native-decomposition.md`](native-decomposition.md).)
 
 | # | Site | File:line | Means | Pane-correct behavior |
 |---|---|---|---|---|
@@ -268,10 +270,10 @@ layer to paint as `SolidQuad`s.
 
 Per-pane grid dims = `Dimensions::new(floor(rect.w / cell.width), floor(rect.h /
 cell.height))`, each clamped to ≥ 1×1. Sub-cell remainder pixels at a pane's
-right/bottom edge are dead gutter (same as the window edge today) — acceptable and
+right/bottom edge are dead gutter (same as the window edge today) - acceptable and
 invisible against the themed background.
 
-**Composition with existing geometry:** `content` is derived exactly as today —
+**Composition with existing geometry:** `content` is derived exactly as today -
 window inner size, minus `window_padding` on all sides (`WindowPadding`), minus
 `tab_bar_height_px(cell)` at the top. The single-pane case yields one rect equal
 to today's content area, so its grid equals today's `self.grid`.
@@ -283,11 +285,11 @@ This function is the home of the plan's "headless layout-tree unit tests
 
 Today's GPU renders one snapshot at one origin. Two ways to draw many:
 
-- **(A) Composite snapshot** — blit each pane's cells into one window-sized
+- **(A) Composite snapshot** - blit each pane's cells into one window-sized
   snapshot (like the tab bar does). Reuses the GPU path verbatim, but a 1px
   divider is *not* cell-aligned, so dividers can't be cells; and panes would be
   forced onto one shared cell lattice, making independent per-pane reflow awkward.
-- **(B, recommended) Per-pane snapshot at a per-pane origin** — extend the GPU
+- **(B, recommended) Per-pane snapshot at a per-pane origin** - extend the GPU
   with `update_from_panes(&[PaneRender])` where `PaneRender { snapshot, origin:
   [f32;2], scissor: PaneRect, focused: bool }`. Each pane is drawn at its own
   origin under its own scissor rect; dividers are `SolidQuad`s in the themed
@@ -295,7 +297,7 @@ Today's GPU renders one snapshot at one origin. Two ways to draw many:
   pane keep independent grid dims, scrollback, and viewport.
 
 **Recommendation: (B).** Crucially, **the single-pane path does not call
-`update_from_panes`** — it calls the existing `update_from_snapshot`. So (B) adds
+`update_from_panes`** - it calls the existing `update_from_snapshot`. So (B) adds
 a parallel multi-pane entry point and leaves the byte-identical path untouched.
 
 **GPU seam.** A read of the renderer confirms it is **already
@@ -310,7 +312,7 @@ changes**:
 - `GpuState::content_origin()` (`gpu.rs:1133`) is the **only** producer of the
   grid top-left today: `[window_padding, window_padding + scroll_frac_offset]`.
   **This `window_padding` value is exactly the per-pane origin generalization
-  point** — a per-pane origin is `pane_rect.top_left` (still physical px), and
+  point** - a per-pane origin is `pane_rect.top_left` (still physical px), and
   each `Session` already owns its own `scroll_frac_offset` for the per-pane
   vertical glide.
 - The only window-global GPU state is the **viewport-size uniform** (surface px →
@@ -338,12 +340,12 @@ fn update_from_panes(&mut self, panes: &[PaneRender], dividers: &[SolidQuad]);
 ```
 
 **Scissor decision:** use **exact per-leaf geometry, no GPU
-scissor** by default — each leaf only emits vertices for its own rect, so there is
+scissor** by default - each leaf only emits vertices for its own rect, so there is
 no overdraw to clip. A scissor rect is added **only if** overflow-ink (glyphs that
 overflow their cell via `push_glyph_quad`) is observed bleeding across a divider;
 `PaneRect` already carries the clip rect for that contingency. The single global
 `content_origin()` stays returning the single origin for the byte-identical path;
-only `update_from_panes` consumes per-pane origins. **Resolved — no longer an open
+only `update_from_panes` consumes per-pane origins. **Resolved - no longer an open
 item.**
 
 **Two compositing/redraw assumptions the multi-pane path must replace:**
@@ -351,7 +353,7 @@ item.**
 - `decorate_snapshot_with_tab_bar` (`app/mod.rs:1138`) allocates a fresh
   full-window `Snapshot` every `Full` frame and copies the active session's cells
   into it. That is the single-grid compositor; the multi-pane path composes N
-  per-pane snapshots instead (the tab bar stays a separate top strip — panes
+  per-pane snapshots instead (the tab bar stays a separate top strip - panes
   subdivide the region *beneath* it and never touch tab-bar code).
 - **Redraw suppression is keyed on `active_id()`** (`apply_user_event`,
   `app/mod.rs:1200`): a background pane's `Redraw` is dropped today. This must
@@ -361,7 +363,7 @@ item.**
 
 **Per-pane image layer:** `update_image_layer`'s `row_offset`
 is a single scalar (the tab-bar row) today. Per-pane image placement needs each
-pane's own origin + clip, not one global offset — generalize `row_offset` into the
+pane's own origin + clip, not one global offset - generalize `row_offset` into the
 per-pane origin path.
 
 ### 3.3 Per-pane overlays, cursor, selection, search
@@ -406,7 +408,7 @@ Pointer events hit-test against the pane rects from `layout_rects`:
   click**), then proceeds as a normal press in that pane.
 - Selection drag, wheel scroll, and hover act on the pane under the pointer.
 - Mouse **reporting** (apps that grab the mouse) routes to the pane under the
-  pointer when that pane's terminal has mouse tracking enabled — using each pane's
+  pointer when that pane's terminal has mouse tracking enabled - using each pane's
   own origin to convert pixel → cell (the existing `pointer_px`→`CellPoint` math,
   offset per pane).
 - A press on a **divider hit-band** (a few px around a divider line, mirroring the
@@ -431,7 +433,7 @@ don't thrash PTYs mid-drag; on each due tick, `layout_rects` recomputes and **ea
 affected pane** gets `terminal.resize(cols, rows)` + `pty.resize(dims)`
 (`TIOCSWINSZ`), driving the existing core reflow (`src/core/reflow.rs`). This is
 the same `terminal.resize` + `pty.resize` pair `resize_grid_with_padding` already
-calls — generalized from "all sessions, one grid" to "each pane, its own grid."
+calls - generalized from "all sessions, one grid" to "each pane, its own grid."
 
 ---
 
@@ -440,7 +442,7 @@ calls — generalized from "all sessions, one grid" to "each pane, its own grid.
 `resize_grid_with_padding` today computes one grid and applies it to every
 session. The generalization:
 
-1. Compute `content` rect (window − padding − tab bar) — unchanged.
+1. Compute `content` rect (window − padding − tab bar) - unchanged.
 2. **Single-pane active tab:** keep the exact current code (one grid → that pane).
    Other tabs' single panes likewise get the one grid. Byte-identical.
 3. **Multi-pane tabs:** run `layout_rects` for each multi-pane tab and resize each
@@ -449,7 +451,7 @@ session. The generalization:
 All of it flows through the existing `ResizeDebouncer` → `apply_grid_resize`
 machinery and the existing per-session reflow side-effects (selection clear,
 viewport reset, search reset, hints close). Non-active tabs are resized lazily or
-eagerly — recommend eagerly to keep reattach/zoom snappy, but this is a tuning
+eagerly - recommend eagerly to keep reattach/zoom snappy, but this is a tuning
 detail, not an architectural one.
 
 ### 5.1 Shipped surfaces (zoom, context menu, Detach & switch)
@@ -499,20 +501,20 @@ Guarantees Phase 1 will uphold:
 - **The arena (`HashMap<SessionToken, Session>`) is the reattach registry.**
   Reattaching repopulates the arena from restored snapshots and rebinds pump
   threads by token. Token allocation stays stable/unique so reattach can't collide
-  ids (keep `next_token` monotonic; on restore, seed it past the max restored id —
+  ids (keep `next_token` monotonic; on restore, seed it past the max restored id -
   the existing `push` test seam already does `next_token = next_token.max(id+1)`).
 - **The layout tree is serializable structure.** Because `PaneNode` holds only
   `SessionToken` + `SplitAxis` + `ratio` (all plain data), a tab's pane layout can
   be snapshotted and rebuilt on reattach without any GPU/window state. Phase 2's
   owned snapshot format will serialize `(tabs, layout trees, per-session terminal
   snapshots)` together.
-- **No third-party serialization across the core boundary** (Phase 2 rule) — the
+- **No third-party serialization across the core boundary** (Phase 2 rule) - the
   tree is OdyTTY-owned plain data, so this is naturally satisfied.
 
-Phase 1 will **not** design the daemon, socket, or snapshot format — only keep the
+Phase 1 will **not** design the daemon, socket, or snapshot format - only keep the
 above invariants so Phase 2 has a clean seam.
 
-### 6.1 Phase 2 — Resumable Sessions (settled, Unix only)
+### 6.1 Phase 2 - Resumable Sessions (settled, Unix only)
 
 **Decision status: settled (2026-06-21).** Phase 2 uses an
 OdyTTY-owned detached session-host process. The session-host owns live PTYs and
@@ -567,7 +569,8 @@ Smallest viable ordering:
 3. Detach/attach using the snapshot envelope, then expand the state sections as
    needed.
 
-Snapshot envelope status:
+Snapshot envelope status as of the original Phase 2 work (the current formats and
+restored state are described in [features.md](features.md)):
 
 - **v1** stores the required terminal section: dimensions, visible grid, bounded
   physical scrollback, cursor, and basic modes.
@@ -627,7 +630,7 @@ Session-host foundation status:
   or after. `Terminal::from_snapshot_envelope` validates an owned envelope
   before allocating a grid of its dimensions, so an invalid envelope returns
   an error rather than allocating.
-- Deferred sections: graphics / Kitty / Sixel payload state and complete
+- Deferred sections (as of the original Phase 2 work): graphics / Kitty / Sixel payload state and complete
   dual-buffer alternate-screen restore. v2 records whether the alternate screen
   is active and captures the active grid, but it does not yet serialize both the
   active alternate buffer and the stored primary buffer as separately restorable
@@ -715,14 +718,14 @@ replay overlay and the in-window attach client are complete, and the
 
 ---
 
-## 7. Phase 0 decision record — tmux-compatibility keybinding stance
+## 7. Phase 0 decision record - tmux-compatibility keybinding stance
 
 **Decision status: settled (2026-06-21).** The trade-off below is resolved in
 favor of **building a true tmux prefix-key input mode** with tmux-matching pane
 defaults, so muscle memory transfers directly. This section records that
 decision and the K1/K2/K3 implementation breakdown. (An earlier draft
 recommended native direct-chords *to avoid* a new input mode; that decision
-supersedes it — the answer to the `Ctrl-b` collision is **configurable
+supersedes it - the answer to the `Ctrl-b` collision is **configurable
 prefix + doubled-prefix passthrough**, not avoidance.)
 
 ### 7.1 The problem
@@ -730,10 +733,10 @@ prefix + doubled-prefix passthrough**, not avoidance.)
 The r/commandline demand scan flagged **muscle memory as the #1 adoption gate** for
 panes. Two distinct muscle-memory camps exist:
 
-- **tmux users:** a *prefix* key (`Ctrl-b`) then a key — `Ctrl-b %` (split
+- **tmux users:** a *prefix* key (`Ctrl-b`) then a key - `Ctrl-b %` (split
   vertical), `Ctrl-b "` (split horizontal), `Ctrl-b o`/arrows (focus), `Ctrl-b x`
   (close), `Ctrl-b z` (zoom).
-- **GUI-terminal users:** *direct chords* — GNOME Terminal / Tilix use
+- **GUI-terminal users:** *direct chords* - GNOME Terminal / Tilix use
   `Ctrl+Shift+E` / `Ctrl+Shift+O` to split and `Alt+Arrow` to move focus; kitty
   and iTerm have their own direct chords.
 
@@ -747,17 +750,17 @@ engine (K1 below). This is accepted scope per this decision.
 The `Ctrl-b` collision is real: **globally capturing `Ctrl-b` clashes with tmux
 running *inside* OdyTTY**, since `Ctrl-b` is tmux's own prefix, and tmux users very
 often run tmux inside a GUI terminal. The decision below resolves this collision
-the same way tmux itself resolves nesting — **a configurable prefix and a
-doubled-prefix passthrough** (K3) — rather than by avoiding the prefix model.
+the same way tmux itself resolves nesting - **a configurable prefix and a
+doubled-prefix passthrough** (K3) - rather than by avoiding the prefix model.
 
 ### 7.3 Decision
 
-**Governing principle — "two standards, by domain."** There is no single industry
+**Governing principle - "two standards, by domain."** There is no single industry
 standard for terminal keybindings; there are **two distinct worlds**, and OdyTTY
 uses each world's standard for the actions that belong to it:
 
 1. **GUI-terminal actions → GUI direct-chord standard (UNCHANGED).** Every existing
-   OdyTTY chord stays **exactly as today** — `Ctrl+Shift+T` new tab,
+   OdyTTY chord stays **exactly as today** - `Ctrl+Shift+T` new tab,
    `Ctrl+Shift+W` close tab, search, copy/paste, etc. These already match GNOME
    Terminal / Tilix / kitty conventions and are correct. **No existing binding
    changes. Not one.** Typing and PTY passthrough are byte-identical to today.
@@ -765,13 +768,13 @@ uses each world's standard for the actions that belong to it:
    (and later resumable-session) controls follow the tmux standard, because the
    users who want these features are overwhelmingly tmux users and that is the
    muscle memory they already have: a configurable prefix (default `Ctrl-b`) then
-   the tmux key — `%`/`"` split, arrows/`o` focus, `x` close, `z` zoom,
+   the tmux key - `%`/`"` split, arrows/`o` focus, `x` close, `z` zoom,
    `=`/`Space` equalize.
 
 **Scope statement (must remain unambiguous in the committed record).** OdyTTY is
 **NOT** moving to a universally-global keybinding scheme. The new globally-captured
 keys are deliberately few: the single configurable prefix chord, plus two direct
-GUI-chord split bindings — **`Ctrl+Shift+E` → split-columns (new pane right)** and
+GUI-chord split bindings - **`Ctrl+Shift+E` → split-columns (new pane right)** and
 **`Ctrl+Shift+O` → split-rows (new pane below)**. *(As implemented, these two
 direct chords ship alongside the prefix; the original draft of this scope
 statement named the prefix as the only new global key, which is why they are
@@ -784,7 +787,7 @@ without a prefix; once a tab is multi-pane the prefix table takes over.
 Everything here is **additive**: when no prefix is pending and these two chords aren't
 pressed, every existing binding and all ordinary input is byte-identical to today.
 
-The prefix is a transient one-keystroke mode — the next key resolves against the
+The prefix is a transient one-keystroke mode - the next key resolves against the
 prefix table, then input returns to normal; a timeout or an unrecognized key
 cancels cleanly back to normal typing. (See [`docs/keybindings.md`](keybindings.md) for the full
 default chord set.)
@@ -797,7 +800,7 @@ transfers.
 
 Rationale:
 
-1. **Design decision** — explicit ratification of the "two standards by domain"
+1. **Design decision** - explicit ratification of the "two standards by domain"
    framing to maximize tmux muscle-memory transfer (the #1 adoption gate the demand
    scan surfaced) **without** disturbing the existing GUI-chord world.
 2. The prefix model is what tmux/screen users already have in their fingers; a
@@ -816,15 +819,15 @@ This lands as the keybinding/action-wiring stage **after** the pure `layout.rs`
 core and the arena/`TabSet` refactor (both keybinding-independent). It does not
 block Phase 1's structural work.
 
-#### K1 — Prefix-sequence engine (additive)
+#### K1 - Prefix-sequence engine (additive)
 
 Extend `bindings.rs` with an optional two-chord "prefix then key" path:
 
 - A configurable **prefix chord** set by its own dedicated `pane_prefix` setting
-  (env `ODYTTY_PANE_PREFIX`) — **not** part of the `keybinds` / `ODYTTY_KEYBINDS`
+  (env `ODYTTY_PANE_PREFIX`) - **not** part of the `keybinds` / `ODYTTY_KEYBINDS`
   list. It is **default-enabled**: an unset/empty value resolves to `Ctrl-b`; the
   feature is turned off only by the explicit values `off` / `none` / `disabled` /
-  `disable`. (The prefix is inert on single-pane tabs — see K2 below.)
+  `disable`. (The prefix is inert on single-pane tabs - see K2 below.)
 - A transient **prefix-pending** state in the input layer: matching the prefix
   chord enters it; the next keychord resolves against a **prefix-bindings table**
   (distinct from the normal single-chord table).
@@ -837,7 +840,7 @@ Extend `bindings.rs` with an optional two-chord "prefix then key" path:
 State machine to unit-test (per §8): enter-prefix, resolve-action,
 cancel-on-timeout, cancel-on-unknown, and prefix-then-prefix (the K3 passthrough).
 
-#### K2 — tmux-default pane bindings on the prefix
+#### K2 - tmux-default pane bindings on the prefix
 
 Mapped onto the `PaneNode` ops from §2–§5, matching tmux semantics:
 
@@ -854,16 +857,16 @@ Mapped onto the `PaneNode` ops from §2–§5, matching tmux semantics:
 All entries live in the prefix-bindings table and are rebindable via the existing
 keybinds path. The prefix table is documented in [`docs/runtime-knobs.md`](runtime-knobs.md) and
 `docs/odytty.conf.example`. (Note: tmux's `Ctrl-b "` and `%` axis convention is
-preserved exactly — `"` stacks, `%` splits side-by-side.)
+preserved exactly - `"` stacks, `%` splits side-by-side.)
 
-#### K3 — Nested-multiplexer story (HARD REQUIREMENT)
+#### K3 - Nested-multiplexer story (HARD REQUIREMENT)
 
 Capturing `Ctrl-b` would otherwise break tmux running inside OdyTTY. Two
 mandatory mitigations, both modeled on how tmux handles nesting:
 
-1. **Configurable prefix** — the user can change OdyTTY's prefix (e.g. to
+1. **Configurable prefix** - the user can change OdyTTY's prefix (e.g. to
    `Ctrl-a`, or disable it) to avoid the clash with an inner multiplexer.
-2. **Doubled-prefix passthrough** — pressing the prefix twice (`Ctrl-b Ctrl-b`)
+2. **Doubled-prefix passthrough** - pressing the prefix twice (`Ctrl-b Ctrl-b`)
    sends a **literal `Ctrl-b`** (0x02) to the focused pane's PTY, so an inner tmux
    still receives its own prefix and works normally.
 
@@ -918,11 +921,11 @@ prefix, rebinding individual pane actions) are documented as opt-in in
 project backlog; shipped behavior and remaining work are tracked in
 [`TODO.md`](../TODO.md) and the user-facing references.
 
-1. **Non-active-tab resize policy** — eager (recommended) vs. lazy.
-2. **Unfocused-pane cursor rendering** — hollow vs. dimmed-block; pick during impl.
-3. **Tab title when multi-pane** — show focused pane's title vs. a tab name; tie
+1. **Non-active-tab resize policy** - eager (recommended) vs. lazy.
+2. **Unfocused-pane cursor rendering** - hollow vs. dimmed-block; pick during impl.
+3. **Tab title when multi-pane** - show focused pane's title vs. a tab name; tie
    in with the Phase 0 tab-rename change (`Tab::title_override`).
-4. **Per-pane image-layer clipping** — confirm whether per-pane image placements
+4. **Per-pane image-layer clipping** - confirm whether per-pane image placements
    need a scissor/clip rect when an image overflows its pane rect (§3.2);
    default is exact-geometry, add clip only if bleed observed.
 
@@ -933,7 +936,7 @@ project backlog; shipped behavior and remaining work are tracked in
   Once a tab can hold multiple panes, the tab name is no longer 1:1 with a session,
   so the override field moves to `Tab`; the displayed title defaults to the focused
   pane's title when unset. Carry the existing rename UI/tests across to the new
-  field — behavior unchanged for single-pane tabs.
+  field - behavior unchanged for single-pane tabs.
 
 ---
 
@@ -949,12 +952,12 @@ project backlog; shipped behavior and remaining work are tracked in
   themed `SolidQuad`; single pane never touches it.
 - **Input** routes to `focused`; focus-follows-click; pure `focus_move`; divider
   drag through the existing debounced resize → `TIOCSWINSZ` → core reflow.
-- **Keybindings (settled) — "two standards, by domain":** existing
+- **Keybindings (settled) - "two standards, by domain":** existing
   GUI direct-chords stay **exactly as today** (not one changes); the tmux **prefix
   standard** applies to the **new multiplexer actions only** (default prefix
   `Ctrl-b`, configurable; doubled-prefix `Ctrl-b Ctrl-b` passthrough for nested
   multiplexers; tmux-matching pane defaults `%`/`"`/arrows/`o`/`x`/`z`/`Space`).
-  **Not** a universal scheme — beyond the single configurable prefix, the only
+  **Not** a universal scheme - beyond the single configurable prefix, the only
   other new global chords are the direct splits `Ctrl+Shift+E` / `Ctrl+Shift+O`
   (`Ctrl+Shift+<letter>`, reserved locally; enhanced keyboard protocols can
   otherwise represent these chords). Outside these new direct bindings, the

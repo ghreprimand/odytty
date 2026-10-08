@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-only
 # Selective mutation campaign runner.
 #
 # Mutation testing rewrites small pieces of the source and re-runs the tests. A

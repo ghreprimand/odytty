@@ -42,8 +42,8 @@ fn validate_override_sha(raw: &str) -> Option<String> {
 /// returns `None` and the caller falls back to a live git lookup. In the
 /// released source tarball git has replaced the placeholder with the
 /// abbreviated commit hash, so this returns that hash. Anything that is not a
-/// bare hex object name — including the unsubstituted placeholder, which still
-/// contains `$` — is rejected.
+/// bare hex object name - including the unsubstituted placeholder, which still
+/// contains `$` - is rejected.
 fn archive_subst_sha(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.contains('$') {

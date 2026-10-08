@@ -26,8 +26,8 @@ default `z=0` therefore places an image above text.
 
 | `a=` | Meaning | Status |
 |------|---------|--------|
-| `t`  | Transmit — store image without displaying it | ✅ supported |
-| `T`  | Transmit and display — store and place at cursor | ✅ supported |
+| `t`  | Transmit - store image without displaying it | ✅ supported |
+| `T`  | Transmit and display - store and place at cursor | ✅ supported |
 | `p`  | Display a previously transmitted image (by `i=`) without re-sending pixels | ✅ supported |
 | `d`  | Delete placements (see delete specifiers below) | ✅ supported |
 | `q`  | Query - validate control data and payload, no storage; the payload is read through its `t=` medium under the same named-transport gate as a transmission, so a `t=t` query also deletes its temporary file | ✅ supported |
@@ -48,9 +48,9 @@ OdyTTY does not read are ignored.
 |------|--------|--------|
 | `32` | Raw RGBA (4 bytes/pixel, base64-encoded) | ✅ supported |
 | `24` | Raw RGB (3 bytes/pixel, expanded to RGBA internally; the expanded size must fit the decoded-image budget) | ✅ supported |
-| `100` | PNG still image — grayscale, grayscale+alpha, RGB, and RGBA color types; 16-bit samples normalized to 8-bit | ✅ supported |
+| `100` | PNG still image - grayscale, grayscale+alpha, RGB, and RGBA color types; 16-bit samples normalized to 8-bit | ✅ supported |
 
-Any format may additionally be zlib-compressed with `o=z` — see
+Any format may additionally be zlib-compressed with `o=z` - see
 [Payload compression](#payload-compression-oz).
 
 **Indexed PNG** (palette color type) is accepted: the decoder normalizes
@@ -64,10 +64,10 @@ container formats.
 
 | `t=` | Transport | Status |
 |------|-----------|--------|
-| `d` (default) | Direct — payload is base64-encoded pixel data in the APC itself | ✅ supported |
-| `f` | File — payload is a base64-encoded filesystem path | ✅ with security restrictions |
-| `t` | Temp file — like `f`, deleted after read | ✅ with security restrictions |
-| `s` | POSIX shared memory — payload is a base64-encoded segment name | ✅ on Unix; rejected as unsupported on Windows |
+| `d` (default) | Direct - payload is base64-encoded pixel data in the APC itself | ✅ supported |
+| `f` | File - payload is a base64-encoded filesystem path | ✅ with security restrictions |
+| `t` | Temp file - like `f`, deleted after read | ✅ with security restrictions |
+| `s` | POSIX shared memory - payload is a base64-encoded segment name | ✅ on Unix; rejected as unsupported on Windows |
 
 ### Chunked transfer
 
@@ -81,7 +81,7 @@ at its own `q=` level rather than the abandoned transfer's.
 
 ### Image ids, placement ids, and display geometry
 
-- **`s=`/`v=`** — source pixel width / height. Both are required for raw
+- **`s=`/`v=`** - source pixel width / height. Both are required for raw
   `f=24` and `f=32` payloads; omitting either returns `missing-dimensions`.
   They are optional for PNG, where a supplied mismatch is rejected.
 - **`i=`** - image id assigned by the application. If omitted, one is
@@ -94,21 +94,21 @@ at its own `q=` level rather than the abandoned transfer's.
   that fails validation leaves the old image and its placements in place. An
   image transmitted with only an `I=` number never replaces another, and `a=q`
   never stores or replaces anything.
-- **`p=`** — placement id. A single image may have several named placements at
+- **`p=`** - placement id. A single image may have several named placements at
   once; re-using the same `(i=, p=)` in the active screen buffer replaces the
   previous placement rather than adding a second one. Placements without a `p=`
   always accumulate. Tracked in `a=T`/`a=p`, honored by `a=d` per-id deletes,
   and echoed in responses.
-- **`c=`/`r=`** — display width in columns / height in rows (cell-box scaling).
+- **`c=`/`r=`** - display width in columns / height in rows (cell-box scaling).
   If omitted, cell extents are derived from the visible image region (the
   source crop when set, otherwise the full image) and the current cell size.
-- **`x=`/`y=`/`w=`/`h=`** — source-rectangle crop, in pixels, into the
+- **`x=`/`y=`/`w=`/`h=`** - source-rectangle crop, in pixels, into the
   transmitted image (left, top, width, height). A zero or omitted width/height
   means "use the rest of the image" past `x=`/`y=`. On a placement command these are pixel
   coordinates; on a delete command (`d=p`/`d=P`) `x=`/`y=` are instead cell
   coordinates.
-- **`X=`/`Y=`** — pixel offset of the image within its anchor cell.
-- **`z=`** — placement z-index (signed). Negative-z placements render beneath
+- **`X=`/`Y=`** - pixel offset of the image within its anchor cell.
+- **`z=`** - placement z-index (signed). Negative-z placements render beneath
   the text layer; zero/positive-z placements render above it. The full render
   order is: background cell colors → negative-z images → glyphs → non-negative-z
   images. Placements with equal z-index keep transmission order.
@@ -148,9 +148,9 @@ later display, or are placed only elsewhere, are kept. `d=I` without `p=`
 targets the image itself, so it frees image `i=` even when it has no
 placements.
 
-Specifiers outside this table — including `n`/`N` (delete the newest image with
+Specifiers outside this table - including `n`/`N` (delete the newest image with
 the number in `I=`), `f`/`F` beyond the frame deletes documented under
-[Animation](#animation), `q`/`Q`, `r`/`R`, `x`/`X`, `y`/`Y` and `z`/`Z` — are
+[Animation](#animation), `q`/`Q`, `r`/`R`, `x`/`X`, `y`/`Y` and `z`/`Z` - are
 rejected as unsupported. A delete that cannot be honoured exactly is refused
 rather than approximated: deleting the wrong image is worse than deleting none.
 
@@ -183,7 +183,7 @@ palette index, with an optional high byte in a third diacritic) and the
 placement id from its underline color; omitted diacritics inherit
 left-to-right per the protocol. Because position lives in the text itself,
 placeholder images scroll, page into scrollback, and are erased or
-overwritten exactly as text is — the placement mode TUI toolkits rely on.
+overwritten exactly as text is - the placement mode TUI toolkits rely on.
 Virtual placements require a nonzero `i=` id, are reachable by id-addressed
 deletes (`d=i`/`d=I`) but not location-addressed ones, and count as
 references for image garbage collection. Known deviation: tiles split the
@@ -275,12 +275,12 @@ decoder as though it were pixels.
 Decompression is bounded before it allocates. The limit is the image store's
 decoded-byte budget, applied to the output as it is produced rather than to any
 size the payload declares about itself, and the buffer is clamped one byte past
-that budget — producing that byte is proof the payload exceeds it, so a
+that budget - producing that byte is proof the payload exceeds it, so a
 compression bomb is refused having allocated the budget, never its full
 expansion. A stream that does not reach a valid end-of-stream marker is refused
 as well: truncated transfers and corrupt payloads produce
 `EINVAL:compressed-payload` and no image, on the same principle as the rest of
-the graphics stack — a partial image is worse than none.
+the graphics stack - a partial image is worse than none.
 
 ### Image numbers (`I=`)
 
@@ -291,7 +291,7 @@ rather than replacing an existing one, and every command that addresses by
 number acts on the **newest** image carrying it.
 
 A transmission that carries a number is answered with both the id the terminal
-assigned and the number the client chose — `i=<id>,I=<number>` — which is how
+assigned and the number the client chose - `i=<id>,I=<number>` - which is how
 the client learns an id it can use directly from then on. The assigned id is the
 lowest positive id not already in use, so it never displaces an image the client
 addressed by id itself.
@@ -306,7 +306,7 @@ commands, which is where a number is assigned.
 **Platform surface.** Compression and image numbers are both transport- and
 platform-independent: they are parser and image-store work with no filesystem,
 process, or environment access, and Windows behaves identically to Unix. Neither
-changes the transport table above — in particular the shared-memory transport
+changes the transport table above - in particular the shared-memory transport
 (`t=s`) remains unsupported on Windows exactly as before, whether or not the
 payload it would have carried is compressed.
 
@@ -430,7 +430,7 @@ rejected at the read stage; the decoder is never given a hostile payload.
 OdyTTY decodes the Sixel DCS data language as defined by the DEC VT340 and
 extended by xterm and foot, covering the full set of features listed below.
 
-> **Note — Sixel autodetection.** OdyTTY's Primary Device Attributes reply is
+> **Note - Sixel autodetection.** OdyTTY's Primary Device Attributes reply is
 > `CSI ? 62 ; 4 ; 6 ; 22 ; 28 c`, and the `4` is the Sixel attribute clients
 > probe for, so applications that gate Sixel output on DA1 will emit it.
 >
@@ -448,8 +448,8 @@ extended by xterm and foot, covering the full set of features listed below.
 | Feature | Status |
 |---------|--------|
 | Raster attribute header (`"Pan;Pad;Ph;Pv`) | ✅ |
-| Color introducer — RGB (`#Pc;2;Px;Py;Pz`) | ✅ |
-| Color introducer — HLS (`#Pc;1;Px;Py;Pz`) | ✅ |
+| Color introducer - RGB (`#Pc;2;Px;Py;Pz`) | ✅ |
+| Color introducer - HLS (`#Pc;1;Px;Py;Pz`) | ✅ |
 | Repeat introducer (`!count byte`) | ✅ |
 | Graphics carriage return (`$`) | ✅ |
 | Graphics new band (`-`) | ✅ |
@@ -458,7 +458,7 @@ extended by xterm and foot, covering the full set of features listed below.
 | Transparent background mode (`P2=1`) | ✅ |
 
 Hard caps: maximum image size is 10,000 × 10,000 pixels or 40 million total
-pixels (~152 MiB RGBA). Malformed or truncated input never panics — unknown
+pixels (~152 MiB RGBA). Malformed or truncated input never panics - unknown
 bytes are skipped and partial images are returned for whatever was decoded
 before a truncation.
 
@@ -477,11 +477,11 @@ before a truncation.
 
 DECSDM controls cursor behavior after a Sixel image is displayed.
 
-- **DECSDM reset — default (`CSI ? 80 l`)**: after a Sixel image the cursor
+- **DECSDM reset - default (`CSI ? 80 l`)**: after a Sixel image the cursor
   moves to the row below the image at column 0. This is the behavior most
   modern applications and terminals expect.
 - **DECSDM set (`CSI ? 80 h`)**: the cursor stays at its position when the
-  image is rendered — the image anchors at the cursor and the cursor does not
+  image is rendered - the image anchors at the cursor and the cursor does not
   advance.
 
 DECSDM resets to off on `RIS` and `DECSTR` along with all other resettable
@@ -496,8 +496,8 @@ without the stream.
 
 ## iTerm2 inline images
 
-The iTerm2 inline-image extension transmits a whole image *file* — PNG, JPEG,
-or WebP — as base64 inside an OSC 1337 payload:
+The iTerm2 inline-image extension transmits a whole image *file* - PNG, JPEG,
+or WebP - as base64 inside an OSC 1337 payload:
 
 ```text
 OSC 1337 ; File = inline=1 ; width=40 ; preserveAspectRatio=1 : <base64> ST
@@ -539,7 +539,7 @@ whose APC buffer is 1 MiB and which supports chunked transmission.
 ### Cursor semantics
 
 The image anchors at the cursor, and the cursor then moves to column 0 of the
-row below the image — the same rule as Sixel under DECSDM reset, and what
+row below the image - the same rule as Sixel under DECSDM reset, and what
 iTerm2 itself does. There is no "stay put" variant in this protocol (Kitty's
 `C=1` has no iTerm2 spelling). The extent is clamped to the screen: columns to
 what remains right of the cursor, rows to the screen height.
@@ -664,7 +664,7 @@ monochrome coverage path:
   `U+231A`–`U+2B55` symbol area (for example `U+231A`–`U+231B`,
   `U+2614`–`U+2615`, `U+2705`, `U+2728`, `U+2B1B`–`U+2B1C`, `U+2B50`). The whole
   `U+2600`–`U+26FF` / `U+2700`–`U+27BF` blocks are deliberately **not** treated
-  as color-default — text-default symbols in those blocks (and the playback
+  as color-default - text-default symbols in those blocks (and the playback
   triangles `U+23F4`–`U+23F7`) fall through to the monochrome coverage path.
   Anything not in this set is text otherwise.
 
@@ -677,7 +677,8 @@ coverage path without error.
 **Rasterization.** The renderer prefers
 `Source::ColorBitmap(StrikeWith::BestFit)`, then
 `Source::ColorOutline(0)` for static COLR/CPAL v0 layers, then evaluates a
-COLR v1 Paint graph through Fontations:
+COLR v1 Paint graph through Fontations, and last draws an SVG-in-OpenType
+document:
 
 - The strike selection covers both CBDT/CBLC strikes (Noto Color Emoji on Linux)
   and sbix strikes (Apple Color Emoji on macOS).
@@ -695,6 +696,10 @@ COLR v1 Paint graph through Fontations:
   glyphs of the COLR v1 Noto Color Emoji subsets served by Google Fonts, none
   is refused at slot sizes up to 200 by 200 pixels; 2 are refused at 300 by
   300 and 18 at 512 by 512.
+- An `SVG ` table document is drawn only when no bitmap, v0, or v1 source covers
+  the glyph. Its size, node, nesting, expansion, and raster-work limits are
+  listed in [features.md](features.md); a refused document falls back to
+  monochrome.
 - The returned image must have `Content::Color`; a monochrome strike causes the
   cell to fall back silently.
 - The rendered image is scaled and centered into the atlas slot using

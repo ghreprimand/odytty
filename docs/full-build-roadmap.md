@@ -9,17 +9,17 @@ deferrals, and durable product boundaries.
 - [How To Use This Roadmap](#how-to-use-this-roadmap)
 - [Planned Release Sequence](#planned-release-sequence)
 - [Shipped Foundations](#shipped-foundations)
-- [Track 1: Configuration And In-App UX](#track-1--configuration-and-in-app-ux)
-- [Track 2: Text And Rendering Quality](#track-2--text-and-rendering-quality)
-- [Track 3: Readability And Perceptual Color](#track-3--readability-and-perceptual-color)
-- [Track 4: Visual Identity And Depth](#track-4--visual-identity-and-depth)
-- [Track 5: Shell And Prompt Integration](#track-5--shell-and-prompt-integration)
-- [Track 6: Interaction And Productivity](#track-6--interaction-and-productivity)
-- [Track 7: Theming And Palettes](#track-7--theming-and-palettes)
-- [Track 8: Positioning And Performance](#track-8--positioning-and-performance-posture)
-- [Track 9: Multiple Contexts](#track-9--multiple-contexts-tabs-panes-and-sessions)
-- [Track 10: Packaging, Release, And Platform](#track-10--packaging-release-and-platform)
-- [Track 11: Exploratory Work](#track-11--exploratory-and-far-future)
+- [Track 1: Configuration And In-App UX](#track-1---configuration-and-in-app-ux)
+- [Track 2: Text And Rendering Quality](#track-2---text-and-rendering-quality)
+- [Track 3: Readability And Perceptual Color](#track-3---readability-and-perceptual-color)
+- [Track 4: Visual Identity And Depth](#track-4---visual-identity-and-depth)
+- [Track 5: Shell And Prompt Integration](#track-5---shell-and-prompt-integration)
+- [Track 6: Interaction And Productivity](#track-6---interaction-and-productivity)
+- [Track 7: Theming And Palettes](#track-7---theming-and-palettes)
+- [Track 8: Positioning And Performance](#track-8---positioning-and-performance-posture)
+- [Track 9: Multiple Contexts](#track-9---multiple-contexts-tabs-panes-and-sessions)
+- [Track 10: Packaging, Release, And Platform](#track-10---packaging-release-and-platform)
+- [Track 11: Exploratory Work](#track-11---exploratory-and-far-future)
 - [Non-Goals](#non-goals)
 - [Open Architectural Questions](#open-architectural-questions)
 - [Near-Term Focus](#near-term-focus)
@@ -35,14 +35,14 @@ The core rule never changes: terminal correctness, readable text, predictable
 input, and stable performance outrank visual novelty. At the same time, visual
 quality and a distinctive identity are defining pillars of the product, not
 decoration. OdyTTY aims to be a distinctive, well-crafted terminal that stands
-on its own merits — judged against its own quality bar, not framed as a contest
+on its own merits - judged against its own quality bar, not framed as a contest
 with anything else. Mature terminals (xterm, Konsole, and others) serve only as
 compatibility references for correctness, never as implementation sources.
 
 A second defining pillar is **foundation ownership**. Every byte from the PTY to
 the glyph quad passes exclusively through OdyTTY-owned code: the PTY layer, the
 escape-sequence parser, the terminal model, the renderer geometry, and the
-shaders. External crates are acceptable only below the product line — font
+shaders. External crates are acceptable only below the product line - font
 rasterization, GPU API, windowing, clipboard transport, image-format decoding
 (PNG/JPEG/WebP), and Unicode character data. This ownership boundary is real
 and in production: the owned PTY layer and the clean-room VT parser ship today;
@@ -86,17 +86,17 @@ are provisional: confirmed correctness or security reports can still insert a
 narrow patch release, and a feature moves rather than shipping incomplete when
 its cross-platform or evidence gate is not met.
 
-- **Shipped v0.13.0 — Safer, command-aware work.** Multiline-paste confirmation,
+- **Shipped v0.13.0 - Safer, command-aware work.** Multiline-paste confirmation,
   select/copy/search/export actions over OSC 133 command ranges, and bounded
   command-completion, progress, activity, and notification presentation. The
   pre-implementation inventory, accepted architecture decisions, threat
   boundaries, four-leg platform matrix, and carried-forward performance
   baseline are frozen in
   [`v0.13.0-foundation.md`](v0.13.0-foundation.md).
-- **Shipped v0.14.0 — Profiles and navigation.** Named launch profiles with a
+- **Shipped v0.14.0 - Profiles and navigation.** Named launch profiles with a
   fully in-app editor, deterministic precedence, fast cached startup, and one
   searchable navigator over workspaces, tabs, panes, and detachable sessions.
-- **Shipped v0.15.0 — Fast access and local control.** A cross-platform quick terminal,
+- **Shipped v0.15.0 - Fast access and local control.** A cross-platform quick terminal,
   an owner-scoped local automation API and CLI, external file drop with
   shell-aware path quoting and no implicit execution, and keyboard-first window
   merging that folds one window's tabs into another through a numbered,
@@ -107,16 +107,16 @@ its cross-platform or evidence gate is not met.
 - **Shipped v0.16.1 - AppImage update information.** The AppImage embeds its
   latest-release update channel and ships an alias-addressed zsync control
   file, covered by signed checksums and provenance. Terminal behavior is unchanged.
-- **v0.17.0 — International text and display correctness.** Bounded bidi and
+- **v0.17.0 - International text and display correctness.** Bounded bidi and
   complex-script work, remaining grapheme/width fixtures, SVG-in-OpenType color
   glyphs, legacy-symbol fallback, and HiDPI validation.
-- **v0.18.0 — Windows parity.** Supported default-terminal registration and a
+- **v0.18.0 - Windows parity.** Supported default-terminal registration and a
   secure ConPTY detached/resumable-session path, with Linux and macOS regression
   coverage kept intact.
-- **v0.19.0 — Targeted efficiency.** Evidence-led work on styled-output retained
+- **v0.19.0 - Targeted efficiency.** Evidence-led work on styled-output retained
   memory, scrollback density, and demonstrated parser/model bottlenecks. It is
   not a general benchmark campaign or a license to trade correctness for speed.
-- **v0.20.0 — Bounded operator capabilities and consolidation.** Safe
+- **v0.20.0 - Bounded operator capabilities and consolidation.** Safe
   presentation-only triggers, opt-in logging/replay export, an evidence-gated
   serial-port decision, accumulated compatibility polish, and explicit
   deferrals for capabilities that do not meet OdyTTY's trust boundary.
@@ -181,7 +181,7 @@ disturbs an application's own mouse reporting.
 ### Shell Integration
 
 Semantic prompt marking (OSC 133) records prompt,
-command, and output boundaries per row, with reflow-stable marks — the
+command, and output boundaries per row, with reflow-stable marks - the
 foundation the command-aware navigation builds on.
 
 ### Graphics And Media
@@ -331,7 +331,7 @@ actions when they conflict with a TUI.
 
 ### Privacy Posture
 
-No telemetry, no cloud, no account — fully local. The
+No telemetry, no cloud, no account - fully local. The
 absence of any phone-home path is a deliberate, stated feature.
 
 ### Licensing And Project Identity
@@ -341,39 +341,39 @@ Origin contribution flow, SPDX headers throughout, and a name/branding notice.
 
 ---
 
-## Track 1 — Configuration And In-App UX
+## Track 1 - Configuration And In-App UX
 
 The defining experience: discoverable overlays that write the config for you.
 The mouse-driven settings panel (click to toggle and cycle, scroll, click-to-
 focus, drag-a-slider, click-to-type numeric entry), effect grouping with clearer
 labels, and visible font-load failure reporting all ship today.
 
-- **Shipped — In-panel help clarity.** Setting labels and descriptions have
+- **Shipped - In-panel help clarity.** Setting labels and descriptions have
   been swept, grouped, and exposed through the settings panel.
-- **Shipped — Consolidated the legacy ambient-scanline path** into the unified
+- **Shipped - Consolidated the legacy ambient-scanline path** into the unified
   CRT effects model. `visual=ambient`/`scanlines` are now back-compat aliases
   that route to the CRT scanline effect when no explicit `crt` setting is
   present; the old cell-shader scanline wash is retired.
-- **Shipped — First-run onboarding overlay** plus search within the settings
+- **Shipped - First-run onboarding overlay** plus search within the settings
   panel, so features are discoverable from inside the app.
-- **Shipped — Customizable keybinding remap UI.** The settings panel can remap
+- **Shipped - Customizable keybinding remap UI.** The settings panel can remap
   the core actions and writes back to the config. The `keybinds` config surface
   supports the full set of bindable actions, including tabs.
-- **Shipped — Discoverability defaults.** The command palette, connection
+- **Shipped - Discoverability defaults.** The command palette, connection
   manager, session replay, and theme builder each gained a default keybinding and
   a discoverable menu entry, so the in-app surfaces are reachable without
   hand-editing config.
-- **Shipped — CLI introspection: list available fonts**, completing the
+- **Shipped - CLI introspection: list available fonts**, completing the
   existing introspection helpers.
-- **Shipped — Settings completeness.** Every configuration group (15 raw groups,
+- **Shipped - Settings completeness.** Every configuration group (15 raw groups,
   including the connection and session groups) maps into one of the panel's 10
   display sections, so no shipped knob is unreachable from the panel; a field
   inventory confirmed every user-facing `Settings` field surfaces through a reachable
   `SettingInfo` row (`native_autoclose` included, via the Development → Advanced
-  section). The `keybinds` parser and the in-app key-remap editor cover all 49
-  bindable actions — including the theme-builder, session-attach, and workspace
+  section). The `keybinds` parser and the in-app key-remap editor cover every
+  bindable action - including the theme-builder, session-attach, and workspace
   actions - and the panel's keybinds-row option hint now enumerates the same
-  `BindableAction::ALL` set (currently 49) in that order. See
+  `BindableAction::ALL` set in that order. See
   [keybindings.md](./keybindings.md) for the
   full keyboard reference.
 - **Shipped in v0.14.0 - Named profiles.** Reusable local/remote launch contexts
@@ -382,69 +382,69 @@ labels, and visible font-load failure reporting all ship today.
   WSL, remote, shell, and large-profile discovery never block the first usable
   prompt.
 
-## Track 2 — Text And Rendering Quality
+## Track 2 - Text And Rendering Quality
 
 Sharp, stable, comfortable text is a primary product pillar.
 
-- **Planned v0.17.0 — International text correctness.** Close the documented
+- **Planned v0.17.0 - International text correctness.** Close the documented
   Brahmic and Southeast Asian grapheme/width failures, then add bounded bidi and
   complex-script reordering with explicit cursor, hit-testing, selection, copy,
   wrapping, and reflow behavior. SVG-in-OpenType color glyphs, remaining legacy
   symbol geometry, and HiDPI validation travel with the same correctness gate.
 
-- **Next — Effect default-tuning pass.** Once a human-eye baseline exists,
+- **Next - Effect default-tuning pass.** Once a human-eye baseline exists,
   revisit the conservative default strengths of stem darkening, standalone
   scanlines, and bloom.
-- **Shipped — Font weight control.** A global weight knob, distinct from the
+- **Shipped - Font weight control.** A global weight knob, distinct from the
   bold attribute.
-- **Shipped — Line-height / cell-leading knob.** Adjustable vertical spacing
+- **Shipped - Line-height / cell-leading knob.** Adjustable vertical spacing
   between lines.
-- **Shipped — Box-drawing thickness knob.** Extends the geometric box-drawing
+- **Shipped - Box-drawing thickness knob.** Extends the geometric box-drawing
   renderer.
-- **Shipped — Per-codepoint font override.** `symbol_map` maps codepoint ranges
+- **Shipped - Per-codepoint font override.** `symbol_map` maps codepoint ranges
   to chosen fallback font families.
-- **Shipped — Scroll feel.** Detented wheels ease the rendered view toward each
+- **Shipped - Scroll feel.** Detented wheels ease the rendered view toward each
   notch over a few frames (`scroll_glide`); high-resolution wheels and touchpads
   track physical travel 1:1 on a continuous pixel lane (`pixel_scroll`). Both
   default on, and the scroll target snaps instantly so there is no input latency.
   In a split each pane glides independently as an eased follower with
-  pixel-precise sub-cell smoothness — the pane under the pointer, without stealing
+  pixel-precise sub-cell smoothness - the pane under the pointer, without stealing
   focus.
-- **Shipped — Sub-cell scroll smoothness in splits.** A per-pane vertical
+- **Shipped - Sub-cell scroll smoothness in splits.** A per-pane vertical
   clip-rect in the pane vertex builders (backgrounds, coverage + colour glyphs,
   cursor, and per-pane overlays) bakes each pane's sub-cell glide remainder into
   its render origin and crops the overflowing partial row to the pane's own
   content rect, so the pixel-precise smoothness the single-pane path already had
   now works inside a split without a partial row bleeding across a divider. Inert
   at rest and single-pane, so those frames are byte-identical.
-- **Shipped — Per-pane selection and search overlays in splits.** Selection and
+- **Shipped - Per-pane selection and search overlays in splits.** Selection and
   search-match highlighting render for each pane from its own state rather than
   the focused pane only, so a selection or a search match shows in the correct
   pane regardless of which pane holds keyboard focus; the interactive search
-  query bar stays on the focused pane. Painter routing only — no new GPU
-  plumbing — and inert / byte-identical on a single-pane tab. Cross-platform
+  query bar stays on the focused pane. Painter routing only - no new GPU
+  plumbing - and inert / byte-identical on a single-pane tab. Cross-platform
   cell paint, no platform-specific surface.
-- **Shipped — Multipane pixel_scroll.** The continuous direct-tracking pixel
+- **Shipped - Multipane pixel_scroll.** The continuous direct-tracking pixel
   lane (`pixel_scroll`, high-resolution wheels and touchpads) now works inside a
   split, not single-pane only. A pixel-delta glide drives the pane under the
   pointer (not the focused pane, fixing the focus/pointer mismatch), and its
   sub-cell remainder is baked into that pane's render origin and clipped to the
   pane's content rect (the same PANE-SUBCELL-CLIP the glide lane uses), so the
-  shift never smears across a divider. Reuses the existing per-pane render — no
-  new GPU plumbing — and is inert / byte-identical on a single-pane tab.
+  shift never smears across a divider. Reuses the existing per-pane render - no
+  new GPU plumbing - and is inert / byte-identical on a single-pane tab.
   Cross-platform pointer math, no platform-specific surface.
-- **Shipped — Inline graphics in splits.** Kitty graphics and Sixel placements
+- **Shipped - Inline graphics in splits.** Kitty graphics and Sixel placements
   composite into the per-pane render path, closing the last multipane v1 cut.
   Each pane collects its own visible placements under a session-token namespace
   (so two panes' independent per-terminal image id spaces cannot collide in the
   shared texture cache) and draws them relative to the pane's glide-shifted
-  origin, clipped by a per-pane scissor rect that bounds BOTH axes — a
+  origin, clipped by a per-pane scissor rect that bounds BOTH axes - a
   vertical-only clip could not stop an image bleeding horizontally across a
   column divider. Mutually exclusive with the single-pane image path per frame,
   so single-pane frames are byte-identical (they never touch scissor state).
   Cross-platform raster + placement math, ConPTY graphics parity, no
   platform-specific surface.
-- **Shipped — Stem-darkening default activation.** The rasterization machinery
+- **Shipped - Stem-darkening default activation.** The rasterization machinery
   ships default-on at `0.7`, with `0.0` as the byte-identical opt-out.
 - **Planned v0.17.0 - Legibility font features.** Add named, bounded visual
   controls for an alternate zero form (`zero`, rendered as the selected font
@@ -460,7 +460,7 @@ Sharp, stable, comfortable text is a primary product pillar.
   and COLR v1 Paint-graph paths, with portable SVG-only fixtures, deterministic
   fallback, and explicit document, raster, cache, and GPU resource limits.
 
-## Track 3 — Readability And Perceptual Color
+## Track 3 - Readability And Perceptual Color
 
 This is where OdyTTY invests its differentiation budget, leaning on the
 perceptual color pipeline and the contrast floor. Every item here is pure
@@ -475,47 +475,47 @@ readability foundation is in place and is the safety net the visual-identity
 work in Track 4 validates against. See [accessibility.md](./accessibility.md)
 for the CVD modes, the minimum-contrast floor, focus dimming, and bell behavior.
 
-- **Shipped — Readability scrim primitive.** A computed-bound dim that lets a
+- **Shipped - Readability scrim primitive.** A computed-bound dim that lets a
   background treatment (Track 4) keep the contrast floor valid by construction,
   bounding the effective luminance behind text to the theme background the floor
   already references. The pure core of the safe-by-construction background work.
 
-## Track 4 — Visual Identity And Depth
+## Track 4 - Visual Identity And Depth
 
 Tier-2/Tier-3 visual character. Each ships behind a setting, validated against
 the readability floor, with a documented performance cost and a pixel-identical
 plain bypass.
 
-- **Shipped — Distinctive cursor / selection / search treatments.** Light up the
+- **Shipped - Distinctive cursor / selection / search treatments.** Light up the
   themed selection and search roles with distinct colors, with optional soft
   glow and easing.
-- **Shipped — Readability-safe background treatments.** Gradient, vignette, and
+- **Shipped - Readability-safe background treatments.** Gradient, vignette, and
   static image backgrounds, where readability dimming is tied structurally to
   the contrast floor. Blur-behind remains future.
-- **Shipped — Window-chrome identity.** Themed padding and optional thin
+- **Shipped - Window-chrome identity.** Themed padding and optional thin
   semantic-role border.
-- **Shipped — Window transparency.** A translucent window, on by
+- **Shipped - Window transparency.** A translucent window, on by
   default at `window_opacity` 80, draws the terminal background and chrome bands at a configurable
   opacity while text, cursor, and overlays remain fully opaque. Selection has
   an independent strength control and defaults to fully opaque. Platform
   compositing is required; macOS uses its system compositor, Windows uses DWM,
   and X11 without a compositor degrades to opaque. Blur or acrylic behind the
   window remains future.
-- **Shipped — Subtle motion.** Cursor glow, trail, slide, blink fade, and
-  fade-in of new output —
+- **Shipped - Subtle motion.** Cursor glow, trail, slide, blink fade, and
+  fade-in of new output -
   bounded, and fully disable-able.
-- **Shipped — Cohesive opt-in retro mode.** A single switch raises bloom, scanlines,
+- **Shipped - Cohesive opt-in retro mode.** A single switch raises bloom, scanlines,
   and vignette into a stronger phosphor reference look. Subtle screen curvature
   is a separate config/environment-only setting, flat by default; the retro
   switch does not force it. Chromatic aberration remains deferred.
 
-## Track 5 — Shell And Prompt Integration
+## Track 5 - Shell And Prompt Integration
 
 The terminal cooperating with the shell and prompt. This is the highest-leverage
 gap to close and unlocks the most downstream value. Semantic prompt marking
 (OSC 133) ships today as the foundation.
 
-- **Shipped — Command-aware foundation.** Built on prompt marking: jump to the
+- **Shipped - Command-aware foundation.** Built on prompt marking: jump to the
   previous or next prompt and show a per-command success/failure indicator in
   the gutter. A core range helper already identifies one command's output.
 - **Shipped in v0.13.0 - Command-output actions.** Verified,
@@ -529,9 +529,9 @@ gap to close and unlocks the most downstream value. Semantic prompt marking
   monitors feed pane-owned in-app badges. Users choose in-app presentation, an
   OS attention request, desktop notification, or off; completion never steals
   keyboard focus.
-- **Shipped — Click to position the cursor** at a prompt, using the prompt-marking
-  click events. The click slice only — not a takeover of shell input editing.
-- **Shipped — Remote shell integration.** Connecting to a saved SSH host carries
+- **Shipped - Click to position the cursor** at a prompt, using the prompt-marking
+  click events. The click slice only - not a takeover of shell input editing.
+- **Shipped - Remote shell integration.** Connecting to a saved SSH host carries
   OdyTTY's shell integration onto the remote over an inline, Bash-only bootstrap
   with nothing persisted remotely. It defaults on with a per-host opt-out, and
   the tab is titled `user@host`. Unix clients reuse SSH connections across tabs
@@ -540,7 +540,7 @@ gap to close and unlocks the most downstream value. Semantic prompt marking
   through the existing connection into a `0600` temporary file before the path
   is copied to the clipboard.
 
-## Track 6 — Interaction And Productivity
+## Track 6 - Interaction And Productivity
 
 Mostly small, independent ergonomic wins, all overlay-configured.
 
@@ -557,10 +557,10 @@ scroll-thumb; the full set of TUI mouse-reporting modes (including pixel-precise
 reporting); and hyperlink hover with modifier-click to open. Each behavior change
 is opt-in or configurable and never disturbs an application's own mouse handling.
 
-- **Shipped — Right-click context menu**, composed per surface — the terminal
+- **Shipped - Right-click context menu**, composed per surface - the terminal
   grid (copy, paste, selection/input actions, settings), a tab slot (new, rename,
   close, close others, move to workspace), the empty tab strip, and the workspace
-  rail — so each menu offers only what fits where it was invoked.
+  rail - so each menu offers only what fits where it was invoked.
 - **Shipped in v0.14.0 - One hit-test model for every overlay.** Every overlay,
   dialog, manager, picker, editor, and context menu resolves clicks from the same
   rendered line list the renderer draws, so a control that is visible is
@@ -594,23 +594,23 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   scrollback export, conspicuously guarded broadcast input, cross-window
   tab/pane movement, and floating or stacked layouts.
 
-- **Shipped — Keyboard pattern-select / quick-select.** Label on-screen URLs,
+- **Shipped - Keyboard pattern-select / quick-select.** Label on-screen URLs,
   paths, and hashes for keyboard selection and copy.
-- **Shipped — Copy mode.** Vim-key keyboard selection of scrollback —
+- **Shipped - Copy mode.** Vim-key keyboard selection of scrollback -
   standalone, no multiplexer required.
-- **Shipped — Close-confirmation prompt** when a child process or job is still
+- **Shipped - Close-confirmation prompt** when a child process or job is still
   running.
-- **Shipped — Exit-behavior setting (`shell_exit_closes`).** Choose what typing
+- **Shipped - Exit-behavior setting (`shell_exit_closes`).** Choose what typing
   `exit` does when it would close a whole workspace: close that workspace by
   default, or quit OdyTTY so layout restore can reopen the same set. This governs
   only the shell-exit path. The rail close button and the
   close-tab/close-workspace/close-pane keybindings retain their per-surface
   meaning, and App-mode quit honors the running-job close confirmation.
-- **Shipped — Window-decoration control.** Toggle client-side vs server-side
+- **Shipped - Window-decoration control.** Toggle client-side vs server-side
   decorations or borderless mode (compositor-dependent on Linux).
-- **Shipped — Bindable clear-input action** (low priority; the standard key
+- **Shipped - Bindable clear-input action** (low priority; the standard key
   combinations already cover the common case).
-- **Shipped — New tab / new window cwd inheritance.** Opening a new tab or a new
+- **Shipped - New tab / new window cwd inheritance.** Opening a new tab or a new
   window starts in the active pane's working directory (from the OSC 7 cwd
   already tracked per pane), not the directory OdyTTY was launched from. New tabs
   seed the directory into both the spawned shell and the pane's advisory cwd; new
@@ -618,37 +618,37 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   tracked cwd falls back to the default directory, and opening is never blocked on
   a missing cwd. Cross-platform (ConPTY honors the working directory; drive-letter
   OSC 7 cwds are normalized).
-- **Shipped — Duplicate Tab.** A tab context-menu entry (and the bindable
+- **Shipped - Duplicate Tab.** A tab context-menu entry (and the bindable
   `duplicate-tab` action, default chord `Ctrl+Shift+D`) opens a new local tab in
   the active pane's working directory. Honest framing: this is a fresh shell in
-  the same directory, not a process fork — scrollback and the running program are
+  the same directory, not a process fork - scrollback and the running program are
   not copied. Rides the new tab / new window cwd inheritance above.
-- **Shipped — Duplicate Workspace.** The workspace-level mirror of Duplicate Tab:
+- **Shipped - Duplicate Workspace.** The workspace-level mirror of Duplicate Tab:
   a workspace context-menu entry (and the bindable `duplicate-workspace` action,
-  default chord `Ctrl+Shift+Alt+D` — the tab→workspace Alt escalation of Duplicate
+  default chord `Ctrl+Shift+Alt+D` - the tab→workspace Alt escalation of Duplicate
   Tab's chord) opens a fresh workspace whose first shell starts in the active
   pane's working directory. Same honest framing: a fresh shell in the same
   directory, not a process fork. Threads the cwd through the same spawn path New
   Tab uses, so it is cross-platform (ConPTY honors the working directory).
-- **Shipped — Adjustable tab bar height.** The top tab bar's height is
+- **Shipped - Adjustable tab bar height.** The top tab bar's height is
   drag-adjustable the same way the workspace rail's width already is: drag the
   bar's bottom edge to make it taller (up to five text rows, with the labels
   centered vertically in the taller band), and double-click that edge to snap
   back to the default single row. Persisted as `tab_bar_height` (`auto` or a row
   count), reflowing the shell grid by the reserved rows. Pure layout + pointer
   math, no platform-specific surface.
-- **Shipped — OSC 8 hyperlinks.** Explicit hyperlink escapes render as
+- **Shipped - OSC 8 hyperlinks.** Explicit hyperlink escapes render as
   hover-affordanced links that open on Ctrl+click on Linux/Windows or Cmd+click
   on macOS through the same argv-safe dispatch, gated to a
-  `http`/`https`/`file`/`mailto` scheme allowlist — never auto-opened, never
+  `http`/`https`/`file`/`mailto` scheme allowlist - never auto-opened, never
   shell-interpolated.
-- **Shipped — Clickable bare URLs (`interactive_urls`, on by default).** A URL a
+- **Shipped - Clickable bare URLs (`interactive_urls`, on by default).** A URL a
   program printed as plain text (no OSC 8 escape) gets the hand cursor, a
-  platform-modifier hover underline and click open — reusing the OSC 8 URL
+  platform-modifier hover underline and click open - reusing the OSC 8 URL
   scanner (`hints`) and the exact same argv-only, scheme-allowlisted dispatch.
   Explicit OSC 8 hyperlinks win a tie (no double-decoration); the off path never
   scans (byte-identical hover). Independent of `interactive_paths`.
-- **Shipped — Smart Ctrl+C (`smart_ctrl_c`, `copy-or-interrupt` by default).**
+- **Shipped - Smart Ctrl+C (`smart_ctrl_c`, `copy-or-interrupt` by default).**
   Plain `Ctrl+C` copies + clears a local selection
   when one exists and otherwise sends the interrupt (`^C`). The interrupt stays
   reachable (no selection, second press, `Esc`-first, or the always-unambiguous
@@ -657,7 +657,7 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   interrupt-always path. Plain `Ctrl+V` stays
   verbatim-insert (deliberately no smart paste); `keybinds = ctrl+v=paste` is the
   documented opt-in for Windows-style paste.
-- **Shipped — Interactive paths.** Detect file paths (and `path:line:col` spans) in
+- **Shipped - Interactive paths.** Detect file paths (and `path:line:col` spans) in
   terminal output and make them actionable: an armed-underline hover affordance and
   modifier (`Ctrl`) click to open a file in the editor (jumping to the line/column
   where present), resolved through an editor matrix with a `$EDITOR`/`$VISUAL`
@@ -666,15 +666,15 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   `interactive_paths` master gate with a byte-identical off path (the barewords,
   click-hint, and inline-image sub-keys stay inert until the gate is on), and
   cwd-aware via the OSC 7 tracking already in core.
-- **Shipped — In-terminal image viewer.** A resolved image path
+- **Shipped - In-terminal image viewer.** A resolved image path
   (png/jpg/jpeg/webp) opens in a presentation-only lightbox drawn after the
   post-process pass, so viewing an image never has to leave the terminal.
   Dismiss with `Esc` or a click outside; opt-in behind the inline-image sub-key
   and isolated from live terminal state.
 
-## Track 7 — Theming And Palettes
+## Track 7 - Theming And Palettes
 
-- **Shipped — Theme-naming standard.** The original `odyssey`-named family remains
+- **Shipped - Theme-naming standard.** The original `odyssey`-named family remains
   the primary OdyTTY identity, while licensed and attributed community palettes
   ship under their upstream names. `theme_family()` classifies every built-in as
   `baseline`, `odyssey`, or `community`, and `--list-themes` exposes the family.
@@ -685,20 +685,20 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   settings, and export paths; the default theme and effect settings remain
   unchanged.
 
-## Track 8 — Positioning And Performance Posture
+## Track 8 - Positioning And Performance Posture
 
-Privacy as a stated feature — no telemetry, no cloud, no account, fully local
-and open — ships today (see [Shipped Foundations](#shipped-foundations)).
+Privacy as a stated feature - no telemetry, no cloud, no account, fully local
+and open - ships today (see [Shipped Foundations](#shipped-foundations)).
 
-- **Later — Performance-tuning knob** (repaint cadence / input delay) only after
+- **Later - Performance-tuning knob** (repaint cadence / input delay) only after
   a measured latency baseline exists. No unbacked performance claims.
-- **Planned v0.19.0 — Targeted retained-memory and scrollback work.** Reproduce
+- **Planned v0.19.0 - Targeted retained-memory and scrollback work.** Reproduce
   the existing styled-output result, identify its owner, and retain a change only
   when same-machine before/after evidence shows a correctness-preserving gain.
   Scrollback representation and parser/model throughput follow the same rule;
   optical latency remains unavailable until the registered apparatus exists.
 
-## Track 9 — Multiple Contexts: Tabs, Panes, And Sessions
+## Track 9 - Multiple Contexts: Tabs, Panes, And Sessions
 
 This epic has largely shipped. OdyTTY runs multiple shell sessions in one window
 with a tab bar, splits each tab into resizable panes, and keeps sessions alive in
@@ -706,12 +706,12 @@ a detached session-host so a window can close and reattach with full scrollback.
 The attach launcher and Manage Sessions overlay have shipped; what remains is a
 handful of deliberately-deferred niceties.
 
-- **Shipped — Tabs.** Multiple PTY/terminal sessions, tab switching, tab close,
+- **Shipped - Tabs.** Multiple PTY/terminal sessions, tab switching, tab close,
   tab rename, new-tab affordance, conventional tab keybindings, and a bright,
   bold foreground label on the active tab. Centered labels keep
   a physical-pixel descender guard at every configured strip height, and the
   panel wash and seam stop at the content edge when a workspace rail is present.
-- **Shipped — Drag-to-reorder tabs.** A top-strip press lifts the grabbed tab
+- **Shipped - Drag-to-reorder tabs.** A top-strip press lifts the grabbed tab
   immediately; motion past the click-jitter threshold turns it into a drag with
   a floating proxy that follows the grabbed point and a live insertion marker.
   Drop targeting excludes the lifted tab, crosses neighbors at their real
@@ -724,17 +724,17 @@ handful of deliberately-deferred niceties.
 
   The pointer path is cross-platform and has no platform-specific surface.
 
-- **Shipped — Workspaces.** Named workspaces each own a tab strip and appear in a
+- **Shipped - Workspaces.** Named workspaces each own a tab strip and appear in a
   vertical rail once a second workspace exists; a single-workspace session is
   unchanged. Create, rename, close, or cycle by keyboard or context menu; move a
   tab through a named-destination picker; and bind a workspace to a remote host
   so its new tabs open there. Rail labels retain descender clearance, and the
   active label uses a bright, bold foreground.
-- **Shipped — Workspace reorder.** The workspace rail's right-click menu moves a
+- **Shipped - Workspace reorder.** The workspace rail's right-click menu moves a
   slot up or down. The adjacent swap follows the active workspace by identity,
   so focus never changes, and shape autosave captures the order for the next
   launch.
-- **Shipped — Drag-to-reorder workspaces in the rail.** A press-drag-drop gesture
+- **Shipped - Drag-to-reorder workspaces in the rail.** A press-drag-drop gesture
   on a rail slot complements the menu reorder. Press feedback lifts the grabbed
   slot immediately, a small movement threshold disambiguates a click from a
   drag, and a floating proxy follows the grabbed point alongside the bright
@@ -748,26 +748,26 @@ handful of deliberately-deferred niceties.
   rail stays open for the whole gesture. The pointer path is cross-platform and
   has no platform-specific surface.
 
-- **Shipped — Tab polish.** In-band image placements offset correctly while the
+- **Shipped - Tab polish.** In-band image placements offset correctly while the
   tab bar is visible.
-- **Shipped — New-slot affordance clarity.** The tab bar and workspace-rail `+`
+- **Shipped - New-slot affordance clarity.** The tab bar and workspace-rail `+`
   rest at a lifted color rather than the dim inactive floor, then brighten on
   hover. A blank, non-interactive spacer row separates the workspace list and
   the rail `+`, so a click past the last workspace does not open one by accident
   or require a horizontal rule through the workspace area.
-- **Shipped — A detachable-capable core.** Persistent sessions were architected
+- **Shipped - A detachable-capable core.** Persistent sessions were architected
   with detaching designed in from the start rather than retrofitted, through an
   OdyTTY-owned, versioned terminal-state snapshot format.
-- **Shipped — Panes / splits.** Binary layout tree with split direction and
+- **Shipped - Panes / splits.** Binary layout tree with split direction and
   ratio; per-pane scrollback/selection/search/cursor; tmux-compatible prefix
   bindings plus direct GUI chords and a context-menu section; drag-resizable
   dividers; directional focus-move, close, zoom, and equalize.
-- **Shipped on Unix — Persistent / detachable sessions** that survive a window
+- **Shipped on Unix - Persistent / detachable sessions** that survive a window
   closing.
   The loudest real-user demand: a detached session-host owns the PTYs and
   terminal models over a per-user, local-only socket, with an opt-in, bounded
   output-recording ring buffer and a scrubbable replay overlay.
-- **Shipped — Connection manager.** An overlay listing saved hosts that
+- **Shipped - Connection manager.** An overlay listing saved hosts that
   quick-connects by spawning the system `ssh` in a new pane/session; opt-in,
   read-only, name-only `~/.ssh/config` parsing, with an OdyTTY-owned hosts list
   as the default so the feature works without touching `~/.ssh`. An SSH pane can
@@ -789,13 +789,13 @@ handful of deliberately-deferred niceties.
   attach not yet available. `odytty attach` with no id still attaches the sole
   live session or lists when several exist. "Summon, not greet": opening a window
   stays fast.
-- **Shipped on Unix — Detach & switch.** A context-menu action that spawns a fresh managed
+- **Shipped on Unix - Detach & switch.** A context-menu action that spawns a fresh managed
   session in the focused pane's current directory and switches to it, so a window
   can hand off to a new detached session without leaving the keyboard.
 - **Shipped v0.16.0 - Guarded broadcast input.** Only explicitly selected panes
   receive input, with persistent receiver highlights, hidden-receiver warnings,
   multiline confirmation, and a fast escape hatch.
-- **Shipped — Window-state persistence and named layouts.** Opt-in restore,
+- **Shipped - Window-state persistence and named layouts.** Opt-in restore,
   off by default, reopens the previous window shape when launched with no
   arguments. The shape includes workspaces, tabs, and pane splits at their
   recorded working directories. The snapshot records structure only, never
@@ -811,14 +811,15 @@ handful of deliberately-deferred niceties.
   into a new or another window through the command palette, right-click menus, and the
   merge picker (the reverse of the v0.15.0 merge, on the same primitive)
   without changing PTY/session ownership, and preserve the resulting
-  structure through named layouts and restoration. Dragging a tab or pane out
-  of a window is a possible later addition.
+  structure through named layouts and restoration. Tab drag-out into a new
+  window ships; dragging individual panes or workspaces out of a window remains
+  unsupported.
 
-## Track 10 — Packaging, Release, And Platform
+## Track 10 - Packaging, Release, And Platform
 
 Making OdyTTY installable and maintainable outside the source tree.
 
-- **Shipped — Release builds and packaging.** Each tag publishes seven artifact
+- **Shipped - Release builds and packaging.** Each tag publishes seven artifact
   types: Debian, RPM, Linux binary tarball, Linux AppImage, macOS app zip,
   Windows portable zip, and source archive. Every artifact has an always-latest
   alias and a version-pinned twin, with `SHA256SUMS` and its Minisign
@@ -827,28 +828,28 @@ Making OdyTTY installable and maintainable outside the source tree.
   checksum manifest, bringing the release to 17 assets. From v0.16.1, the
   AppImage alias also has a checksummed and attested `.zsync` update control
   file, bringing the release to 18 assets.
-- **Shipped — Native Linux installation paths.** Debian and RPM packages,
+- **Shipped - Native Linux installation paths.** Debian and RPM packages,
   a checksum-verifying one-line installer, and the standalone binary tarball
   cover package-managed and portable installs. The AppImage remains the
   single-file, no-install fallback.
-- **Shipped — Arch User Repository publishing.** The `odytty` AUR package is
+- **Shipped - Arch User Repository publishing.** The `odytty` AUR package is
   refreshed automatically after every tagged release. If the publishing
   credential is unavailable, the release validates the generated package
   metadata without attempting to publish.
-- **Reference — Install and release details.** See the [Install Guide](install.md)
+- **Reference - Install and release details.** See the [Install Guide](install.md)
   for platform choices and [Release Guide](release.md) for the publication
   contract.
-- **Shipped — Crash & logging story.** A predictable diagnostics path (bounded,
+- **Shipped - Crash & logging story.** A predictable diagnostics path (bounded,
   local, privacy-preserving) for when something does go wrong; shipped in v0.7.5
   (panic hook, freeze watchdog, rotated logging) and documented in
   [`docs/diagnostics.md`](diagnostics.md).
-- **Shipped — macOS release artifact.** The release workflow now emits an
+- **Shipped - macOS release artifact.** The release workflow now emits an
   ad-hoc-signed `OdyTTY.app` bundle, zipped as `odytty-macos-arm64.zip`
-  (Apple Silicon / arm64), from the macos-latest CI leg — checksummed in
+  (Apple Silicon / arm64), from the macos-latest CI leg - checksummed in
   `SHA256SUMS` with an always-latest alias and a version-pinned twin. Ad-hoc
   signing is free and account-less, so an un-quarantined app launches without a
   Gatekeeper warning; no Apple Developer account or notarization is involved.
-- **Shipped — macOS Homebrew tap.** The canonical cask (points at the release
+- **Shipped - macOS Homebrew tap.** The canonical cask (points at the release
   `.app` zip and its `SHA256SUMS` checksum) and a source-build formula fallback
   live in `dist/homebrew/`. On each tagged release a `homebrew` job stamps their
   version, url, and sha256 from the published `SHA256SUMS` and pushes them to the
@@ -865,32 +866,32 @@ Making OdyTTY installable and maintainable outside the source tree.
   A signed or notarized `.dmg` stays deferred until the Apple Developer Program
   is adopted.
 
-- **Ongoing — Broader platform work.** Linux, macOS, and Windows build in
+- **Ongoing - Broader platform work.** Linux, macOS, and Windows build in
   blocking CI and ship release artifacts. Linux remains the primary target;
   Windows uses ConPTY and macOS uses the Unix backend. Confirm behavior under
   both Wayland and X11 where relevant and continue on-device platform hardening.
-- **Planned v0.18.0 — Windows integration parity.** Add supported,
+- **Planned v0.18.0 - Windows integration parity.** Add supported,
   user-controlled default-terminal registration and a same-user ConPTY
   detached/resumable-session host. Neither may silently change OS settings or
   infer Windows lifecycle/security behavior from Unix.
 
-## Track 11 — Exploratory And Far Future
+## Track 11 - Exploratory And Far Future
 
 Ideas worth recording, only sensible once OdyTTY is already a reliable terminal,
 and only if they never compromise terminal trust.
 
-- **Shipped — Command palette.** A keyboard-driven in-window fuzzy finder over
+- **Shipped - Command palette.** A keyboard-driven in-window fuzzy finder over
   terminal-local actions and settings, shell history, and recent directories,
   beyond the settings-overlay search it grew out of.
-- **Someday — Full block-reflow rendering model.** Prompt marking and the
+- **Someday - Full block-reflow rendering model.** Prompt marking and the
   command-aware UX deliver most of the value without this large scrollback
   departure; far future, if ever.
-- **Someday — Workflows / notebooks / saved snippets.** Scope-creepy; deferred.
-- **Planned v0.20.0 — Bounded triggers and recording.** Presentation-only
+- **Someday - Workflows / notebooks / saved snippets.** Scope-creepy; deferred.
+- **Planned v0.20.0 - Bounded triggers and recording.** Presentation-only
   highlight/notification triggers may not send input, run commands, open URLs,
   upload files, or mutate profiles. Logging/replay export stays opt-in, visibly
   active, size-bounded, and private by default.
-- **Decision gate v0.20.0 — Serial ports.** Implement only with real hardware
+- **Decision gate v0.20.0 - Serial ports.** Implement only with real hardware
   validation and explicit Linux, macOS, and Windows device/permission contracts;
   otherwise record the result as deferred rather than shipped.
 
@@ -905,7 +906,7 @@ Recorded so the boundary is deliberate and not relitigated by default.
 - **AI / agentic / natural-language-to-shell features.** An explicit non-goal,
   not a deferred feature.
 - **Telemetry, cloud sync, accounts, or team features.** Against the private,
-  local, no-telemetry direction — their *absence* is a deliberate feature.
+  local, no-telemetry direction - their *absence* is a deliberate feature.
 - **Scripted / Lua configuration and plugin or extension runtimes.** A
   heavyweight dependency and a hand-editing surface, in direct conflict with the
   no-hand-edit configuration goal.
@@ -914,7 +915,7 @@ Recorded so the boundary is deliberate and not relitigated by default.
   never be promised.
 - **A full input-editor takeover** of the shell line (multi-cursor, undo). Only
   the narrow click-to-position slice is worth doing.
-- **Effects for their own sake** — parallax, aggressive dimming of old output,
+- **Effects for their own sake** - parallax, aggressive dimming of old output,
   decorative piling-on. The visual engine earns its place only through
   readability and restraint.
 - **Unbacked "fastest terminal" or daily-driver claims** before compatibility
@@ -963,5 +964,5 @@ ship:
    do not pull a later feature forward without its platform, security,
    documentation, and evidence gates.
 
-Everything beyond a plain terminal stays measured, opt-out-able, and — above all
-— never something you are forced to hand-edit a config file to reach.
+Everything beyond a plain terminal stays measured, opt-out-able, and - above all -
+never something you are forced to hand-edit a config file to reach.

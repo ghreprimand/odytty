@@ -33,6 +33,6 @@ sets. Those source projects keep their own licenses and trademarks.
 - SIL Open Font License 1.1: https://scripts.sil.org/OFL
 - Unlicense: https://unlicense.org/
 
-Font Awesome, Material Design, Octicons, Powerline, Seti, Weather Icons, and
-other logos/icons may include marks whose trademark rights remain with their
-respective owners. Bundling these glyphs does not grant trademark rights.
+Every glyph set listed above, including Font Awesome, Material Design,
+Octicons, Powerline, Seti, and Weather Icons, may include marks whose trademark
+rights remain with their respective owners. Bundling these glyphs does not grant trademark rights.

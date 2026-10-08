@@ -1,8 +1,8 @@
 # Normalize line endings across platforms.
 #
 # Without this, a Windows checkout (default core.autocrlf=true) rewrites text
-# files to CRLF, which breaks code that matches source on a literal "\n" — e.g.
-# the WGSL shader-introspection tests that `split("@fragment\n…")` over an
+# files to CRLF, which breaks code that matches source on a literal "\n" - e.g.
+# the WGSL shader-introspection tests that `split("@fragment\n...")` over an
 # `include_str!`-ed .wgsl. Forcing LF on checkout keeps shaders and other text
 # byte-identical on every platform.
 * text=auto eol=lf

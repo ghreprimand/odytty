@@ -8,7 +8,8 @@
 # preregistration record committed before its first measured sample, and it
 # enumerates what that record must contain. This module assembles that record
 # from the pinned inputs, the live collector probes, and the workload
-# catalogue, and refuses to emit one that is incomplete.
+# catalogue. `--generate` emits a draft with every unpinned field set to
+# `<unpinned>`; `--check` refuses an incomplete record.
 #
 # The point of preregistration is that it is written while the outcome is
 # still unknown. Everything that could otherwise be adjusted after seeing

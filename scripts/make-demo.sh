@@ -142,7 +142,7 @@ bash /tmp/odytty-showcase-frame.sh
 RCEOF
 
 # --- launch OdyTTY showing the splash (uses your odytty.conf theme + effects) ---
-echo "launching OdyTTY…"
+echo "launching OdyTTY..."
 cd "$DEMO" || exit 1
 setsid "$BIN" \
   --title "OdyTTY" \

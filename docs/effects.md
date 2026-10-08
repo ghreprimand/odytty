@@ -1,4 +1,4 @@
-# OdyTTY — Visual Effects
+# OdyTTY - Visual Effects
 
 This guide covers OdyTTY's visual effects: what they do, how to tune or disable
 them, and what to expect on different hardware. For the architecture and
@@ -54,7 +54,7 @@ asserts exact equivalence between the direct and offscreen-passthrough paths.
 
 ## Bloom
 
-Bloom adds an optional HDR phosphor glow around bright cells — glyphs whose
+Bloom adds an optional HDR phosphor glow around bright cells - glyphs whose
 linear luminance exceeds a configurable knee. The effect is achieved by
 rendering the terminal into a linear `Rgba16Float` HDR offscreen target,
 extracting bright pixels in a threshold pass, blurring them at half resolution
@@ -73,15 +73,15 @@ reference (all settings, types, defaults, and reload behaviour) is in
 
 | Setting | Env | Type | Default | Range |
 |---------|-----|------|---------|-------|
-| `bloom` | `ODYTTY_BLOOM` | `on` / `off` | `on` | — |
+| `bloom` | `ODYTTY_BLOOM` | `on` / `off` | `on` | - |
 | `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | float or `auto` | `0.70` | `0.70–1.25` |
 | `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | float | `0.7` | `0.0–1.0` |
 | `bloom_radius` | `ODYTTY_BLOOM_RADIUS` | float | `8.0` | `0.5–8.0` |
 
-**`bloom`** — master switch. `on` enables the effect; `off` returns to the
+**`bloom`** - master switch. `on` enables the effect; `off` returns to the
 direct scene path when no other post effect is active.
 
-**`bloom_threshold`** — linear luminance knee for the bright pass; pixels above
+**`bloom_threshold`** - linear luminance knee for the bright pass; pixels above
 it glow, pixels below do not.
 
 - `auto` (and an empty value) resolves to the static built-in default `0.70`; it
@@ -90,14 +90,14 @@ it glow, pixels below do not.
   clamped to `0.70–1.25`) is reserved in the code but not yet wired into config
   resolution.
 - The default keeps normal body text below the knee, so only genuinely bright
-  elements — bold highlights, status indicators, and glyphs against a bright
-  background — participate. Specify a fixed float to override.
+  elements - bold highlights, status indicators, and glyphs against a bright
+  background - participate. Specify a fixed float to override.
 
-**`bloom_intensity`** — additive glow strength. `0.0` produces no glow even
+**`bloom_intensity`** - additive glow strength. `0.0` produces no glow even
 when enabled; `0.7` is the default ambient glow strength; `1.0` is the cap.
 Values above the cap are clamped.
 
-**`bloom_radius`** — blur spread in half-resolution pixels. Smaller values
+**`bloom_radius`** - blur spread in half-resolution pixels. Smaller values
 (`0.5–1.5`) keep the glow tight around individual glyphs; larger values
 (`5.0–8.0`) produce a wide phosphor wash across the screen. `8.0` is the
 ambient baseline.
@@ -197,30 +197,30 @@ overlay take effect on the next frame without restarting.
 
 | Setting | Env | Type | Default | Range |
 |---------|-----|------|---------|-------|
-| `crt` | `ODYTTY_CRT` | `on` / `off` | `on` | — |
+| `crt` | `ODYTTY_CRT` | `on` / `off` | `on` | - |
 | `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | float | `0.17` | `0.0–0.35` |
 | `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | float | `7.0` | `2.0–12.0` |
 | `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | float | `0.45` | `0.0–0.45` |
 | `crt_curvature` | `ODYTTY_CRT_CURVATURE` | float | `0.0` | `0.0–0.12` |
 
-**`crt`** — master switch. `on` enables the scanline/vignette profile; `off`
+**`crt`** - master switch. `on` enables the scanline/vignette profile; `off`
 returns to the direct scene path when no other post effect is active.
 
-**`crt_scanline_intensity`** — dark-band strength. Values are clamped to
+**`crt_scanline_intensity`** - dark-band strength. Values are clamped to
 `0.0–0.35`. The shader keeps a separate brightness floor so stronger scanlines
 remain bounded rather than becoming an opaque overlay.
 
-**`crt_scanline_period`** — vertical distance between scanline bands in
+**`crt_scanline_period`** - vertical distance between scanline bands in
 physical pixels. `7.0` is the default.
 
-**`crt_vignette_strength`** — edge dimming strength. Values are clamped to
+**`crt_vignette_strength`** - edge dimming strength. Values are clamped to
 `0.0–0.45`. The shader approaches its brightness floor through a soft knee
 rather than a hard clamp, so the edge gradient stays smooth instead of forming a
-visible banding ring, and the 8×8 ordered dither in the composite pass — applied
-whenever post-process is active (bloom or CRT), not CRT-only — breaks up any
+visible banding ring, and the 8×8 ordered dither in the composite pass - applied
+whenever post-process is active (bloom or CRT), not CRT-only - breaks up any
 residual 8-bit posterization. Lit cells are never zeroed by the vignette.
 
-**`crt_curvature`** — subtle barrel-distortion screen curvature. `0.0` is flat
+**`crt_curvature`** - subtle barrel-distortion screen curvature. `0.0` is flat
 and pixel-identical to the no-curvature path. The cap is intentionally low
 (`0.12`). It is a configuration-file and environment knob only, with no
 settings-panel control, and applies while either CRT profile is active; the
@@ -248,7 +248,7 @@ CRT uses the same `Rgba16Float` post-process target as bloom. If the adapter
 cannot render, bind, and filter that format, OdyTTY uses the plain direct path.
 
 The post-process targets are allocated on the first frame that needs them and
-released as soon as both bloom and CRT are off — so disabling the effects gives
+released as soon as both bloom and CRT are off - so disabling the effects gives
 the memory back for the rest of the session rather than only avoiding the
 allocation on a session that never enabled them. The three targets (a
 full-resolution offscreen plus two half-resolution bloom buffers) come to
@@ -268,7 +268,7 @@ is dropped at either edge.
 |---------|-----|--------|---------|
 | `visual` | `ODYTTY_VISUAL` | `off` / `ambient` (alias `scanlines`) | `ambient` |
 
-The scanline look is produced by the unified CRT post-process described above —
+The scanline look is produced by the unified CRT post-process described above -
 the legacy per-cell ambient wash was retired and folded into it. `visual = ambient`
 (the default) and `visual = scanlines` are aliases that request that look: when
 no explicit `crt` value is set, an ambient `visual` turns the CRT pass on, while
@@ -287,8 +287,9 @@ shape-aware **cursor glow** (`cursor_motion = on`, `cursor_easing = on`,
 `cursor_trail = on`, `cursor_glow = on`) as part of the OdysseyOS identity.
 Set any of them to `off` to disable.
 
-`reduced_motion = on` is the master static override: slide snaps while trail,
-glow, and blink fade remain inert, without changing their saved settings.
+`reduced_motion = on` is the master static override: slide snaps, and trail,
+glow, blink fade, and new-output fade stay static, without changing their
+saved settings.
 
 **Cursor slide** (`cursor_motion = on`): the cursor glides between adjacent
 positions (55 ms ease-out-cubic) instead of jumping. Large jumps, resizes,
@@ -300,7 +301,7 @@ Only visible while cursor slide is also on; fully decays as the glide settles.
 The echo rides only short adjacent moves; a longer jump instead sends a single
 cursor-shaped elastic follower that stretches toward and settles into the
 destination. `cursor_trail_strength` (`subtle` / `balanced` / `expressive`,
-default `balanced`) tunes both the echo and the long-jump follower — `subtle` is
+default `balanced`) tunes both the echo and the long-jump follower - `subtle` is
 faster with less stretch, `expressive` stretches more and settles longer.
 
 **Cursor glow** (`cursor_glow = on`): one soft analytic aura behind the cursor
@@ -331,7 +332,7 @@ animation wake and are not changed by `reduced_motion`.
 
 `new_output_fade = on` fades the text of freshly arrived output rows in over a
 short ramp at the live tail instead of appearing instantly. Only the foreground
-ink ramps — glyphs, underline/strikethrough decorations, and emoji — starting
+ink ramps - glyphs, underline/strikethrough decorations, and emoji - starting
 from a visible floor (never invisible) and resolving to full strength on an
 ease-out curve. Cell backgrounds render exactly as normal from the first frame,
 so the fade never darkens the window; on a translucent window a background
@@ -415,7 +416,7 @@ window translucent so the desktop shows through behind the terminal.
 `window_transparency` is **on by default** (translucent at `window_opacity` 80,
 four five-point steps below fully opaque); turn it off and the render path is the unchanged
 opaque one. When on, only the terminal background and the chrome
-bands scale toward `window_opacity` — text, cursor, and every overlay (menus,
+bands scale toward `window_opacity` - text, cursor, and every overlay (menus,
 pickers, settings, prompts) stay fully opaque. Selection has its own strength
 control, defaults to fully opaque at `selection_opacity = 1.0`, and is not
 attenuated by `window_opacity`. `window_opacity` is a percent: `100` is fully
@@ -451,7 +452,7 @@ of quantizing to whole notches. Continuous pixel input is tracked directly
 rather than eased, which avoids the sawtoothing an easing catch-up produces on
 high-resolution devices.
 
-Classic detented wheels emit line deltas and are unaffected — they keep using
+Classic detented wheels emit line deltas and are unaffected - they keep using
 `scroll_wheel_lines` as the per-notch multiplier. Pixel-precise scrolling is
 also pane-aware in splits: the pane under the pointer receives the continuous
 delta, and its sub-cell offset is clipped to that pane's content rectangle.
@@ -460,19 +461,19 @@ delta, and its sub-cell offset is clipped to that pane's content rectangle.
 
 | Setting | Env | Type | Default | Range |
 |---------|-----|------|---------|-------|
-| `pixel_scroll` | `ODYTTY_PIXEL_SCROLL` | `on` / `off` | `on` | — |
+| `pixel_scroll` | `ODYTTY_PIXEL_SCROLL` | `on` / `off` | `on` | - |
 | `scroll_pixel_speed` | `ODYTTY_SCROLL_PIXEL_SPEED` | float | `1.0` | `0.25–4.0` |
-| `scroll_glide` | `ODYTTY_SCROLL_GLIDE` | `on` / `off` | `on` | — |
+| `scroll_glide` | `ODYTTY_SCROLL_GLIDE` | `on` / `off` | `on` | - |
 
-**`pixel_scroll`** — master switch for the continuous lane. `on` (default)
+**`pixel_scroll`** - master switch for the continuous lane. `on` (default)
 tracks pixel-precise devices 1:1; `off` routes them through the same discrete
 notch path as detented wheels.
 
-**`scroll_pixel_speed`** — sensitivity multiplier for the continuous lane. `1.0`
+**`scroll_pixel_speed`** - sensitivity multiplier for the continuous lane. `1.0`
 tracks finger travel exactly; higher scrolls faster than the finger, lower
 slower. Applies only to pixel-precise input.
 
-**`scroll_glide`** — animate scrollback between *discrete* wheel notches (on by
+**`scroll_glide`** - animate scrollback between *discrete* wheel notches (on by
 default; primary screen only).
 
 - Detented wheels carry no sub-step data, so the viewport offset jumps instantly
@@ -500,39 +501,39 @@ ODYTTY_SCROLL_PIXEL_SPEED=1.5 odytty
 ## Accessibility
 
 OdyTTY's accessibility effects share the same readability and pixel-identical-when-off
-contracts as the rest of this guide. The full reference — including the
-minimum-contrast floor and the bell — lives in
+contracts as the rest of this guide. The full reference - including the
+minimum-contrast floor and the bell - lives in
 [`docs/accessibility.md`](accessibility.md); the visual knobs are summarized here.
 
 | Setting | Env | Type | Default | Range |
 |---------|-----|------|---------|-------|
-| `cvd_mode` | `ODYTTY_CVD_MODE` | `off` / `protan` / `deutan` / `tritan` | `off` | — |
+| `cvd_mode` | `ODYTTY_CVD_MODE` | `off` / `protan` / `deutan` / `tritan` | `off` | - |
 | `cvd_strength` | `ODYTTY_CVD_STRENGTH` | float | `1.0` | `0.0–1.0` |
 | `focus_dim` | `ODYTTY_FOCUS_DIM` | float | `0.0` | `0.0–1.0` |
 | `inactive_pane_dim` | `ODYTTY_INACTIVE_PANE_DIM` | float | `0.0` | `0.0–1.0` |
-| `window_border` | `ODYTTY_WINDOW_BORDER` | `on` / `off` | `off` | — |
+| `window_border` | `ODYTTY_WINDOW_BORDER` | `on` / `off` | `off` | - |
 
-**`cvd_mode`** — colour-vision-deficiency adaptation. `off` (default) publishes
+**`cvd_mode`** - colour-vision-deficiency adaptation. `off` (default) publishes
 the authored palette unchanged. `protan` and `deutan` target red–green
 confusion; `tritan` targets blue–yellow. The adaptation is an OKLab
-daltonization scoped to the palette only — the 16 ANSI colours plus the
-cursor/selection/search roles — and is re-floored for readability. Application
+daltonization scoped to the palette only - the 16 ANSI colours plus the
+cursor/selection/search roles - and is re-floored for readability. Application
 truecolour and indexed-256 output are not remapped.
 
-**`cvd_strength`** — how strongly the palette is daltonised toward separability
+**`cvd_strength`** - how strongly the palette is daltonised toward separability
 for the selected mode. `1.0` (default) is the full correction; `0.0` is an exact
 passthrough. Inert while `cvd_mode = off`.
 
-**`focus_dim`** — how much the whole grid recedes while the window is unfocused.
+**`focus_dim`** - how much the whole grid recedes while the window is unfocused.
 The dim runs at color-resolution time before the minimum-contrast floor, so
 legibility is preserved by construction. `0.0` (default) disables it and is
 pixel-identical to the plain renderer; the focused window is never dimmed.
 
-**`inactive_pane_dim`** — a subtle OKLab dim applied to the non-focused panes of
+**`inactive_pane_dim`** - a subtle OKLab dim applied to the non-focused panes of
 a multi-pane tab so the focused pane stands out. `0.0` (default) disables it; the
 focused pane and single-pane tabs are never affected.
 
-**`window_border`** — draws a thin border in the theme `border` role color into
+**`window_border`** - draws a thin border in the theme `border` role color into
 the existing window padding band, framing the grid. Off by default; while off no
 border quads are emitted and the render path is byte-identical. It never eats
 cell area.

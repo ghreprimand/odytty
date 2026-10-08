@@ -1,4 +1,4 @@
-# Idle Wakeups — wgpu/Vulkan Driver Threads (Investigation)
+# Idle Wakeups - wgpu/Vulkan Driver Threads (Investigation)
 
 Status: **open / tracked**. This is a v0.5.5 measurement record, not a committed
 fix or a description of current renderer internals. It preserves the remaining
@@ -22,7 +22,7 @@ idle and unfocused, monitored from a separate terminal:
 
 Whole-process CPU over the same window: **~0.1% of one core**. Per-process GPU
 engine utilization (`nvidia-smi pmon`, `sm` column): **flat `-` (zero)** the
-entire time — no frames presented.
+entire time - no frames presented.
 
 ## What these threads are
 
@@ -34,7 +34,7 @@ entire time — no frames presented.
 
 They run on the **CPU**, not the GPU, and dispatch no GPU work. This is distinct
 from the failure mode described in Jakub Okoński's "Linux latency measurements
-and compositor tuning" (<https://farnoy.dev/posts/linux-latency/>) — a client
+and compositor tuning" (<https://farnoy.dev/posts/linux-latency/>) - a client
 presenting a frame every vblank and starving the focused window's frame budget:
 OdyTTY presents nothing while idle, so the compositor-frame-budget mechanism does
 not apply.
@@ -78,7 +78,7 @@ the tradeoff does not have to be re-derived next time someone asks.
 and compares **mtime + size** only. It does **not** read or parse the file. So
 each poll is a single `stat()` syscall on the resolved config path. On a path
 the kernel already has in its dentry/inode cache that is sub-microsecond and
-does no disk I/O — which is why the measured cost was ~0.03s of CPU over a full
+does no disk I/O - which is why the measured cost was ~0.03s of CPU over a full
 minute of 1 Hz polling. The poller is deliberately dependency-free and
 time-injected so the native event loop folds it into existing sleeps instead of
 spawning a watcher thread (see the type's doc comment).
@@ -89,18 +89,18 @@ spawning a watcher thread (see the type's doc comment).
 Linux that is inotify. Real reasons polling was the defensible default:
 
 - **No watcher thread, no extra dependency.** inotify means either a blocking
-  thread or wiring an fd into the winit event loop — more moving parts and more
+  thread or wiring an fd into the winit event loop - more moving parts and more
   failure modes for a feature whose whole job is "notice an occasional edit."
 - **inotify watches inodes, not paths.** Many editors save atomically by writing
   a temp file and `rename()`-ing it over the original, which swaps the inode and
   silently breaks a naive watch on the file after the first save (vim is the
   classic offender). Doing it correctly means watching the *parent directory*
-  and filtering events — fiddly, and easy to get subtly wrong. mtime+size
+  and filtering events - fiddly, and easy to get subtly wrong. mtime+size
   polling sidesteps all of it and handles missing / deleted / recreated config
   files uniformly with one `stat`.
 
 Event-driven's upside is real (truly zero idle cost, instant pickup instead of
-up-to-1s latency), but it only removes the *focused* 1 Hz poll — which happens
+up-to-1s latency), but it only removes the *focused* 1 Hz poll - which happens
 while the user is actively using the window anyway, the cheapest time to do it.
 
 ### Old-hardware note

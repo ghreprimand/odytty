@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Assemble OdyTTY.app from a pre-built universal `odytty` binary.
+# Assemble OdyTTY.app from a pre-built `odytty` binary (the Apple Silicon release build).
 #
 # Usage: bash dist/macos/make-app.sh <version>
 # Expects: dist/build/odytty            (the `odytty` binary from a local
 #                                        `cargo build --release`; see the macOS
-#                                        install steps in README.md)
+#                                        install steps in docs/install.md)
 #          dist/macos/odytty-1024.png   (icon source, committed)
 #          dist/macos/Info.plist        (manifest template with __VERSION__)
 # Produces: dist/build/OdyTTY.app
@@ -20,7 +20,7 @@ BIN="$BUILD/odytty"
 ICON_SRC="$ROOT/dist/macos/odytty-1024.png"
 PLIST_SRC="$ROOT/dist/macos/Info.plist"
 
-[ -f "$BIN" ] || { echo "missing universal binary: $BIN" >&2; exit 1; }
+[ -f "$BIN" ] || { echo "missing binary: $BIN" >&2; exit 1; }
 [ -f "$ICON_SRC" ] || { echo "missing icon source: $ICON_SRC" >&2; exit 1; }
 
 rm -rf "$APP"

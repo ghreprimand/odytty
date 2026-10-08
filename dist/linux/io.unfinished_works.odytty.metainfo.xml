@@ -112,6 +112,17 @@
         <p>Memory attribution and a pre-release regression guard make the reductions repeatable, the supported shaping boundary is documented with measured evidence, and release artifacts gain GitHub OIDC provenance alongside Minisign. The benchmark protocol adds separately classified software-endpoint workloads without presenting them as optical latency measurements.</p>
       </description>
     </release>
+    <release version="0.11.1" date="2026-08-16">
+      <description>
+        <p>A more predictable and readable Theme Builder. Pressing Esc in Theme Builder opened from Settings now returns to the Themes section instead of closing the whole settings overlay, and the keyboard reference, status messages, and header keep a steadier layout while editing.</p>
+      </description>
+    </release>
+    <release version="0.11.0" date="2026-08-16">
+      <description>
+        <p>Richer inline graphics, color-vector emoji, theme capture, and signed release checksums. OdyTTY adds Kitty graphics animation and Unicode image placeholders, iTerm2 inline images, and COLR/CPAL color-vector glyph rendering, plus a Create theme from current colors flow in Theme Builder.</p>
+        <p>Startup shares one font inventory across fallback discovery, presentation shaping covers more ligature features and Arabic contextual joining, and releases include a Minisign signature for the checksum manifest.</p>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-08-09">
       <description>
         <p>This release is primarily an architecture, reliability, and security convergence release. Its bounded presentation additions show live terminal dimensions during resize, the effective font size during Ctrl+wheel zoom, and unseen tab and workspace activity. Every handwritten Rust source file that is compiled into the shipping binary is now under 2,000 physical lines, with the oversized settings, terminal screen, grid, text, atlas, snapshot, shell-integration, and native interface modules split along ownership boundaries; a repository-wide guard enforces that limit in blocking CI.</p>
@@ -125,7 +136,7 @@
     </release>
     <release version="0.9.7" date="2026-07-27">
       <description>
-        <p>Windows no longer disappear after a machine sits idle and its display blanks. Recreating a rendering surface now retires the previous one before configuring its replacement, so a second presentation chain is never requested for the same window — on Wayland that request raised a fatal protocol error that closed every window of the process at once. Frames are also presented in step with the compositor's draw loop, so a window whose display has gone to sleep stops being driven through the render path instead of accumulating skipped frames until it escalated to a surface recreate. The freeze watchdog now distinguishes a stalled render path from a display that is simply not asking for frames, and no longer reports a stall for a sleeping or hidden window.</p>
+        <p>Windows no longer disappear after a machine sits idle and its display blanks. Recreating a rendering surface now retires the previous one before configuring its replacement, so a second presentation chain is never requested for the same window - on Wayland that request raised a fatal protocol error that closed every window of the process at once. Frames are also presented in step with the compositor's draw loop, so a window whose display has gone to sleep stops being driven through the render path instead of accumulating skipped frames until it escalated to a surface recreate. The freeze watchdog now distinguishes a stalled render path from a display that is simply not asking for frames, and no longer reports a stall for a sleeping or hidden window.</p>
       </description>
     </release>
     <release version="0.9.6" date="2026-07-22">
@@ -200,7 +211,7 @@
     </release>
     <release version="0.8.0" date="2026-07-07">
       <description>
-        <p>Feature release. Tabs now live inside named workspaces, each with its own tab strip and a vertical rail that appears once a second workspace exists; workspaces can be created, renamed, closed, cycled by keyboard, and bound to a remote host. Opt-in layout persistence (off by default) reopens the previous window shape — workspaces, tabs, and pane splits at their working directories — when launched with no arguments; snapshots record structure only, never terminal output, scrollback, environment, or the commands that were running, so a restored pane is always a fresh shell. Named layouts capture the whole session and can be saved, reopened with a replace-or-add prompt, and on Unix reattach still-alive SSH sessions. Seamless remote terminals carry the shell integration onto a remote over an inline bash bootstrap with nothing persisted remotely, reuse SSH connections across tabs via ControlMaster, hold dropped connections open with a reconnect prompt, optionally persist sessions with tmux, and paste images through to the remote host. A rebuilt connection manager adds an Add/Edit form with a Test Connection probe and a per-host identity file, right-click host actions, and ad-hoc connection to an unsaved host. Right-click menus are composed per surface. The settings panel is compacted to one line per row with a focused-row help footer and split name/value click zones. Window transparency (off by default) makes the background translucent while text, cursor, selection, and overlays stay opaque. The tab chrome is reworked into a flat, glow-accented treatment with a top bar or a drag-resizable, auto-hiding vertical rail. Shutdown and rapid-close paths are bounded so a wedged remote can no longer stall exit. Windows: transparency composites through DWM; SSH connection reuse is a Unix-client feature and restored remote panes open fresh.</p>
+        <p>Feature release. Tabs now live inside named workspaces, each with its own tab strip and a vertical rail that appears once a second workspace exists; workspaces can be created, renamed, closed, cycled by keyboard, and bound to a remote host. Opt-in layout persistence (off by default) reopens the previous window shape - workspaces, tabs, and pane splits at their working directories - when launched with no arguments; snapshots record structure only, never terminal output, scrollback, environment, or the commands that were running, so a restored pane is always a fresh shell. Named layouts capture the whole session and can be saved, reopened with a replace-or-add prompt, and on Unix reattach still-alive SSH sessions. Seamless remote terminals carry the shell integration onto a remote over an inline bash bootstrap with nothing persisted remotely, reuse SSH connections across tabs via ControlMaster, hold dropped connections open with a reconnect prompt, optionally persist sessions with tmux, and paste images through to the remote host. A rebuilt connection manager adds an Add/Edit form with a Test Connection probe and a per-host identity file, right-click host actions, and ad-hoc connection to an unsaved host. Right-click menus are composed per surface. The settings panel is compacted to one line per row with a focused-row help footer and split name/value click zones. Window transparency (off by default) makes the background translucent while text, cursor, selection, and overlays stay opaque. The tab chrome is reworked into a flat, glow-accented treatment with a top bar or a drag-resizable, auto-hiding vertical rail. Shutdown and rapid-close paths are bounded so a wedged remote can no longer stall exit. Windows: transparency composites through DWM; SSH connection reuse is a Unix-client feature and restored remote panes open fresh.</p>
       </description>
     </release>
     <release version="0.7.5" date="2026-07-02">
@@ -210,7 +221,7 @@
     </release>
     <release version="0.7.1" date="2026-07-01">
       <description>
-        <p>Bugfix release. Fixes an idle-window render freeze: a long-lived, non-interacted OdyTTY window could stop repainting entirely — stale pixels, input with no echo, and no repaint even when dragged to another monitor — after a transient GPU/compositor surface hiccup. The skipped-frame recovery gave up permanently once its fast-retry budget was spent, so under an event-wait loop a window with no incoming events never repainted again. The fix adds a slow keep-alive retry so an idle window self-heals within about a second of the surface recovering, without busy-spinning.</p>
+        <p>Bugfix release. Fixes an idle-window render freeze: a long-lived, non-interacted OdyTTY window could stop repainting entirely - stale pixels, input with no echo, and no repaint even when dragged to another monitor - after a transient GPU/compositor surface hiccup. The skipped-frame recovery gave up permanently once its fast-retry budget was spent, so under an event-wait loop a window with no incoming events never repainted again. The fix adds a slow keep-alive retry so an idle window self-heals within about a second of the surface recovering, without busy-spinning.</p>
       </description>
     </release>
     <release version="0.7.0" date="2026-07-01">
@@ -260,7 +271,7 @@
     </release>
     <release version="0.4.0" date="2026-06-24">
       <description>
-        <p>Brings multi-tab and split-pane multiplexing (each pane keeps its own scrollback, selection, viewport, and search), detached resumable sessions with reattach driven by a local-only, per-user Unix socket, and an in-window Manage Sessions overlay (default Ctrl+Shift+A) for attach, rename, kill, and Detach and switch. Adds an SSH connection manager, a Ctrl+Shift+P command palette, and a scrubbable session-replay overlay. Introduces interactive paths (default off): with the gate enabled, OdyTTY detects filesystem paths in its output and Ctrl+click opens them — files via xdg-open, path:line:col via an editor matrix, directories via the file manager — plus Open, Open With…, Copy Path, Copy File, and Reveal in File Manager context items. Resolved image paths open in an in-app lightbox viewer (Esc or click-outside to dismiss). The in-panel keybinding editor now covers every bindable action.</p>
+        <p>Brings multi-tab and split-pane multiplexing (each pane keeps its own scrollback, selection, viewport, and search), detached resumable sessions with reattach driven by a local-only, per-user Unix socket, and an in-window Manage Sessions overlay (default Ctrl+Shift+A) for attach, rename, kill, and Detach and switch. Adds an SSH connection manager, a Ctrl+Shift+P command palette, and a scrubbable session-replay overlay. Introduces interactive paths (default off): with the gate enabled, OdyTTY detects filesystem paths in its output and Ctrl+click opens them - files via xdg-open, path:line:col via an editor matrix, directories via the file manager - plus Open, Open With…, Copy Path, Copy File, and Reveal in File Manager context items. Resolved image paths open in an in-app lightbox viewer (Esc or click-outside to dismiss). The in-panel keybinding editor now covers every bindable action.</p>
       </description>
     </release>
     <release version="0.3.1" date="2026-06-24">
@@ -275,7 +286,7 @@
     </release>
     <release version="0.2.1" date="2026-06-21">
       <description>
-        <p>Fixes insert/replace mode (IRM, ANSI mode 4): printing in insert mode now shifts existing cells to the right instead of overwriting them, so editors that rely on incremental line redraw — notably Apple's pico/nano on macOS — no longer corrupt the current line. Also bounds scrollback memory by default (a runaway program can no longer grow history until the system runs out of memory) and makes the test suite deterministic. No change to terminal behavior beyond the IRM fix.</p>
+        <p>Fixes insert/replace mode (IRM, ANSI mode 4): printing in insert mode now shifts existing cells to the right instead of overwriting them, so editors that rely on incremental line redraw - notably Apple's pico/nano on macOS - no longer corrupt the current line. Also bounds scrollback memory by default (a runaway program can no longer grow history until the system runs out of memory) and makes the test suite deterministic. No change to terminal behavior beyond the IRM fix.</p>
       </description>
     </release>
     <release version="0.2.0" date="2026-06-20">

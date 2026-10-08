@@ -239,10 +239,8 @@ bash "odytty-${version}-install.sh"
 ODYTTY_UPDATE
 ```
 
-The script chooses a native `.deb` when apt-get is available, a native `.rpm` on
-dnf/rpm systems, or the portable binary tarball otherwise (including a system
-that has dpkg but not apt-get). It authenticates
-`SHA256SUMS.minisig` against its pinned copy of
+The script chooses the same install route as the one-line install above. It
+authenticates `SHA256SUMS.minisig` against its pinned copy of
 [`odytty-release.pub`](keys/odytty-release.pub) before accepting an artifact
 hash. System package managers need root, so the script uses `sudo` when
 you are not already root; the tarball path falls back to a per-user `~/.local`
@@ -672,9 +670,8 @@ signature plus Homebrew's quarantine strip is the account-free path.
 
 ## Windows
 
-Windows support is new and still maturing - it builds and runs the full
-terminal and is exercised on a Windows CI leg every push, but the polish bar is
-behind Linux. Bug reports for the Windows build are especially welcome;
+The Windows build runs the full terminal and is exercised on a Windows CI leg
+on every push; platform polish can trail Linux. Bug reports for the Windows build are especially welcome;
 [open an issue](https://github.com/ghreprimand/odytty/issues) with your Windows
 version and a short repro.
 
@@ -745,7 +742,9 @@ Because OdyTTY is not code-signed yet, the first launch may raise a blue
 - Click **More info**, then **Run anyway**.
 - To clear the "downloaded from the internet" mark up front instead, run
   `Unblock-File .\odytty\odytty.exe` before launching.
-- Code-signed Windows binaries are a planned improvement.
+- Windows binaries are not code-signed; see
+  [the release guide](release.md#platform-code-signing-boundary) for the
+  signing boundary.
 
 OdyTTY can't yet be set as the Windows *default terminal* (the app Windows hands
 console programs to when launched from Explorer or another program) - that needs

@@ -36,7 +36,7 @@ Routine diagnostics are designed not to record:
 The diagnostics sinks record *program state*: panic metadata, a freeze
 watchdog's latch snapshot, GPU adapter identity (hardware metadata), and
 bounded application log lines. The privacy boundary is enforced by construction
-and pinned by tests — the watchdog's state record, for example, is built from
+and pinned by tests - the watchdog's state record, for example, is built from
 booleans and counters that have no way to hold a string, so terminal text
 cannot flow into it even by mistake.
 
@@ -52,9 +52,9 @@ establish a privacy guarantee for every logging caller or panic payload.
 Three diagnostic files live in a per-user state directory, namespaced to
 `odytty` on every platform:
 
-- `odytty.log` — the rotated application log (warnings and above by default).
-- `odytty.log.1` — the single rotated predecessor of `odytty.log`.
-- `panic.log` — written only when the process crashes to abort.
+- `odytty.log` - the rotated application log (warnings and above by default).
+- `odytty.log.1` - the single rotated predecessor of `odytty.log`.
+- `panic.log` - written only when the process crashes to abort.
 
 | Platform | Log directory | Source | Fallback |
 |---|---|---|---|
@@ -74,7 +74,7 @@ deliberate:
   startup.
 - The path resolution is unit-tested on the Windows CI leg.
 
-The directory is created lazily, on the first actual log write — a quick
+The directory is created lazily, on the first actual log write - a quick
 `odytty --version` or `--show-config` never touches it. If every candidate
 environment-based location is unset, resolution uses the temp fallback shown
 above. An I/O failure at a selected location disables that disk sink; it does not
@@ -110,8 +110,8 @@ archive these files when their diagnostic purpose is complete.
 
 - **Panic hook.** Installed before the event loop starts, process-wide. On a
   panic it records the panic message, source location (`file:line:column`), the
-  thread name, and a forced backtrace, then aborts the process. Writing three
-  independent sinks — stderr, `odytty.log`, and a structured `panic.log` line —
+  thread name, and a forced backtrace, then aborts the process. It writes three
+  independent sinks - stderr, `odytty.log`, and a structured `panic.log` line -
   each guarded so the report is still emitted even if one sink fails. The
   process aborts rather than exiting so a panicking render or worker thread dies
   visibly instead of stranding a frozen, zero-CPU window, and so a debugger or
@@ -121,8 +121,8 @@ archive these files when their diagnostic purpose is complete.
   Pending work on an idle or background window that owes no frame is not a hang
   and is never logged, so the record is reserved for a real stall (the event
   loop alive but the render path dead, redraws owed but never presented). When
-  it fires it emits a single log record naming its internal latch state — no
-  dump, no signal, no process action — so the next freeze is diagnosable from
+  it fires it emits a single log record naming its internal latch state - no
+  dump, no signal, no process action - so the next freeze is diagnosable from
   the log rather than requiring a live debugger. It is
   rate-limited to at most one record per minute per stall, costs a few atomic
   stores per event on the healthy path, and re-arms as soon as a frame is
@@ -139,13 +139,13 @@ archive these files when their diagnostic purpose is complete.
   platform-specific code on Linux or Windows (a minimized window schedules no
   retries and is outside the class).
 - **GPU adapter identity.** At startup OdyTTY records the selected GPU adapter's
-  name, backend, and device class — hardware metadata only, no user
+  name, backend, and device class - hardware metadata only, no user
   content. If the selected adapter is a software rasterizer (llvmpipe, lavapipe,
   SwiftShader, or WARP), it logs a prominent software-rendering warning pointing
   at the "Slow rendering / software adapter" section of
   [`install.md`](install.md). These startup lines go to `odytty.log` as well as
   stderr, so the adapter identity and the software-render warning survive even
-  when a launcher discards stderr — and are retrievable on Windows, where there
+  when a launcher discards stderr - and are retrievable on Windows, where there
   is no visible stderr at all. The About panel shows those details plus the
   driver name and version, which the startup log omits.
 - **Present mode.** At startup OdyTTY records the swapchain present mode it
@@ -175,9 +175,9 @@ archive these files when their diagnostic purpose is complete.
 
 ## Log level and trace gates
 
-### `RUST_LOG` — runtime log level
+### `RUST_LOG` - runtime log level
 
-`RUST_LOG` sets the log level. It accepts a **bare level token** only —
+`RUST_LOG` sets the log level. It accepts a **bare level token** only -
 `error`, `warn`, `info`, `debug`, or `trace` (any case), or the numeric
 equivalents `1` through `5`. The default is `warn`.
 
@@ -187,7 +187,7 @@ RUST_LOG=info odytty
 
 This is a bare-level parser, **not** the full `tracing_subscriber` per-target
 directive syntax. Per-target filters such as `RUST_LOG=odytty::reflow=warn` are
-**not** supported — an unparseable value falls back to `warn` rather than
+**not** supported - an unparseable value falls back to `warn` rather than
 silencing anything (a typo must never hide errors).
 
 ### Opt-in traces
@@ -235,9 +235,9 @@ The gate uses warning-level application logging so it remains retrievable from
 been captured.
 
 `ODYTTY_MEMORY_REPORT` records byte totals for the subsystems OdyTTY itself
-decides the size of — glyph and colour-glyph atlases, the background image, the
+decides the size of - glyph and colour-glyph atlases, the background image, the
 post-process render targets, per-pane grid and scrollback, the graphics-protocol
-image store, and the vertex buffers — alongside the process resident set and its
+image store, and the vertex buffers - alongside the process resident set and its
 peak. The difference between the attributed total and the resident set is
 reported as an explicitly labelled remainder rather than distributed across the
 named subsystems, and GPU-object bytes are reported beside the resident set
@@ -265,8 +265,8 @@ diagnostic serves and for the companion host-side capture script.
 - After the window sits idle, the first frame on return can briefly stall while
   a starved compositor swapchain releases buffers. The surface is reconfigured
   on window focus/restore to shorten that recovery. Each run of skipped frames
-  is summarized in a single state-only record — its duration, the skip count,
-  and whether the window was focused or minimized, never any terminal content —
+  is summarized in a single state-only record - its duration, the skip count,
+  and whether the window was focused or minimized, never any terminal content -
   logged at `debug` level, escalating to `warn` once an episode reaches ten
   seconds. Under the default `warn` log level only the escalated records appear;
   shorter episodes stay silent unless `RUST_LOG=debug` is set.

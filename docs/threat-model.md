@@ -56,7 +56,7 @@ Microsoft's pseudoconsole and process-creation documentation.
 Four actors, in descending order of assumed capability at the terminal
 boundary:
 
-**A1 — Hostile output producer.** Controls the byte stream written to the
+**A1 - Hostile output producer.** Controls the byte stream written to the
 pseudoterminal. This covers a remote host over SSH, a compromised or malicious
 program run locally, a file whose contents get printed, and any network payload
 that ends up on standard output. This is the primary actor: it is unprivileged
@@ -64,26 +64,26 @@ with respect to OdyTTY, it is remote in the common case, and it requires no
 user mistake beyond displaying data. Every escape-sequence, graphics, clipboard,
 hyperlink, and shell-integration boundary faces A1.
 
-**A2 — Hostile local file.** Controls the contents of a file OdyTTY reads:
+**A2 - Hostile local file.** Controls the contents of a file OdyTTY reads:
 configuration, theme, session state, workspace snapshot, font, image, SSH
 configuration, or connection-host list. A2 is same-user in the common case, so
-it is materially weaker than A1 — a same-user attacker can usually replace the
+it is materially weaker than A1 - a same-user attacker can usually replace the
 binary. A2 matters because these files can be synchronized from elsewhere,
 restored from a backup, or shared, and because a parse failure that panics or
 allocates without bound is a defect regardless of who wrote the file.
 
-**A3 — Hostile co-resident process.** Runs as another user on the same
+**A3 - Hostile co-resident process.** Runs as another user on the same
 machine, or as the same user with fewer privileges. Relevant to shared-memory
 graphics transports, temporary-file transports, session sockets, and runtime
 state directories.
 
-**A4 — Hostile input device or window-system peer.** Supplies clipboard
+**A4 - Hostile input device or window-system peer.** Supplies clipboard
 contents, window-system events, or display-server messages. Weak in practice
 because the window system is inside the trust boundary of the session, but the
 clipboard is an untrusted channel: its contents originate anywhere.
 
 The user running OdyTTY is trusted. Anything the user can already do without
-OdyTTY — read their own files, run arbitrary programs — is not a vulnerability
+OdyTTY - read their own files, run arbitrary programs - is not a vulnerability
 when OdyTTY does it on their instruction. The interesting failures are those
 where A1 through A4 cause an effect the user did not request.
 
@@ -142,7 +142,7 @@ privilege differences between Linux, macOS, and Windows.
 
 ## Boundary catalog
 
-### B1 — Hostile pseudoterminal output, UTF-8 decoding, and escape parsing
+### B1 - Hostile pseudoterminal output, UTF-8 decoding, and escape parsing
 
 The widest boundary and the one an attacker reaches with no user action beyond
 displaying data.
@@ -175,7 +175,7 @@ displaying data.
   are evicted past it; an unbounded limit has no budget), and a per-logical-line
   ceiling of `MAX_LOGICAL_LINE_CELLS` = 2^20 (`src/core/scrollback.rs`). A
   history-row request materializes only the requested rows of a long line.
-  Combining marks per cell are capped at `MAX_COMBINING` = 4
+  Combining marks per cell are capped at `MAX_COMBINING` = 16
   (`src/core/types.rs`). Program-defined clickable regions are bounded at
   `MAX_BUTTON_SPANS_PER_LINE` = 16, `MAX_BUTTON_ENTRIES` = 8192, and
   `MAX_CODE_DIGITS` = 10 (`src/core/button.rs`).
@@ -204,7 +204,7 @@ displaying data.
   rate-limited overall; a fast producer can keep the parser busy indefinitely,
   which is a responsiveness concern rather than a memory one.
 
-### B2 — Clipboard write and read sequences (OSC 52)
+### B2 - Clipboard write and read sequences (OSC 52)
 
 The sequence that lets terminal output set the system clipboard. Historically
 the source of clipboard-injection attacks in other terminals, where a clipboard
@@ -216,7 +216,7 @@ write plants a command that the user later pastes into a shell.
   instruction.
 - **Current default:** reads are **denied**. `osc52_read` defaults to `false`
   (`src/settings.rs`), so a clipboard-read request is refused regardless of the
-  write policy — terminal output cannot exfiltrate clipboard contents. Writes go
+  write policy - terminal output cannot exfiltrate clipboard contents. Writes go
   through an explicit policy type (`Osc52WritePolicy`, `src/settings.rs`) and a
   native authority check.
 - **Validation and caps:** payload bounded at `OSC52_CLIPBOARD_MAX_BYTES` =
@@ -241,11 +241,11 @@ write plants a command that the user later pastes into a shell.
   `terminal_stream` target also feeds arbitrary bounded OSC input through the
   owned parser and terminal model under multiple chunk schedules.
 - **Residual risk:** the focus requirement is a strong mitigation but not a
-  complete one — output rendered while the window is focused is the normal case,
+  complete one - output rendered while the window is focused is the normal case,
   and a user who leaves a hostile process running in a focused window can still
   be prompted repeatedly. The rate limit bounds nuisance, not intent.
 
-### B3 — Hyperlinks (OSC 8) and external openers
+### B3 - Hyperlinks (OSC 8) and external openers
 
 Where displayed data becomes a URL and a URL becomes a spawned process. The
 highest-consequence boundary in the model, because it is the shortest path from
@@ -257,14 +257,14 @@ attacker-chosen bytes to process execution.
 - **Trust assumption:** the user's explicit modified click is the consent
   gesture. Nothing else opens a link.
 - **Current default:** links are recorded and underlined on hover, and open only
-  on an explicit modified click — Ctrl and click on Linux and Windows, Command
+  on an explicit modified click - Ctrl and click on Linux and Windows, Command
   and click on macOS. There is no plain-click open, no hover-open, and no
   automatic open.
 - **Validation and caps:** URIs bounded at `MAX_URI_BYTES` = 2083; the link
   table bounded at `MAX_TABLE_BYTES` = 4 MiB and `MAX_LINK_ENTRIES` = 8192 with
   a per-entry overhead charge of `ENTRY_OVERHEAD_BYTES` = 64, so link storage
   cannot be inflated by many tiny entries (`src/core/hyperlink.rs`). A scheme
-  allowlist — `http`, `https`, `file`, `mailto`, matched case-insensitively —
+  allowlist - `http`, `https`, `file`, `mailto`, matched case-insensitively -
   gates opening (`uri_has_openable_scheme`); everything else, including
   `javascript:`, is refused. The opener path is argv-only: every opener builds a
   string vector and never constructs a shell command line
@@ -291,13 +291,13 @@ attacker-chosen bytes to process execution.
   metacharacter-sensitive command line on any platform branch.
 - **Residual risk:** `file:` is on the allowlist, so a modified click can open a
   local path chosen by terminal output through the platform default handler.
-  This is the documented behavior — it is what makes clickable paths useful —
+  This is the documented behavior - it is what makes clickable paths useful -
   but it means the consent gesture is the only barrier between hostile output
   and the platform's file-type handler. Displayed text can misrepresent the
   destination; the model relies on the hover treatment to disclose the real
   target.
 
-### B4 — Inline graphics payloads (direct transport)
+### B4 - Inline graphics payloads (direct transport)
 
 - **Attacker control:** the full base64 payload, declared dimensions, format,
   chunk count, and placement parameters.
@@ -309,7 +309,7 @@ attacker-chosen bytes to process execution.
   `MAX_PENDING_ENCODED_BYTES` = 96 MiB across chunks (`src/core/kitty.rs`), so a
   chunked transmission cannot grow without limit. The decoded image store
   applies its own bound of 64 MiB (`src/graphics/store.rs`). Sixel decoding is
-  bounded at `MAX_WIDTH` and `MAX_HEIGHT` = 10,000, `MAX_PIXELS` = 40,000,000,
+  bounded at `MAX_WIDTH` and `MAX_HEIGHT` = 10,000, `MAX_PIXELS` = 16,777,216,
   `MAX_COLOR_REG` = 1024 color registers, and `MAX_PARAM` = 99,999,999
   (`src/graphics/sixel.rs`). Dimension arithmetic uses checked multiplication
   because a `u32` squared fits in `u64` but the four-byte-per-pixel product does
@@ -329,9 +329,9 @@ attacker-chosen bytes to process execution.
   repeatedly approaches it produces sustained allocation churn without ever
   tripping a cap.
 
-### B5 — Named and shared-memory graphics transports
+### B5 - Named and shared-memory graphics transports
 
-- **Attacker control:** the object name, and — for a co-resident attacker (A3) —
+- **Attacker control:** the object name, and - for a co-resident attacker (A3) -
   the object contents.
 - **Trust assumption:** that a named object inside the allowed prefix set was
   created by a cooperating program. This assumption is why the transport is off
@@ -344,7 +344,7 @@ attacker-chosen bytes to process execution.
 - **Validation and caps:** reads bounded at `MAX_TRANSPORT_READ_BYTES` = 96 MiB,
   enforced before any decode attempt, so a small file claiming enormous
   dimensions cannot become a decode bomb. Objects are opened read-only, then
-  validated for size and content, and only then unlinked — a rejected object
+  validated for size and content, and only then unlinked - a rejected object
   keeps its name rather than being destroyed by a failed read. The unlink also
   requires the name to still bind the object that was read, proven by its
   object number; where the platform reports none, the name is retained. Paths must be
@@ -363,7 +363,7 @@ attacker-chosen bytes to process execution.
   read-only-then-unlink ordering limits this to content substitution rather than
   destruction.
 
-### B6 — Temporary-file and ordinary-file graphics transports
+### B6 - Temporary-file and ordinary-file graphics transports
 
 The transport where terminal output names a host path and OdyTTY reads it. The
 mechanism most directly opposed to G-READ, and deliberately narrowed relative to
@@ -377,7 +377,7 @@ the reference implementation.
 - **Current default:** disabled together with the named transports
   (`kitty_named_transports` = `false`).
 - **Validation and caps:** reads are restricted to a canonical temporary-
-  directory allowlist — `/tmp`, `/dev/shm`, a canonicalizable `TMPDIR`, and on
+  directory allowlist - `/tmp`, `/dev/shm`, a canonicalizable `TMPDIR`, and on
   Windows the canonicalized system temporary directory (`allowed_temp_dirs`,
   `src/core/kitty_transport.rs`). Containment is verified by canonicalizing the
   *parent* directory and checking the prefix, because the file itself may not
@@ -406,7 +406,7 @@ the reference implementation.
 - **Residual risk:** named transports remain off by default. The resolved
   final-component behavior is recorded as finding **E** below.
 
-### B7 — Image decoding and resource bounds
+### B7 - Image decoding and resource bounds
 
 - **Attacker control:** the full encoded byte stream and every header field,
   including declared dimensions and compression parameters.
@@ -414,7 +414,7 @@ the reference implementation.
   sniffed.
 - **Current default:** decoding is enabled for inline graphics and for the image
   viewer path.
-- **Validation and caps:** decoding runs under an explicit limits object —
+- **Validation and caps:** decoding runs under an explicit limits object -
   `MAX_IMAGE_DIM` = 12,000 pixels per axis and `MAX_IMAGE_ALLOC_BYTES` = 256 MiB
   decoder allocation budget for native wallpaper/viewer reads
   (`src/native/image_decode.rs`). Subsequent RGBA conversion and resize buffers
@@ -441,7 +441,7 @@ the reference implementation.
   the dependency audit gate,
   not by this document.
 
-### B8 — Clipboard channel, paste, and drag-and-drop
+### B8 - Clipboard channel, paste, and drag-and-drop
 
 - **Attacker control:** clipboard contents (A4), which may include control
   characters and newlines intended to execute on paste.
@@ -454,7 +454,8 @@ the reference implementation.
   **B18**. Clipboard image paste into remote sessions remains a separate
   confirm-first path and is not file drop.
 - **Validation and caps:** bracketed paste is bounded at
-  `MAX_BRACKETED_PASTE_BYTES` = 32 MiB and queued as one transaction so its
+  `MAX_BRACKETED_PASTE_BYTES` = 8 MiB (equal to the attach-frame input limit,
+  `MAX_CLIENT_INPUT_LEN`) and queued as one transaction so its
   framing can never tear mid-payload (`src/native/clipboard.rs`,
   `src/native/pty.rs`). An over-cap bracketed paste is refused whole rather than
   truncated, because a partial command line is still a command line. Plain
@@ -477,10 +478,10 @@ the reference implementation.
   receiving application enabling it; a shell that does not is outside OdyTTY's
   control.
 
-### B9 — Shell integration, environment, and process launch
+### B9 - Shell integration, environment, and process launch
 
 - **Attacker control:** for A1, the contents of shell-integration report
-  sequences — working directory, command text, exit status. For A2, the contents
+  sequences - working directory, command text, exit status. For A2, the contents
   of the integration wrapper files.
 - **Trust assumption:** integration fields are display and navigation data, not
   instructions. A reported working directory changes where a new tab starts; it
@@ -492,7 +493,7 @@ the reference implementation.
   provided for PowerShell.
 - **Validation and caps:** working-directory reporting parses a
   `file://host/path` form, percent-decodes the path, and accepts only an empty
-  or local host — a remote host in the field is not resolved or contacted.
+  or local host - a remote host in the field is not resolved or contacted.
   Drive-letter working directories are handled on Windows. Decoded paths with
   two leading slash/backslash separators are refused on Windows, including UNC
   and device forms. The same guard precedes metadata probes for interactive,
@@ -516,20 +517,20 @@ the reference implementation.
   directory, so a new tab may open somewhere unexpected. This is a usability
   surprise rather than an execution path, but it is real.
 
-### B10 — SSH configuration import and connection invocation
+### B10 - SSH configuration import and connection invocation
 
 The boundary that touches credential-adjacent data, and therefore the one with
 the most deliberate omissions.
 
 - **Attacker control:** for A2, the contents of an imported configuration file.
-  For A1, nothing directly — terminal output cannot trigger a connection.
+  For A1, nothing directly - terminal output cannot trigger a connection.
 - **Trust assumption:** the configuration file is a display source, not an
   execution source.
 - **Current default:** OdyTTY **never discovers a configuration path on its
   own** and **never follows `Include`** (`src/ssh_config.rs`). A caller must
   pass the exact path or bytes. Only quick-connect display fields are surfaced:
   `Host` aliases plus optional `HostName`, `User`, and `Port`. Key-material
-  directives such as `IdentityFile` are ignored entirely — not parsed, not
+  directives such as `IdentityFile` are ignored entirely - not parsed, not
   stored, not displayed.
 - **Validation and caps:** `DEFAULT_SSH_CONFIG_MAX_BYTES` = 256 KiB,
   `DEFAULT_SSH_CONFIG_MAX_ENTRIES` = 1024, and
@@ -562,7 +563,7 @@ the most deliberate omissions.
 - **Residual risk:** low. The connection-host parser and every mutation path now
   share the bounded regular-file policy recorded in finding **D**.
 
-### B11 — Session sockets, metadata, and state files
+### B11 - Session sockets, metadata, and state files
 
 - **Attacker control:** for A3, attempts to connect to or squat on the session
   socket. For A2, the contents of metadata and snapshot files.
@@ -574,7 +575,7 @@ the most deliberate omissions.
   then validated: it must be a directory (checked with a non-following stat) and
   it must be owned by the current effective user, or startup fails
   (`src/session_host/socket.rs`). A stale path is only removed after confirming
-  it is actually a socket — a non-socket path at the socket location is refused
+  it is actually a socket - a non-socket path at the socket location is refused
   rather than deleted. Snapshot persistence is bounded at `MAX_SNAPSHOT_BYTES` =
   8 MiB, `MAX_WORKSPACES` = 512, `MAX_TABS_PER_WORKSPACE` = 512,
   `MAX_PANE_DEPTH` = 48, `MAX_TOTAL_LEAVES` = 8192
@@ -629,7 +630,7 @@ the most deliberate omissions.
 - **Residual risk:** low. Metadata reads now use the bounded, owner-validated,
   final-component-nonfollowing boundary recorded in finding **A**.
 
-### B12 — Settings, theme, and workspace files
+### B12 - Settings, theme, and workspace files
 
 - **Attacker control:** for A2, full file contents.
 - **Trust assumption:** none beyond same-user provenance.
@@ -641,7 +642,7 @@ the most deliberate omissions.
   Non-regular files produce an invalid-data error rather than blocking on a
   device. Warning accumulation is bounded at `MAX_WARNINGS` = 100 so a hostile
   file cannot produce unbounded log output on the reload thread. **The cap and
-  behavior are identical on Linux, macOS, and Windows** — this is stated in the
+  behavior are identical on Linux, macOS, and Windows** - this is stated in the
   module and is a deliberate uniformity guarantee, not an accident of the Unix
   path.
 - **Failure behavior:** an over-cap file is not loaded at all; the previous
@@ -657,9 +658,9 @@ the most deliberate omissions.
 - **Residual risk:** low. The same cap-plus-one and regular-file pattern now
   covers the sibling readers closed in findings A, C, and D.
 
-### B13 — Hostile fonts
+### B13 - Hostile fonts
 
-- **Attacker control:** for A2, the full font file — tables, offsets, lengths,
+- **Attacker control:** for A2, the full font file - tables, offsets, lengths,
   and glyph programs.
 - **Trust assumption:** installed system fonts are assumed well-formed. This
   assumption is weak: font files are complex binary formats parsed by
@@ -706,7 +707,7 @@ the most deliberate omissions.
   that crate as a regression. Finding **C** records the closed file-read
   boundary rather than an outstanding unbounded allocation.
 
-### B14 — Resource exhaustion
+### B14 - Resource exhaustion
 
 Cross-cutting. Availability failures rarely come from one boundary; they come
 from a bound that was applied to one path and missed on a sibling.
@@ -719,7 +720,7 @@ from a bound that was applied to one path and missed on a sibling.
   bounded at `MAX_DIR_ENTRIES` = 1024 (`src/native/settings_panel/path_picker.rs`),
   and picker result lists bounded at 40 entries across the overlay surfaces.
   Frame-recreation retry is bounded at `MAX_SKIPPED_FRAME_RECREATES` = 2 and
-  `MAX_SKIPPED_RETRIES` = 8 (`src/native/app/mod.rs`) so a failing device cannot
+  `MAX_SKIPPED_RETRIES` = 8 (`src/native/app/frame.rs`) so a failing device cannot
   produce an unbounded retry loop.
 - **Failure behavior:** bounded degradation. Frames are dropped rather than
   queued without limit; over-cap payloads are refused rather than truncated.
@@ -1128,6 +1129,46 @@ in-memory set. It is never saved, and a new pane does not join on its own.
   text. The explicit action, destination choice, bounded private write, and lack
   of background export are the security boundary.
 
+### B25 - Owner shaping and bidirectional planning
+
+- **Attacker control:** A1 controls the scalars of every cell: which scripts
+  appear, how many extension scalars a cell retains, joiners and invisible
+  controls, and right-to-left runs of any length and nesting. Installed fonts
+  and their shaping tables are an A2-controlled input to the same code
+  (B13).
+- **Trust assumption:** terminal text and font tables are untrusted. Shaping
+  and reordering are presentation only: they never decide cell ownership, width,
+  cursor position, selection, copy, search, or export, which stay logical.
+- **Current default:** font-backed owner shaping (`script_shaping`, on by
+  default) shapes one width owner at a time with `harfrust` and draws the result
+  as an overlay over exactly the owner's cells. Bidirectional display order
+  (`bidi_reorder`) is opt-in and off by default.
+- **Validation and caps:** an owner is shaped only when its scalars belong to the
+  enabled script groups plus ZWJ, ZWNJ, and Vedic marks, and it retains at most
+  `OWNER_SCALARS` = 17 (`src/complex_shaping/mod.rs`; the extension count is
+  capped at `MAX_COMBINING` = 16, `src/core/types.rs`). A shaping result holding
+  `.notdef`, a glyph id past `u16`, or more than `MAX_RUN_GLYPHS` = 64 glyphs is
+  discarded. The bidi planner (`src/core/bidi/mod.rs`) accepts a paragraph of at
+  most `MAX_BIDI_PARAGRAPH_OWNERS` = 16,384 owners, `MAX_BIDI_PARAGRAPH_BYTES` =
+  16 bytes per owner, and `MAX_BIDI_PARAGRAPH_ROWS` = 16,384 physical rows, and an
+  owner at most `MAX_BIDI_OWNER_WIDTH` = 4 cells wide.
+- **Failure behavior:** bounded degradation. An owner that cannot be shaped, or
+  whose font is missing or still resolving, keeps the per-cell path for that
+  frame. A paragraph over any bidi cap, or with malformed owner widths, gets
+  identity layout (logical order) rather than an error. Neither path truncates
+  or alters terminal content.
+- **Platform contract:** the same code runs on Linux Wayland, Linux X11, macOS,
+  and Windows; host fonts differ per platform and no result is inferred from
+  another leg.
+- **Required coverage:** over-cap and malformed owners, extension-scalar
+  boundaries, `.notdef` and oversized shaping results, paragraph, byte, row, and
+  owner-width caps with identity layout, mixed-direction paragraphs, and
+  logical copy and selection under both shaping and reordering.
+- **Residual risk:** `harfrust` and the font tables it reads are third-party
+  parsing of untrusted font data inside the process; the per-owner glyph cap and
+  the bounded paragraph size limit the work, but a hostile installed font can
+  still make a shaping call slow.
+
 ## Platform process and privilege boundaries
 
 ### Linux
@@ -1168,8 +1209,8 @@ because the process model differs at the foundation.
   (`src/native/app/platform_opener.rs`).
 - **Console-window suppression.** OdyTTY ships as a graphical-subsystem binary
   with no attached console, so spawning a console child with no creation flags
-  would allocate a fresh console and flash a window. Every such spawn — SSH
-  probes, SSH uploads, openers — routes through one helper that sets
+  would allocate a fresh console and flash a window. Every such spawn - SSH
+  probes, SSH uploads, openers - routes through one helper that sets
   `CREATE_NO_WINDOW` (`src/native/app/win_spawn.rs`). The flag is a harmless
   no-op for graphical children, so the helper guards every spawn site uniformly.
   A new spawn site that bypasses it is a defect.
@@ -1238,6 +1279,7 @@ behavior, and a Linux or macOS result is never a substitute for a Windows one.
 | B22 serial devices | no product surface | real-hardware gates plus bounded disconnect, stall, and flood fixtures |
 | B23 restored workflow metadata | current bounded workspace/session restore suites | new-field versioning, transient-authority exclusion, and platform restore fixtures |
 | B24 command-output export | plain-text command export, plus scrollback text and HTML tests in `scrollback_export` and `scrollback_export_app`; the writer, cap, and dialog are shared | sanitized cap, native dialog, no-follow/reparse, overwrite, private atomic writer, cleanup, and four-leg fixtures |
+| B25 owner shaping and bidi planning | owner-shaping and bidi unit and conformance tests (`complex_shaping`, `core::bidi`); no dedicated fuzz target | bounded-time owner and paragraph fuzz target covering the caps above, including identity-layout fallback |
 
 Every planned target must retain a provenance-safe public corpus, run under
 bounded allocation and bounded time, reproduce crashes deterministically, and
@@ -1251,11 +1293,11 @@ per-item dispositions, code citations, and regression evidence are recorded in
 [security-review-2026-09.md](security-review-2026-09.md).
 
 Five issues were identified by source inspection at the revision this document
-describes and are stated at exactly the scope demonstrated — no exploitation
+describes and are stated at exactly the scope demonstrated - no exploitation
 beyond that scope is claimed. Findings A through E are now closed with focused
 tests. Each closure carries its own tests and sibling-path sweep.
 
-### Finding A — Session metadata reads are bounded and reject final-component symlinks
+### Finding A - Session metadata reads are bounded and reject final-component symlinks
 
 - **Anchor:** `read_session_metadata` in `src/session_host/registry.rs` opens
   metadata through the owner/private sensitive-file boundary. On Unix the open
@@ -1273,7 +1315,7 @@ tests. Each closure carries its own tests and sibling-path sweep.
 - **Unix and Windows:** Unix-only, because session hosting is Unix-only.
 - **Status:** resolved for the session-metadata read boundary.
 
-### Finding B — Clipboard image processing is bounded before PNG encoding
+### Finding B - Clipboard image processing is bounded before PNG encoding
 
 - **Anchor:** `read_image_png` in `src/native/clipboard.rs` validates the
   platform-provided dimensions and RGBA length against the shared 12,000-pixel
@@ -1291,7 +1333,7 @@ tests. Each closure carries its own tests and sibling-path sweep.
 - **Status:** resolved for OdyTTY-owned clipboard image processing after the
   platform clipboard handoff.
 
-### Finding C — Font-file reads share one regular-file and size boundary
+### Finding C - Font-file reads share one regular-file and size boundary
 
 - **Anchors:** direct text-font loading, metadata enumeration, and emoji-font
   loading all route through `read_font_file` in `src/font_file.rs`.
@@ -1306,7 +1348,7 @@ tests. Each closure carries its own tests and sibling-path sweep.
 - **Unix and Windows:** all platforms; font enumeration runs on each.
 - **Status:** resolved for production font-file reads.
 
-### Finding D — Connection-host reads share one bounded regular-file policy
+### Finding D - Connection-host reads share one bounded regular-file policy
 
 - **Anchors:** normal parsing plus `append_adhoc_host`, `edit_host_block`, and
   `remove_host_block` in `src/connection_hosts.rs` route through
@@ -1322,7 +1364,7 @@ tests. Each closure carries its own tests and sibling-path sweep.
 - **Unix and Windows:** all platforms.
 - **Status:** resolved for every production `hosts.conf` reader and mutation.
 
-### Finding E — Windows file transports reject final-component reparse points
+### Finding E - Windows file transports reject final-component reparse points
 
 - **Anchor:** `read_regular_file` in `src/core/kitty_transport.rs` opens the
   final component with `FILE_FLAG_OPEN_REPARSE_POINT` on Windows, then rejects

@@ -2123,7 +2123,7 @@ def self_test() -> list[str]:
     ):
         failures.append("schema: an omitted per-terminal grid was accepted")
     # A stable grid that missed the normalization target is PUBLISHABLE, not
-    # disqualifying — but only when the run set discloses it. This is the
+    # disqualifying - but only when the run set discloses it. This is the
     # Ghostty-shaped case: a terminal that reproducibly settles at its own
     # grid is still a real product configuration and is still measured.
     off_target_document = json.loads(json.dumps(differing_document))

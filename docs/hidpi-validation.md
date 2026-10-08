@@ -1,23 +1,27 @@
-# HiDPI Scale Validation — Manual Matrix
+# HiDPI Scale Validation - Manual Matrix
 
 Maintainer-run manual test matrix for HiDPI/fractional-scale behavior.
 Covers initial-launch correctness, live scale-factor transitions, and
 interaction with font-size settings.
 
-Status: turnkey — run each cell, record pass/fail in the rightmost column.
+Status: turnkey - run each cell, record pass/fail in the rightmost column.
 
 ---
 
 ## Prerequisites
 
-- A Linux desktop with either:
+- On each platform, a display setup with either:
   - **Multi-monitor**: one monitor at 1.0× and another at 2.0× (or different
     scales), OR
-  - **GNOME/KDE fractional scaling**: ability to change the display scale live
-    from 100% through 200%.
+  - **Live scale changes**: the ability to change the display scale from 100%
+    through 200% (GNOME or KDE fractional scaling on Linux, Settings > Display
+    scale on Windows, display scaling on a macOS Retina display).
 - `cargo build --release` in the OdyTTY tree.
 - The `WINIT_X11_SCALE_FACTOR` environment variable override for X11 sessions
-  (Wayland uses `WAYLAND_DISPLAY` native scale or `wp-fractional-scale`).
+  (Wayland compositors report their native scale, including fractional scale
+  through `wp-fractional-scale`).
+- A shell whose `printf` understands `\u` escapes (bash or fish), for the
+  fixture commands in the matrix.
 
 ## Environment variable overrides
 
@@ -62,12 +66,12 @@ At each scale, inspect these specific rendering details.
 
 | # | Scale | Check | How to verify | Result |
 |---|-------|-------|---------------|--------|
-| C1 | 1.25 | Box-drawing joins | `printf '\u2500\u253c\u2500'` — horizontal line through the cross, no gap at the cell boundary | |
-| C2 | 1.5 | Baseline consistency | Type `EFghij` — cap tops of E/F align, descenders of g/j extend below baseline | |
-| C3 | 1.75 | Cursor alignment | Move cursor with arrows — default Block cursor fills its cell with no pixel offset | |
-| C4 | 2.0 | Selection highlight | Select text with mouse — highlight tracks cell boundaries exactly | |
-| C5 | any | Scroll indicator | Scroll up in history — indicator bar is at right edge, 3px wide, no artifacts | |
-| C6 | 1.5 | Pane split geometry | Split with `Ctrl+Shift+E` (pane right) then `Ctrl+Shift+O` (pane below) — the 1px divider stays crisp, each pane's grid floors cleanly with no sub-cell seam, and the ~6px divider grab band hit-tests on the visible line | |
+| C1 | 1.25 | Box-drawing joins | `printf '\u2500\u253c\u2500'` - horizontal line through the cross, no gap at the cell boundary | |
+| C2 | 1.5 | Baseline consistency | Type `EFghij` - cap tops of E/F align, descenders of g/j extend below baseline | |
+| C3 | 1.75 | Cursor alignment | Move cursor with arrows - default Block cursor fills its cell with no pixel offset | |
+| C4 | 2.0 | Selection highlight | Select text with mouse - highlight tracks cell boundaries exactly | |
+| C5 | any | Scroll indicator | Scroll up in history - indicator bar is at right edge, 3px wide, no artifacts | |
+| C6 | 1.5 | Pane split geometry | Split with `Ctrl+Shift+E` (pane right) then `Ctrl+Shift+O` (pane below) - the 1px divider stays crisp, each pane's grid floors cleanly with no sub-cell seam, and the ~6px divider grab band hit-tests on the visible line | |
 
 ### D. Shell / TUI interaction at non-default scales
 
@@ -92,8 +96,10 @@ At each scale, inspect these specific rendering details.
 
 Fill in the **Result** column with:
 - ✅ Pass
-- ❌ Fail — brief description of misbehavior
-- ⏭️ Skip — reason (e.g. "single-monitor setup")
+- ❌ Fail - brief description of misbehavior
+- ⏭️ Skip - reason (e.g. "single-monitor setup")
+- Unavailable hardware - the display setup the cell needs is not present; record
+  the missing hardware, never a pass
 
 Any failure should be captured as a deterministic fixture where the failure mode
 is headless-expressible (cell math, debounce), or documented as a known-gap
@@ -101,6 +107,6 @@ with the exact visual description and screenshot if possible.
 
 ## See also
 
-- [`docs/keybindings.md`](keybindings.md) — reference for the split chords used
+- [`docs/keybindings.md`](keybindings.md) - reference for the split chords used
   in cell C6. The direct split chords are fixed; the lightbox `Esc` and
   click-outside dismiss paths in B5 are hardcoded rather than bindable actions.

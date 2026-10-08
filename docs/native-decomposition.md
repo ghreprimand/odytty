@@ -20,7 +20,7 @@ enforced by the production-file guard in CI rather than by these figures.
 At revision `c8ba642e617b20f49cbf899a08f4954a0f7b875e`, the production facades are
 348 lines (`app/mod.rs`), 43 lines (`overlay.rs`), 46 lines (`session.rs`), and
 104 lines (`gpu.rs`). Their largest production siblings are 1,729 lines
-(`app/panes.rs`), 1,092 lines (`overlay/render.rs`), 1,430 lines
+(`app/panes.rs`, above the 1,700-line refactor target), 1,092 lines (`overlay/render.rs`), 1,430 lines
 (`session/transport.rs`), and 1,533 lines (`gpu/resources.rs`). The repository
 guard classifies all 415 tracked `src/**/*.rs` files (281 production-bearing
 and 134 test-only) and reports no production file above the 1,999-line maximum.
@@ -70,7 +70,7 @@ does not establish a sound boundary.
 
 ### Pre-extraction responsibilities and state
 
-`App` is the central native-window state owner. Its fields currently group:
+At revision `c8ba642e`, `App` was the central native-window state owner. Its fields grouped:
 
 - window, GPU, workspace, session, and active-pane state;
 - keyboard bindings, prefix state, modifier state, and held-exit handling;
@@ -93,7 +93,7 @@ additional owners or background event loops.
 
 ### Final module budget
 
-| Destination | Responsibility | Budget |
+| Destination | Responsibility | Budget (design) |
 | --- | --- | ---: |
 | `app/mod.rs` | Facade and stable re-exports | 300 |
 | `app/state.rs` | `App` fields, construction, state contracts, active-session dereference | 1,250 |
@@ -225,6 +225,8 @@ origin, state transition, and forwarding outcome relevant to its path.
 
 ### Pre-extraction state and responsibilities
 
+At revision `c8ba642e`:
+
 `OverlayUi` coordinates component UIs, navigation, pending payloads, drag
 latches, settings and picker state, key and pointer dispatch, outcome mapping,
 geometry, and rendering into a snapshot copy.
@@ -234,7 +236,7 @@ Its boundary is presentation-only: frozen or cloned state enters, and an
 
 ### Destination modules
 
-| Destination | Responsibility | Budget |
+| Destination | Responsibility | Budget (design) |
 | --- | --- | ---: |
 | `overlay.rs` | Facade and re-exports | 250 |
 | `overlay/contracts.rs` | Modes, outcomes, inputs, pointers, signatures, shared data contracts | 750 |
@@ -271,11 +273,13 @@ registry, context-menu, and replay-isolation suites remain cross-module owners.
 
 ### Pre-extraction state and responsibilities
 
+At revision `c8ba642e`:
+
 `WorkspaceSet` owns the session arena keyed by `SessionToken`. Workspace, tab,
 and pane trees store tokens and active indices; dereferencing resolves the
 active focused `Session`.
 
-The current hotspot combines:
+The hotspot combined:
 
 - source and platform backend selection;
 - local, remote, attached, and headless transports;
@@ -287,7 +291,7 @@ The current hotspot combines:
 
 ### Destination modules
 
-| Destination | Responsibility | Budget |
+| Destination | Responsibility | Budget (design) |
 | --- | --- | ---: |
 | `session.rs` | Facade and re-exports | 250 |
 | `session/model.rs` | Tokens, session/tab/workspace fields, arena and structural accessors | 1,150 |
@@ -338,18 +342,20 @@ Persistence tests own capture, rollback, append, and drive-letter paths.
 
 ### Pre-extraction state and responsibilities
 
+At revision `c8ba642e`:
+
 `GpuState` remains the single UI-thread owner of the instance, window, adapter,
 surface, device, queue, pipelines, bindings, buffers, CPU-side vertices, image
 state, post-processing state, atlases, fonts, and recovery state.
 
-The current hotspot combines pure geometry and effect helpers, resource and
+The hotspot combined pure geometry and effect helpers, resource and
 pipeline creation, adapter and surface setup, scene building and upload,
 surface resize and recovery, render-pass encoding, submission, and
 presentation.
 
 ### Destination modules
 
-| Destination | Responsibility | Budget |
+| Destination | Responsibility | Budget (design) |
 | --- | --- | ---: |
 | `gpu.rs` | Facade and re-exports | 250 |
 | `gpu/types.rs` | Pane, cursor, overlay, and frame input contracts | 900 |

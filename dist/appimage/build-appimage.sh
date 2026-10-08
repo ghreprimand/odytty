@@ -11,8 +11,8 @@
 #
 # Tooling: linuxdeploy (plus its appimage output plugin) does the dependency
 # bundling. linuxdeploy ships a default exclude list that deliberately leaves
-# the graphics stack on the host — libvulkan, libGL, the X11/Wayland client
-# libs, and glibc are NOT bundled — so the AppImage uses the host Mesa/Vulkan
+# the graphics stack on the host - libvulkan, libGL, the X11/Wayland client
+# libs, and glibc are NOT bundled - so the AppImage uses the host Mesa/Vulkan
 # ICD rather than carrying a driver that would mismatch the user's GPU. That is
 # the documented AppImage caveat: the host must provide a working Vulkan driver.
 #

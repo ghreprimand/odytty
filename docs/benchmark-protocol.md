@@ -74,8 +74,8 @@ and every measured replicate.
 
 The reason is evidential. Version 1.2.0 admitted a comparison only when all
 four laptop terminals reached one identical device-pixel grid. The complete
-declared calibration search ran to exhaustion on the measurement machine —
-every declared configuration for OdyTTY, Kitty, Ghostty, and Alacritty — and
+declared calibration search ran to exhaustion on the measurement machine -
+every declared configuration for OdyTTY, Kitty, Ghostty, and Alacritty - and
 found no such common grid. An admission gate that no declared configuration
 can satisfy does not control anything; it only makes a protocol-valid
 comparison unreachable. The remaining pitch difference is therefore stated as
@@ -147,8 +147,8 @@ compared only within that unit. Results from different hosts or operating
 systems are separate replications, not interchangeable samples.
 
 The primary comparison set contains OdyTTY and every independent reference
-named in preregistration. Ghostty, Konsole, and Alacritty are eligible
-references. A missing implementation is `unsupported` for that platform; it
+named in preregistration. Kitty, Ghostty, Alacritty, and WezTerm (where
+functional on the platform) are eligible references. A missing implementation is `unsupported` for that platform; it
 must not be replaced after outcomes are known.
 
 Primary comparisons use published release artifacts when every implementation
@@ -207,7 +207,7 @@ within a run set.
 80 columns by 24 rows is the **normalization target**. Every terminal is
 configured to request it, and the controller drives toward it within a bounded
 budget. Whether each terminal arrived there is measured, recorded per
-implementation, and published — it is not a pass/fail condition for being
+implementation, and published - it is not a pass/fail condition for being
 compared.
 
 What is actually required of a qualified terminal:
@@ -218,7 +218,7 @@ What is actually required of a qualified terminal:
   exactly the integer cell pitch times the observed rows and columns, plus a
   sub-cell edge remainder smaller than one cell;
 - that grid and envelope model are pinned in the preregistration and hold
-  unchanged through readiness, the rehearsal, and every measured replicate —
+  unchanged through readiness, the rehearsal, and every measured replicate -
   a terminal that silently re-lays out mid-session fails against its own
   registered model and its run aborts;
 - the font bytes, requested font size, colors, canonical tracked profile,
@@ -399,7 +399,7 @@ stay in a new mode-`0700` directory outside the repository and public output
 tree. Failure or interruption discards the empty public reservation and retains
 the private diagnostics. Neither command consumes or creates readiness, probe,
 preregistration-anchor, rehearsal, measurement, or run identity. Neither
-suspends Brave nor enforces CPU-noise controls. Diagnostic evidence is
+stops unrelated foreground applications nor enforces CPU-noise controls. Diagnostic evidence is
 preparation evidence, not the official one-shot availability probe.
 
 The font is enforced separately. The runner copies the pinned, digest-verified
@@ -449,8 +449,8 @@ The historical calibration search remains explicitly bounded when it is run
 deliberately: OdyTTY has 105 declared font-size/line-height settings and each
 of the three references has 21 font-size settings, for 168 launches with a
 15,120-second wall bound. Its published attempts must equal the exact ordered
-setting sequence declared by the pinned profile — no truncation, reordering,
-duplication, or post-hoc subset is valid — and every attempt digest and
+setting sequence declared by the pinned profile - no truncation, reordering,
+duplication, or post-hoc subset is valid - and every attempt digest and
 ordered-list digest is recomputed on validation.
 
 The shared controls are not relaxed by protocol 1.4.0: font bytes, requested
@@ -479,9 +479,9 @@ Each run set uses the following controls:
 2. Use external power, a fixed performance CPU power policy, unchanged
    firmware settings, and the same cooling arrangement. That policy has two
    valid expressions and both normalize to `performance`: a `performance`
-   scaling governor on every cpufreq policy, or — when every policy uses the
+   scaling governor on every cpufreq policy, or - when every policy uses the
    same recognized active-pstate driver (`intel_pstate` or `amd-pstate-epp`),
-   where the governor reads `powersave` — a `performance` energy/performance
+   where the governor reads `powersave` - a `performance` energy/performance
    preference on every policy. Every governor is inspected, not just the first
    CPU. Disagreeing or unreadable governors are never normalized. Driver and
    preference evidence is required only for the `powersave`/EPP expression;

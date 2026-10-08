@@ -1,4 +1,4 @@
-# Interactive Paths — Design (C0)
+# Interactive Paths - Design (C0)
 
 Status: design + pure detection spine landed (Phase 6 / C0–C1). Phase 7 (C2)
 shipped the hover affordance (hand cursor plus the armed Ctrl-hover underline,
@@ -6,7 +6,7 @@ or Cmd-hover on macOS). Phase 8 (C3) shipped the platform-modifier click open
 dispatch, the editor invocation matrix + `interactive_paths_editor` knob, and
 the context-menu file section (Open / Copy Path / Copy File / Reveal in File
 Manager). Phase 9 (C4) shipped the in-terminal image viewer ("Open in OdyTTY";
-see §8). Phase 8b (C3b) shipped **"Open With…"** — freedesktop handler
+see §8). Phase 8b (C3b) shipped **"Open With…"** - freedesktop handler
 enumeration on Linux, `NSWorkspace` enumeration on macOS, and the app-picker
 overlay (see §9). Windows currently opens the picker with no enumerated apps.
 This document is the contract those phases implement against.
@@ -16,8 +16,8 @@ the contract they build toward.*
 
 Implementation status (2026-07-20): Windows now recognizes drive-absolute, UNC,
 and backslash-relative paths, and launches Explorer directly with one argv
-element. The `cmd` launcher described in the design-time dispatch table below
-is retained as historical context, not current behavior.
+element (`["explorer", <abs>]`) instead of the `cmd /C start` launcher the
+design first considered.
 
 ## Contents
 
@@ -30,14 +30,14 @@ is retained as historical context, not current behavior.
 - [2. Resolution model](#2-resolution-model)
   - [When resolution runs](#when-resolution-runs)
   - [Hover affordance: hand cursor + armed `Ctrl`-hover underline](#hover-affordance-hand-cursor--armed-ctrl-hover-underline)
-- [3. Open-action dispatch table (for Phase 8)](#3-open-action-dispatch-table-for-phase-8)
+- [3. Open-action dispatch table](#3-open-action-dispatch-table)
 - [4. Editor invocation matrix (`path:line:col`)](#4-editor-invocation-matrix-pathlinecol)
   - [Config-override knob: `interactive_paths_editor`](#config-override-knob-interactive_paths_editor)
 - [5. Security argument](#5-security-argument)
 - [6. Module layout & purity invariant](#6-module-layout--purity-invariant)
 - [7. Rejected / deferred](#7-rejected--deferred)
-- [8. In-terminal image viewer (Phase 9 / C4) — shipped](#8-in-terminal-image-viewer-phase-9--c4--shipped)
-- [9. "Open With…" app picker (Phase 8b / C3b) — shipped](#9-open-with-app-picker-phase-8b--c3b--shipped)
+- [8. In-terminal image viewer (Phase 9 / C4) - shipped](#8-in-terminal-image-viewer-phase-9--c4---shipped)
+- [9. "Open With…" app picker (Phase 8b / C3b) - shipped](#9-open-with-app-picker-phase-8b--c3b---shipped)
 - [10. Config keys, click-hint chip & failure notice](#10-config-keys-click-hint-chip--failure-notice)
   - [Config keys](#config-keys)
   - [Click-hint chip](#click-hint-chip)
@@ -47,7 +47,7 @@ is retained as historical context, not current behavior.
 
 Make filesystem paths that appear in arbitrary terminal output
 (`cargo` errors, `grep` results, stack traces, `ls` output, log lines, …)
-*actionable* — hover shows they are live, Ctrl+click opens them on Linux/Windows,
+*actionable* - hover shows they are live, Ctrl+click opens them on Linux/Windows,
 Cmd+click opens them on macOS, a context menu offers Open / Open With / Copy /
 Reveal, and `path:line:col` jumps an editor to the exact spot. All of this is
 **default-off**, **local-only**, and spawned **argv-only** (no shell
@@ -72,7 +72,7 @@ plus an optional `:line[:col]` suffix parsed off the end. Production hover uses
 `detect_path_candidates_at`: it expands around the hovered whitespace-delimited
 token by at most six tokens per side, returns at most eight candidates longest
 first, and lets the resolution layer choose the longest candidate that exists.
-Detection is **syntactic only** — it makes no filesystem decision. Liveness is
+Detection is **syntactic only** - it makes no filesystem decision. Liveness is
 decided later by the resolution layer (§2).
 
 ### What counts as a path span
@@ -132,7 +132,7 @@ column 10.
   `"…"`, `'…'`, `(…)`, `[…]`, `{…}`, `<…>` or `` `…` ``, the wrappers are
   stripped from the span. An *unbalanced* closer at the end (`(./foo)` inside
   prose `(see ./foo)`) is stripped; a balanced bracket that is part of the path
-  (`/Foo_(bar)`) is kept — same rule as `hints.rs`.
+  (`/Foo_(bar)`) is kept - same rule as `hints.rs`.
 
 ### Bounded cost (anti-DoS)
 
@@ -167,7 +167,7 @@ resolve(span, cwd: Option<&str>, home: Option<&str>, probe: &impl ResolveProbe)
   (the pane's OSC 7 working directory; None if cwd unknown).
 
 The joined string is **lexically canonicalized** (`.`/`..`/duplicate-slash
-collapse) *without touching the filesystem* — `..` is resolved textually so we
+collapse) *without touching the filesystem* - `..` is resolved textually so we
 never `readlink`/`stat` intermediate components. Then the **single** probe call
 classifies the final absolute path:
 
@@ -183,9 +183,9 @@ enum FsKind { File, Dir }
 - Probe returns `None` → span is **dead**; `resolve` returns `None`. The UI
   never decorates or opens a dead span.
 
-The production probe (added in a later change) is a thin `std::fs::symlink_metadata`
+The production probe is a thin `std::fs::symlink_metadata`
 wrapper. **Tests inject a `HashMap<String, FsKind>` synthetic fs** and never
-touch the real filesystem — this is enforced structurally: `src/paths/` has no
+touch the real filesystem - this is enforced structurally: `src/paths/` has no
 `std::fs` import at all; the only stat happens inside the caller-supplied probe.
 
 ### When resolution runs
@@ -199,8 +199,8 @@ hyperlink hover path the wiring will reuse.
 ### Hover affordance: hand cursor + armed `Ctrl`-hover underline
 
 Hover detection is wired into the pointer path. A plain hover over a resolved
-span shows the pointer (hand) cursor — the same affordance OdyTTY already uses
-for OSC 8 hyperlinks — and **when `Ctrl` is held while hovering a resolved span,
+span shows the pointer (hand) cursor - the same affordance OdyTTY already uses
+for OSC 8 hyperlinks - and **when `Ctrl` is held while hovering a resolved span,
 that span's cells are underlined** (the "now it will open" signal), painted onto
 the snapshot cells like the selection/search highlights
 (`src/native/app/click_hint.rs`).
@@ -220,13 +220,13 @@ terminal lock, row build, `detect_paths` scan, or stat probe, so the default
 hover path makes zero scans and zero `stat` calls and stays byte-identical. The
 hovered span is deduped exactly like the OSC 8 hovered-link state, so an
 unchanged hover triggers no redraw. Hover detection operates on the **focused
-pane only** — a v1 bound inherited from the OSC 8 hyperlink hover path, which is
+pane only** - a v1 bound inherited from the OSC 8 hyperlink hover path, which is
 likewise focused-pane-only; non-focused panes do not yet run hover detection.
 Selection and search-match highlighting, by contrast, now render per pane.
 
 ---
 
-## 3. Open-action dispatch table (for Phase 8)
+## 3. Open-action dispatch table
 
 **Shipped in C3.** All spawns are **argv vectors**, never a shell string, routed
 through the single `spawn_detached(argv)` point shared with the OSC 8 hyperlink
@@ -234,16 +234,17 @@ open.
 
 | Span kind | Action | argv |
 |-----------|--------|------|
-| File, no `:line` | open with default app | OS default-open (Linux `["xdg-open", <abs>]`, macOS `["open", <abs>]`, Windows `["cmd", "/C", "start", "", <abs>]`) |
+| File, no `:line` | open with default app | OS default-open (Linux `["xdg-open", <abs>]`, macOS `["open", <abs>]`, Windows `["explorer", <abs>]`) |
 | File, with `:line[:col]` | open editor at position | per the editor matrix (§4) |
 | Directory | open in file manager | OS default-open (as above) |
 
 The default-open argv is selected per host by
 `platform_opener::open_default_argv` (`src/native/app/platform_opener.rs`):
 **Linux** uses `["xdg-open", <abs>]`, **macOS** uses `["open", <abs>]`, and
-**Windows** uses `["cmd", "/C", "start", "", <abs>]`. The opener
+**Windows** uses `["explorer", <abs>]`, so no untrusted string reaches a `cmd.exe`
+command line. The opener
 receives the canonical absolute path as a **single argv element**, so
-spaces/quotes/`;`/`$()` in the path are inert — there is no shell. The "Reveal in
+spaces/quotes/`;`/`$()` in the path are inert - there is no shell. The "Reveal in
 File Manager" item is likewise OS-branched: `["xdg-open", <parent dir>]` on
 Linux, `["open", "-R", <abs>]` (which reveals the file itself in Finder) on
 macOS, and `["explorer", "/select,", <abs>]` on Windows.
@@ -284,8 +285,8 @@ accepts a known editor name, a program plus leading arguments such as
 Command-form matching uses the program basename, case-insensitively, and keeps
 path-qualified programs and leading arguments. Templates split on whitespace
 *before* placeholder substitution, so a substituted path with spaces stays one
-argv element. This knob is wired in Phase 8; it is named here so the matrix and
-the setting agree.
+argv element. The knob is wired live; it is named here so the matrix and the
+setting agree.
 
 ---
 
@@ -315,13 +316,15 @@ the setting agree.
 ```
 src/paths/
   mod.rs      pub use; resolve(), ResolveProbe, FsKind, Resolved, PathSpan re-export;
-              is_image_path() + IMAGE_EXTENSIONS  (pure, std-only — C4 offer gate)
+              is_image_path() + IMAGE_EXTENSIONS  (pure, std-only - C4 offer gate)
   detect.rs   detect_paths(), detect_path_candidates_at(), PathSpan
               (pure scanner, no I/O)
+  file_uri.rs pure `file://` URI construction shared by the interactive-path
+              opener and the Desktop-Entry field-code expander
 ```
 
 - `src/paths/` imports **std only** (no `winit`/`wgpu`/render/settings, no
-  `regex`, no new dependency — the detector is hand-rolled, following the
+  `regex`, no new dependency - the detector is hand-rolled, following the
   `fuzzy` and `hints` precedent).
 - No `std::fs` import in `src/paths/`; the only filesystem touch is the
   caller's `ResolveProbe` impl, which tests replace with a synthetic map.
@@ -341,23 +344,23 @@ src/paths/
 
 ## 7. Rejected / deferred
 
-- **Per-frame scrollback scan** — rejected; hover-time only, to keep the hot
+- **Per-frame scrollback scan** - rejected; hover-time only, to keep the hot
   path untouched and cost bounded.
 - **Extensionless bare-word-in-cwd detection** (lighting up a plain `README`
-  with no `/` and no extension) — out of scope; too noisy. Explicit `./README`
+  with no `/` and no extension) - out of scope; too noisy. Explicit `./README`
   is supported. (Extension-bearing barewords like `main.rs` or `photo.jpg` *are*
-  detected — shipped behind `interactive_paths_barewords` (default on); see
+  detected - shipped behind `interactive_paths_barewords` (default on); see
   §1 and §10.)
-- **Windows path shapes** — drive-letter absolute paths, UNC paths, and
+- **Windows path shapes** - drive-letter absolute paths, UNC paths, and
   backslash-relative paths ship in Windows builds; POSIX builds keep their
   existing shape rules.
-- **Read-only text preview** of non-image files — optional/later (C4 ships the
+- **Read-only text preview** of non-image files - optional/later (C4 ships the
   image viewer first).
-- **File mutations** (chmod/rename/delete) — declined for now (C5).
+- **File mutations** (chmod/rename/delete) - declined for now (C5).
 
 ---
 
-## 8. In-terminal image viewer (Phase 9 / C4) — shipped
+## 8. In-terminal image viewer (Phase 9 / C4) - shipped
 
 When a resolved span is an **image file**, the context-menu file section gains
 an **"Open in OdyTTY"** item that renders the image inside the terminal window.
@@ -367,7 +370,7 @@ only the extension against `IMAGE_EXTENSIONS` = `png`, `jpg`, `jpeg`, `webp`.
 This list **must equal the enabled `image`-crate decoders** (`Cargo.toml`
 features `jpeg`/`png`/`webp`); GIF/BMP/TIFF are deliberately excluded (their
 decoders are not enabled, and animated GIF implies frame handling the raster
-path rejects). The menu item appears only on an image span — a non-image path
+path rejects). The menu item appears only on an image span - a non-image path
 keeps the menu byte-identical to C3.
 
 **Trigger.** Two entry points. The context-menu **"Open in OdyTTY"** item opens
@@ -388,8 +391,8 @@ blocking reads are not made impossible by these limits.
 
 **Rendering (presentation-only).** The decoded RGBA is uploaded into the
 existing `native::image_layer::ImageLayer` via a dedicated overlay entrypoint
-(`set_overlay_image`) and drawn as the **final** scene step — over the terminal,
-the graphics placements, and the overlay panel/scrim — reusing the same
+(`set_overlay_image`) and drawn as the **final** scene step - over the terminal,
+the graphics placements, and the overlay panel/scrim - reusing the same
 shader/pipeline/texture path as terminal graphics (no second rendering path).
 The image is centered, aspect-preserved, and **never upscaled past its source**,
 fitting within ~90% of the viewport. It is **not** injected into the terminal's
@@ -410,7 +413,7 @@ image detection, no menu item, no viewer while off.
 
 **Deferred:** read-only text preview of non-image files (above); animated GIF.
 
-## 9. "Open With…" app picker (Phase 8b / C3b) — shipped
+## 9. "Open With…" app picker (Phase 8b / C3b) - shipped
 
 On a resolved **regular-file** span the context-menu file section gains an
 **Open With…** item that opens a type-to-filter picker overlay
@@ -419,14 +422,14 @@ the desktop applications that can open the file. Directories do not show it (no
 application-handler list for them here).
 
 **Module layout.** The pure logic lives in `src/desktop/` (std-only, no
-windowing/GPU import — the §6 layering rule), unit-tested entirely on synthetic
+windowing/GPU import - the §6 layering rule), unit-tested entirely on synthetic
 fixtures:
-- `exec.rs` — `exec_to_argv(exec, abs)`, the security spine (below).
-- `parse.rs` — hand parsers for `.desktop` / `mimeapps.list` / `mimeinfo.cache`
+- `exec.rs` - `exec_to_argv(exec, abs)`, the security spine (below).
+- `parse.rs` - hand parsers for `.desktop` / `mimeapps.list` / `mimeinfo.cache`
   (one small INI-ish group reader; no new dependency).
-- `macos_apps.rs` — `map_macos_app_paths(bundle_paths, file_abs)`, the pure
+- `macos_apps.rs` - `map_macos_app_paths(bundle_paths, file_abs)`, the pure
   NSWorkspace-result-to-`DesktopApp` mapper.
-- `mod.rs` — `enumerate_open_with(probe, env, abs)` behind two injectable seams
+- `mod.rs` - `enumerate_open_with(probe, env, abs)` behind two injectable seams
   (`MimeProbe`, `DesktopEnv`), capped at `MAX_OPEN_WITH` (12).
 
 The production seam implementations live in `native/app/open_with_ui.rs` (they
@@ -436,9 +439,9 @@ fall through to magic-byte sniffing) and `FsDesktopEnv` (the real `XDG_*`
 ladders + bounded `std::fs` reads, 256 KiB per file).
 
 **Enumeration.** On Linux, `xdg-mime` → MIME type; then candidate desktop ids are gathered
-in priority order — `mimeapps.list` `[Default Applications]` then
+in priority order - `mimeapps.list` `[Default Applications]` then
 `[Added Associations]` across the config ladder, then `mimeinfo.cache`
-`[MIME Cache]` across the data ladder — with `[Removed Associations]` subtracted
+`[MIME Cache]` across the data ladder - with `[Removed Associations]` subtracted
 and ids deduplicated (first occurrence wins). macOS asks `NSWorkspace` directly.
 Windows currently returns no candidates and shows the picker's empty-state hint;
 default-open and reveal remain available there.
@@ -452,10 +455,10 @@ normal name, so an id such as `..-evil.desktop` never reads outside
 `Type=Application`, or are `NoDisplay`/`Hidden`/`Terminal=true`, or lack an
 `Exec`, are skipped. `Terminal=true` apps are **excluded in v1** (launching a
 TTY-owning app detached with null stdio misbehaves); revisitable. `TryExec`
-PATH-existence filtering is **not** done in v1 (a documented gap — a dead row is
+PATH-existence filtering is **not** done in v1 (a documented gap - a dead row is
 acceptable).
 
-**`exec_to_argv` — the security spine.** The `.desktop` `Exec=` value is NOT a
+**`exec_to_argv` - the security spine.** The `.desktop` `Exec=` value is NOT a
 shell command; it is tokenized per Desktop-Entry quoting (double quotes group;
 `\"` `\\` `\$` `` \` `` unescape inside quotes; `$VAR`, `~`, globs, command
 substitution are all literal text). Field codes then expand per token: `%f`/`%F`
@@ -482,13 +485,13 @@ programs outside that list that read an argument as code are not recognized.
 Running the selected file itself (`sh %f`) remains a file operand.
 
 The expanded argv flows into the shared C3 `spawn_detached` (argv-only,
-null stdio) — so a path containing spaces, `;`, `$()`, or backticks is one inert
+null stdio) - so a path containing spaces, `;`, `$()`, or backticks is one inert
 argument, never interpolated into a shell.
 
 **Overlay.** A frozen `Vec<DesktopApp>` captured at open (each row carries a
 pre-built argv), `fuzzy::rank` type-to-filter over the app names, scroll, a
 render signature for byte-identity, control-char-sanitized `Name` (third-party
-text — sanitized like session titles). Enter launches the chosen app; Esc
+text - sanitized like session titles). Enter launches the chosen app; Esc
 dismisses. An empty list (no handlers / `xdg-mime` absent) shows a hint rather
 than failing to open. Closed, the overlay is byte-identical to the live frame.
 
@@ -528,8 +531,8 @@ is byte-identical when absent.
 
 Every open spawn routes through `spawn_open_or_notice`
 (`src/native/app/open_notice.rs`): a detached, null-stdio argv spawn (§5). If the
-spawn fails — most commonly a missing opener (`xdg-open` / `open` not installed)
-— a transient full-width top banner surfaces
-`"Couldn't open — '<prog>' not found (is it installed?)"` for a few seconds
+spawn fails - most commonly a missing opener (`xdg-open` / `open` not installed) -
+a transient full-width top banner surfaces
+`"Couldn't open - '<prog>' not found (is it installed?)"` for a few seconds
 instead of failing silently. The banner is presentation-only and byte-identical
 when absent.

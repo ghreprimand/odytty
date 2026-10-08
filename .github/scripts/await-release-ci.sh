@@ -6,8 +6,8 @@
 # release workflow runs on a tag push. Pushing the branch and its tag back to
 # back starts both at once, so the gate can evaluate while the same-commit CI
 # run is still in progress and refuse a commit that goes green a few minutes
-# later. That is a scheduling race, not a
-# quality signal, and it blocked the v0.9.7 publish with every artifact already
+# later. That is a scheduling race, not a quality
+# signal, and it blocked the v0.9.7 publish with every artifact already
 # built. This waiter re-asks the same question until CI actually finishes.
 #
 # WHAT IT DOES NOT DO: it never weakens the gate. Publication still requires a

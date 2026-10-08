@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
-# button-demo.sh — demonstrate the OdyTTY button protocol (docs/buttons.md).
+# button-demo.sh - demonstrate the OdyTTY button protocol (docs/buttons.md).
 #
 # Prints a small panel of clickable buttons using the Tier 2 spelling
 # (OSC 133;P;odytty-button), plus one iTerm2-compatible Tier 1 button, then

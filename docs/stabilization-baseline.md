@@ -228,7 +228,7 @@ another name.
 Two further defects of the same class were confirmed while characterizing this
 one.
 
-**F2b — residual state from the settings-reload seam.** The reload seam
+**F2b - residual state from the settings-reload seam.** The reload seam
 republishes the default colors, the ANSI palette and the minimum-contrast
 floor from `Settings`. With default settings that floor is `17.0`, and nothing
 restored the previous value, so every test reaching that seam raised the
@@ -236,7 +236,7 @@ process-wide floor for the remaining life of the test binary. This is residual
 state rather than a timing window: locking the readers alone would not have
 fixed it.
 
-**F3 — the same class in the atlas module.** Glyph rasterization reads a
+**F3 - the same class in the atlas module.** Glyph rasterization reads a
 process-global stem-darkening gain. Tests that compare coverage buffers for
 byte identity across separate rasterization passes did not hold the lock, so a
 gain change landing between the passes diverged the buffers. The module
@@ -273,8 +273,8 @@ found additional process-global values beyond the initial set.
 The box-drawing thickness multiplier is republished from the renderer's
 text-options apply and again from every atlas rebuild, both reachable from the
 seam. It is now in the snapshot, read through a test-only accessor and written
-back through the existing public setter. Its earlier exclusion — recorded on
-the grounds that no test drove that path — was the wrong test to apply: the
+back through the existing public setter. Its earlier exclusion - recorded on
+the grounds that no test drove that path - was the wrong test to apply: the
 cost of snapshotting one more atomic is negligible beside a leak that would
 surface later as an unrelated failure.
 
@@ -301,7 +301,7 @@ settings tests that call the reload helper directly serialized on a
 directory-local mutex, and the palette-override test in the text module
 serialized on a module-local one. Both are gone; those seven reload tests and
 the palette test now take the shared guard, and their hand-written restores were
-deleted as redundant — restoration is the guard's job on every exit path,
+deleted as redundant - restoration is the guard's job on every exit path,
 including a panicking one.
 
 The remaining declared lock in the library test binary serializes headless GPU
@@ -358,11 +358,12 @@ returns, with a precondition that the seam genuinely publishes a different
 floor so the case cannot pass vacuously.
 
 Windows and macOS results remain the authority of the blocking platform legs.
-The mechanism is platform-independent — the same statics, the same missing
-reader-side exclusion, the same parallel test harness — and none of the
+The mechanism is platform-independent - the same statics, the same missing
+reader-side exclusion, the same parallel test harness - and none of the
 implicated files carries a platform-specific path, but no platform correctness
-is inferred here from Linux measurements. This finding stays open until the
-blocking platform legs confirm the change.
+is inferred here from Linux measurements. At the time of this baseline the
+finding stayed open until the blocking platform legs confirmed the change; later
+CI results are not recorded here.
 
 ## Dependency advisory state
 

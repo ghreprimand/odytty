@@ -68,9 +68,8 @@ report redaction with project-authored tool stubs. It performs no coverage build
 or measurement. `python3 scripts/coverage-surfaces.py --self-test` checks the
 classifier, including unknown metadata fields and Unix/Windows path redaction.
 
-That measurement added no Rust code. The runner and classifier were the only
-executable files added at that revision; no product source, test, or assertion
-was touched to produce the numbers below.
+The numbers below were produced without changing product source, tests, or
+assertions; the runner and classifier are the only executable files involved.
 
 The runner refuses to start when `cargo`, `rustc`, `python3`, `llvm-profdata`,
 or `llvm-cov` is missing, and when the LLVM major version behind `rustc`
@@ -516,13 +515,11 @@ be the specific dishonesty this report exists to avoid.
 - Class C and D gaps cannot be closed by any amount of test writing on this
   platform. Reporting them as debt against a threshold would misdirect work.
 
-No coverage threshold, gate, or guard was added anywhere in the repository by
-this work.
+The repository has no coverage threshold, gate, or guard.
 
 ## Proposed follow-up work
 
-Recorded here as candidates, not as commitments, and deliberately not
-implemented in the same change that produced this measurement. Each is scoped
+Recorded here as candidates, not as commitments. Each is scoped
 to covering existing behavior; none of them changes product behavior, and any
 defect found while writing them is reported rather than fixed inline.
 

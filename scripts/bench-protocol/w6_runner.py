@@ -77,8 +77,9 @@ PUBLIC_ANCHOR_MAX_BYTES = 1 << 20
 SETTLE_SECONDS = 60
 MEASURE_SECONDS = 600
 
-# Protocol-fixed W6 sampling: one distinct two-minute rehearsal per qualified
-# implementation, then five measured 60+600 second replicates.
+# Protocol-fixed W6 sampling: one distinct paired (uninstrumented and
+# instrumented) two-minute rehearsal per qualified implementation, then five
+# measured 60+600 second replicates.
 REHEARSAL_SECONDS = 120
 REHEARSAL_BLOCKS = 1
 MEASURED_BLOCKS = 5
@@ -187,7 +188,7 @@ def idle_driver_command(
 
 
 # ---------------------------------------------------------------------------
-# Window mapping — is there actually a viewport?
+# Window mapping - is there actually a viewport?
 # ---------------------------------------------------------------------------
 
 
@@ -514,12 +515,14 @@ def window_for_pids(windows: list[dict], pids: set[int]) -> dict | None:
 
 
 def window_unobscured(target: dict, windows: list[dict]) -> bool | None:
-    """Prove the focused target is the foreground normal client.
+    """Prove the target is not obscured by another client.
 
-    Geometry overlap alone is not obscuration: tiled or floating clients
-    behind the focused window commonly occupy the same coordinates.  The
-    supported compositor snapshot identifies the foreground normal client via
-    its unique focus position.  Conflicting focused clients fail closed.
+    A focused target must be the single focused, visible, mapped client.  For an
+    unfocused target, geometry overlap with another visible mapped client on the
+    same workspace and monitor counts as obscured (`False`); that check is a
+    conservative approximation, because tiled or floating clients behind a
+    focused window commonly occupy the same coordinates.  An invisible target or
+    non-integer geometry returns `None`.  Conflicting focused clients fail closed.
     """
     if target.get("visible") is not True:
         return None
@@ -589,16 +592,16 @@ def descendant_pids(pid: int, proc_root: Path = Path("/proc")) -> set[int]:
 
 
 # ---------------------------------------------------------------------------
-# Qualification — which implementations may be compared at all
+# Qualification - which implementations may be compared at all
 # ---------------------------------------------------------------------------
 
 
 def _stable_own_geometry(probe: dict) -> bool:
     """Return whether a probe proved this terminal's own stable grid model.
 
-    A terminal is admissible when its observed grid is self-consistent — the
+    A terminal is admissible when its observed grid is self-consistent - the
     content envelope is exactly the integer cell pitch times the observed
-    rows and columns — and its PTY pixel-envelope model reports that same
+    rows and columns - and its PTY pixel-envelope model reports that same
     pitch with a sub-cell remainder.
 
     Reaching the target cell count is NOT required. A terminal that
@@ -1130,6 +1133,7 @@ def estimate_duration_seconds(
     measured = implementations * measured_blocks * (
         settle_seconds + measure_seconds + per_replicate_overhead
     )
+    # The factor 2 is the paired uninstrumented and instrumented rehearsal.
     rehearsals = implementations * rehearsal_blocks * 2 * (
         REHEARSAL_SECONDS + per_replicate_overhead
     )
@@ -1561,7 +1565,7 @@ class RealLauncher:
             "command_failed": False,
             "released": False,
             # Whether normalization actually reached the target grid. A False
-            # here is a recorded, publishable outcome — not a failure.
+            # here is a recorded, publishable outcome - not a failure.
             "target_grid_reached": None,
         }
 
@@ -3639,7 +3643,7 @@ def run_geometry_diagnostic(
         )
         launches.append(launch)
     # Every terminal is attempted before any verdict, so one terminal missing
-    # the target — or failing outright — never hides the others' evidence.
+    # the target - or failing outright - never hides the others' evidence.
     if failed:
         raise ValueError(
             "geometry diagnostic could not observe a stable grid for: "
@@ -4275,7 +4279,7 @@ def run_replicate(
     # This terminal's OWN preregistered grid. Every readiness and oracle check
     # below compares against it rather than a fixed cell count, so a terminal
     # whose stable grid is not the normalization target is still measured
-    # correctly — and any mid-run relayout still fails.
+    # correctly - and any mid-run relayout still fails.
     registered_geometry = (expected_environment or {}).get("cell_geometry")
     registered_grid = (
         (registered_geometry["columns"], registered_geometry["rows"])
@@ -9737,7 +9741,7 @@ def self_test() -> list[str]:
     # A grid whose content envelope is not exactly the cell pitch times the
     # observed rows/columns is not a stable model and is refused on its own
     # terms. A grid that is merely OFF-TARGET is a different thing entirely:
-    # it is stable, measurable, and must qualify — this is the Ghostty-shaped
+    # it is stable, measurable, and must qualify - this is the Ghostty-shaped
     # case where a terminal reproducibly settles at its own cell count.
     inconsistent = dict(geometry)
     inconsistent["cell_width_device_px"] = 11
@@ -10663,7 +10667,7 @@ def self_test() -> list[str]:
                 break
 
     # A terminal that stabilized AWAY from the normalization target is
-    # measured, published, and disclosed — this is the Ghostty-shaped case and
+    # measured, published, and disclosed - this is the Ghostty-shaped case and
     # the whole point of treating 80x24 as a target rather than a gate. The
     # replicate is held to that terminal's own registered grid.
     off_target_grids = {

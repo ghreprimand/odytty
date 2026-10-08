@@ -33,6 +33,8 @@ OdyTTY uses GitHub-hosted runners for these workflows:
 | `.github/workflows/deep-fuzz.yml` | Weekly schedule or manual dispatch | Runs the ignored parser/protocol and graphics fuzz tiers at 40,000 iterations and retains logs for 14 days |
 | `.github/workflows/coverage-fuzz.yml` | Weekly schedule or manual dispatch | Runs bounded corpus-retaining parser, UTF-8/state-transition, and graphics-payload fuzz targets and retains corpora, crash artifacts, and logs for 14 days |
 | `.github/workflows/dynamic-analysis.yml` | Weekly schedule or manual dispatch | Runs the pinned Miri subset and bounded AddressSanitizer and ThreadSanitizer lanes and retains their logs for 14 days |
+| `.github/workflows/dev-build.yml` | Manual dispatch from any ref | Builds a Windows zip and a macOS app zip as short-lived Actions artifacts for hands-on acceptance of unreleased work; nothing is published |
+| `.github/workflows/aur-publish.yml` | Called by `release.yml` after publication, or manual dispatch | Stamps `dist/aur` with the release version and checksum and pushes the AUR package; a manual run backfills a failed tag-time push |
 
 Third-party workflow actions are pinned to reviewed commit SHAs rather than
 floating tags.
@@ -354,11 +356,18 @@ tests require the compiled `odytty` binary.
 cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
+cargo clippy --all-targets --locked --target x86_64-pc-windows-msvc -- -D warnings
+cargo clippy --all-targets --locked --target aarch64-apple-darwin -- -D warnings
+bash .github/scripts/rustsec-audit.sh
 cargo build --release --locked
 target/release/odytty --version
 desktop-file-validate dist/linux/io.unfinished_works.odytty.desktop
 appstreamcli validate --pedantic dist/linux/io.unfinished_works.odytty.metainfo.xml
 ```
+
+The two cross-target lints need the Windows and macOS standard libraries for
+the pinned toolchain. Keep `fuzz/parser_graphics/Cargo.lock` in step with any
+dependency or version change; the release CI enforces the locked fuzz build.
 
 The tag workflow smoke-tests the Windows and macOS binaries before packaging,
 the assembled AppImage, and the binary inside the Linux tarball staging tree.

@@ -1,4 +1,4 @@
-# OdyTTY — Keyboard Reference
+# OdyTTY - Keyboard Reference
 
 This is the single source of truth for OdyTTY's keyboard surface: the default
 shortcuts, the tmux-style pane prefix, copy mode, keyboard hints, and how to
@@ -85,7 +85,7 @@ chords (`Ctrl+Shift+E` / `Ctrl+Shift+O`) and the hardcoded
 | `Ctrl+Shift+Down` | Jump to the next prompt mark | `jump-prompt-next` |
 | `Ctrl+Shift+K` | Clear the shell input line (sends readline Ctrl+A, Ctrl+K; no shell integration required) | `clear-input` |
 | `Ctrl+Shift+X` | Stop broadcast input: empty the receiver set (never sent to the shell, works with a menu or confirmation open) | `stop-broadcast` |
-| `Delete` / `Backspace` | Delete the selected editable prompt input (when shell integration allows; otherwise the key behaves normally) | — |
+| `Delete` / `Backspace` | Delete the selected editable prompt input (when shell integration allows; otherwise the key behaves normally) | - |
 | `Shift+PageUp` | Scroll the viewport up one page | `scroll-up` |
 | `Shift+PageDown` | Scroll the viewport down one page | `scroll-down` |
 | `Ctrl+Shift+T` | New tab | `new-tab` |
@@ -131,7 +131,7 @@ Notes that trip people up:
   unavailable on layouts where those keys carry letters, such as German
   O-umlaut/A-umlaut layouts; use the command palette instead.
 - `Ctrl+Shift+E` / `Ctrl+Shift+O` are the way to make the *first* split on a
-  single-pane tab — the pane prefix below is inert until a tab already has two
+  single-pane tab - the pane prefix below is inert until a tab already has two
   or more panes.
 
 ## Shell Integration
@@ -207,7 +207,7 @@ Until prompt input marks are active, the context-menu Cut/Delete items are
 disabled with an "Enable shell integration in Settings" hint, and plain
 `Delete` / `Backspace` continue to behave as normal shell keys.
 
-Closing a tab (`Ctrl+Shift+W`) closes the **whole** tab — every pane it holds.
+Closing a tab (`Ctrl+Shift+W`) closes the **whole** tab - every pane it holds.
 Closing the last tab of the last workspace quits OdyTTY. Right-click menus are
 context-aware: a tab slot includes New, Duplicate, Rename, Close, Close Others,
 Connect to Host, Replace with Host, optional Move to Workspace, Move Tab to New
@@ -246,7 +246,7 @@ then one pane key.
 | `x` | Close the focused pane | `close-pane` |
 | `z` | Zoom / un-zoom the focused pane (full-bleed; layout preserved) | `zoom-pane` |
 | `Space` or `=` | Equalize the split sizes | `equalize-panes` |
-| `Ctrl+b` (the prefix again) | Send a literal prefix byte to the focused pane (nested multiplexer) | — |
+| `Ctrl+b` (the prefix again) | Send a literal prefix byte to the focused pane (nested multiplexer) | - |
 
 Prefix behaviour:
 
@@ -331,7 +331,7 @@ active pane without pressing Enter; selecting an action runs it after the overla
 closes.
 
 The palette also exposes **Rename Tab**, which has no keyboard shortcut of its
-own — the palette is the keyboard path to it (right-clicking a tab is the mouse
+own - the palette is the keyboard path to it (right-clicking a tab is the mouse
 path).
 
 ## Overlays
@@ -339,8 +339,8 @@ path).
 Every overlay (settings, theme picker/builder, font picker, connection manager,
 session replay, Manage Sessions, the image viewer, and the modal dialogs) is
 presentation-only: the terminal stays live behind it and the PTY is never
-blocked. They share a common navigation model — Up/Down/Left/Right to move,
-`Enter` to activate, `Esc` to close — and the settings panel adds `/` to
+blocked. They share a common navigation model - Up/Down/Left/Right to move,
+`Enter` to activate, `Esc` to close - and the settings panel adds `/` to
 type-to-search settings by name, config key, description, or group. Modal
 dialogs print their own one-key choices
 (for example the attach dialog's `[N]`ew tab / `[R]`eplace, or close-confirm's
@@ -381,10 +381,11 @@ probe and shows a tri-state result.
 
 ## Rebinding shortcuts
 
-There are three ways to change bindings; all three take effect on the next config
-poll (about once a second) with no restart.
+There are three ways to change bindings. The config file and the in-app editor
+take effect on the next config poll (about once a second) with no restart; the
+environment variable applies to the session it was set for.
 
-**Config file** — set `keybinds` in `odytty.conf` to a comma- or
+**Config file** - set `keybinds` in `odytty.conf` to a comma- or
 semicolon-separated list of `chord=action` pairs:
 
 ```conf
@@ -392,14 +393,14 @@ semicolon-separated list of `chord=action` pairs:
 keybinds = ctrl+alt+p=command-palette, ctrl+alt+r=session-replay
 ```
 
-**Environment variable** — `ODYTTY_KEYBINDS` uses the same syntax and wins for
+**Environment variable** - `ODYTTY_KEYBINDS` uses the same syntax and wins for
 that one session (handy for a one-off or a dev override):
 
 ```sh
 ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" odytty
 ```
 
-**In-app key-remap editor** — open the settings panel (`Ctrl+Shift+,`), pick the
+**In-app key-remap editor** - open the settings panel (`Ctrl+Shift+,`), pick the
 keybinds row, select an action, and press the new chord. Capture is via `Enter`
 after selecting a row; `Backspace` resets one row to its default; `R` resets all;
 binding a chord already in use prompts to reassign or cancel. Reassigning a pane
@@ -473,7 +474,7 @@ These tokens are accepted on the right-hand side of `chord=action`:
 
 Pane-management actions (`focus-pane-*`, `close-pane`, `zoom-pane`,
 `equalize-panes`, and the prefix-table `split-*`) cannot be bound to a bare
-global chord — rebinding one sets the key you press **after** the prefix, e.g.
+global chord - rebinding one sets the key you press **after** the prefix, e.g.
 `keybinds = ctrl+f=zoom-pane` makes the sequence `Ctrl+b` then `Ctrl+f` zoom the
 pane. The direct `Ctrl+Shift+E` / `Ctrl+Shift+O` split chords are fixed
 conveniences so the first split is always reachable.
@@ -504,13 +505,13 @@ only. Close Workspace is also reachable from the rail close button or a chord
 you assign in the settings key-remap editor or `keybinds` config. An assigned
 chord shows beside the matching right-click menu row:
 
-- `rename-workspace` — unbound by default; follows the same precedent as Rename
+- `rename-workspace` - unbound by default; follows the same precedent as Rename
   Tab.
-- `close-workspace` — unbound by default because it is destructive.
+- `close-workspace` - unbound by default because it is destructive.
 - **Move Up** / **Move Down** (workspace right-click menu) reorder the rail;
   menu-only, no bindable chord.
 - **Duplicate Workspace** (`Ctrl+Shift+Alt+D`) opens a fresh workspace whose
-  first shell starts in the active pane's directory — the workspace-level mirror
+  first shell starts in the active pane's directory - the workspace-level mirror
   of Duplicate Tab.
 
 **Close cascade.** Closing the last tab of a workspace closes that workspace, and
@@ -567,8 +568,8 @@ awaits reconnect.
 
 ## See also
 
-- [`runtime-knobs.md`](runtime-knobs.md) — every config key, env var, and default.
-- [`accessibility.md`](accessibility.md) — contrast floor, color-vision modes,
+- [`runtime-knobs.md`](runtime-knobs.md) - every config key, env var, and default.
+- [`accessibility.md`](accessibility.md) - contrast floor, color-vision modes,
   dimming, motion, and bell.
-- [`panes-and-sessions-design.md`](panes-and-sessions-design.md) — the design
+- [`panes-and-sessions-design.md`](panes-and-sessions-design.md) - the design
   record behind tabs, panes, and sessions.

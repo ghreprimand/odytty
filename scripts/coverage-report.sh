@@ -27,6 +27,9 @@
 # Instrumented builds and test runs are heavy. Run this alone, under whatever
 # resource confinement the environment provides, and set CARGO_BUILD_JOBS and
 # RUST_TEST_THREADS deliberately rather than relying on host CPU count.
+#
+# Platform: Linux with Bash 4 or newer (`mapfile`). It is not supported on macOS
+# (system Bash 3.2) or Windows.
 
 set -euo pipefail
 

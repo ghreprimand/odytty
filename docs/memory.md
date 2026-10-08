@@ -77,7 +77,7 @@ is a legitimate optimization target.
 driver's own libraries and device mappings are mapped into the process because
 OdyTTY asks for hardware acceleration. On a development workstation with an
 NVIDIA adapter, a capture of an idle v0.11.1 process attributed roughly 90 MB of
-a 162 MB resident set to driver libraries and device nodes alone — before a
+a 162 MB resident set to driver libraries and device nodes alone - before a
 single OdyTTY-owned allocation. This cost is real, it is counted in the
 published figure, and it is not an excuse: it is a consequence of the
 wgpu/Vulkan choice, which is OdyTTY's choice. But it is not reduced by
@@ -124,7 +124,7 @@ Four properties of the record are structural, not incidental:
 - **One field is a breakdown, not an addition.** `host_scrollback_ring_slack`
   is the reserved-but-unused portion of `host_scrollback_ring`, reported so
   reclaimable waste is visible rather than inferred. It is already counted
-  inside `host_scrollback_ring`, so `host_accounted_bytes` excludes it —
+  inside `host_scrollback_ring`, so `host_accounted_bytes` excludes it -
   including it would double-count, inflate the attributed total, and shrink the
   remainder that exists to make unexplained bytes visible. The exclusion is
   enforced by construction: the sum destructures the field set exhaustively, so
@@ -135,19 +135,19 @@ There is no string field, so terminal content, titles, paths, and environment
 values have no route into the log even by mistake.
 
 **Windows:** the same diagnostic with the same fields. Only the process-level
-source differs — `GetProcessMemoryInfo` (`WorkingSetSize` / `PeakWorkingSetSize`)
+source differs - `GetProcessMemoryInfo` (`WorkingSetSize` / `PeakWorkingSetSize`)
 instead of `/proc/self/status`, reported as `rss_source=windows_psapi`. Windows
 reads the Windows interface; no Linux figure is ever inferred for it.
 
 **macOS:** `getrusage` exposes the resident high-water mark but not the current
 resident set, so `rss_bytes` is reported `unmeasured` and `rss_peak_bytes` is
-real. The remainder is then `unmeasured` too — an unmeasurable total cannot
+real. The remainder is then `unmeasured` too - an unmeasurable total cannot
 yield a meaningful difference, so none is printed.
 
 ### Host-side: `scripts/memory-capture.py`
 
 An external capture that decomposes a live process's resident set by mapping, so
-the driver tax is separable in every comparison — including comparisons against
+the driver tax is separable in every comparison - including comparisons against
 other terminals, which cannot be asked to instrument themselves.
 
 ```sh
@@ -200,7 +200,7 @@ changes separately.
 
 From an idle v0.11.1 process on a development workstation (NVIDIA adapter,
 Wayland), for illustration of how the two records compose. **This is not the
-benchmark unit and these are not protocol figures** — the published comparison
+benchmark unit and these are not protocol figures** - the published comparison
 is [`benchmark-results.md`](benchmark-results.md) and nothing here supersedes it. Dated baseline
 captures for both machines live in the benchmark evidence tree.
 
@@ -215,7 +215,7 @@ Host-side, resident bytes by class:
 | `library` | ~9.6 MB |
 
 In-process, the same era of process: roughly 2.4 MB of attributed host bytes
-against a ~213 MB resident set, and roughly 81.6 MB of attributed GPU objects —
+against a ~213 MB resident set, and roughly 81.6 MB of attributed GPU objects -
 of which a 3840x2160 background-image texture is ~33.2 MB and the post-process
 render targets are ~47.1 MB.
 
@@ -228,8 +228,8 @@ benchmark unit rather than conclusions:
 2. The bytes OdyTTY holds on the **GPU** side are large and are dominated by two
    allocations sized independently of the window.
 
-That is what "measure before optimizing" is for. The intuitive target — atlases
-and cell storage — is not where this capture points.
+That is what "measure before optimizing" is for. The intuitive target - atlases
+and cell storage - is not where this capture points.
 
 The post-process figure above was the first thing the instrument caught. Those
 targets were built on the first frame that used an effect and then never
@@ -243,15 +243,15 @@ at all on the same toggle before the fix.
 That figure proves the behavior, not the size of the saving. The targets are
 sized from the drawable surface, so the bytes recovered scale with window area
 and pixel format: a large surface on a workstation and an 80x24 window on the
-benchmark unit will disagree substantially on the number. The behavioral claim —
+benchmark unit will disagree substantially on the number. The behavioral claim -
 zero while inactive, no reallocation on resize while inactive, clean re-creation
-when an effect is turned back on — is machine-independent and is established
+when an effect is turned back on - is machine-independent and is established
 here. The quantity recovered on the configuration the published comparison uses
 is established by the benchmark unit's own capture and nowhere else.
 
 One caveat that the capture makes visible and that no summary should drop: this
 is a **discrete** GPU. Freeing a texture there returns device memory, and the
-process resident set does not move — which is exactly why this document reports
+process resident set does not move - which is exactly why this document reports
 GPU bytes beside the resident set rather than inside it. On an integrated
 adapter the same allocation is carved out of system RAM, so the same change is
 expected to show up in the resident figure there. Expected, not measured: the
@@ -262,7 +262,7 @@ saving is claimed as device memory only.
 
 The second thing the instrument caught. The shipped default wallpaper is
 3840x2160, and the loader only downscaled an image when it exceeded the
-adapter's maximum texture dimension — a limit no current adapter falls below.
+adapter's maximum texture dimension - a limit no current adapter falls below.
 Every window therefore held a full 33,177,600-byte texture whether it was
 showing 4K worth of pixels or a quarter of that, and a user-supplied wallpaper
 was treated the same way.
@@ -285,7 +285,7 @@ source data instead of a sixteenth of it.
 
 The blur radius is rescaled by the same ratio the buffer was, so the blurred
 band is the same width on screen as before, and the readability scrim is
-recomputed on the resampled buffer — the one that is uploaded. That ordering is
+recomputed on the resampled buffer - the one that is uploaded. That ordering is
 the load-bearing part: hardware filtering returns convex combinations of texels
 and relative luminance is linear in linear-light RGB, so measuring the worst
 case on the uploaded buffer bounds every pixel that can be sampled from it, and
@@ -296,7 +296,7 @@ Measured on this workstation, with the shipped 3840x2160 default:
 `gpu_background_image_texture` fell from 33,177,600 bytes to 19,776,960 on a
 window whose height still exceeds the source's own headroom bound, so only the
 width axis was reduced. A live-device test loading the same asset against an
-800x600 surface produces a 1200x900 texture — 4,320,000 bytes. The saving is
+800x600 surface produces a 1200x900 texture - 4,320,000 bytes. The saving is
 therefore a function of window size, and the same caveat as above applies: the
 figure that matters is the benchmark unit's, on the benchmark configuration.
 
@@ -305,7 +305,7 @@ figure that matters is the benchmark unit's, on the benchmark configuration.
 An instance that asks for every backend initializes every installed backend's
 driver stack, not just the one that ends up drawing. OdyTTY now brings the
 instance up in stages: the accelerated backends first (Vulkan, DX12, Metal), and
-the full set — which is what reaches OpenGL — only if the first stage cannot
+the full set - which is what reaches OpenGL - only if the first stage cannot
 produce a usable accelerated adapter. GL stays reachable for machines that
 genuinely need it: older hardware, virtual machines, and remote display stacks
 with no working Vulkan. A software rasterizer found at the first stage is not
@@ -324,15 +324,15 @@ binary, with the wider arm selected through `WGPU_BACKEND=vulkan,gl`:
 
 About 1.5 MB, consistently, with no overlap between the arms. That is a real
 saving and a small one, and it is much smaller than a headless probe of the same
-change suggested — which is the point of measuring the shipped configuration
+change suggested - which is the point of measuring the shipped configuration
 rather than a probe. The mechanism explains the gap: on this driver the vendor
 GL and EGL libraries stay mapped at nearly identical resident cost either way,
 because the driver is a unified blob whose Vulkan path touches them, so what is
 saved is the initialization of a second backend and not the mapping of a second
 driver. Any claim that GL is "no longer loaded" would be false on this stack.
 
-The change is kept on its own terms — one backend initialized instead of two,
-with the fallback intact — and the size of its saving is left to the benchmark
+The change is kept on its own terms - one backend initialized instead of two,
+with the fallback intact - and the size of its saving is left to the benchmark
 unit, whose Mesa/i915 driver stack is structured differently from a vendor blob
 and may well answer differently.
 
@@ -345,7 +345,7 @@ GL-only process does not pay: measured, understood, and not fixable from here.
 
 That last point wants a boundary drawn carefully, because the obvious
 generalization from it is wrong. A preliminary pre-remediation capture on the
-benchmark unit — Intel integrated graphics on Mesa, not a vendor blob — put the
+benchmark unit - Intel integrated graphics on Mesa, not a vendor blob - put the
 driver-library total at
 88.6 MB for Alacritty, 89.4 MB for Ghostty, and 100.1 MB for OdyTTY, with
 `libLLVM.so` the dominant single mapping in all three. Alacritty renders through
@@ -357,7 +357,7 @@ of the driver tax is not, and this document does not claim it is.
 
 That measurement also constrains what composition can explain. At that snapshot
 OdyTTY's own-bytes share was 27.6%, against 23.5% for Kitty and 26.6% for
-Ghostty — close enough that fixed composition does not account for the published
+Ghostty - close enough that fixed composition does not account for the published
 gap. Whatever produces it is more likely to be growth over the idle interval
 than a structural difference visible in a single sample. Recorded here as a
 constraint on the explanation, not as an explanation: the capture was taken at a
@@ -431,7 +431,7 @@ so no Linux memory figure is carried across as a Windows claim.
 
 ### Scrollback: the projection was a second copy of the store
 
-At depth, scrollback is not one term among several — it is the whole figure. A
+At depth, scrollback is not one term among several - it is the whole figure. A
 capture at 100,000 lines attributed 96% of the resident set to scrollback, with
 atlases, grid, vertex staging and every GPU total together in the low single-digit
 megabytes.
@@ -443,17 +443,17 @@ one figure, because a single total cannot say which one a change moved:
 
 **The memoized projection was a full second physical copy.** Scrollback is
 stored as width-independent logical lines and projected to physical rows at the
-current width. That projection was memoized in full — every row, with its own
+current width. That projection was memoized in full - every row, with its own
 copy of every cell. Measured at 100,000 hard-terminated lines it was
 360,307,648 bytes against a logical ring of 360,307,648: exact parity, so the
 history was paid for twice.
 
-What is memoized now is the projection's *shape* — each logical line's first
-physical row index at the current width, one `usize` per line — and rows are
+What is memoized now is the projection's *shape* - each logical line's first
+physical row index at the current width, one `usize` per line - and rows are
 produced on demand. The shape is what every consumer actually needs: it resolves
 an absolute row to its owning line without materializing anything. Of the nine
 readers, six want a viewport-sized tail, one wants a single row, and only two
-(full-buffer search and the prompt-mark enumeration) ever wanted every row —
+(full-buffer search and the prompt-mark enumeration) ever wanted every row -
 both user-initiated rather than per-frame, so they project transiently and
 retain nothing. Measured: 360,307,648 → 799,816 bytes, a 99.8% reduction, and
 total scrollback bytes halved.
@@ -462,7 +462,7 @@ This is a case where the memory win and the latency win point the same way. A
 viewport read no longer depends on how deep the buffer is: 9.2 microseconds at
 1,000 lines and at 100,000 lines alike. And because the shape is cheaper to
 rebuild than the rows were, the cost of reading a viewport immediately after new
-output — the steady state while a command is producing output — fell from 94.3 ms
+output - the steady state while a command is producing output - fell from 94.3 ms
 to 27.6 ms at 100,000 lines. The one regression is 2 microseconds on a read with
 nothing pushed since the last one, which is the tail projection replacing a
 slice of an already-built vector.
@@ -474,7 +474,7 @@ numbers are the ones stated there.
 **Reserved-but-unused capacity on finalized lines.** A logical line assembled
 from soft-wrapped rows grows by amortized doubling, so it can hold up to twice
 the cells it needs. Once a line is hard-terminated its length is final and that
-overshoot is pure waste. Capacity is now reclaimed at exactly that transition —
+overshoot is pure waste. Capacity is now reclaimed at exactly that transition -
 not on every push, which would defeat the amortized growth the merge path
 depends on. At 100,000 soft-wrapped lines: 705,960,640 bytes of slack reduced to
 1,988,800, a 24.9% reduction in the ring, with fill cost unchanged within
@@ -491,21 +491,21 @@ rising.
 
 ### Scrollback: the ring stores a narrower cell than the grid
 
-After the two terms above, what remained of the ring was almost entirely cells —
-97.7% at 100,000 hard-terminated lines — so the size of a stored cell became the
+After the two terms above, what remained of the ring was almost entirely cells -
+97.7% at 100,000 hard-terminated lines - so the size of a stored cell became the
 whole question. `Cell` is 44 bytes and 16 of them are `combining: [char; 4]`
 plus its length byte, an inline array that is empty for effectively every cell
 in real content.
 
-The obvious change — narrow `Cell` itself and put marks in a side table — cannot
+The obvious change - narrow `Cell` itself and put marks in a side table - cannot
 be built. `Cell::combining` returns a borrow of data inside the cell, and the
 renderer reads it while iterating a `Snapshot`'s cells with no `Screen` in scope
 and none reachable. A cell must stay self-describing wherever it goes, and it
 goes outside the core. `Cell` is also `Copy`, so no destructor runs to evict a
 side-table entry, and cells are duplicated wholesale by rectangle copies.
 
-What is built instead narrows only the ring. `StoredCell` is 28 bytes — base
-char, the whole `Attrs`, and the two per-cell booleans packed into one byte —
+What is built instead narrows only the ring. `StoredCell` is 28 bytes - base
+char, the whole `Attrs`, and the two per-cell booleans packed into one byte -
 and combining marks live in a per-line sidecar keyed by flat-cell index, the
 same shape button spans already use and with the same lifetime: a field of the
 logical line, unallocated for the mark-free line, evicted with the line because
@@ -532,13 +532,13 @@ every line, including the mark-free ones.
 32-byte sidecar entry, against 44 bytes inline before. Break-even is at roughly
 45% of cells carrying combining marks: below that the per-cell saving dominates,
 above it this representation is worse than the one it replaced. Real content is
-nowhere near that density, and the corpus that is — text that is mostly
-combining marks — is the case this design is deliberately worst for. The figure
+nowhere near that density, and the corpus that is - text that is mostly
+combining marks - is the case this design is deliberately worst for. The figure
 is measured, not assumed, by `mark_density_cost`.
 
 The sidecar's key is a `usize`, not a narrower integer. A soft-wrapped logical
-line is not bounded by the terminal width — it is bounded by
-`MAX_LOGICAL_LINE_CELLS`, 2^20 — so a 16-bit key would truncate on ordinary
+line is not bounded by the terminal width - it is bounded by
+`MAX_LOGICAL_LINE_CELLS`, 2^20 - so a 16-bit key would truncate on ordinary
 output and silently attach marks to the wrong base character. A `usize` is the
 type flat indices already have throughout the store, so no conversion exists on
 that path that could truncate.
@@ -548,8 +548,8 @@ rebuilt every cell in the store purely to count how many rows each line
 produces, then dropped them. It now counts without materializing: one
 implementation, with cell writes gated by a flag and the row length asserted
 against the written cells at every step so the two modes cannot drift. Reading a
-viewport immediately after new output — the steady state while a command is
-producing output — fell from 27.6 ms to 11.4 ms at 100,000 lines. Filling the
+viewport immediately after new output - the steady state while a command is
+producing output - fell from 27.6 ms to 11.4 ms at 100,000 lines. Filling the
 store also got faster, 930 ms to 772 ms at 100,000 soft-wrapped lines, because
 the ring it writes into is a third smaller.
 

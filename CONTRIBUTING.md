@@ -55,18 +55,18 @@ across duplicate surfaces.
 
 OdyTTY is a maintainer-led project with a specific design vision (see
 [`SPEC.md`](SPEC.md) and the OdysseyOS visual identity). Contributions are welcome within
-that vision — the project is developed in the open, and outside eyes make it
+that vision - the project is developed in the open, and outside eyes make it
 better.
 
 The lowest-friction contributions, likely to land quickly:
 
-- **Bug reports** — especially terminal-compatibility findings (an application
+- **Bug reports** - especially terminal-compatibility findings (an application
   that misbehaves in OdyTTY but not elsewhere, with a reproduction) and
   anything from daily use on Windows or macOS, where real-hardware reports are
   particularly valuable.
 - **Bug fixes with a test.**
 - **Documentation corrections.**
-- **Built-in themes** — see [Adding a built-in
+- **Built-in themes** - see [Adding a built-in
   theme](#adding-a-built-in-theme) below for the recipe.
 
 For anything larger, use the
@@ -77,10 +77,10 @@ owned-core boundary are not up for renegotiation by PR: changes that stray
 from [`SPEC.md`](SPEC.md), the roadmap ([`TODO.md`](TODO.md),
 [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md)), or the ownership
 boundary will be declined regardless of quality. Review is
-best-effort — small, self-contained changes get reviewed fastest; large
+best-effort - small, self-contained changes get reviewed fastest; large
 unsolicited changes may wait.
 
-If you want to take OdyTTY in a different direction, **fork it** — that is
+If you want to take OdyTTY in a different direction, **fork it** - that is
 what the license is for. The code is GPL-3.0-only; the OdyTTY name and
 branding are not (see the README license note), so a fork should ship under
 its own name.
@@ -111,10 +111,11 @@ the issue before starting so effort is not duplicated.
 
 ## Developer Certificate of Origin (DCO)
 
-OdyTTY uses the Developer Certificate of Origin (DCO) — the same mechanism
-used by the Linux kernel and many major open-source projects — instead of a
-Contributor License Agreement (CLA). By signing off a commit, you certify that
-you wrote the patch or have the right to submit it under the project's license.
+OdyTTY uses the Developer Certificate of Origin (DCO) for outside
+contributions - the same mechanism used by the Linux kernel and many major
+open-source projects - instead of a Contributor License Agreement (CLA). By
+signing off a commit, you certify that you wrote the patch or have the right to
+submit it under the project's license.
 
 **How to sign off:** pass `-s` to `git commit`:
 
@@ -178,7 +179,7 @@ By making a contribution to this project, I certify that:
   visual experience layer. Visual experiments must not destabilize core
   behavior.
 - Prefer adding deterministic tests for new terminal behavior over manual checks.
-- Keep source files under approximately 2000 lines. Prefer new focused modules
+- Keep source files below 2000 lines (enforced by the production-file guard). Prefer new focused modules
   over growing large files; extract large test suites into sibling test files
   named `{module}_tests.rs`.
 - Give every new source file the mandatory license header. Each `.rs` file under
@@ -192,7 +193,7 @@ By making a contribution to this project, I certify that:
 
 Every byte from the PTY to the glyph quad passes through OdyTTY-owned code.
 Changes to `src/pty/`, `src/parser/`, `src/core/`, `src/grid.rs`, and the
-GPU shaders in `src/shaders/` must preserve that boundary — no new
+GPU shaders in `src/shaders/` must preserve that boundary - no new
 terminal-semantic dependencies belong inside it. External crates for font
 rasterization, GPU API, windowing, clipboard transport, and Unicode width data
 are acceptable below the product line but must not own terminal semantics. See
@@ -200,7 +201,7 @@ are acceptable below the product line but must not own terminal semantics. See
 
 ## Module map
 
-The source tree is organized into clear ownership lanes:
+The principal ownership lanes of the source tree are:
 
 | Path | Responsibility |
 |------|---------------|
@@ -215,7 +216,7 @@ The source tree is organized into clear ownership lanes:
 | `src/color.rs` | Perceptual color primitives: sRGB ↔ linear transfer, OKLab/OKLCH conversions, `dim_perceptual`, `mix_oklab`, `enforce_min_contrast`. Single source of truth for the sRGB transfer. |
 | `src/pty/` | Owned PTY layer. `mod.rs` is the platform-neutral `PtySession` contract; `unix.rs` (`#[cfg(unix)]`) is the rustix/termios backend (openpt/grantpt/unlockpt, TIOCGPTPEER, TIOCSWINSZ, session-leader spawn); `windows.rs` (`#[cfg(windows)]`) is the ConPTY backend (CreatePseudoConsole + CreateProcessW). See the per-platform backend pattern below. |
 | `src/session_host/` | Detached-session subsystem: host process and socket lifecycle, wire protocol, snapshot envelope. Deliberately kept outside `src/native/`; the `attach` launcher reattaches a live native window to a running host. |
-| `src/ssh_config.rs` + `src/connection_hosts.rs` | Connection substrate for the connection manager: name-only host import (alias/HostName/User/Port — never key material), gated behind `ssh_config_hosts` (default off). |
+| `src/ssh_config.rs` + `src/connection_hosts.rs` | Connection substrate for the connection manager: name-only host import (alias/HostName/User/Port - never key material), gated behind `ssh_config_hosts` (default off). |
 | `src/paths/` | Interactive-paths engine: path/URL detection, `:line:col` editor jump, bareword and image span recognition. Wired live through `src/native/app/interactive_paths.rs`; inert until the `interactive_paths` master gate is on. |
 
 All visual settings flow through the `src/settings.rs` facade and its
@@ -232,20 +233,20 @@ macOS and Windows must stay green for a change to merge.
 The CI matrix is the enforcement, not discipline: Windows-specific code is
 `#[cfg]`-gated, so it is physically absent from a Linux/macOS build and cannot
 regress those targets. The invariant the matrix protects is that the Linux/macOS
-byte path is unchanged across the port — verified by the same lib-test suite
+byte path is unchanged across the port - verified by the same lib-test suite
 passing identically on every leg.
 
 **The per-platform backend pattern.** When a subsystem genuinely differs by OS,
 follow the PTY layer as the template rather than scattering `#[cfg]` through
 shared code:
 
-1. Define a **platform-neutral contract** in a `mod.rs` (`src/pty/mod.rs` — the
+1. Define a **platform-neutral contract** in a `mod.rs` (`src/pty/mod.rs` - the
    `PtySession` surface, the `Box<dyn Read + Send>` / `Box<dyn Write + Send>`
    erased I/O, the shared enums).
 2. Put each OS implementation in its **own sibling file** gated at the module
    declaration: `src/pty/unix.rs` (`#[cfg(unix)]`), `src/pty/windows.rs`
    (`#[cfg(windows)]`). `mod.rs` `#[cfg]`-selects and re-exports the right
-   `PtySession` so **no call site changes** — consumers import
+   `PtySession` so **no call site changes** - consumers import
    `crate::pty::PtySession` and never see the backend.
 3. Adding a future platform = add `src/pty/<os>.rs` implementing the same
    contract surface, plus one `#[cfg]` arm in `mod.rs`. No consumer edits.
@@ -282,7 +283,7 @@ Two distinct icon paths, do not conflate them:
   no-op on macOS/Wayland): `src/native/window_icon.rs` `include_bytes!`s the
   256×256 hicolor PNG (`dist/icons/hicolor/256x256/apps/io.unfinished_works.odytty.png`),
   decodes it via the `image` crate to RGBA8, and builds a `winit::window::Icon`.
-  Any decode failure yields `None` (logged), never a panic — a bad icon must
+  Any decode failure yields `None` (logged), never a panic - a bad icon must
   never block window creation. The PNG (~7 KB) is embedded in the binary on all
   platforms.
 
@@ -306,20 +307,20 @@ and PTY smokes that need optional host applications report unavailable or
 skipped work separately from executed assertions. Integration test buckets
 include:
 
-- `mouse_protocol` — mouse-tracking protocol coverage.
-- `pixel_smoke` — compositor checks across its module set.
-- `protocol_fuzz_*_smoke` — quick fuzzer tiers.
-- `pty_alt_screen_smoke` — PTY-backed alternate-screen behavior.
-- `emoji_pixel_smoke`, `boxdraw_pixel_smoke` — emoji and box-drawing rasterization.
-- `transcript_smoke` — headless core transcript replay, plus one ignored live-PTY
+- `mouse_protocol` - mouse-tracking protocol coverage.
+- `pixel_smoke` - compositor checks across its module set.
+- `protocol_fuzz_*_smoke` - quick fuzzer tiers.
+- `pty_alt_screen_smoke` - PTY-backed alternate-screen behavior.
+- `emoji_pixel_smoke`, `boxdraw_pixel_smoke` - emoji and box-drawing rasterization.
+- `transcript_smoke` - headless core transcript replay, plus one ignored live-PTY
   capture check.
-- `cli` — command-line surface.
+- `cli` - command-line surface.
 
 Most of the PTY-backed suite runs in the default `cargo test` (e.g.
 `pty_alt_screen_smoke`). Two live-PTY tests need a real PTY and are `#[ignore]`d:
 the `transcript_smoke` live-capture check and the clipboard-paste test. Run them
 by name, for example `cargo test -- --ignored transcript_smoke`. A bare
-`cargo test -- --ignored` runs far more than those two: the 29 ignored tests
+`cargo test -- --ignored` runs far more than those two: the ignored tests
 also include the deep-fuzz tiers and the multi-gigabyte measurement harnesses, so
 prefer naming the specific case rather than sweeping the whole ignored set.
 
@@ -411,7 +412,8 @@ Before every commit, run through this gate and stop if anything is unclear:
 9. **Run the script gates that apply to your change.** CI blocks on several
    checks beyond the Rust gate above, and each fires when the matching files
    change:
-   - `scripts/piped-test-guard.sh` runs on every CI test job.
+   - `scripts/piped-test-guard.sh` runs on the Linux CI test job (it needs GNU
+     `timeout`); it is not run on macOS or Windows.
    - `python3 scripts/production-file-guard.py --self-test`,
      `python3 scripts/coverage-surfaces.py --self-test`,
      `python3 scripts/coverage-report-test.py` (Unix with Bash 4 or newer),
@@ -419,8 +421,8 @@ Before every commit, run through this gate and stop if anything is unclear:
      `python3 scripts/memory-capture.py --self-test`, and
      `python3 scripts/memory-regression-guard.py --self-test` validate the
      tooling; run the self-test for any script you touch.
-   - `shellcheck` covers the shell scripts under `scripts/` and `dist/`; run it
-     when you edit one (CI installs it if it is missing locally).
+   - `shellcheck` covers every tracked `*.sh` file; run it when you edit one (CI
+     uses the copy preinstalled on the runner).
    - `dist/install.sh --dry-run` guards the installer.
    - `.github/scripts/verify-release-ci-test.sh` and
      `.github/scripts/await-release-ci-test.sh` guard the release workflow.

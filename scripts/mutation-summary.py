@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
 """Classify and summarise selective mutation-campaign results.
 
 Reads the machine-readable output of `cargo mutants` for each named batch and

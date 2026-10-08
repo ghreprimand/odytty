@@ -35,8 +35,8 @@ unsupported, or unavailable-platform checks distinctly.
       (enforced by `source_files_carry_gpl_spdx_header`).
 - [ ] Public documentation, the current monthly devlog, and its index match the
       changed behavior.
-- [ ] Every commit carries a `Signed-off-by:` line matching its author identity
-      (`git commit -s`) as required by the DCO.
+- [ ] Every contributor commit carries a `Signed-off-by:` line matching its
+      author identity (`git commit -s`) as required by the DCO.
 - [ ] The diff contains no secrets, private hosts or URLs, personal data,
       identifying local paths, machine-local configuration, or generated
       credentials.

@@ -75,7 +75,7 @@ a gate, and none of them may appear in public material as readiness signals:
 
 ## The gates
 
-### G0 — Verification baseline
+### G0 - Verification baseline
 
 **Claim under test:** the project's own verification story is reproducible by
 someone other than its author.
@@ -95,7 +95,7 @@ Requirements:
 **Evidence:** [`docs/stabilization-baseline.md`](stabilization-baseline.md).
 **Confirmed by:** core contributors.
 
-### G1 — Compatibility evidence
+### G1 - Compatibility evidence
 
 **Claim under test:** OdyTTY behaves like a correct terminal for real programs,
 not only for its own fixtures.
@@ -118,12 +118,12 @@ Requirements:
   Standards text and documented OdyTTY behavior win over imitation; the
   difference is recorded either way.
 
-**Evidence:** `docs/compatibility-evidence.md`, plus the fixture corpus under
-`tests/`.
+**Evidence:** the records under [`docs/compatibility/`](compatibility/), plus the
+fixture corpus under `tests/`.
 **Confirmed by:** core contributors for automated cases; the project
 maintainer for interactive and visual cases.
 
-### G2 — Performance evidence
+### G2 - Performance evidence
 
 **Claim under test:** the project's speed language is measured, not
 aspirational.
@@ -154,7 +154,7 @@ For v0.10.0 this gate bound only through the G7 audit of performance language;
 collecting the matched comparative numbers named here was deferred and was not
 a v0.10.0 blocker.
 
-### G3 — Platform and manual validation
+### G3 - Platform and manual validation
 
 **Claim under test:** a release-profile build behaves correctly on each shipped
 platform, judged by a human on real hardware.
@@ -168,8 +168,8 @@ Requirements:
   SSH, accessibility affordances, and long-running behavior.
 - Each check records platform, build SHA, result, and evidence, with no
   machine-specific private data.
-- Subjective and hardware-dependent behavior — pixel quality, IME feel,
-  perceived latency, font rendering, compositor integration, GPU results — is
+- Subjective and hardware-dependent behavior - pixel quality, IME feel,
+  perceived latency, font rendering, compositor integration, GPU results - is
   confirmed on a fresh release-profile build by a human. Automation cannot
   close these items.
 - The outstanding side-by-side visual comparison against an independent
@@ -181,7 +181,7 @@ Requirements:
 the precedent format.
 **Confirmed by:** the project maintainer, per platform, explicitly.
 
-### G4 — Security assessment
+### G4 - Security assessment
 
 **Claim under test:** every external-input boundary has a stated trust
 assumption, a bound, and a failure mode that is not a panic or an unbounded
@@ -221,7 +221,7 @@ gate stays open until [`docs/dynamic-analysis.md`](dynamic-analysis.md) records 
 than declared intent, and its unsupported and unmeasured entries are read as
 the gaps they describe.
 
-### G5 — Architecture hotspots
+### G5 - Architecture hotspots
 
 **Claim under test:** the highest-risk code is small enough and seam-rich
 enough to be read, tested, and changed safely.
@@ -247,7 +247,7 @@ Requirements:
 results referenced from [`docs/stabilization-baseline.md`](stabilization-baseline.md).
 **Confirmed by:** core contributors.
 
-### G6 — Dependency advisory exceptions
+### G6 - Dependency advisory exceptions
 
 **Claim under test:** no advisory is silently carried into 1.0.
 
@@ -270,7 +270,7 @@ Requirements:
 **Confirmed by:** core contributors; the project maintainer approves any new
 bounded exception.
 
-### G7 — Documentation accuracy
+### G7 - Documentation accuracy
 
 **Claim under test:** public material describes the software that exists.
 
@@ -292,7 +292,7 @@ evidence reports named above.
 **Confirmed by:** core contributors, with the project maintainer confirming
 public wording.
 
-### G8 — External field evidence
+### G8 - External field evidence
 
 **Claim under test:** people other than the project's own contributors have run
 this build as their terminal, on their hardware, for a sustained period.
@@ -353,7 +353,7 @@ gate is out of scope until the contract is satisfied.
 | --- | --- | --- | --- |
 | Baseline and contract | G0, and this document for G7 | [`docs/stabilization-baseline.md`](stabilization-baseline.md), `docs/pre-1.0-acceptance.md` | core contributors |
 | Architecture stabilization | G5 | [`docs/native-decomposition.md`](native-decomposition.md) | core contributors |
-| Compatibility evidence | G1 | `docs/compatibility-evidence.md` | core contributors; maintainer for visual cases |
+| Compatibility evidence | G1 | [`docs/compatibility/`](compatibility/) | core contributors; maintainer for visual cases |
 | Performance evidence | G2 | [`docs/benchmark-protocol.md`](benchmark-protocol.md), [`docs/benchmark-results.md`](benchmark-results.md) | maintainer for hardware runs |
 | Security and supply chain | G4, G6 | [`docs/threat-model.md`](threat-model.md), [`docs/dynamic-analysis.md`](dynamic-analysis.md), [`fuzz/parser_graphics/README.md`](../fuzz/parser_graphics/README.md), `.github/workflows/coverage-fuzz.yml`, `.github/scripts/rustsec-audit.sh` | core contributors |
 | Manual and field validation | G3, G8 | [`docs/manual-validation.md`](manual-validation.md), `docs/field-report.md` | project maintainer |

@@ -12,9 +12,9 @@ inspect, and run that asset after verifying the manifest signature.
 `odytty-x86_64.AppImage`, `odytty-linux-x86_64.tar.gz`,
 `odytty-amd64.deb`, `odytty-x86_64.rpm`,
 `odytty-windows-x86_64.zip`, `odytty-macos-arm64.zip`, and
-`odytty.tar.gz` are the **always-latest** names — use these for a
+`odytty.tar.gz` are the **always-latest** names - use these for a
 stable URL that resolves to the newest release. The
-`…-@VERSION@-…` files are the **identical**
+`...-@VERSION@-...` files are the **identical**
 version-pinned copies (same bytes), for when you want to pin a
 specific version. Every file is checksummed in `SHA256SUMS`; each
 alias and its version-pinned twin therefore show matching hashes.

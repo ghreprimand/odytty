@@ -1,6 +1,6 @@
 # Security Policy
 
-OdyTTY is a terminal emulator: it parses and renders **untrusted byte streams** —
+OdyTTY is a terminal emulator: it parses and renders **untrusted byte streams** -
 program output, escape sequences, clipboard and OSC payloads, and file paths
 lifted from directory listings. The parser and the input / clipboard / file-open
 paths are therefore a genuine security surface, and security reports are taken
@@ -22,7 +22,7 @@ Report it privately through GitHub's private vulnerability reporting:
 1. Open the repository's **Security** tab → **Report a vulnerability** (GitHub
    Security Advisories).
 2. Include the affected version (`odytty --version`) and the smallest
-   reproduction you can — ideally the exact byte sequence, config, or steps that
+   reproduction you can - ideally the exact byte sequence, config, or steps that
    trigger the issue.
 
 This opens a private advisory visible only to you and the maintainer; no email
@@ -46,8 +46,8 @@ address or other personal contact is required.
 - Detached-session host/socket issues that cross a trust boundary
   (`src/session_host/`).
 - Workspace/layout snapshot leakage: the persistence snapshot is defined to
-  record structure only — workspace and tab names, pane split ratios, and each
-  pane's working directory — and to NEVER capture terminal grid content,
+  record structure only - workspace and tab names, pane split ratios, and each
+  pane's working directory - and to NEVER capture terminal grid content,
   scrollback, environment, or the commands that were running. A restored local
   pane opens a fresh shell at the captured directory and never re-executes a
   captured command. On Unix, a pane whose detached session host is still alive
@@ -67,5 +67,5 @@ address or other personal contact is required.
 
 - Issues that require the user to deliberately enable an explicitly-documented
   unsafe option, or to run an obviously hostile command themselves.
-- Visual or rendering glitches with no safety impact — file those as normal
+- Visual or rendering glitches with no safety impact - file those as normal
   issues (subject to the contribution policy in [`CONTRIBUTING.md`](CONTRIBUTING.md)).

@@ -35,11 +35,11 @@ Every executed check uses exactly one of these values:
 | `PASS` | The check was performed on the recorded artifact and matched the expected behavior. |
 | `FAIL` | The check was performed and any expected behavior was missing, incorrect, unstable, or unsafe. |
 | `SKIP` | The check applies to the platform but was not performed. The reason and resulting evidence gap are required. |
+| `UNAVAILABLE-HARDWARE` | The check needs hardware the test host does not have, such as a second display, a specific GPU, or an input device. The missing hardware and resulting evidence gap are required. It is never a pass. |
 | `UNSUPPORTED` | The tested revision intentionally does not provide the behavior on that platform. The current public limitation and its evidence reference are required. |
 
-Do not use `PASS` for an unobserved result. A missing application, input method,
-second display, compositor, GPU path, or test host is `SKIP`, not
-`UNSUPPORTED`. A documented product limitation is `UNSUPPORTED`, not `SKIP`.
+Do not use `PASS` for an unobserved result. A missing application, input method, compositor, or test host is
+`SKIP`, and missing hardware is `UNAVAILABLE-HARDWARE`, not `UNSUPPORTED`. A documented product limitation is `UNSUPPORTED`, not `SKIP`.
 An unexpected product failure remains `FAIL`; it must not be discarded as an
 invalid attempt.
 
@@ -143,7 +143,7 @@ Each result cell points to a sanitized evidence entry with this schema:
 | Observed | A concise factual description |
 | Evidence reference | An anchor in the appended run record, a repository issue number, or a repository-relative sanitized artifact |
 | Limitation | Anything the observation cannot prove |
-| Failure reference | Required for `FAIL`; public issue number or security-report reference |
+| Failure reference | Required for `FAIL`; task-tracker entry, issue number, or security-report reference |
 | Confirmation date | UTC calendar date |
 
 Evidence must contain synthetic terminal content only. It must not contain
@@ -169,8 +169,9 @@ Perform these steps separately for each platform:
 4. Prepare synthetic text containing ASCII, combining marks, wide CJK
    characters, emoji, box drawing, ligature candidates, right-to-left text, and
    long wrapped lines. Do not use personal content.
-5. Prepare synthetic PNG, JPEG, GIF, and terminal graphics fixtures within the
-   documented resource limits.
+5. Prepare synthetic PNG, JPEG, and terminal graphics fixtures within the
+   documented resource limits, plus one GIF as a negative case for the iTerm2
+   inline-image and viewer paths, which accept only PNG, JPEG, and WebP.
 6. Use a designated non-sensitive SSH test system referenced only by the
    synthetic alias `odytty-manual-host`. Do not publish its address, account, or
    authentication material.
@@ -444,13 +445,15 @@ does not contradict a shipped claim.
 
 Preserve every `FAIL` in the run record, then:
 
-1. Create a public issue containing the exact check ID, commit, artifact digest,
-   public-safe platform class, minimal synthetic reproduction, expected
-   behavior, observed behavior, impact, and sanitized evidence reference.
+1. Record the failure in the project's task tracker with the exact check ID,
+   commit, artifact digest, public-safe platform class, minimal synthetic
+   reproduction, expected behavior, observed behavior, impact, and sanitized
+   evidence reference. Open a public issue only for a defect reported from
+   outside the project.
 2. Route a disclosure-sensitive failure through the project's security
    reporting path instead of publishing an exploit, secret, private address, or
    hostile payload.
-3. Link the issue or security reference from the failed check. Do not change the
+3. Link the tracker, issue, or security reference from the failed check. Do not change the
    result to `SKIP` or `UNSUPPORTED`.
 4. After a fix, create a new run record on the new commit. Keep the original
    failure and its limitations intact.

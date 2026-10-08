@@ -38,7 +38,11 @@ idle-CPU loop; neither is a throughput change. The v0.15.5 font-parsing change
 was compared before and after on one Linux workstation (benchmark rows, warm
 startup, and idle memory) without a new cross-terminal comparison.
 Carried-forward results do not cover every GPU, compositor, IME, font, or
-hardware configuration.
+hardware configuration. No benchmark run set was recorded for v0.16.0 or
+v0.16.1, and this evidence is not carried forward to them: v0.16.0 changed
+memory-relevant behavior (a per-line cell budget for bounded scrollback,
+per-view image texture release, and tile batching) that this run set does not
+measure.
 
 ## How the run was produced
 
@@ -53,7 +57,7 @@ not by convention.
    pinned into a preregistration record and validated by the pinned
    checker.
 2. **Public anchor.** The exact preregistration bytes were committed to
-   this repository (`bench-results/preregistration.json`) and pushed
+   this repository (`bench-results/preregistration-1.5.4-throughput-remediation-r2.json`) and pushed
    before measurement. The result document binds the record's SHA-256, so
    the plan cannot be edited after the fact without breaking validation.
 3. **Qualification.** Each terminal was launched once and had to map a

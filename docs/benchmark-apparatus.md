@@ -64,8 +64,8 @@ rather than fixed here, because they can change between run sets.
 
 This comparison unit **cannot** put every qualified terminal on one identical
 device-pixel cell grid. The complete declared calibration search ran to
-exhaustion here — all 168 declared configurations across OdyTTY, Kitty,
-Ghostty, and Alacritty — and found no common exact grid. That is a measured
+exhaustion here - all 168 declared configurations across OdyTTY, Kitty,
+Ghostty, and Alacritty - and found no common exact grid. That is a measured
 property of these terminals on this machine, not an unattempted step.
 
 It also **cannot guarantee** that every terminal reaches the 80x24 target cell
@@ -162,7 +162,7 @@ replaced after the fact.
 | Kitty | preregistered; bounded readiness required before probing |
 | Ghostty | preregistered; bounded readiness required before probing |
 | Alacritty | preregistered; bounded readiness required before probing |
-| WezTerm | `excluded-by-preregistered-machine-scope` — known nonfunctional on this laptop; zero launch attempts |
+| WezTerm | `excluded-by-preregistered-machine-scope` - known nonfunctional in the preregistered machine scope; zero launch attempts |
 
 WezTerm's exclusion is declared here and in the preregistration record rather
 than inferred from a failed probe. It is not labeled probe-unavailable and is
@@ -225,15 +225,14 @@ terminal-induced kernel work has quiesced.
 
 ## Measurement environment and resource limits
 
-Routine heavy jobs in this project run inside a bounded transient cgroup. That
-is correct for builds, fuzzing, and mutation runs, and it remains in force for
-harness development and dry runs.
+Heavy jobs such as builds, fuzzing, and mutation runs belong inside a bounded
+transient cgroup, and so do harness development and dry runs.
 
 It is **not** correct for measurement. A binding CPU quota distorts the
 quantity being measured, and a limit that binds becomes an environment factor
 affecting every implementation unequally depending on its threading model. A
-measured run set therefore uses a private cgroup for accounting — which the
-protocol requires in any case, since process-tree membership is defined by it —
+measured run set therefore uses a private cgroup for accounting - which the
+protocol requires in any case, since process-tree membership is defined by it -
 with limits set high enough not to bind, and records the exact limits in its
 environment class.
 
