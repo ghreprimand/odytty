@@ -1733,7 +1733,8 @@ feature validates against.
       decoupled clone of the ring (←/→ step, PgUp/PgDn ten, Home/End ends, Esc
       close). Presentation-only - proven by `replay_isolation` tests that the
       live terminal frame is byte-identical whether or not replay is active, plus
-      ring-bound eviction, recording-off, scrub-navigation, and overlay-closed-
+      complete-owner cache identity on reopen, ring-bound eviction,
+      recording-off, scrub-navigation, and overlay-closed-
       inert tests. Opened via the `session-replay` action (`Ctrl+Shift+R` by
       default). Recording is
       local-only: frames live only in memory (no disk, no network) and are

@@ -235,10 +235,14 @@ fn frame_fingerprint(frame: &Snapshot) -> u64 {
     let mut hasher = DefaultHasher::new();
     frame.dimensions.columns.hash(&mut hasher);
     frame.dimensions.rows.hash(&mut hasher);
-    // Hash the characters (cheap, stable identity for the scrub view; the
-    // monochrome preview does not depend on per-cell attrs).
+    // Identify complete frozen text and ownership independently of the live
+    // terminal revision. Monochrome attributes do not join this key.
+    frame.cells.len().hash(&mut hasher);
     for cell in &frame.cells {
         cell.ch.hash(&mut hasher);
+        cell.combining().hash(&mut hasher);
+        cell.wide_continuation.hash(&mut hasher);
+        cell.layout_padding.hash(&mut hasher);
     }
     hasher.finish()
 }
@@ -387,5 +391,48 @@ mod tests {
             s_tail.frame_fingerprint, s_prev.frame_fingerprint,
             "different recorded frames fingerprint differently"
         );
+    }
+
+    #[test]
+    fn fingerprint_distinguishes_retained_scalars_and_owner_boundaries() {
+        let baseline = frame(4, 1, ' ');
+        let original = frame_fingerprint(&baseline);
+        for changed in [
+            {
+                let mut f = baseline.clone();
+                assert!(f.cells[0].push_combining('\u{301}'));
+                f
+            },
+            {
+                let mut f = baseline.clone();
+                f.cells[0] = Cell::wide_spacer(Attrs::default());
+                f
+            },
+            {
+                let mut f = baseline.clone();
+                f.cells[0] = Cell::layout_blank(Attrs::default());
+                f
+            },
+        ] {
+            assert_ne!(frame_fingerprint(&changed), original);
+        }
+        let mut left = baseline.clone();
+        assert!(left.cells[0].push_combining('\u{301}'));
+        let mut right = baseline.clone();
+        assert!(right.cells[1].push_combining('\u{301}'));
+        assert_ne!(frame_fingerprint(&left), frame_fingerprint(&right));
+        assert!(left.cells[0].push_combining('\u{302}'));
+        assert!(right.cells[1].push_combining('\u{302}'));
+        right.cells.swap(0, 1);
+        assert_eq!(frame_fingerprint(&left), frame_fingerprint(&right));
+    }
+
+    #[test]
+    fn fingerprint_ignores_monochrome_exempt_attributes() {
+        let baseline = frame(4, 1, 'a');
+        let mut changed = baseline.clone();
+        changed.cells[0].attrs.set_bold(true);
+        changed.cells[0].protected = true;
+        assert_eq!(frame_fingerprint(&baseline), frame_fingerprint(&changed));
     }
 }

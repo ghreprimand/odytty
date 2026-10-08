@@ -1784,7 +1784,9 @@ frames or 24 MiB, whichever limit is reached first.
 
 The overlay is presentation-only while the live session continues underneath.
 Use `←` or `→` to step, `PgUp` or `PgDn` to jump ten frames, and `Home` or `End`
-to move to either end.
+to move to either end. Reopening replay distinguishes stored frames whose
+retained marks or cell ownership differ, even when the frame count is unchanged.
+The monochrome preview displays base characters only.
 
 ### Connect To Saved Or Ad-Hoc Hosts
 

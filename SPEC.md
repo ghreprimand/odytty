@@ -1999,6 +1999,9 @@ that closed while the picker was open, including when names are duplicated.
   bindable action (default chord `Ctrl+Shift+R`, rebindable) opens a
   keyboard-scrubbable overlay over a frozen, fully decoupled clone of the ring:
   `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` go to the ring ends. Replay
+  cache identity includes retained cluster scalars, continuation ownership, and
+  layout padding, so reopening an equal-length ring distinguishes changed owners.
+  The monochrome preview still emits base characters only. Replay
   is presentation-only - it never mutates live core terminal state, so the live
   frame is byte-identical whether or not the overlay is active. Recording is
   local-only: frames live only in memory, never written to disk or sent over the
