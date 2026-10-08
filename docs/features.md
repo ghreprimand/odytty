@@ -1799,6 +1799,10 @@ the selected OdyTTY-owned host. OpenSSH-imported rows are read-only.
 The identity-key browser scrolls to keep its selected candidate visible. Only
 visible candidate rows accept a click; its prompt and footer are inert.
 
+In short windows, the form scrolls to keep the focused control visible,
+including expanded Advanced fields and Save / Cancel. Help collapses before
+controls, and clicks target only the displayed fields.
+
 Saving appends a new block or edits the existing block in place while
 preserving every other block, comment, and unknown field byte-for-byte.
 `ssh-copy-id` remains the once-only path away from password prompts.

@@ -2142,7 +2142,8 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
         block with a byte-span splice (every other block, comment, and unknown
         field left byte-for-byte untouched) and a per-host `IdentityFile`
         (`ssh -i`, never a stored secret), with a scrolling key browser that only
-        accepts visible candidate rows; a **Test connection** tri-state probe
+        accepts visible candidate rows; focus-follow scrolling keeps Add / Edit
+        controls reachable in short windows, with help clipped first; a **Test connection** tri-state probe
         that carries no password; and a saved-host right-click menu (Open in New
         Tab / Open in New Workspace / Bind Current Workspace, plus Edit / Remove
         for OdyTTY-owned rows). A `Protocol` field is reserved (`ssh` only).

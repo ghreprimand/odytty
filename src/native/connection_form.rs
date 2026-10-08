@@ -14,7 +14,7 @@
 //! form for one. The `Protocol` field is reserved (config-only) and is carried
 //! through an edit opaquely rather than surfaced as a control.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use crate::connection_hosts::{ConnectionHost, ConnectionHostSource, is_valid_adhoc_part};
 use crate::ssh_connect::ProbeClass;
@@ -191,6 +191,7 @@ pub(super) struct ConnectionFormSignature {
     is_edit: bool,
     advanced: bool,
     focus: usize,
+    scroll_offset: usize,
     fields: Vec<String>,
     tristates: Vec<Option<bool>>,
     error: Option<String>,
@@ -319,6 +320,8 @@ pub(super) struct ConnectionForm {
     persist: Option<String>,
     advanced: bool,
     focus: FormField,
+    scroll_offset: Cell<usize>,
+    rendered_fields: RefCell<Vec<Option<FormField>>>,
     error: Option<String>,
     /// The Test Connection probe state (ODP-8).
     test: TestState,
@@ -685,10 +688,7 @@ impl ConnectionForm {
     /// The field rendered on body row `row`, if any (spacer / header / error
     /// rows return `None`).
     fn field_at_row(&self, row: usize) -> Option<FormField> {
-        self.rows().into_iter().nth(row).and_then(|r| match r {
-            FormRow::Field(field) => Some(field),
-            _ => None,
-        })
+        self.rendered_fields.borrow().get(row).copied().flatten()
     }
 
     /// Trim and normalize a text buffer into an optional field value.
@@ -826,7 +826,7 @@ impl ConnectionForm {
         })
     }
 
-    /// Ordered rows the form renders (and the inverse map for click hit-testing).
+    /// Ordered form content. Pointer targets are recorded from the visible slice.
     fn rows(&self) -> Vec<FormRow> {
         let mut rows = vec![
             FormRow::Field(FormField::Alias),
@@ -858,11 +858,7 @@ impl ConnectionForm {
         rows.push(FormRow::Field(FormField::Save));
         rows.push(FormRow::Field(FormField::Cancel));
         rows.push(FormRow::Spacer);
-        // Focused-field help footer (FORM-UX): follows keyboard focus + click,
-        // wrapped to the body width in `visible_lines`. Collapses off first on a
-        // short window, exactly like the connection-manager footer.
-        // Guard: no clickable field may be inserted below Help without moving
-        // pointer dispatch to rendered-row targets first.
+        // Help follows controls and collapses before the control viewport scrolls.
         rows.push(FormRow::Help(self.focus));
         rows.push(FormRow::Text(
             "[Tab/\u{2191}\u{2193}] move   [Enter] act   [Ctrl+S] save   [Esc] cancel".to_owned(),
@@ -954,13 +950,41 @@ impl ConnectionForm {
     ) -> Vec<ConnectionFormLine> {
         // The IdentityFile key browser owns the whole body while it is open.
         if let Some(browse) = self.browse.as_ref() {
+            self.rendered_fields.borrow_mut().clear();
             return self.browse_lines(browse, body_width, body_height);
         }
+        let rows = self.rows();
+        let controls_end = rows
+            .iter()
+            .rposition(|row| matches!(row, FormRow::Field(_)))
+            .map_or(0, |last| last.saturating_add(1));
+        let focused_row = rows
+            .iter()
+            .position(|row| matches!(row, FormRow::Field(field) if *field == self.focus))
+            .unwrap_or(0);
+        let mut offset = self
+            .scroll_offset
+            .get()
+            .min(controls_end.saturating_sub(body_height));
+        if body_height == 0 {
+            offset = 0;
+        } else if focused_row < offset {
+            offset = focused_row;
+        } else if focused_row >= offset.saturating_add(body_height) {
+            offset = focused_row.saturating_add(1).saturating_sub(body_height);
+        }
+        self.scroll_offset.set(offset);
+        let mut targets = self.rendered_fields.borrow_mut();
+        targets.clear();
         let mut lines = Vec::new();
-        for row in self.rows() {
+        for row in rows.into_iter().skip(offset) {
             if lines.len() >= body_height {
                 break;
             }
+            targets.push(match &row {
+                FormRow::Field(field) => Some(*field),
+                _ => None,
+            });
             match row {
                 FormRow::Field(field) => lines.push(self.render_field(field, body_width)),
                 FormRow::Spacer => lines.push(ConnectionFormLine {
@@ -997,6 +1021,7 @@ impl ConnectionForm {
                     }
                 }
             }
+            targets.resize(lines.len(), None);
         }
         lines
     }
@@ -1116,6 +1141,7 @@ impl ConnectionForm {
             is_edit: self.is_edit(),
             advanced: self.advanced,
             focus: self.focus_index(),
+            scroll_offset: self.scroll_offset.get(),
             fields: vec![
                 self.alias.clone(),
                 self.host_name.clone(),
@@ -1424,6 +1450,7 @@ mod tests {
     fn click_focuses_a_field_and_acts_on_a_button() {
         let mut form = ConnectionForm::new();
         form.open_add(Vec::new());
+        form.visible_lines(80, 40);
         // Row 1 is HostName (row 0 = Alias). A click focuses it.
         assert_eq!(
             form.handle_pointer_press(1, 0, 80),
@@ -1617,6 +1644,7 @@ mod tests {
         form.open_add(Vec::new());
         form.advanced = true;
         let width = 72;
+        form.visible_lines(width, 40);
         let (start, end) = form
             .identity_browse_chip_span(width)
             .expect("empty chip span");
@@ -1647,6 +1675,7 @@ mod tests {
         form.focus = FormField::IdentityFile;
         typed(&mut form, "/keys/mine");
         let width = 72;
+        form.visible_lines(width, 40);
         let (start, _) = form
             .identity_browse_chip_span(width)
             .expect("filled chip span");
@@ -1898,3 +1927,7 @@ mod tests {
         assert_eq!(basename("bare"), "bare");
     }
 }
+
+#[cfg(test)]
+#[path = "connection_form_focus_tests.rs"]
+mod focus_tests;
