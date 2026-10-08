@@ -962,10 +962,7 @@ impl App {
     }
 
     pub(super) fn key_modes(&self) -> KeyModes {
-        self.terminal
-            .lock()
-            .map(|terminal| key_modes_from_core(terminal.keyboard_modes()))
-            .unwrap_or_default()
+        key_modes_from_core(crate::native::lock_recover(&self.terminal).keyboard_modes())
     }
 
     pub(super) fn toggle_search(&mut self) {
@@ -1048,9 +1045,9 @@ impl App {
             return;
         }
         let session = self.sessions.active_mut();
-        if let Ok(terminal) = session.terminal.lock() {
-            session.search.refresh(&terminal);
-        }
+        session
+            .search
+            .refresh(&crate::native::lock_recover(&session.terminal));
     }
 
     pub(super) fn jump_to_current_search_match(&mut self) {

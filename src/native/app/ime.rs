@@ -168,12 +168,9 @@ impl App {
         // coordinate. Both components are 0 with no chrome shown, keeping the
         // plain path byte-identical.
         let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
-        let cursor = self
-            .terminal
-            .lock()
-            .ok()
-            .map(|terminal| terminal.snapshot().cursor)
-            .unwrap_or_default();
+        let cursor = crate::native::lock_recover(&self.terminal)
+            .snapshot()
+            .cursor;
         let column = self.ime_anchor_column(cursor);
         let x = pad + chrome_dx as f32 + column as f32 * cell.width as f32;
         let y = pad + chrome_dy as f32 + cursor.row as f32 * cell.height as f32;

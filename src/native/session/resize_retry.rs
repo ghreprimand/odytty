@@ -79,14 +79,9 @@ impl WorkspaceSet {
                 session.resize_retry.clear();
                 continue;
             }
-            let Some((dimensions, metrics)) = session
-                .terminal
-                .lock()
-                .ok()
-                .map(|terminal| (terminal.screen().dimensions(), terminal.cell_metrics()))
-            else {
-                session.resize_retry.failed(now);
-                continue;
+            let (dimensions, metrics) = {
+                let terminal = crate::native::lock_recover(&session.terminal);
+                (terminal.screen().dimensions(), terminal.cell_metrics())
             };
             let accepted = match &session.source {
                 SessionSource::Local { pty } => pty.try_lock().is_ok_and(|pty| {

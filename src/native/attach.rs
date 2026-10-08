@@ -576,7 +576,8 @@ fn run_attach_pump(
     loop {
         match read_host_frame(&mut stream) {
             Ok(HostFrame::Output(bytes)) => {
-                if let Ok(mut term) = terminal.lock() {
+                {
+                    let mut term = crate::native::lock_recover(&terminal);
                     term.advance(&bytes);
                     // Render mirror: the host already answered device queries
                     // against its own authoritative terminal, so discard any
@@ -594,10 +595,8 @@ fn run_attach_pump(
                 // own mirror locally, so echoing identical dimensions here would
                 // re-drive the column reflow (whose trailing-blank trim can nudge
                 // the cursor) for no reason. Zero dimensions are ignored.
-                if columns != 0
-                    && rows != 0
-                    && let Ok(mut term) = terminal.lock()
-                {
+                if columns != 0 && rows != 0 {
+                    let mut term = crate::native::lock_recover(&terminal);
                     let current = term.screen().dimensions();
                     let cols = columns as usize;
                     let target_rows = rows as usize;
@@ -613,9 +612,8 @@ fn run_attach_pump(
                 // than mis-applying envelope bytes as raw output.
                 if let Ok(envelope) =
                     SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default())
-                    && let Ok(mut term) = terminal.lock()
                 {
-                    let _ = term.restore_from_envelope(&envelope);
+                    let _ = crate::native::lock_recover(&terminal).restore_from_envelope(&envelope);
                 }
                 sink.redraw(session);
             }

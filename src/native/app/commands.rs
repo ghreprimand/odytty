@@ -26,7 +26,8 @@ impl App {
         scrollback_limit: usize,
         button_gates: ButtonGates,
     ) {
-        if let Ok(mut terminal) = session.terminal.lock() {
+        {
+            let mut terminal = crate::native::lock_recover(&session.terminal);
             let cursor_default = if themed_ui_roles {
                 rgb(effective_theme.cursor)
             } else {

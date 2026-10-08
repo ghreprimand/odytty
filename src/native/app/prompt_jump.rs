@@ -49,10 +49,9 @@ impl App {
         let scrollback_len = self.scrollback_len();
         let viewport_height = self.grid.rows;
         let reference_row = scrollback_len.saturating_sub(self.viewport.offset());
-        let marks = match self.terminal.lock() {
-            Ok(terminal) => terminal.screen().prompt_marks(),
-            Err(_) => return false,
-        };
+        let marks = crate::native::lock_recover(&self.terminal)
+            .screen()
+            .prompt_marks();
         let Some((_target_row, offset)) = core_prompt_jump(
             &marks,
             reference_row,

@@ -177,11 +177,9 @@ impl App {
             Some(session) => session,
             None => return,
         };
-        let cwd = session
-            .terminal
-            .lock()
-            .ok()
-            .and_then(|terminal| terminal.current_working_directory().map(str::to_owned));
+        let cwd = crate::native::lock_recover(&session.terminal)
+            .current_working_directory()
+            .map(str::to_owned);
         let title = tab
             .title_override
             .clone()
@@ -211,11 +209,9 @@ impl App {
         let Some(session) = self.sessions.get(tab.focused) else {
             return;
         };
-        let cwd = session
-            .terminal
-            .lock()
-            .ok()
-            .and_then(|terminal| terminal.current_working_directory().map(str::to_owned));
+        let cwd = crate::native::lock_recover(&session.terminal)
+            .current_working_directory()
+            .map(str::to_owned);
         self.push_navigator_recently_closed(ClosedNavigatorItem {
             kind: ClosedNavigatorKind::Workspace,
             title: workspace.name.clone(),

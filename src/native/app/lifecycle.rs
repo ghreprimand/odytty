@@ -526,11 +526,8 @@ impl App {
         let Some(session) = self.sessions.get(token) else {
             return;
         };
-        let Some(bytes) = session
-            .terminal
-            .lock()
-            .ok()
-            .and_then(|terminal| encode_native_focus_report(&terminal, focused))
+        let Some(bytes) =
+            encode_native_focus_report(&crate::native::lock_recover(&session.terminal), focused)
         else {
             return;
         };
@@ -856,11 +853,7 @@ impl App {
         // past blink instant; the rebuild below consumes the already-resolved
         // phase for easing and rendering.
         if self.cursor_blink.is_due(now) {
-            let blinking = self
-                .terminal
-                .lock()
-                .map(|terminal| terminal.cursor_blinking())
-                .unwrap_or(false);
+            let blinking = crate::native::lock_recover(&self.terminal).cursor_blinking();
             let focused = self.focused;
             let _ = self.cursor_blink.poll(now, blinking, focused);
             self.needs_rebuild = true;
@@ -1075,10 +1068,8 @@ impl App {
         // Push live cell pixel metrics to the terminal core so graphics
         // placements (sixel/kitty) compute the correct cell extent.
         let cell = gpu.cell();
-        if !self.live_drag_destination
-            && let Ok(mut term) = self.terminal.lock()
-        {
-            term.set_cell_metrics(cell.width, cell.height);
+        if !self.live_drag_destination {
+            crate::native::lock_recover(&self.terminal).set_cell_metrics(cell.width, cell.height);
         }
         self.last_cursor_comparison_snapshot = Some(crate::native::session::CursorComparison::of(
             &initial_snapshot,

@@ -58,10 +58,9 @@ impl App {
         if let Some(placement) = self.pending_tear_out_placement.as_ref() {
             return placement.identity.clone();
         }
-        self.terminal
-            .lock()
-            .ok()
-            .and_then(|terminal| terminal.title().map(ToOwned::to_owned))
+        crate::native::lock_recover(&self.terminal)
+            .title()
+            .map(ToOwned::to_owned)
             .unwrap_or_else(|| self.options.title.clone())
     }
 

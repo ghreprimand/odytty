@@ -64,10 +64,9 @@ impl App {
     /// OSC 7 drive-letter cwds are normalized upstream and network/device
     /// prefixes are refused. Retained advisory metadata still needs validation.
     pub(in crate::native) fn focused_pane_cwd(&self) -> Option<String> {
-        self.terminal
-            .lock()
-            .ok()
-            .and_then(|terminal| terminal.current_working_directory().map(str::to_owned))
+        crate::native::lock_recover(&self.terminal)
+            .current_working_directory()
+            .map(str::to_owned)
     }
 
     /// The focused pane's OSC 7 cwd, VALIDATED for seeding a spawn (audit D-1).

@@ -76,12 +76,13 @@ fn press_at(app: &mut App, (x, y): (f64, f64)) {
     assert!(app.selecting_for_test(), "the press began a selection");
 }
 
-fn require_history(app: &App) -> bool {
-    if app.scrollback_len_for_test() == 0 {
-        eprintln!("skipping: no scrollback materialized");
-        return false;
-    }
-    true
+/// Sixty lines into a twelve-row terminal always leave history; an empty
+/// scrollback here is a setup failure, never a reason to skip.
+fn assert_history(app: &App) {
+    assert!(
+        app.scrollback_len_for_test() > 0,
+        "the focused pane holds scrollback"
+    );
 }
 
 #[test]
@@ -112,9 +113,7 @@ fn a_held_drag_into_the_other_pane_clamps_to_the_owning_pane_edge() {
 #[test]
 fn a_held_drag_into_the_pane_above_scrolls_the_owning_pane() {
     let (mut app, (_, bottom)) = split_app(false, Settings::default(), 0);
-    if !require_history(&app) {
-        return;
-    }
+    assert_history(&app);
     let start = pane_cell_px(&app, 2, 4);
     press_at(&mut app, start);
     let (x, _) = pane_cell_px(&app, 0, 4);
@@ -134,9 +133,7 @@ fn a_held_drag_into_the_pane_above_scrolls_the_owning_pane() {
 #[test]
 fn the_pane_first_row_is_the_upward_autoscroll_band() {
     let (mut app, _) = split_app(false, Settings::default(), 0);
-    if !require_history(&app) {
-        return;
-    }
+    assert_history(&app);
     let start = pane_cell_px(&app, 2, 4);
     press_at(&mut app, start);
     // Inside the bottom pane's first drawn row, mid-window.
@@ -180,9 +177,7 @@ fn a_held_split_drag_over_the_tab_bar_scrolls_instead_of_hovering_a_tab() {
     };
     let (mut app, (top, _)) = split_app(false, settings, 2);
     app.focus_session_token_for_test(top);
-    if !require_history(&app) {
-        return;
-    }
+    assert_history(&app);
     let (_, chrome_dy) = app.tab_chrome_offset_px_for_test().expect("chrome");
     assert!(chrome_dy > 0.0, "the top bar is shown");
     let tab = (2.0 * f64::from(CELL.width), chrome_dy / 2.0);
@@ -217,9 +212,7 @@ fn a_held_single_pane_drag_over_the_tab_bar_scrolls_instead_of_hovering_a_tab() 
         (ROWS as u32 + 2) * CELL.height,
         crate::native::WindowPadding::ZERO,
     );
-    if !require_history(&app) {
-        return;
-    }
+    assert_history(&app);
     let (_, chrome_dy) = app.tab_chrome_offset_px_for_test().expect("chrome");
     assert!(chrome_dy > 0.0, "the top bar is shown");
     let tab = (2.0 * f64::from(CELL.width), chrome_dy / 2.0);

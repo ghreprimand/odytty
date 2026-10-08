@@ -70,11 +70,7 @@ impl App {
         let live_sessions: Vec<_> = self.sessions.iter().map(|session| session.id).collect();
         for session in self.sessions.iter() {
             let is_focused = session.id == focused;
-            let requests = session
-                .terminal
-                .lock()
-                .map(|mut terminal| terminal.take_clipboard_requests())
-                .unwrap_or_default();
+            let requests = crate::native::lock_recover(&session.terminal).take_clipboard_requests();
             for request in requests {
                 match request {
                     ClipboardRequest::Write { selection, text } => {
@@ -92,14 +88,11 @@ impl App {
                             // contents, but an explicit empty reply lets it
                             // finish immediately instead of hanging to its own
                             // timeout.
-                            let host_output = session
-                                .terminal
-                                .lock()
-                                .map(|mut terminal| {
-                                    terminal.answer_clipboard_read(selection, "");
-                                    terminal.take_host_output()
-                                })
-                                .unwrap_or_default();
+                            let host_output = {
+                                let mut terminal = crate::native::lock_recover(&session.terminal);
+                                terminal.answer_clipboard_read(selection, "");
+                                terminal.take_host_output()
+                            };
                             #[cfg(test)]
                             {
                                 self.osc52_background_empty_replies_for_test += 1;
@@ -121,16 +114,13 @@ impl App {
                         };
                         // Clipboard text over the OSC 52 limit is refused
                         // whole: no reply is queued and the user is told.
-                        let host_output = session
-                            .terminal
-                            .lock()
-                            .map(|mut terminal| {
-                                if !terminal.answer_clipboard_read(selection, &text) {
-                                    refused_read_len = Some(text.len());
-                                }
-                                terminal.take_host_output()
-                            })
-                            .unwrap_or_default();
+                        let host_output = {
+                            let mut terminal = crate::native::lock_recover(&session.terminal);
+                            if !terminal.answer_clipboard_read(selection, &text) {
+                                refused_read_len = Some(text.len());
+                            }
+                            terminal.take_host_output()
+                        };
                         if !host_output.is_empty()
                             && let Ok(mut writer) = session.writer.lock()
                         {

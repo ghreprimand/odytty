@@ -1235,10 +1235,9 @@ impl App {
         if self.selection_block || self.viewport.offset() != 0 || self.selection.range().is_none() {
             return false;
         }
-        self.terminal
-            .lock()
-            .ok()
-            .is_some_and(|terminal| terminal.active_prompt_input_start().is_none())
+        crate::native::lock_recover(&self.terminal)
+            .active_prompt_input_start()
+            .is_none()
     }
 
     pub(super) fn handle_context_menu_cut(&mut self) {

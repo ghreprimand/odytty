@@ -360,12 +360,7 @@ impl App {
     /// this short-circuits before locking the terminal, so the off path does no
     /// work at all (T1 off-path identity).
     fn sh_click_enabled(&self) -> bool {
-        self.settings.sh_click
-            && self
-                .terminal
-                .lock()
-                .map(|terminal| terminal.click_events_enabled())
-                .unwrap_or(false)
+        self.settings.sh_click && crate::native::lock_recover(&self.terminal).click_events_enabled()
     }
 
     /// SH-CLICK (F2): emit the cursor-positioning key burst for a bare left
@@ -433,9 +428,7 @@ impl App {
         // pixel is available, preserving the prior behaviour.
         let subcell_round_up = self.click_subcell_rounds_up(point);
         let delta = {
-            let Ok(terminal) = self.terminal.lock() else {
-                return false;
-            };
+            let terminal = crate::native::lock_recover(&self.terminal);
             // F11: a full-screen app on the alternate screen owns its layout.
             if terminal.screen().on_alternate_screen() {
                 return false;
@@ -561,25 +554,23 @@ impl App {
 
     /// The grid of session `token`: the window content grid when it is the
     /// lone pane of the active single-pane tab, else that session's terminal
-    /// size (the window grid if the session is gone or its lock is poisoned).
+    /// size (the window grid if the session is gone).
     pub(super) fn grid_of(&self, token: SessionToken) -> Dimensions {
         if self.sessions.active_is_single_pane() && token == self.sessions.active_id() {
             return self.grid;
         }
         self.sessions
             .get(token)
-            .and_then(|session| {
-                session
-                    .terminal
-                    .lock()
-                    .ok()
-                    .map(|t| t.screen().dimensions())
+            .map(|session| {
+                crate::native::lock_recover(&session.terminal)
+                    .screen()
+                    .dimensions()
             })
             .unwrap_or(self.grid)
     }
 
-    /// Current scrollback length from the shared model (0 if the lock is
-    /// poisoned), used to clamp upward scrolling.
+    /// Current scrollback length from the shared model, used to clamp upward
+    /// scrolling.
     pub(super) fn scrollback_len(&self) -> usize {
         self.scrollback_len_of(self.sessions.active_id())
     }
@@ -588,11 +579,9 @@ impl App {
         let Some(session) = self.sessions.get(token) else {
             return 0;
         };
-        session
-            .terminal
-            .lock()
-            .map(|t| t.screen().scrollback_len())
-            .unwrap_or(0)
+        crate::native::lock_recover(&session.terminal)
+            .screen()
+            .scrollback_len()
     }
 
     pub(super) fn scroll_viewport(&mut self, delta: isize) {
@@ -635,10 +624,8 @@ impl App {
     /// scroll mode, DECSET 1007). True only on the alternate screen with the
     /// mode enabled; the caller has already excluded the mouse-reporting case.
     pub(super) fn alternate_scroll_active(&self) -> bool {
-        self.terminal
-            .lock()
-            .map(|t| t.on_alternate_screen() && t.alternate_scroll_enabled())
-            .unwrap_or(false)
+        let terminal = crate::native::lock_recover(&self.terminal);
+        terminal.on_alternate_screen() && terminal.alternate_scroll_enabled()
     }
 
     /// Translate a wheel movement of `lines` into that many Up/Down cursor-key

@@ -88,11 +88,9 @@ impl App {
         if self.search.is_open() {
             self.close_search(true);
         }
-        let cwd = self
-            .terminal
-            .lock()
-            .ok()
-            .and_then(|terminal| terminal.current_working_directory().map(str::to_owned));
+        let cwd = crate::native::lock_recover(&self.terminal)
+            .current_working_directory()
+            .map(str::to_owned);
         self.reset_pointer_state_for_overlay();
         let workspaces = self.sessions.workspace_names();
         // F6-W5: offer the known-host aliases for binding, and the current

@@ -201,7 +201,8 @@ impl App {
             let base_bg = rgb(theme.background);
             // C29: keep OSC 4 replies in sync with the newly effective theme.
             let base_palette = theme.palette.map(rgb);
-            if let Ok(mut terminal) = session.terminal.lock() {
+            {
+                let mut terminal = crate::native::lock_recover(&session.terminal);
                 terminal.set_base_colors(base_fg, base_bg, cursor_default);
                 terminal.set_base_palette(base_palette);
             }

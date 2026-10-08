@@ -108,11 +108,7 @@ impl App {
         let scrollback_len = self.scrollback_len();
         let window_start = scrollback_len - offset.min(scrollback_len);
 
-        let visible = self
-            .terminal
-            .lock()
-            .map(|t| t.visible_search_rows(offset))
-            .unwrap_or_default();
+        let visible = crate::native::lock_recover(&self.terminal).visible_search_rows(offset);
         let search_rows: Vec<_> = visible.iter().map(|r| r.as_search_row()).collect();
         let matches = hints::scan(&search_rows, HintKinds::all());
 

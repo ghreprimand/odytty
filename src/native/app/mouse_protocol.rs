@@ -82,10 +82,7 @@ impl App {
     }
 
     pub(super) fn mouse_protocol(&self) -> MouseProtocol {
-        self.terminal
-            .lock()
-            .map(|terminal| terminal.mouse_protocol())
-            .unwrap_or_default()
+        crate::native::lock_recover(&self.terminal).mouse_protocol()
     }
 
     pub(super) fn mouse_reporting_enabled(&self) -> bool {
@@ -226,11 +223,8 @@ impl App {
     pub(super) fn send_focus_report(&mut self, focused: bool) {
         #[cfg(test)]
         let session = self.sessions.active_id();
-        let Some(bytes) = self
-            .terminal
-            .lock()
-            .ok()
-            .and_then(|terminal| encode_native_focus_report(&terminal, focused))
+        let Some(bytes) =
+            encode_native_focus_report(&crate::native::lock_recover(&self.terminal), focused)
         else {
             return;
         };

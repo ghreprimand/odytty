@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Live terminal-model reads on the paste, split render, cursor blink, and
-//! selected-input delete paths use the shared poison-recovery policy through
-//! the real App paths: a poisoned model is still read for what the child
-//! enabled, never treated as "mode off", "pane absent", or "no selection".
+//! Every live terminal-model read and write uses the shared poison-recovery
+//! policy, the same one the PTY reader and the renderer use. These tests drive
+//! the real App paths (paste, split render, cursor blink, selected-input
+//! delete, key and mouse encoding, focus reports, alternate scroll, bells, and
+//! resize): a poisoned model is still read for what the child enabled and
+//! still updated, never treated as "mode off", "pane absent", "no selection",
+//! or "nothing to do".
 
 use std::io::{self, Write};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -143,4 +146,88 @@ fn delete_over_a_poisoned_input_selection_edits_only_the_input() {
         [b"\x1b[D".repeat(3), b"\x1b[3~".repeat(3)].concat(),
         "the selected input is deleted, not a single blind Delete"
     );
+}
+
+/// The poisoned model still accepts output, as the PTY reader writes it.
+fn advance_poisoned(terminal: &Arc<Mutex<Terminal>>, bytes: &[u8]) {
+    crate::native::lock_recover(terminal).advance(bytes);
+}
+
+const CELL_8X16: CellSize = CellSize {
+    width: 8,
+    height: 16,
+    baseline: 12,
+};
+
+#[test]
+fn a_poisoned_session_keeps_its_kitty_keyboard_encoding() {
+    let (mut app, recorded, terminal) = recording_app(b"\x1b[>1u");
+    poison(&terminal);
+    app.drive_named_key_for_test(NamedKey::Escape);
+    assert_eq!(
+        bytes_of(&recorded),
+        b"\x1b[27u",
+        "the child's disambiguate flag still encodes Escape"
+    );
+}
+
+#[test]
+fn a_poisoned_mouse_reporting_session_still_receives_the_click() {
+    let (mut app, recorded, terminal) = recording_app(b"\x1b[?1000h\x1b[?1006h");
+    app.set_test_cell_for_test(CELL_8X16);
+    app.set_test_surface_for_test(640, 384, crate::native::WindowPadding::ZERO);
+    poison(&terminal);
+    app.pointer_move_for_test(4.0, 8.0);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    assert_eq!(
+        bytes_of(&recorded),
+        b"\x1b[<0;1;1M",
+        "the press is reported, not taken as a selection"
+    );
+}
+
+#[test]
+fn a_poisoned_session_still_receives_focus_reports() {
+    let (mut app, recorded, terminal) = recording_app(b"\x1b[?1004h");
+    app.on_window_focus_changed_for_test(true);
+    recorded.lock().expect("bytes").clear();
+    poison(&terminal);
+    app.on_window_focus_changed_for_test(false);
+    assert_eq!(bytes_of(&recorded), b"\x1b[O", "focus loss is reported");
+}
+
+#[test]
+fn a_poisoned_alternate_screen_still_turns_the_wheel_into_arrows() {
+    let (mut app, recorded, terminal) = recording_app(b"\x1b[?1049h\x1b[?1007h");
+    poison(&terminal);
+    app.dispatch_wheel_for_test(1.0);
+    let written = bytes_of(&recorded);
+    assert!(
+        !written.is_empty()
+            && written
+                .chunks(3)
+                .all(|key| key == b"\x1b[A" || key == b"\x1bOA"),
+        "the wheel becomes up arrows: {written:?}"
+    );
+}
+
+#[test]
+fn a_bell_rung_in_a_poisoned_session_is_still_drained() {
+    let (mut app, _recorded, terminal) = recording_app(b"");
+    poison(&terminal);
+    advance_poisoned(&terminal, b"\x07");
+    let (focused_bell, _, _) = app.drain_bells_for_test();
+    assert!(focused_bell, "the bell is taken from the poisoned model");
+}
+
+#[test]
+fn a_poisoned_session_still_follows_a_window_resize() {
+    let (mut app, _recorded, terminal) = recording_app(b"");
+    poison(&terminal);
+    assert!(
+        app.resize_grid(CELL_8X16, 50 * 8, 20 * 16),
+        "the grid changed"
+    );
+    let dims = crate::native::lock_recover(&terminal).screen().dimensions();
+    assert_eq!((dims.columns, dims.rows), (50, 20), "the model was resized");
 }

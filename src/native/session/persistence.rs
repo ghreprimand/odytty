@@ -263,7 +263,7 @@ impl WorkspaceSet {
     /// directory (design §10.5 degrade path). Never touches the filesystem.
     fn pane_cwd(&self, token: SessionToken) -> Option<String> {
         let session = self.sessions.get(&token)?;
-        let terminal = session.terminal.lock().ok()?;
+        let terminal = crate::native::lock_recover(&session.terminal);
         terminal.current_working_directory().map(str::to_owned)
     }
 
@@ -704,10 +704,9 @@ impl WorkspaceSet {
                         None::<&str>.hash(&mut hasher);
                         continue;
                     };
-                    match session.terminal.lock() {
-                        Ok(terminal) => terminal.current_working_directory().hash(&mut hasher),
-                        Err(_) => None::<&str>.hash(&mut hasher),
-                    }
+                    crate::native::lock_recover(&session.terminal)
+                        .current_working_directory()
+                        .hash(&mut hasher);
                 }
             }
         }

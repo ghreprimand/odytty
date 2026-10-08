@@ -254,7 +254,7 @@ impl App {
         if point.row >= self.grid.rows || point.column >= self.grid.columns {
             return None;
         }
-        let terminal = self.terminal.lock().ok()?;
+        let terminal = crate::native::lock_recover(&self.terminal);
         let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
         let cols = snapshot.dimensions.columns;
         if cols == 0 || point.row >= snapshot.dimensions.rows {
@@ -395,7 +395,7 @@ impl App {
         if point.row >= self.grid.rows || point.column >= self.grid.columns {
             return None;
         }
-        let terminal = self.terminal.lock().ok()?;
+        let terminal = crate::native::lock_recover(&self.terminal);
         let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
         let cols = snapshot.dimensions.columns;
         if point.row >= snapshot.dimensions.rows {
@@ -436,7 +436,7 @@ impl App {
         if point.row >= self.grid.rows || point.column >= self.grid.columns {
             return None;
         }
-        let terminal = self.terminal.lock().ok()?;
+        let terminal = crate::native::lock_recover(&self.terminal);
         let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
         snapshot
             .cells
@@ -453,7 +453,7 @@ impl App {
         if point.row >= self.grid.rows || point.column >= self.grid.columns {
             return None;
         }
-        let terminal = self.terminal.lock().ok()?;
+        let terminal = crate::native::lock_recover(&self.terminal);
         terminal.button_at(self.viewport.offset(), point.row, point.column)
     }
 
@@ -545,9 +545,7 @@ impl App {
             return;
         };
         let (hit, prompt_active) = {
-            let Ok(terminal) = self.terminal.lock() else {
-                return;
-            };
+            let terminal = crate::native::lock_recover(&self.terminal);
             (
                 terminal.button_at(self.viewport.offset(), point.row, point.column),
                 terminal.prompt_active(),
@@ -571,9 +569,7 @@ impl App {
 
     fn hovered_hyperlink_uri(&self) -> Option<String> {
         let id = self.hovered_hyperlink?;
-        self.terminal
-            .lock()
-            .ok()?
+        crate::native::lock_recover(&self.terminal)
             .hyperlink(id)
             .map(|link| link.uri.clone())
     }

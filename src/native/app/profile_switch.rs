@@ -24,20 +24,18 @@ impl App {
             .sessions
             .get(focused)
             .and_then(|session| session.launch_profile.clone());
-        let cwd_changed = self
-            .sessions
-            .get(focused)
-            .and_then(|session| session.terminal.lock().ok())
-            .is_some_and(|mut terminal| terminal.take_working_directory_changed());
+        let cwd_changed = self.sessions.get(focused).is_some_and(|session| {
+            crate::native::lock_recover(&session.terminal).take_working_directory_changed()
+        });
         if !cwd_changed {
             return;
         }
 
-        let cwd = self
-            .sessions
-            .get(focused)
-            .and_then(|session| session.terminal.lock().ok())
-            .and_then(|terminal| terminal.current_working_directory().map(str::to_owned));
+        let cwd = self.sessions.get(focused).and_then(|session| {
+            crate::native::lock_recover(&session.terminal)
+                .current_working_directory()
+                .map(str::to_owned)
+        });
         let cwd_path = cwd.as_deref().map(Path::new);
 
         let host = if let Some(destination) = remote_destination.as_deref() {

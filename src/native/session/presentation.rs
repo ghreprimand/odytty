@@ -144,11 +144,9 @@ impl TabBarSource for WorkspaceRailSource<'_> {
 
 impl Session {
     pub(in crate::native) fn refresh_tab_title(&mut self) {
-        self.tab_title = self
-            .terminal
-            .lock()
-            .ok()
-            .and_then(|terminal| terminal.title().map(ToOwned::to_owned))
+        self.tab_title = crate::native::lock_recover(&self.terminal)
+            .title()
+            .map(ToOwned::to_owned)
             .filter(|title| !title.is_empty())
             .unwrap_or_else(|| "odytty".to_owned());
     }
@@ -707,9 +705,7 @@ impl WorkspaceSet {
         let mut background_rang: Vec<SessionToken> = Vec::new();
         let mut monitored_rang: Vec<SessionToken> = Vec::new();
         for session in self.sessions.values() {
-            let Ok(mut terminal) = session.terminal.lock() else {
-                continue;
-            };
+            let mut terminal = crate::native::lock_recover(&session.terminal);
             let bell = terminal.take_bell();
             let prompt_changed = terminal.take_prompt_marks_changed();
             drop(terminal);
@@ -830,14 +826,14 @@ impl WorkspaceSet {
             let Some(session) = self.sessions.get_mut(&token) else {
                 continue;
             };
-            let (notifications, progress, completions, revision) = match session.terminal.lock() {
-                Ok(mut terminal) => (
+            let (notifications, progress, completions, revision) = {
+                let mut terminal = crate::native::lock_recover(&session.terminal);
+                (
                     terminal.take_notifications(),
                     terminal.take_progress_changed(),
                     terminal.take_command_completions(),
                     terminal.render_revision(),
-                ),
-                Err(_) => (Vec::new(), None, Vec::new(), 0),
+                )
             };
             if !enabled {
                 if !completions.is_empty() {

@@ -454,16 +454,13 @@ impl Session {
         pump_thread: Option<JoinHandle<()>>,
         recorder: RecorderHandle,
     ) -> Self {
-        let tab_title = terminal
-            .lock()
-            .ok()
-            .and_then(|terminal| terminal.title().map(ToOwned::to_owned))
+        let tab_title = crate::native::lock_recover(&terminal)
+            .title()
+            .map(ToOwned::to_owned)
             .filter(|title| !title.is_empty())
             .unwrap_or_else(|| "odytty".to_owned());
-        let last_scrollback_trim_epoch = terminal
-            .lock()
-            .map(|terminal| terminal.scrollback_trim_epoch())
-            .unwrap_or(0);
+        let last_scrollback_trim_epoch =
+            crate::native::lock_recover(&terminal).scrollback_trim_epoch();
         let last_scrollback_pushes = crate::native::lock_recover(&terminal)
             .screen()
             .pushed_row_count();
@@ -620,9 +617,8 @@ impl WorkspaceSet {
     pub(in crate::native) fn set_local_hostname(&mut self, local_hostname: Option<String>) {
         self.local_hostname = local_hostname;
         for session in self.sessions.values() {
-            if let Ok(mut terminal) = session.terminal.lock() {
-                terminal.set_local_hostname(self.local_hostname.clone());
-            }
+            crate::native::lock_recover(&session.terminal)
+                .set_local_hostname(self.local_hostname.clone());
         }
     }
 
@@ -791,8 +787,8 @@ impl WorkspaceSet {
                     continue;
                 };
                 let mut dimensions_changed = false;
-                let mut metrics_changed = false;
-                if let Ok(mut terminal) = session.terminal.lock() {
+                let metrics_changed = {
+                    let mut terminal = crate::native::lock_recover(&session.terminal);
                     // A resize to identical grid dimensions MUST be a model
                     // no-op. `resize_all_panes` runs on every structural change
                     // (split / close / equalize / window resize), and for a
@@ -814,9 +810,10 @@ impl WorkspaceSet {
                         dimensions_changed = true;
                     }
                     let metrics = crate::core::CellMetrics::new(cell_w, cell_h);
-                    metrics_changed = terminal.cell_metrics() != metrics;
+                    let metrics_changed = terminal.cell_metrics() != metrics;
                     terminal.set_cell_metrics(cell_w, cell_h);
-                }
+                    metrics_changed
+                };
                 let geometry_changed = dimensions_changed || metrics_changed;
                 any_geometry_changed |= geometry_changed;
                 if dimensions_changed {
@@ -989,9 +986,7 @@ impl WorkspaceSet {
             let Some(session) = self.sessions.get_mut(&token) else {
                 continue;
             };
-            if let Ok(mut terminal) = session.terminal.lock() {
-                terminal.set_cell_metrics(cell_w, cell_h);
-            }
+            crate::native::lock_recover(&session.terminal).set_cell_metrics(cell_w, cell_h);
             match &session.source {
                 SessionSource::Local { pty } => {
                     if let Ok(pty) = pty.lock() {

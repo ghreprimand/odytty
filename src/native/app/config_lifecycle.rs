@@ -730,9 +730,8 @@ impl App {
         if text_rebuilt || padding_changed {
             let resize = self.gpu.as_ref().and_then(|gpu| {
                 let cell = gpu.cell();
-                if let Ok(mut terminal) = self.terminal.lock() {
-                    terminal.set_cell_metrics(cell.width, cell.height);
-                }
+                crate::native::lock_recover(&self.terminal)
+                    .set_cell_metrics(cell.width, cell.height);
                 self.window.as_ref().map(|window| {
                     pending_resize_for_surface(cell, gpu.window_padding(), window.inner_size())
                 })
@@ -899,7 +898,8 @@ impl App {
             let ambiguous_wide =
                 crate::settings::AmbiguousWidth::from_profile(profile_width, global_ambiguous)
                     .is_wide();
-            if let Ok(mut terminal) = session.terminal.lock() {
+            {
+                let mut terminal = crate::native::lock_recover(&session.terminal);
                 terminal.set_base_colors(base_fg, base_bg, session_cursor_default);
                 terminal.set_base_palette(base_palette);
                 terminal.set_osc52_read_enabled(osc52_read);

@@ -387,11 +387,8 @@ impl App {
             // A split tab applies synchronized output per pane inside the
             // multi-pane rebuild, so one pane's batch never freezes the others.
             let is_holding = single_pane && {
-                let synchronized_output = self
-                    .terminal
-                    .lock()
-                    .map(|terminal| terminal.synchronized_output_enabled())
-                    .unwrap_or(false);
+                let synchronized_output =
+                    crate::native::lock_recover(&self.terminal).synchronized_output_enabled();
                 self.synchronized_output_hold
                     .should_hold(synchronized_output, now)
             };

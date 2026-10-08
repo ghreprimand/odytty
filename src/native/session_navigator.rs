@@ -217,11 +217,9 @@ pub(super) fn live_entries(set: &WorkspaceSet, include_preview: bool) -> Vec<Nav
                 };
                 let remote = session.remote_destination.as_deref();
                 let location = remote.map(redacted_remote_identity).unwrap_or_else(|| {
-                    session
-                        .terminal
-                        .lock()
-                        .ok()
-                        .and_then(|terminal| terminal.current_working_directory().map(bound))
+                    crate::native::lock_recover(&session.terminal)
+                        .current_working_directory()
+                        .map(bound)
                         .unwrap_or_else(|| "cwd unavailable".to_owned())
                 });
                 let class = if remote.is_some() {

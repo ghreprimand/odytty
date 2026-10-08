@@ -175,18 +175,12 @@ impl App {
     /// glide arms on the pane under the pointer, which need not be the focused
     /// pane, so its eligibility must read its OWN screen (a background pane on an
     /// alternate screen has no scrollback to glide). Locks that session's
-    /// terminal; `true` (eligible) if the session or lock is unavailable, matching
-    /// the focused-pane fallback.
+    /// terminal, recovering a poisoned lock; `true` (eligible) if the session
+    /// is gone.
     fn on_primary_screen_of(&self, token: SessionToken) -> bool {
         self.sessions
             .get(token)
-            .and_then(|session| {
-                session
-                    .terminal
-                    .lock()
-                    .ok()
-                    .map(|t| !t.on_alternate_screen())
-            })
+            .map(|session| !crate::native::lock_recover(&session.terminal).on_alternate_screen())
             .unwrap_or(true)
     }
 

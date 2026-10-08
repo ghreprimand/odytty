@@ -57,11 +57,9 @@ impl App {
         }
 
         let scrollback_len = self.scrollback_len();
-        let cursor = self
-            .terminal
-            .lock()
-            .map(|t| t.snapshot().cursor)
-            .unwrap_or_default();
+        let cursor = crate::native::lock_recover(&self.terminal)
+            .snapshot()
+            .cursor;
         let start = selection::AbsoluteCellPoint {
             row: scrollback_len + cursor.row,
             column: cursor.column,
@@ -93,9 +91,7 @@ impl App {
         let offset = self.viewport.offset();
         let terminal = std::sync::Arc::clone(&self.terminal);
         let response = {
-            let Ok(terminal) = terminal.lock() else {
-                return;
-            };
+            let terminal = crate::native::lock_recover(&terminal);
             let snapshot = terminal.snapshot_with_scrollback(offset);
             let scrollback_len = terminal.screen().scrollback_len();
             // One-row memo: word walks visit off-screen cells sequentially, so
