@@ -6,8 +6,8 @@
 //! This is a passive diagnostic, OFF by default and zero-cost when off: a single
 //! atomic load on the resize path and nothing else (no allocation, no
 //! formatting, no file handle) unless `ODYTTY_REFLOW_TRACE` is set to `1` or
-//! `true`. It is purely event-driven — one line appended per `Screen::resize`
-//! call — never a poll or background loop.
+//! `true`. It is purely event-driven - one line appended per `Screen::resize`
+//! call - never a poll or background loop.
 //!
 //! When enabled it appends one line per resize to `odytty-reflow-trace.log`
 //! inside the same owner-private state directory the runtime log uses, opened
@@ -18,7 +18,7 @@
 //!
 //! # Privacy / public-repo safety
 //! The trace records ONLY geometry and cursor coordinates, booleans, and a
-//! sequence counter — never cell contents, user-typed text, working-directory
+//! sequence counter - never cell contents, user-typed text, working-directory
 //! or other paths, or environment values. The log destination is resolved at
 //! runtime from the state directory (no developer path is baked into the
 //! source) and the env var name is generic. Nothing user-identifying can enter a trace line.
@@ -26,7 +26,8 @@
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// One atomic load when off. Parsed once from `ODYTTY_REFLOW_TRACE`
+/// Tracing enablement is cached in a `OnceLock` after the first environment
+/// lookup. Parsed once from `ODYTTY_REFLOW_TRACE`
 /// (`"1"`/`"true"` = on, case-insensitive); any other value or absence = off.
 static ENABLED: OnceLock<bool> = OnceLock::new();
 /// Monotonic per-process resize counter, included in every trace line so the
@@ -36,8 +37,8 @@ static SEQ: AtomicU64 = AtomicU64::new(0);
 /// append data lines without re-emitting the legend.
 static HEADER_WRITTEN: OnceLock<()> = OnceLock::new();
 
-/// Whether resize tracing is enabled. Reads the env var exactly once; every
-/// subsequent call is a single relaxed atomic load.
+/// Whether resize tracing is enabled. Reads the env var exactly once; later
+/// calls read the cached `OnceLock` value.
 fn enabled() -> bool {
     *ENABLED.get_or_init(|| {
         std::env::var("ODYTTY_REFLOW_TRACE")
@@ -50,7 +51,7 @@ fn enabled() -> bool {
 }
 
 /// The fields captured for one `Screen::resize` call. All are plain geometry /
-/// cursor coordinates and booleans — no user content.
+/// cursor coordinates and booleans - no user content.
 #[derive(Clone, Copy, Debug)]
 pub(in crate::core) struct ResizeTrace {
     pub old_cols: usize,
@@ -65,7 +66,7 @@ pub(in crate::core) struct ResizeTrace {
     /// Whether the resized screen had the backend "shell owns cursor on resize"
     /// capability live at this resize (ConPTY ⇒ true). Captured so a trace can
     /// distinguish "the flag was never wired/was clobbered" from "the flag was
-    /// live but the cursor moved for another reason" — the exact ambiguity the
+    /// live but the cursor moved for another reason" - the exact ambiguity the
     /// Windows cursor-translation investigation needs settled per-resize.
     pub shell_owns_cursor_on_resize: bool,
     pub cursor_in_row: usize,

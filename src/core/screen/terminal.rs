@@ -120,7 +120,7 @@ impl Terminal {
     }
 
     /// Button hit-test under a visible viewport cell (pointer arm, B3). See
-    /// [`Screen::button_at`] — master-gate enforced, so this is `None` for
+    /// [`Screen::button_at`] - master-gate enforced, so this is `None` for
     /// every cell whenever the button protocol is off.
     pub fn button_at(&self, offset_rows: usize, row: usize, column: usize) -> Option<ButtonHit> {
         self.screen.button_at(offset_rows, row, column)
@@ -165,7 +165,7 @@ impl Terminal {
         self.screen.set_base_palette(palette);
     }
 
-    /// The 16 ANSI colors this terminal is actually displaying — live `OSC 4`
+    /// The 16 ANSI colors this terminal is actually displaying - live `OSC 4`
     /// overrides first, theme-seeded values elsewhere. See
     /// [`Screen::effective_ansi_palette`]. Used by theme capture, which has to
     /// reproduce the screen rather than the configured theme.
@@ -232,7 +232,7 @@ impl Terminal {
         self.screen.set_local_hostname(local_hostname);
     }
 
-    /// The OSC 133 prompt mark anchored to absolute row `row` (SH1), or `None`.
+    /// The OSC 133 prompt mark anchored to absolute row `row`, or `None`.
     /// Row `0` is the oldest scrollback row; see [`Screen::prompt_mark_at`].
     pub fn prompt_mark_at(&self, row: usize) -> Option<PromptKind> {
         self.screen.prompt_mark_at(row)

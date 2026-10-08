@@ -14,12 +14,12 @@
 //!   render cache whenever the typed prefix or the label set changes, so the
 //!   geometry-update decision flips only while hints are active (D-HNF-2).
 //! - **overlay-registry SolidQuad lane (NO).** Label badges are GLYPHS, not
-//!   solid rects — they ride the cell-mutation lane ([`apply_hints_ui`], a
+//!   solid rects - they ride the cell-mutation lane ([`apply_hints_ui`], a
 //!   sibling of `apply_search_ui`), not a quad contributor (D-HNF-1).
 //!
 //! Off-path contract: when `self.hints` is `None` (the default), `activate_hints`
 //! has not run, `paint_hints_cells` mutates zero cells, `hints_overlay_signature`
-//! is `Inert`, and `hints_selecting` is `false` — so `active_modal()` is `None`
+//! is `Inert`, and `hints_selecting` is `false` - so `active_modal()` is `None`
 //! and the frame bytes + input routing are byte-identical to before HINTS landed.
 
 use crate::core::{AbsolutePoint, Attrs, Cell, Color, Snapshot};
@@ -58,7 +58,7 @@ pub(in crate::native) struct HintsUi {
 impl HintsUi {
     /// Whether this modal is actively capturing keys. Entry with zero matches
     /// never constructs a `HintsUi`, so a live `HintsUi` always has ≥1 label and
-    /// `is_selecting()` is `true` (D-HNF-4) — no dead modal can swallow keys.
+    /// `is_selecting()` is `true` (D-HNF-4) - no dead modal can swallow keys.
     fn is_selecting(&self) -> bool {
         !self.labeled.is_empty()
     }
@@ -88,7 +88,7 @@ impl HintsUi {
 impl App {
     /// Activate keyboard pattern-select hints. Scans the visible viewport, labels
     /// every match, and enters the capturing modal. Returns `true` when the
-    /// activation chord is consumed (always, once dispatched — a zero-match scan
+    /// activation chord is consumed (always, once dispatched - a zero-match scan
     /// is still consumed so the bound chord never leaks to the PTY), `false` only
     /// when another modal already owns input (defensive; the key ladder already
     /// guards this above the dispatch).
@@ -137,7 +137,7 @@ impl App {
 
         if labeled.is_empty() {
             // Nothing to select: consume the chord (no PTY leak) but enter no
-            // modal — `self.hints` stays `None`, so `active_modal()` is `None`
+            // modal - `self.hints` stays `None`, so `active_modal()` is `None`
             // (D-HNF-4). No dead modal, no repaint needed.
             return true;
         }
@@ -154,7 +154,7 @@ impl App {
     // --- overlay-registry / modal-gate contributor slots ---
 
     /// Paint the live label badges onto the snapshot cells (the cell-mutation
-    /// lane — badges are glyphs, never quads; D-HNF-1). No-op when hints are
+    /// lane - badges are glyphs, never quads; D-HNF-1). No-op when hints are
     /// inactive, so the default frame is byte-identical.
     pub(in crate::native) fn paint_hints_cells(&self, snapshot: &mut Snapshot, ctx: &OverlayCtx) {
         apply_hints_ui(
@@ -231,7 +231,7 @@ impl App {
             .iter()
             .any(|(label, _)| label.starts_with(&probe))
         {
-            // No label survives this char — ignore it (the modal stays open).
+            // No label survives this char - ignore it (the modal stays open).
             return;
         }
         hints.typed = probe;
@@ -296,7 +296,7 @@ pub(super) fn apply_hints_ui(
 
     // Top absolute row of the current viewport; a badge anchor outside the
     // visible band is skipped (scrolled out). Mapping the single anchor point
-    // directly — NOT via `visible_range_from_absolute`, whose `normalize_range`
+    // directly - NOT via `visible_range_from_absolute`, whose `normalize_range`
     // collapses a zero-length (single-cell) range to `None`.
     let top = selection::viewport_top_absolute_row(viewport_offset, scrollback_len);
     let bottom = top.saturating_add(dims.rows.saturating_sub(1));
@@ -436,7 +436,7 @@ mod tests {
         apply_hints_ui(&mut snapshot, &hints, 0, 0, None);
         // The "sd" badge shows its remaining suffix 'd' at its start cell.
         assert_eq!(snapshot.cells[2].ch, 'd');
-        // The eliminated "fj" label is not painted — its start cell is original.
+        // The eliminated "fj" label is not painted - its start cell is original.
         assert_eq!(snapshot.cells[9].ch, original.cells[9].ch);
     }
 

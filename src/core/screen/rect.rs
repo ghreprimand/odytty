@@ -236,7 +236,9 @@ impl Screen {
 
     /// DECRARA (`CSI Pt;Pl;Pb;Pr;Pm $ t`): toggle selected presentation
     /// attributes inside the current DECSACE extent. Applying the same toggle
-    /// sequence twice restores the original attributes.
+    /// sequence twice restores supported boolean attributes; underline toggles
+    /// use the plain style, so an existing curly or double underline ends as a
+    /// straight one.
     pub(super) fn reverse_rect_attrs(&mut self, params: &Params) {
         let Some(rect) = self.rect_from_params(params, 0) else {
             return;

@@ -408,13 +408,13 @@ fn reflow_keeps_cursor_clear_compatible_for_live_line() {
 /// C18 regression: a cursor parked on a wide glyph's CONTINUATION cell must
 /// follow the glyph through reflow, mapping to the lead cell's placed
 /// position. The rewrap loop advances two cells at a time over a wide pair,
-/// so the continuation index never matched the cursor-destination check —
+/// so the continuation index never matched the cursor-destination check -
 /// the cursor was silently dropped and fell back to the stale pre-resize
 /// visible position.
 #[test]
 fn reflow_maps_cursor_on_wide_continuation_to_lead() {
     // The content-accurate mapping governs when the repaint-anchor override
-    // does not apply — i.e. a resize with NO shell output since the previous
+    // does not apply - i.e. a resize with NO shell output since the previous
     // one (the back-to-back ConPTY case the override deliberately skips), so
     // each scenario resizes twice: the first consumes the anchor override,
     // the second exercises the content path under test.
@@ -449,12 +449,12 @@ fn shell_owns_cursor_setter_getter_behavior_tie() {
     // Ties the `shell_owns_cursor_on_resize` getter to REAL resize behavior so
     // the flag (and its wiring) can't rot to a no-op. This is the cross-platform
     // guard that catches a missing/incorrect wire on Windows CI, where the
-    // correct value (true) differs from the model default (false) — on Linux the
+    // correct value (true) differs from the model default (false) - on Linux the
     // two are byte-identical, so only an explicit true-path test exposes a drift.
     //
     // Both cases print the same wrapped line, then do the same width-changing
     // resize. The DEFAULT path (false) TRANSLATES the cursor to end-of-content;
-    // the shell-owns path (true) DEFERS — keeps the incoming cursor clamped to
+    // the shell-owns path (true) DEFERS - keeps the incoming cursor clamped to
     // the new dims for the shell's absolute repaint to own.
     let line = b"$ hello"; // 7 cols; at width 4 wraps to "$ he" / "llo"
 
@@ -512,16 +512,16 @@ fn repeated_split_close_without_typing_does_not_ratchet_cursor_into_prompt() {
     // repaint on a bare resize), that clamp would feed back as the next resize's
     // offset and ratchet the column toward 0. The `output_since_last_resize`
     // discriminator (set in `print_char`, cleared at the end of `resize`) makes
-    // the override fire only when a repaint is actually in the loop — true for
+    // the override fire only when a repaint is actually in the loop - true for
     // the first resize after the prompt print, false for the back-to-back
-    // resizes here — so the column never ratchets.
+    // resizes here - so the column never ratchets.
     let prompt = b"PS C:\\Users\\foo>"; // 16 printable cols, empty input
     let mut terminal = Terminal::new(80, 12);
     terminal.advance(prompt);
     assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 16 });
 
     // Recipe F: split (narrow) then close (widen back to 80), progressively
-    // narrower. No `advance` between resizes — exactly the no-repaint case.
+    // narrower. No `advance` between resizes - exactly the no-repaint case.
     // The first split (40) does not wrap the 16-col prompt; the later splits
     // (10, 6, 2) do wrap, but arrive with no intervening output.
     for &w in &[40usize, 80, 10, 80, 6, 80, 2, 80] {
@@ -585,7 +585,7 @@ fn reflow_does_not_touch_alternate_screen_but_isolates_it() {
 // DL (CSI M) move the cursor to the left margin (column 0) and unset the
 // pending wrap state. These fixtures start the cursor at a NONZERO column
 // to prove the column-reset policy (a column-preserving impl would fail
-// them). RI (ESC M), by contrast, preserves the column — see
+// them). RI (ESC M), by contrast, preserves the column - see
 // reverse_index_preserves_cursor_column.
 #[test]
 fn insert_lines_resets_cursor_to_left_margin() {

@@ -4,8 +4,11 @@
 //! Coverage is the exact area of the polygon inside each pixel square, found
 //! by clipping the polygon to that square and taking the shoelace area. Any
 //! simple polygon works, convex or concave, in either winding. Several
-//! polygons accumulate into one [`PolygonCoverage`] and their union is clamped
-//! to full coverage, so overlapping strokes never exceed one fully inked pixel.
+//! polygons accumulate into one [`PolygonCoverage`]: per-pixel areas are summed
+//! and the sum is clamped to full coverage, so overlapping strokes never exceed
+//! one fully inked pixel. Where strokes partly overlap inside one pixel the sum
+//! over-counts the true union, an approximation that only affects junction
+//! pixels.
 //!
 //! Inputs are cell-geometry coordinates derived from the cell's pixel size,
 //! never terminal input, and work is limited to each polygon's bounding box.

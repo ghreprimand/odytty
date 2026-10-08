@@ -468,7 +468,7 @@ impl App {
     /// the active workspace) reserves rows off the top whenever it is shown; the
     /// workspace rail reserves columns off its side whenever it is shown and not
     /// auto-hidden (auto-hide floats the rail as an overlay, reserving nothing).
-    /// The two are independent — a frame can reserve BOTH (tabs on top,
+    /// The two are independent - a frame can reserve BOTH (tabs on top,
     /// workspaces down the side), just one, or `NONE` (the byte-identical
     /// no-chrome case: a single workspace whose active tab needs no bar).
     pub(super) fn tab_reserve(&self) -> panes::TabReserve {
@@ -477,12 +477,12 @@ impl App {
         } else {
             0
         };
-        // F4-P3: under rail auto-hide the rail reserves NOTHING — it draws as a
+        // F4-P3: under rail auto-hide the rail reserves NOTHING - it draws as a
         // floating overlay when revealed (never reflows content). The top bar is
         // never auto-hidden, so its rows stay reserved independently.
         let (left_cols, right_cols, gap_cols) =
             if self.should_show_workspace_rail() && !self.rail_autohide_active() {
-                // F4-P1/P4: the band width resolves the `tab_rail_width` mode —
+                // F4-P1/P4: the band width resolves the `tab_rail_width` mode -
                 // `Manual(cols)` clamps the fixed width, `Auto` sizes to the
                 // longest workspace name (`rail_auto_want_cols`).
                 let rail_cols = self.settings.rail_width_cols(self.rail_auto_want_cols());
@@ -537,9 +537,9 @@ impl App {
     }
 
     /// F4-P4 auto-width reconcile: when the resolved rail band width diverges
-    /// from what the content grid was last reserved against — a tab added or
+    /// from what the content grid was last reserved against - a tab added or
     /// closed, a title renamed, or a shell-set (OSC 0/2) title changing the
-    /// longest title — reflow the grid once so the content matches the new rail
+    /// longest title - reflow the grid once so the content matches the new rail
     /// width. Gated on the width actually changing, so a stable frame is a
     /// single `usize` comparison; a no-rail / manual-width frame never diverges.
     /// Run once per redraw before the frame is built, so the rail and content
@@ -567,11 +567,11 @@ impl App {
     /// top bar or a side rail) rather than the terminal content. Used to route an
     /// empty-area right-click to the `TabStripEmpty` surface instead of leaking
     /// the content menu over the bar (NF-F7-2). Returns `false` off a shown bar,
-    /// and — under rail auto-hide — only while the floating rail is actually
+    /// and - under rail auto-hide - only while the floating rail is actually
     /// revealed under the pointer.
     ///
     /// CHROME-GAP: the band is bounded at its DRAWN edge, not at the gap-inset
-    /// content rect — the padding-wide neutral strips between the bands and the
+    /// content rect - the padding-wide neutral strips between the bands and the
     /// content route to content, consistently with left-click. The bar's
     /// horizontal extent is its joined-band background span, which abuts a
     /// pinned rail band, so the chrome-chrome junction strip stays chrome.
@@ -580,7 +580,7 @@ impl App {
             return false;
         }
         // The workspace rail owns its column band (including the corner over the
-        // top bar — it is a full-height sidebar), so test it first.
+        // top bar - it is a full-height sidebar), so test it first.
         if self.pointer_in_workspace_rail_band() {
             return true;
         }
@@ -614,7 +614,7 @@ impl App {
     /// The right-hand hit boundary of the chrome bands, in physical px. With a
     /// pinned RIGHT rail this is the band's painted origin
     /// ([`Self::rail_origin_px`], grid basis: `pad + columns·cell_w + gap`), so
-    /// the hit test meets the drawn seam exactly — the content rect's
+    /// the hit test meets the drawn seam exactly - the content rect's
     /// un-floored pixel width carries a sub-cell remainder (`width % cell_w`),
     /// and bounding at `content.x + content.w` would put the boundary that
     /// remainder RIGHT of the painted edge, routing the innermost sliver of
@@ -665,10 +665,10 @@ impl App {
         let content = pane_content_rect(w, h, cell, padding, self.tab_reserve());
         let gap = self.tab_reserve().chrome_gap(padding);
         // CHROME-GAP: the band ends at its DRAWN content-facing edge, a gap
-        // short of the content rect — the neutral strip between them is not
+        // short of the content rect - the neutral strip between them is not
         // rail chrome (it routes to content, like left-click already does).
         // The Right arm binds at the band's painted origin (grid basis) via
-        // the shared boundary helper, not at the content rect's pixel edge —
+        // the shared boundary helper, not at the content rect's pixel edge -
         // see `chrome_right_hit_boundary_px` for the sub-cell remainder this
         // avoids annexing from the drawn band.
         match self.workspace_rail_side() {
@@ -682,7 +682,7 @@ impl App {
     /// The empty-chrome context-menu surface for the current pointer position:
     /// `WorkspaceRailEmpty` over the rail band, `TabStripEmpty` over the top
     /// bar band (including the joined-band junction strip its background paints
-    /// up to a pinned rail), or `None` over content — which includes the
+    /// up to a pinned rail), or `None` over content - which includes the
     /// padding-wide neutral gap strips between content and the chrome bands,
     /// so right-click routing there matches left-click and the neutral render.
     pub(super) fn empty_chrome_menu_surface(&self) -> Option<ContextMenuSurface> {
@@ -729,7 +729,7 @@ impl App {
         [pad + left_off + reserve.chrome_gap(padding).left, pad]
     }
 
-    /// The physical-pixel top-left of the rail band this frame — the origin the
+    /// The physical-pixel top-left of the rail band this frame - the origin the
     /// rail widget's hit-test maps against and the multi-pane strip renders from.
     /// A left rail (and the byte-identical no-rail case) sits at the window
     /// padding `[pad, pad]`; a right rail sits at the far side, after the content
@@ -775,8 +775,8 @@ impl App {
 
     /// The manual rail width (cells) a seam-drag pointer at `px_x` maps to
     /// (F4-P4). Gathers the pixel geometry (padding, surface width) from the
-    /// resolved live or injected surface — 0 defaults keep the left rail (which
-    /// needs neither) usable before either exists — and defers the snap/clamp math to
+    /// resolved live or injected surface - 0 defaults keep the left rail (which
+    /// needs neither) usable before either exists - and defers the snap/clamp math to
     /// [`rail_width_cols_from_pointer`].
     pub(super) fn rail_width_from_pointer(&self, px_x: f64, cell: CellSize) -> Option<u16> {
         let side = self.effective_rail_seam_side()?;
@@ -818,7 +818,7 @@ impl App {
         !(self.settings.scrollbar_drag && self.scrollbar_hit_test().is_some())
     }
 
-    /// F4-P4: drive an in-progress rail seam drag to the pointer — set the manual
+    /// F4-P4: drive an in-progress rail seam drag to the pointer - set the manual
     /// width the pointer maps to and reflow the content grid. Resets the seam
     /// click tracker on an actual move so a drag-then-grab is never misread as a
     /// double-click (reset-to-auto).
@@ -885,8 +885,8 @@ impl App {
         self.settings.tab_bar_height.resolved_rows()
     }
 
-    /// Physical-pixel Y of the top tab bar's bottom seam this frame — the band's
-    /// top (`pad`) plus its resolved height — or `None` when the top bar is not
+    /// Physical-pixel Y of the top tab bar's bottom seam this frame - the band's
+    /// top (`pad`) plus its resolved height - or `None` when the top bar is not
     /// shown. This is the horizontal edge the height drag grabs.
     pub(super) fn tab_bar_seam_y_px(&self, cell: CellSize) -> Option<f32> {
         if !self.should_show_tab_bar() {
@@ -941,7 +941,7 @@ impl App {
         )
     }
 
-    /// Drive an in-progress tab-bar height drag to the pointer — set the manual
+    /// Drive an in-progress tab-bar height drag to the pointer - set the manual
     /// height the pointer maps to and reflow the content grid. Resets the seam
     /// click tracker on an actual move so a drag-then-grab is never misread as a
     /// double-click (reset-to-auto).
@@ -1071,13 +1071,13 @@ impl App {
     }
 
     /// Rows the single-pane graphics layer shifts down for the top tab bar
-    /// (0 for a rail — a rail reserves columns, not rows).
+    /// (0 for a rail - a rail reserves columns, not rows).
     pub(super) fn tab_bar_row_offset(&self) -> usize {
         self.tab_reserve().top_rows
     }
 
     /// Columns the single-pane graphics layer shifts right for a left rail
-    /// (0 for the top bar or a right rail — content origin unmoved).
+    /// (0 for the top bar or a right rail - content origin unmoved).
     pub(super) fn tab_bar_col_offset(&self) -> usize {
         self.tab_reserve().left_reserved_cols()
     }

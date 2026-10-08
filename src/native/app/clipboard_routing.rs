@@ -54,11 +54,11 @@ impl App {
         // NF21-5: OSC 52 must be drained for EVERY session, not just the focused
         // one through `Deref`. A background tab (or, post-W1, a background
         // workspace's tab) that emitted an OSC 52 write would otherwise queue it
-        // until switch-back and then silently replace the system clipboard —
+        // until switch-back and then silently replace the system clipboard -
         // minutes-stale, from a program the user is not looking at. Policy: a
         // WRITE authority requires the active session, a confirmed OS-focused
         // window, and the live `osc52_write` policy. A READ requires the same
-        // active session AND OS-focused window (C41) plus the `osc52_read` gate,
+        // active session AND OS-focused window plus the `osc52_read` gate,
         // so a background program -- or a foreground one in the active tab while
         // the window itself is unfocused -- cannot exfiltrate clipboard
         // contents. Every

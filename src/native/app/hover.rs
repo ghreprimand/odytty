@@ -102,7 +102,7 @@ impl App {
     /// forces a rebuild so the hover restyle paints this frame. Gated on the
     /// `buttons` setting BEFORE any terminal query, so with the protocol off
     /// (the default) this is a single bool test and the hover path stays
-    /// byte-identical. Invalidated buttons never hover — a dead chip is inert
+    /// byte-identical. Invalidated buttons never hover - a dead chip is inert
     /// and must not invite a click it will swallow.
     pub(super) fn update_hover_button(&mut self) {
         let hovered = if self.settings.buttons {
@@ -126,14 +126,14 @@ impl App {
     ///
     /// **The byte-identity gate.** The very first thing this does is check the
     /// `interactive_paths` setting; when it is off (the default) it returns
-    /// before any terminal lock, row build, `detect_paths` scan, or stat probe —
+    /// before any terminal lock, row build, `detect_paths` scan, or stat probe -
     /// so the default hover path never scans and produces byte-identical frames.
     /// When on, it dedupes exactly like [`Self::update_hover_hyperlink`]: the
     /// rebuild flag/redraw fire only when the resolved span actually changes.
     pub(super) fn update_hover_path(&mut self) {
         if !self.settings.interactive_paths {
             // Clear a stale span if the setting was toggled off live while one
-            // was hovered; otherwise nothing to do — the scanner never runs.
+            // was hovered; otherwise nothing to do - the scanner never runs.
             if self.hovered_path.is_some() || self.hovered_path_cells.is_some() {
                 self.hovered_path = None;
                 self.hovered_path_cells = None;
@@ -199,7 +199,7 @@ impl App {
     /// pane's OSC 7 working directory and `$HOME`, stat-gated through the active
     /// [`crate::paths::ResolveProbe`]. Pure aside from the single probe call;
     /// `None` when no live filesystem path sits under the pointer. Thin wrapper
-    /// over [`Self::resolved_hovered_path_with_cells`] that drops the span — used
+    /// over [`Self::resolved_hovered_path_with_cells`] that drops the span - used
     /// by the context-menu path target which only needs the resolved entry.
     pub(super) fn resolved_hovered_path(&self) -> Option<crate::paths::Resolved> {
         self.resolved_hovered_path_with_cells()
@@ -245,7 +245,7 @@ impl App {
     /// only when its scheme is openable ([`openable_hyperlink_uri`]). Returns
     /// `None` when no URL sits under the pointer, when the scheme is not openable
     /// (e.g. `ftp`/`ssh` are detected but not opened), or when the hovered cell
-    /// already carries an OSC 8 hyperlink — that explicit path wins, so a cell is
+    /// already carries an OSC 8 hyperlink - that explicit path wins, so a cell is
     /// never double-decorated. One terminal lock, no filesystem or network access.
     pub(super) fn resolved_hovered_url_with_cells(
         &self,
@@ -354,8 +354,8 @@ impl App {
     }
 
     /// UX-A (Phase 11): note a plain left-click that landed on a resolved path
-    /// but did NOT open (the open-modifier gate failed — Ctrl on Linux, Cmd on
-    /// macOS) — the "I clicked,
+    /// but did NOT open (the open-modifier gate failed - Ctrl on Linux, Cmd on
+    /// macOS) - the "I clicked,
     /// nothing happened" mis-click. Raises the bottom-left teaching hint once two
     /// such mis-clicks land within the window. Gated INSIDE `interactive_paths`
     /// AND `interactive_paths_click_hint`; a no-op (no redraw) on every other
@@ -461,14 +461,14 @@ impl App {
     /// press. Returns `true` when the press was consumed (no selection, no
     /// open ladder, no misclick note for this gesture).
     ///
-    /// Activation is PLAIN click only — buttons are explicit UI chips, so the
-    /// click-hint "the cursor lies" problem does not apply — with exactly one
+    /// Activation is PLAIN click only - buttons are explicit UI chips, so the
+    /// click-hint "the cursor lies" problem does not apply - with exactly one
     /// modifier exception: while a mouse-reporting TUI owns clicks, Shift is
     /// the established local-content override (it bypasses the report gate),
     /// so a Shift+click is how a button stays reachable there, the same
     /// convention as selection. Outside reporting, Shift keeps its
     /// selection-extend meaning and Ctrl/Cmd (open) and Alt (block selection)
-    /// keep theirs — those presses skip this arm entirely.
+    /// keep theirs - those presses skip this arm entirely.
     ///
     /// The focus-transfer exclusion (#11167 class) consumes the pending
     /// focus-click marker even when the press misses every button: whatever
@@ -493,7 +493,7 @@ impl App {
             return false;
         };
         if hit.state != crate::core::ButtonState::Live || focus_click {
-            // An invalidated chip renders dimmed and is inert — the press
+            // An invalidated chip renders dimmed and is inert - the press
             // falls through to selection so the surrounding text stays
             // selectable. A window-activating click over a button is likewise
             // never an activation; it falls through byte-identically to the
@@ -514,7 +514,7 @@ impl App {
     ///
     /// Fires only when the release resolves the SAME span (matching id,
     /// viewport row, and start column) still `Live` under the release
-    /// position — press+release same-span semantics, so drag-off, scrolling
+    /// position - press+release same-span semantics, so drag-off, scrolling
     /// between press and release, and mid-gesture invalidation all cancel
     /// silently.
     ///
@@ -522,7 +522,7 @@ impl App {
     /// while a cooperating shell reports an active prompt (OSC 133 `A` with no
     /// `C`/`D` since), a `scope=sticky` button click is swallowed. A sticky
     /// button outliving its program has no reader that understands the report
-    /// at a prompt — the bytes would land in the shell's line editor, where
+    /// at a prompt - the bytes would land in the shell's line editor, where
     /// the best case is "consumed as an unknown escape" and the worst observed
     /// class is a stray literal `~` on very old readline builds. Nothing can
     /// act on it, so nothing is sent. Block-scoped buttons are deliberately
@@ -533,8 +533,7 @@ impl App {
     /// live button reports.
     ///
     /// The report is composed by [`crate::core::click_report_bytes`] from the
-    /// parsed integer only and enters the PTY through [`Self::write_pty_bytes`]
-    /// — the same funnel mouse reports use (on Windows that is the ConPTY
+    /// parsed integer only and enters the PTY through [`Self::write_pty_bytes`] - the same funnel mouse reports use (on Windows that is the ConPTY
     /// input pipe; there is no platform-specific surface here). No
     /// `return_to_live`: clicking a scrollback button must not yank the
     /// viewport.
@@ -618,14 +617,14 @@ impl App {
     /// `begin_selection`, so when this returns `false` the selection path is
     /// byte-identical.
     ///
-    /// Returns `false` immediately — opening nothing, starting no selection
-    /// change — when the feature is off, the open-modifier gate is not
+    /// Returns `false` immediately - opening nothing, starting no selection
+    /// change - when the feature is off, the open-modifier gate is not
     /// satisfied, or no live path span sits under the pointer. The gate reused
     /// is exactly the hyperlink one ([`hyperlink_action_allowed`]): the platform
     /// open modifier required (Ctrl on Linux, Cmd on macOS), suppressed under
     /// mouse reporting unless Shift overrides. The open itself
     /// is an argv-only [`super::interactive_paths::spawn_detached`] of the
-    /// dispatch vector ([`super::interactive_paths::path_open_argv`]) — never a
+    /// dispatch vector ([`super::interactive_paths::path_open_argv`]) - never a
     /// shell string.
     pub(super) fn try_open_hovered_path(&mut self) -> bool {
         if !self.settings.interactive_paths {
@@ -659,13 +658,13 @@ impl App {
     /// `begin_selection`, so a `false` return leaves the selection path
     /// byte-identical.
     ///
-    /// Returns `false` immediately — opening nothing, starting no selection
-    /// change — when the feature is off, the open-modifier gate is not satisfied,
+    /// Returns `false` immediately - opening nothing, starting no selection
+    /// change - when the feature is off, the open-modifier gate is not satisfied,
     /// or no openable URL sits under the pointer. The gate and the open dispatch
     /// are exactly the OSC 8 ones: [`hyperlink_action_allowed`] (platform open
     /// modifier, suppressed under mouse reporting unless Shift overrides),
     /// [`openable_hyperlink_uri`] scheme allowlist, and the argv-only
-    /// [`super::platform_opener::open_default_argv`] dispatch — never a shell
+    /// [`super::platform_opener::open_default_argv`] dispatch - never a shell
     /// string, never auto-opened.
     pub(super) fn try_open_hovered_url(&mut self) -> bool {
         if !self.settings.interactive_urls {

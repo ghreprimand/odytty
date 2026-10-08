@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! OSC 133 semantic prompt marking (SH1).
+//! OSC 133 semantic prompt marking.
 //!
 //! Covers parsing of the A/B/C/D sub-commands into per-row marks, exit-code
 //! parsing and its malformed-payload defenses, the poll API + change flag, the
@@ -332,7 +332,7 @@ fn ris_sets_change_flag_when_marks_existed() {
     let mut terminal = Terminal::new(8, 3);
     terminal.advance(&osc133("A"));
     assert!(terminal.take_prompt_marks_changed()); // the stamp itself
-    // RIS clears the mark — a poller that already cleared the flag must still
+    // RIS clears the mark - a poller that already cleared the flag must still
     // learn the marks changed.
     terminal.advance(b"\x1bc");
     assert!(terminal.take_prompt_marks_changed());
@@ -401,7 +401,7 @@ fn input_start_is_reanchored_through_a_width_change_resize() {
     terminal.advance(b"> ");
     terminal.advance(&osc133("B"));
 
-    // Precondition: the gate would pass — input_row == scrollback_len + cursor.row.
+    // Precondition: the gate would pass - input_row == scrollback_len + cursor.row.
     let (input_row, _col) = terminal
         .active_prompt_input_start()
         .expect("input mark set after B");
@@ -800,7 +800,7 @@ fn command_blocks_derive_when_the_next_prompt_sits_on_its_own_row() {
 #[test]
 fn silent_command_keeps_its_exit_through_the_single_row_collapse() {
     // A command that prints nothing lands C, D, and the next prompt's A all
-    // on one row: C is collapsed by D (no output — as ever), and the prompt
+    // on one row: C is collapsed by D (no output - as ever), and the prompt
     // stamp preserves the exit, so the verdict survives.
     let mut terminal = Terminal::new(20, 6);
     terminal.advance(&osc133("A"));
@@ -896,7 +896,7 @@ fn snippet_prompt_start_bytes(snippet: &str) -> Vec<u8> {
 /// their prompt-start, so a terminal that parses the real snippet output through
 /// the production OSC 133 dispatch ends up with click-to-position enabled. Without
 /// the attribute the consumer-side feature (gated additionally on the `sh_click`
-/// setting) can never turn on — the producer gap this closes. Bound to all three
+/// setting) can never turn on - the producer gap this closes. Bound to all three
 /// snippets so each one's emission is checked.
 #[test]
 fn bundled_snippets_enable_click_events_through_dispatch() {

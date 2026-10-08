@@ -71,7 +71,7 @@ fn solid_16x6_red_sixel() -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// Delete: d=a / d=A — all placements
+// Delete: d=a / d=A - all placements
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -99,7 +99,7 @@ fn delete_all_placements_uppercase_frees_images() {
 }
 
 // ---------------------------------------------------------------------------
-// Delete: d=i / d=I — by image id
+// Delete: d=i / d=I - by image id
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -131,7 +131,7 @@ fn delete_by_image_id_uppercase_frees() {
 }
 
 // ---------------------------------------------------------------------------
-// Delete: d=c / d=C — at cursor position
+// Delete: d=c / d=C - at cursor position
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -153,7 +153,7 @@ fn delete_at_cursor() {
 }
 
 // ---------------------------------------------------------------------------
-// Delete: d=p / d=P — at cell position
+// Delete: d=p / d=P - at cell position
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -192,7 +192,7 @@ fn delete_does_not_affect_other_buffer() {
     t.advance(&kitty_delete('a', ""));
     assert_eq!(t.visible_graphics(0).len(), 0, "alt cleared");
 
-    // Return to primary — original image survives
+    // Return to primary - original image survives
     t.advance(b"\x1b[?1049l");
     assert_eq!(t.visible_graphics(0).len(), 1, "primary survives");
 }

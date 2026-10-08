@@ -6,8 +6,8 @@
 //!
 //! [`super::types::Cell`] is 92 bytes, and 64 of them are the sixteen-slot
 //! `combining` array (plus its length byte) that is empty for effectively every
-//! cell in real content. Scrollback is overwhelmingly cells — 97.7% of the ring
-//! at 100,000 hard-terminated lines — so the array is paid for on every stored
+//! cell in typical content. Scrollback is overwhelmingly cells - 97.7% of the
+//! ring in a measurement at 100,000 hard-terminated lines - so the array is paid for on every stored
 //! cell to serve a small minority of them.
 //!
 //! [`StoredCell`] is that cell with the array lifted out: base char, the whole
@@ -23,7 +23,7 @@
 //! out, so [`super::types::Cell::combining`] and
 //! [`super::types::Cell::grapheme`] keep their exact behavior for every reader,
 //! including the ones that hold a `Cell` with no terminal in scope (the
-//! renderer iterates `Snapshot::cells` after the core has been left behind — a
+//! renderer iterates `Snapshot::cells` after the core has been left behind - a
 //! cell there must still describe itself).
 //!
 //! No `Attrs` field is narrowed. Colour, every SGR bit, and the hyperlink id are
@@ -31,9 +31,9 @@
 //!
 //! # Cost that goes up
 //!
-//! A cell that *does* carry marks now costs 28 bytes plus a
-//! [`MarkRun`] entry, which is more than the 92 bytes of the full live cell. That is
-//! the intended trade: mark-bearing cells are rare enough that the per-cell
+//! A cell that *does* carry marks costs a stored cell plus a
+//! [`MarkRun`] entry (sixteen scalars and an index), which is more than the
+//! full live cell. That is the intended trade: mark-bearing cells are rare enough that the per-cell
 //! saving dominates, and content that is mostly combining marks is the case
 //! this representation is worst for.
 
@@ -68,7 +68,7 @@ const _: () = assert!(std::mem::size_of::<Cell>() == 92);
 
 impl StoredCell {
     /// Narrow a `Cell` for storage. The caller is responsible for recording
-    /// `cell.combining()` in the line's [`MarkTable`] — this type cannot, since
+    /// `cell.combining()` in the line's [`MarkTable`] - this type cannot, since
     /// it does not know its own index.
     pub(in crate::core) fn from_cell(cell: &Cell) -> Self {
         let mut flags = 0u8;
@@ -138,13 +138,13 @@ struct MarkRun {
     /// Flat-cell index within the logical line.
     ///
     /// `usize`, deliberately, and not a narrower integer. A soft-wrapped
-    /// logical line is not bounded by the terminal width — it is bounded by
-    /// `MAX_LOGICAL_LINE_CELLS`, which is 2^20 — so a `u16` key would truncate
+    /// logical line is not bounded by the terminal width - it is bounded by
+    /// `MAX_LOGICAL_LINE_CELLS`, which is 2^20 - so a `u16` key would truncate
     /// on ordinary output and silently attach marks to the wrong base
     /// character. `usize` is the type flat indices already have everywhere else
     /// in the store (`ButtonSpan::start_col` included), so there is no
-    /// conversion on this path that *could* truncate. The extra bytes cost
-    /// nothing measurable: this table is per-marked-cell, not per-cell.
+    /// conversion on this path that *could* truncate. This table is
+    /// per-marked-cell, not per-cell.
     index: usize,
     marks: [char; MAX_COMBINING],
     len: u8,
@@ -156,7 +156,7 @@ struct MarkRun {
 /// unallocated for the mark-free line (which is nearly all of them), moving,
 /// cloning, and dropping with its line. That is what makes "per-screen,
 /// bounded, evicted with its owning cells" true by construction rather than by
-/// argument — there is no table anywhere else to leak into or forget to evict.
+/// argument - there is no table anywhere else to leak into or forget to evict.
 ///
 /// Entries are held sorted by `index`, strictly increasing. Every mutator
 /// preserves that, and [`MarkTable::debug_check`] asserts it.
@@ -180,7 +180,7 @@ impl MarkTable {
     }
 
     /// Record `marks` at flat index `index`. Indices must arrive strictly
-    /// increasing — every caller walks a row or a line front to back — which is
+    /// increasing - every caller walks a row or a line front to back - which is
     /// what keeps the table sorted without ever sorting it.
     pub(in crate::core) fn push(&mut self, index: usize, marks: &[char]) {
         debug_assert!(!marks.is_empty(), "an empty run must not be stored");
@@ -202,8 +202,8 @@ impl MarkTable {
 
     /// Marks at flat index `index`, empty when the cell carries none.
     ///
-    /// The empty-table early-out is what makes the mark-free line — the
-    /// overwhelmingly common case — pay a single branch rather than a search.
+    /// The empty-table early-out is what makes the mark-free line - the
+    /// overwhelmingly common case - pay a single branch rather than a search.
     #[inline]
     pub(in crate::core) fn marks_at(&self, index: usize) -> &[char] {
         if self.entries.is_empty() {
@@ -240,14 +240,12 @@ impl MarkTable {
     /// Reclaim reserved-but-unused capacity on a line whose length is final.
     ///
     /// The tolerance is the table's own and is deliberately much tighter than
-    /// the one the cell vector uses. A run is 32 bytes against a stored cell's
-    /// 28, but the table is short — one entry per *marked* cell, not per cell —
-    /// so doubling overshoot is a large fraction of a small allocation rather
-    /// than a small fraction of a large one. Left at the cell vector's
-    /// 64-entry tolerance this was measured leaving 2 KB unused on a
-    /// dense-marked line, which turned a 32-byte-per-marked-cell sidecar into
-    /// 51 bytes and ate most of the margin the representation is supposed to
-    /// have. Shrinking is a one-off at the hard-terminate transition on an
+    /// the one the cell vector uses. The table is short - one entry per
+    /// *marked* cell, not per cell - so doubling overshoot is a large fraction
+    /// of a small allocation rather than a small fraction of a large one. At
+    /// the cell vector's 64-entry tolerance a dense-marked line kept a large
+    /// unused tail, which inflated the per-marked-cell cost of the sidecar.
+    /// Shrinking is a one-off at the hard-terminate transition on an
     /// allocation that most lines never make at all.
     const FINALIZE_SLACK_TOLERANCE: usize = 4;
 
@@ -312,7 +310,7 @@ pub(in crate::core) fn stored_cells_bytes(capacity: usize) -> u64 {
 /// or extends a logical line from physical rows routes through it, so the
 /// offset arithmetic exists once instead of once per caller. That matters more
 /// than it looks: an off-by-N here does not lose marks, it moves them onto the
-/// wrong base character — which reads as wrong glyphs rather than missing ones,
+/// wrong base character - which reads as wrong glyphs rather than missing ones,
 /// and no "did we keep every mark" assertion would catch it. Pushing the cell
 /// and its marks in the same loop over the same index is what makes the two
 /// impossible to shift independently.

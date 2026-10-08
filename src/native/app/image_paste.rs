@@ -4,8 +4,8 @@
 //! When a clipboard image is pasted into a remote *integrated* ssh tab and the
 //! confirm prompt is accepted, the held PNG is handed here to be uploaded on a
 //! background thread so the UI never blocks on the transfer. The upload runs the
-//! system `ssh` binary — the same credential-delegating transport as the connect
-//! path, never an embedded ssh — streaming the bytes into a remote `cat` that
+//! system `ssh` binary - the same credential-delegating transport as the connect
+//! path, never an embedded ssh - streaming the bytes into a remote `cat` that
 //! creates the file `0600` under an unguessable `/tmp` name. On success the
 //! remote path is NOT typed into the shell (a bare path on an empty prompt
 //! would run on the next Enter and error); instead the completion is marshalled

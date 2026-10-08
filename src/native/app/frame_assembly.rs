@@ -180,7 +180,7 @@ impl App {
     ) -> (Snapshot, Vec<SolidQuad>) {
         let show_top = self.should_show_tab_bar();
         // F4-P3: under rail auto-hide the rail is NOT decorated into the content
-        // snapshot — it draws only as a floating overlay (`build_rail_overlay`)
+        // snapshot - it draws only as a floating overlay (`build_rail_overlay`)
         // over full-bleed content. The top bar is never auto-hidden, so it stays
         // pinned regardless.
         let show_rail = self.should_show_workspace_rail() && !self.rail_autohide_active();
@@ -281,7 +281,7 @@ impl App {
     /// rail band on the rail side, shift the
     /// original content (and the cursor) into the content band, paint the rail
     /// glyphs into the rail band of every row. The reservation used here MUST
-    /// match the resize path (ODP-8) or the cursor/pointer desync.
+    /// match the resize path or the cursor/pointer desync.
     pub(super) fn decorate_snapshot_with_tab_rail(
         &self,
         snapshot: &Snapshot,

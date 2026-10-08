@@ -15,7 +15,7 @@ impl GlyphAtlas {
     /// is inserted. The mask only governs glyphs rasterized after it is set;
     /// because a font change rebuilds the atlas from scratch, swapping in a real
     /// face clears the corresponding bit and the synthetic slots vanish with the
-    /// old atlas — invalidation is by construction, exactly like every other
+    /// old atlas - invalidation is by construction, exactly like every other
     /// dynamic slot. Calling this is idempotent and never rewrites existing
     /// pixels, so the live path sets it once on a freshly built (empty-dynamic)
     /// atlas.
@@ -23,8 +23,8 @@ impl GlyphAtlas {
         self.synthetic = (bold as u8) | ((italic as u8) << 1) | ((bold_italic as u8) << 2);
     }
 
-    /// Enable or disable geometric box-drawing / block / Powerline rendering
-    /// (RV2). When enabled, codepoints [`crate::boxdraw::covers`] recognizes are
+    /// Enable or disable geometric box-drawing / block / Powerline rendering.
+    /// When enabled, codepoints [`crate::boxdraw::covers`] recognizes are
     /// rasterized from computed cell-aligned geometry instead of the font glyph,
     /// so TUI borders, progress bars and powerline prompts are pixel-perfect and
     /// seamless at any cell size; everything else still uses the font.
@@ -38,7 +38,7 @@ impl GlyphAtlas {
         self.geometric = on;
     }
 
-    /// Install (or clear) the symbol / Nerd-font fallback **chain** (RV6).
+    /// Install (or clear) the symbol / Nerd-font fallback **chain**.
     ///
     /// When non-empty, a printable spacing codepoint the **primary** font lacks
     /// is rasterized from the first chain face that has it; controls, format

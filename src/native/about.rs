@@ -3,7 +3,7 @@
 //!
 //! Aggregates compile-time constants (version, license, links), build-time
 //! provenance emitted by `build.rs` (git SHA, build date, target triple, rustc
-//! version), the runtime display server, and — once the GPU is up — the active
+//! version), the runtime display server, and - once the GPU is up - the active
 //! adapter diagnostics. Presentation-only: the settings panel renders these
 //! fields; this module owns no UI.
 //!
@@ -49,7 +49,7 @@ pub(super) struct AboutInfo {
     pub(super) build_date: &'static str,
     pub(super) target: &'static str,
     pub(super) rustc_version: &'static str,
-    /// "Wayland", "X11", or "unknown" — detected from the environment.
+    /// "Wayland", "X11", or "unknown" - detected from the environment.
     pub(super) display_server: &'static str,
     /// Active GPU adapter. `None` until the renderer is up (headless/early).
     pub(super) adapter: Option<AdapterDiagnostics>,

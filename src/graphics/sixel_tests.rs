@@ -288,7 +288,7 @@ fn robustness_out_of_range_color_register() {
 }
 
 /// C20: a register number past u16::MAX must be REJECTED, not truncated.
-/// 65537 as u16 truncates to 1 — before the fix this hijacked register 1's
+/// 65537 as u16 truncates to 1 - before the fix this hijacked register 1's
 /// palette entry (and selected it), corrupting colors already defined there.
 #[test]
 fn robustness_u16_truncating_color_register_rejected() {
@@ -348,7 +348,7 @@ fn wide_then_tall_stream_respects_joint_pixel_budget() {
 
 /// A header-only DCS stream (large raster declaration, NO sixel data) must not
 /// allocate the declared canvas. It has no painted pixels, so it decodes to
-/// `Empty` — and does so without materializing the ~144 MB the eager allocator
+/// `Empty` - and does so without materializing the ~144 MB the eager allocator
 /// used to. We can't assert allocation directly in a unit test, but `Empty`
 /// (not `TooLarge`, not `Ok`) confirms the no-data path runs before any buffer
 /// is produced.
@@ -363,7 +363,7 @@ fn sx4_header_only_stream_allocates_nothing() {
 }
 
 /// Declared raster size still establishes the reported image dimensions even
-/// when the drawn extent is much smaller — the lazy path pads up to the
+/// when the drawn extent is much smaller - the lazy path pads up to the
 /// declared size at `finish` rather than pre-allocating. (Regression guard for
 /// the Finding-1 fix.)
 #[test]

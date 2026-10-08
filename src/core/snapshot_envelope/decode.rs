@@ -494,7 +494,7 @@ pub(super) fn decode_prompt_marks(
     // Reserve no more than the remaining payload could possibly encode: a
     // mark costs at least 5 wire bytes (row u32 + kind byte), so a declared
     // count far beyond the actual payload cannot force a huge up-front
-    // allocation before the first short read fails — the same cap the row
+    // allocation before the first short read fails - the same cap the row
     // decoder applies. The Vec grows normally for an honest count.
     let mut marks = Vec::with_capacity(count.min(reader.remaining() / 5));
     for _ in 0..count {

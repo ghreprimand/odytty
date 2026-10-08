@@ -1,4 +1,4 @@
-# OdyTTY — Spec
+# OdyTTY - Spec
 
 Published release: **v0.16.1**.
 
@@ -39,7 +39,7 @@ Windows builds, not an OdysseyOS-only tool.
 
 The open questions that drive the project: can a terminal emulator add richer
 visual effects, better themes, a stronger sense of identity, and features that
-make command-line work feel more alive — while staying fast, correct, and
+make command-line work feel more alive - while staying fast, correct, and
 trustworthy for real daily use?
 
 The project pursues genuinely original terminal work. If that path cannot
@@ -131,7 +131,7 @@ readability and performance.
 ## Ownership Boundary
 
 Every byte from the PTY to the glyph quad passes through OdyTTY-owned code.
-The owned path is not aspirational — it is in production.
+The owned path is not aspirational - it is in production.
 
 ### What OdyTTY owns
 
@@ -163,11 +163,11 @@ code; `portable-pty` and `crossterm` are gone from the dependency tree.
 
   The
   default interactive shell prefers PowerShell to match Windows Terminal's
-  command surface — `pwsh.exe` (PowerShell 7) if present, else Windows
+  command surface - `pwsh.exe` (PowerShell 7) if present, else Windows
   PowerShell 5.1 (resolved by its fixed `%SystemRoot%\System32\WindowsPowerShell\v1.0\`
   path), else `%ComSpec%` (cmd.exe) as a last resort. `spawn_shell_command`
-  selects the one-shot flag by shell family — `cmd /C <command>` for cmd,
-  `powershell -NoProfile -Command <command>` for PowerShell — the Windows
+  selects the one-shot flag by shell family - `cmd /C <command>` for cmd,
+  `powershell -NoProfile -Command <command>` for PowerShell - the Windows
   analogue of the Unix `$SHELL -lc` split, not a `-lc` login shell. The
   pseudoconsole handle is owned by an RAII guard so it cannot leak.
 
@@ -187,13 +187,13 @@ from primary specifications (vt100.net DEC ANSI state diagram, ECMA-48, xterm
 consulted during design or implementation. `vte` is absent from `Cargo.toml`
 and `Cargo.lock`; the owned parser is the sole production parser.
 
-- **Layer 1 — segmenter** (`src/parser/segmenter.rs`). Walks input in Ground
+- **Layer 1 - segmenter** (`src/parser/segmenter.rs`). Walks input in Ground
   state, splits maximal printable-text runs from single control scalars/bytes,
-  and owns all UTF-8 decoding — including partial-codepoint carry across
+  and owns all UTF-8 decoding - including partial-codepoint carry across
   arbitrary `advance()` chunk boundaries. C1 scalars arriving via the two-byte
   UTF-8 encoding execute uniformly regardless of chunk splits.
 
-- **Layer 2 — control state machine** (`src/parser/machine.rs`). A byte-only
+- **Layer 2 - control state machine** (`src/parser/machine.rs`). A byte-only
   automaton driven by `classify(byte) → ByteClass` (~13 classes) and a single
   flat `match (state, class) → Action` discriminator. Not a per-state-method
   decomposition; not a `[state][256]` data table. UTF-8 is absent because
@@ -290,7 +290,7 @@ selected GL backend on another OS.
 
 **DCS query surface** (`src/core/screen/query.rs`). XTGETTCAP (`DCS +q`)
 and DECRQSS (`DCS $q`) capture ride the same parser hook/put/unhook seam used
-for graphics DCS payloads — no parser changes required. `dcs_query_hook`
+for graphics DCS payloads - no parser changes required. `dcs_query_hook`
 dispatches on the intermediate byte (`+` vs `$`) and returns a typed
 `DcsQueryCapture`; `dcs_query_put` buffers bytes up to 4 KiB; the screen
 dispatches the result via `dispatch_dcs_query`. XTGETTCAP answers only the
@@ -347,6 +347,10 @@ decision, not a trade-off pending revisitation.
 |---------|-------|
 | Font file parsing and glyph outlines | `skrifa` |
 | Glyph coverage rasterization | `ab_glyph_rasterizer` |
+| Complex-script shaping for the enabled script groups | `harfrust` |
+| Latin ligature, Arabic joining, and emoji shaping; bitmap and COLR v0 glyph rasterization | `swash` |
+| COLR v1 and SVG glyph rasterization | `tiny-skia` |
+| Kitty graphics payload decompression, bounded at the call site | `flate2` |
 | GPU API and device management | `wgpu` |
 | Window creation and event loop | `winit` |
 | Clipboard transport | `arboard` |
@@ -366,7 +370,7 @@ RGBA8 images keyed by OdyTTY-internal ids. Default limits: 64 MiB decoded
 bytes and 1024 images. Insertions evict least-recently-used records until the
 new image fits.
 
-The store is renderer-independent — decoded pixel data lives in
+The store is renderer-independent - decoded pixel data lives in
 CPU memory until the GPU image layer uploads it.
 
 **Placement scene** (`src/graphics/placement.rs`). Cell-anchored placement
@@ -380,11 +384,11 @@ placement scenes; alternate-screen entry does not disturb primary placements.
 
 1. Cell background quads (all cells)
 
-2. Negative-z image placements (`z < 0`) — appear behind text
+2. Negative-z image placements (`z < 0`) - appear behind text
 
 3. Glyph, decoration, cursor, and overlay quads
 
-4. Non-negative-z image placements (`z ≥ 0`) — appear in front of text
+4. Non-negative-z image placements (`z ≥ 0`) - appear in front of text
 
 This is the order specified by the Kitty graphics protocol. Placements with
 equal z-index keep transmission order within each draw segment. The text
@@ -458,16 +462,16 @@ examples.
 
 Settings follow a three-level precedence chain, lowest to highest:
 
-1. **Built-in defaults** — compiled-in values for every setting.
+1. **Built-in defaults** - compiled-in values for every setting.
 
-2. **Config file** — on Unix, `$XDG_CONFIG_HOME/odytty/odytty.conf` (falling
+2. **Config file** - on Unix, `$XDG_CONFIG_HOME/odytty/odytty.conf` (falling
    back to `~/.config/odytty/odytty.conf`); on Windows, `%APPDATA%\odytty\odytty.conf`.
    The same resolved path is used for live reload, in-app writeback, theme files,
    and the first-run marker, so persistence works identically on every platform.
    A missing or unreadable file is silently skipped; malformed lines and unknown
    keys warn to stderr and are skipped.
 
-3. **Environment variables** (`ODYTTY_*`) — always win over both defaults and
+3. **Environment variables** (`ODYTTY_*`) - always win over both defaults and
    the config file.
 
 The config format is a dependency-free `key = value` text file with `#`
@@ -547,13 +551,13 @@ filters the displayed roster by name, config key, description, or group label.
 `Esc` once clears the filter; a second `Esc` closes the panel. Left and Right do not apply settings while searching. Theme-picker
 search is a separate future slice.
 
-**First-run onboarding.** On first launch — detected by the absence of a
-config file, or overridden with `ODYTTY_ONBOARDING=1` — OdyTTY shows a
+**First-run onboarding.** On first launch - detected by the absence of a
+config file, or overridden with `ODYTTY_ONBOARDING=1` - OdyTTY shows a
 welcome overlay with the core keyboard shortcuts before the shell starts. All
 shortcut labels are read live from the active bindings at display time, so the
 card reflects any prior customization correctly. The overlay is dismissed with
 `Enter`, `Esc`, or `Space`. First-run state is stored as the config file's
-existence — there is no separate flag file, no telemetry, and no account
+existence - there is no separate flag file, no telemetry, and no account
 requirement; the first-run state is therefore controlled entirely by a plain
 local file the user owns.
 
@@ -570,10 +574,11 @@ with arbitrarily large strings.
 
 The native layer tracks the hovered `LinkId` from cursor position. On hover,
 all visible cells sharing that id have their underline attribute set in the
-render snapshot — no change to the terminal model state. On explicit Ctrl+click
+render snapshot - no change to the terminal model state. On explicit Ctrl+click
 on Linux/Windows or Cmd+click on macOS, the native app calls the platform
 default opener with the URI as a direct argument after verifying its scheme
-against an allowlist (`http`, `https`, `file`, `mailto`). Mouse reporting does
+against an allowlist (`http`, `https`, `mailto`, and `file` only for a local
+authority: an empty host or `localhost`, never a backslash or UNC shape). Mouse reporting does
 not add a Shift requirement. No shell interpolation occurs.
 
 Links are never followed automatically; the allowlist check and platform-opener
@@ -708,7 +713,7 @@ mode-query path in `src/core/screen/ops.rs`.
 
 The native layer owns the presentation-hold policy. `SynchronizedOutputHold`
 (`src/native/app/`) monitors the core mode flag and, while it is set, defers
-GPU content uploads — the terminal model continues to advance and process PTY
+GPU content uploads - the terminal model continues to advance and process PTY
 bytes without interruption, but grid snapshots are not uploaded or rendered.
 After `SYNCHRONIZED_OUTPUT_TIMEOUT` (150 ms in `src/native/app/mod.rs`), the hold
 is released unconditionally and will not re-engage until the application resets
@@ -807,8 +812,8 @@ The core mark model stays render-neutral: `prompt_mark` is never read by the
 render path and is deliberately absent from `Snapshot`, so the plain renderer is
 byte-identical with or without OSC 133 in the stream. The command-aware UX that
 consumes these marks reads them through the poll API instead. Jump-to-prompt is
-wired — `Ctrl+Shift+Up` / `Ctrl+Shift+Down` (and the matching command-palette
-actions) move the viewport between prompt marks — and a `command_status_gutter`
+wired - `Ctrl+Shift+Up` / `Ctrl+Shift+Down` (and the matching command-palette
+actions) move the viewport between prompt marks - and a `command_status_gutter`
 setting, on by default, marks command success/failure in every visible pane.
 Each gutter uses that pane's prompt marks, viewport, origin, and clip rectangle.
 
@@ -840,15 +845,15 @@ input boundary (`B` mark): selecting prompt text and pressing Delete/Backspace
 deletes only the selected editable input through shell-edit bytes, and (with the
 `sh_click` setting, on by default) clicking in the typed command line repositions
 the shell cursor to the nearest character boundary (a click in a glyph's right
-half lands the caret after it, the left half before it) — including across
+half lands the caret after it, the left half before it) - including across
 soft-wrapped lines. Both require shell integration, because OdyTTY must know the prompt
-boundary before it can safely edit or position within shell input — it never
+boundary before it can safely edit or position within shell input - it never
 guesses with a no-OSC heuristic that could corrupt the command line. When the
 boundary is unknown (integration off, or no prompt mark yet), a selection-delete
 does **not** send blind edit bytes: it clears the stale visual selection and
 raises a hint pointing at shell integration, so the UX is honest about why the
 action did not run. Click-to-position additionally requires the shell snippet to
-advertise `click_events=1` on its `A` mark — the bundled bash/zsh/fish and
+advertise `click_events=1` on its `A` mark - the bundled bash/zsh/fish and
 PowerShell snippets all do, so the capability is live out of the box with shell
 integration on.
 
@@ -866,7 +871,7 @@ This parser behavior is shared by Linux, macOS, and Windows.
 ### Cursor Keys & Paste Pass-Through
 
 Cursor-key and paste handling is intentionally a thin pass-through, so the shell
-line editor — not OdyTTY — owns multiline navigation within an editable command.
+line editor - not OdyTTY - owns multiline navigation within an editable command.
 Unmodified arrows encode as CSI (`ESC[A`) in normal cursor-key mode and SS3
 (`ESC O A`) under DECCKM application cursor mode; modified arrows use xterm-style
 CSI-with-modifier encoding first, so e.g. Ctrl+Right stays CSI-with-modifier
@@ -897,14 +902,14 @@ BEL (`0x07`) is split across the ownership boundary the same way clipboard and
 prompt marks are. The terminal core (`src/core/screen/mod.rs`) does nothing
 audible or visual: `dispatch_execute` sets a one-shot `bell_pending` latch, and
 `Terminal::take_bell()` drains it edge-not-level (coalesced, cleared on read).
-BEL never touches the grid or moves the cursor — a regression suite
+BEL never touches the grid or moves the cursor - a regression suite
 (`src/core/tests/bell.rs`) pins that invariant.
 
 The native layer decides presentation, gated by the `bell` setting
 (`BellMode`): `off` (drain and ignore), `visual` (a brief full-viewport flash
 that decays to transparent over 150 ms on an ease-out curve, painted as a single
-`SolidQuad` overlay so the cells beneath stay at full opacity — the RV1
-readability floor is preserved by construction), `urgent` (the **default** —
+`SolidQuad` overlay so the cells beneath stay at full opacity - the RV1
+readability floor is preserved by construction), `urgent` (the **default** -
 `Window::request_user_attention` when unfocused, no pixels change while focused,
 so a foreground shell never flashes on tab-completion bells), or `all`. OdyTTY
 has no audio backend, so there is no audible mode. The flash joins the existing
@@ -949,7 +954,7 @@ visual treatment instead of introducing its own.
 
 The surface is deliberately static. It has no animation phase, which means
 reduced-motion and plain rendering need no separate branch, and it contributes
-no frame-paced wakeup — an idle terminal stays idle because the only scheduled
+no frame-paced wakeup - an idle terminal stays idle because the only scheduled
 wake is the one expiry. A repeated gesture replaces the message and refreshes
 that single deadline rather than stacking surfaces. Painting is suppressed while
 a modal overlay or the rename field owns the frame, so a late chip can never
@@ -1007,11 +1012,10 @@ version and contain a publishable opening summary. Generated release description
 prepend that summary and the tagged notes link while preserving the download and
 verification guide and automatically generated change list.
 
-The first prototype foundation is complete. Stages 1 through 4.5 are
-substantially complete. The parity
-half of Stage 6 (graphics protocols, wide glyphs, subpixel AA, text quality) is
-substantially complete. Stage 5 (file-based configuration with live reload) has
-its first stable layer.
+The first prototype foundation is complete, and the Stage 5 and Stage 6
+sections in [`TODO.md`](TODO.md) record the state of file-based configuration
+with live reload and of graphics protocols, wide glyphs, subpixel AA, and text
+quality.
 
 Version 0.10.0 completed its architecture, compatibility, correctness,
 security, evidence, documentation, and release-convergence scope. Bounded
@@ -1136,6 +1140,15 @@ transaction, so overflow stays refused until cancel or focus-loss. The
 [v0.15.0 ownership and platform contracts](docs/v0.15.0-foundation.md) record
 the exact implemented and remaining boundaries.
 
+Versions 0.15.5 through 0.16.1 are recorded in their notes under
+[`docs/releases`](docs/releases/README.md). In short, v0.15.5 moved text font
+reading to a maintained library and fixed two Wayland reliability problems;
+v0.15.8 stopped an untouched macOS window from staying busy; v0.16.0 added
+read-only panes, guarded broadcast input, macOS secure keyboard input, moving
+tabs and panes between windows, stacked and floating layouts, scrollback export,
+and an East Asian Ambiguous width preference; and v0.16.1 added AppImage update
+information with no behavior change.
+
 The project remains pre-1.0; any later milestone requires a separately recorded
 scope rather than silently inheriting deferred work from a prior release.
 
@@ -1192,7 +1205,8 @@ remain one command per prefix transaction.
 
 - OSC 8 hyperlinks: hover underline, Ctrl+click on Linux/Windows or Cmd+click on
   macOS through the platform opener, scheme allowlist
-  (`http`/`https`/`file`/`mailto`), never auto-opened from input
+  (`http`/`https`/`mailto`, and `file` only for a local authority), never
+  auto-opened from input
 
 - Dynamic colors: OSC 10/11/12, OSC 4 palette entries, and reset/query support
 
@@ -1507,7 +1521,7 @@ that closed while the picker was open, including when names are duplicated.
   pairs a deeper canvas with dusty iron-red text and clearer ANSI blues.
 
 - In-window overlay framework (`src/native/overlay.rs`): a native multi-row
-  panel layer rendered through the existing cell path — text fields, lists,
+  panel layer rendered through the existing cell path - text fields, lists,
   toggles, keyboard-driven navigation; presentation-only, never mutates terminal
   state
 
@@ -1557,7 +1571,7 @@ that closed while the picker was open, including when names are duplicated.
   behaviourally identical to the prior single tab-list model.
 
   Lifecycle
-  invariants: a workspace is never empty — closing a workspace's last tab closes
+  invariants: a workspace is never empty - closing a workspace's last tab closes
   that workspace; the last tab of the last workspace exits the app; a new
   workspace opens with exactly one single-pane tab. This typed-exit escalation
   is configurable through `shell_exit_closes`: with `app`, a shell exit (typed
@@ -1573,9 +1587,9 @@ that closed while the picker was open, including when names are duplicated.
   reconnect state before hold is considered.
 
 - Workspace-shape persistence (`restore_workspaces`, default off): OdyTTY can
-  snapshot the window's **shape** — workspace names, tab titles and order, the
+  snapshot the window's **shape** - workspace names, tab titles and order, the
   pane split tree and ratios, each pane's working directory, and the remote
-  host a remote pane was connected to — to an atomic
+  host a remote pane was connected to - to an atomic
   temp-and-rename file in the platform state dir (`%LOCALAPPDATA%` on Windows).
   The snapshot is a strict privacy boundary: it records structure only and
   **never** grid content, scrollback, environment, or the commands that were
@@ -1599,9 +1613,9 @@ that closed while the picker was open, including when names are duplicated.
   the same shape under a chosen name.
 
   Opening a
-  layout onto a window that already holds real state prompts for how it lands —
+  layout onto a window that already holds real state prompts for how it lands -
   **Replace** the current workspaces with the saved set, **Add** the saved
-  workspace(s) beside them, or **Cancel** — while a fresh window holding a single
+  workspace(s) beside them, or **Cancel** - while a fresh window holding a single
   untouched default workspace skips the prompt and lets the layout consume that
   workspace. Untouched means one tiled, unzoomed tab with one writable local
   shell, opened without a launch profile on the pane or workspace, whose
@@ -1610,15 +1624,15 @@ that closed while the picker was open, including when names are duplicated.
   carry a detached session-host id and reattach on restore when that host is
   still alive (falling back to a fresh shell silently); Windows stores no ids
   and always restores fresh. A pane opened on a remote host records
-  the connection — the saved-profile alias, or the literal
-  `[user@]host[:port]` for an ad-hoc destination — and restore reconnects it
+  the connection - the saved-profile alias, or the literal
+  `[user@]host[:port]` for an ad-hoc destination - and restore reconnects it
   through the `ssh` path as a fresh remote login shell. The remote cwd is not
   restored (the shell lands at the host's own default), and no command is ever
   re-run.
 
   A host that no longer resolves opens a local shell instead, and a
   local pane whose captured directory exists but denies a shell retries at home
-  rather than aborting the whole restore — a layout comes back in full or
+  rather than aborting the whole restore - a layout comes back in full or
   degrades per pane, never wholesale.
 
 - Readability pipeline: visual enhancements are explicit settings with
@@ -1631,20 +1645,16 @@ that closed while the picker was open, including when names are duplicated.
     and the live SGR dim/faint text path dims through `dim_perceptual`
     (OKLab, hue-preserving). Honest note: `dim_perceptual` applies a *uniform*
     OKLab scale, which reduces algebraically to a uniform linear-RGB scale
-    (`(1-amount)^3 * rgb`) — so for the uniform-dim case it is output-identical
-    to naive per-channel halving (both preserve hue).
-
-  The perceptual pipeline's
+    (`(1-amount)^3 * rgb`) - so for the uniform-dim case it is output-identical
+    to naive per-channel halving (both preserve hue). The perceptual pipeline's
     payoff is in the *non-uniform* fade/mix paths, not uniform dim; a test pins
     this equivalence so the claim cannot silently drift.
   - **Minimum-contrast floor** (`ODYTTY_MIN_CONTRAST`, `min_contrast`): a
     configurable WCAG contrast ratio floor between foreground and background,
     applied at render time. Default `17.0` is the fresh-install readability
     floor (range `1.0`–`21.0`); `1.0` disables the floor and is the exact
-    passthrough opt-out. Higher
-    values lift underpowered foregrounds toward legibility.
-
-  The floor is measured
+    passthrough opt-out. Higher values lift underpowered foregrounds toward
+    legibility. The floor is measured
     via WCAG relative luminance; the lift is applied by bisecting OKLab lightness
     while preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
   - **Stem darkening** (`ODYTTY_STEM_DARKEN`, `stem_darken`): a coverage boost
@@ -1675,7 +1685,7 @@ that closed while the picker was open, including when names are duplicated.
   No
   response is emitted and no filesystem access occurs. RIS leaves the stored
   path untouched (it reflects the foreground process's state, not resettable
-  terminal state — mirroring the title decision). The native layer now consumes
+  terminal state - mirroring the title decision). The native layer now consumes
   the tracked cwd: Detach & switch spawns the fresh session in the focused
   pane's working directory, and the command palette feeds recent OSC 7
   directories into its picker. OSC 6 is accepted-and-ignored.
@@ -1734,7 +1744,7 @@ that closed while the picker was open, including when names are duplicated.
   between `os_theme_dark` and `os_theme_light` based on the desktop
   color-scheme preference. Live on Wayland via the compositor
   `org.freedesktop.portal.Settings` `color-scheme` property. On X11 there is no
-  live signal — seed direction at launch with `ODYTTY_APPEARANCE=dark|light`.
+  live signal - seed direction at launch with `ODYTTY_APPEARANCE=dark|light`.
   When either theme name is unset the authored `theme` value is kept unchanged
   for that direction.
 
@@ -1779,8 +1789,8 @@ that closed while the picker was open, including when names are duplicated.
   the rendered view eases toward it with a forward-chase follower that only ever
   moves in the scroll direction, so continuous input cannot sawtooth. On by
   default; primary screen only. In a split each pane glides independently as an
-  eased follower with pixel-precise sub-cell smoothness — the pane under the
-  pointer, without stealing focus — its overflowing partial row clipped to the
+  eased follower with pixel-precise sub-cell smoothness - the pane under the
+  pointer, without stealing focus - its overflowing partial row clipped to the
   pane so it never smears across the divider into a neighbour.
 
   High-resolution
@@ -1796,7 +1806,7 @@ that closed while the picker was open, including when names are duplicated.
 - Font weight control (`font_weight`, empty = regular by default): selects a
   named base weight face (e.g. `Light`, `Medium`, `SemiBold`) for normal text,
   independently of the SGR bold attribute; bold SGR still contrasts against your
-  chosen base. Uses real font weight faces only — an unresolvable weight name
+  chosen base. Uses real font weight faces only - an unresolvable weight name
   falls back to the regular face. Changes rebuild the glyph atlas through the
   same path as `font_family`.
 
@@ -1804,7 +1814,7 @@ that closed while the picker was open, including when names are duplicated.
   hides the native window titlebar and borders. On Wayland, client-side
   decoration negotiation removes decorations reliably. On X11, this is a hint
   to the window manager; whether borderless takes effect depends on the WM and
-  compositor — borderless is not guaranteed on X11. Purely a window chrome
+  compositor - borderless is not guaranteed on X11. Purely a window chrome
   preference; never affects terminal model state or PTY behavior.
 
 - Basic native tabs: each tab owns an independent local PTY session, terminal
@@ -1883,7 +1893,7 @@ that closed while the picker was open, including when names are duplicated.
   `/var/folders/.../T/`);
   the `odytty/` socket subdirectory is still created `0700` and validated
   owner-private, so the macOS runtime directory upholds the same local-only,
-  owner-private privacy charter — the socket never touches the network and
+  owner-private privacy charter - the socket never touches the network and
   nothing leaves the machine.
 
   Because `AF_UNIX` socket paths are bounded
@@ -1945,13 +1955,13 @@ that closed while the picker was open, including when names are duplicated.
   final App input path.
 
 - Output replay overlay: opt-in per-session output recording (`session_replay`,
-  off by default) keeps a bounded in-memory ring of recent screen frames —
+  off by default) keeps a bounded in-memory ring of recent screen frames -
   capped by both 600 frames and 24 MiB, whichever binds first, with the oldest
-  evicted — recorded by the PTY pump off the render path. The `session-replay`
+  evicted - recorded by the PTY pump off the render path. The `session-replay`
   bindable action (default chord `Ctrl+Shift+R`, rebindable) opens a
   keyboard-scrubbable overlay over a frozen, fully decoupled clone of the ring:
   `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` go to the ring ends. Replay
-  is presentation-only — it never mutates live core terminal state, so the live
+  is presentation-only - it never mutates live core terminal state, so the live
   frame is byte-identical whether or not the overlay is active. Recording is
   local-only: frames live only in memory, never written to disk or sent over the
   network, and are dropped when the session closes or recording is turned off.
@@ -1987,7 +1997,7 @@ that closed while the picker was open, including when names are duplicated.
 - Remote shell integration (`remote_integration`, default on; `remote_reuse`,
   default on; `remote_tmux`, default off): the connect path builds the remote
   `ssh` argv through a single owned builder (`src/ssh_connect.rs`). With
-  integration on it injects a bash-only bootstrap — an inline base64 rcfile
+  integration on it injects a bash-only bootstrap - an inline base64 rcfile
   materialized to a temp file on the remote and exec'd as an interactive shell,
   carrying OdyTTY's OSC 133 boundaries onto the remote with nothing persisted
   there; a non-bash shell or any failure degrades to a byte-identical plain
@@ -2053,8 +2063,8 @@ that closed while the picker was open, including when names are duplicated.
   own or lower priority, preserving higher-priority added or cached handlers
   and the defaults-first picker ordering.
 
-  Every open routes through a single argv-only detached-spawn point — never
-  `sh -c` — so a filename containing `;`, `$()`, backticks, or spaces is an inert
+  Every open routes through a single argv-only detached-spawn point - never
+  `sh -c` - so a filename containing `;`, `$()`, backticks, or spaces is an inert
   argv element. A desktop entry that would hand the file to a recognized
   interpreter as code (such as `sh -c %f` or `python3 -c %f`) is not offered.
 
@@ -2072,7 +2082,7 @@ that closed while the picker was open, including when names are duplicated.
   rebindable): a pattern scanner labels URLs, paths, and SHA hashes in the
   focused pane's visible viewport (joining soft-wrapped rows) with home-row
   letter labels; completing a label copies the exact matched text to the
-  clipboard and closes. Presentation-only — terminal state is never modified, and
+  clipboard and closes. Presentation-only - terminal state is never modified, and
   a zero-match activation consumes the chord without leaking it to the PTY.
 
 - Session Navigator (`session-attach` bindable action, default
@@ -2107,8 +2117,8 @@ that closed while the picker was open, including when names are duplicated.
   session-host surface exists.
 
 - Detach & switch (Unix-only right-click menu item): spawns a **fresh**
-  managed session — honestly a spawn, not live-process migration, because the
-  focused pane's shell is this window's own child and cannot be handed off — in
+  managed session - honestly a spawn, not live-process migration, because the
+  focused pane's shell is this window's own child and cannot be handed off - in
   the focused pane's OSC 7 working directory, attaches it in a new tab, and
   switches. A three-way dialog chooses Swap (close the original pane once the
   managed session is live), Keep both, or Cancel. The order is always
@@ -2211,7 +2221,7 @@ Linux is the primary target. macOS and Windows are additional build targets,
 each exercised on its own CI runner; all three legs (`ubuntu-latest`,
 `macos-latest`, `windows-latest`) are blocking regression gates. The
 platform-divergent surface is small, localized, and `#[cfg]`-gated, so Windows
-code is physically absent from a Linux/macOS build and cannot regress it — the
+code is physically absent from a Linux/macOS build and cannot regress it - the
 Linux/macOS byte path is unchanged by the port.
 
 These platform labels describe shipped implementation, blocking automated
@@ -2265,8 +2275,8 @@ equivalents, all behind `#[cfg]`:
   symlink counts when it points at a regular font file; directory symlinks are
   not followed. A scan that stops at a bound logs one warning with the counts.
 
-- **Clickable paths** recognize Windows path shapes — drive-letter absolute
-  (`C:\…`, `C:/…`), UNC (`\\server\share`), and backslash separators — with a
+- **Clickable paths** recognize Windows path shapes - drive-letter absolute
+  (`C:\…`, `C:/…`), UNC (`\\server\share`), and backslash separators - with a
   drive-letter-aware `:line:col` suffix split so `C:\src\main.rs:10:5` peels the
   position without consuming the drive colon.
 
@@ -2436,9 +2446,9 @@ GPU quality / per-effect settings panel controls follow.
 ### Gate Visual Effects For Readability
 
 The **minimum-contrast floor** (`enforce_min_contrast`,
-`src/color.rs:enforce_min_contrast`) runs at **CPU color-resolve time** — the
+`src/color.rs:enforce_min_contrast`) runs at **CPU color-resolve time** - the
 last step of the per-cell resolve closure inside `build_cell_vertices_with_focus_dim_into`
-— before the vertex buffer is written and long before any GPU scene or
+- before the vertex buffer is written and long before any GPU scene or
 post-process pass executes. There is no within-frame feedback path from the GPU
 composite back to the CPU resolve step.
 
@@ -2492,7 +2502,10 @@ OdyTTY is a Linux-first Rust application built around these primary crates:
 | `wgpu` | GPU rendering through Vulkan and other platform backends |
 | `skrifa` | Font metadata, metrics, and glyph outlines for normal text |
 | `ab_glyph_rasterizer` | Coverage rasterization of normal-text outlines |
-| `swash` | Emoji discovery, shaping, and color-font probing |
+| `swash` | Emoji discovery, Latin ligature and Arabic shaping, bitmap and COLR v0 rasterization, and color-font probing |
+| `harfrust` | Shaping for the complex-script groups the classifier enables |
+| `tiny-skia` | COLR v1 and SVG color glyph rasterization |
+| `flate2` | Bounded zlib decompression for Kitty graphics payloads |
 | `unicode-width` | Terminal cell widths |
 | `unicode-bidi` | UAX #9 levels for the bidi display plan the renderer uses while `bidi_reorder` is on; built without its bundled Unicode 16.0.0 tables |
 | `resvg` | SVG-in-OpenType color glyphs (with its `usvg` parser), built without text layout, system fonts, or raster image decoding |
@@ -2529,17 +2542,17 @@ their base cell, and all coordinate systems are per-cell. The default
 body font is bundled **Victor Mono** (SIL OFL 1.1) at 20 logical pixels;
 **JetBrains Mono** is also bundled and remains selectable. SGR italic maps to
 Victor Mono's roman-slant Oblique faces. The font picker lists families in two
-subgroups — **Bundled Fonts** (Victor Mono, JetBrains Mono — always present,
+subgroups - **Bundled Fonts** (Victor Mono, JetBrains Mono - always present,
 loaded from compiled-in bytes) and **System Fonts** (host monospace families); a
 host copy of a bundled family is shown once, in the bundled group.
 
 Either group
-resolves with zero further config. Symbol/Nerd-font icons — both the Private Use
+resolves with zero further config. Symbol/Nerd-font icons - both the Private Use
 Area sets and the standard symbol blocks body fonts lack (arrows, power symbols,
-Dingbats such as the prompt `❯`, …) — resolve through a bundled **Symbols Nerd
+Dingbats such as the prompt `❯`, …) - resolve through a bundled **Symbols Nerd
 Font fallback chain** (enabled by default). The chain order is **explicit >
-bundled > host**, where *bundled* is **two** version-pinned faces — Nerd Fonts
-**v3.4.0** then **v2.3.3** — so the glyph pack covers both codepoint eras out of
+bundled > host**, where *bundled* is **two** version-pinned faces - Nerd Fonts
+**v3.4.0** then **v2.3.3** - so the glyph pack covers both codepoint eras out of
 the box (v3 relocated PUA icons such as the archway `U+F557` and python `U+F81F`
 into new slots; the v2 face fills the ones it emptied). The atlas walks the chain
 per glyph and rasterizes from the first face that has it, so coverage is the
@@ -2572,7 +2585,7 @@ from matching family metadata when they are available.
 When a style face is absent,
 `StyleFonts::synthetic_mask()` derives a per-face synthesis flag by comparing
 loaded `Arc` identities; `GlyphAtlas::set_synthetic_styles` receives those bits
-and applies a `SynthTransform` during rasterization — italic via horizontal
+and applies a `SynthTransform` during rasterization - italic via horizontal
 shear (tan 12° ≈ 0.2126), bold via double-strike at a sub-pixel embolden offset,
 bold-italic by composing both. Real faces always take precedence; synthesis
 activates only for genuinely absent slots. The ordinary path remains one base
@@ -2591,10 +2604,10 @@ terminal model retains its source owners and fixed cell positions.
 joining and complex-script owner forms follow the separate default-on
 `script_shaping` setting (`ODYTTY_SCRIPT_SHAPING`). Each setting applies live
 from Settings > Rendering, reachable from the right-click menu. Script shaping
-off restores per-cell glyphs for its scripts. Since v0.11.0, disabling ligatures
-also disabled Arabic joining; this behavior changes so Arabic and complex
-scripts continue shaping unless `script_shaping = off`. Both switches share
-the same paths on Linux Wayland, Linux X11, macOS, and Windows.
+off restores per-cell glyphs for its scripts. Arabic joining and complex-script
+owner forms are independent of `ligatures`. Optional stylistic sets `ss01` and
+`ss02` (off by default) apply to ligature shaping. Both switches share the same
+paths on Linux Wayland, Linux X11, macOS, and Windows.
 
 The renderer caches deterministic per-row shape plans, bounded to 512 rows, so
 unchanged rows are not reshaped in the render hot loop. Contextual atlas entries
@@ -2770,7 +2783,7 @@ pay for sixteen empty extension slots per cell. `protected` and `wide_continuati
 remain public `bool` fields on `Cell`. The
 hand-written `Debug` impl reads through the getters and emits the same field
 names and values as the previous `#[derive(Debug)]` output, so parser-oracle
-golden fixtures do not need to change when the representation does — the same
+golden fixtures do not need to change when the representation does - the same
 rationale that governs the `protected`-omit and `blink:false`-omit golden
 decisions elsewhere.
 
@@ -2833,7 +2846,7 @@ The accepted direction is a separate
 premultiplied-RGBA color-glyph path, distinct from the current monochrome
 coverage shader. `swash` is chosen for emoji shaping and rasterization: it
 covers CBDT/CBLC bitmap strikes (Noto Color Emoji's format on Linux),
-COLR/CPAL, and sbix, while providing full cluster shaping — VS15/VS16
+COLR/CPAL, and sbix, while providing full cluster shaping - VS15/VS16
 selectors, modifier sequences, ZWJ sequences, flags, and keycaps. Font
 rasterization remains external per the project boundary; atlas management,
 placement, blending policy, fallback routing, and terminal-cell behavior are

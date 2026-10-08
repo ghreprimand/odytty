@@ -5,16 +5,17 @@
 //! is re-exported here so existing `crate::core::…` call sites compile
 //! unchanged:
 //!
-//! - [`types`] — geometry, color, attributes, the [`Cell`] model, mouse enums,
+//! - [`types`] - geometry, color, attributes, the [`Cell`] model, mouse enums,
 //!   and the [`Snapshot`] / [`TerminalModel`] rendering surface.
-//! - [`screen`] — the [`Screen`] grid and [`Terminal`] state machine: parsing,
+//! - [`screen`] - the [`Screen`] grid and [`Terminal`] state machine: parsing,
 //!   scrollback, scroll regions, resize reflow, and CSI/OSC/SGR dispatch.
-//! - [`encoding`] — pure mouse-/focus-event byte encoders.
-//! - [`search`] — pure literal scrollback/screen search over the combined
+//! - [`encoding`] - pure mouse-/focus-event byte encoders.
+//! - [`search`] - pure literal scrollback/screen search over the combined
 //!   buffer, reporting matches as absolute cell ranges.
-//! - [`reflow`] — resize re-wrapping and the width-unchanged fast path.
+//! - [`reflow`] - resize re-wrapping and the width-unchanged fast path.
 //! - [`bidi`]: headless UAX #9 display plans for one wrapped logical line,
-//!   computed but not yet consumed by any display or input path.
+//!   planned per frame while `bidi_reorder` is on and consumed by the renderer
+//!   and the pointer, cursor, and input-method maps.
 
 mod bidi;
 mod button;

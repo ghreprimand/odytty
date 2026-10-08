@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! OSC 133 semantic prompt marking (SH1): the per-row mark model and the pure
+//! OSC 133 semantic prompt marking: the per-row mark model and the pure
 //! parse of an OSC 133 payload into a [`PromptKind`].
 //!
 //! OSC 133 (the "FinalTerm" / shell-integration protocol) lets a cooperating
@@ -20,7 +20,7 @@
 //!
 //! Parsing here is pure and defensive: any malformed or unrecognized payload
 //! yields `None` (the caller leaves the row's existing mark untouched) and no
-//! input byte sequence can panic — mirroring the OSC 7 parse policy.
+//! input byte sequence can panic - mirroring the OSC 7 parse policy.
 
 #[cfg(test)]
 use super::search::AbsolutePoint;
@@ -254,7 +254,7 @@ pub(in crate::core) fn osc133_code(parts: &[&[u8]]) -> Option<u8> {
     }
 }
 
-/// Parse an OSC 133 payload — the `;`-split parts *after* the leading `133` — into
+/// Parse an OSC 133 payload - the `;`-split parts *after* the leading `133` - into
 /// a [`PromptKind`]. Returns `None` for an empty or unrecognized sub-command so
 /// the caller leaves the current row's mark untouched. Never panics on any byte
 /// sequence.
@@ -272,7 +272,7 @@ pub(in crate::core) fn parse_osc133(parts: &[&[u8]]) -> Option<PromptKind> {
 
 /// Parse a command exit status: ASCII decimal digits only. Empty, signed, or
 /// otherwise non-numeric payloads (e.g. a `aid=7` key/value part) yield `None`,
-/// as do values that overflow `i32`. Defensive — mirrors the OSC 7 parse policy
+/// as do values that overflow `i32`. Defensive - mirrors the OSC 7 parse policy
 /// (no panic on any input).
 fn parse_exit_code(part: &[u8]) -> Option<i32> {
     if part.is_empty() {
@@ -312,7 +312,7 @@ pub enum ClickEvents {
     Disable,
 }
 
-/// Scan an OSC 133 payload — the `;`-split parts *after* the leading `133` — for
+/// Scan an OSC 133 payload - the `;`-split parts *after* the leading `133` - for
 /// a `click_events=N` attribute on a prompt-start (`A`/`B`), returning the
 /// directive when present and well-formed (SH-CLICK).
 ///
@@ -361,7 +361,7 @@ pub(in crate::core) fn parse_click_events(parts: &[&[u8]]) -> Option<ClickEvents
 /// (search uses center) or a bottom-anchored reveal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Align {
-    /// The target row sits at the top of the viewport — prompt on top, output
+    /// The target row sits at the top of the viewport - prompt on top, output
     /// below. The SH2 prompt-jump default.
     Top,
     /// The target row sits at the vertical center of the viewport. Matches the
@@ -388,7 +388,7 @@ pub enum Align {
 ///
 /// ## Clamping
 /// The desired top is clamped to `[0, scrollback_len]`, so the offset is never
-/// negative (you cannot scroll below the live tail — a target already on or
+/// negative (you cannot scroll below the live tail - a target already on or
 /// below the live screen yields offset `0`) and never exceeds `scrollback_len`
 /// (you cannot scroll above the oldest row). A `viewport_height` of `0` degrades
 /// to a top-anchored reveal. Pure; never panics for any inputs.
@@ -415,7 +415,7 @@ pub fn viewport_offset_for_row(
 /// This is the thin composition the SH2 native wiring calls: the native layer
 /// supplies the current reference row (derived from the live viewport position)
 /// and the viewport geometry, and receives both the absolute row to focus and
-/// the offset to scroll to — no jump logic in the front end.
+/// the offset to scroll to - no jump logic in the front end.
 ///
 /// **End behaviour is clamp, no wrap:** at the first prompt a `Prev` jump and at
 /// the last prompt a `Next` jump return `None` (a no-op), rather than wrapping to
@@ -567,7 +567,7 @@ mod tests {
         );
     }
 
-    // --- CommandBlock derivation (SH2 core) ---
+    // --- CommandBlock derivation ---
 
     const A: PromptKind = PromptKind::PromptStart;
     const C: PromptKind = PromptKind::OutputStart;
@@ -587,7 +587,7 @@ mod tests {
 
     #[test]
     fn prompt_over_command_end_preserves_the_exit() {
-        // The universal shell shape: `D` then the next prompt's `A` land on
+        // A common shell shape: `D` then the next prompt's `A` land on
         // one row. The prompt wins the row; the exit rides along.
         assert_eq!(merge_mark(Some(d(Some(0))), A), merged(Some(0)));
         assert_eq!(merge_mark(Some(d(Some(127))), A), merged(Some(127)));
@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn interior_command_end_wins_over_a_displaced_exit() {
         // A real interior D (first-wins, as ever) takes precedence over the
-        // next prompt's displaced exit — the displaced one belongs to a
+        // next prompt's displaced exit - the displaced one belongs to a
         // duplicate/malformed D in that case.
         let marks = [(0, A), (1, C), (3, d(Some(0))), (5, merged(Some(9)))];
         let blocks = command_blocks(&marks);
@@ -774,7 +774,7 @@ mod tests {
         // First block owns the exit and output [1, 3] (bounded by D@4 − 1).
         assert_eq!(blocks[0].exit, Some(7));
         assert_eq!(blocks[0].output, CommandOutput::Rows { start: 1, end: 3 });
-        // Second block is the new running command — no exit leaked from D@4.
+        // Second block is the new running command - no exit leaked from D@4.
         assert_eq!(blocks[1].exit, None);
         assert_eq!(blocks[1].output, CommandOutput::Open { start: 6 });
     }
@@ -876,7 +876,7 @@ mod tests {
 
     #[test]
     fn jump_is_strict_so_a_cursor_on_a_prompt_hops_clear() {
-        // Cursor exactly on the prompt at row 4: Prev jumps to 0, Next to 10 —
+        // Cursor exactly on the prompt at row 4: Prev jumps to 0, Next to 10 -
         // never sticks on the row it started on.
         let marks = [(0, A), (4, A), (10, A)];
         assert_eq!(jump_target(&marks, 4, JumpDirection::Prev), Some(0));
@@ -1056,7 +1056,7 @@ mod tests {
         );
     }
 
-    // --- command_status (SH2 gutter) ---
+    // --- command_status ---
 
     fn block_with(output: CommandOutput, exit: Option<i32>) -> CommandBlock {
         // command_status reads only `output` and `exit`; output_start is
@@ -1125,7 +1125,7 @@ mod tests {
     #[test]
     fn status_explicit_exit_wins_over_open_output() {
         // Defensive: an explicit exit takes precedence even if the output were
-        // somehow still Open — never report Running over a real exit code.
+        // somehow still Open - never report Running over a real exit code.
         assert_eq!(
             command_status(&block_with(CommandOutput::Open { start: 1 }, Some(0))),
             CommandStatus::Success
@@ -1182,7 +1182,7 @@ mod tests {
     #[test]
     fn zero_height_degrades_to_a_top_anchored_reveal() {
         // height 0: Center/Bottom subtract nothing, so all three aligns coincide
-        // with Top — no panic on the division/subtraction.
+        // with Top - no panic on the division/subtraction.
         assert_eq!(viewport_offset_for_row(50, Align::Center, 0, 100), 50);
         assert_eq!(viewport_offset_for_row(50, Align::Bottom, 0, 100), 50);
         assert_eq!(viewport_offset_for_row(50, Align::Top, 0, 100), 50);
@@ -1224,7 +1224,7 @@ mod tests {
     #[test]
     fn prompt_jump_honours_the_requested_align() {
         // The same jump under different aligns yields the same target row but
-        // distinct offsets — confirming the align is threaded through.
+        // distinct offsets - confirming the align is threaded through.
         let marks = [(0, A), (50, A)];
         let top = prompt_jump(&marks, 10, JumpDirection::Next, Align::Top, 24, 100);
         let center = prompt_jump(&marks, 10, JumpDirection::Next, Align::Center, 24, 100);

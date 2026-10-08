@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Bearing-aware glyph-quad geometry tests. (M5 mechanical split from atlas.rs).
+//! Bearing-aware glyph-quad geometry tests..
 
 use super::*;
 
 /// The bearing-aware quad for a missing/unsupported glyph is the fallback
-/// box, and its bounds are the full cell with a UV identical to `uv_rect` —
+/// box, and its bounds are the full cell with a UV identical to `uv_rect` -
 /// so missing glyphs render exactly as before (no regression).
 #[test]
 fn glyph_quad_fallback_is_full_cell_and_matches_uv_rect() {
@@ -88,7 +88,7 @@ fn box_drawing_quad_spans_full_cell_width() {
 
 /// At least one real glyph inks beyond the cell box, and its quad reports
 /// that overflow (negative offset or size exceeding the cell) instead of
-/// clipping to the cell — the core R3 capability. Best-effort across a broad
+/// clipping to the cell - the core R3 capability. Best-effort across a broad
 /// codepoint range; skipped only if the loaded font never overflows a cell.
 #[test]
 fn some_glyph_quad_overflows_the_cell() {
@@ -196,8 +196,8 @@ fn combining_mark_ink_lands_over_the_cell_box() {
 }
 
 /// `combining_mark_quad` never yields the hollow-box fallback: a mark that is
-/// not resident — or one the font lacks (which `ensure_styled` caches as the
-/// fallback slot) — returns `None`, because the mark quad composites OVER an
+/// not resident - or one the font lacks (which `ensure_styled` caches as the
+/// fallback slot) - returns `None`, because the mark quad composites OVER an
 /// already-drawn base glyph and a tofu box there would obscure the base.
 #[test]
 fn combining_mark_quad_filters_missing_marks() {

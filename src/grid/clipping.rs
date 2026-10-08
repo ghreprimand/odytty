@@ -11,7 +11,7 @@ use super::*;
 /// [`Self::NONE`] (an infinite band) is the inert value every non-gliding and
 /// single-pane caller passes: [`clip_quads_vertical`] returns immediately, so
 /// the at-rest and single-pane frames stay byte-identical. This is the analogue
-/// of — but larger than — the chrome-seam clamp ([`content_bg_span`] /
+/// of - but larger than - the chrome-seam clamp ([`content_bg_span`] /
 /// [`push_glyph_quad_clipped_top`]), which only pins whole chrome rows at the
 /// top seam; this clamps arbitrary partial rows at either edge of a pane.
 #[derive(Clone, Copy, Debug, PartialEq)]

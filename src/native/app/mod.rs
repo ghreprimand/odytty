@@ -277,8 +277,9 @@ const CWD_CHECKPOINT_MIN_INTERVAL: Duration = Duration::from_secs(60);
 const CONTEXT_MENU_INPUT_DEBOUNCE: Duration = Duration::from_millis(120);
 
 /// SECONDARY-INSTANCE-NOTICE banner text. A named constant so the test pins the
-/// exact wording the operator reads and no edit can drift it silently.
-const SECONDARY_INSTANCE_NOTICE: &str = "Another OdyTTY window owns session restore — this window won't restore or autosave workspaces.";
+/// exact wording the user reads and no edit can drift it silently.
+const SECONDARY_INSTANCE_NOTICE: &str =
+    "Another OdyTTY window owns session restore: this window won't restore or autosave workspaces.";
 
 /// What an in-progress rename overlay is editing. Tabs commit a `title_override`
 /// on the tab that owns the token; workspaces commit the label of the workspace

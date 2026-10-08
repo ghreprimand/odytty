@@ -45,12 +45,11 @@ use crate::text::FontHandle;
 #[cfg(test)]
 mod tests;
 
-/// Script blocks whose owners are shaped. Stage 2 enables the northern and
-/// southern Indic groups: Devanagari (with Devanagari Extended and Extended-A), Bengali,
-/// Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam.
-/// Stage 3 enables Sinhala. Stage 4 enables Khmer (with Khmer Symbols) and
-/// Myanmar (with Myanmar Extended-A and Extended-B). Stage 5 enables Thai, Lao, and Tibetan.
-/// Stage 6 enables Chakma, Javanese, Grantha, and Tai Tham.
+/// Script blocks whose owners are shaped: the northern and southern Indic
+/// groups (Devanagari with Devanagari Extended and Extended-A, Bengali,
+/// Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam), Sinhala,
+/// Khmer (with Khmer Symbols), Myanmar (with Myanmar Extended-A and
+/// Extended-B), Thai, Lao, Tibetan, Chakma, Javanese, Grantha, and Tai Tham.
 pub const STAGE_RANGES: &[(u32, u32)] = &[
     (0x0900, 0x097F),   // Devanagari
     (0x0980, 0x09FF),   // Bengali

@@ -27,17 +27,17 @@ const ODYTTY_DA2_ROM: usize = 0;
 ///   callbacks rather than treating them as CSI or string introducers; this
 ///   reply does not establish support for those 8-bit forms. Replies are also
 ///   emitted in 7-bit form.
-/// * `4` — Sixel graphics. `docs/graphics.md` carries the supported-feature
+/// * `4` - Sixel graphics. `docs/graphics.md` carries the supported-feature
 ///   matrix for the DCS decoder behind this bit.
-/// * `6` — selective erase: DECSCA (`CSI Ps " q`), DECSED (`CSI ? Ps J`),
+/// * `6` - selective erase: DECSCA (`CSI Ps " q`), DECSED (`CSI ? Ps J`),
 ///   DECSEL (`CSI ? Ps K`) and DECSERA (`CSI Pt;Pl;Pb;Pr $ {`).
-/// * `22` — ANSI colour.
-/// * `28` — rectangular editing: DECCRA, DECFRA, DECERA, DECSERA, DECCARA,
+/// * `22` - ANSI colour.
+/// * `28` - rectangular editing: DECCRA, DECFRA, DECERA, DECSERA, DECCARA,
 ///   DECRARA and DECSACE.
 ///
-/// Not claimed, because not implemented: `1` (132-column mode — DECCOLM is not
+/// Not claimed, because not implemented: `1` (132-column mode - DECCOLM is not
 /// handled), `2` (printer port), `7` (soft character sets), `8` (user-defined
-/// keys), `9` (national replacement character sets — non-ASCII `ESC (` finals
+/// keys), `9` (national replacement character sets - non-ASCII `ESC (` finals
 /// resolve to ASCII rather than to a replacement set), `15` (technical
 /// character set), `16`/`29` (locator), `18` (user windows) and `21`
 /// (horizontal scrolling).
@@ -46,7 +46,7 @@ const ODYTTY_DA1_REPLY: &[u8] = b"\x1b[?62;4;6;22;28c";
 impl Screen {
     /// C16: sever the soft-wrap chain at `row`. `Line::wrapped` on row N
     /// promises that row N+1 is the physical continuation of the same logical
-    /// line — reflow (`Screen::resize`) joins them back together. Every row
+    /// line - reflow (`Screen::resize`) joins them back together. Every row
     /// shuffle (DL/IL/SU/SD/RI) and full-row erase that removes, replaces, or
     /// displaces row N+1 while keeping row N breaks that promise; the flag
     /// must be cleared at the seam or the next resize fuses UNRELATED rows
@@ -62,7 +62,7 @@ impl Screen {
     /// line chain when `row` is removed, replaced, or displaced. For `row > 0`
     /// the predecessor is the visible row above (`sever_soft_wrap`). For
     /// `row == 0` on the PRIMARY screen it is the trailing open scrollback
-    /// line, which claims visible row 0 as its continuation — the same seam
+    /// line, which claims visible row 0 as its continuation - the same seam
     /// NF6 fixed for ED2. On the ALT screen row 0's predecessor is the SAVED
     /// primary row 0, which is untouched by alt-grid shuffles, so nothing is
     /// severed there (mirrors the NF6 alt-screen pin).
@@ -84,8 +84,8 @@ impl Screen {
             self.drain_freed_button_refs();
         } else {
             // Alternate screen keeps no scrollback: a discarded row's button
-            // spans (impossible today — definitions are refused on the alt
-            // screen — but kept honest) surrender their references.
+            // spans (impossible today - definitions are refused on the alt
+            // screen - but kept honest) surrender their references.
             self.release_line_buttons(&removed);
         }
 
@@ -109,7 +109,7 @@ impl Screen {
             // discarded). The bottom seam is intentionally NOT severed: this
             // is the linefeed-at-region-bottom path, where `put_char` sets
             // `wrapped` on the region's bottom row right before scrolling and
-            // then writes the continuation onto the fresh blank — that
+            // then writes the continuation onto the fresh blank - that
             // anticipatory flag is legitimate and reflow depends on it.
             // NF10: region top at row 0 severs the scrollback tail instead.
             self.sever_above(region.top);
@@ -134,7 +134,7 @@ impl Screen {
     /// footer rows below the bottom margin are untouched. Only the natural
     /// linefeed / index (IND, NEL) path routes here; explicit SU/SD keep their
     /// no-pollution discard. Feeding the removed top row into scrollback mirrors
-    /// [`Self::scroll_up_full`] — including its preserved soft-wrap continuity,
+    /// [`Self::scroll_up_full`] - including its preserved soft-wrap continuity,
     /// so no top seam is severed here.
     pub(super) fn scroll_up_region_into_scrollback(&mut self) {
         if let Some(region) = self.scroll_region {
@@ -147,7 +147,7 @@ impl Screen {
             // Primary screen only (guarded by the caller); the row is real
             // history leaving the top, so push it to scrollback exactly as the
             // full-screen path does. `push_row` preserves the soft-wrap chain,
-            // so — unlike the discard path — nothing is severed.
+            // so - unlike the discard path - nothing is severed.
             self.scrollback.push_row(removed);
             self.drain_freed_button_refs();
             self.rows.insert(
@@ -193,7 +193,7 @@ impl Screen {
         // bottom, now at `bottom - count`) sits above a fresh blank; if it
         // wrapped into the row below the region, that join is now severed by
         // the inserted blanks. Unlike the linefeed path, CSI S is an explicit
-        // scroll — there is no anticipatory-wrap flow to preserve. Skipped
+        // scroll - there is no anticipatory-wrap flow to preserve. Skipped
         // when the whole region was replaced (no shifted content remains).
         if count <= bottom - top {
             self.sever_soft_wrap(bottom - count);
@@ -222,7 +222,7 @@ impl Screen {
                 .insert(top, blank_row_with_bg(self.dimensions.columns, background));
         }
         // C16 bottom seam: the row displaced onto the region bottom lost its
-        // successor (the region's last `count` rows were discarded) — without
+        // successor (the region's last `count` rows were discarded) - without
         // this it would claim the unmoved row below the region as its wrap
         // continuation.
         self.sever_soft_wrap(bottom);
@@ -289,7 +289,7 @@ impl Screen {
         let background = self.current_attrs.background;
 
         if self.cursor.row == top {
-            // C16 seams — same shape as `scroll_region_down` with count = 1:
+            // C16 seams - same shape as `scroll_region_down` with count = 1:
             // the row above the region now precedes an inserted blank, and the
             // row displaced onto the region bottom lost its successor.
             // NF10: at row 0 the predecessor is the scrollback tail.
@@ -354,7 +354,7 @@ impl Screen {
         let count = count.max(1).min(bottom - self.cursor.row + 1);
         let background = self.current_attrs.background;
         // C16 top seam: the row above the deletion point loses its successor
-        // (the deleted rows) — without this it would claim whatever row
+        // (the deleted rows) - without this it would claim whatever row
         // scrolls up into the gap as its wrap continuation. NF10: at row 0
         // the predecessor is the scrollback tail.
         self.sever_above(self.cursor.row);
@@ -492,9 +492,9 @@ impl Screen {
         }
 
         sanitize_wide_row(row, blank, self.ambiguous_wide);
-        // NF7 (C16 seam): `count` is clamped to the row tail, so equality means
+        // NF7: `count` is clamped to the row tail, so equality means
         // the erase reached the right edge, destroying the content flow into
-        // the continuation row — this row no longer soft-wraps, and reflow must
+        // the continuation row - this row no longer soft-wraps, and reflow must
         // not fuse its remnant with the row below (mirrors EL0).
         if column + count == columns {
             self.sever_soft_wrap(row_index);
@@ -632,7 +632,7 @@ impl Screen {
                     self.release_line_buttons(&removed);
                 }
                 // NF10 (NF6 sibling): when the cursor is below row 0, row 0
-                // was replaced wholesale — a trailing open scrollback line
+                // was replaced wholesale - a trailing open scrollback line
                 // must not keep claiming it as a continuation. Cursor AT
                 // row 0 only erases in place (row survives), so no sever.
                 if self.cursor.row > 0 {
@@ -651,9 +651,9 @@ impl Screen {
                     );
                     self.release_line_buttons(&removed);
                 }
-                // NF6 (C16 seam): the visible screen is replaced wholesale, so
+                // NF6: the visible screen is replaced wholesale, so
                 // a trailing open scrollback line must not keep claiming row 0
-                // as its continuation — reflow would fuse scrolled-off history
+                // as its continuation - reflow would fuse scrolled-off history
                 // with whatever is printed next. Primary screen only: on the
                 // alt screen the scrollback tail still (validly) continues into
                 // the SAVED primary row 0, not into the alt grid (that
@@ -688,7 +688,7 @@ impl Screen {
                 self.prompt_marks_changed |= self.rows[self.cursor.row].prompt_mark.is_some();
                 // The replaced row's button spans surrender their table
                 // references, matching every sibling erase path that replaces
-                // rows wholesale — without the release, an EL2 over a button
+                // rows wholesale - without the release, an EL2 over a button
                 // row leaks its refcount and the id never frees.
                 let blank_row = self.current_blank_row();
                 let removed = std::mem::replace(&mut self.rows[self.cursor.row], blank_row);
@@ -722,7 +722,7 @@ impl Screen {
         // at the cursor whose lead is just left of it); repair the row.
         sanitize_wide_row(&mut self.rows[row], blank, self.ambiguous_wide);
         // C16: the erase reaches the right edge, destroying the content flow
-        // into the next row — this row no longer soft-wraps, so reflow must
+        // into the next row - this row no longer soft-wraps, so reflow must
         // not fuse its remnant with the row below.
         self.sever_soft_wrap(row);
         self.mark_dirty();
@@ -1144,7 +1144,7 @@ impl Screen {
     /// conservative posture of the kitty arms. `CSI > 4 m` (omitted value) and
     /// a bare `CSI > m` (xterm's reset-all form) both reset to 0. Other
     /// resources (modifyKeyboard/CursorKeys/FunctionKeys) are parsed and
-    /// deliberately ignored — cursor and function keys already carry the xterm
+    /// deliberately ignored - cursor and function keys already carry the xterm
     /// modifier encodings unconditionally.
     pub(super) fn xtmodkeys_set(&mut self, params: &Params) {
         let resource = param_or(params, 0, 0);
@@ -1323,7 +1323,7 @@ impl Screen {
         self.keyboard.kitty_keyboard_flags = 0;
         self.keyboard.modify_other_keys = 0;
         // Fresh alternate screen starts at the charset power-on state (ASCII
-        // G0/G1, GL=G0) — the TUI designates its own graphics if it wants ACS.
+        // G0/G1, GL=G0) - the TUI designates its own graphics if it wants ACS.
         self.charsets = CharsetModes::default();
 
         if clear_alt {
@@ -1430,7 +1430,7 @@ impl Screen {
         self.mark_dirty();
     }
 
-    /// RIS (ESC c): hard reset. Returns the terminal to its power-on state —
+    /// RIS (ESC c): hard reset. Returns the terminal to its power-on state -
     /// exits the alternate screen, clears the visible grid and scrollback,
     /// drops saved cursor / scroll region, resets attributes, cursor
     /// visibility, bracketed paste and pending wrap, homes the cursor, and
@@ -1440,7 +1440,7 @@ impl Screen {
         // RIS rebuilds the grid as blank rows and clears scrollback, dropping
         // every row-anchored prompt mark; flag it for the poll API if any
         // existed. (Prompt marks are positional terminal state, not shell state
-        // — unlike the OSC 7 cwd below, they do not survive RIS.)
+        // - unlike the OSC 7 cwd below, they do not survive RIS.)
         self.prompt_marks_changed |= self.has_any_prompt_mark();
         self.primary_screen = None;
         self.rows = vec![blank_row(self.dimensions.columns); self.dimensions.rows];
@@ -1489,7 +1489,7 @@ impl Screen {
         self.click_events_enabled = false;
         // DEC private mode 1007 (alternate scroll) powers on enabled, so RIS
         // returns it to that default. Like the focus-reporting / mouse /
-        // click-events input-reporting family above, it is reset by RIS only —
+        // click-events input-reporting family above, it is reset by RIS only -
         // soft_reset (DECSTR) deliberately leaves it.
         self.alternate_scroll = true;
         self.active_prompt_input_start = None;
@@ -1498,7 +1498,7 @@ impl Screen {
         // RIS returns the cursor shape/blink to the host default policy.
         self.cursor_style = self.default_cursor_style;
         self.cursor_blink = self.default_cursor_blink;
-        // RIS restores the default every-8 tab stops (DECSTR does not — see
+        // RIS restores the default every-8 tab stops (DECSTR does not - see
         // soft_reset).
         self.tab_stops = default_tab_stops(self.dimensions.columns);
         self.sixel_display_mode = false;
@@ -1509,7 +1509,7 @@ impl Screen {
     /// DECSTR (CSI ! p): soft reset. Resets modes and cursor state without
     /// touching the visible cells or scrollback. Cursor policy: homed to the
     /// top-left (documented in tests), matching xterm's DECSTR behaviour.
-    /// Tab stops are deliberately PRESERVED — per the VT220 soft-reset
+    /// Tab stops are deliberately PRESERVED - per the VT220 soft-reset
     /// definition, DECSTR does not clear tab stops; only RIS does.
     pub(super) fn soft_reset(&mut self) {
         self.cursor = Position::default();

@@ -54,8 +54,8 @@ pub(super) fn assemble(
 }
 
 /// Parse line-oriented `key = value` color maps (theme / colors.toml style).
-/// Values may be bare `#RRGGBB` or quoted. Unknown non-color keys are ignored
-/// only after the complete required set is collected by the caller.
+/// Values may be bare `#RRGGBB` or quoted. Non-color values are ignored;
+/// callers require the complete set of color keys.
 pub(super) fn parse_flat_color_map(
     text: &str,
 ) -> Result<BTreeMap<String, Srgb>, ExternalPaletteError> {

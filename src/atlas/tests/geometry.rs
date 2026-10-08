@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Glyph ink geometry (strokes, baseline, descender) and styled-slot tests. (M5 mechanical split from atlas.rs).
+//! Glyph ink geometry (strokes, baseline, descender) and styled-slot tests..
 
 use super::*;
 
 /// The atlas backing-buffer byte length must survive products beyond
 /// `u32::MAX`. Width ~5552 × height ~266240 × 4 bpp ≈ 5.9 GB is a real shape
 /// at the 72 px font cap on a 4× HiDPI display once a full 8192-slot subpixel
-/// atlas has grown. Regression: computed in `u32` this overflowed — a debug
+/// atlas has grown. Regression: computed in `u32` this overflowed - a debug
 /// build panicked, a release build wrapped to a tiny allocation and later
 /// raster writes went out of bounds (heap corruption).
 #[test]
@@ -107,7 +107,7 @@ fn glyphs_share_one_baseline() {
 }
 
 /// A descender ('g') inks the lower part of the cell and is not cropped at
-/// the cell box — its ink extends below the baseline.
+/// the cell box - its ink extends below the baseline.
 #[test]
 fn descender_is_not_cropped() {
     let Some(font) = test_font() else {
@@ -216,9 +216,9 @@ fn styled_ascii_uses_dynamic_region() {
 /// A contextual span wider than one atlas row (`ATLAS_COLS` slots) can never
 /// be stored contiguously: the reserved cells would wrap onto later rows, the
 /// rasterized ink strip would overwrite other glyphs' coverage, and `slot_uv`
-/// would hand out u1 > 1.0. `ensure_shaped` must refuse it — leaving the key
+/// would hand out u1 > 1.0. `ensure_shaped` must refuse it - leaving the key
 /// non-resident so the renderer keeps scalar per-cell fallback, exactly like
-/// atlas exhaustion — without burning slots or touching pixels.
+/// atlas exhaustion - without burning slots or touching pixels.
 #[test]
 fn over_wide_shaped_span_falls_back_to_scalar() {
     let Some(font) = test_font() else {
@@ -305,7 +305,7 @@ fn full_row_shaped_span_allocates_within_row_bounds() {
 /// A 3..=16-cell span whose lead would land near the row edge must burn
 /// fillers to the NEXT ROW BOUNDARY, not just one slot: with the allocator at
 /// column 14, a 3-cell span burning a single filler would start at column 15
-/// and still cross the row — reserved cells wrapping onto the next row, ink
+/// and still cross the row - reserved cells wrapping onto the next row, ink
 /// overwriting other glyphs' pixels, and a UV rect past the right atlas edge
 /// (u1 > 1.0). The run must instead start at column 0 of the next row with
 /// fully in-bounds UVs, and the burned fillers must keep the slot bookkeeping
@@ -384,7 +384,7 @@ fn filler_burn_hitting_the_slot_cap_fails_cleanly() {
         atlas.allocate_slots(1).expect("single-slot filler");
     }
     // Cap the atlas at one slot of headroom: the 3-cell span at column 15
-    // needs a filler burn plus three slots — the cap must stop it cleanly
+    // needs a filler burn plus three slots - the cap must stop it cleanly
     // (whether the burn or the span reservation trips it).
     atlas.max_slots = atlas.next_slot + 1;
     assert_eq!(atlas.allocate_slots(3), None);

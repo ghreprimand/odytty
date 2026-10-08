@@ -107,9 +107,8 @@ impl ExternalPaletteFollow {
         self.enabled.then_some(self.next_poll)
     }
 
-    /// Arm or disarm from settings. Disabling clears the watcher but keeps
-    /// last-known-good so a transient toggle off/on can reapply without a read
-    /// storm only after the next explicit poll when re-enabled.
+    /// Arm or disarm from settings. Disabling retains the last valid theme;
+    /// re-enabling polls the source again.
     pub fn configure(
         &mut self,
         enabled: bool,

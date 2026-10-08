@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Perceptual color primitives (RV3).
+//! Perceptual color primitives.
 //!
 //! Linear/sRGB transfer plus OKLab / OKLCH conversions, used for
 //! perceptually-uniform dimming, fading, and blending. The point of working in
-//! OKLab is that equal numeric steps look like equal perceived steps — so SGR
+//! OKLab is that equal numeric steps look like equal perceived steps - so SGR
 //! dim, selection/search blends, and theme interpolation stay legible and even
 //! instead of collapsing into mud the way a naive linear-RGB scale does.
 //!
@@ -158,21 +158,21 @@ pub const DEFAULT_DIM_AMOUNT: f32 = 0.40;
 /// drives the color to black. All three OKLab coordinates (`L`, `a`, `b`) are
 /// scaled by the same `1 - amount` factor.
 ///
-/// HONESTY NOTE — this *uniform* OKLab scale is algebraically identical to a
+/// HONESTY NOTE - this *uniform* OKLab scale is algebraically identical to a
 /// *uniform* linear-RGB scale, and not a perceptual improvement over one for
 /// this code path. OKLab's only nonlinearity is the per-component cube root
 /// applied to an `LMS` mix that is linear in RGB; uniformly scaling `(L, a, b)`
 /// by `k` therefore commutes back through the cube root to scaling linear RGB
 /// by `k³`. Concretely `dim_perceptual(rgb, amount) == (1 - amount)³ · rgb`
 /// exactly (to float epsilon). So for the uniform-dim case this is
-/// OUTPUT-IDENTICAL to a naive per-channel linear scale — both preserve hue,
+/// OUTPUT-IDENTICAL to a naive per-channel linear scale - both preserve hue,
 /// because a uniform scale of all channels cannot skew it. The pinning test
 /// `grid::tests::closure_sgr_dim_equals_naive_half_brightness` locks this
 /// equivalence so the claim cannot drift.
 ///
 /// The perceptual framing is real for the *non-uniform* helpers
 /// ([`mix_oklab`] / [`fade`]), which interpolate along an OKLab segment and so
-/// genuinely differ from a linear-RGB blend — not for this uniform scale.
+/// genuinely differ from a linear-RGB blend - not for this uniform scale.
 pub fn dim_perceptual(rgb: LinearRgb, amount: f32) -> LinearRgb {
     if amount <= 0.0 {
         return rgb;
@@ -192,7 +192,7 @@ pub fn dim_perceptual(rgb: LinearRgb, amount: f32) -> LinearRgb {
 /// `t` is clamped to `[0, 1]`; `t = 0` returns `a` exactly and `t = 1` returns
 /// `b` exactly. Mixing in linear space is energy-correct (the right model for
 /// alpha compositing / coverage blends), but can pass through a desaturated
-/// midpoint — use [`mix_oklab`] when perceptual evenness matters more.
+/// midpoint - use [`mix_oklab`] when perceptual evenness matters more.
 pub fn mix_linear(a: LinearRgb, b: LinearRgb, t: f32) -> LinearRgb {
     if t <= 0.0 {
         return a;
@@ -283,7 +283,7 @@ pub fn fade(from: LinearRgb, to: LinearRgb, t: f32) -> LinearRgb {
 }
 
 // ---------------------------------------------------------------------------
-// Minimum-contrast guarantee (RV1)
+// Minimum-contrast guarantee
 // ---------------------------------------------------------------------------
 
 /// WCAG relative luminance of a *linear* RGB color (0.0 = black, 1.0 = white).
@@ -291,7 +291,7 @@ pub fn fade(from: LinearRgb, to: LinearRgb, t: f32) -> LinearRgb {
 /// This is the standard `0.2126 R + 0.7152 G + 0.0722 B` luminance, evaluated
 /// directly on linear channels. Because the render path already holds colors in
 /// linear space, computing luminance here is exact and sidesteps the sRGB
-/// decode entirely — it matches [`crate::theme::relative_luminance`] (which
+/// decode entirely - it matches [`crate::theme::relative_luminance`] (which
 /// decodes from bytes first) to within float precision.
 pub fn relative_luminance(rgb: LinearRgb) -> f32 {
     0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
@@ -311,7 +311,7 @@ pub fn wcag_contrast(a: LinearRgb, b: LinearRgb) -> f32 {
 }
 
 /// Number of bisection steps used to home in on the minimal lightness move that
-/// satisfies the contrast floor. 24 steps resolves OKLab L to < 1e-7 — far finer
+/// satisfies the contrast floor. 24 steps resolves OKLab L to < 1e-7 - far finer
 /// than the 8-bit output quantum.
 const CONTRAST_BISECT_STEPS: u32 = 24;
 
@@ -320,7 +320,7 @@ const CONTRAST_BISECT_STEPS: u32 = 24;
 ///
 /// Metric: the WCAG 2.x relative-luminance contrast ratio (the established,
 /// user-expected legibility measure) computed via [`wcag_contrast`]. The
-/// *adjustment* is perceptual — it walks fg's OKLab L (from RV3) toward black or
+/// *adjustment* is perceptual - it walks fg's OKLab L toward black or
 /// white, keeping the `a`/`b` opponent values fixed, so the corrected color
 /// keeps its hue and only changes how light/dark it is.
 ///
@@ -415,18 +415,18 @@ pub fn enforce_min_contrast(fg: LinearRgb, bg: LinearRgb, ratio: f32) -> LinearR
     }
 }
 
-// Readability scrim for background treatments (U5 / ID3)
+// Readability scrim for background treatments
 // ---------------------------------------------------------------------------
 
 /// The theme polarity a readability scrim protects, selecting which side of the
 /// theme background `l_bg` the effective background must stay on.
 ///
 /// The safe direction is set by the *text* polarity, which follows the theme:
-/// - [`ScrimPolarity::Dark`] — a dark theme (light text on a dark background).
+/// - [`ScrimPolarity::Dark`] - a dark theme (light text on a dark background).
 ///   Raising the background luminance toward the text reduces contrast, so the
 ///   effective background must be **capped** at `l_bg`. The scrim is a black
 ///   overlay (darkens the treatment).
-/// - [`ScrimPolarity::Light`] — a light theme (dark text on a light background).
+/// - [`ScrimPolarity::Light`] - a light theme (dark text on a light background).
 ///   *Lowering* the background luminance toward the text reduces contrast, so the
 ///   effective background must be **lifted** to at least `l_bg`. The scrim is a
 ///   white overlay (lightens the treatment).
@@ -453,7 +453,7 @@ pub enum ScrimPolarity {
 /// overlay is applied, then the translucent cell background of `opacity` is
 /// composited over that. The luminance the text actually sits on is the convex
 /// blend `opacity * l_bg + (1 - opacity) * scrimmed`, where the scrimmed
-/// treatment is `l_treat * (1 - scrim)` for `Dark` (a black multiply — luminance
+/// treatment is `l_treat * (1 - scrim)` for `Dark` (a black multiply - luminance
 /// is linear in the linear-RGB channels) and `l_treat + (1 - l_treat) * scrim`
 /// for `Light` (a white over). `opacity = 1` fully occludes the treatment
 /// (effective `= l_bg`); `opacity = 0` shows the scrimmed treatment alone.
@@ -478,10 +478,10 @@ pub fn effective_bg_luminance(
     opacity * l_bg + (1.0 - opacity) * scrimmed
 }
 
-/// Compute the **readability scrim** — an overlay strength in `[0, 1]` applied to
+/// Compute the **readability scrim** - an overlay strength in `[0, 1]` applied to
 /// a background treatment so that the effective luminance behind the text band
 /// (see [`effective_bg_luminance`]) is bounded to the safe side of `l_bg`, the
-/// theme-background luminance the per-cell RV1 floor ([`enforce_min_contrast`])
+/// theme-background luminance the per-cell minimum-contrast floor ([`enforce_min_contrast`])
 /// already references. The bound direction follows `polarity`:
 /// - [`ScrimPolarity::Dark`]: effective background **never exceeds** `l_bg`
 ///   (a black scrim caps a too-bright treatment).
@@ -489,25 +489,25 @@ pub fn effective_bg_luminance(
 ///   (a white scrim lifts a too-dark treatment).
 ///
 /// This is the load-bearing safety primitive for readability-safe background
-/// treatments (U5 / ID3). The per-cell floor floors each glyph's foreground
+/// treatments. The per-cell floor floors each glyph's foreground
 /// against the *theme* background `l_bg`, but never sees the real treatment that
 /// shows through a translucent cell background. By keeping the effective
 /// background on the safe side of `l_bg`, this scrim keeps that existing per-cell
 /// guarantee a **valid, unmodified** floor: any foreground that meets the floor
 /// against `l_bg` also meets it against the effective background, because the
 /// effective background is at least as contrasting with the text as `l_bg` is.
-/// You literally cannot author a treatment that defeats the floor — a treatment
+/// You literally cannot author a treatment that defeats the floor - a treatment
 /// further past `l_bg` (brighter for dark themes, darker for light themes) yields
 /// a stronger scrim automatically.
 ///
 /// ## Why the result does not depend on `opacity`
 /// The effective background is a convex blend of `l_bg` and the scrimmed
 /// treatment. A convex blend stays on the safe side of `l_bg` **iff** the
-/// scrimmed treatment is itself on the safe side — the `opacity` weight cancels.
+/// scrimmed treatment is itself on the safe side - the `opacity` weight cancels.
 /// So the minimal scrim is computed from the scrimmed treatment alone,
 /// independent of the cell opacity the user later picks. This is a feature: the
 /// guarantee is robust to the user changing cell-background opacity after the
-/// fact — no opacity can ever reintroduce an unreadable background. `opacity` is
+/// fact - no opacity can ever reintroduce an unreadable background. `opacity` is
 /// still taken (and honoured) so a fully opaque cell background, which hides the
 /// treatment entirely, needs no scrim at all.
 ///
@@ -522,8 +522,8 @@ pub fn effective_bg_luminance(
 ///   (`l_treat == 0` for `Dark`, `l_treat == 1` for `Light`).
 /// - **CVD interaction:** when U4 (colour-vision-deficiency adaptation) is
 ///   active, the per-cell floor references the *CVD-adapted* background, so the
-///   caller must pass the adapted background luminance as `l_bg` — not the
-///   authored theme background — so the bound matches the floor the cells
+///   caller must pass the adapted background luminance as `l_bg` - not the
+///   authored theme background - so the bound matches the floor the cells
 ///   actually use.
 ///
 /// Pure, deterministic, total: never panics and never returns NaN for any finite
@@ -735,7 +735,7 @@ mod tests {
         assert!(rgb_close(m, [0.5, 0.5, 0.4], 1e-6));
     }
 
-    // --- Selection-opacity blend math (TRACK B, S1 pure core) ----------
+    // --- Selection-opacity blend math --------------------------------
 
     #[test]
     fn composite_over_endpoints_are_exact() {
@@ -789,7 +789,7 @@ mod tests {
 
     #[test]
     fn contrast_floor_holds_over_translucent_fill() {
-        // RV1 legibility under translucency: when the operator has raised the
+        // Legibility under translucency: when the user has raised the
         // minimum-contrast floor, the selection foreground must be floored over
         // the EFFECTIVE composited fill (fill over the theme backdrop), not the
         // pre-blend opaque fill. Sweeping selection opacity from opaque down to
@@ -848,13 +848,13 @@ mod tests {
         let m = mix_oklab(a, b, 0.5);
         let lm = linear_to_oklab(m).l;
         assert!(close(lm, 0.5, 1e-4), "oklab mid L {lm}");
-        // Linear midpoint of black/white is 0.5 linear, which is L ~ 0.738 —
+        // Linear midpoint of black/white is 0.5 linear, which is L ~ 0.738 -
         // demonstrably lighter, i.e. the two paths genuinely differ.
         let lin_mid_l = linear_to_oklab(mix_linear(a, b, 0.5)).l;
         assert!(lin_mid_l > 0.7, "linear mid L {lin_mid_l}");
     }
 
-    // --- RV3 round-trip accuracy across the gamut -----------------------
+    // --- Round-trip accuracy across the gamut -----------------------
 
     /// A regular grid over the linear-RGB cube plus a few explicit near-black /
     /// near-white extremes, where the cube-root in the OKLab transform has its
@@ -940,7 +940,7 @@ mod tests {
         );
     }
 
-    // --- RV3 dim_perceptual depth ---------------------------------------
+    // --- dim_perceptual depth ---------------------------------------
 
     /// Dimming is monotonic in `amount`: increasing the amount strictly lowers
     /// both the OKLab lightness and the WCAG relative luminance, with no
@@ -1016,10 +1016,10 @@ mod tests {
         }
     }
 
-    // --- RV3 blend monotonicity + gamut behavior ------------------------
+    // --- Blend monotonicity + gamut behavior ------------------------
 
     /// `mix_oklab` ramps OKLab lightness monotonically in `t` between the
-    /// endpoints — the core perceptual-evenness guarantee documented on the fn.
+    /// endpoints - the core perceptual-evenness guarantee documented on the fn.
     #[test]
     fn mix_oklab_lightness_is_monotonic_in_t() {
         let pairs = [
@@ -1120,7 +1120,7 @@ mod tests {
         }
     }
 
-    // --- RV1 minimum-contrast guarantee ---------------------------------
+    // --- Minimum-contrast guarantee ---------------------------------
 
     fn srgb_byte_to_linear(c: u8) -> f32 {
         srgb_to_linear(c)
@@ -1148,7 +1148,7 @@ mod tests {
     #[test]
     fn contrast_agrees_with_theme_helper() {
         // The linear-domain metric must match the byte-domain theme helper
-        // (which TH3 uses to validate themes) to within float precision.
+        // (used to validate themes) to within float precision.
         let pairs = [
             ((0x00, 0x00, 0x00), (0xff, 0xff, 0xff)),
             ((0x80, 0x80, 0x80), (0x00, 0x00, 0x00)),
@@ -1180,7 +1180,7 @@ mod tests {
 
     #[test]
     fn min_contrast_lifts_low_contrast_pair_to_floor() {
-        // A dim grey on a slightly darker grey — illegibly low contrast.
+        // A dim grey on a slightly darker grey - illegibly low contrast.
         let fg = linear_of(0x55, 0x55, 0x55);
         let bg = linear_of(0x44, 0x44, 0x44);
         let ratio = 4.5;
@@ -1189,7 +1189,7 @@ mod tests {
         let after = wcag_contrast(adj, bg);
         // Meets the floor (small epsilon for the bisection residual).
         assert!(after >= ratio - 1e-3, "after={after} < {ratio}");
-        // And does not massively overshoot — the minimal move lands near the
+        // And does not massively overshoot - the minimal move lands near the
         // floor, not pinned to an extreme.
         assert!(after <= ratio + 0.5, "overshoot after={after}");
     }
@@ -1243,12 +1243,12 @@ mod tests {
         assert!(c.is_finite());
     }
 
-    // --- Readability scrim (U5 / ID3) -----------------------------------
+    // --- Readability scrim -----------------------------------
 
-    /// **The U5 safety invariant (both polarities).** After applying the computed
+    /// **The safety invariant (both polarities).** After applying the computed
     /// scrim, the effective background luminance behind the text band stays on the
-    /// safe side of the theme-background luminance `l_bg` the per-cell RV1 floor
-    /// references — for every combination of treatment luminance, theme
+    /// safe side of the theme-background luminance `l_bg` the per-cell floor
+    /// references - for every combination of treatment luminance, theme
     /// background, and cell opacity, including the adversarial cases. For a dark
     /// theme the effective background never *exceeds* `l_bg` (a bright treatment
     /// is capped); for a light theme it never falls *below* `l_bg` (a dark
@@ -1326,7 +1326,7 @@ mod tests {
     #[test]
     fn scrim_is_zero_when_floor_disabled() {
         // min_contrast <= 1.0 is the passthrough: no scrim regardless of the
-        // treatment, keeping the plain path byte-identical — on both polarities.
+        // treatment, keeping the plain path byte-identical - on both polarities.
         for polarity in [ScrimPolarity::Dark, ScrimPolarity::Light] {
             assert_eq!(readability_scrim_for(1.0, 0.02, 0.0, 1.0, polarity), 0.0);
             assert_eq!(readability_scrim_for(0.0, 0.98, 0.0, 0.5, polarity), 0.0);
@@ -1337,7 +1337,7 @@ mod tests {
     #[test]
     fn scrim_is_zero_for_opaque_cell_background() {
         // A fully opaque cell bg hides the treatment entirely (effective == l_bg),
-        // so even an extreme treatment needs no scrim — on both polarities.
+        // so even an extreme treatment needs no scrim - on both polarities.
         assert_eq!(
             readability_scrim_for(1.0, 0.02, 1.0, 4.5, ScrimPolarity::Dark),
             0.0

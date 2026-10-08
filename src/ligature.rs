@@ -24,7 +24,7 @@
 //!    covers exactly those source columns. Every shaped glyph in the span is
 //!    clipped to the span's pixel box (`anchor_cell` / `span_cells` on
 //!    [`ShapedGlyphKey`]). If glyph count ≠ cell count inside the span, glyphs
-//!    still share that clip — they are not free to advance into neighboring
+//!    still share that clip - they are not free to advance into neighboring
 //!    logical cells.
 //! 4. Clusters that do not differ under the enabled features produce no overlay;
 //!    the ordinary per-cell scalar path draws them.
@@ -89,7 +89,7 @@ pub const LIGATURE_ROW_CACHE_CAPACITY: usize = 512;
 ///
 /// Inclusion criterion: single-width Unicode operators and arrows that
 /// programming fonts commonly participate in OpenType `calt`/`liga` lookups
-/// (comparison, logic, and arrow forms). This is a fixed allowlist — not an
+/// (comparison, logic, and arrow forms). This is a fixed allowlist - not an
 /// open stylistic-set surface. Optional `ss01`/`ss02` ride
 /// [`LatinShapingFeatures`] (off by default). Placeholders, emoji, and
 /// wide East-Asian ideographs stay out. Platform-neutral.
@@ -126,8 +126,7 @@ pub const SHAPING_OPERATOR_ALLOWLIST: &[char] = &[
 
 #[inline]
 fn is_allowlisted_operator(ch: char) -> bool {
-    // Small fixed table: linear scan beats a HashSet for ~24 entries and keeps
-    // the hot path allocation-free.
+    // Small fixed table: a linear scan keeps the hot path allocation-free.
     SHAPING_OPERATOR_ALLOWLIST.contains(&ch)
 }
 

@@ -74,8 +74,8 @@ fn unnumbered_placements_evict_oldest_at_per_buffer_cap() {
 #[test]
 fn clipped_top_placement_advances_source_by_clipped_rows() {
     // C21: a placement scrolled partially above the viewport top must show
-    // its LOWER portion at row 0 — source.y advances by the clipped pixel
-    // rows and display_rows shrinks — instead of re-anchoring the image's
+    // its LOWER portion at row 0 - source.y advances by the clipped pixel
+    // rows and display_rows shrinks - instead of re-anchoring the image's
     // top rows at the viewport top.
     let mut scene = ImageScene::new(ImageStoreLimits::default());
     let image_id = scene.insert_rgba(None, 8, 64, rgba(8, 64)).unwrap().id;

@@ -4,7 +4,7 @@
 //! The overlay owns list/filter/select presentation. This module owns only the
 //! act of opening it: it loads the merged local connection list through the
 //! [`crate::connection_hosts`] data layer and hands a frozen clone to the
-//! overlay. Opening is presentation-only — it never writes to the PTY and never
+//! overlay. Opening is presentation-only - it never writes to the PTY and never
 //! mutates the live terminal model.
 //!
 //! Privacy: the OpenSSH-config path (`~/.ssh/config`) is only ever resolved when
@@ -60,7 +60,7 @@ impl App {
 /// Resolve the two local source paths.
 ///
 /// The OdyTTY-owned hosts file always resolves under the config dir. The
-/// OpenSSH-config path is resolved **only** when `ssh_config_hosts` is true —
+/// OpenSSH-config path is resolved **only** when `ssh_config_hosts` is true -
 /// with the opt-in off this returns `ssh_config: None` so OdyTTY never even
 /// forms a path under `~/.ssh`. This is the App-side half of the privacy
 /// guarantee; the data-layer half refuses to read the path unless the same

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Per-command success/fail gutter (SH2): a thin coloured bar at the left edge
+//! Per-command success/fail gutter: a thin coloured bar at the left edge
 //! of each finished command's prompt row, green for an explicit `exit 0` and red
 //! for a non-zero exit.
 //!
@@ -261,7 +261,7 @@ mod tests {
     }
 
     /// `A` prompt at `prompt_row`, `C` output one row later, `D exit` two rows
-    /// later — a complete finished command block.
+    /// later - a complete finished command block.
     fn finished(prompt_row: usize, exit: i32) -> Vec<(usize, PromptKind)> {
         vec![
             (prompt_row, PromptKind::PromptStart),
@@ -470,7 +470,7 @@ mod tests {
     fn bar_persists_after_the_next_prompt_merges_over_the_command_end() {
         // The universal shell shape: `D` and the next prompt's `A` land on one
         // row, stamped as a merged PromptStartAfterEnd. The finished block's
-        // bar must still draw once the next prompt exists — this is the
+        // bar must still draw once the next prompt exists - this is the
         // flash-then-vanish regression case.
         let green = text::foreground_linear(Color::Rgb(0, 255, 0));
         let marks = vec![

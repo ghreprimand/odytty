@@ -35,7 +35,7 @@ fn osc7_sets_working_directory() {
 #[test]
 fn osc7_empty_host_is_accepted() {
     let mut terminal = Terminal::new(8, 3);
-    // file:///path — empty authority (the common shell form).
+    // file:///path - empty authority (the common shell form).
     terminal.advance(&osc7_bel("file:///var/log"));
     assert_eq!(terminal.current_working_directory(), Some("/var/log"));
 }
@@ -174,7 +174,7 @@ fn osc7_decoded_nul_is_rejected() {
     terminal.advance(&osc7_bel("file://localhost/safe"));
     assert_eq!(terminal.current_working_directory(), Some("/safe"));
 
-    // %00 decodes to NUL, which is never valid in a path — ignore the update.
+    // %00 decodes to NUL, which is never valid in a path - ignore the update.
     terminal.advance(&osc7_bel("file://localhost/bad%00path"));
     assert_eq!(terminal.current_working_directory(), Some("/safe"));
 }

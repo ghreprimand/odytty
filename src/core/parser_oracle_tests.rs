@@ -56,7 +56,7 @@ fn screen_fingerprint(screen: &Screen) -> u64 {
     fnv1a64(out.as_bytes())
 }
 
-/// Assert two screens are byte-identical across every observable axis.
+/// Assert two screens match across the axes compared below.
 fn assert_screens_match(label: &str, a: &Screen, b: &Screen) {
     assert_eq!(a.dimensions(), b.dimensions(), "{label}: dimensions");
     assert_eq!(a.cursor(), b.cursor(), "{label}: cursor");
@@ -137,7 +137,7 @@ fn assert_parity(label: &str, cols: usize, rows: usize, input: &[u8]) {
 }
 
 /// Feed `input` split at **every** byte boundary and assert parity for each
-/// split — this is the split-UTF-8 / interrupted-sequence stress that proves the
+/// split - this is the split-UTF-8 / interrupted-sequence stress that proves the
 /// state carries correctly across `advance()` calls.
 fn assert_parity_all_splits(label: &str, cols: usize, rows: usize, input: &[u8]) {
     let whole = run_ody(cols, rows, &[input]);
@@ -392,7 +392,7 @@ const GOLDEN_20X6: &[(&str, u64)] = &[
     ("param_huge_saturate", 0x5c1071fc00a33a0a),
     ("param_private_then_params", 0x5c1071fc00a33a0a),
     // Button protocol OSCs: every parse-and-ignore case fingerprints
-    // identically to a bare printed "X" (0x5c1071fc00a33a0a) — the direct
+    // identically to a bare printed "X" (0x5c1071fc00a33a0a) - the direct
     // proof that neither spelling writes the grid or perturbs state.
     ("osc_button_1337_define", 0x5c1071fc00a33a0a),
     ("osc_button_1337_invalidate", 0x5c1071fc00a33a0a),
@@ -658,8 +658,8 @@ fn oracle_apc_is_nonprinting_to_grid() {
 /// Default per-fuzzer iteration count for an unconfigured `cargo test`.
 const DEFAULT_FUZZ_ITERS: u64 = 2000;
 
-/// Read the fuzz iteration budget from `ODYTTY_FUZZ_ITERS`, clamped to a sane
-/// floor of 1 and defaulting to [`DEFAULT_FUZZ_ITERS`].
+/// Read the fuzz iteration budget from `ODYTTY_FUZZ_ITERS`. An absent,
+/// unparsable, or zero value selects [`DEFAULT_FUZZ_ITERS`].
 fn fuzz_iters() -> u64 {
     std::env::var("ODYTTY_FUZZ_ITERS")
         .ok()
@@ -668,7 +668,7 @@ fn fuzz_iters() -> u64 {
         .unwrap_or(DEFAULT_FUZZ_ITERS)
 }
 
-/// A tiny deterministic xorshift64 PRNG — no external dependency, fully
+/// A tiny deterministic xorshift64 PRNG - no external dependency, fully
 /// reproducible from a seed.
 struct FuzzRng(u64);
 
@@ -718,7 +718,7 @@ fn fuzz_assert_split(seed: u64, input: &[u8], sp: usize) {
 }
 
 /// Control-biased byte alphabet: escapes, separators, finals, C1 bytes, and
-/// UTF-8 lead/continuation bytes — the regions where parser bugs hide.
+/// UTF-8 lead/continuation bytes - the regions where parser bugs hide.
 const FUZZ_ALPHABET: &[u8] = b"\x1b[]P_X^\\;:0123456789mHABCDfJKqp \x07\x18\x1a\x9b\x9c\x9d\x90\x9f\x85\xc2\x85\xc3\xa9\xe2\x98\x85\xf0\x9f\x98\x80ABab";
 
 #[test]
@@ -744,7 +744,7 @@ fn oracle_fuzz_byte_soup() {
 
 #[test]
 fn oracle_fuzz_two_chunk_splits() {
-    // Random streams fed as two chunks — the state-carry stress across advance().
+    // Random streams fed as two chunks - the state-carry stress across advance().
     let iters = fuzz_iters();
     for i in 0..iters {
         let seed = i.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(0xABCD);

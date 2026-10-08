@@ -82,7 +82,7 @@ impl HyperlinkTable {
         }
 
         // On u32 wrap, advance PAST ids still held by live entries instead of
-        // restarting blindly at 1 — reusing a live id would overwrite that
+        // restarting blindly at 1 - reusing a live id would overwrite that
         // entry and silently retarget every span referencing it. The table is
         // budget-bounded, so a free id always exists and the loop terminates.
         let mut next = self.next_id;
@@ -107,7 +107,8 @@ impl HyperlinkTable {
         Some(id)
     }
 
-    /// The highest id this table has issued (zero when none).
+    /// The current allocation counter (zero when none have been issued). A wrap
+    /// of the id space lowers it, so it is not a lifetime high-water mark.
     pub(in crate::core) fn issued_high_water(&self) -> u32 {
         self.next_id
     }
@@ -139,9 +140,8 @@ impl HyperlinkTable {
     }
 
     /// Move an interned link to the most-recently-used end of `order`. The scan
-    /// is linear in the live entry count, which is bounded by `MAX_LINK_ENTRIES`
-    /// and in practice tiny (the on-screen link working set), so an O(n) reorder
-    /// is acceptable and keeps the recency bookkeeping allocation-free.
+    /// is linear in the live entry count, which is bounded by `MAX_LINK_ENTRIES`,
+    /// and keeps the recency bookkeeping allocation-free.
     fn touch(&mut self, id: LinkId) {
         if self.order.back() == Some(&id) {
             return;
@@ -255,7 +255,7 @@ mod tests {
             .unwrap();
         assert_eq!(first.get(), 1, "first id is 1");
         // Force the allocator to the wrap point: after u32::MAX the next
-        // candidate is 1, which is still live — it must be skipped, not
+        // candidate is 1, which is still live - it must be skipped, not
         // overwritten.
         table.next_id = u32::MAX - 1;
         let wrapped = table

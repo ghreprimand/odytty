@@ -259,7 +259,7 @@ fn tokenize(exec: &str) -> Option<Vec<Token>> {
 #[cfg(test)]
 mod tests {
     //! Pure field-code + quoting tests. NONE spawns a process; every case
-    //! asserts the built argv vector. Synthetic paths only — no real filesystem,
+    //! asserts the built argv vector. Synthetic paths only - no real filesystem,
     //! no real home paths.
     use super::*;
 
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn hostile_path_metacharacters_stay_inert() {
-        // A path full of shell metacharacters is a single, inert argv element —
+        // A path full of shell metacharacters is a single, inert argv element -
         // the whole security guarantee. Nothing is interpolated or executed.
         let nasty = "/tmp/$(touch pwned);`id`&& rm -rf ~|evil.png";
         let argv = argv_for("eog %f", nasty);

@@ -114,8 +114,8 @@ impl NormalizedExternalPalette {
     }
 }
 
-/// Parse raw file bytes for `provider`. Callers must already have applied the
-/// byte-size cap; this still enforces line/entry caps.
+/// Parse raw file bytes for `provider`, with a size cap and provider-specific
+/// line and entry limits.
 pub fn parse_palette_bytes(
     provider: ExternalPaletteProvider,
     bytes: &[u8],

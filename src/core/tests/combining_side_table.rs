@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Adversarial coverage for combining-mark *storage* — handle table or
+//! Adversarial coverage for combining-mark *storage* - handle table or
 //! per-line sidecar alike.
 //!
 //! Pins **today's** observable grapheme behavior at the seams any denser
 //! representation has to keep: `Cell` is `Copy` (a later mutation of one
 //! copy must not change another), blank/overwrite/ICH/DCH, scroll, wrap,
 //! scrollback eviction, alternate-screen swap, session-host round-trip, and
-//! reflow. Distinct live clusters stay fully readable — there is no
+//! reflow. Distinct live clusters stay fully readable - there is no
 //! degradation path to pin. `cell_equivalence.rs` is the acceptance suite
 //! and is not touched here.
 //!
@@ -72,7 +72,7 @@ fn visible_graphemes(terminal: &Terminal) -> Vec<String> {
 
 /// `Cell` is `Copy`. Mutating the original after a copy must not change the
 /// copy's marks. A side table that shares a handle without copying the payload
-/// would make the copy observe the later mark — wrong glyphs, not missing ones.
+/// would make the copy observe the later mark - wrong glyphs, not missing ones.
 #[test]
 fn copied_cell_does_not_alias_later_combining_on_the_original() {
     let mut cell = Cell::new('e', Attrs::default());
@@ -217,7 +217,7 @@ fn scrolled_combining_stays_on_its_history_row_not_on_the_new_live_cell() {
 }
 
 /// Sustained distinct clusters on the live grid: every written cluster remains
-/// readable. There is no degradation path — a storage change that drops marks
+/// readable. There is no degradation path - a storage change that drops marks
 /// under distinct-combining pressure is a behavior change.
 #[test]
 fn every_distinct_live_cluster_remains_readable() {
@@ -321,7 +321,7 @@ fn snapshot_envelope_roundtrip_does_not_swap_two_distinct_clusters() {
 }
 
 /// A combining cluster sitting at the wrap boundary must stay one grapheme
-/// after a width-changing resize — marks follow the cell, not the old column.
+/// after a width-changing resize - marks follow the cell, not the old column.
 #[test]
 fn reflow_keeps_marks_on_the_same_base_across_a_wrap() {
     let c = cluster('e', 4);
@@ -371,7 +371,7 @@ fn two_clusters_on_one_scrolled_line_keep_order() {
 
 /// Soft-wrap continuation: a cluster on the last column and a different cluster
 /// on the next physical row of the same logical line. After a width change both
-/// must survive unswapped — the wrap-boundary case a line sidecar gets wrong.
+/// must survive unswapped - the wrap-boundary case a line sidecar gets wrong.
 #[test]
 fn soft_wrapped_continuation_keeps_both_clusters_across_resize() {
     let lead = cluster('e', 4);
@@ -401,7 +401,7 @@ fn soft_wrapped_continuation_keeps_both_clusters_across_resize() {
 }
 
 /// Evicting oldest history must drop that line's clusters and leave every
-/// retained line's clusters attached to it — not to a neighbor that survived.
+/// retained line's clusters attached to it - not to a neighbor that survived.
 #[test]
 fn scrollback_eviction_does_not_reattach_evicted_marks_to_survivors() {
     let mut terminal = Terminal::new(8, 2);
@@ -522,7 +522,7 @@ fn long_logical_line_marks_survive_past_u16_column() {
     let past_at = physical
         .iter()
         .position(|g| g == &past)
-        .expect("cell 65536 cluster missing — u16 key truncation drops or relocates it");
+        .expect("cell 65536 cluster missing: u16 key truncation drops or relocates it");
 
     assert_eq!(
         physical[start_at], start,

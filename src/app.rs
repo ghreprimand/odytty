@@ -23,7 +23,7 @@ pub fn run_interactive() -> Result<()> {
     let mut session = PtySession::spawn_default_shell(dimensions)?;
     // Master writes go through the bounded drop-oldest writer queue, the same
     // shim the session host uses: a wedged shell (stopped, full slave buffer)
-    // parks the dedicated writer thread, never this loop — input decoding and
+    // parks the dedicated writer thread, never this loop - input decoding and
     // rendering stay responsive and queued memory stays capped.
     let writer = crate::session_host::HostPtyWriter::spawn(session.take_writer()?)
         .context("spawn pty writer thread")?;
@@ -239,7 +239,7 @@ impl InputDecoder {
                 // `pending` (mirroring the START-prefix retention below): if
                 // the marker is split across reads, moving its head into the
                 // paste body would hide it from the next `find_bytes` and the
-                // paste would never terminate — the marker bytes leaking into
+                // paste would never terminate - the marker bytes leaking into
                 // the pasted content.
                 let keep = marker_suffix_overlap(&self.pending, BRACKETED_PASTE_END);
                 let take = self.pending.len() - keep;
@@ -292,7 +292,7 @@ fn paste_start_prefix_len(bytes: &[u8]) -> usize {
     marker_suffix_overlap(bytes, BRACKETED_PASTE_START)
 }
 
-/// Length of the longest strict prefix of `marker` that the buffer ends with —
+/// Length of the longest strict prefix of `marker` that the buffer ends with -
 /// the bytes that must be retained across reads because the marker may be
 /// split at the read boundary.
 fn marker_suffix_overlap(bytes: &[u8], marker: &[u8]) -> usize {

@@ -366,13 +366,13 @@ fn prompt_point(mark: (usize, PromptKind), columns: usize) -> (usize, usize) {
 pub enum CommandOutput {
     /// The command produced no addressable output region: either no
     /// [`PromptKind::OutputStart`] (`C`) mark exists in the block (the prompt is
-    /// awaiting input), or the command finished without printing — in which case
+    /// awaiting input), or the command finished without printing - in which case
     /// the `C` and `D` marks collide on one row and `D` wins, leaving the block
     /// with a [`PromptKind::CommandEnd`] but no `OutputStart`. Nothing to select.
     Empty,
     /// Output spans these inclusive absolute rows, bounded above by the first
-    /// mark following the `OutputStart` (the block's own `CommandEnd`, or — when
-    /// no `D` arrived — the next prompt).
+    /// mark following the `OutputStart` (the block's own `CommandEnd`, or - when
+    /// no `D` arrived - the next prompt).
     Rows { start: usize, end: usize },
     /// Output began at `start` but no following mark bounds it yet: the command
     /// is still running, or this is the last block in the buffer. The consumer
@@ -395,7 +395,7 @@ pub enum CommandOutput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommandBlock {
     /// Absolute row of the [`PromptKind::PromptStart`] (`A`/`B`) opening the
-    /// block — the prompt and typed command line.
+    /// block - the prompt and typed command line.
     pub prompt_row: usize,
     /// Absolute row of the [`PromptKind::OutputStart`] (`C`), once the command
     /// has executed; `None` while the prompt is awaiting input.
@@ -420,13 +420,13 @@ pub struct CommandBlock {
 /// **Exit-association nuance:** the shell emits `D` immediately *before* the
 /// next prompt, so a block's `CommandEnd` lands on a row below its output but
 /// still above the next `PromptStart`. Because the block span is
-/// `[PromptStart, next PromptStart)`, that `D` falls inside this block — its
+/// `[PromptStart, next PromptStart)`, that `D` falls inside this block - its
 /// exit is associated with the *preceding* output, never the following prompt.
 ///
 /// The function is pure and never panics on any mark sequence (out-of-order,
 /// missing, or duplicate marks degrade gracefully).
 pub fn command_blocks(marks: &[(usize, PromptKind)]) -> Vec<CommandBlock> {
-    // Indices of the prompt marks — the block delimiters. A merged
+    // Indices of the prompt marks - the block delimiters. A merged
     // PromptStartAfterEnd row is a prompt for delimiting purposes; its
     // displaced exit is consumed by the PREVIOUS block below.
     let prompt_indices: Vec<usize> = marks
@@ -572,10 +572,10 @@ pub fn command_blocks(marks: &[(usize, PromptKind)]) -> Vec<CommandBlock> {
 /// (newer) prompt relative to a cursor row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JumpDirection {
-    /// Toward older scrollback — the nearest [`PromptKind::PromptStart`] whose
+    /// Toward older scrollback - the nearest [`PromptKind::PromptStart`] whose
     /// row is strictly *less* than the current row.
     Prev,
-    /// Toward newer output — the nearest [`PromptKind::PromptStart`] whose row is
+    /// Toward newer output - the nearest [`PromptKind::PromptStart`] whose row is
     /// strictly *greater* than the current row.
     Next,
 }
@@ -633,7 +633,7 @@ pub fn jump_target(
 /// - [`CommandOutput::Open`] `{ start }` → `Some((start, last_row))`, clamped so
 ///   `end >= start` even if the buffer is somehow shorter than the mark.
 /// - [`CommandOutput::Empty`] → `None` (a prompt awaiting input, or a command
-///   that printed nothing — there is no output region to select).
+///   that printed nothing - there is no output region to select).
 ///
 /// Retained for compatibility and cell-equivalence tests. User-authorized
 /// actions use [`verified_command_cell_range`] over a verified range. Pure;
@@ -689,7 +689,7 @@ pub fn command_output_cell_range(
 /// Deliberately conservative: it **never assumes success** from absence. A
 /// command only reads [`CommandStatus::Success`] on an explicit `exit 0`; a
 /// missing exit degrades to [`CommandStatus::Running`] (output still open) or
-/// [`CommandStatus::Unknown`] (no exit was ever recorded — e.g. a shell that
+/// [`CommandStatus::Unknown`] (no exit was ever recorded - e.g. a shell that
 /// emits prompts but no `D`, or a transcript truncated mid-block). The
 /// same-row `D`+`A` stamp no longer loses the exit: [`merge_mark`] preserves
 /// it as [`PromptKind::PromptStartAfterEnd`].
@@ -699,7 +699,7 @@ pub enum CommandStatus {
     Success,
     /// The command finished with an explicit non-zero exit status.
     Fail,
-    /// No exit status yet and the output region is still open — the command is
+    /// No exit status yet and the output region is still open - the command is
     /// (or may be) still running.
     Running,
     /// No exit status and no open output: either a prompt awaiting input, or a

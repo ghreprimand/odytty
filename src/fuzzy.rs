@@ -2,7 +2,7 @@
 //! Small dependency-free fuzzy subsequence scorer.
 //!
 //! This module is intentionally presentation-agnostic: it knows nothing about
-//! overlays, terminal state, PTYs, or history files. The Phase 3 command
+//! overlays, terminal state, PTYs, or history files. The command
 //! palette can feed it actions, directories, or history rows and receive stable
 //! best-first candidate indexes.
 
@@ -23,7 +23,9 @@ impl Score {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MatchOptions {
     /// When true, characters must match exactly. When false, matching is
-    /// case-insensitive but exact-case positions still receive a small bonus.
+    /// case-insensitive (each scalar compared by its first lowercase scalar, with
+    /// no final-sigma or multi-scalar folding) but exact-case positions still
+    /// receive a small bonus.
     pub case_sensitive: bool,
 }
 

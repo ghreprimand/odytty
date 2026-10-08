@@ -48,9 +48,9 @@ impl GlyphAtlas {
         // empty-map state) means no override and the scan is skipped, so the
         // path below is byte-identical to the no-SYMMAP renderer.
         let override_arc = self.symbol_map_font_for(ch);
-        // Geometric box-drawing (RV2): when enabled, recognized line/block/
+        // Geometric box-drawing: when enabled, recognized line/block/
         // Powerline codepoints are rasterized from cell-aligned geometry instead
-        // of the font glyph — and render even if the font lacks the codepoint.
+        // of the font glyph - and render even if the font lacks the codepoint.
         // A SYMMAP override suppresses geometric rendering: if the user
         // explicitly remapped a box-drawing range, their font glyph wins.
         let geometric = self.geometric && override_arc.is_none() && crate::boxdraw::covers(ch);
@@ -65,7 +65,7 @@ impl GlyphAtlas {
         let mut symbol_font: Option<Arc<FontHandle>> = None;
         if let Some(ov) = override_arc {
             // SYMMAP: rasterize from the override face directly (no synthetic
-            // transform — icon faces are not emboldened/sheared), bypassing the
+            // transform - icon faces are not emboldened/sheared), bypassing the
             // primary-font glyph-presence check and the fallback chain.
             symbol_font = Some(ov);
         } else if !geometric && !font_has_glyph(font, ch) {
@@ -129,7 +129,7 @@ impl GlyphAtlas {
             // Combining marks carry a zero advance and hang their ink LEFT of
             // the pen (they are typeset after their base advances). Anchoring
             // the pen one cell to the right places that ink over the slot's
-            // cell box — the same anchor mechanism `ensure_shaped` uses — so
+            // cell box - the same anchor mechanism `ensure_shaped` uses - so
             // the renderer can draw the mark quad at the base cell's origin
             // and the recorded `GlyphInk` offsets land the ink on the base.
             let anchor_x = if is_combining_mark(ch) {

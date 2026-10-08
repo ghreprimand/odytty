@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Stage 5: Thai, Lao, and Tibetan classifier checks, and proof that the
+//! Thai, Lao, and Tibetan classifier checks, and proof that the
 //! font's shaping tables change these owners beyond the per-cell path. The
 //! group's reference and pixel checks run with every enabled group in the
 //! parent module's `GROUPS` table.

@@ -297,7 +297,7 @@ fn scrolled_out_spans_merge_into_flat_logical_coordinates() {
     assert!(store.logical_len() >= 1);
     let spans = store.logical_button_spans(0);
     // "Retry all now" is 13 cells from col 2: row 0 held cols 2..10
-    // (8 cells), row 1 cols 0..5 (5 cells) — flat: [2,10) + [10,15).
+    // (8 cells), row 1 cols 0..5 (5 cells) - flat: [2,10) + [10,15).
     assert_eq!(spans.len(), 2);
     assert_eq!((spans[0].start_col, spans[0].len), (2, 8));
     assert_eq!((spans[1].start_col, spans[1].len), (10, 5));
@@ -485,7 +485,7 @@ fn run_left_open_across_alt_screen_switch_is_abandoned() {
 #[test]
 fn visible_spans_are_empty_when_the_gate_is_off() {
     // Gate off (default): even a well-formed definition stream leaves the
-    // render accessor empty and does no row walk — the zero-work guarantee the
+    // render accessor empty and does no row walk - the zero-work guarantee the
     // byte-identical off path depends on.
     let mut term = Terminal::new(20, 5);
     feed_osc(&mut term, "1337;Button=type=custom;code=42;icon=star");
@@ -620,7 +620,7 @@ fn visible_spans_project_a_button_scrolled_into_scrollback() {
 }
 
 // ---------------------------------------------------------------------------
-// B3: pointer hit-test (button_at) — the click arm's resolution query
+// B3: pointer hit-test (button_at) - the click arm's resolution query
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -705,7 +705,7 @@ fn button_at_resolves_through_scrollback_offsets() {
 #[test]
 fn button_at_dies_when_the_master_gate_turns_off() {
     // The partial-gate hole class: definitions landed while the gate was on
-    // must not stay CLICKABLE after the gate turns off — the pointer-side
+    // must not stay CLICKABLE after the gate turns off - the pointer-side
     // query gates independently of the OSC arm.
     let mut term = enabled_terminal(20, 5);
     feed_osc(&mut term, T2_DEFINE);
@@ -727,7 +727,7 @@ fn button_at_dies_when_the_master_gate_turns_off() {
 #[test]
 fn button_at_reports_invalidated_state_for_dead_spans() {
     // A block-scoped button whose block ended keeps its span (renders dimmed)
-    // but the hit reports Invalidated — the pointer arm treats it as inert.
+    // but the hit reports Invalidated - the pointer arm treats it as inert.
     let mut term = enabled_terminal(20, 5);
     feed_osc(&mut term, T2_DEFINE);
     feed(&mut term, b"ok");
@@ -888,7 +888,7 @@ fn decera_over_the_label_releases_the_span_and_elsewhere_keeps_it() {
 #[test]
 fn decsera_releases_the_span_even_when_protected_cells_survive() {
     // The label is printed under DECSCA protection, so DECSERA erases none of
-    // its cells — but the span is still released: any overlap with an erase
+    // its cells - but the span is still released: any overlap with an erase
     // rectangle releases, because a partially or nominally surviving label no
     // longer tracks what the erase meant to clear.
     let mut term = enabled_terminal(20, 5);
@@ -924,7 +924,7 @@ fn deccra_destination_overwrite_releases_the_covered_span() {
 fn deccra_copies_cells_but_never_button_spans() {
     let mut term = labeled_terminal(20);
     // Copy the label row onto row 3: the copied cells show the label text but
-    // the button is deliberately NOT duplicated — a clickable region only
+    // the button is deliberately NOT duplicated - a clickable region only
     // exists where the program's button sequence placed it.
     feed(&mut term, b"\x1b[1;1;1;10;1;3;1;1$v");
     assert_eq!(row0_spans(&term), vec![(2, 5)], "source span intact");
@@ -962,7 +962,7 @@ fn point_anchor_shifts_with_ich_and_dch_and_survives_overwrites() {
 fn el2_full_line_erase_frees_the_lines_button_refs() {
     // EL2 replaces the row wholesale (unlike EL0/EL1, which blank cells in
     // place), so the replaced row's span references must be released exactly
-    // like the ED paths that replace rows — otherwise the table entry leaks
+    // like the ED paths that replace rows - otherwise the table entry leaks
     // and its id never frees.
     let mut term = enabled_terminal(20, 3);
     feed_osc(&mut term, T2_DEFINE);

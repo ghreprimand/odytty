@@ -135,7 +135,7 @@ fn osc4_query_reports_seeded_theme_palette() {
 fn osc_colors_accept_sharp_hex_forms() {
     // C17+C30: XParseColor `#` forms for OSC 4/10/11/12. `#`-form components
     // are LEFT-aligned into 16 bits (XParseColor), so `#F00` is 0xF000 →
-    // 8-bit 0xF0, NOT full red — that scaling difference from `rgb:` is the
+    // 8-bit 0xF0, NOT full red - that scaling difference from `rgb:` is the
     // spec, not a bug.
     let mut terminal = Terminal::new(10, 2);
     terminal.advance(b"\x1b]10;#ff0080\x1b\\"); // #RRGGBB

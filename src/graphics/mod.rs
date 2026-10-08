@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Terminal graphics protocols (Stage 6 ladder, see `graphics-protocol-spike.md`).
+//! Terminal graphics protocols.
 //!
-//! Module ownership is split across parallel work:
+//! Module ownership:
 //! - `sixel`: standalone Sixel DCS payload decoder (pure bytes -> RGBA).
 //! - `store` / `placement`: shared image store and cell-anchored placement
 //!   scene consumed by both the Kitty graphics protocol and Sixel.
 //! - `frames`: animation frame storage, composition, and playback timing for
 //!   stored images (Kitty `a=f` / `a=a` / `a=c`).
 //!
-//! Nothing in this module touches the GPU; rendering integration is a later
-//! stage (G2.3).
+//! Nothing in this module touches the GPU; it holds CPU-side decode, storage,
+//! and placement state that the native image layer consumes.
 
 pub mod frames;
 pub mod placement;

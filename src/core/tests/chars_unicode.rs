@@ -4,7 +4,7 @@
 use super::*;
 
 // ICH (CSI Ps @) / DCH (CSI Ps P): row-local insert/delete of cells. Baseline
-// verified against xterm/Ghostty — cursor stays put, no wrap/scroll, shifted
+// verified against xterm/Ghostty - cursor stays put, no wrap/scroll, shifted
 // cells keep their attrs, fill blanks use the current background color and
 // otherwise default attributes.
 #[test]
@@ -105,7 +105,7 @@ fn delete_chars_cleans_up_orphaned_wide_continuation() {
     terminal.advance(b"\x1b[1P"); // DCH 1 -> remove the lead
 
     // DCH removes ONE cell (the wide lead). Its continuation spacer shifts
-    // into col 0 and is cleaned to a blank in place — so a single leading
+    // into col 0 and is cleaned to a blank in place - so a single leading
     // blank remains, then "ab". The orphaned continuation must NOT survive
     // as a dangling spacer. plain_text only trims trailing space, so the
     // leading blank is retained.
@@ -119,7 +119,7 @@ fn delete_chars_cleans_up_orphaned_wide_continuation() {
 }
 
 // ECH (CSI Ps X): row-local erase-in-place. Unlike DCH it does NOT shift the
-// line — it overwrites count cells with BCE blanks. Cursor stays put,
+// line - it overwrites count cells with BCE blanks. Cursor stays put,
 // pending_wrap clears, count clamps to the row tail.
 #[test]
 fn erase_chars_blanks_in_place_without_shifting() {

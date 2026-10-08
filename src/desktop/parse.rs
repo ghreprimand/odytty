@@ -2,14 +2,14 @@
 //! Hand-rolled parsers for the freedesktop text formats the "Open With…"
 //! enumeration needs (C3b): `.desktop` entries, `mimeapps.list`, and
 //! `mimeinfo.cache`. All three are the same INI-ish `key=value` grouped format,
-//! so one small group reader backs them — no new dependency, no `ini` crate.
+//! so one small group reader backs them - no new dependency, no `ini` crate.
 //!
 //! Pure and std-only: every function takes the file's text and returns parsed
 //! values, so the whole layer is testable on in-memory fixtures with zero real
 //! filesystem access.
 
 /// The fields of a `[Desktop Entry]` group the picker cares about. Localized
-/// keys (`Name[de]`) are ignored for v1 — the plain `Name` is enough.
+/// keys (`Name[de]`) are ignored for v1 - the plain `Name` is enough.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct DesktopEntry {
     pub(super) name: Option<String>,
@@ -23,7 +23,7 @@ pub(super) struct DesktopEntry {
 impl DesktopEntry {
     /// Whether this entry should be OFFERED in the picker (C3b filter rule):
     /// `Type=Application`, not `NoDisplay`, not `Hidden`, not `Terminal=true`
-    /// (TTY-owning apps misbehave when launched detached with null stdio — an
+    /// (TTY-owning apps misbehave when launched detached with null stdio - an
     /// explicit v1 exclusion), and a non-empty `Exec`. A failing entry is simply
     /// dropped from the list (never an error).
     pub(super) fn is_offerable(&self) -> bool {
@@ -62,7 +62,7 @@ pub(super) fn parse_desktop_entry(text: &str) -> DesktopEntry {
         let Some((key, value)) = split_key_value(line) else {
             continue;
         };
-        // Skip localized variants (`Name[de]`) — plain keys only for v1.
+        // Skip localized variants (`Name[de]`) - plain keys only for v1.
         if key.contains('[') {
             continue;
         }

@@ -202,9 +202,9 @@ pub(super) fn osc52_selection_bytes(selection: ClipboardSelection) -> &'static [
 }
 
 /// Parse an XParseColor-style color spec for OSC 4/10/11/12. Accepted forms
-/// (C17+C30): `rgb:R/G/B` (1–4 hex digits per component, independently
+/// are `rgb:R/G/B` (1–4 hex digits per component, independently
 /// scaled), `#RGB` / `#RRGGBB` / `#RRRGGGBBB` / `#RRRRGGGGBBBB` (equal-width
-/// components, LEFT-aligned into 16 bits per XParseColor — `#F00` is 0xF000,
+/// components, LEFT-aligned into 16 bits per XParseColor - `#F00` is 0xF000,
 /// not full red), and `rgbi:R/G/B` (floating intensities 0.0–1.0).
 pub(super) fn parse_xterm_rgb(raw: &[u8]) -> Option<RgbColor> {
     let raw = std::str::from_utf8(raw).ok()?;

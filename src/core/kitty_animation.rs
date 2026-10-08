@@ -65,8 +65,8 @@ fn frame_error(error: FrameError) -> KittyError {
 /// is refused earlier, where the command is first seen.
 ///
 /// Number resolution takes the *newest* image carrying the number. Numbers are
-/// deliberately not unique — a transmission carrying a number always creates a
-/// new image rather than replacing one — so "newest wins" is what lets a client
+/// deliberately not unique - a transmission carrying a number always creates a
+/// new image rather than replacing one - so "newest wins" is what lets a client
 /// address the image it just sent without waiting for the terminal to report
 /// the assigned id back to it.
 pub(super) fn resolve_image(

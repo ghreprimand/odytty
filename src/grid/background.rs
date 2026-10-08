@@ -8,10 +8,10 @@
 pub const MAX_BG_TREATMENT_DARKEN: f32 = 0.55;
 
 /// Which ID3/U5 background treatment is active. [`BackgroundTreatment::None`]
-/// (the default) is the identity — the treatment block is skipped entirely.
+/// (the default) is the identity - the treatment block is skipped entirely.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackgroundTreatment {
-    /// No treatment — background drawn exactly as resolved (default).
+    /// No treatment - background drawn exactly as resolved (default).
     #[default]
     None,
     /// Vertical gradient: the background darkens smoothly toward the bottom rows.
@@ -25,13 +25,13 @@ pub enum BackgroundTreatment {
 ///
 /// The treatment runs **before** the RV1 minimum-contrast floor, so the floor
 /// sees the treated per-cell background and re-lifts the foreground to keep
-/// contrast above the configured ratio — readability is preserved by
+/// contrast above the configured ratio - readability is preserved by
 /// construction, per cell. The [`Default`] is the identity (`kind = None`,
 /// `strength = 0.0`), for which [`Self::active`] is `false`, the apply block is
 /// skipped, and the rendered frame is byte-identical to the pre-feature
 /// renderer. Lives here (not in the native overlay registry) because
-/// [`build_cell_vertices_with_focus_dim_and_origin_into`] — a `crate::grid`
-/// function — must name it to apply the fields.
+/// [`build_cell_vertices_with_focus_dim_and_origin_into`] - a `crate::grid`
+/// function - must name it to apply the fields.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BackgroundTreatmentParams {
     /// The spatial treatment function.

@@ -24,7 +24,7 @@ fn solid_1x6_red() -> Vec<u8> {
     sixel_dcs("0;0", "#0;2;100;0;0~")
 }
 
-/// A 48×36 red block: 6 bands × 48 columns — larger image to demonstrate
+/// A 48×36 red block: 6 bands × 48 columns - larger image to demonstrate
 /// metric-sensitive extent differences.
 fn solid_48x36_red() -> Vec<u8> {
     sixel_dcs("0;0", "#0;2;100;0;0!48~-!48~-!48~-!48~-!48~-!48~")
@@ -382,7 +382,7 @@ fn sixel_dcs_decodes_and_places_an_image() {
 }
 
 // ---------------------------------------------------------------------------
-// SX3: Live cell metrics — extent differs with different metrics
+// SX3: Live cell metrics - extent differs with different metrics
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -457,7 +457,7 @@ fn set_cell_metrics_only_affects_new_placements() {
     let old = t.visible_graphics(0)[0].display_columns;
     assert_eq!(old, 6); // ceil(48/8)
 
-    // Change metrics — old placement unchanged
+    // Change metrics - old placement unchanged
     t.set_cell_metrics(10, 20);
     let still_old = t.visible_graphics(0)[0].display_columns;
     assert_eq!(still_old, old, "existing placement not recomputed");
@@ -492,7 +492,7 @@ fn cell_metrics_large_clamped_to_1024() {
 fn cell_metrics_survive_ris() {
     let mut t = Terminal::new(80, 24);
     t.set_cell_metrics(12, 24);
-    // RIS resets terminal state but cell metrics are host-side — they persist.
+    // RIS resets terminal state but cell metrics are host-side - they persist.
     t.advance(b"\x1bc");
     assert_eq!(t.cell_metrics().width_px, 12);
     assert_eq!(t.cell_metrics().height_px, 24);

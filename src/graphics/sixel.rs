@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Sixel DCS payload decoder — raw DCS `q` body bytes to RGBA image.
+//! Sixel DCS payload decoder - raw DCS `q` body bytes to RGBA image.
 //!
 //! ## Input contract
 //!
-//! `decode_sixel` expects the **raw DCS `q` body** — everything after the `q`
+//! `decode_sixel` expects the **raw DCS `q` body** - everything after the `q`
 //! final byte and before the String Terminator (ST). The DCS introducer
 //! (`ESC P` / `0x90`), the parameters P1/P2/P3 preceding `q`, and the ST are
 //! **not** part of this slice; the parser strips them. The P2 (background
@@ -16,12 +16,12 @@
 //!
 //! | Byte(s)       | Meaning |
 //! |---------------|---------|
-//! | `0x3F..=0x7E` | Sixel data character — 6 vertical pixels, value = byte − 0x3F |
+//! | `0x3F..=0x7E` | Sixel data character - 6 vertical pixels, value = byte − 0x3F |
 //! | `!`           | Repeat introducer: `!<count><sixel_byte>` |
 //! | `"`           | Raster attributes: `"Pan;Pad;Ph;Pv` |
 //! | `#`           | Color introducer: `#Pc` (select) or `#Pc;Pu;Px;Py;Pz` (define + select) |
-//! | `$`           | Graphics carriage return — rewind x to 0, stay on current band |
-//! | `-`           | Graphics new line — rewind x to 0, advance y by 6 pixels |
+//! | `$`           | Graphics carriage return - rewind x to 0, stay on current band |
+//! | `-`           | Graphics new line - rewind x to 0, advance y by 6 pixels |
 //!
 //! Unknown bytes outside `0x20..=0x7E` are silently skipped (robustness).
 //!
@@ -29,9 +29,10 @@
 //!
 //! Hard caps prevent hostile streams from exhausting memory:
 //! - Max image dimensions: 10 000 x 10 000 pixels.
-//! - Max total pixel budget: 16 777 216 (64 MiB RGBA), aligned to the image
-//!   store's decoded-byte cap so `finish` never allocates a canvas the store
-//!   would reject.
+//! - Max total pixel budget: 16 777 216 (64 MiB RGBA), matching the default
+//!   image store decoded-byte cap so `finish` does not allocate a canvas the
+//!   default store would reject (a store with other limits may reject smaller
+//!   images).
 //! - Total painted-column budget per DCS: 16 777 216 `paint_sixel` calls, so a
 //!   repeat-run flood cannot amplify decode work without bound.
 //! - An over-wide repeat run rejects the whole image with `TooLarge` (it is
@@ -78,7 +79,7 @@ pub struct SixelImage {
     pub rgba: Vec<u8>,
 }
 
-/// Errors from Sixel decoding. Never panics — all malformed input is reported
+/// Errors from Sixel decoding. Never panics - all malformed input is reported
 /// here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SixelError {
@@ -154,11 +155,11 @@ const VT340_PALETTE: [[u8; 3]; 16] = [
 // ---------------------------------------------------------------------------
 
 struct Decoder {
-    /// Pixel buffer (RGBA8). Grows lazily — starts empty, allocated on first
+    /// Pixel buffer (RGBA8). Grows lazily - starts empty, allocated on first
     /// painted sixel. Its physical layout is `cap_w` (row stride) × `cap_h`
     /// rows, both of which grow *geometrically* so that painting N columns
     /// costs amortized O(area) instead of O(N²). Raster-attribute declarations
-    /// no longer pre-allocate — they only record `declared_w/declared_h` and
+    /// no longer pre-allocate - they only record `declared_w/declared_h` and
     /// validate them against the caps (see `raster_attrs`).
     rgba: Vec<u8>,
     /// Physical buffer width = row stride in pixels (capacity, not the drawn
@@ -259,7 +260,7 @@ impl Decoder {
         // Geometric rounding must never push the *capacity* past the pixel
         // budget. If it would, fall back to the tight need (guaranteed in-budget
         // because `check_caps` passed). Near the cap ceiling we lose the
-        // geometric slack — bounded and rare.
+        // geometric slack - bounded and rare.
         if (new_cap_w as u64) * (new_cap_h as u64) > MAX_PIXELS {
             new_cap_w = need_w.max(self.cap_w.min(MAX_WIDTH));
             new_cap_h = need_h.max(self.cap_h.min(MAX_HEIGHT));
@@ -289,7 +290,7 @@ impl Decoder {
             return Ok(());
         }
         if new_cap_w > self.cap_w {
-            // Stride changed — re-layout existing rows into the wider buffer.
+            // Stride changed - re-layout existing rows into the wider buffer.
             // Geometric growth bounds this to O(log W) occurrences.
             let old_w = self.cap_w as usize;
             let old_h = self.cap_h as usize;
@@ -305,7 +306,7 @@ impl Decoder {
             self.cap_w = new_cap_w;
             self.cap_h = new_cap_h;
         } else if new_cap_h > self.cap_h {
-            // Stride unchanged — appending zero rows needs no row movement.
+            // Stride unchanged - appending zero rows needs no row movement.
             self.rgba
                 .resize((new_cap_w as usize) * (new_cap_h as usize) * 4, 0);
             self.cap_w = new_cap_w;
@@ -366,11 +367,12 @@ impl Decoder {
     /// Parse and apply raster attributes: `"Pan;Pad;Ph;Pv`.
     ///
     /// Only *records* the declared image dimensions and validates them against
-    /// the caps — it does **not** allocate. A header-only DCS stream
+    /// the caps - it does **not** allocate. A header-only DCS stream
     /// (`"…Ph;Pv` with no sixel data) therefore costs nothing; the buffer is
     /// allocated lazily as pixels are painted, and the declared size is honored
-    /// at `finish`. Over-cap declarations still fail fast with `TooLarge`,
-    /// matching the pre-lazy decoder, but without the eager canvas allocation.
+    /// at `finish`. A declared width or height above its axis cap is clamped
+    /// to the cap; a declaration whose pixel count exceeds the pixel budget
+    /// fails fast with `TooLarge`, without an eager canvas allocation.
     fn raster_attrs(&mut self, params: &[u32]) -> Result<(), SixelError> {
         if params.len() >= 4 {
             let w = params[2].min(MAX_WIDTH);
@@ -389,7 +391,7 @@ impl Decoder {
         if params.is_empty() {
             return;
         }
-        // C20: range-check the raw u32 BEFORE narrowing to u16 — a register
+        // C20: range-check the raw u32 BEFORE narrowing to u16 - a register
         // number like 65536 would otherwise truncate to 0 and silently hijack
         // register 0 (and any multiple of 65536 aliases a low register).
         if params[0] > u32::from(MAX_COLOR_REG) {
@@ -420,9 +422,9 @@ impl Decoder {
         }
         // Final dimensions: the declared raster size is authoritative when
         // present (it both pads and crops the drawn extent); otherwise the
-        // actually-drawn extent. Both are cap-safe — declared dims passed
+        // actually-drawn extent. Both are cap-safe - declared dims passed
         // `check_caps` in `raster_attrs`, and the drawn extent passed
-        // `check_caps` on every painted column — so the single output
+        // `check_caps` on every painted column - so the single output
         // allocation below can never exceed the pixel budget.
         let final_w = if self.declared_w > 0 {
             self.declared_w
@@ -646,7 +648,7 @@ pub fn decode_sixel(payload: &[u8], background: SixelBackground) -> Result<Sixel
                 dec.y += 6;
                 i += 1;
             }
-            // Unknown / whitespace / control — skip.
+            // Unknown / whitespace / control - skip.
             _ => {
                 i += 1;
             }

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Color emoji discovery, swash proof-of-capability helpers, and atlas plumbing.
 //!
-//! The EM2 probe surface answers whether a host has a usable emoji face, which
+//! The probe surface answers whether a host has a usable emoji face, which
 //! color font formats the face exposes, and how swash shapes representative
-//! emoji sequences. EM3 added the OdyTTY-owned premultiplied RGBA atlas
-//! contract; EM4 turns bitmap strikes and COLR/CPAL v0 layers into live atlas
-//! runs.
+//! emoji sequences. The OdyTTY-owned premultiplied RGBA atlas contract holds
+//! the rasterized results: bitmap strikes, COLR/CPAL v0 layers, COLR v1 paint
+//! graphs, and SVG glyphs render into live atlas runs.
 
 mod color_atlas;
 mod colr1;

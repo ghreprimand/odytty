@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Transcript-driven coverage for DEC G0/G1 charset designation, SO/SI GL
-//! selection, and the Special Graphics translation — the state machine behind
+//! selection, and the Special Graphics translation - the state machine behind
 //! terminfo/ncurses ACS line drawing (`smacs`/`rmacs`, `enacs = ESC ( B
 //! ESC ) 0`). The full interaction matrix is pinned: designation + shift-in/
 //! shift-out text, mid-line GL switching, wrap across charset state, DECSC/
@@ -70,8 +70,9 @@ fn characters_outside_the_graphics_range_pass_through() {
 
 #[test]
 fn every_graphics_glyph_is_narrow_and_maps_inside_the_range() {
-    // Wide-cell non-interaction: all 32 mapped glyphs must advance exactly
-    // one cell, so ACS drawing never creates wide pairs or spacers.
+    // Wide-cell non-interaction: under the default width policy all 32 mapped
+    // glyphs advance exactly one cell, so ACS drawing never creates wide pairs
+    // or spacers. Ambiguous glyphs follow the selected width policy.
     let mut term = Terminal::new(40, 3);
     term.advance(b"\x1b(0_`abcdefghijklmnopqrstuvwxyz{|}~");
     let row = first_row(&term);
@@ -97,7 +98,7 @@ fn explicit_ascii_designation_disables_translation() {
 #[test]
 fn unknown_designators_fall_back_to_ascii_without_panicking() {
     // Parser totality: national replacement sets (A, K, ...) and arbitrary
-    // finals designate ASCII — never a panic, never a wedged graphics state.
+    // finals designate ASCII - never a panic, never a wedged graphics state.
     // (`%` is a VT intermediate byte, so `ESC ( 5` stands in for an unknown
     // final that actually dispatches.)
     let mut term = Terminal::new(20, 3);
@@ -136,7 +137,7 @@ fn graphics_state_survives_soft_wrap() {
 
 #[test]
 fn rep_replays_the_translated_glyph() {
-    // REP repeats the last printed graphic character — the stored value is
+    // REP repeats the last printed graphic character - the stored value is
     // the already-translated glyph, so the repeat draws line segments even
     // though the map would no longer apply after SI/redesignation.
     let mut term = Terminal::new(20, 3);
@@ -255,7 +256,7 @@ fn charset_state_round_trips_through_the_snapshot_envelope() {
 #[test]
 fn pre_charset_snapshots_decode_with_default_charset_state() {
     // A format v2 snapshot (no charset byte) must decode cleanly with the
-    // power-on charset state — the version-gated appended-field contract.
+    // power-on charset state - the version-gated appended-field contract.
     let mut term = Terminal::new(10, 2);
     term.advance(b"ok");
     let envelope = SnapshotEnvelope::from_terminal(&term, SnapshotCaptureLimits::default());

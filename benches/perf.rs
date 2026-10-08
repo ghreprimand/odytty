@@ -538,7 +538,7 @@ fn main() {
     }
     let font = load_font().ok();
     if font.is_none() {
-        println!("(no system font found: geometry benchmarks will be skipped)\n");
+        println!("(no font could be loaded: geometry benchmarks will be skipped)\n");
     }
     let geometry_only = std::env::var_os("ODYTTY_PERF_GEOMETRY_ONLY").is_some();
     let profile = if geometry_only {

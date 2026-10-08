@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Geometric box-drawing, block-element and Powerline rendering (RV2).
+//! Geometric box-drawing, block-element and Powerline rendering.
 //!
 //! This module computes 8-bit coverage bitmaps for the common line/block/
-//! separator codepoints **geometrically** — as rectangles, rails, arcs and
-//! triangles aligned to the exact cell grid — instead of relying on a font's
+//! separator codepoints **geometrically** - as rectangles, rails, arcs and
+//! triangles aligned to the exact cell grid - instead of relying on a font's
 //! own glyphs. Because the geometry is derived from the cell's pixel metrics,
 //! lines land on whole device pixels and adjacent cells meet with no sub-pixel
 //! gap at any (integer or fractional) DPI, which font glyphs cannot guarantee.
@@ -50,7 +50,7 @@ use diagonal_blocks::{PolygonGlyph, polygon_table, render_polygon_glyph};
 /// an atomic so the pure raster path stays lock-free (mirrors the stem-darken
 /// seam in [`crate::atlas`]). `1.0` (the default) is a true no-op: multiplying
 /// the DPI-derived light weight by `1.0` is exact in `f32`, so every stroke is
-/// byte-identical to the pre-feature raster. Presentation-only — the geometry
+/// byte-identical to the pre-feature raster. Presentation-only - the geometry
 /// is still grid-aligned, only the rule weight scales.
 static BOX_THICKNESS: AtomicU32 = AtomicU32::new(0x3f80_0000); // 1.0_f32.to_bits()
 
@@ -797,7 +797,7 @@ fn light_thickness_with(w: u32, h: u32, multiplier: f32) -> u32 {
     ((base * multiplier).round() as u32).max(1)
 }
 
-/// Heavy line thickness — about twice the light weight, always strictly thicker.
+/// Heavy line thickness - about twice the light weight, always strictly thicker.
 fn heavy_thickness(w: u32, h: u32) -> u32 {
     heavy_from_light(light_thickness(w, h))
 }
@@ -839,7 +839,7 @@ fn vband(weight: Weight, w: u32, h: u32) -> (i32, i32) {
 /// Render the light/heavy arm family. Each present arm is a rectangle from the
 /// cell edge through the center connector strip, so perpendicular arms overlap
 /// at the center (forming crosses/tees) and opposite arms of equal weight merge
-/// into one continuous, edge-to-edge line — which makes adjacent cells join with
+/// into one continuous, edge-to-edge line - which makes adjacent cells join with
 /// no gap.
 fn render_arms(c: &mut Canvas, arms: [Option<Weight>; 4]) {
     let (w, h) = (c.w, c.h);
@@ -976,36 +976,36 @@ fn render_double(c: &mut Canvas, arms: [Option<DoubleWeight>; 4]) {
         hrail(c, y2c, bl, br);
     }
     if ver_double {
-        let lt_top = if is_d(n) {
+        let left_top = if is_d(n) {
             0
         } else if is_d(wd) || is_d(e) {
             y1
         } else {
             hc
         };
-        let lt_bot = if is_d(s) {
+        let left_bottom = if is_d(s) {
             h as i32
         } else if is_d(wd) || is_d(e) {
             y2
         } else {
             hc
         };
-        vrail(c, x1c, lt_top, lt_bot);
-        let rt_top = if is_d(n) {
+        vrail(c, x1c, left_top, left_bottom);
+        let right_top = if is_d(n) {
             0
         } else if is_d(wd) || is_d(e) {
             y2
         } else {
             hc
         };
-        let rt_bot = if is_d(s) {
+        let right_bottom = if is_d(s) {
             h as i32
         } else if is_d(wd) || is_d(e) {
             y1
         } else {
             hc
         };
-        vrail(c, x2c, rt_top, rt_bot);
+        vrail(c, x2c, right_top, right_bottom);
     }
     if ver_single {
         let ya = if n.is_some() { 0 } else { y1 };

@@ -11,14 +11,14 @@
 //! stays tiny; `RUST_LOG=<level>` raises or lowers it.
 //!
 //! PRIVACY (hard release rule): nothing routed through this module may ever
-//! contain terminal content — no PTY bytes, no grid text, no window titles
+//! contain terminal content - no PTY bytes, no grid text, no window titles
 //! (titles can embed paths and commands). Callers log *state*, *counters*,
 //! and *OS error strings* only. See the seam tests here and in
 //! `native::watchdog` / `native::panic_log`.
 //!
 //! The file writer is deliberately lazy and infallible: the log directory is
 //! only created on the first actual write (so `odytty --version` never
-//! touches the state dir), and every I/O error is swallowed — logging must
+//! touches the state dir), and every I/O error is swallowed - logging must
 //! never take the terminal down.
 
 use std::fs::{self, File};
@@ -51,8 +51,8 @@ pub fn init() {
 }
 
 /// Resolve the default level from `RUST_LOG` when it is a bare level token
-/// (`error|warn|info|debug|trace`, any case); anything else — unset, empty,
-/// or a directive list this build cannot parse — falls back to WARN. The
+/// (`error|warn|info|debug|trace`, any case); anything else - unset, empty,
+/// or a directive list this build cannot parse - falls back to WARN. The
 /// fallback direction is deliberate: a typo must not silence errors.
 fn env_level() -> tracing::Level {
     let Ok(raw) = std::env::var("RUST_LOG") else {
@@ -110,10 +110,10 @@ fn macos_state_dir(home: Option<PathBuf>) -> Option<PathBuf> {
     home.map(|home| home.join("Library").join("Logs").join("odytty"))
 }
 
-/// Windows: `%LOCALAPPDATA%\odytty` — a persistent per-user location. Without
+/// Windows: `%LOCALAPPDATA%\odytty` - a persistent per-user location. Without
 /// this arm, `XDG_STATE_HOME`/`HOME` are typically unset on Windows, so the
 /// state dir fell through to `std::env::temp_dir()` (`%TEMP%`), which Windows
-/// periodically cleans — breaking the FREEZE-HARDEN "send me your odytty.log"
+/// periodically cleans - breaking the FREEZE-HARDEN "send me your odytty.log"
 /// support flow. Precedent for `LOCALAPPDATA`: `src/text/discovery.rs`
 /// (`std::env::var_os("LOCALAPPDATA")`). Kept split from the resolution so the mapping is unit-tested
 /// on the `windows-latest` CI leg without mutating process env.
@@ -168,7 +168,7 @@ fn shared_rotating_log() -> &'static Arc<Mutex<RotatingLog>> {
 
 /// Size-capped appender: lazily opens (and lazily creates the parent
 /// directory of) its path on first write; rotates `path` -> `path.1` when a
-/// write would exceed the cap. All errors are swallowed by the callers —
+/// write would exceed the cap. All errors are swallowed by the callers -
 /// logging is strictly best-effort.
 struct RotatingLog {
     path: PathBuf,
@@ -423,7 +423,7 @@ mod tests {
     #[test]
     fn windows_state_dir_uses_local_appdata_with_temp_fallback() {
         // NF13: on Windows the log dir is %LOCALAPPDATA%\odytty (persistent),
-        // not %TEMP% (which Windows cleans). Pure mapping test — no env
+        // not %TEMP% (which Windows cleans). Pure mapping test - no env
         // mutation; runs on the authoritative windows-latest CI leg.
         let local = PathBuf::from(r"C:\Users\example\AppData\Local");
         assert_eq!(

@@ -11,7 +11,7 @@
 //! and unit-tests on Linux with synthetic `/Applications/Foo.app` inputs (the
 //! v0.4.0 lesson: never let a macOS-only code path go unexercised). On Linux
 //! the only production caller is the `cfg(target_os = "macos")` FFI, so the
-//! function is dead outside its own tests there — hence the `dead_code` allow.
+//! function is dead outside its own tests there - hence the `dead_code` allow.
 
 use super::{DesktopApp, MAX_OPEN_WITH};
 use std::collections::HashSet;

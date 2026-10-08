@@ -406,7 +406,7 @@ fn sextant_masks_table_is_valid_and_distinct() {
     for &m in SEXTANT_MASKS {
         assert!(m != 0 && m <= 0x3F, "sextant mask {m:#x} out of range");
     }
-    // All distinct — the offset→mask mapping must be one-to-one.
+    // All distinct - the offset→mask mapping must be one-to-one.
     let mut sorted = SEXTANT_MASKS.to_vec();
     sorted.sort_unstable();
     sorted.dedup();

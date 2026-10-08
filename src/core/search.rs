@@ -8,7 +8,7 @@
 //! Matches use the same absolute-row convention as selection
 //! (`crate::selection`): row `0` is the oldest scrollback line and rows count
 //! downward through scrollback into the live screen. A [`SearchMatch`] carries
-//! an inclusive `start`/`end` [`AbsolutePoint`] — `end.column` is the last cell
+//! an inclusive `start`/`end` [`AbsolutePoint`] - `end.column` is the last cell
 //! the match covers, so a wide (two-column) glyph at column `c` reports
 //! `end.column == c + 1`.
 //!
@@ -86,7 +86,7 @@ impl SearchOptions {
 }
 
 /// One physical row of the combined buffer to search, borrowed in place. `cells`
-/// is the row's cells in column order; `wrapped` mirrors `Line::wrapped` — true
+/// is the row's cells in column order; `wrapped` mirrors `Line::wrapped` - true
 /// when the row soft-wraps into the next, joining them into one logical line.
 pub struct SearchRow<'a> {
     pub cells: &'a [Cell],
@@ -215,7 +215,8 @@ pub fn search_rows_scoped(
             }
         }
     }
-    // A trailing logical line whose last row was still marked wrapped.
+    // A trailing logical line whose last row was still marked wrapped; it is
+    // flushed here so its prefix inside the scope is still matched.
     if !units.is_empty() {
         flush_line(
             &units,

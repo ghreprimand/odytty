@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Revision, dirty-state, and upload-layout queries.
+//! Revision, dirty-state, upload-layout, and memory-attribution queries.
 
 use super::*;
 

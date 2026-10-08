@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Stage 4: Khmer and Myanmar classifier and stray-mark checks. The group's
+//! Khmer and Myanmar classifier and stray-mark checks. The group's
 //! reference and pixel checks run with every enabled group in the parent
 //! module's `GROUPS` table.
 

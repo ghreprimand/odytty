@@ -3,7 +3,7 @@
 //!
 //! The Add / Edit connection form's *Test Connection* action hands a built host
 //! here to be probed on a background thread so the UI never blocks. The probe
-//! runs the system `ssh` binary — argv-only, never through a shell — as a
+//! runs the system `ssh` binary - argv-only, never through a shell - as a
 //! non-interactive `BatchMode` one-shot that only reports reachability +
 //! key/agent auth (it has no password and must never store one). The tri-state
 //! result is sent back over a channel and a redraw is woken so the form renders
@@ -72,7 +72,7 @@ fn run_probe(command: SshCommand) -> Result<ProbeClass, String> {
         .map_err(|err| format!("could not run ssh: {err}"))?;
 
     // PLAUS-01: drain stderr concurrently so verbose `ssh -v` diagnostics can
-    // never fill the OS pipe and wedge the child until the kill deadline — which
+    // never fill the OS pipe and wedge the child until the kill deadline - which
     // would misclassify a reachable host as Unreachable. The reader runs on its
     // own thread into a bounded buffer; the thread creation is fallible (LOW-02),
     // and if it cannot start the probe classifies from the exit status alone

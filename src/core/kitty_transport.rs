@@ -76,9 +76,9 @@ use std::ffi::CString;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-/// Maximum file/shm read size, enforced before decode.
-/// Kept intentionally lower than the image store decoded cap since the
-/// file is base64 or raw payload *before* pixel expansion.
+/// Maximum file/shm read size, enforced before decode. This is an independent
+/// ceiling: a read is also bounded by the caller's budget, and the lower of the
+/// two applies.
 const MAX_TRANSPORT_READ_BYTES: usize = 96 * 1024 * 1024;
 
 /// Errors specific to file-based transports. These are converted to

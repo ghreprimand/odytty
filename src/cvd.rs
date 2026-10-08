@@ -5,7 +5,7 @@
 //! A viewer with a colour-vision deficiency loses one of the two perceptual
 //! opponent axes: protan/deutan viewers cannot resolve the red–green (`a`) axis,
 //! tritan viewers cannot resolve the blue–yellow (`b`) axis. Two theme colours
-//! that differ *only* on the lost axis collapse onto the same perceived colour —
+//! that differ *only* on the lost axis collapse onto the same perceived colour -
 //! red and green become indistinguishable, or blue and yellow do. This module
 //! *daltonises* a palette: it moves the information off the lost axis onto the
 //! retained axis (plus a small lightness nudge) so the colours separate again
@@ -15,14 +15,14 @@
 //!
 //! OKLab's `a`/`b` opponent coordinates line up directly with the two CVD
 //! confusion axes, so the deficient axis and the retained axis the correction
-//! redistributes onto are explicit coordinates — no LMS round-trip, no new
+//! redistributes onto are explicit coordinates - no LMS round-trip, no new
 //! dependency. The whole transform lives in the existing OKLCH machinery.
 //!
 //! ## Two opposite operations
 //!
-//! * [`cvd_adapt`] — *daltonise*: remap a colour so a CVD viewer can tell it
+//! * [`cvd_adapt`] - *daltonise*: remap a colour so a CVD viewer can tell it
 //!   apart from its confusion partner. The accessibility win; shown to the user.
-//! * [`cvd_simulate`] — *simulate*: collapse the lost axis to approximate what a
+//! * [`cvd_simulate`] - *simulate*: collapse the lost axis to approximate what a
 //!   CVD viewer perceives. Never shown to a CVD user; it exists so a non-CVD
 //!   author (and these tests) can verify that semantic pairs survive.
 //!
@@ -31,7 +31,7 @@
 //! Daltonising makes colours *distinguishable*; the RV1 contrast floor keeps
 //! them *readable*. They compose because the floor moves **only OKLab L** while
 //! the correction does its primary separating work on the retained **opponent
-//! axis** (the `a`/`b` plane) — orthogonal coordinates, so the floor's L-lift
+//! axis** (the `a`/`b` plane) - orthogonal coordinates, so the floor's L-lift
 //! cannot undo the separation. [`adapt_palette`] runs the correction across the
 //! chromatic roles, holds background/foreground structural, then re-floors
 //! against the same per-role surface mapping the theme generator/builder use, so
@@ -40,7 +40,7 @@
 //! ## Determinism
 //!
 //! Every entry point is a pure function with no globals and no RNG: identical
-//! inputs yield byte-identical output. The "off" state is not represented here —
+//! inputs yield byte-identical output. The "off" state is not represented here -
 //! that lives at the future render-wiring layer; the core is only ever called
 //! with a real deficiency type. `strength = 0` is an exact bit-for-bit
 //! passthrough.
@@ -54,9 +54,9 @@ use crate::theme::{Srgb, ThemeSpec};
 /// A colour-vision-deficiency type. Each names the impaired cone class and, with
 /// it, the OKLab opponent axis the viewer cannot resolve:
 ///
-/// * [`Protan`](CvdType::Protan) / [`Deutan`](CvdType::Deutan) — red/green cones;
+/// * [`Protan`](CvdType::Protan) / [`Deutan`](CvdType::Deutan) - red/green cones;
 ///   the red–green **`a`** axis is lost (red↔green confusion).
-/// * [`Tritan`](CvdType::Tritan) — blue cones; the blue–yellow **`b`** axis is
+/// * [`Tritan`](CvdType::Tritan) - blue cones; the blue–yellow **`b`** axis is
 ///   lost (blue↔yellow confusion).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CvdType {
@@ -92,18 +92,18 @@ impl CvdType {
 /// at full strength. The viewer cannot perceive that axis anyway, so removing it
 /// frees gamut budget for the retained axis. `1.0` = fully neutralise it.
 const ATTEN: f32 = 1.0;
-/// The retained-axis gain — the **primary** separating cue. The lost-axis
+/// The retained-axis gain - the **primary** separating cue. The lost-axis
 /// component is re-expressed as a proportional push along the retained opponent
 /// axis, where the CVD viewer *can* see it.
 const RETAINED_GAIN: f32 = 0.8;
-/// The lightness gain — the **secondary** cue. A small L offset proportional to
+/// The lightness gain - the **secondary** cue. A small L offset proportional to
 /// the lost component helps colours that are confusable *and* share a luminance
 /// (where the retained-axis push alone, after gamut clamping, may not separate
 /// them). Kept small so it costs the floor little and rarely fights an existing
 /// luminance difference.
 const L_GAIN: f32 = 0.15;
 
-/// The authoring contrast floor [`adapt_palette`] re-floors against — the same
+/// The authoring contrast floor [`adapt_palette`] re-floors against - the same
 /// WCAG-AA target the theme generator and builder use, so all the colour
 /// modules agree on what "readable" means. The accepted `adapt_palette`
 /// signature carries no floor parameter, so the standard floor is applied
@@ -159,7 +159,7 @@ pub fn cvd_adapt(color: Srgb, ty: CvdType, strength: f32) -> Srgb {
 /// axis to zero (projecting the colour onto the retained axis + lightness).
 ///
 /// This is the *opposite* of [`cvd_adapt`]: it does not help anyone see better,
-/// it models the loss. Its purpose is verification — a non-CVD author (or a
+/// it models the loss. Its purpose is verification - a non-CVD author (or a
 /// test) runs it over a palette to check whether two semantic colours collapse
 /// onto the same perceived point. Never present its output to a CVD user.
 ///
@@ -177,8 +177,8 @@ pub fn cvd_simulate(color: Srgb, ty: CvdType) -> Srgb {
 /// Daltonise a whole theme for a CVD viewer and re-floor it so it stays
 /// readable. The deterministic core of U4.
 ///
-/// Remaps the colours that carry semantic meaning — the 16 ANSI colours and the
-/// chromatic roles (cursor, selection, search) — and **holds the background and
+/// Remaps the colours that carry semantic meaning - the 16 ANSI colours and the
+/// chromatic roles (cursor, selection, search) - and **holds the background and
 /// foreground structural** (the canvas and the floor's stable reference; pure
 /// near-neutrals barely move under the remap anyway, but holding them is cleaner
 /// and testable). Window chrome (border / inactive / clear) is likewise left
@@ -201,7 +201,7 @@ pub fn adapt_palette(spec: &ThemeSpec, ty: CvdType, strength: f32) -> ThemeSpec 
     out
 }
 
-/// Re-floor the readable roles against their mapped surfaces — the legibility
+/// Re-floor the readable roles against their mapped surfaces - the legibility
 /// guarantee, mirroring the theme generator's pass verbatim so every colour
 /// module floors the same role against the same surface:
 ///
@@ -210,7 +210,7 @@ pub fn adapt_palette(spec: &ThemeSpec, ty: CvdType, strength: f32) -> ThemeSpec 
 /// * `selection` / `search` fills → against the **foreground** drawn over them.
 /// * `border`, `inactive`, `clear` → window chrome, left untouched.
 /// * The achromatic neutral pair on the background's own side is **exempt** from
-///   the vs-background floor (see [`bg_side_neutral_slots`]) — structural ramp
+///   the vs-background floor (see [`bg_side_neutral_slots`]) - structural ramp
 ///   neutrals that stay near the background rather than being lifted to the
 ///   legible floor.
 ///
@@ -298,7 +298,7 @@ mod tests {
 
     /// The OKLab ΔE bar above which two colours count as "distinguishable" under
     /// simulation. ≈5× the ~0.02 OKLab JND, so it is clearly suprathreshold.
-    /// Test-only and tunable (Director Q-5).
+    /// Test-only and tunable.
     const DELTA_E_BAR: f32 = 0.10;
 
     const ALL_TYPES: [CvdType; 3] = [CvdType::Protan, CvdType::Deutan, CvdType::Tritan];
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn pinned_semantic_pairs_clear_the_delta_e_bar_after_adapt() {
-        // Director Q-5: red(1/9) vs green(2/10) for protan+deutan; blue(4/12) vs
+        // Red(1/9) vs green(2/10) for protan+deutan; blue(4/12) vs
         // yellow(3/11) for tritan must separate by >= the bar, measured through
         // the matching simulation after the full palette adapt.
         let spec = fixture();
@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn adapt_separates_a_genuinely_confusable_pair() {
         // Two colours that collapse onto the SAME perceived point pre-adapt (same
-        // L and b, opposite a) must separate past the bar post-adapt — this is
+        // L and b, opposite a) must separate past the bar post-adapt - this is
         // the mechanism doing real work, not riding a pre-existing L gap.
         let red_ish = from_linear(oklch_to_linear_gamut(oklab_to_oklch(Oklab {
             l: 0.60,

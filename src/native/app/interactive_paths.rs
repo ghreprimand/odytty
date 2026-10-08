@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! INTERACTIVE-PATHS — the production stat-gate probe.
+//! INTERACTIVE-PATHS - the production stat-gate probe.
 //!
 //! The pure path engine (`crate::paths`) is std-only and deliberately never
 //! touches the filesystem; its single I/O seam is the [`ResolveProbe`] trait.
 //! This module supplies the one production implementation, [`FsResolveProbe`],
 //! which lives in `native/` precisely so `src/paths/` stays pure. The probe is
-//! a zero-field struct constructed at the hover site (Phase 7) — its only job is
+//! a zero-field struct constructed at the hover site (Phase 7) - its only job is
 //! to classify an absolute path as a file or directory, or report that it does
 //! not exist, via a single `symlink_metadata` call.
 //!
 //! `symlink_metadata` (not `metadata`) is used so a symlink is classified by the
-//! link itself rather than its target — no traversal, no following into a
+//! link itself rather than its target - no traversal, no following into a
 //! possibly-hostile target, and no surprise on a dangling link. The call only
 //! runs when `interactive_paths` is on AND a syntactic path span sits under the
 //! pointer, so the default (feature-off) path makes zero `stat` calls.
@@ -37,13 +37,13 @@ impl ResolveProbe for FsResolveProbe {
 }
 
 // ---------------------------------------------------------------------------
-// C3 — open-action dispatch (argv-only, never a shell string).
+// C3 - open-action dispatch (argv-only, never a shell string).
 //
 // These are PURE functions: they build the `argv` vector to open a resolved
 // path and return it. The single spawn point ([`spawn_detached`]) is the only
 // thing that actually launches a process, so every dispatch path can be
 // unit-tested by asserting the vector without ever executing it. No path,
-// line, or column is ever interpolated into a shell — a filename containing
+// line, or column is ever interpolated into a shell - a filename containing
 // `;`, `$()`, backticks, or spaces is inert because it is a single argv
 // element. See `docs/interactive-paths-design.md` §3 (dispatch table) and §4
 // (editor matrix).
@@ -61,24 +61,24 @@ pub(in crate::native) struct ImageOverlayState {
 
 /// The single argv-only spawn point. Routes BOTH the OSC 8 hyperlink open and
 /// every interactive-path open through one auditable place: a detached child
-/// with null stdio, launched from an explicit `argv` vector — never `sh -c`,
+/// with null stdio, launched from an explicit `argv` vector - never `sh -c`,
 /// never a shell string. The first element is the program; the rest are
 /// arguments.
 ///
 /// Returns `Ok(())` when the child was spawned, `Err(..)` when the spawn failed
-/// (most commonly a missing opener binary — `xdg-open`/`open` not installed or
+/// (most commonly a missing opener binary - `xdg-open`/`open` not installed or
 /// not on `PATH`, surfaced as `ErrorKind::NotFound`) or the argv was empty. P0-2:
 /// the caller uses this to surface a VISIBLE, non-blocking notice on failure
 /// instead of the old silent no-op that made a broken opener indistinguishable
 /// from "feature off". The success path must NOT fire any notice.
 ///
-/// An empty argv is reported as `ErrorKind::InvalidInput` (defensive — the
+/// An empty argv is reported as `ErrorKind::InvalidInput` (defensive - the
 /// dispatch functions never return one).
 ///
 /// REAPING (TEST-HANG fix): the spawned child is handed to a small detached
 /// reaper thread that blocks in `Child::wait` until the opener exits. Dropping
 /// the `Child` handle (the pre-fix behaviour) never waits, so on unix every
-/// opener spawn left a ZOMBIE process until the whole app exited — zombies
+/// opener spawn left a ZOMBIE process until the whole app exited - zombies
 /// accumulated one per open-click in a long-lived session, and the test suite's
 /// `true` spawn showed up as the "leftover `true` child" in a wedged
 /// `cargo test` process tree. The reaper thread is cheap (opens are rare,
@@ -113,7 +113,7 @@ pub(crate) fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
 }
 
 /// Build the argv vector that opens a [`Resolved`] path (design §3 dispatch
-/// table). Pure — returns the vector; the caller spawns it via
+/// table). Pure - returns the vector; the caller spawns it via
 /// [`spawn_detached`]. `os` selects the platform default opener
 /// ([`open_default_argv`]): Linux `xdg-open`, macOS `open`.
 ///
@@ -124,7 +124,7 @@ pub(crate) fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
 /// * File with a `:line[:col]` suffix → the editor matrix ([`editor_argv`]),
 ///   selecting the editor by precedence: the configured `editor_override`
 ///   (settings `interactive_paths_editor`), else `$EDITOR`/`$VISUAL`, else the
-///   platform default opener (position lost — the file still opens).
+///   platform default opener (position lost - the file still opens).
 pub(crate) fn path_open_argv(
     resolved: &Resolved,
     editor_override: &str,
@@ -179,11 +179,11 @@ pub(crate) fn file_uri(abs: &str, os: OpenerOs) -> String {
 /// (design §4 editor matrix). Pure; never spawns.
 ///
 /// `spec` is either:
-/// * an **argv template** containing any of `{file}` / `{line}` / `{col}` — it
+/// * an **argv template** containing any of `{file}` / `{line}` / `{col}` - it
 ///   is whitespace-split into tokens **first**, then each placeholder is
 ///   substituted inside each token, so a substituted path with spaces stays one
 ///   argv element; or
-/// * an **editor command** (program plus optional args, e.g. `"code --wait"`) —
+/// * an **editor command** (program plus optional args, e.g. `"code --wait"`) -
 ///   it is whitespace-tokenized (never shell-evaluated), the basename of token 0
 ///   is matched against the known-editor matrix, and any remaining tokens are
 ///   carried through as leading arguments before the matrix's position flag and
@@ -280,7 +280,7 @@ pub(crate) fn editor_argv(
     argv
 }
 
-/// Synthetic, in-memory stat-gate for native tests — the ONLY "filesystem" any
+/// Synthetic, in-memory stat-gate for native tests - the ONLY "filesystem" any
 /// native hover test touches. Mirrors the engine's internal `MapProbe` but is
 /// reachable from the `native` test modules so they can inject a fixed fs map
 /// instead of reaching the real filesystem.
@@ -315,7 +315,7 @@ impl ResolveProbe for MapProbe {
 mod dispatch_tests {
     //! Pure argv-construction tests for C3. Every case asserts the built
     //! `argv` vector; NONE spawns a process (the spawn lives behind
-    //! [`spawn_detached`], which is never invoked here). Synthetic paths only —
+    //! [`spawn_detached`], which is never invoked here). Synthetic paths only -
     //! no real filesystem, no real home paths.
     use super::*;
 
@@ -652,7 +652,7 @@ mod dispatch_tests {
 // TEST-HANG regression: `spawn_detached` must not leave zombie children. The
 // original code dropped the `Child` handle without ever waiting, so every
 // opener spawn (and every test exercising the spawn seam) left a zombie until
-// the whole process exited — the "leftover `true` child" seen in the wedged
+// the whole process exited - the "leftover `true` child" seen in the wedged
 // `cargo test` process tree. Linux-only: zombie detection reads /proc.
 #[cfg(all(test, target_os = "linux"))]
 mod spawn_reap_tests {
@@ -694,7 +694,7 @@ mod spawn_reap_tests {
         false
     }
 
-    /// A spawned opener child is REAPED after it exits — it must not linger as
+    /// A spawned opener child is REAPED after it exits - it must not linger as
     /// a zombie until process exit. `true` exits immediately, so within the
     /// deadline the child must disappear from our /proc children entirely.
     /// Fails before the reaper fix: the dropped `Child` is never waited on, so
@@ -705,12 +705,12 @@ mod spawn_reap_tests {
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
             if !have_child_named("true") {
-                return; // reaped — no running or zombie `true` child remains
+                return; // reaped: no running or zombie `true` child remains
             }
             std::thread::sleep(Duration::from_millis(25));
         }
         panic!(
-            "spawned `true` child was never reaped — still a child of this \
+            "spawned `true` child was never reaped: still a child of this \
              process (zombie) 10s after spawn_detached returned"
         );
     }

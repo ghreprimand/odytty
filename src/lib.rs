@@ -65,7 +65,7 @@ pub mod theme_author;
 ///
 /// This module is the single serialization point. It combines mutual exclusion
 /// with automatic restoration, so correctness no longer depends on every writer
-/// remembering to hand-restore a baseline on every exit path — including the
+/// remembering to hand-restore a baseline on every exit path - including the
 /// unwinding one.
 ///
 /// Which readers need this guard: any assertion whose value depends on one of
@@ -100,7 +100,7 @@ pub(crate) mod test_lock {
         /// Re-entrancy depth for the current thread. A test body may take the
         /// guard and then call a seam that takes it again; the inner
         /// acquisition must not deadlock on the non-reentrant mutex. Only the
-        /// *mutex* is re-entrant — every scope, nested or not, snapshots on
+        /// *mutex* is re-entrant - every scope, nested or not, snapshots on
         /// entry and restores on exit, so each scope is individually isolating.
         static RENDER_GLOBALS_DEPTH: Cell<usize> = const { Cell::new(0) };
     }
@@ -108,8 +108,8 @@ pub(crate) mod test_lock {
     /// The full set of process-global render knobs a test can perturb.
     ///
     /// Captured on every acquisition and written back verbatim on drop, so a
-    /// test that sets one of these — or that reaches a production seam which
-    /// republishes them — cannot leak the value into whatever test libtest
+    /// test that sets one of these - or that reaches a production seam which
+    /// republishes them - cannot leak the value into whatever test libtest
     /// schedules next. Nested acquisitions capture their own entry state while
     /// only the outermost acquisition holds the mutex.
     #[derive(Clone, Debug, PartialEq)]
@@ -240,14 +240,15 @@ pub(crate) mod test_lock {
     /// Serialize headless wgpu instance/adapter/device creation across parallel
     /// test threads. Concurrent device bring-up on the same adapter can deadlock
     /// inside the driver; holding this lock for the duration of each creation
-    /// block makes that concurrency impossible while leaving the created device
-    /// free to run in parallel afterward. The deadlock was originally assumed to
+    /// block serializes the creation sites that take it (it does not exclude
+    /// creators outside this lock) while leaving the created device free to
+    /// run in parallel afterward. The deadlock was originally assumed to
     /// be specific to the software Vulkan ICD, but a thread dump taken at a
     /// reproduced hang showed every open descriptor pointing at the accelerated
     /// device nodes and the blocked threads inside the vendor driver's own
-    /// worker pool, with no software-ICD descriptor present — so the hazard is
-    /// concurrent `vkCreateDevice` generally, not one ICD. Acquire it strictly around the creation block and release
-    /// before taking any other test lock, so it never nests with
+    /// worker pool, with no software-ICD descriptor present - so the hazard is
+    /// concurrent `vkCreateDevice` generally, not one ICD. Acquire it strictly
+    /// around the creation block and release before taking any other test lock, so it never nests with
     /// `render_globals_lock` and cannot form a cycle. Poison is recovered with
     /// `into_inner` so a panicking test does not wedge later device creation.
     pub(crate) fn device_creation_lock() -> MutexGuard<'static, ()> {

@@ -264,7 +264,7 @@ where
         .collect()
 }
 
-/// Parse the group's references with the agreed loader rules: eight
+/// Parse the group's references with these loader rules: eight
 /// tab-separated columns, equal array lengths, and a font from the group.
 fn rows() -> Vec<Row> {
     group_rows(&GROUPS[0])

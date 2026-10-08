@@ -526,7 +526,7 @@ impl App {
 
     /// Whether a settings reload that touched `shell_integration` should raise
     /// the "applies to new shells" notice. True only on a genuine OFF->ON
-    /// transition while a live session exists — silent on startup (no
+    /// transition while a live session exists - silent on startup (no
     /// transition), an ON->ON reload, the ON->OFF reverse toggle, or an OFF->ON
     /// with no running shell to inform. Pure so the gating is exhaustively
     /// unit-tested without standing up an App.
@@ -581,7 +581,7 @@ impl App {
         // the usable height). Nothing else in this reload path touches the tab
         // bar's visibility, so this is the only trigger for that recompute.
         let tab_bar_was_shown = self.should_show_tab_bar();
-        // Capture the workspace-rail visibility and side too — a live
+        // Capture the workspace-rail visibility and side too - a live
         // `workspace_rail` / `tab_bar_placement` change flips the reserved band
         // (columns off a side) without changing the top bar, so it needs the
         // same grid recompute.
@@ -622,7 +622,7 @@ impl App {
             .set_shell_integration_enabled(self.settings.shell_integration);
         // Shell-integration hooks are injected only at spawn time, so enabling
         // the setting mid-session cannot retroactively integrate the shell that
-        // is already running — only new tabs/panes pick it up. Surface an honest
+        // is already running - only new tabs/panes pick it up. Surface an honest
         // transient notice on the genuine OFF->ON transition while a shell is
         // live, instead of silently appearing to do nothing.
         if Self::should_announce_shell_integration_to_new_shells(
@@ -631,7 +631,7 @@ impl App {
             !self.sessions.is_empty(),
         ) {
             self.raise_open_notice(
-                "Shell integration applies to new shells — open a new tab or split to activate."
+                "Shell integration applies to new shells: open a new tab or split to activate."
                     .to_owned(),
             );
         }
@@ -644,7 +644,7 @@ impl App {
             window.set_decorations(self.settings.window_decorations);
         }
         // OS-THEME: the active theme is the authored `settings.theme` unless an
-        // OS dark/light override is active, in which case it wins — so a config
+        // OS dark/light override is active, in which case it wins - so a config
         // reload (which may change the authored theme or the dark/light pair)
         // re-derives the correct active theme rather than clobbering a live OS
         // override back to the authored theme. With `follow_os_theme` off this
@@ -823,13 +823,13 @@ impl App {
     }
 
     /// SECONDARY-INSTANCE-NOTICE: a second concurrent window cannot own session
-    /// restore or autosave — a live primary holds the instance lock — and that
+    /// restore or autosave - a live primary holds the instance lock - and that
     /// suppression is otherwise silent, which reads as "restore didn't work"
     /// after relaunching over a still-running (or wedged) first window. When
     /// this instance is secondary and the user expects restore
     /// (`restore_workspaces` on), raise the one-line banner once at startup so
     /// the behavior is legible. Purely a notice: ownership is unchanged. A stale
-    /// lock cannot reach here — the advisory instance lock is released the
+    /// lock cannot reach here - the advisory instance lock is released the
     /// instant its owner exits or crashes, so a non-primary election always
     /// means a live peer still holds it (the same std lock API on every
     /// platform, so this is platform-agnostic). Keyed on the lock, not on shape
@@ -842,8 +842,8 @@ impl App {
         self.raise_open_notice(SECONDARY_INSTANCE_NOTICE.to_owned());
     }
 
-    /// Apply the current app-global presentation/model state — theme base
-    /// colors, palette, cursor defaults, OSC 52 read gate and scrollback cap — to
+    /// Apply the current app-global presentation/model state - theme base
+    /// colors, palette, cursor defaults, OSC 52 read gate and scrollback cap - to
     /// EVERY session's terminal. Live-created sessions receive this through
     /// [`Self::initialize_session_with`] right after spawn; sessions built by
     /// snapshot restore-on-launch or layout append never pass through that path,
@@ -854,7 +854,7 @@ impl App {
     /// in the default grey while a live workspace's drew in the theme palette, so
     /// the two diverged in one window even though every setting is app-global.
     /// All values here are app-global, so one arena sweep is consistent, and it
-    /// is idempotent — re-applying to an already-seeded session is a no-op.
+    /// is idempotent - re-applying to an already-seeded session is a no-op.
     pub(super) fn apply_model_state_to_all_sessions(&mut self) {
         // ID1: with themed UI roles on, the cursor default comes from the theme
         // `cursor` role; otherwise it stays the foreground (today's behavior). A
@@ -920,7 +920,7 @@ impl App {
     /// and `restore_workspaces` is on. Rebuilds the saved shape; on a stale
     /// directory it lands that pane at home with ONE compact notice, and on an
     /// unreadable / version-skewed snapshot it starts fresh with a notice.
-    /// Never produces a broken or empty window — worst case is the launch
+    /// Never produces a broken or empty window - worst case is the launch
     /// layout that was already on screen.
     pub(in crate::native) fn restore_workspaces_on_launch(&mut self) {
         use crate::native::persistence::{self, LoadOutcome};
@@ -981,7 +981,7 @@ impl App {
         // defaults / scrollback cap. Restore spawns terminals inside the session
         // arena without routing them through `initialize_session_with`, so
         // without this they would render menus, overlays and terminal content in
-        // the `DynamicColors::default()` palette instead of the theme's — a
+        // the `DynamicColors::default()` palette instead of the theme's - a
         // per-workspace presentation divergence in one window. Idempotent for the
         // launch session on the no-restore arms.
         self.apply_model_state_to_all_sessions();

@@ -12,12 +12,17 @@ For installation and a shorter overview, start with the
   - [Paste Safety](#paste-safety)
   - [Drop Local File Paths](#drop-local-file-paths)
 - [Text, Emoji, And Graphics](#text-emoji-and-graphics)
+  - [Render Text And Symbols](#render-text-and-symbols)
+  - [Ambiguous Character Width](#ambiguous-character-width)
   - [Ligatures, Shaping, And Bidirectional Text](#ligatures-shaping-and-bidirectional-text)
   - [How Text Is Drawn](#how-text-is-drawn)
+  - [Render Color Emoji](#render-color-emoji)
+  - [Display Inline Graphics](#display-inline-graphics)
 - [Tab And Pane Workflow](#tab-and-pane-workflow)
   - [Open, Close, And Switch Tabs](#open-close-and-switch-tabs)
   - [Adjust The Tab Bar](#adjust-the-tab-bar)
   - [Split A Tab Into Panes](#split-a-tab-into-panes)
+  - [Stacked And Floating Pane Layouts](#stacked-and-floating-pane-layouts)
   - [Make A Pane Read-Only](#make-a-pane-read-only)
   - [Secure Keyboard Input](#secure-keyboard-input)
   - [Broadcast Input](#broadcast-input)
@@ -32,7 +37,24 @@ For installation and a shorter overview, start with the
   - [Move Tabs And Panes Between Windows](#move-tabs-and-panes-between-windows)
   - [Control OdyTTY Locally](#control-odytty-locally)
 - [Shell Integration](#shell-integration)
+  - [Enable Prompt-Aware Actions](#enable-prompt-aware-actions)
+  - [Command-Output Actions](#command-output-actions)
+  - [Notifications And Pane Monitors](#notifications-and-pane-monitors)
+  - [Prompt Key Enhancement (bash/zsh)](#prompt-key-enhancement-bashzsh)
+  - [Search Actions, History, And Directories](#search-actions-history-and-directories)
+  - [Replay Recent Output](#replay-recent-output)
+  - [Connect To Saved Or Ad-Hoc Hosts](#connect-to-saved-or-ad-hoc-hosts)
+  - [Control Remote Sessions](#control-remote-sessions)
+  - [Paste Images Into Remote Sessions](#paste-images-into-remote-sessions)
+  - [Manage Detached Sessions](#manage-detached-sessions)
+  - [Open Interactive Paths](#open-interactive-paths)
+  - [Rebind Local Actions](#rebind-local-actions)
 - [Settings And Themes](#settings-and-themes)
+  - [Cursor Presentation](#cursor-presentation)
+  - [Electric Blue](#electric-blue)
+  - [Follow The Desktop Theme](#follow-the-desktop-theme)
+  - [Change Or Disable The Background Image](#change-or-disable-the-background-image)
+  - [Make The Window Transparent](#make-the-window-transparent)
 
 ## Configuring OdyTTY
 
@@ -154,7 +176,7 @@ close, duplicate, toggle, launch, copy, paste, select, export, or clear input
 act once per press. Active search and overlays retain their own repeat handling.
 
 xterm's modifyOtherKeys (`XTMODKEYS`, levels 1 and 2) is supported as a
-compatibility layer for applications that select it by `TERM` — Vim's default
+compatibility layer for applications that select it by `TERM` - Vim's default
 `keyprotocol` and emacs both do under `xterm-256color`, and tmux negotiates
 extended keys through it. Modified keys encode as
 `CSI 27 ; modifier ; codepoint ~`, the level is per-screen with the same
@@ -219,7 +241,7 @@ The choices have explicit behavior:
   not append Enter or split the confirmation into implicit commands.
 - **Paste as One Line** is offered only for multiline text without another
   disallowed control and when the reversible result is at most 32 MiB. It
-  displays CR/LF as visible `\\r`/`\\n` text and doubles existing backslashes;
+  displays CR/LF as visible `\r`/`\n` text and doubles existing backslashes;
   it does not silently discard or merge source bytes.
 - **Cancel** writes nothing. Focus loss, a destination-pane ownership change,
   pane exit, window close, preview setup failure, or a stale bracketed-paste
@@ -484,7 +506,7 @@ The support boundary is explicit:
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen and right-to-left paragraph levels are not reordered. Complex-script owners move as whole spans, keeping their cells adjacent and in order |
-| Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
+| Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners; Bengali ka, virama, ra shapes differently in `harfrust` 0.8.4 than in HarfBuzz 14.5.1, kept as an asserted known difference |
 | Khmer/Myanmar shaping | With `script_shaping` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
 | Thai/Lao/Tibetan shaping | With `script_shaping` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |
 | Sinhala shaping | With `script_shaping` on, Sinhala owners are shaped with the font (ZWJ conjunct requests, pre-base and split vowels) and fitted inside their one or two cells by the same rule | Shaping never crosses owners; ZWNJ breaks ownership; widths and logical copy stay unchanged |
@@ -661,7 +683,7 @@ platforms.
 | --- | --- |
 | Kitty graphics | Still-image actions `t`, `T`, `p`, `d`, and `q`, plus animation frame/control/composition actions `f`, `a`, and `c`; raw RGB, raw RGBA, and PNG data; direct and chunked-inline transports; opt-in file, temporary-file, and Unix POSIX shared-memory transports; image and placement ids; z-index; crop; cell scaling; pixel offsets; the `C=` cursor movement policy; and Unicode placeholders (`U=1` virtual placements resolved from U+10EEEE placeholder cells) |
 | Sixel | DEC/xterm data language, RGB/HLS color introducers, repeat, raster attributes, transparency, VT340 palette, and DECSDM |
-| iTerm2 inline images | `OSC 1337 ; File=` with `inline`, `size`, `width`, `height` (cell / `px` / `%` / `auto` units), and `preserveAspectRatio`; PNG, JPEG, and WebP containers; cursor advances below the image. Payloads are bounded by the 128 KiB OSC cap (~96 KiB of encoded file bytes) and an over-cap command is rejected whole. `inline=0` downloads are never honored — no escape sequence writes files. |
+| iTerm2 inline images | `OSC 1337 ; File=` with `inline`, `size`, `width`, `height` (cell / `px` / `%` / `auto` units), and `preserveAspectRatio`; PNG, JPEG, and WebP containers; cursor advances below the image. Payloads are bounded by the 128 KiB OSC cap (~96 KiB of encoded file bytes) and an over-cap command is rejected whole. `inline=0` downloads are never honored - no escape sequence writes files. |
 
 Erase in display keeps graphics and text history aligned: `ED 2` preserves
 placements wholly in scrollback, while `ED 3` also removes active history
@@ -673,8 +695,6 @@ an image id). Frames share the image store's byte budget, visible placements in
 every active split pane advance, and a session with no animated image schedules
 no extra work. Animated container formats (APNG, GIF) are still decoded as a
 single still frame - animation comes from the protocol's frame commands.
-
-<a id="native-app-workflow"></a>
 
 ## Tab And Pane Workflow
 
@@ -1158,7 +1178,7 @@ Windows retains its inherited-ACL behavior.
 
 A second window leaves restore ownership with the first and shows this notice:
 
-> Another OdyTTY window owns session restore — this window won't restore or
+> Another OdyTTY window owns session restore: this window won't restore or
 > autosave workspaces.
 
 The snapshot records structure only. It never saves terminal output,
@@ -1209,9 +1229,11 @@ A fresh window skips this prompt and replaces its placeholder only when it
 holds one untouched default workspace whose single tiled tab has one writable
 local shell, opened without a launch profile, that is idle at its prompt. A
 running program, a remote or attached session, a launch profile, a read-only
-pane, or a stacked or zoomed tab is real state and gets the prompt. On Windows
-the shell's foreground job cannot be read, so opening a layout always asks. When no layouts exist, the picker explains how to
-create one.
+pane, or a stacked, floating, or zoomed tab is real state and gets the prompt.
+On Windows the shell's foreground job cannot be read, so opening a layout always
+asks; choose **Replace** there to swap out the untouched default workspace,
+because **Add** keeps it beside the saved set. When no layouts exist, the picker
+explains how to create one.
 
 **Delete Layout: NAME** in the command palette deletes the layout listed under
 that name when the palette opened, never a layout that took its place in the
@@ -1548,6 +1570,39 @@ lists what each one delivers rather than implying a uniform capability:
 | `powershell` / `pwsh` | Windows only: prompt marks, cwd, click-to-position, button emitters; key bindings use the PSReadLine/Console API, not a VT protocol |
 | `nushell` | Configure natively: set `$env.config.shell_integration.osc133`/`osc7`/`osc2` and `use_kitty_protocol` in your nushell config; OdyTTY injects nothing |
 
+The command-status gutter is on by default. Each visible pane derives its own
+thin green or red bar from completed OSC 133 command marks, its own scrollback
+viewport, and its pane origin. Bash status capture spans existing
+`PROMPT_COMMAND` helpers, while PowerShell preserves native exit codes and maps
+a failed cmdlet with no nonzero `$LASTEXITCODE` to failure. Turning
+`command_status_gutter` off leaves the margin untouched without disabling the
+underlying prompt marks.
+
+For manual setup, SSH or login shells, or explicit rc management, print and
+source the integration:
+
+```sh
+eval "$(odytty shell-integration bash)"
+eval "$(odytty shell-integration zsh)"
+odytty shell-integration fish | source
+```
+
+Until prompt input marks are active, the content menu disables Cut and Delete
+for prompt input and shows an **Enable shell integration in Settings** hint.
+A plain `Delete` or `Backspace` with no selection still reaches the shell.
+
+With a selection but no known prompt boundary, OdyTTY does not send blind edit
+bytes. It clears the stale selection and shows the same hint instead of risking
+a corrupted command line.
+
+Integration applies only to shells OdyTTY launches. Nested shells, `sudo`, and
+`exec`-swaps are not covered; `fish` survives a plain nested launch through
+`XDG_DATA_DIRS`, and SSH tabs keep the bash bootstrap.
+
+All four injected shell snippets percent-encode OSC 7 working-directory paths,
+including non-ASCII names. The Bash encoder and prompt hooks are compatible
+with the Bash 3.2 that ships on older macOS systems.
+
 ### Command-Output Actions
 
 The command palette and terminal context menu expose these actions when the
@@ -1589,14 +1644,6 @@ monitors plus an explicit clear action. See
 [`notifications.md`](notifications.md) for exact sequences, caps, policy, and
 independent platform behavior.
 
-Integration applies only to shells OdyTTY launches. Nested shells, `sudo`, and
-`exec`-swaps are not covered; `fish` survives a plain nested launch through
-`XDG_DATA_DIRS`, and SSH tabs keep the bash bootstrap.
-
-All four injected shell snippets percent-encode OSC 7 working-directory paths,
-including non-ASCII names. The Bash encoder and prompt hooks are compatible
-with the Bash 3.2 that ships on older macOS systems.
-
 ### Prompt Key Enhancement (bash/zsh)
 
 Set `shell_key_enhancement = on` (with `shell_integration` on) to make modified
@@ -1619,7 +1666,7 @@ When the knob is on, the integration also ships default bindings so the keys do
 something out of the box: `Ctrl+Backspace` deletes the previous word,
 `Shift+Enter` inserts a literal newline for multi-line edits, and `Ctrl+Enter`
 submits the line. Each default is skipped when you have already bound the
-sequence — your `~/.bashrc`/`~/.inputrc` and `~/.zshrc` are read before the
+sequence - your `~/.bashrc`/`~/.inputrc` and `~/.zshrc` are read before the
 integration, so a personal rebind always wins. To override afterwards, rebind
 the sequence with `bind`/`bindkey` (for example
 `bind '"\e[127;5u": kill-whole-line'`).
@@ -1630,7 +1677,7 @@ needs this knob.
 
 **Off by default, and the reason is a correctness boundary rather than taste.**
 Kitty keyboard flag `0x1` is defined to re-encode every `Ctrl+key` as a CSI-u
-sequence — the protocol specification states that with disambiguation on,
+sequence - the protocol specification states that with disambiguation on,
 `Ctrl+C` no longer generates SIGINT and is delivered as an escape code instead.
 OdyTTY implements that faithfully, so for as long as the flag is set the terminal
 emits no `0x03`, the tty line discipline never sees an INTR byte, and no
@@ -1638,7 +1685,7 @@ interrupt is raised. `Ctrl+D` (`0x04`, EOF) and `Ctrl+Z` (`0x1a`, SIGTSTP) go th
 same way.
 
 That is survivable only for a line editor that speaks CSI-u, and neither
-readline nor ZLE does out of the box — unbound CSI-u arrives at the prompt as
+readline nor ZLE does out of the box - unbound CSI-u arrives at the prompt as
 literal text. Zsh can at least be taught to recover, because `send-break` is
 bindable:
 
@@ -1648,7 +1695,7 @@ bindkey '^[[99;5u' send-break     # Ctrl+C
 
 Readline has no equivalent: it exposes no function that raises SIGINT, so Bash
 has no route back to a working `Ctrl+C` while the flag is set. Turning this on is
-a deliberate trade — three enhanced binds in exchange for hand-binding every
+a deliberate trade - three enhanced binds in exchange for hand-binding every
 `Ctrl+key` your prompt still needs.
 
 Bash 4.4 and newer remove the prompt-only disambiguation flag through `PS0`
@@ -1657,31 +1704,6 @@ versions do not expand `PS0`, so the wrapper uses a prompt-guarded first-real-
 command DEBUG boundary instead. Both paths remove the flag before child
 programs run and preserve existing scalar or array-valued `PROMPT_COMMAND`
 hooks.
-
-The command-status gutter is on by default. Each visible pane derives its own
-thin green or red bar from completed OSC 133 command marks, its own scrollback
-viewport, and its pane origin. Bash status capture spans existing
-`PROMPT_COMMAND` helpers, while PowerShell preserves native exit codes and maps
-a failed cmdlet with no nonzero `$LASTEXITCODE` to failure. Turning
-`command_status_gutter` off leaves the margin untouched without disabling the
-underlying prompt marks.
-
-For manual setup, SSH or login shells, or explicit rc management, print and
-source the integration:
-
-```sh
-eval "$(odytty shell-integration bash)"
-eval "$(odytty shell-integration zsh)"
-odytty shell-integration fish | source
-```
-
-Until prompt input marks are active, the content menu disables Cut and Delete
-for prompt input and shows an **Enable shell integration in Settings** hint.
-A plain `Delete` or `Backspace` with no selection still reaches the shell.
-
-With a selection but no known prompt boundary, OdyTTY does not send blind edit
-bytes. It clears the stale selection and shows the same hint instead of risking
-a corrupted command line.
 
 ### Search Actions, History, And Directories
 
@@ -1942,7 +1964,7 @@ The `keybinds` setting and `ODYTTY_KEYBINDS` override local actions:
 
 | Scope | Actions |
 | --- | --- |
-| Global | `search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `select-command-output`, `select-command-with-prompt`, `copy-command-output`, `copy-command-with-prompt`, `search-command-output`, `jump-failed-command-prev`, `jump-failed-command-next`, `export-command-output`, `copy-mode`, `hints`, `clear-input`, `toggle-read-only`, `toggle-broadcast`, `stop-broadcast`, `command-palette`, `session-replay`, `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab` |
+| Global | `search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `select-command-output`, `select-command-with-prompt`, `copy-command-output`, `copy-command-with-prompt`, `search-command-output`, `jump-failed-command-prev`, `jump-failed-command-next`, `export-command-output`, `notify-command-finished`, `copy-mode`, `hints`, `clear-input`, `toggle-read-only`, `toggle-broadcast`, `stop-broadcast`, `command-palette`, `session-replay`, `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab` |
 | Workspace | `new-workspace`, `duplicate-workspace`, `close-workspace`, `rename-workspace`, `next-workspace`, `prev-workspace`, and `workspace-picker` |
 | Pane | `split-columns`, `split-rows`, `focus-pane-left`, `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`, `close-pane`, `zoom-pane`, and `equalize-panes` |
 
@@ -2081,8 +2103,8 @@ fully opaque.
 
 Two controls keep content readable as the window grows more transparent.
 `colored_bg_opacity` (default `0.9`) holds a minimum background strength for
-cells whose colour differs from the theme default, so colored blocks — prompt
-powerline segments, button chips, and highlighted status runs — stay solid
+cells whose colour differs from the theme default, so colored blocks - prompt
+powerline segments, button chips, and highlighted status runs - stay solid
 while the plain background still lets the desktop through; `1.0` removes the
 window-opacity attenuation from those cells so they keep their full configured
 background opacity (literally opaque only where the cell background already is),

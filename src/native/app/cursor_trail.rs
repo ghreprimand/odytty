@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! VE4 cursor motion trail — a short fading after-image that follows the cursor
+//! VE4 cursor motion trail - a short fading after-image that follows the cursor
 //! along its slide path while it glides between cells.
 //!
 //! The trail RIDES the existing cursor-slide animation (`cursor_motion`,
@@ -9,7 +9,7 @@
 //! its ghost positions purely from those two vectors and adds no state of its
 //! own. Because it piggybacks on the slide, it is visible only while
 //! `cursor_motion` is also on and a glide is in flight, and it adds **zero**
-//! animation wakes — the slide's own bounded wake schedule (`cursor_motion_deadline`)
+//! animation wakes - the slide's own bounded wake schedule (`cursor_motion_deadline`)
 //! drives every trail frame, and the trail vanishes the instant the slide
 //! settles (`cursor_slide_start` returns to `None`). This is the bounded-repaint
 //! contract: no perpetual wake is ever armed by the trail (T-TRAIL-2).
@@ -17,15 +17,15 @@
 //! Echo geometry (D-VE4T-3): the echo sits between the cursor's current
 //! animated position (offset `o = cursor_anim_offset`) and the slide origin
 //! (offset `f = cursor_slide_from_px`), at a fixed lag fraction back toward the
-//! origin — the cells the cursor just passed through. One-cell moves omit the
+//! origin - the cells the cursor just passed through. One-cell moves omit the
 //! echo so ordinary typing stays crisp; only short moves of two through six
 //! cells produce it. The echo intensity is a
 //! single half-sine bump over the *remaining* displacement fraction
 //! `remain = |o| / |f|`: `sin(remain · π)`, which is `0` at the slide start
 //! (`remain == 1`, the echo coincides with the cursor) and `0` at the slide end
 //! (`remain == 0`), peaking mid-glide. So the echo never piles opaque on the
-//! cursor cell at either endpoint, and the cursor block — drawn AFTER the
-//! overlay quads (ID1 reorder) — composites over them without any double-blend
+//! cursor cell at either endpoint, and the cursor block - drawn AFTER the
+//! overlay quads - composites over them without any double-blend
 //! of the cursor cell (T-TRAIL-3).
 //!
 //! The linked strength profile sets echo alpha and lag. Balanced preserves the
@@ -87,7 +87,7 @@ pub(super) fn cursor_trail_profile(strength: CursorTrailStrength) -> CursorTrail
 const MIN_TRAIL_CELLS: f32 = 2.0;
 
 /// Below this displacement magnitude (in pixels) the slide is treated as
-/// degenerate (no meaningful path) and the trail emits nothing — guards the
+/// degenerate (no meaningful path) and the trail emits nothing - guards the
 /// `|o| / |f|` ratio against division by a near-zero origin displacement.
 const MIN_TRAIL_PX: f32 = 0.5;
 
@@ -169,7 +169,7 @@ impl App {
     }
 
     /// Render-cache fragment. Constant `CursorTrail { phase: 0 }` while the trail
-    /// is enabled, `Inert` while off — mirroring the cursor-glow contributor: the
+    /// is enabled, `Inert` while off - mirroring the cursor-glow contributor: the
     /// off→on toggle flips `Inert` ↔ `CursorTrail`, forcing one rebuild so the
     /// trail appears/disappears without a stale cache, while the trail's
     /// per-frame motion already reclassifies through the cursor `anim` key (the

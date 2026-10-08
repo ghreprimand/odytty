@@ -7,7 +7,7 @@
 //! two back together. Every operation that removes, replaces, or displaces
 //! row N+1 while keeping row N breaks that promise. Before the fix the flag
 //! survived the shuffle, so the next width-changing resize would fuse
-//! UNRELATED rows into one logical line — visible content corruption.
+//! UNRELATED rows into one logical line - visible content corruption.
 //!
 //! Each test builds a soft-wrapped pair (a 15-char line on a 10-column grid:
 //! `aaaaaaaaaa` wrapped + `bbbbb`), lets one op shuffle the continuation away,
@@ -179,7 +179,7 @@ fn insert_chars_severs_soft_wrap_on_wrapped_row() {
 }
 
 /// NF7: ECH (CSI Ps X) whose clamped count reaches the right edge destroys
-/// the content flow into the continuation row, exactly like EL0 — the row's
+/// the content flow into the continuation row, exactly like EL0 - the row's
 /// own wrapped flag must clear.
 #[test]
 fn erase_chars_through_right_edge_severs_the_rows_own_soft_wrap() {
@@ -192,7 +192,7 @@ fn erase_chars_through_right_edge_severs_the_rows_own_soft_wrap() {
 }
 
 /// NF7 control: an ECH that stops short of the right edge is a purely
-/// interior blank — the soft-wrap join must survive so reflow still fuses
+/// interior blank - the soft-wrap join must survive so reflow still fuses
 /// the pair (with the interior blanks preserved).
 #[test]
 fn erase_chars_short_of_right_edge_keeps_soft_wrap() {
@@ -234,7 +234,7 @@ fn scrollback_tail_into_row0() -> Terminal {
 }
 
 /// NF10 seam (a): ED1 (CSI 1J) with the cursor below row 0 replaces row 0
-/// wholesale — the trailing open scrollback line must not keep claiming it.
+/// wholesale - the trailing open scrollback line must not keep claiming it.
 #[test]
 fn erase_display_above_cursor_severs_trailing_scrollback_wrap() {
     let mut terminal = scrollback_tail_into_row0();
@@ -269,7 +269,7 @@ fn erase_line_full_at_row_zero_severs_trailing_scrollback_wrap() {
 }
 
 /// NF10 seam (c): DL (CSI M) at row 0 deletes the scrollback tail's
-/// continuation — the tail must not claim the row that shuffles up.
+/// continuation - the tail must not claim the row that shuffles up.
 #[test]
 fn delete_lines_at_row_zero_severs_trailing_scrollback_wrap() {
     let mut terminal = scrollback_tail_into_row0();
@@ -318,7 +318,7 @@ fn scroll_region_up_at_row_zero_severs_trailing_scrollback_wrap() {
 }
 
 /// NF10 alt-screen control (mirrors the NF6 pin): the same row-0 ops issued
-/// on the ALT screen must NOT sever the primary scrollback tail — it still
+/// on the ALT screen must NOT sever the primary scrollback tail - it still
 /// validly continues into the SAVED primary row 0.
 #[test]
 fn row_zero_ops_on_alt_screen_keep_scrollback_wrap() {
@@ -334,7 +334,7 @@ fn row_zero_ops_on_alt_screen_keep_scrollback_wrap() {
 }
 
 /// NF6 control: ED2 issued on the ALT screen must NOT sever the primary
-/// scrollback tail — it still validly continues into the saved primary
+/// scrollback tail - it still validly continues into the saved primary
 /// row 0, and reflow after returning must rejoin the logical line.
 #[test]
 fn erase_display_on_alt_screen_keeps_scrollback_wrap() {

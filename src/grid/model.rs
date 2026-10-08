@@ -194,8 +194,8 @@ impl ColorGlyphRun {
 /// Per-cell color-run coverage mask.
 ///
 /// Every render-preparation consumer (atlas warm-up, ligature shaping, cell
-/// vertex build) needs the same predicate — "is this cell covered by a color
-/// glyph run?" — for every visible cell. Answering it by scanning the run
+/// vertex build) needs the same predicate - "is this cell covered by a color
+/// glyph run?" - for every visible cell. Answering it by scanning the run
 /// list per cell is O(cells x runs), which explodes on emoji-heavy screens
 /// where the run count grows with the cell count. This mask is built once per
 /// consumer pass in O(cells / 64 + runs) and answers each query in O(1),
@@ -263,7 +263,7 @@ impl ColorRunCoverage {
 /// vertex build. Freshly arrived rows ramp their text ink (glyphs, combining
 /// marks, ligature runs, underline/strikethrough decorations, color glyphs) in
 /// over the configured ease-out curve while cell BACKGROUNDS render exactly as
-/// normal from the first frame — the fade never darkens or veils anything.
+/// normal from the first frame - the fade never darkens or veils anything.
 ///
 /// `multipliers` is indexed by CONTENT row (the terminal viewport row);
 /// `row_offset` maps a decorated-snapshot row to it (chrome band rows above

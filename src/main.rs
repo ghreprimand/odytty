@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //
 // On Windows, OdyTTY is built as a GUI-subsystem binary (`windows_subsystem =
-// "windows"`) — the canonical posture for a windowed terminal (Windows
+// "windows"`) - the canonical posture for a windowed terminal (Windows
 // Terminal, Alacritty, WezTerm all do this). No console is allocated or
 // inherited at launch, which removes the console-vs-ConPTY interaction the
 // earlier `FreeConsole` workaround papered over and stops a console window
@@ -105,7 +105,7 @@ fn main() -> Result<()> {
 
     // Session subcommand PARSING is cross-platform (stable `--help`/usage), but
     // the detached-session EXECUTION path (host/attach over Unix sockets) is
-    // Unix-only — on Windows the parsed command is rejected with a clean message
+    // Unix-only - on Windows the parsed command is rejected with a clean message
     // rather than panicking or silently no-opping.
     if let Some(command) =
         cli::session_command_for_args(&args).map_err(|err| anyhow::anyhow!(err))?
@@ -113,8 +113,8 @@ fn main() -> Result<()> {
         #[cfg(unix)]
         {
             // Live `odytty attach <id>` opens a native window reattached to the
-            // hosted session (the operator-chosen v0.3.0 behavior). Every other
-            // session subcommand — including `attach --diagnostic` — stays
+            // hosted session (the v0.3.0 behavior). Every other
+            // session subcommand - including `attach --diagnostic` - stays
             // CLI-only.
             if let Some(session_id) = command.live_attach_id() {
                 let settings = Settings::from_env();
@@ -208,15 +208,15 @@ fn dump_command(command: &str) -> Result<()> {
 ///
 /// Under `windows_subsystem = "windows"` the process starts with no console, so
 /// any `println!` goes to a null handle and is silently dropped. When the
-/// command line carries an argument (every CLI/print path —
+/// command line carries an argument (every CLI/print path -
 /// `--version`/`--help`/`--dump-command`/`session-host`/the session verbs/
-/// `--core-smoke`/`--list-*`/`--show-config` — takes one), reattach to the
+/// `--core-smoke`/`--list-*`/`--show-config` - takes one), reattach to the
 /// parent process's console here, before `main` produces any output.
 ///
 /// `AttachConsole(ATTACH_PARENT_PROCESS)` succeeds when the launcher owns a
 /// console (a shell) and the subsequent prints land there; it fails when there
 /// is no parent console (an Explorer double-click), in which case the prints are
-/// harmlessly swallowed — an Explorer launch of `--version` has no reader anyway.
+/// harmlessly swallowed - an Explorer launch of `--version` has no reader anyway.
 /// The no-argument GUI launch is intentionally left detached, so a console never
 /// flashes when opening the terminal window. The result is ignored either way.
 #[cfg(windows)]

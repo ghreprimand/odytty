@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! FZ1: graphics-surface fuzzing — never-panic + bounded-memory guarantees over
+//! FZ1: graphics-surface fuzzing - never-panic + bounded-memory guarantees over
 //! the full Kitty/Sixel display surface that grew across G2.2→K3.
 //!
 //! The surface under test: APC `_G` key-value control parsing, base64 payloads,
@@ -8,7 +8,7 @@
 //! placement params (`c/r/z/X/Y/x/y/w/h`), deletes (`d=…`), queries, and the
 //! Sixel DCS decoder. This module feeds *adversarial* byte streams through the
 //! public `Terminal` boundary (and `decode_sixel` directly) and asserts a small
-//! set of durable invariants — never the exact pixels, which other suites own.
+//! set of durable invariants - never the exact pixels, which other suites own.
 //!
 //! ## Invariants asserted
 //!
@@ -68,8 +68,8 @@ use std::io::Write;
 /// (`ODYTTY_FUZZ_ITERS=40000 … --ignored`) does the heavy discovery sweep.
 const DEFAULT_GFX_FUZZ_ITERS: u64 = 200;
 
-/// Read the fuzz iteration budget from `ODYTTY_FUZZ_ITERS`, clamped to a floor
-/// of 1, defaulting to [`DEFAULT_GFX_FUZZ_ITERS`].
+/// Read the fuzz iteration budget from `ODYTTY_FUZZ_ITERS`. An absent,
+/// unparsable, or zero value selects [`DEFAULT_GFX_FUZZ_ITERS`].
 fn fuzz_iters() -> u64 {
     std::env::var("ODYTTY_FUZZ_ITERS")
         .ok()
@@ -87,8 +87,10 @@ fn fuzz_seed(i: u64, multiplier: u64, salt: u64) -> u64 {
 
 /// Print the resolved sweep budget for one fuzzer as a single greppable line,
 /// so a captured deep-run log is self-describing: how many iterations actually
-/// ran, whether that count came from `ODYTTY_FUZZ_ITERS` or the built-in
-/// default, and the exact seed range covered. Visible under `--nocapture`.
+/// ran, whether `ODYTTY_FUZZ_ITERS` was set (`source=env`, even when its
+/// value was invalid or zero and the built-in default applied) or not
+/// (`source=default`), and the exact seed range covered. Visible under
+/// `--nocapture`.
 fn announce_budget(fuzzer: &str, iters: u64, multiplier: u64, salt: u64) {
     let source = if std::env::var_os("ODYTTY_FUZZ_ITERS").is_some() {
         "env"
@@ -103,7 +105,7 @@ fn announce_budget(fuzzer: &str, iters: u64, multiplier: u64, salt: u64) {
     );
 }
 
-/// Tiny deterministic xorshift64 PRNG — no external dependency, reproducible
+/// Tiny deterministic xorshift64 PRNG - no external dependency, reproducible
 /// from a seed.
 struct FuzzRng(u64);
 
@@ -208,8 +210,8 @@ const KITTY_KEYS: &[&str] = &[
     "Q", "Z", "k", "b", "n",
 ];
 
-/// Action letters, including unsupported ones (`f`/`a` frame/animate) that must
-/// be cleanly rejected.
+/// Action letters: the supported ones (including `f`/`a` frame and animation
+/// control) plus unknown letters that must be cleanly rejected.
 const ACTIONS: &[&str] = &["t", "T", "p", "d", "q", "f", "a", "z", "?", ""];
 
 /// Transmission letters, including unsupported variants.
@@ -254,7 +256,7 @@ fn fuzz_base64_payload(rng: &mut FuzzRng) -> Vec<u8> {
         if rng.byte() < 220 {
             out.push(*rng.pick(B64));
         } else {
-            // Salt with arbitrary bytes — invalid base64 must be handled.
+            // Salt with arbitrary bytes - invalid base64 must be handled.
             out.push(rng.byte());
         }
     }
@@ -404,7 +406,7 @@ fn graphics_fuzz_apc_preserves_text_state_smoke() {
 }
 
 // ---------------------------------------------------------------------------
-// (2) Transport-path fuzzer — SAFE inputs only
+// (2) Transport-path fuzzer - SAFE inputs only
 // ---------------------------------------------------------------------------
 
 /// Build a base64 string from arbitrary bytes (transports carry a base64 path).
@@ -449,7 +451,7 @@ fn fuzz_unsafe_path(rng: &mut FuzzRng) -> Vec<u8> {
             p
         }
         4 => {
-            // Embedded NUL — must not reach a syscall as a valid C string.
+            // Embedded NUL - must not reach a syscall as a valid C string.
             let mut p = b"/tmp/odytty".to_vec();
             p.push(0);
             p.extend_from_slice(b"after-nul");
@@ -533,21 +535,18 @@ fn graphics_fuzz_transport_paths_enabled_smoke() {
 }
 
 // ---------------------------------------------------------------------------
-// (3) Sixel DCS fuzzer — random payloads against decode_sixel caps
+// (3) Sixel DCS fuzzer - random payloads against decode_sixel caps
 // ---------------------------------------------------------------------------
 
 /// Generate a raw sixel body (the slice after `q`, before ST) by composing
 /// **bounded** structural tokens.
 ///
-/// The bounds are deliberate. `decode_sixel` grows its canvas incrementally as
-/// pixels are painted, and a width increase re-lays-out the whole RGBA buffer
-/// (O(area) per growth), so an unbounded `!<huge>~` repeat or a near-`MAX_PIXELS`
-/// raster header makes a *single* iteration allocate and memcpy hundreds of MB —
-/// fine for the bounded-memory invariant (the caps hold) but far too slow to run
-/// 40k times. See `graphics_fuzz_sixel_canvas_cap_rejected` for the explicit
-/// over-cap rejection probe and the FZ1 findings note for the quadratic-growth
-/// observation. Keeping widths/repeats small here lets the deep tier explore the
-/// *parser/token* logic at high volume.
+/// The bounds are deliberate. Small widths and repeats keep routine allocation
+/// low, so the deep tier can explore the *parser/token* logic at high volume
+/// without every iteration allocating hundreds of MB for a huge `!<huge>~`
+/// repeat or a near-`MAX_PIXELS` raster header. The relaxed generator below
+/// covers larger canvases, and `graphics_fuzz_sixel_canvas_cap_rejected` is the
+/// explicit over-cap rejection probe.
 fn fuzz_sixel_body(rng: &mut FuzzRng) -> Vec<u8> {
     let ntokens = rng.below(40);
     let mut out = Vec::with_capacity(ntokens * 3);
@@ -604,7 +603,7 @@ fn graphics_fuzz_sixel_decode_deep() {
 }
 
 /// SX4 regression: a sixel body generator with **relaxed** (large) repeat counts
-/// and raster headers — the exact shapes that used to make `decode_sixel`
+/// and raster headers - the exact shapes that used to make `decode_sixel`
 /// re-layout O(N^2) on incremental width. After the lazy-canvas +
 /// geometric-growth fix these run fast, so the fuzzer can exercise them at
 /// volume. The FZ1 generator keeps its small bounds for the broad logic sweep;
@@ -612,7 +611,7 @@ fn graphics_fuzz_sixel_decode_deep() {
 ///
 /// Raster headers here keep one axis small on purpose. A header that declares a
 /// large canvas in *both* axes (e.g. 6000x6000) and then paints a pixel is not a
-/// pathology — it is a legitimately large image, and honoring it allocates the
+/// pathology - it is a legitimately large image, and honoring it allocates the
 /// declared size *once* at `finish` (the lazy path's correct behavior). Doing
 /// that 40k times would be slow by design, not a regression; the over-cap
 /// rejection and the header-only no-alloc paths are covered by
@@ -626,7 +625,7 @@ fn fuzz_sixel_body_relaxed(rng: &mut FuzzRng) -> Vec<u8> {
         match rng.below(8) {
             0..=2 => out.push(0x3F + (rng.byte() % 0x40)),
             // Large repeat: count up to ~12000 (clamped to MAX_WIDTH internally).
-            // This is the Finding-2 incremental-width cliff — now amortized.
+            // This is the Finding-2 incremental-width cliff - now amortized.
             3 | 4 => {
                 out.push(b'!');
                 out.extend_from_slice((rng.below(12_000)).to_string().as_bytes());
@@ -795,7 +794,7 @@ fn graphics_fuzz_sixel_through_terminal_smoke() {
 }
 
 // ---------------------------------------------------------------------------
-// (4) Mixed adversarial stream — graphics + text + control interleaved
+// (4) Mixed adversarial stream - graphics + text + control interleaved
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -871,7 +870,7 @@ const PLACEHOLDER_MARKS: &[char] = &[
 ];
 
 /// Emit placeholder text: a color that carries some image id, then a run of
-/// U+10EEEE cells with random diacritics — valid tiles, out-of-range tiles,
+/// U+10EEEE cells with random diacritics - valid tiles, out-of-range tiles,
 /// inheriting cells with no neighbour, and marks past the three the protocol
 /// defines.
 fn fuzz_placeholder_text(rng: &mut FuzzRng) -> Vec<u8> {
@@ -946,7 +945,7 @@ fn graphics_fuzz_unicode_placeholders_deep() {
 
 /// Drive the full placeholder pipeline: transmit an image, create virtual
 /// placements with adversarial extents, print placeholder soup, and resolve the
-/// viewport — interleaved with deletes, scrolls, and resizes so the prototype
+/// viewport - interleaved with deletes, scrolls, and resizes so the prototype
 /// store and the cell scan are exercised against each other.
 fn run_placeholder_stream(iters: u64) {
     announce_budget("placeholder_stream", iters, 0x8EBC_6AF0_9C88_C6E3, 0x5117);
@@ -1132,7 +1131,7 @@ fn raw_shm_payload_in_an_object_larger_than_the_cap_loads() {
 /// Directed extreme-parameter placement soup: huge / overflowing `c=` and `r=`
 /// display extents at every screen position, mixed with extreme source-crop
 /// and offset values. The clamps must keep every accepted placement bounded by
-/// the screen and the cursor on the grid — no wrap, no wedge, no panic.
+/// the screen and the cursor on the grid - no wrap, no wedge, no panic.
 #[test]
 fn graphics_fuzz_extreme_display_extents_stay_bounded() {
     let extremes = [
@@ -1483,7 +1482,7 @@ fn graphics_fuzz_kitty_oz_deep() {
 
 /// Compressed-payload soup: valid zlib, truncated streams, garbage bodies,
 /// unknown `o=` schemes, hostile-ratio zeros, repeated markers, and nested
-/// compression. Invariants match the rest of this module — never panic, store
+/// compression. Invariants match the rest of this module - never panic, store
 /// stays inside its caps, parser not wedged. Windows: `o=z` is transport-
 /// independent; `t=s` is not used here.
 fn run_kitty_oz_stream(iters: u64) {

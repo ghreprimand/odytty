@@ -2,17 +2,17 @@
 //! IME (input-method) composition. `winit` delivers four `Ime` events once IME
 //! is allowed (see `App::resumed`):
 //!
-//! - **Enabled / Disabled** — composition session bracket; we clear any stale
+//! - **Enabled / Disabled** - composition session bracket; we clear any stale
 //!   pre-edit on either edge so a cancelled composition leaves no ghost text.
-//! - **Preedit(text, cursor)** — the in-progress composition. Stored in
+//! - **Preedit(text, cursor)** - the in-progress composition. Stored in
 //!   [`App::ime_preedit`] and rendered inline at the terminal cursor with an
 //!   underline; never sent to the PTY.
-//! - **Commit(text)** — the finalized string. Written to the active PTY exactly
+//! - **Commit(text)** - the finalized string. Written to the active PTY exactly
 //!   like typed `Character` input, and the pre-edit is cleared.
 //!
 //! Off-path contract: with no composition in progress `ime_preedit` is empty,
 //! [`App::ime_overlay_signature`] is `Inert`, and
-//! [`App::paint_ime_preedit_cells`] writes nothing — the default render path is
+//! [`App::paint_ime_preedit_cells`] writes nothing - the default render path is
 //! unchanged.
 
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -114,7 +114,7 @@ impl App {
             return;
         }
         // Terminal owns the keyboard: committed text reaches the shell exactly
-        // like typed input — snap to the live tail, then write the UTF-8 bytes.
+        // like typed input - snap to the live tail, then write the UTF-8 bytes.
         self.write_ime_text_to_pty(text);
     }
 
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn ime_commit_routes_to_search_box_not_pty() {
         // C9: with the search box open, an IME commit must land in the search
-        // field — not leak to the shell behind it. Before the fix the finalized
+        // field - not leak to the shell behind it. Before the fix the finalized
         // text went straight to the PTY and the query stayed empty.
         let Some(mut app) = build_app() else {
             return;
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn ime_commit_routes_to_open_overlay_filter_not_pty() {
         // C9: with an overlay open (here the connection manager's type-to-filter
-        // list), an IME commit must drive the overlay's filter — not leak to the
+        // list), an IME commit must drive the overlay's filter - not leak to the
         // shell behind it. Committing "01" lands in the overlay's query box; its
         // "> 01" prompt line proves the commit reached the overlay. Before the
         // fix the finalized text went to the PTY and the query stayed empty.

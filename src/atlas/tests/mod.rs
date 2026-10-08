@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Glyph-atlas behavioral tests (M5 mechanical split from atlas.rs).
+//! Glyph-atlas behavioral tests.
 //! Shared helpers live here; tests are grouped by theme into sibling
 //! files (metrics, geometry, glyph_quad, scaling).
 
@@ -107,7 +107,7 @@ pub(super) fn wide_glyph_supported(font: &FontHandle) -> Option<char> {
 
 // ----- H3: fractional-scale UV/quad bookkeeping -----
 
-/// Inline replica of `gpu::physical_font_px` — the real function is
+/// Inline replica of `gpu::physical_font_px` - the real function is
 /// `pub(super)` inside `native::gpu` and not re-exported. The atlas tests
 /// need it purely for constructing the scale matrix; keeping it duplicated
 /// here avoids widening module visibility for test-only use.

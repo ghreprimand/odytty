@@ -5,11 +5,11 @@
 //! filesystem and **zero** real `xdg-mime` invocation.
 //!
 //! The feature has three pure pieces, all here or in the sibling modules:
-//! * [`exec::exec_to_argv`] — the security spine: a `.desktop` `Exec=` string →
+//! * [`exec::exec_to_argv`] - the security spine: a `.desktop` `Exec=` string →
 //!   an argv vector, never a shell command.
-//! * [`parse`] — hand parsers for `.desktop` / `mimeapps.list` /
+//! * [`parse`] - hand parsers for `.desktop` / `mimeapps.list` /
 //!   `mimeinfo.cache`.
-//! * [`enumerate_open_with`] — resolves the apps that can open a file, behind
+//! * [`enumerate_open_with`] - resolves the apps that can open a file, behind
 //!   two injectable seams ([`MimeProbe`] + [`DesktopEnv`]) so production wires
 //!   the real `xdg-mime` + `std::fs` and tests wire in-memory maps.
 //!
@@ -242,7 +242,7 @@ fn is_safe_desktop_id(id: &str) -> bool {
 ///
 /// C15: the freedesktop desktop-entry spec derives a file's id by replacing
 /// every path separator under `applications/` with `-`, so resolution must
-/// walk the ladder in reverse — `org-gnome-eog.desktop` may live at
+/// walk the ladder in reverse - `org-gnome-eog.desktop` may live at
 /// `org-gnome-eog.desktop`, `org/gnome-eog.desktop`, or `org/gnome/eog.desktop`.
 /// Candidates convert the first `k` dashes to slashes for `k = 0..=n`,
 /// shallowest first (the literal name wins a tie, matching the id-priority
@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn desktop_id_path_traversal_is_rejected() {
-        // F17: guard predicate — bare names (dashes ok) pass; anything that could
+        // F17: guard predicate - bare names (dashes ok) pass; anything that could
         // escape `applications/` is rejected.
         assert!(is_safe_desktop_id("firefox.desktop"));
         assert!(is_safe_desktop_id("org-gnome-eog.desktop"));
@@ -525,7 +525,7 @@ mod tests {
     }
 
     /// C15: a multi-dash id resolves through the FULL progressive dash→slash
-    /// ladder — `org-gnome-eog.desktop` at `applications/org/gnome/eog.desktop`.
+    /// ladder - `org-gnome-eog.desktop` at `applications/org/gnome/eog.desktop`.
     /// Pre-fix only the first dash split, so the two-level nesting never
     /// resolved.
     #[test]
@@ -617,7 +617,7 @@ mod tests {
         assert!(read_desktop_file(&env, &data_dirs, "..-outside.desktop").is_none());
     }
 
-    /// C15: the candidate ladder is literal first, then progressively deeper —
+    /// C15: the candidate ladder is literal first, then progressively deeper -
     /// so a literally-installed dash-named file wins over a nested twin.
     #[test]
     fn desktop_relpaths_ladder_is_progressive() {

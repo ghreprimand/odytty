@@ -3,10 +3,9 @@
 //! the SX1 Sixel decoder, and wires decoded images into the graphics scene
 //! as cell-anchored placements.
 //!
-//! Extracted from [`super::screen`] per the modularity directive (screen.rs was
-//! approaching the 2000-line threshold). The DCS state machine (hook/put/unhook)
-//! and sixel decode→place pipeline live here; screen.rs retains thin forwarding
-//! methods.
+//! Extracted from [`super::screen`]. The DCS state machine (hook/put/unhook)
+//! and sixel decode→place pipeline live here; `screen/mod.rs` retains thin
+//! forwarding methods.
 //!
 //! # Cursor-below-image policy
 //!
@@ -89,10 +88,9 @@ pub(super) fn dcs_put(capture: &mut DcsCapture, byte: u8) {
     }
 }
 
-/// Finalize a DCS capture: record the raw command in the graphics scene,
-/// then attempt sixel decode + placement. Returns `true` if the scene was
-/// mutated (caller should mark dirty). On success, returns the new cursor
-/// position `(row, col)` for the caller to apply.
+/// Finalize a DCS capture: validate the raw framing without recording the
+/// payload, then attempt sixel decode + placement. On success, returns the new
+/// cursor position `(row, col)` for the caller to apply; otherwise `None`.
 ///
 /// Cursor-below-image policy:
 /// - DECSDM off (default): cursor moves to the row below the image, column 0.
@@ -183,7 +181,7 @@ pub(super) fn dcs_unhook(
 }
 
 /// Handle an APC payload. Kitty graphics commands are decoded into the image
-/// scene; unknown APC payloads retain the historical raw-recording behavior.
+/// scene; unknown APC payloads are ignored.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apc_dispatch(
     graphics: &mut ImageScene,

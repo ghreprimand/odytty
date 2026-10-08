@@ -14,13 +14,13 @@ impl GlyphAtlas {
     /// keeping the inked region horizontally contiguous. One filler suffices
     /// for a wide (East Asian) pair; a longer contextual span burns as many as
     /// its overhang requires. Every consumed slot (filler + lead + reserved)
-    /// gets a dense placeholder `slot_ink`/`slot_span` entry — the caller
-    /// overwrites the lead's ink — so existing slots never move and UV rects
+    /// gets a dense placeholder `slot_ink`/`slot_span` entry - the caller
+    /// overwrites the lead's ink - so existing slots never move and UV rects
     /// handed out before a growth stay valid.
     pub(super) fn allocate_slots(&mut self, span: u32) -> Option<u32> {
         debug_assert!(span >= 1);
         // Defense-in-depth: a span wider than a full atlas row can never be
-        // made contiguous — it would wrap across rows and corrupt neighboring
+        // made contiguous - it would wrap across rows and corrupt neighboring
         // slots' pixels. Callers screen this earlier; refuse it here too.
         if span > self.cols {
             return None;

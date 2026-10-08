@@ -280,7 +280,7 @@ fn placeholders_scroll_with_the_text_carrying_them() {
     // viewport shows nothing...
     terminal.advance(b"\r\n");
     assert!(terminal.visible_graphics(0).is_empty());
-    // ...and paging back up brings it into view again at the bottom row.
+    // ...and paging back up brings it into view again at row zero.
     let scrolled_back = terminal.visible_graphics(1);
     assert_eq!(scrolled_back.len(), 1);
     assert_eq!(scrolled_back[0].row, 0);

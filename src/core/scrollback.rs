@@ -9,8 +9,8 @@
 //! every physical row into logical lines and re-wrapped all of it to the new
 //! width, even history the user never looks at (~46 ms at 50k lines).
 //!
-//! This module stores scrollback as **logical lines** — hard-terminated lines
-//! with their soft-wrap runs rejoined — and computes the physical view (what the
+//! This module stores scrollback as **logical lines** - hard-terminated lines
+//! with their soft-wrap runs rejoined - and computes the physical view (what the
 //! renderer, search, and `scrollback_len` need) by *projecting* each logical
 //! line back to physical rows at the current width.
 //!
@@ -19,12 +19,12 @@
 //! current width. Width changes rebuild it; output appends and front eviction
 //! update it incrementally.
 //! Rows themselves are produced on demand. Memoizing the rows instead meant
-//! retaining a full second physical copy of the store — measured at parity with
-//! the logical ring at depth, so a deep scrollback was paid for twice — while
+//! retaining a full second physical copy of the store - measured at parity with
+//! the logical ring at depth, so a deep scrollback was paid for twice - while
 //! every per-frame consumer reads only a viewport-sized tail of it.
 //!
-//! [`resize_lazy`] re-wraps only the bottom of the buffer — the trailing logical
-//! lines needed to fill the new visible window, plus the live grid — and leaves
+//! [`resize_lazy`] re-wraps only the bottom of the buffer - the trailing logical
+//! lines needed to fill the new visible window, plus the live grid - and leaves
 //! deep history untouched as logical lines, projected lazily the next time it is
 //! read (xterm-style "re-wrap on access"). Resizing while viewing the live tail
 //! therefore costs ~O(visible) instead of O(total scrollback).
@@ -43,7 +43,7 @@
 //!
 //! The physical view preserves the existing absolute-row convention: row 0 is
 //! the oldest physical scrollback row, counting down through scrollback into the
-//! live grid. Search and selection coordinates are unaffected — see
+//! live grid. Search and selection coordinates are unaffected - see
 //! [`super::search`]. No `Snapshot` / `TerminalModel` surface changes.
 //!
 //! # Single-threaded invariant
@@ -86,22 +86,22 @@ pub(in crate::core) fn spans_bytes(capacity: usize) -> u64 {
 
 /// One logical line: a hard-terminated line whose soft-wrap runs have been
 /// rejoined into a single flat cell vector. `open` is true when the line's last
-/// physical row was soft-wrapped — the logical line is not yet hard terminated
+/// physical row was soft-wrapped - the logical line is not yet hard terminated
 /// and continues into whatever follows (the next physical row that scrolls off,
 /// or the live grid). An open line is only ever the *last* line in the store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::core) struct LogicalLine {
     /// The line's cells in the ring's narrow representation. Combining marks
-    /// are not here — they are in `marks`, keyed by index into this vector.
+    /// are not here - they are in `marks`, keyed by index into this vector.
     cells: Vec<StoredCell>,
     /// Combining marks of this logical line's cells, in FLAT-cell coordinates
-    /// (the same space `cells` indexes) — the same carry `button_spans` uses,
+    /// (the same space `cells` indexes) - the same carry `button_spans` uses,
     /// for the same reason and with the same lifetime. Empty and unallocated
     /// for the overwhelmingly common mark-free line, and evicted with the line
     /// because it *is* part of the line.
     marks: MarkTable,
     open: bool,
-    /// OSC 133 prompt mark of this logical line (SH1), captured from the first
+    /// OSC 133 prompt mark of this logical line, captured from the first
     /// physical row that formed it. Re-stamped onto the first physical row when
     /// the line is projected back to a grid width (see [`project_line_into`]), so
     /// the mark survives scroll-out and re-wrap. `None` for an unmarked line.
@@ -122,7 +122,7 @@ pub(in crate::core) struct LogicalLine {
 /// band the reclaim would churn the allocator for a few dozen bytes.
 ///
 /// A grid-adopted line (the common hard-terminated case) arrives with capacity
-/// already equal to its length and is skipped entirely by this test — the
+/// already equal to its length and is skipped entirely by this test - the
 /// reclaim exists for the merge path, where amortized doubling leaves up to
 /// half a line's allocation unused.
 const FINALIZE_SLACK_TOLERANCE: usize = 64;
@@ -134,7 +134,7 @@ impl LogicalLine {
     /// Only ever called at the hard-terminate transition. That timing is the
     /// whole design: an open logical line is only ever the *last* line in the
     /// store and is the only line `push_row` extends, so shrinking at the
-    /// transition cannot reintroduce per-push reallocation — after it, the
+    /// transition cannot reintroduce per-push reallocation - after it, the
     /// line is never appended to again. Shrinking on every push instead would
     /// defeat the amortized growth the merge path depends on and make a
     /// soft-wrapped stream quadratic.
@@ -186,9 +186,9 @@ impl LogicalLine {
     }
 
     /// This line as projection inputs for a caller that only needs the row
-    /// count. Button spans cannot influence how many rows a line produces —
+    /// count. Button spans cannot influence how many rows a line produces -
     /// the reprojector only records positions during the walk and attaches
-    /// spans to rows after it — so they are dropped rather than walked.
+    /// spans to rows after it - so they are dropped rather than walked.
     fn counting_view(&self) -> LineView<'_> {
         LineView {
             spans: &[],
@@ -199,7 +199,7 @@ impl LogicalLine {
 
 /// Memoized *shape* of the physical projection at a single width.
 ///
-/// This used to memoize the projection itself — every physical row, with its
+/// This used to memoize the projection itself - every physical row, with its
 /// own copy of every cell. That is a full second copy of the store's content,
 /// and at depth it was measured at parity with the logical ring: a 100k-line
 /// store paid for its scrollback twice.
@@ -255,7 +255,7 @@ impl Projection {
     /// cost O(log lines) rather than O(lines). That matters because the
     /// pointer hit-test resolves a row on every mouse move, and a linear walk
     /// would have made deep scrollback progressively more expensive to hover
-    /// over — trading the bytes this change saves for a latency regression.
+    /// over - trading the bytes this change saves for a latency regression.
     fn locate(&self, row: usize) -> Option<(usize, usize)> {
         if row >= self.total_rows {
             return None;
@@ -317,8 +317,8 @@ struct LimitEnforcement {
 /// hard-terminated history measures 23.8 MB of ring. (This note has now been
 /// wrong twice, in the same way: it said 36 B/cell and ~28 MB after `Cell` grew
 /// to 44, then 44 B/cell and ~34.5 MB after the ring stopped storing `Cell`.
-/// Both times the model outlived the code. The figure above is a measurement —
-/// `stage_b_cell_shrink_projection`, hard 10,000 — not an arithmetic product,
+/// Both times the model outlived the code. The figure above is a measurement -
+/// `stage_b_cell_shrink_projection`, hard 10,000 - not an arithmetic product,
 /// which is why it does not equal 10,000 x 80 x 28.) Without a cap, a
 /// process that streams
 /// unbounded output (`yes`, `cat bigfile`, a runaway loop) would grow OdyTTY's
@@ -387,11 +387,11 @@ pub(in crate::core) struct ResizeOptions {
     pub collapse_prompt_start_row: Option<usize>,
     /// Whether the shell applied output since the last resize, so a repaint is
     /// expected to follow this one (the `preserve_cursor_physical_line`
-    /// override is only safe to honor when true — see `ReflowOptions`).
+    /// override is only safe to honor when true - see `ReflowOptions`).
     pub repaint_expected: bool,
     /// Whether the backend authoritatively repaints with absolute positioning
     /// on resize, so the terminal defers cursor placement to the shell (the
-    /// ConPTY backend — see `ReflowOptions::shell_owns_cursor_on_resize`).
+    /// ConPTY backend - see `ReflowOptions::shell_owns_cursor_on_resize`).
     pub shell_owns_cursor_on_resize: bool,
 }
 
@@ -520,8 +520,8 @@ impl Scrollback {
     /// byte-identical to what eager reflow would store as scrollback.
     ///
     /// Materializes the entire store and does not retain it. Reserved for the
-    /// two consumers that genuinely need every row — full-buffer search and the
-    /// prompt-mark enumeration's fallback — both of which are user-initiated,
+    /// two consumers that genuinely need every row - full-buffer search and the
+    /// prompt-mark enumeration's fallback - both of which are user-initiated,
     /// not per-frame. Anything that needs a viewport uses
     /// [`Scrollback::physical_tail`]; anything that needs one row uses
     /// [`Scrollback::physical_row`]; anything that needs only the count uses
@@ -862,7 +862,7 @@ impl Scrollback {
         // Bound the pathological no-terminator case: a never-closed logical
         // line accreting cells forever. By this store's invariant an open line
         // is only ever the LAST line (see `LogicalLine::open`), so the ceiling
-        // must inspect `lines.last_mut()` — checking `lines[0]` bounds only the
+        // must inspect `lines.last_mut()` - checking `lines[0]` bounds only the
         // single-line store and lets a runaway stream after any closed history
         // line grow without bound. Drop oldest cells from the line's front.
         //
@@ -870,8 +870,8 @@ impl Scrollback {
         // (`> MAX_LOGICAL_LINE_CELLS`), but when it does, drain all the way down
         // to the low-water mark (`MAX_LOGICAL_LINE_CELLS - SLACK`) rather than
         // exactly to the ceiling. A naive "drain to exactly MAX after every
-        // push" is O(n) per push once saturated — `Vec::drain(0..W)` shifts the
-        // whole ~MAX-element buffer left each call — making a long never-newline
+        // push" is O(n) per push once saturated - `Vec::drain(0..W)` shifts the
+        // whole ~MAX-element buffer left each call - making a long never-newline
         // stream O(n²) (a real live-terminal jank on binary spew / `yes` / a
         // stuck redraw, not just a slow test). With a slack band the front-drain
         // fires only once per ~SLACK/row-width pushes, amortizing to O(1) per
@@ -970,7 +970,7 @@ impl Scrollback {
 
     /// NF6 (C16 seam, scrollback side): hard-terminate the trailing open
     /// logical line. An open tail promises that visible row 0 is its physical
-    /// continuation — the projection marks the tail's last physical row
+    /// continuation - the projection marks the tail's last physical row
     /// `wrapped`, and reflow (`Screen::resize`) fuses it with row 0. An
     /// operation that replaces the visible screen wholesale (ED2) breaks that
     /// promise; the tail must close or the next resize fuses scrolled-off
@@ -988,7 +988,7 @@ impl Scrollback {
         }
     }
 
-    /// Whether any stored logical line carries an OSC 133 prompt mark (SH1).
+    /// Whether any stored logical line carries an OSC 133 prompt mark.
     /// Cheap O(lines) scan over the logical store (no projection), used to keep
     /// the prompt-marks change flag honest on clear/resize.
     pub(in crate::core) fn any_prompt_mark(&self) -> bool {
@@ -996,7 +996,7 @@ impl Scrollback {
     }
 
     /// Monotonic count of physical rows ever pushed into this store (no
-    /// projection cost — see the field doc).
+    /// projection cost - see the field doc).
     pub(in crate::core) fn pushed_row_count(&self) -> u64 {
         self.pushed_rows
     }
@@ -1015,7 +1015,7 @@ impl Scrollback {
     }
 
     /// Append every button id referenced by stored logical lines to `out` (one
-    /// entry per span — the refcount unit). Used by the post-resize refcount
+    /// entry per span - the refcount unit). Used by the post-resize refcount
     /// rebuild; O(lines) with an empty-vec check per line.
     pub(in crate::core) fn collect_button_ids(&self, out: &mut Vec<ButtonId>) {
         for line in &self.lines {
@@ -1040,7 +1040,7 @@ impl Scrollback {
     }
 
     /// Test window: the ring's byte total decomposed by what the bytes are
-    /// *made of*, rather than by which allocation holds them —
+    /// *made of*, rather than by which allocation holds them -
     /// `(ring slots, cell capacity in cells, button-span capacity in spans)`.
     ///
     /// [`Self::stored_bytes`] reports the ring as one figure because that is
@@ -1062,11 +1062,11 @@ impl Scrollback {
     /// the ring is the content, the projection is the cached description of how
     /// that content wraps at the current width, and they are reclaimed by
     /// different means. A single total cannot say which one a change moved,
-    /// which makes any before/after comparison unattributable — and the
+    /// which makes any before/after comparison unattributable - and the
     /// projection field is exactly where that mattered, because it once held a
     /// full second copy of the ring and now holds one `usize` per line.
     ///
-    /// `ring_slack` is the reserved-but-unused part of `ring` — capacity minus
+    /// `ring_slack` is the reserved-but-unused part of `ring` - capacity minus
     /// length, across the ring's own slots and each line's allocations. It is a
     /// **breakdown of `ring`, not an addition to it**, so that reclaimable
     /// waste is visible as a figure rather than inferred from a model.
@@ -1122,7 +1122,7 @@ impl Scrollback {
     /// Each logical line is projected into one reused scratch buffer purely to
     /// count the rows it produces, and the rows are dropped. The row count is
     /// therefore produced by the same code that produces the rows, so the
-    /// cached shape cannot disagree with the projection it describes — a
+    /// cached shape cannot disagree with the projection it describes - a
     /// separate arithmetic row-count model would be a second implementation of
     /// the wrapping rule and would drift from it.
     ///
@@ -1163,8 +1163,8 @@ impl Scrollback {
 /// only the bottom of the buffer and leaving deep history as logical lines for
 /// lazy projection. Returns the cursor's new visible-grid position.
 ///
-/// Reuses the eager reflow primitives on a bounded subset — the trailing logical
-/// lines needed to fill the new window plus the live grid — so the visible
+/// Reuses the eager reflow primitives on a bounded subset - the trailing logical
+/// lines needed to fill the new window plus the live grid - so the visible
 /// result, cursor, and the overflow returned to scrollback match the eager path
 /// exactly (proven by the differential parity suite). `width_unchanged` selects
 /// the O(rows) [`resize_keep_width`] fast path (preserving P1-a) over the general
@@ -1243,8 +1243,8 @@ pub(in crate::core) fn resize_lazy_with_options(
         subset = project_logical_mode(&pulled, new_width, sb.ambiguous_wide);
     } else {
         // One mega-row per logical line (all cells, marked open/closed). The
-        // reflow primitive rejoins by the wrapped flag — cell count is
-        // irrelevant — so no projection/padding is needed and an open line joins
+        // reflow primitive rejoins by the wrapped flag - cell count is
+        // irrelevant - so no projection/padding is needed and an open line joins
         // to the live grid without inserted blanks.
         for line in &pulled {
             // The reflow primitives are unchanged and work in `Cell`, so the
@@ -1532,7 +1532,7 @@ fn count_projected_rows(line: &LogicalLine, width: usize, ambiguous_wide: bool) 
 /// - `mark` (the logical line's OSC 133 prompt mark, SH1) is stamped onto the
 ///   FIRST physical row produced; continuation rows keep their default `None`.
 /// - `spans` (the logical line's button spans, flat-cell coordinates) are
-///   re-projected onto the produced rows as row-local segments — the
+///   re-projected onto the produced rows as row-local segments - the
 ///   `prompt_mark` carry extended to column ranges. Span-free lines (the
 ///   overwhelmingly common case) pay only an `is_empty` check.
 ///
@@ -1555,7 +1555,7 @@ fn count_projected_rows(line: &LogicalLine, width: usize, ambiguous_wide: bool) 
 /// materializing only gates whether a cell is also *written*. `row_len` and
 /// the row vector are asserted equal at every push under `debug_assertions`,
 /// so the modes
-/// cannot silently diverge — a missed increment fails immediately in every
+/// cannot silently diverge - a missed increment fails immediately in every
 /// debug test run rather than producing a shape that disagrees with the
 /// projection it describes.
 ///
@@ -1639,12 +1639,12 @@ fn project_line_mode<const MODE: u8>(
         Some(SpanReprojector::new())
     };
 
-    // Trim trailing plain blanks (matches reflow). Open lines carry none.
+    // Trim trailing plain blank cells, matching the current eager reflow policy.
     //
     // A stored cell that compares equal to `plain` is not necessarily blank:
     // its combining marks live in the sidecar and are not part of the
     // comparison. Trimming on the base alone would silently discard marks
-    // attached to a space — which a `Cell` comparison could never do, because
+    // attached to a space - which a `Cell` comparison could never do, because
     // the marks were inside the cell. The sidecar is consulted so the trim
     // means the same thing it did before.
     let mut keep = cells.len();
@@ -1669,7 +1669,7 @@ fn project_line_mode<const MODE: u8>(
     };
     let mut materialize = in_window(0);
     let mut row_cells: Vec<Cell> = Vec::with_capacity(if materialize { width } else { 0 });
-    // Logical length of the row being built. This — not `row_cells.len()` — is
+    // Logical length of the row being built. This - not `row_cells.len()` - is
     // what every wrapping decision below reads, so the decisions are identical
     // whether or not the cells are written.
     let mut row_len = 0usize;

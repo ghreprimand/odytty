@@ -4,9 +4,9 @@
 //!
 //! Memory claims about this terminal are only worth as much as the measurement
 //! behind them. This module is the measurement: it names every allocation
-//! OdyTTY decides the size of — glyph atlases, the background image, the
+//! OdyTTY decides the size of - glyph atlases, the background image, the
 //! post-process targets, per-pane grid and scrollback, the graphics-protocol
-//! image store, and the vertex buffers — and reports the arithmetic difference
+//! image store, and the vertex buffers - and reports the arithmetic difference
 //! between that total and the process resident set as an **explicitly labelled
 //! remainder**. The remainder is never folded into a subsystem, because doing so
 //! would turn an unexplained byte into an explained one without evidence.
@@ -14,8 +14,8 @@
 //! Two rules shape the shape of the record:
 //!
 //! * **GPU bytes sit alongside the resident set, never subtracted from it.**
-//!   Where a texture's bytes physically live — device memory, a write-combined
-//!   host mapping, or a driver-side shadow copy — is the driver's business and
+//!   Where a texture's bytes physically live - device memory, a write-combined
+//!   host mapping, or a driver-side shadow copy - is the driver's business and
 //!   varies by adapter, backend, and allocator. Reporting them as a separate
 //!   column keeps the resident figure the honest, comparable one.
 //! * **The host-side remainder is signed.** Allocated-but-not-yet-faulted pages
@@ -96,7 +96,7 @@ pub enum ResidentSource {
     ProcStatus,
     /// Windows: `GetProcessMemoryInfo` (`WorkingSetSize` / `PeakWorkingSetSize`).
     WindowsPsapi,
-    /// macOS: `getrusage(RUSAGE_SELF)` — peak only; the current resident set is
+    /// macOS: `getrusage(RUSAGE_SELF)` - peak only; the current resident set is
     /// not exposed by that call and is reported `unmeasured`.
     Getrusage,
     /// The platform exposes no figure this build reads. Never approximated.
@@ -116,7 +116,7 @@ impl ResidentSource {
 }
 
 /// Process-level resident figures. `None` means the platform did not expose the
-/// value — recorded as `unmeasured`, never inferred from another platform and
+/// value - recorded as `unmeasured`, never inferred from another platform and
 /// never estimated from the attributed subtotals.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ProcessMemory {
@@ -171,12 +171,12 @@ impl ScrollbackBytes {
 ///
 /// Every field is an allocation this project decides the extent of. Anything
 /// allocated by a dependency, the allocator's own overhead, the mapped binary,
-/// and driver mappings are deliberately absent — they land in the remainder,
+/// and driver mappings are deliberately absent - they land in the remainder,
 /// where they are visible as unexplained rather than silently attributed.
 ///
 /// Most fields are additive and sum into [`HostBytes::accounted`]. One is not:
 /// `scrollback_ring_slack` is a breakdown of a figure already counted. The
-/// distinction is enforced by construction — see `accounted`.
+/// distinction is enforced by construction - see `accounted`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HostBytes {
     /// Monochrome/subpixel glyph atlas CPU coverage bitmap.
@@ -187,7 +187,7 @@ pub struct HostBytes {
     pub background_image_buffer: u64,
     /// Visible grid cells across every live pane.
     pub grid_cells: u64,
-    /// Logical-line scrollback ring across every live pane. Content only — the
+    /// Logical-line scrollback ring across every live pane. Content only - the
     /// memoized physical view is `scrollback_projection`.
     pub scrollback_ring: u64,
     /// Memoized physical projection of scrollback across every live pane: a
@@ -213,7 +213,7 @@ impl HostBytes {
     /// [`HostBytes`] without deciding whether it is additive fails to compile
     /// here. That matters because this struct now carries one field that must
     /// *not* be summed, and a silently-included breakdown figure would inflate
-    /// the attributed total and shrink the remainder — the exact failure mode
+    /// the attributed total and shrink the remainder - the exact failure mode
     /// the remainder exists to make visible.
     pub fn accounted(&self) -> u64 {
         let Self {
@@ -296,7 +296,7 @@ impl MemoryReport {
     /// meaningful, not a bug: it means the attributed allocations exceed the
     /// resident set, which is what happens when a buffer is reserved but not yet
     /// faulted in, or when pages have been reclaimed. `None` when the platform
-    /// did not expose a resident figure — the remainder is then `unmeasured`,
+    /// did not expose a resident figure - the remainder is then `unmeasured`,
     /// never zero and never guessed.
     pub fn unaccounted_host_bytes(&self) -> Option<i64> {
         let resident = i64::try_from(self.process.resident_bytes?).ok()?;
@@ -325,8 +325,8 @@ fn opt(value: Option<u64>) -> String {
     }
 }
 
-/// Format one report line. Pure — no environment, no I/O, no global state
-/// beyond the supplied `seq` and `epoch_ms` — so the arithmetic and the field
+/// Format one report line. Pure - no environment, no I/O, no global state
+/// beyond the supplied `seq` and `epoch_ms` - so the arithmetic and the field
 /// set are testable without races.
 pub fn format_report_line(seq: u64, epoch_ms: u128, report: &MemoryReport) -> String {
     let host = &report.host;
@@ -371,7 +371,7 @@ gpu_graphics_textures={g5} gpu_vertex_buffers={g6}",
 
 /// Append one report line to the state-directory log. Callers only reach this when
 /// [`sample_interval`] is `Some`, so the off path costs one atomic load. Any I/O
-/// error is silently ignored — a diagnostic must never perturb the terminal.
+/// error is silently ignored - a diagnostic must never perturb the terminal.
 pub fn append_report(report: &MemoryReport) {
     use std::io::Write;
 
@@ -406,7 +406,7 @@ pub fn append_report(report: &MemoryReport) {
 
 /// Parse one `Name:   <n> kB` line of a Linux `/proc/<pid>/status` file into
 /// bytes. A field that is absent or unparseable yields `None`, which surfaces
-/// as `unmeasured` — never as zero and never as an approximation.
+/// as `unmeasured` - never as zero and never as an approximation.
 ///
 /// Declared unconditionally (rather than inside the Linux platform module) so
 /// the parse is unit-testable on every CI leg, including the Windows and macOS
@@ -487,7 +487,7 @@ mod platform {
     use windows::Win32::System::Threading::GetCurrentProcess;
 
     /// Windows: `GetProcessMemoryInfo` exposes both the current working set and
-    /// its peak, in bytes. This is the platform's own interface — no `/proc`
+    /// its peak, in bytes. This is the platform's own interface - no `/proc`
     /// figure is inferred for Windows, and no Linux value is carried across.
     pub(super) fn read_process_memory() -> ProcessMemory {
         let size = u32::try_from(std::mem::size_of::<PROCESS_MEMORY_COUNTERS>()).unwrap_or(0);

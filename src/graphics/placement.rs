@@ -172,7 +172,7 @@ pub struct VisiblePlacement {
 }
 
 /// A Kitty *virtual* placement (`U=1`): the prototype for images displayed via
-/// Unicode placeholder cells. It has no screen anchor — the placeholder cells
+/// Unicode placeholder cells. It has no screen anchor - the placeholder cells
 /// in the text grid supply the position, so it scrolls, reflows, and is erased
 /// exactly as the text carrying it does, with no placement bookkeeping at all.
 ///
@@ -429,8 +429,7 @@ impl ImageScene {
     /// Newest-match is the protocol's rule, not a tie-break of convenience:
     /// numbers are explicitly not unique, and transmitting with a number
     /// creates a new image rather than replacing the previous one, so several
-    /// images can legitimately share a number at once. Resolution by generation
-    /// — the same ordering [`ImageScene::find_by_protocol_id`] uses — means a
+    /// images can legitimately share a number at once. Resolution by generation - the same ordering [`ImageScene::find_by_protocol_id`] uses - means a
     /// client's follow-up commands act on the image it most recently sent.
     pub fn find_by_image_number(&self, protocol_number: u32) -> Option<StoredImageId> {
         self.store
@@ -921,7 +920,7 @@ impl ImageScene {
             // Advance the source rect by the clipped pixel rows (placements
             // render 1:1, so one display row == one cell height of source
             // pixels). `height == 0` means "to the image bottom" and needs no
-            // reduction — the advanced `y` shrinks it implicitly.
+            // reduction - the advanced `y` shrinks it implicitly.
             let clipped_rows = usize::try_from(-projected_row).unwrap_or(0);
             let mut source = placement.source;
             if clipped_rows > 0 {
@@ -1015,7 +1014,7 @@ impl ImageScene {
         self.placements
             .retain(|placement| !evicted.contains(&placement.image_id));
         // Sibling path: a store eviction invalidates virtual placements exactly
-        // as it invalidates real ones — a prototype pointing at freed pixels
+        // as it invalidates real ones - a prototype pointing at freed pixels
         // would resolve every placeholder cell to a missing image.
         self.virtual_placements
             .retain(|placement| !evicted.contains(&placement.image_id));

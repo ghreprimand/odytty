@@ -10,16 +10,17 @@
 //! ## What it produces
 //!
 //! For every non-continuation cell of a snapshot it emits a compact
-//! **background-quad instance** covering the cell's pixel rectangle, and — when the cell
-//! holds an inked, printable glyph — a **foreground quad** with the glyph's UV
+//! **background-quad instance** covering the cell's pixel rectangle, and - when the cell
+//! holds an inked, printable glyph - a **foreground quad** with the glyph's UV
 //! rectangle from the atlas. Foreground quads carry `is_glyph = 1.0` so the
 //! fragment shader samples the R8 coverage atlas as alpha; background quads
 //! carry `is_glyph = 0.0` and use their solid color directly.
 //!
 //! Geometry is built in **physical pixel space** using the atlas cell metrics.
 //! The vertex shader converts pixels to NDC via the viewport-size uniform, so a
-//! window resize only updates that uniform — the geometry here never needs to
-//! be rebuilt for a resize (only when the snapshot content changes).
+//! window resize with unchanged cell metrics and layout only updates that
+//! uniform - the geometry here is rebuilt only when the snapshot content,
+//! metrics, or layout change.
 
 mod background;
 mod bidi;
@@ -68,7 +69,7 @@ thread_local! {
 ///
 /// Spaces never do. Kitty Unicode placeholders ([`PLACEHOLDER_CHAR`], U+10EEEE)
 /// also never do: the char stays in the Snapshot so copy/paste, plain text, and
-/// transcripts remain honest, but the atlas has no real outline for it — drawing
+/// transcripts remain honest, but the atlas has no real outline for it - drawing
 /// it would paint tofu under (or through) image tiles. Unresolved placeholders
 /// therefore render as blank cells (background + decorations only), which is
 /// preferable to tofu soup. Platform-neutral shared path.
@@ -79,7 +80,7 @@ fn cell_draws_base_glyph(ch: char) -> bool {
 
 /// Whether combining marks on this base should emit coverage quads.
 ///
-/// Placeholder diacritics encode Kitty image/placement ids — metadata, not ink —
+/// Placeholder diacritics encode Kitty image/placement ids - metadata, not ink -
 /// so they are suppressed along with the base. Ordinary cells (including space
 /// bases that carry marks) still draw their combining marks.
 #[inline]
@@ -374,7 +375,7 @@ pub fn build_cell_vertices_with_focus_dim_into(
         // Identity opacity (literal 1.0): this focus-dim/color-glyph entry never
         // carries the image treatment, so it keeps cells fully opaque
         // (byte-identical). Pinned to 1.0 rather than the default `cell_bg_opacity`
-        // — the shipped default is 0.8 since v0.6.0, but this seam's contract is
+        // - the shipped default is 0.8 since v0.6.0, but this seam's contract is
         // opaque cells regardless of that default.
         1.0,
         // TEXT-BRIGHTNESS identity: this seam never carries the lift.
@@ -390,7 +391,7 @@ pub fn build_cell_vertices_with_focus_dim_into(
 /// background quads must stay **fully opaque** regardless of the frame's
 /// `cell_bg_opacity`. In the single-pane path an open overlay panel (context
 /// menu / settings / picker) is painted directly into the terminal snapshot, so
-/// when the window is translucent the whole snapshot — including the panel — is
+/// when the window is translucent the whole snapshot - including the panel - is
 /// built at the window alpha. That resealed nothing but sank the panel to the
 /// window opacity, letting the desktop bleed through the menu. Marking the
 /// panel's cell span keeps the overlay SURFACE opaque (the ruled readability
@@ -471,8 +472,7 @@ pub fn rail_label_descender_safe_dy_rows(
 
 /// SCROLL-CHROME-BOUNCE: pins composited chrome (the top tab-bar band and any
 /// side rail band) against the sub-row smooth-scroll offset that `content_origin`
-/// folds into the vertex Y. Without it the whole decorated single-pane snapshot
-/// — chrome rows included — glides with the scrollback, so the tab bar visibly
+/// folds into the vertex Y. Without it the whole decorated single-pane snapshot - chrome rows included - glides with the scrollback, so the tab bar visibly
 /// drifts. Chrome cells subtract `scroll_offset_y` (landing back at the
 /// un-shifted pad-y) while terminal content keeps it (so content still glides).
 /// `NONE` / `scroll_offset_y == 0.0` makes every branch inert, so the plain and
@@ -505,7 +505,7 @@ pub struct ChromePin {
     /// inert.
     pub rail_glyph_dy_rows: f32,
     /// CHROME-GAP: pixels inserted at the rail↔content seam ("content never
-    /// touches chrome" — the window padding value, applied between the pinned
+    /// touches chrome" - the window padding value, applied between the pinned
     /// rail band and the content columns). Cells at/right of the seam column
     /// shift right by this: past a LEFT rail that is the content (and the top
     /// bar above it, keeping one uniform column basis); past the content of a
@@ -555,7 +555,7 @@ impl ChromePin {
 
     /// CHROME-GAP: the horizontal shift of cell column `col`. Columns at/right
     /// of the rail↔content seam shift by `gap_x`: past a LEFT rail band
-    /// (`rail_col_start == 0`) that is every non-rail column — content and the
+    /// (`rail_col_start == 0`) that is every non-rail column - content and the
     /// top bar share one shifted column basis; with a RIGHT rail
     /// (`rail_col_start > 0`) it is the rail band itself that moves off the
     /// content. `0.0` whenever no rail band exists or the gap is zero.
@@ -572,7 +572,7 @@ impl ChromePin {
         if col >= seam_col { self.gap_x } else { 0.0 }
     }
 
-    /// CHROME-GAP: the vertical shift of cell `(row, col)` — content rows below
+    /// CHROME-GAP: the vertical shift of cell `(row, col)` - content rows below
     /// the top band shift down by `gap_y`; the bar itself and the full-height
     /// rail band stay put. `0.0` whenever there is no top band or no gap.
     #[inline]
@@ -584,7 +584,7 @@ impl ChromePin {
         }
     }
 
-    /// CHROME-GAP: the horizontal shift the CONTENT columns carry — `gap_x`
+    /// CHROME-GAP: the horizontal shift the CONTENT columns carry - `gap_x`
     /// past a pinned LEFT rail, `0.0` otherwise (a right rail shifts the band,
     /// not the content). For cursor-anchored geometry built without per-cell
     /// dispatch.
@@ -726,7 +726,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
         cell_bg_opacity,
         // COLORED-BG-FLOOR EXEMPT: this entry point serves chrome surfaces (the
         // floating rail strip) and fixed startup/overlay builds, whose effective
-        // opacity is owned by `tab_panel_strength` / their own contract — the
+        // opacity is owned by `tab_panel_strength` / their own contract - the
         // floor rides only the content entry points below. Equal values are the
         // exact inert path in `build_cells_core`.
         cell_bg_opacity,
@@ -775,7 +775,7 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
         treatment,
         cell_bg_opacity,
         // COLORED-BG-FLOOR EXEMPT: legacy/no-selection seam (initial blank
-        // buffer, ligature harnesses) — equal values are the exact inert path.
+        // buffer, ligature harnesses) - equal values are the exact inert path.
         cell_bg_opacity,
         text_brightness,
         opaque_region,
@@ -841,7 +841,7 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
 }
 
 /// VE4 new-output fade: the full-parameter build used by the single-pane GPU
-/// path — [`build_cell_vertices_with_ligatures_and_selection_into`] plus a
+/// path - [`build_cell_vertices_with_ligatures_and_selection_into`] plus a
 /// per-row FOREGROUND alpha ramp for freshly arrived rows. `row_fade` scales
 /// only pass-2 ink (glyphs, combining marks, ligature runs, underline and
 /// strikethrough decorations); pass-1 cell backgrounds are untouched, so a
@@ -895,8 +895,8 @@ pub fn build_cell_vertices_with_ligatures_selection_and_row_fade_into(
 /// including `selection_opacity` (see [`crate::core::Attrs::selected`]), which
 /// drives BOTH a selected cell's COLOR-space tint strength AND its background
 /// surface alpha. The surface alpha is lerped from the surrounding content
-/// opacity up to fully opaque as the knob rises —
-/// `A_sel = cell_bg_opacity + selection_opacity * (1.0 - cell_bg_opacity)` —
+/// opacity up to fully opaque as the knob rises -
+/// `A_sel = cell_bg_opacity + selection_opacity * (1.0 - cell_bg_opacity)` -
 /// so the selection PUNCHES THROUGH window transparency and stays visible, and
 /// is never weaker than its surround (`A_sel >= cell_bg_opacity` always). The
 /// color tint recedes toward the unselected fill as the knob falls, in lockstep
@@ -923,13 +923,14 @@ fn build_cells_core(
     // `cell_bg_opacity_setting * max(window_bg_alpha, colored_bg_opacity)`, so
     // it can only be >= `cell_bg_opacity` (the floor strengthens, never
     // weakens) and equals it exactly when the knob is 0.0 or the window is
-    // opaque — both byte-identical inert paths, as is passing equal values.
+    // opaque - both byte-identical inert paths, as is passing equal values.
     colored_bg_opacity: f32,
     // TEXT-BRIGHTNESS: soft-knee lift of every glyph foreground toward white
     // (`text::lift_brightness_rgba`), applied in `resolve` AFTER the RV1
     // min-contrast floor so a floor-corrected color is the lift's input and
-    // the lift cannot undo the fix. Uniform across all mono ink this builder
-    // emits — glyphs, combining marks, ligature runs, and the underline/
+    // the lift does not re-run the floor (on light backgrounds it can reduce
+    // the floored contrast; see `text/color.rs`). Uniform across all mono ink this builder
+    // emits - glyphs, combining marks, ligature runs, and the underline/
     // strikethrough decorations that reuse `fg`. Color emoji ride the separate
     // color-glyph pipeline with their intrinsic palette (exempt by design).
     // Operates on COLOR channels only, so it composes with the VE4 fade's
@@ -952,7 +953,7 @@ fn build_cells_core(
     let cell_h = atlas.cell.height as f32;
     let baseline = atlas.cell.baseline as f32;
     // SCROLL-CHROME-BOUNCE: the pinned-chrome seam for this build (inert unless a
-    // glide is in flight — then the top bar/rail stay put while content glides).
+    // glide is in flight - then the top bar/rail stay put while content glides).
     let chrome_seam_y = chrome_pin.seam_y(origin[1], cell_h);
 
     let needed = rows * cols * INSTANCES_PER_QUAD * 2;
@@ -966,7 +967,7 @@ fn build_cells_core(
     // cell's grid position, needed by the ID3/U5 background treatment (gradient /
     // vignette) which modulates the background by position.
     // COLORED-BG-FLOOR: the reference the "non-default background" test compares
-    // against — the theme's default background AFTER theme resolution (the same
+    // against - the theme's default background AFTER theme resolution (the same
     // `DynamicColors` the cells resolve through), so an SGR background that
     // happens to resolve to the exact default colour (e.g. an app repainting
     // the screen in the theme's own background) still composites as default and
@@ -981,7 +982,7 @@ fn build_cells_core(
             if cell.attrs.inverse() {
                 std::mem::swap(&mut fg, &mut bg);
             }
-            // COLORED-BG-FLOOR: classified at the resolution seam — post-inverse
+            // COLORED-BG-FLOOR: classified at the resolution seam - post-inverse
             // (an inverse cell's visible backdrop is its resolved foreground),
             // pre-dim/pre-treatment (those modulate default cells too; the
             // classification must not flip when the window loses focus or a
@@ -999,8 +1000,8 @@ fn build_cells_core(
             // selection punches through window transparency as the knob rises.
             // After the swap `bg` is the selection fill (the cell's original
             // foreground) and `fg` is the backdrop (the cell's original background),
-            // so compositing the fill over the backdrop at `selection_opacity` — and
-            // the text symmetrically back toward the unselected foreground — recedes
+            // so compositing the fill over the backdrop at `selection_opacity` - and
+            // the text symmetrically back toward the unselected foreground - recedes
             // the whole cell toward its unselected look as the knob falls. At 1.0 the
             // `composite_over` endpoints are exact, so a fully-opaque selection is
             // byte-identical to the plain swap; the themed path pre-composites its
@@ -1029,7 +1030,7 @@ fn build_cells_core(
                 fg = dim_color(fg);
             }
             // ID2 focus dimming: while the window is unfocused, recede the whole
-            // cell — both foreground and background — perceptually in OKLab so hue
+            // cell - both foreground and background - perceptually in OKLab so hue
             // is preserved and relative contrast stays roughly stable. Applied after
             // the SGR-dim attribute and before the RV1 floor so legibility wins by
             // construction (the floor sees the dimmed background and re-lifts text
@@ -1042,7 +1043,7 @@ fn build_cells_core(
             // ID3/U5 background treatment (gradient / vignette): modulate the cell
             // background by its grid position. Applied AFTER focus dimming and
             // BEFORE the RV1 floor, so the floor sees the treated per-cell
-            // background and re-lifts the foreground to keep contrast — readability
+            // background and re-lifts the foreground to keep contrast - readability
             // is preserved by construction, per cell. `treatment.active() == false`
             // (kind None or zero strength, the default) skips this entirely, so the
             // plain/fast path stays byte-identical.
@@ -1107,7 +1108,7 @@ fn build_cells_core(
             let (_, bg, colored_bg) = resolved[row * cols + col];
             // ID3/U5 image background: scale ONLY the background-quad alpha by
             // `cell_bg_opacity` so a background image shows through behind text.
-            // `1.0` (the default) yields `bg[3] * 1.0 == bg[3]` — byte-identical.
+            // `1.0` (the default) yields `bg[3] * 1.0 == bg[3]` - byte-identical.
             // The floor reference inside `resolve` keeps the OPAQUE bg (alpha
             // untouched there), so `enforce_contrast_rgba` still floors against
             // the theme background `l_bg`; the readability scrim guarantees the
@@ -1127,8 +1128,8 @@ fn build_cells_core(
             // knob and `A_sel >= cell_bg_opacity` always, so the selection is
             // NEVER weaker than its surround; the excess over the surround
             // (`k * (1 - cell_bg_opacity)`) grows as the window gets more
-            // transparent and is zero at an opaque window (equal-plane solid
-            // highlight) — no inverse feel in either direction. At k == 1.0
+            // transparent and is zero at an opaque window (a plain solid
+            // highlight) - no inverse feel in either direction. At k == 1.0
             // A_sel == 1.0 at EVERY window opacity, so the cell is byte-identical
             // to the original fully-opaque selection. Applies to BOTH the inverse
             // and themed paths (both carry the `selected()` marker). The color
@@ -1138,13 +1139,13 @@ fn build_cells_core(
             //
             // COLORED-BG-FLOOR: a cell whose resolved background differs from
             // the theme default (classified in `resolve`, post-inverse) takes
-            // `colored_bg_opacity` instead — the floored alpha that keeps
+            // `colored_bg_opacity` instead - the floored alpha that keeps
             // powerline segments, button chips, and app-painted blocks strong
             // as window opacity drops, while default-background cells keep the
             // glassy product. Precedence: a forced-opaque overlay cell and a
             // selected cell (its own `selection_opacity` contract) both win
             // over the floor; composited chrome cells (`is_chrome`) are
-            // exempt — chrome opacity is owned by `tab_panel_strength`, and
+            // exempt - chrome opacity is owned by `tab_panel_strength`, and
             // the wash math tops up from the SAME content alpha these cells
             // composite at. Equal alphas make every branch below identical, so
             // the knob-off / opaque-window paths are byte-identical.
@@ -1201,7 +1202,7 @@ fn build_cells_core(
             // pass-1 background stays untouched. Applied after the RV1 floor:
             // the floored color is the ramp's destination, and the ramp starts
             // at the caller's floor multiplier (never 0), so the transient is a
-            // bounded, operator-opted dip below steady-state contrast that
+            // bounded, user-opted dip below steady-state contrast that
             // resolves to the exact floored color. `1.0` (inert / settled /
             // chrome / cursor row) skips the blend and is byte-identical.
             let fade_mul = row_fade.multiplier(row, col);
@@ -1287,8 +1288,8 @@ fn build_cells_core(
             // reaching the following logical cell or an adjacent pane.
             if let Some(run) = ligature.filter(|run| run.start == col) {
                 // CHROME-GAP: the run shares its lead cell's horizontal shift
-                // (a shaping run never crosses the rail↔content seam — the band
-                // and content carry distinct attrs — so one dx spans the run).
+                // (a shaping run never crosses the rail↔content seam - the band
+                // and content carry distinct attrs - so one dx spans the run).
                 let run_dx = chrome_pin.cell_dx(run.start);
                 let visual = ligature_box(run).unwrap_or(run.start..run.end);
                 let span_x0 = origin[0] + visual.start as f32 * cell_w + run_dx;
@@ -1414,16 +1415,16 @@ pub(crate) fn build_cell_vertices_with_bidi_into(
 /// Visual-only parameters applied to cursor geometry. The [`Default`] is the
 /// focused, fully opaque, zero-offset identity.
 ///
-/// - `offset` — sub-cell pixel shift added to the cursor's cell origin
+/// - `offset` - sub-cell pixel shift added to the cursor's cell origin
 ///   (VE4-slide). Default `[0.0, 0.0]` ⇒ unchanged `x0`/`y0`.
-/// - `alpha` — multiplier on the cursor quad's color alpha (ID1-easing).
+/// - `alpha` - multiplier on the cursor quad's color alpha.
 ///   Default `1.0` ⇒ unchanged opacity. Polarity: `1.0` = fully opaque (today),
-///   `0.0` = invisible — never default to `0.0`.
-/// - `focused` — whether the window owns keyboard focus. An unfocused Block
+///   `0.0` = invisible - never default to `0.0`.
+/// - `focused` - whether the window owns keyboard focus. An unfocused Block
 ///   cursor becomes a hollow outline; underline and bar styles are unchanged.
 ///
 /// The type lives here (not in the native overlay registry) because
-/// [`push_cursor`] — a `crate::grid` function — must name it to apply the
+/// [`push_cursor`] - a `crate::grid` function - must name it to apply the
 /// fields, and a `pub(in crate::native)` type is not visible from `crate::grid`.
 /// The native layer re-exports it; this is the contained grid-level change the
 /// foundation scope anticipated for alpha application.
@@ -1577,7 +1578,7 @@ pub fn cursor_bar_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32) -> [f32; 4] {
 
 /// Emit the cursor for the snapshot in the given shape, if one should be drawn.
 ///
-/// - **Block, focused**: an **inverse** block — a background quad in the cell's
+/// - **Block, focused**: an **inverse** block - a background quad in the cell's
 ///   foreground color with the cell's glyph (if any) redrawn on top in the
 ///   cell's background color, keeping the character readable under the cursor.
 /// - **Block, unfocused**: four one-pixel cursor-color border quads. The cell's
@@ -1590,7 +1591,7 @@ pub fn cursor_bar_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32) -> [f32; 4] {
 /// A hidden cursor (`cursor_visible == false`, which the renderer also uses for
 /// the blink "off" phase) emits nothing. The position is clamped to the grid so
 /// a stale snapshot can never index out of bounds. Reflects only the live
-/// snapshot cursor — no scrollback/viewport offset is applied here.
+/// snapshot cursor - no scrollback/viewport offset is applied here.
 // Wave-15b adds `params` as the 8th argument; the geometry inputs (dimensions,
 // style, origin) are already discrete and bundling them would obscure the
 // call sites more than it would help. Matches `push_underline_decoration`.
@@ -1681,7 +1682,7 @@ fn push_cursor(
             // R6 ordering: derive the glyph color from the OPAQUE block color
             // BEFORE the ID1-easing alpha fade, so a fading cursor never drags
             // the under-glyph through a transient contrast violation. The glyph
-            // itself is NEVER alpha-faded — only the block is.
+            // itself is NEVER alpha-faded - only the block is.
             let glyph_color = text::enforce_contrast_rgba(bg, block_color);
             push_quad(
                 out,
@@ -1700,7 +1701,7 @@ fn push_cursor(
             // The under-cursor glyph keeps its combining marks too, drawn in
             // the same contrast-derived color as the base (see the content
             // pass for the anchoring rule). Placeholder cells suppress marks
-            // here as well — same sibling rule as the content pass.
+            // here as well - same sibling rule as the content pass.
             if !cell.attrs.hidden() && cell_draws_combining_marks(cell.ch) {
                 for &mark in cell.combining() {
                     if let Some(bounds) =

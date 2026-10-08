@@ -6,7 +6,7 @@
 //! running in the focused pane is the window's own child (this process owns its
 //! pty fds and reaps it), so it cannot be losslessly handed to a survivable
 //! session-host. Instead we spawn a FRESH managed shell in the SAME working
-//! directory — the same `spawn_host_on_demand` path `odytty new` uses — attach
+//! directory - the same `spawn_host_on_demand` path `odytty new` uses - attach
 //! to it in a new tab, and switch. This framing is a deliberate design decision;
 //! the dialog copy says so.
 //!
@@ -56,7 +56,7 @@ impl App {
     }
 
     /// The focused pane's current working directory (from OSC 7 tracking), or
-    /// `None` when unknown. Reads the active session's terminal — the same lock
+    /// `None` when unknown. Reads the active session's terminal - the same lock
     /// the interactive-paths hover resolution uses. Shared across the crate as
     /// the single OSC 7 cwd read helper: the detach/switch dialog seeds it, and
     /// the F1 cwd-inheritance path (new tab / new window / Duplicate Tab) threads
@@ -123,7 +123,7 @@ impl App {
 
     /// Spawn-seam orchestration. Captures the original focused token
     /// BEFORE spawning, spawns the managed session via `spawner`, attaches +
-    /// focuses it, and — for `swap` only — closes the original focused pane via
+    /// focuses it, and - for `swap` only - closes the original focused pane via
     /// the existing close path (single-pane tab → close tab; multi-pane → close
     /// just that pane). Any spawn/attach failure surfaces a transient notice and
     /// leaves the original pane untouched. `spawner` is a seam so tests can force
@@ -146,7 +146,7 @@ impl App {
                 Ok(id) => id,
                 Err(error) => {
                     // Spawn failed → original pane untouched, nothing attached.
-                    self.raise_open_notice(format!("Couldn't detach & switch — {error}"));
+                    self.raise_open_notice(format!("Couldn't detach & switch: {error}"));
                     return;
                 }
             };
@@ -158,7 +158,7 @@ impl App {
             .is_err()
         {
             self.raise_open_notice(
-                "Couldn't detach & switch — the new session did not attach.".to_owned(),
+                "Couldn't detach & switch: the new session did not attach.".to_owned(),
             );
             return;
         }

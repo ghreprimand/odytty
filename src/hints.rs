@@ -3,9 +3,9 @@
 //! paths, and git SHAs in a text snapshot and hands back labeled, absolute-cell
 //! matches a front end can light up for keyboard quick-select.
 //!
-//! This is the rendering-free core. The keyboard activation, the label overlay,
-//! and the copy/open action are a later native packet; everything here is a pure
-//! function of its input.
+//! This is the rendering-free core. The native layer supplies keyboard
+//! activation, the label overlay, and the copy/open action; everything here is
+//! a pure function of its input.
 //!
 //! ## Input
 //!
@@ -20,25 +20,25 @@
 //!
 //! ## Output coordinates
 //!
-//! Matches report inclusive `start`/`end` [`crate::core::AbsolutePoint`]s — the
+//! Matches report inclusive `start`/`end` [`crate::core::AbsolutePoint`]s - the
 //! established match-coordinate type (row `0` = oldest scrollback, `end.column`
 //! the last covered cell, `+1` on a wide glyph). Reusing it keeps hints, search,
 //! and selection on one coordinate convention.
 //!
 //! ## What matches (v1)
 //!
-//! * **URLs** — a recognized scheme (`http`/`https`/`ftp`/`ftps`/`ssh`/`git`/
+//! * **URLs** - a recognized scheme (`http`/`https`/`ftp`/`ftps`/`ssh`/`git`/
 //!   `file://`, plus `mailto:`) followed by a non-empty body of URL characters.
-//! * **Paths** — absolute (`/…`), home (`~/…`), and relative (`./…`, `../…`).
-//! * **SHAs** — a word-bounded run of 7–40 hex digits that is not purely decimal.
+//! * **Paths** - absolute (`/…`), home (`~/…`), and relative (`./…`, `../…`).
+//! * **SHAs** - a word-bounded run of 7–40 hex digits that is not purely decimal.
 //!
 //! All matching is hand-rolled (no regex dependency) and deterministic.
 //!
-//! ## Overlap rules (ruled, pinned by tests)
+//! ## Overlap rules (pinned by tests)
 //!
 //! * **Longest match wins**, ties broken by **earliest start** (then a stable
 //!   kind order). A URL that contains a path-like substring is therefore emitted
-//!   once, as the whole URL — the inner path is contained and dropped.
+//!   once, as the whole URL - the inner path is contained and dropped.
 //! * **Trailing punctuation** (`.,;:)]}`) is trimmed from a match unless a
 //!   closing bracket is balanced by an opener inside the match (so
 //!   `…/Foo_(bar)` keeps its `)`, but `(…/foo)` trims it).
@@ -69,7 +69,7 @@ pub enum HintKind {
     Sha,
 }
 
-/// A set of [`HintKind`]s to scan for — a small hand-rolled bitset so a caller
+/// A set of [`HintKind`]s to scan for - a small hand-rolled bitset so a caller
 /// can pick any combination without a bitflags dependency.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HintKinds(u8);
@@ -465,7 +465,7 @@ fn unbalanced(chars: &[char], start: usize, end: usize, open: char, close: char)
 
 /// Resolve overlapping candidates: longest first, ties by earliest start, then a
 /// stable kind order. A candidate is kept only if it does not overlap one
-/// already kept — so a contained sub-match (e.g. a path inside a URL) is dropped.
+/// already kept - so a contained sub-match (e.g. a path inside a URL) is dropped.
 /// Returns the survivors sorted by start (reading order within the line).
 fn resolve_overlaps(mut candidates: Vec<Candidate>) -> Vec<Candidate> {
     candidates.sort_by(|a, b| {

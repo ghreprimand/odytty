@@ -53,10 +53,11 @@ pub fn encode_mouse_event(
         // SgrPixel (1016) shares the SGR wire shape and differs only in the
         // *units* of the coordinates. The cell-based entry has only cell
         // coordinates, so it emits the SGR-pixel shape with the coordinates it
-        // was given — a transitional pass-through, not a cell→pixel invention.
+        // was given - a transitional pass-through, not a cell→pixel invention.
         // A front end that wants true pixel coordinates routes 1016 through
-        // [`encode_mouse_event_pixel`]; until the native pixel seam lands this
-        // keeps 1016 from silently dropping every event.
+        // [`encode_mouse_event_pixel`], which the native app uses; this
+        // compatibility pass-through keeps cell-based callers from silently
+        // dropping every event while 1016 is active.
         MouseEncoding::SgrPixel => Some(encode_mouse_sgr(button, kind, column, row, mod_bits)),
         MouseEncoding::Urxvt => Some(encode_mouse_urxvt(button, kind, column, row, mod_bits)),
         MouseEncoding::Default => encode_mouse_legacy(button, kind, column, row, mod_bits, false),
@@ -65,14 +66,14 @@ pub fn encode_mouse_event(
 }
 /// Encode a mouse event for SGR-pixel reporting (DECSET 1016) from caller-owned
 /// pixel coordinates. Emits the same `CSI < Cb ; Px ; Py M|m` wire shape as SGR
-/// (1006) — including the lowercase `m` release terminator that preserves the
-/// button code — but `px`/`py` are 1-based physical pixel coordinates supplied
+/// (1006) - including the lowercase `m` release terminator that preserves the
+/// button code - but `px`/`py` are 1-based physical pixel coordinates supplied
 /// by the front end. Core never converts cells to pixels: the front end owns
 /// the cell→pixel metric (`CellMetrics`) and passes the pixel position here.
 ///
 /// Returns `None` when the active encoding is not [`MouseEncoding::SgrPixel`]
 /// (so a front end can call this only on the 1016 path) or when the active
-/// tracking gate drops the event — identical gating to [`encode_mouse_event`]
+/// tracking gate drops the event - identical gating to [`encode_mouse_event`]
 /// (X10 reports presses only and strips modifiers; normal drops motion;
 /// button-event drops no-button hover; any-event reports all motion).
 pub fn encode_mouse_event_pixel(

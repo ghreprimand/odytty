@@ -27,7 +27,7 @@ impl Dimensions {
 /// The headless default is 8×16 px (a common fixed-width cell metric). The
 /// native layer overrides this at startup and on every rescale/font rebuild
 /// via [`super::screen::Screen::set_cell_metrics`]. Values are clamped to
-/// `[1, 1024]` — zero is never stored.
+/// `[1, 1024]` - zero is never stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CellMetrics {
     pub width_px: u32,
@@ -101,8 +101,8 @@ pub enum MouseEncoding {
     Sgr,
     /// Mode 1015 (urxvt): `CSI Cb ; Cx ; Cy M` with decimal values.
     Urxvt,
-    /// Mode 1016 (SGR-pixel): identical wire shape to [`Sgr`](Self::Sgr) —
-    /// `CSI < Cb ; Px ; Py M|m` — but the coordinates are 1-based physical
+    /// Mode 1016 (SGR-pixel): identical wire shape to [`Sgr`](Self::Sgr) -
+    /// `CSI < Cb ; Px ; Py M|m` - but the coordinates are 1-based physical
     /// pixels rather than cells. Core never derives pixels from cells: the
     /// front end supplies pixel coordinates through
     /// [`encode_mouse_event_pixel`](crate::core::encode_mouse_event_pixel).
@@ -151,13 +151,13 @@ pub struct KeyboardModes {
     /// Kitty encoding. Levels above 2 are rejected at the parser.
     pub modify_other_keys: u8,
 }
-/// G0/G1 character-set designations and the SO/SI GL selection — the state
+/// G0/G1 character-set designations and the SO/SI GL selection - the state
 /// behind classic terminfo/ncurses ACS line drawing.
 ///
 /// `ESC ( Final` designates G0 and `ESC ) Final` designates G1; the only
 /// non-ASCII designation modeled is DEC Special Graphics (`Final` = `0`), the
 /// ~30-glyph box/line/symbol set alternate-charset (ACS) applications use.
-/// Every other final — including the explicit ASCII designation `B` — selects
+/// Every other final - including the explicit ASCII designation `B` - selects
 /// ASCII, a safe fallback for the national replacement sets OdyTTY does not
 /// model. SO (`0x0E`) selects G1 into GL, SI (`0x0F`) selects G0 (the
 /// power-on state). The mapping applies to printed characters in
@@ -292,8 +292,8 @@ pub enum UnderlineStyle {
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct Attrs {
-    /// Packed boolean SGR attributes — bold, dim, italic, underline, blink,
-    /// strikethrough, inverse, hidden — one bit each (see the `F_*` masks).
+    /// Packed boolean SGR attributes - bold, dim, italic, underline, blink,
+    /// strikethrough, inverse, hidden - one bit each (see the `F_*` masks).
     /// Private so the storage can evolve; read/written through the generated
     /// getters (`bold()`…`hidden()`) and setters (`set_bold(..)`…). Packing the
     /// eight former `bool` fields into a single `u16` took `Attrs` from 28
@@ -307,9 +307,9 @@ pub struct Attrs {
     /// measured rather than remembered.
     ///
     /// `Cell` is what the **live grid** stores and what every reader outside
-    /// the core sees. Scrollback stores a narrower cell —
+    /// the core sees. Scrollback stores a narrower cell -
     /// `crate::core::stored_cell::StoredCell`, 28 bytes, with the combining
-    /// array held per line instead of per cell — and converts at the projection
+    /// array held per line instead of per cell - and converts at the projection
     /// boundary. A change to `Cell`'s layout therefore moves grid cost
     /// directly and ring cost only through that type.
     flags: u16,
@@ -669,7 +669,7 @@ impl Default for Cell {
     }
 }
 /// Visual shape of the text cursor, selected by DECSCUSR (`CSI Ps SP q`) or the
-/// host default policy. Terminal semantics only — how each shape is drawn is the
+/// host default policy. Terminal semantics only - how each shape is drawn is the
 /// renderer's concern.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorStyle {

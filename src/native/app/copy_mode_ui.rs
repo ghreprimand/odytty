@@ -20,12 +20,12 @@
 //!   inactive so the default frame bytes are byte-identical.
 //! - **cell-mutation lane (YES).** The selection band + caret are painted onto a
 //!   snapshot copy ([`App::paint_copy_mode_cells`], a sibling of
-//!   `paint_selection_cells`), never the terminal core — copy mode is purely a
+//!   `paint_selection_cells`), never the terminal core - copy mode is purely a
 //!   presentation overlay.
 //!
 //! Off-path contract: when `self.copy_mode` is `None` (the default),
 //! `copy_mode_active()` is `false`, `paint_copy_mode_cells` mutates zero cells,
-//! and `copy_mode_overlay_signature()` is `Inert` — so `active_modal()` is
+//! and `copy_mode_overlay_signature()` is `Inert` - so `active_modal()` is
 //! `None` and the frame bytes + input routing are byte-identical to before
 //! COPYMODE landed.
 
@@ -42,7 +42,7 @@ impl App {
     ///
     /// The caret starts at the live cursor's absolute position (the scrollback
     /// length plus the live cursor row), then the viewport is scrolled to bring
-    /// it on screen — so entry is deterministic regardless of the current scroll
+    /// it on screen - so entry is deterministic regardless of the current scroll
     /// position.
     pub(super) fn enter_copy_mode(&mut self) -> bool {
         // Defensive mutual-exclusion (mirrors `activate_hints`). The key ladder
@@ -80,11 +80,11 @@ impl App {
             return;
         }
         let Some(cm_key) = self.translate_copy_mode_key(key) else {
-            // Unbound key: swallowed, not encoded (trap #4 — no PTY leak).
+            // Unbound key: swallowed, not encoded (trap #4 - no PTY leak).
             return;
         };
 
-        // Resolve motions against the absolute buffer (C24): the visible
+        // Resolve motions against the absolute buffer: the visible
         // viewport snapshot serves on-screen cells, and an off-screen provider
         // windows the terminal at the requested row so word/line motions can
         // scroll past the viewport edges. The terminal handle is cloned so the
@@ -107,7 +107,7 @@ impl App {
                 {
                     return chars.get(p.column).copied();
                 }
-                // Window placing the row at (or below) the viewport top —
+                // Window placing the row at (or below) the viewport top -
                 // same mapping as `absolute_selection_text`.
                 let w_offset = scrollback_len.saturating_sub(p.row);
                 let snap = terminal.snapshot_with_scrollback(w_offset);
@@ -188,7 +188,7 @@ impl App {
         } else if caret_row > bottom {
             caret_row.saturating_sub(rows - 1)
         } else {
-            return; // already visible — no scroll
+            return; // already visible: no scroll
         };
         let offset = scrollback_len.saturating_sub(target_top);
         if self.viewport.jump_to(offset, scrollback_len) {
@@ -346,7 +346,7 @@ impl App {
             return;
         };
 
-        // Selection band — Char and Line both ride the wrapped highlight path
+        // Selection band - Char and Line both ride the wrapped highlight path
         // (line-wise spans full-width rows via the clamped `LINE_END_COLUMN`),
         // so `block = false` always.
         if let Some(range) = cm.range() {
@@ -361,7 +361,7 @@ impl App {
             );
         }
 
-        // Caret — invert the cell so the navigable cursor is visible both inside
+        // Caret - invert the cell so the navigable cursor is visible both inside
         // the (already-inverted) band and outside it. Mapped directly from the
         // absolute caret point (NOT via `visible_range_from_absolute`, which
         // would collapse this single cell to `None`).
@@ -402,7 +402,7 @@ impl App {
     }
 
     /// Whether copy-mode is active (captures keys AND the mouse). Truthfully
-    /// reflects the live field (trap #3) — it drives both the modal gate and the
+    /// reflects the live field (trap #3) - it drives both the modal gate and the
     /// pointer-capture predicate, so a lying flag would desync both.
     pub(super) fn copy_mode_active(&self) -> bool {
         self.copy_mode.is_some()
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn unbound_key_is_not_translated() {
-        // An unbound letter has no mapping — the handler swallows it (trap #4).
+        // An unbound letter has no mapping - the handler swallows it (trap #4).
         assert_eq!(translate_copy_mode_char('z', false), None);
         assert_eq!(translate_copy_mode_char('z', true), None);
     }
@@ -839,8 +839,8 @@ mod tests {
     }
 
     /// C24 (app-level, real provider): a word motion from a caret parked in
-    /// scrollback — entirely OFF-SCREEN while the viewport sits at the live
-    /// tail — resolves against the absolute buffer through the terminal-window
+    /// scrollback - entirely OFF-SCREEN while the viewport sits at the live
+    /// tail - resolves against the absolute buffer through the terminal-window
     /// provider and lands on the next scrollback word.
     #[test]
     fn word_forward_resolves_in_offscreen_scrollback() {
@@ -899,7 +899,7 @@ mod tests {
 
     /// NF21-3: a window resize reflows EVERY tab's panes, so the stale
     /// layout-dependent UI state (selection / copy-mode caret / hover spans)
-    /// must clear on BACKGROUND tabs too — not only the active one. Before the
+    /// must clear on BACKGROUND tabs too - not only the active one. Before the
     /// fix the clear went through `Deref` = the active session only, so a
     /// background tab crossed the reflow keeping absolute-row coordinates mapped
     /// to the pre-reflow layout: on switch-back the selection covered the wrong
@@ -948,7 +948,7 @@ mod tests {
     }
 
     /// NF21-3 control: the active tab still clears its layout-dependent state on
-    /// a resize exactly as before — the fan-out helper reproduces the former
+    /// a resize exactly as before - the fan-out helper reproduces the former
     /// active-only block byte-for-byte, so this path is unchanged.
     #[test]
     fn grid_resize_clears_layout_state_on_active_tab_unchanged() {

@@ -8,9 +8,14 @@
 //!   switch to primary + restore cursor (DECRC) on leave. Equivalent to
 //!   `1048h; 1047h` on set and `1047l; 1048l` on reset.
 //! - **1048**: cursor save/restore only (DECSC/DECRC), no screen switching.
-//! - **1047**: switch alt buffer; NO clear on enter; clear alt on leave.
-//! - **47**: plain alt buffer switch, no cursor save, no clear on enter or
-//!   leave. Cursor position is NOT restored on leave.
+//! - **1047**: switch alt buffer; the cursor is not homed on enter; clear alt
+//!   on leave.
+//! - **47**: plain alt buffer switch, no cursor save, no cursor homing on
+//!   enter or leave. Cursor position is NOT restored on leave.
+//!
+//! The text model keeps no inactive alternate store, so every entry starts
+//! with a fresh blank alternate grid. This deliberately diverges from xterm
+//! modes 47 and 1047, which preserve alternate content across transitions.
 //!
 //! Also covers: cursor_visible + current_attrs StoredScreen save/restore
 //! (F3/F4), ED 2 in alt screen, scrollback isolation, re-entrancy,
@@ -32,7 +37,7 @@ fn visible_text(terminal: &Terminal) -> String {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Mode 1049 — save cursor + switch + clear alt / restore cursor
+// Mode 1049 - save cursor + switch + clear alt / restore cursor
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -73,7 +78,7 @@ fn mode_1049_scrollback_isolation_alt_never_feeds_scrollback() {
     terminal.advance(b"\x1b[?1049h");
     assert_eq!(terminal.screen().scrollback_len(), 0);
 
-    // Overflow the alt screen — must not accumulate scrollback.
+    // Overflow the alt screen - must not accumulate scrollback.
     terminal.advance(b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng");
     assert_eq!(terminal.screen().scrollback_len(), 0);
 
@@ -121,7 +126,7 @@ fn mode_1049_decsc_decrc_interaction() {
     terminal.advance(b"\x1b[?1049h");
     // Fresh alt has no saved cursor; DECRC should be a no-op.
     terminal.advance(b"\x1b[2;3H"); // cursor at (1, 2) in alt
-    terminal.advance(b"\x1b8"); // DECRC in alt — no saved cursor here
+    terminal.advance(b"\x1b8"); // DECRC in alt - no saved cursor here
     assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 2 });
 
     // DECSC/DECRC within alt works internally.
@@ -166,7 +171,7 @@ fn mode_1049_decstr_inside_alt_resets_modes_keeps_alt() {
 
     assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
     assert!(!terminal.bracketed_paste_enabled());
-    // DECSTR preserves cells — alt text still there.
+    // DECSTR preserves cells - alt text still there.
     assert!(terminal.screen().plain_text().contains("alt text"));
 
     // Can still exit alt normally.
@@ -220,7 +225,7 @@ fn mode_1049_scroll_region_does_not_leak_to_primary() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Mode 1048 — cursor save/restore only (DECSC/DECRC), no screen switch
+// Mode 1048 - cursor save/restore only (DECSC/DECRC), no screen switch
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -250,7 +255,7 @@ fn mode_1048_does_not_switch_screens() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Mode 47 — plain alt buffer switch (no cursor save, no clear)
+// Mode 47 - plain alt buffer switch (no cursor save, no clear)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -270,9 +275,9 @@ fn mode_47_enters_alt_screen() {
 
 #[test]
 fn mode_47_does_not_clear_alt_on_enter() {
-    // Mode 47 does not clear on entry (unlike 1049). The alt buffer starts
-    // blank on first use but the key distinction is: it does not explicitly
-    // home the cursor on entry.
+    // Mode 47 does not home the cursor on entry (unlike 1049). Every entry
+    // starts with a fresh blank alternate grid, so no alternate content
+    // survives a re-entry; this test only checks that primary content returns.
     let mut terminal = Terminal::new(10, 3);
     terminal.advance(b"primary");
 
@@ -311,7 +316,7 @@ fn mode_47_does_not_home_cursor_on_enter() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Mode 1047 — switch + clear alt on leave
+// Mode 1047 - switch + clear alt on leave
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -596,7 +601,8 @@ fn cursor_visible_hidden_in_alt_does_not_leak_to_primary() {
     assert!(terminal.snapshot().cursor_visible);
 
     terminal.advance(b"\x1b[?1049h");
-    // Hide cursor while in alt.
+    // Hide the alternate cursor; the primary visible state must be restored on
+    // return.
     terminal.advance(b"\x1b[?25l");
     assert!(!terminal.snapshot().cursor_visible);
 
@@ -642,7 +648,7 @@ fn current_attrs_restored_after_alt_roundtrip_1049() {
 
     terminal.advance(b"\x1b[?1049l");
     // Print a char: it should carry the primary's bold-red attrs.
-    // Cursor is at (0, 0) — DECRC restored to the position at enter time.
+    // Cursor is at (0, 0) - DECRC restored to the position at enter time.
     terminal.advance(b"X");
 
     let cell = terminal.screen().cell(0, 0).unwrap();
@@ -758,7 +764,7 @@ fn active_prompt_input_start_cleared_on_alt_enter_restored_on_leave() {
 
     // Any OSC 133 from the TUI (e.g. a nested shell in the TUI) stays local.
     terminal.advance(b"\x1b]133;A\x07alt $ \x1b]133;B\x07");
-    // We don't assert on this value — just confirming it doesn't crash.
+    // We don't assert on this value - just confirming it doesn't crash.
 
     // Leave alternate screen: primary's saved value is restored.
     terminal.advance(b"\x1b[?1049l");
@@ -784,7 +790,7 @@ fn primary_input_start_unaffected_by_alt_screen_osc133() {
     // Alt starts with None.
     assert_eq!(terminal.active_prompt_input_start(), None);
 
-    // Emit an OSC 133 C (command start) in alt — this clears active_prompt_input_start
+    // Emit an OSC 133 C (command start) in alt - this clears active_prompt_input_start
     // for the alt screen, which was already None: no effect.
     terminal.advance(b"\x1b]133;C\x07");
     assert_eq!(terminal.active_prompt_input_start(), None);

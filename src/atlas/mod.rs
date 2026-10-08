@@ -42,7 +42,7 @@
 //! `1..=95` hold printable ASCII (`0x20..=0x7E`), rasterized at build time.
 //! Slots beyond that are a **dynamic region**: non-ASCII glyphs are rasterized
 //! on demand by [`GlyphAtlas::ensure`], appending pages of rows when the region
-//! fills (no eviction — existing slots never move, so resident UV rects stay
+//! fills (no eviction - existing slots never move, so resident UV rects stay
 //! valid across growth). A font-size or font-family change is a full rebuild
 //! ([`GlyphAtlas::build`]); there is no in-place resize, so glyphs of different
 //! sizes can never coexist in one atlas.
@@ -124,7 +124,7 @@ const _: () = assert!(ATLAS_PAD >= 1);
 /// `bytes_per_pixel`. Each factor is widened to `usize` BEFORE multiplying:
 /// at large HiDPI cells (~288 px physical: the 72 px font cap × 4.0 scale) a
 /// full [`MAX_ATLAS_SLOTS`] subpixel atlas exceeds `u32::MAX` bytes, so a
-/// `u32` multiply overflows — panicking in debug builds and under-allocating
+/// `u32` multiply overflows - panicking in debug builds and under-allocating
 /// in release (out-of-bounds raster writes into a too-short buffer).
 fn atlas_byte_len(width: u32, height: u32, bytes_per_pixel: u32) -> usize {
     width as usize * height as usize * bytes_per_pixel as usize
@@ -742,9 +742,7 @@ impl GlyphInk {
     }
 }
 
-/// A monospace glyph atlas: an 8-bit coverage bitmap with a fallback box, the
-/// printable-ASCII block, and a growable dynamic region for other codepoints.
-/// Runtime per-codepoint glyph fallback resolver hook (RV6 Linux backfill): a
+/// Runtime per-codepoint glyph fallback resolver hook: a
 /// bare `fn` (not a closure) so [`GlyphAtlas`] stays `Clone`/`Debug`. Given a
 /// codepoint the static fallback chain missed, it returns a loaded face that
 /// covers it (or `None`). The native layer wires this to a cached `fc-match`
@@ -772,6 +770,8 @@ pub(super) enum SymbolFallback {
     Pending,
 }
 
+/// A monospace glyph atlas: an 8-bit coverage bitmap with a fallback box, the
+/// printable-ASCII block, and a growable dynamic region for other codepoints.
 #[derive(Debug, Clone)]
 pub struct GlyphAtlas {
     /// Atlas bitmap width in pixels.
@@ -791,14 +791,16 @@ pub struct GlyphAtlas {
     slot_ink: Vec<GlyphInk>,
     /// Per-slot horizontal cell span (index == slot): `1` for normal glyphs,
     /// `2` for a wide (East Asian) lead slot whose inner region and ink stretch
-    /// across two cells. Reserved/filler slots created by a wide allocation keep
+    /// across two cells; shaped and cluster allocations store larger spans, up
+    /// to `ATLAS_COLS`. Reserved/filler slots created by a wide allocation keep
     /// span `1` (they are never looked up). Invariant: `slot_span.len() ==
     /// slot_ink.len() == next_slot`.
     slot_span: Vec<u8>,
     /// Atlas cells per row.
     cols: u32,
     /// Number of cell-rows currently allocated (grows in `ATLAS_GROW_ROWS`
-    /// pages). `height == capacity_rows * cell.height`.
+    /// pages). `height == capacity_rows * slot_h(cell)` (the cell plus its slot
+    /// borders).
     capacity_rows: u32,
     /// Next free slot for dynamic insertion; also the current slot count.
     next_slot: u32,
@@ -835,13 +837,13 @@ pub struct GlyphAtlas {
     /// When set, box-drawing / block-element / Powerline codepoints that
     /// [`crate::boxdraw::covers`] recognizes are rasterized **geometrically**
     /// (computed rectangles/rails/arcs/triangles aligned to the cell grid)
-    /// instead of from the font outline (RV2). Default `false` preserves the
+    /// instead of from the font outline. Default `false` preserves the
     /// font-glyph path byte-for-byte. Like the synthetic-style mask, it only
     /// governs glyphs rasterized after it is set; the native layer sets it right
     /// after [`Self::build`] and rebuilds the atlas when the setting changes, so
     /// the dynamic region never holds a stale mix of geometric and font glyphs.
     geometric: bool,
-    /// Ordered symbol / Nerd-font fallback **chain** (RV6). When non-empty, a
+    /// Ordered symbol / Nerd-font fallback **chain**. When non-empty, a
     /// printable spacing codepoint the **primary** font lacks is rasterized from
     /// the first chain face that has a glyph for it, instead of the hollow-box
     /// tofu slot. The chain composes coverage from multiple faces (e.g. bundled

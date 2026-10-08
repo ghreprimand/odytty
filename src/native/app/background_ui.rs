@@ -2,7 +2,7 @@
 //! ID3/U5: readability-safe background treatments (gradient / vignette).
 //!
 //! This is the native seam for the background-treatment feature. The whole
-//! effect lives in the grid cell-vertex background path — the treatment
+//! effect lives in the grid cell-vertex background path - the treatment
 //! modulates each cell's resolved background color BEFORE the RV1
 //! minimum-contrast floor, so the floor sees the treated per-cell background and
 //! re-lifts the foreground. Readability is therefore preserved by construction,
@@ -16,7 +16,7 @@
 //!   off it is [`OverlayFragment::Inert`], so the geometry-update decision is a
 //!   frame-to-frame constant exactly as before this feature existed.
 //! - **overlay-registry SolidQuad lane (NO).** A SolidQuad would draw OVER the
-//!   text — wrong order. [`App::paint_background_quads`] stays a permanent no-op;
+//!   text - wrong order. [`App::paint_background_quads`] stays a permanent no-op;
 //!   the treatment is entirely in the cell-vertex background path.
 //! - **`ActiveModal` input gate (NO).** The treatment captures no keyboard.
 //!
@@ -48,7 +48,7 @@ fn treatment_params_for(settings: &Settings) -> BackgroundTreatmentParams {
         SettingTreatment::Vignette => grid::BackgroundTreatment::Vignette,
         // T1: the image treatment lives on its own GPU pass and does NOT modulate
         // per-cell background colours. It MUST return the identity params so the
-        // grid cell-vertex apply block is skipped — falling through to the
+        // grid cell-vertex apply block is skipped - falling through to the
         // gradient/vignette path would double-treat the background. Readability
         // is handled by the readability scrim + `cell_bg_opacity`, not here.
         SettingTreatment::Image => return BackgroundTreatmentParams::default(),
@@ -89,7 +89,7 @@ fn image_signature_for(settings: &Settings) -> Option<u64> {
 fn overlay_signature_for(settings: &Settings) -> OverlayFragment {
     let params = treatment_params_for(settings);
     if !params.active() {
-        // The image treatment returns identity params (T1) yet still paints —
+        // The image treatment returns identity params (T1) yet still paints -
         // key its cache fragment on the image signature so a path/blur/opacity/
         // scrim change repaints. `treat = 3` is the Image discriminant; when no
         // image is configured this is `None` and the fragment stays `Inert`,
@@ -142,7 +142,7 @@ mod tests {
     /// KILL-SHOT (trap 1): the `off`/`color` treatment produces the identity
     /// params, so the grid apply block is skipped and frames are byte-identical.
     /// (Since v0.6.0 the shipped default is `image`; this guards the opt-out
-    /// fast path — `background_treatment = color` — that disables the bundled
+    /// fast path - `background_treatment = color` - that disables the bundled
     /// background.)
     #[test]
     fn off_treatment_is_inactive_identity() {

@@ -15,7 +15,7 @@
 //! Off-path contract: with no flash in flight, `bell_flash_start` is `None`,
 //! [`App::bell_flash_deadline`] is `None` (no extra wakes),
 //! [`App::paint_bell_flash_quad`] emits nothing, and
-//! [`App::bell_flash_overlay_signature`] is constant `Inert` — the default
+//! [`App::bell_flash_overlay_signature`] is constant `Inert` - the default
 //! render path is byte-identical to before this feature existed.
 
 use winit::window::{UserAttentionType, Window};
@@ -82,7 +82,7 @@ impl App {
     }
 
     /// Window urgency for a bell that rang ANYWHERE (any pane, tab, or
-    /// workspace), with NO viewport flash — a background bell must never tint
+    /// workspace), with NO viewport flash - a background bell must never tint
     /// the pane the user is currently looking at (NF21-6). No-op while focused,
     /// on the off / visual-only path, or without a window. The urgency call is
     /// cross-platform (taskbar flash on Windows, dock bounce on macOS, WM

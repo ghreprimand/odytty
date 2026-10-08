@@ -27,7 +27,7 @@ impl App {
             return;
         };
         let Some(title) = ({
-            // P0-3: OSC-title event path — poison-recover, never abort.
+            // P0-3: OSC-title event path - poison-recover, never abort.
             let mut terminal = crate::native::lock_recover(&self.terminal);
             changed_window_title(&mut terminal, &self.options.title)
         }) else {
@@ -319,7 +319,7 @@ impl App {
     /// same resolved span so every visible segment owns the row-resize target,
     /// including the pinned or revealed rail junction. CHROME-GAP: this is the
     /// band BACKGROUND extent, which abuts a pinned rail band (chrome always
-    /// touches chrome) — the tabs themselves stay gap-inset with the content
+    /// touches chrome) - the tabs themselves stay gap-inset with the content
     /// columns, so the gap strip at the junction is painted band and owns the
     /// seam row-resize, while tab hits are untouched.
     pub(super) fn top_panel_span(
@@ -356,7 +356,7 @@ impl App {
     }
 
     /// CHROME-ALPHA: the one shared paint decision for every chrome-panel
-    /// surface this frame — the panel surface color, the panel-wash alpha, and
+    /// surface this frame - the panel surface color, the panel-wash alpha, and
     /// the optional seam color. The pinned top-bar band, the pinned rail band,
     /// and the auto-hide rail overlay ALL take their wash from here, so the
     /// chrome bands compose to the same effective translucency regardless of
@@ -370,13 +370,13 @@ impl App {
         let panel_color = tab_chrome::panel_tint(colors, strength);
         // The wash tops the band's own cell fill up to the strength-driven
         // target, so it needs the alpha those cells actually compose this
-        // frame (window translucency × wallpaper softening — the same value
+        // frame (window translucency × wallpaper softening - the same value
         // the content build uses).
         let capable = self
             .gpu
             .as_ref()
             .is_some_and(crate::native::gpu::GpuState::transparency_capable);
-        // COLORED-BG-FLOOR EXEMPT: chrome wash math — the band's effective
+        // COLORED-BG-FLOOR EXEMPT: chrome wash math - the band's effective
         // opacity is owned by `tab_panel_strength`, and its cells composite at
         // the plain content alpha (chrome strips/rows are floor-exempt), so the
         // top-up target must reference the same plain product.

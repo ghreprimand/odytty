@@ -28,7 +28,7 @@ impl SnapshotEnvelope {
     /// Fallible: encoding validates wire bounds first
     /// ([`Self::validate_wire_bounds`]) and refuses an envelope whose fields
     /// cannot be represented losslessly, instead of truncating them into a
-    /// buffer that fails to decode. The writers themselves are infallible —
+    /// buffer that fails to decode. The writers themselves are infallible -
     /// after validation every narrowing cast is provably lossless.
     ///
     /// The terminal-state section (by far the largest payload; tens of MB for

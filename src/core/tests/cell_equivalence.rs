@@ -373,7 +373,7 @@ fn transcript_shaped_export_matches_visible_grapheme_concatenation() {
 fn projection_same_width_reread_after_scroll_is_not_stale() {
     // Observable contract of the memoized Projection: after a mutation that
     // pushes a row into scrollback, a later read at the same width must
-    // include the newly scrolled content — not a cached projection from
+    // include the newly scrolled content - not a cached projection from
     // before the push.
     let first = combining_cluster('A', 2);
     let second = combining_cluster('B', 2);

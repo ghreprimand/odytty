@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Rescale, wide-glyph allocation, and fractional-scale seam tests. (M5 mechanical split from atlas.rs).
+//! Rescale, wide-glyph allocation, and fractional-scale seam tests..
 
 use super::*;
 
 /// Rebuilding the atlas at a larger physical size (the HiDPI rescale path:
 /// `GpuState::set_font_px` constructs a fresh atlas) grows the cell metrics
-/// and starts from a clean dynamic region — no slot from the old density can
+/// and starts from a clean dynamic region - no slot from the old density can
 /// survive. This is R1 invalidation by construction.
 #[test]
 fn rebuild_at_larger_size_grows_cell_and_drops_dynamic_slots() {
@@ -34,7 +34,7 @@ fn rebuild_at_larger_size_grows_cell_and_drops_dynamic_slots() {
         big.cell,
         small_cell
     );
-    // The rebuilt atlas has only its base region — zero stale dynamic slots.
+    // The rebuilt atlas has only its base region - zero stale dynamic slots.
     assert_eq!(
         big.slot_count(),
         FIRST_DYNAMIC_SLOT,
@@ -154,7 +154,7 @@ fn rasterize_clip_width_relieves_wide_glyph_clipping() {
         return;
     };
     // Build a cell at one size, then rasterize a heavy glyph at DOUBLE the
-    // size so its natural ink exceeds a single cell — the same shape a real
+    // size so its natural ink exceeds a single cell - the same shape a real
     // width-2 glyph takes relative to a single-cell slot. With a single-cell
     // clip the ink is cropped; with a two-cell clip it is not.
     let atlas = GlyphAtlas::build(&font, 16.0);

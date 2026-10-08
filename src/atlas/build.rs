@@ -22,8 +22,8 @@ impl GlyphAtlas {
     /// Rasterize printable ASCII with an explicit `line_height` multiplier
     /// (LINEHEIGHT). `1.0` is the historical cell geometry, byte-identical to
     /// [`Self::build_with_subpixel`]; values above `1.0` add vertical leading,
-    /// split symmetrically (half above, half below) so the baseline stays
-    /// centered and glyph rasterization is unchanged — only the cell box grows
+    /// split between the top and bottom (the larger half on top) so the baseline stays
+    /// centered and glyph rasterization is unchanged - only the cell box grows
     /// and the baseline shifts down by the top half. The added rows are
     /// transparent gutter, so default `1.0` produces identical coverage.
     pub fn build_with_options(
@@ -42,7 +42,7 @@ impl GlyphAtlas {
         let descent = scaled.descent(); // negative (below baseline)
 
         // Single documented baseline: the font ascent rounded to the nearest
-        // whole pixel. Every glyph — ASCII, accents, box-drawing — is positioned
+        // whole pixel. Every glyph - ASCII, accents, box-drawing - is positioned
         // with its baseline on this one integer row, so mixed glyphs sit on a
         // common line and horizontal stems land on pixel boundaries for crisp
         // coverage. The cell height spans this baseline plus the descent so

@@ -102,10 +102,10 @@ impl Screen {
     /// Set the live cell pixel metrics used by the graphics routing layer
     /// (Sixel/Kitty extent calculation). The native layer calls this at startup
     /// and on every rescale/font-size rebuild so new placements use the real
-    /// glyph cell size. Dimensions are clamped to `[1, 1024]` — zero is never
+    /// glyph cell size. Dimensions are clamped to `[1, 1024]` - zero is never
     /// stored.
     ///
-    /// Existing placements are **not** recomputed — they retain the extent
+    /// Existing placements are **not** recomputed - they retain the extent
     /// calculated at creation time. Only placements created after this call
     /// use the updated metrics (new-placements-only policy, documented).
     pub fn set_cell_metrics(&mut self, width_px: u32, height_px: u32) {
@@ -376,7 +376,7 @@ impl Screen {
     /// override where one exists, otherwise the theme-seeded base palette
     /// ([`Self::set_base_palette`]). Same precedence the OSC 4 query path
     /// reports and the renderer resolves against, exposed as a whole array for
-    /// callers that need the effective palette rather than one slot — notably
+    /// callers that need the effective palette rather than one slot - notably
     /// theme capture, which must reproduce the screen, not the theme.
     ///
     /// Only indices 0..16 are theme-relevant; 16..=255 stay on the xterm cube
@@ -444,7 +444,7 @@ impl Screen {
     }
 
     /// Effective palette color for OSC 4 replies: a live OSC 4 override wins,
-    /// then the theme's base 16 (C29), then the xterm table for 16..=255.
+    /// then the theme's base 16, then the xterm table for 16..=255.
     pub(super) fn palette_color(&self, index: u8) -> RgbColor {
         self.dynamic_colors.palette[index as usize].unwrap_or_else(|| {
             self.base_palette

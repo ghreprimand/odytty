@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Pure connection-host data layer for the future SSH manager.
+//! Connection-host list: read, parse, append, edit, and remove entries of
+//! OdyTTY's hosts file, and merge the opt-in OpenSSH names.
 //!
 //! OdyTTY's own hosts file is the default source. Reading OpenSSH config is an
 //! explicit opt-in controlled by settings and remains name-only via
@@ -40,7 +41,7 @@ impl Default for ConnectionHostsLimits {
     }
 }
 
-/// One connection candidate for a future quick-connect UI.
+/// One connection candidate for the connection manager and quick-connect list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionHost {
     pub alias: String,
@@ -72,10 +73,10 @@ pub struct ConnectionHost {
     /// gains `-i <path>`; OdyTTY stores only the path, never any key material.
     /// The once-and-done alternative to typing a password is `ssh-copy-id`.
     pub identity_file: Option<String>,
-    /// Per-host override for the reuse master's `ControlPersist` window (ODP-9
-    /// Tier 2). `None` inherits the global `remote_persist` setting; any value
+    /// Per-host override for the reuse master's `ControlPersist` window.
+    /// `None` inherits the global `remote_persist` setting; any value
     /// here is passed through as the raw `ssh` ControlPersist token (e.g. `off`,
-    /// `2h`, `600`). Unix-only in effect — never emitted on a Windows client.
+    /// `2h`, `600`). Unix-only in effect - never emitted on a Windows client.
     pub persist: Option<String>,
     pub source: ConnectionHostSource,
 }
@@ -163,7 +164,7 @@ pub fn read_odytty_hosts_with_limits(
     if limits.max_bytes == 0 || limits.max_entries == 0 || limits.max_field_chars == 0 {
         return Vec::new();
     }
-    // C14: stream only a bounded prefix so an oversized or adversarial hosts
+    // Stream only a bounded prefix so an oversized or adversarial hosts
     // file can never be read whole into memory. The parser intentionally treats
     // that prefix as authoritative; mutation paths use the rejecting mode below
     // because they must preserve every existing byte.
@@ -274,7 +275,7 @@ fn push_host_block_aliased(
         out.push_str(&quote_field(alias)?);
     }
     out.push('\n');
-    // Only emit HostName when it differs from the primary alias — a plain
+    // Only emit HostName when it differs from the primary alias - a plain
     // `Host x` block connects to `x` directly, so a redundant `HostName x` is
     // noise.
     if let Some(host_name) = host.host_name.as_deref()
@@ -343,7 +344,7 @@ impl AdhocTarget {
 
     /// Build a `ConnectionHost` for the connect path. The alias is the host part
     /// (so a saved block reads `Host <host>`), and per-host integration/reuse/
-    /// tmux are left `None` so the global defaults apply — ad-hoc connections
+    /// tmux are left `None` so the global defaults apply - ad-hoc connections
     /// carry no per-host overrides.
     pub fn to_connection_host(&self) -> ConnectionHost {
         ConnectionHost {
@@ -369,7 +370,7 @@ impl AdhocTarget {
 
 /// Whether a host/user token is a safe, well-formed name: non-empty ASCII of
 /// letters, digits, `.`, `-`, or `_`, and never leading with `-` (which the
-/// system `ssh` would read as an option — the argv `--` guard is a second line
+/// system `ssh` would read as an option - the argv `--` guard is a second line
 /// of defense, not the only one).
 pub(crate) fn is_valid_adhoc_part(value: &str) -> bool {
     if value.is_empty() || value.starts_with('-') {
@@ -385,7 +386,7 @@ pub(crate) fn is_valid_adhoc_part(value: &str) -> bool {
 /// host, has an out-of-range/non-numeric port, or carries an option-injecting
 /// leading `-`. The returned parts are argv-safe.
 pub fn parse_adhoc_target(query: &str) -> Option<AdhocTarget> {
-    // Reject anything with whitespace outright — a real destination never has
+    // Reject anything with whitespace outright - a real destination never has
     // spaces, and this also rejects the empty/whitespace-only query.
     if query.is_empty() || query.chars().any(char::is_whitespace) {
         return None;
@@ -403,7 +404,7 @@ pub fn parse_adhoc_target(query: &str) -> Option<AdhocTarget> {
     };
 
     // Split an optional `:port` suffix. Only a single colon is allowed (host
-    // names here are not bracketed IPv6 literals — out of scope this cycle).
+    // names here are not bracketed IPv6 literals, which are not supported).
     let (host, port) = match rest.split_once(':') {
         Some((host_part, port_part)) => {
             if port_part.is_empty() || port_part.contains(':') {
@@ -641,8 +642,8 @@ fn render_edited_block(
 }
 
 /// Splice a byte-identical edit of the block owning `target_alias`, replacing
-/// only that block's body with `updated` re-rendered. Every other byte —
-/// comments, blank lines, other blocks' unknown fields — is preserved. Returns
+/// only that block's body with `updated` re-rendered. Every other byte -
+/// comments, blank lines, other blocks' unknown fields - is preserved. Returns
 /// `None` when no block matches. Valid UTF-8 in/out; a source with invalid UTF-8
 /// is lossily normalized (matching the reader), so the byte-identity guarantee
 /// holds for well-formed files.
@@ -688,7 +689,7 @@ fn splice_host_block_remove(source: &str, target_alias: &str, max_chars: usize) 
 
 /// Edit the OdyTTY-owned `Host` block whose alias list contains `target_alias`,
 /// re-rendering only that block from `updated` and splicing it over its byte
-/// span — every other byte (comments, blank lines, unknown fields in other
+/// span - every other byte (comments, blank lines, unknown fields in other
 /// blocks) is preserved. The write is atomic (temp sibling + rename). A missing
 /// file, empty file, or unmatched alias returns [`HostsEditOutcome::NotFound`]
 /// and never writes.
@@ -1252,7 +1253,7 @@ mod tests {
         );
         assert_eq!(host.user.as_deref(), Some("deploy"));
         assert_eq!(host.port, Some(2200));
-        // Ad-hoc carries no per-host overrides — global defaults apply.
+        // Ad-hoc carries no per-host overrides - global defaults apply.
         assert_eq!(host.integration, None);
         assert_eq!(host.reuse, None);
         assert_eq!(host.tmux, None);
@@ -1653,11 +1654,11 @@ mod tests {
         fs::remove_dir_all(dir).ok();
     }
 
-    // ---- ODP-4B: block-span byte-splice edit / remove ----
+    // ---- Block-span byte-splice edit / remove ----
 
     /// A hand-annotated fixture: a leading comment, three blocks (one
     /// multi-alias), an in-block comment, an unknown field, a tab indent, and
-    /// blank-line separators — the shapes an in-place edit must not disturb.
+    /// blank-line separators - the shapes an in-place edit must not disturb.
     fn annotated_fixture() -> String {
         [
             "# OdyTTY hosts \u{2014} hand annotated",
@@ -1884,7 +1885,7 @@ mod tests {
 
     #[test]
     fn persist_field_parses_emits_and_survives_an_edit() {
-        // ODP-9 Tier 2: a per-host Persist override parses and round-trips.
+        // A per-host Persist override parses and round-trips.
         let entries = parse_odytty_hosts_bytes_with_limits(
             b"Host pw\n    HostName pw.example.invalid\n    Persist 2h\n",
             limits(),
@@ -1919,7 +1920,7 @@ mod tests {
 
     #[test]
     fn identity_file_parses_emits_and_survives_an_edit() {
-        // ODP-9 Tier 1: IdentityFile stores a key PATH (never a secret) and
+        // IdentityFile stores a key PATH (never a secret) and
         // round-trips through a render.
         let entries = parse_odytty_hosts_bytes_with_limits(
             b"Host k\n    HostName k.example.invalid\n    IdentityFile /home/user/.ssh/id_ed25519.example\n",

@@ -32,7 +32,7 @@ fn applies_basic_sgr_attributes() {
 fn private_prefixed_m_is_not_sgr() {
     // `CSI > 4 ; 2 m` is XTMODKEYS (set modifyOtherKeys), which apps emit at
     // startup to enable enhanced keyboard input. It must NOT be parsed as SGR
-    // `4;2` (underline + dim) — doing so set those attributes globally and
+    // `4;2` (underline + dim) - doing so set those attributes globally and
     // smeared them across all subsequent text. The `>` private prefix arrives
     // in `intermediates`, so the SGR path is gated on empty intermediates.
     // The sequence now routes to the modifyOtherKeys state (see
@@ -267,7 +267,7 @@ fn truecolor_channels_60_to_63_are_not_dropped() {
 }
 
 /// Every single channel value 0..=255 in every channel position round-trips for
-/// foreground truecolor — the exhaustive guard that no value (not just the
+/// foreground truecolor - the exhaustive guard that no value (not just the
 /// historical 60–63) is misclassified as a marker.
 #[test]
 fn truecolor_every_channel_value_round_trips() {
@@ -315,7 +315,7 @@ fn truecolor_underline_channel_60_keeps_trailing_underline_style() {
 
 /// The fix must not regress genuine CSI private-marker routing: the marker is an
 /// intermediate, so DEC private modes (`CSI ? … h/l`) and other marker-prefixed
-/// sequences still dispatch correctly — they do not collide with parameter
+/// sequences still dispatch correctly - they do not collide with parameter
 /// values that happen to equal 60–63.
 #[test]
 fn private_marker_sequences_still_route_after_fix() {
@@ -332,7 +332,7 @@ fn private_marker_sequences_still_route_after_fix() {
     terminal.advance(b"\x1b[1mB");
     assert!(terminal.screen().cell(0, 0).unwrap().attrs.bold());
 
-    // `CSI > c` (secondary device attributes) — the `>` marker must still route
+    // `CSI > c` (secondary device attributes) - the `>` marker must still route
     // to DA2, producing its host reply (not be misread as a parameter value).
     let _ = terminal.take_host_output();
     terminal.advance(b"\x1b[>c");
@@ -358,7 +358,7 @@ fn responds_to_primary_device_attributes() {
 }
 
 /// The DA1 attribute list is a set of capability claims, and the thing worth
-/// pinning is which capabilities are claimed — not the byte order they happen
+/// pinning is which capabilities are claimed - not the byte order they happen
 /// to be emitted in. Sixel (`4`) is called out separately because clients
 /// autodetect Sixel support from exactly this parameter: without it a working
 /// decoder is undiscoverable.
@@ -414,8 +414,8 @@ fn primary_device_attributes_ignores_nonzero_params() {
 /// autodetection handshake: a client that sees the Sixel bit in DA1 sends this
 /// to learn geometry and colour-register limits. It shares its final byte with
 /// SU (scroll up), and dispatching it as a scroll silently destroyed screen
-/// content for every probe. Answering nothing is correct — the client falls
-/// back to its own defaults — but scrolling never is.
+/// content for every probe. Answering nothing is correct - the client falls
+/// back to its own defaults - but scrolling never is.
 #[test]
 fn sixel_geometry_query_does_not_scroll_the_screen() {
     let mut terminal = Terminal::new(4, 3);

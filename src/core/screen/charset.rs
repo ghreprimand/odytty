@@ -3,13 +3,14 @@
 //! set). When the active GL charset is designated Special Graphics
 //! (`ESC ( 0` / `ESC ) 0` + SO/SI, see
 //! [`CharsetModes`](crate::core::types::CharsetModes)), printed characters in
-//! `0x5F..=0x7E` map to Unicode box/line/symbol glyphs at the print seam —
+//! `0x5F..=0x7E` map to Unicode box/line/symbol glyphs at the print seam -
 //! the grid stores the already-translated Unicode character, so snapshots,
 //! search, selection, and reflow all see plain text with no charset awareness.
 //!
-//! Every mapped glyph is narrow (width 1): the box-drawing and symbol targets
-//! are East Asian Ambiguous or Neutral, which `unicode-width` resolves to 1,
-//! so translation never changes cell advance (pinned by test).
+//! Mapped glyphs are narrow (width 1) under the default width policy: the
+//! box-drawing and symbol targets are East Asian Ambiguous or Neutral, which
+//! `unicode-width` resolves to 1, so translation does not change cell advance
+//! (pinned by test). Ambiguous glyphs follow the selected width policy.
 
 /// Map one character through the DEC Special Graphics set. Returns the input
 /// unchanged for characters outside `0x5F..=0x7E`, making the translation

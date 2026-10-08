@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Button Protocol B2 — chip rendering.
+//! Button Protocol B2 - chip rendering.
 //!
 //! Program-defined buttons are exposed for render as viewport-projected
 //! [`SnapshotButton`]s (see [`crate::core::Screen::visible_button_spans`]). This
@@ -13,7 +13,7 @@
 //!
 //! The default path is byte-identical: with the `buttons` gate off the projector
 //! returns no spans, so [`paint_button_cells`] is handed an empty slice and is a
-//! no-op — no cell is touched. The exact chip look (colors, glyphs, the eventual
+//! no-op - no cell is touched. The exact chip look (colors, glyphs, the eventual
 //! promotion of the point chip to real overlay-quad geometry) is FEEL-GATED and
 //! tuned on a release build before the chip is considered done; the constants
 //! here have no portable-correct value.
@@ -94,8 +94,8 @@ fn chip_visual(button: &SnapshotButton, hovered: Option<(usize, usize)>) -> Chip
 }
 
 /// Whether a cell is blank enough for the chip to claim as a pill cap: a space
-/// glyph on the default background with no hyperlink. Program output — any
-/// glyph, any colored cell, any linked cell — is never overdrawn by chrome.
+/// glyph on the default background with no hyperlink. Program output - any
+/// glyph, any colored cell, any linked cell - is never overdrawn by chrome.
 fn cap_claimable(cell: &Cell) -> bool {
     cell.ch == ' ' && cell.attrs.background == Color::Default && cell.attrs.hyperlink.is_none()
 }
@@ -128,7 +128,7 @@ fn paint_cap(snapshot: &mut Snapshot, base: usize, col: usize, cap: char, fill: 
 ///
 /// The chip reads as a bounded object, not a background highlight: the label
 /// run carries the fill with a bold face, and half-block pill caps extend a
-/// half cell on each side wherever the neighboring cell is genuinely blank —
+/// half cell on each side wherever the neighboring cell is genuinely blank -
 /// program output is never overdrawn by chrome.
 pub(in crate::native) fn paint_button_cells(
     snapshot: &mut Snapshot,
@@ -184,7 +184,7 @@ pub(in crate::native) fn paint_button_cells(
     }
 }
 
-/// Draw the bounded `▐ icon code ▌` pill into the point button's chip rect —
+/// Draw the bounded `▐ icon code ▌` pill into the point button's chip rect -
 /// resolved by core (`point_chip_rect`) past the row's content end, so every
 /// rect cell is genuinely blank and the caps paint unconditionally. Interior
 /// padding keeps the icon glyph and the digits off the caps, matching the
@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn label_run_restyles_its_cells_and_keeps_the_glyphs() {
-        // "$ Retry" — the "Retry" run (cols 2..7) becomes a chip.
+        // "$ Retry" - the "Retry" run (cols 2..7) becomes a chip.
         let mut snap = snapshot_with_text(20, 3, "$ Retry");
         paint_button_cells(&mut snap, &[btn(0, 2, 5, ButtonState::Live)], None);
         let live = button_chip_attrs(ChipVisual::Live);
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn label_run_grows_pill_caps_into_blank_neighbors() {
-        // "$ Retry" — col 1 is a blank cell (left cap), col 7 blank (right cap).
+        // "$ Retry" - col 1 is a blank cell (left cap), col 7 blank (right cap).
         let mut snap = snapshot_with_text(20, 3, "$ Retry");
         paint_button_cells(&mut snap, &[btn(0, 2, 5, ButtonState::Live)], None);
         let live = button_chip_attrs(ChipVisual::Live);
@@ -338,10 +338,10 @@ mod tests {
 
     #[test]
     fn pill_caps_never_overdraw_program_output() {
-        // "a Retry b" — both neighbor cells hold program glyphs; no caps.
+        // "a Retry b" - both neighbor cells hold program glyphs; no caps.
         let mut snap = snapshot_with_text(20, 3, "a Retry b");
         // The run is "Retry" (cols 2..7); neighbors col 1 (' ') is blank but
-        // col 8 (' ') is blank too — make them program-styled instead: put
+        // col 8 (' ') is blank too - make them program-styled instead: put
         // glyphs directly adjacent.
         let mut snap2 = snapshot_with_text(20, 3, "aXRetryYb");
         paint_button_cells(&mut snap2, &[btn(0, 2, 5, ButtonState::Live)], None);

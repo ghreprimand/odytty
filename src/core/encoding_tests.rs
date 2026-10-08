@@ -445,7 +445,7 @@ fn ris_resets_focus_reporting() {
 #[test]
 fn ris_resets_alternate_scroll_to_power_on_default() {
     // DEC private mode 1007 (alternate scroll) powers on enabled, so RIS must
-    // restore it to enabled after a DECRST turned it off — mirroring the
+    // restore it to enabled after a DECRST turned it off - mirroring the
     // focus-reporting / mouse / click-events input-reporting family that RIS
     // returns to its power-on state.
     let mut terminal = Terminal::new(4, 1);
@@ -464,7 +464,7 @@ fn ris_resets_alternate_scroll_to_power_on_default() {
 #[test]
 fn soft_reset_leaves_alternate_scroll_untouched() {
     // DECSTR (soft reset) intentionally does NOT reset the input-reporting
-    // family (focus reporting / mouse / click events / alternate scroll) — only
+    // family (focus reporting / mouse / click events / alternate scroll) - only
     // RIS does. This pins alternate scroll to that family: a DECRST 1007 stays
     // in effect across a soft reset, matching how focus reporting behaves here.
     let mut terminal = Terminal::new(4, 1);
@@ -482,7 +482,7 @@ fn soft_reset_leaves_alternate_scroll_untouched() {
 fn reset_input_reporting_modes_clears_the_latched_transient_family() {
     // A remote session that latched input-reporting modes (a TUI, or the shell's
     // readline enabling bracketed paste) must not carry them across a reconnect
-    // respawn into a FRESH login shell — the model is reused to preserve
+    // respawn into a FRESH login shell - the model is reused to preserve
     // scrollback, so `WorkspaceSet::reconnect` calls this reset. Pins the
     // primitive: without it, a stale DEC 2004 makes the next paste wrap in
     // \e[200~/\e[201~ markers the fresh readline never enabled, echoing them
@@ -720,9 +720,9 @@ fn encode_mouse_pixel_honors_tracking_gate() {
 
 #[test]
 fn encode_mouse_event_cell_path_passes_through_for_sgr_pixel() {
-    // Without the native pixel seam, the cell-based entry emits the SGR-pixel
-    // wire shape with the coordinates it was given (transitional pass-through),
-    // never silently dropping events while 1016 is active.
+    // The cell-based entry emits the SGR-pixel wire shape with the coordinates
+    // it was given (compatibility pass-through), never silently dropping
+    // events while 1016 is active. Native callers use the pixel entry.
     let p = proto(MouseTracking::Normal, MouseEncoding::SgrPixel);
     assert_eq!(
         encode_mouse_event(

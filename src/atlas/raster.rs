@@ -31,33 +31,6 @@ pub(super) fn slot_offset(slot: u32, cols: u32, cell: CellSize) -> (u32, u32) {
     ((slot % cols) * slot_w(cell), (slot / cols) * slot_h(cell))
 }
 
-/// Rasterize one glyph's coverage into the slot whose **outer** top-left is
-/// `origin`, positioning it on the shared integer `baseline`, and return its
-/// inked pixel extent relative to the cell's inner top-left.
-///
-/// Returns `None` if the font has no outline for `ch`, or an outline that inks
-/// no pixels (e.g. a space). The returned [`GlyphInk`] offsets may be negative
-/// (ink left of / above the cell) and its size may exceed the cell (ink right of
-/// / below it), which is what lets the renderer draw overflow uncropped.
-///
-/// The glyph's pen is placed at the cell's inner origin `(ox + slot_border,
-/// oy + slot_border)` and on `baseline`, then each coverage sample is placed at
-/// the **nearest** atlas pixel (rounding, not truncation, for stable sub-pixel
-/// placement). Coverage may land anywhere in the drawable region — the cell plus
-/// its overflow margin — so ink genuinely past the cell box (powerline glyphs,
-/// box-drawing joins, descenders, italic side bearing) is preserved; only the
-/// outermost [`ATLAS_PAD`] bleed ring is kept transparent, and the clip keeps a
-/// glyph strictly out of its neighbors. The strongest value wins on any overlap.
-///
-/// When `synth` is non-identity (no real face for the requested style), the
-/// upright Regular outline is transformed at coverage-write time: a per-sample
-/// horizontal **shear** for synthetic italic and a rightward **double-strike**
-/// for synthetic bold (see [`SynthTransform`]). Both effects are tracked by the
-/// same `min/max` ink bounds, so the returned [`GlyphInk`] reports the real
-/// (sheared/widened) extent and the renderer draws it uncropped; the existing
-/// drawable-region clip keeps the synthesis inside the slot. Synthesis never
-/// changes the cell advance.
-///
 /// Maximum exponent gain for stem-darkening at strength `1.0`. The applied
 /// exponent is `1.0 / (1.0 + strength * STEM_DARKEN_GAIN)`; with strength in
 /// `0.0..=1.0` this yields an exponent in `1.0 ..= 1/(1+GAIN)`. At `0.6` the
@@ -68,13 +41,12 @@ const STEM_DARKEN_GAIN: f32 = 0.6;
 /// Active stem-darkening strength, bit-cast `f32` in an atomic so raster reads
 /// stay lock-free (mirrors the runtime color-override seams in
 /// [`crate::text`]). `0.0` (the default) is a true no-op: coverage is written
-/// byte-identically to the pre-feature atlas. Presentation-only — never affects
+/// byte-identically to the pre-feature atlas. Presentation-only - never affects
 /// terminal cell contents or metrics.
 ///
-/// **RV5 prototype.** This is a *global* coverage boost applied to every
-/// rasterized glyph (it cannot see per-cell fg/bg at raster time). The
-/// luminance-conditioned "light-on-dark only" variant is a documented in-shader
-/// follow-up; see the audit findings.
+/// This is a *global* coverage boost applied to every rasterized glyph (it
+/// cannot see per-cell fg/bg at raster time), so it also applies on light
+/// backgrounds.
 static STEM_DARKEN: AtomicU32 = AtomicU32::new(0); // 0.0_f32.to_bits()
 
 /// Set the global stem-darkening strength used when rasterizing glyphs.
@@ -117,7 +89,7 @@ pub(crate) fn stem_darken_strength_for_test() -> f32 {
 ///
 /// **Pixel-identity guarantee:** at `strength <= 0.0` this returns `value`
 /// unchanged, and the fully-uncovered (`0`) and fully-covered (`255`) endpoints
-/// are always returned exactly — only intermediate (anti-aliased edge / thin
+/// are always returned exactly - only intermediate (anti-aliased edge / thin
 /// stem) coverage is boosted. So a disabled or absent setting reproduces the
 /// historical atlas byte-for-byte.
 pub(super) fn apply_stem_darken(value: u8, strength: f32) -> u8 {
@@ -133,16 +105,16 @@ pub(super) fn apply_stem_darken(value: u8, strength: f32) -> u8 {
 /// **Primary size knob.** Fraction of cell HEIGHT a fitted symbol/icon glyph
 /// fills. The glyph is scaled so its ink height is `SYMBOL_CELL_FILL *
 /// cell.height` (then width-capped so it can never clip), and centered on the
-/// cell. Tuned against ghostty on a dev build: ~0.82 matches; full
+/// cell. Chosen by visual comparison: ~0.82 reads right; full
 /// height (~0.95) reads too big, the old width-fit (~0.6 em cell width) too
-/// small. Tune here during the dev-build eyeball.
+/// small.
 pub(super) const SYMBOL_CELL_FILL: f32 = 0.82;
 
 /// Inset padding, as a fraction of the smaller cell dimension, used **only** to
 /// narrow the width safety cap for a fitted icon (so a wide glyph scaled to
 /// height still leaves a gutter inside the slot's drawable region and never
 /// kisses a neighbour). In the height-fraction model the inset no longer drives
-/// the size target — [`SYMBOL_CELL_FILL`] does — it just trims `max_draw_w`.
+/// the size target - [`SYMBOL_CELL_FILL`] does - it just trims `max_draw_w`.
 pub(super) const SYMBOL_CELL_INSET: f32 = 0.10;
 
 /// Maximum upscale applied when fitting a *sub-cell* symbol/icon glyph. The
@@ -208,11 +180,37 @@ pub(super) struct SlotRegion {
     pub(super) origin: (u32, u32),
     /// Shared per-cell metrics.
     pub(super) cell: CellSize,
-    /// Total horizontal extent in pixels — `slot_w(cell)` for a normal glyph,
-    /// `span * slot_w(cell)` for a wide one — i.e. the right clip edge.
+    /// Total horizontal extent in pixels - `slot_w(cell)` for a normal glyph,
+    /// `span * slot_w(cell)` for a wide one - i.e. the right clip edge.
     pub(super) outer_w: u32,
 }
 
+/// Rasterize one glyph's coverage into the slot whose **outer** top-left is
+/// `origin`, positioning it on the shared integer `baseline`, and return its
+/// inked pixel extent relative to the cell's inner top-left.
+///
+/// Returns `None` if the font has no outline for `ch`, or an outline that inks
+/// no pixels (e.g. a space). The returned [`GlyphInk`] offsets may be negative
+/// (ink left of / above the cell) and its size may exceed the cell (ink right of
+/// / below it), which is what lets the renderer draw overflow uncropped.
+///
+/// The glyph's pen is placed at the cell's inner origin `(ox + slot_border,
+/// oy + slot_border)` and on `baseline`, then each coverage sample is placed at
+/// the **nearest** atlas pixel (rounding, not truncation, for stable sub-pixel
+/// placement). Coverage may land anywhere in the drawable region - the cell plus
+/// its overflow margin - so ink genuinely past the cell box (powerline glyphs,
+/// box-drawing joins, descenders, italic side bearing) is preserved; only the
+/// outermost [`ATLAS_PAD`] bleed ring is kept transparent, and the clip keeps a
+/// glyph strictly out of its neighbors. The strongest value wins on any overlap.
+///
+/// When `synth` is non-identity (no real face for the requested style), the
+/// upright Regular outline is transformed at coverage-write time: a per-sample
+/// horizontal **shear** for synthetic italic and a rightward **double-strike**
+/// for synthetic bold (see [`SynthTransform`]). Both effects are tracked by the
+/// same `min/max` ink bounds, so the returned [`GlyphInk`] reports the real
+/// (sheared/widened) extent and the renderer draws it uncropped; the existing
+/// drawable-region clip keeps the synthesis inside the slot. Synthesis never
+/// changes the cell advance.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn rasterize_glyph(
     font: &FontHandle,
@@ -315,8 +313,8 @@ pub(super) fn rasterize_glyph_run(
     let stem = stem_darken_strength();
     // Cell inner origin, and the drawable region (cell + overflow margin) that
     // coverage may occupy, leaving the outer ATLAS_PAD bleed ring transparent.
-    // `outer_w` is the slot's total horizontal extent in pixels — `slot_w(cell)`
-    // for a normal glyph, `span * slot_w(cell)` for a wide (multi-cell) glyph —
+    // `outer_w` is the slot's total horizontal extent in pixels - `slot_w(cell)`
+    // for a normal glyph, `span * slot_w(cell)` for a wide (multi-cell) glyph -
     // so the right clip extends across every reserved cell of a wide slot.
     let border = slot_border(cell) as i32;
     let inner_x = ox as i32 + border;
@@ -324,7 +322,7 @@ pub(super) fn rasterize_glyph_run(
     // Symbol/icon fit (RV6+): when `fit` is `Some`, measure the glyph's natural
     // ink box at the body em-size, scale it so its ink height fills
     // `SYMBOL_CELL_FILL` of the cell (width-capped so a wide glyph can't clip),
-    // and CENTER it on the cell box — ignoring the font's bearing and text
+    // and CENTER it on the cell box - ignoring the font's bearing and text
     // baseline, since icons are not baseline-aligned text. `None` (every text
     // path) leaves placement at the natural bearing on `pen.baseline`,
     // byte-identical to the pre-fit renderer.
@@ -390,7 +388,7 @@ pub(super) fn rasterize_glyph_run(
             if value == 0 {
                 return; // uninked sample contributes no ink and no bounds
             }
-            // Stem-darkening (RV5): boost partial coverage so light-on-dark
+            // Stem-darkening: boost partial coverage so light-on-dark
             // stems hold weight. Identity at the default strength of 0.0.
             let value = apply_stem_darken(value, stem);
             // Round to the nearest atlas pixel (truncation drifts edges and can
@@ -407,7 +405,7 @@ pub(super) fn rasterize_glyph_run(
             // its height above the baseline. `pen.baseline` is the baseline in
             // the same absolute pixel space as `bounds`, so the unrounded glyph
             // y gives a smooth oblique. Rounding to whole atlas pixels introduces
-            // minor stair-stepping along near-horizontal edges — acceptable for a
+            // minor stair-stepping along near-horizontal edges - acceptable for a
             // fallback face that exists only when no real italic is installed.
             // Synthesis is never combined with fit (icon faces use `synth`
             // identity), so the fitted branch needs no shear.
@@ -585,11 +583,11 @@ fn physical_channel(subpixel: SubpixelMode, physical: usize) -> usize {
 }
 
 /// Rasterize a geometric box-drawing / block / Powerline glyph into the slot
-/// whose outer top-left is `region.origin` (RV2).
+/// whose outer top-left is `region.origin`.
 ///
 /// The coverage bitmap comes from [`crate::boxdraw::coverage`], computed at the
 /// exact cell pixel size, and is written into the slot's inner cell region (no
-/// overflow, no synthesis, no stem-darkening — the geometry is already crisp).
+/// overflow, no synthesis, no stem-darkening - the geometry is already crisp).
 /// Achromatic coverage is replicated across all channels for subpixel atlases.
 /// Returns the full-cell ink extent, or `None` if the codepoint is uncovered or
 /// produced an empty bitmap (the caller then falls back to the cell box).
@@ -663,8 +661,8 @@ fn write_coverage(
     }
 }
 
-/// Draw the synthesized missing-glyph fallback — a hollow rectangle inset from
-/// the cell edges — into the atlas cell at `(ox, oy)`. Font-independent so the
+/// Draw the synthesized missing-glyph fallback - a hollow rectangle inset from
+/// the cell edges - into the atlas cell at `(ox, oy)`. Font-independent so the
 /// fallback looks the same regardless of which font is loaded.
 pub(super) fn draw_fallback_box(
     data: &mut [u8],

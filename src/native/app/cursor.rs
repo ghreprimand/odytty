@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! ID1 cursor blink-fade easing for the native app.
 //!
-//! Home for the cursor blink-fade easing feature (ID1). The cursor render-params
+//! Home for the cursor blink-fade easing feature. The cursor render-params
 //! foundation landed only the two contributor stubs the [`App::cursor_render_params`] and
 //! [`App::animation_deadline`] aggregators fold in; this module fills the live
 //! easing body. The aggregators read the precomputed [`App::cursor_anim_alpha`]
@@ -40,7 +40,7 @@ impl App {
         self.cursor_ease_toggle_at = Some(now - CURSOR_EASE_FADE);
     }
 
-    /// Alpha multiplier for the cursor quad color (ID1 easing).
+    /// Alpha multiplier for the cursor quad color.
     ///
     /// Polarity is the kill-shot: `1.0` = fully opaque (today's render), `0.0` =
     /// invisible. Returns the value [`App::update_cursor_easing`] precomputed for
@@ -56,7 +56,7 @@ impl App {
 
     /// Next wake instant while a blink-fade ramp is in flight, or `None` once it
     /// settles (the bounded-wake contract: the ramp ends and the blink toggle
-    /// deadline — scheduled independently — carries to the next edge).
+    /// deadline - scheduled independently - carries to the next edge).
     pub(super) fn cursor_blink_fade_deadline(&self) -> Option<Instant> {
         (!self.settings.reduced_motion)
             .then_some(self.cursor_ease_deadline)

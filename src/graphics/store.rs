@@ -215,7 +215,7 @@ impl ImageStore {
     /// Used when a client transmits with an image *number* and no id: the
     /// protocol then makes the terminal choose the id and report it back. The
     /// scan is bounded by the store's image-count cap, and picking the lowest
-    /// free value keeps the choice deterministic — an allocation strategy that
+    /// free value keeps the choice deterministic - an allocation strategy that
     /// depended on history would make the reported id untestable.
     ///
     /// Zero is never allocated: the protocol reserves it for "no id".

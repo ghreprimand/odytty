@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Stem-darkening (RV5) coverage-boost tests.
+//! Stem-darkening coverage-boost tests.
 //!
 //! The boost is applied at raster time in [`apply_stem_darken`]; these tests
 //! pin the pixel-identity guarantee (strength `0.0` is a true no-op, endpoints
@@ -25,7 +25,7 @@ fn strength_zero_is_identity_for_every_coverage_value() {
 #[test]
 fn endpoints_are_always_exact() {
     // Fully-uncovered and fully-covered samples never move, at any strength, so
-    // glyph ink bounds and solid interiors are unchanged — only anti-aliased
+    // glyph ink bounds and solid interiors are unchanged - only anti-aliased
     // edges and thin stems are boosted.
     for s in [0.0, 0.25, 0.5, 0.75, 1.0] {
         assert_eq!(apply_stem_darken(0, s), 0, "uncovered at strength {s}");
@@ -66,7 +66,7 @@ fn boost_is_monotonic_in_strength() {
 fn set_stem_darken_round_trips_and_clamps() {
     // Mutates the process-global stem-darken gain; serialize against any test
     // that builds a real atlas (which reads the global) via the shared guard,
-    // which also restores the prior gain on drop — including if an assertion
+    // which also restores the prior gain on drop - including if an assertion
     // below unwinds before the explicit restore is reached.
     let _guard = crate::test_lock::render_globals_lock();
     // Minimal global-seam check: set, read back, restore. The window is

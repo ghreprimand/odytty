@@ -65,10 +65,10 @@ pub const OSC52_CLIPBOARD_MAX_BYTES: usize = 64 * 1024;
 /// `Line` derefs to its `cells` vector, so existing `row[col]`, `row.iter()`,
 /// `row.get(..)`, and `row.resize(..)` call sites keep working unchanged.
 ///
-/// `prompt_mark` is the optional OSC 133 semantic boundary (SH1) anchored to
+/// `prompt_mark` is the optional OSC 133 semantic boundary anchored to
 /// this row's logical line; it is `None` for every row except the first physical
 /// row of a logical line that a shell-integration sequence marked. It rides the
-/// row purely as advisory state for the poll API — no render-path code reads it
+/// row purely as advisory state for the poll API - no render-path code reads it
 /// and it never reaches the [`Snapshot`] (see [`super::prompt_marks`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::core) struct Line {
@@ -77,8 +77,9 @@ pub(in crate::core) struct Line {
     pub(in crate::core) prompt_mark: Option<PromptKind>,
     /// Button spans anchored to this physical row, in row-local columns
     /// (Button Protocol B1). Like `prompt_mark`, this is advisory sidecar
-    /// state: no render-path code reads it yet and it never reaches the
-    /// [`Snapshot`]. Empty (no allocation) for the common button-free row.
+    /// state that never reaches the [`Snapshot`]. Spans are projected through
+    /// `visible_button_spans` for rendering and resolved through `button_at`
+    /// for clicks. Empty (no allocation) for the common button-free row.
     pub(in crate::core) button_spans: Vec<ButtonSpan>,
 }
 
@@ -103,7 +104,7 @@ pub(in crate::core) fn rows_bytes(rows: &[Line]) -> u64 {
 ///
 /// It is owned (rather than a borrowed [`SearchRow`] tied to `&self`) because a
 /// scrolled-back viewport can include scrollback rows projected through a
-/// `RefCell` cache, whose borrow guard cannot outlive the accessor — so a
+/// `RefCell` cache, whose borrow guard cannot outlive the accessor - so a
 /// borrowed view spanning scrollback is not soundly returnable. Borrow it as a
 /// [`SearchRow`] for the scanners via [`VisibleRow::as_search_row`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,12 +144,12 @@ impl VisibleRow {
 pub struct SnapshotButton {
     /// Viewport row, `0` at the top of the visible grid.
     pub row: usize,
-    /// Row-local start column: the first label cell, or — for a Tier 1 point
-    /// button — the first cell of the resolved chip rect
+    /// Row-local start column: the first label cell, or - for a Tier 1 point
+    /// button - the first cell of the resolved chip rect
     /// ([`super::button::point_chip_rect`]).
     pub start_col: usize,
     /// Rect length in cells: the label-run length, or the resolved chip-rect
-    /// width for a Tier 1 point button. Never `0` — a point chip with no room
+    /// width for a Tier 1 point button. Never `0` - a point chip with no room
     /// on its row is not emitted at all.
     pub len: usize,
     /// The terminal-composed report code this button carries.
@@ -186,7 +187,7 @@ impl Line {
     }
 }
 /// How an in-place row mutation moved or destroyed cell content, for
-/// transforming the row's button-span sidecars in lockstep — see
+/// transforming the row's button-span sidecars in lockstep - see
 /// [`Screen::transform_row_button_spans`]. Shaped as a description of the
 /// cell edit (not a per-sequence variant) so future sidecars can ride the
 /// same mutation description.
@@ -294,9 +295,9 @@ pub struct Screen {
     /// holds when a repaint is actually coming. For BACK-TO-BACK resizes with no
     /// intervening output (the Windows pane split/close-without-typing case,
     /// where ConPTY/PSReadLine does not repaint on a bare `ResizePseudoConsole`),
-    /// honoring the override clamps the cursor column and — because the model
+    /// honoring the override clamps the cursor column and - because the model
     /// re-derives the logical offset from the displaced physical cursor each
-    /// resize — RATCHETS it toward the prompt start. Set `true` in `print_char`;
+    /// resize - RATCHETS it toward the prompt start. Set `true` in `print_char`;
     /// cleared at the end of `Screen::resize`. When `false`, the override is
     /// skipped and the content-accurate cursor is kept (lossless logical
     /// position), breaking the ratchet without changing any Linux behavior
@@ -348,7 +349,7 @@ pub struct Screen {
     kitty_named_transports_enabled: bool,
     /// BEL (`0x07`) latch. Set when the host writes a bell control; drained by
     /// the native layer once per frame to drive the visual/urgency bell. The
-    /// core never makes noise or touches the grid — it only records that a bell
+    /// core never makes noise or touches the grid - it only records that a bell
     /// was requested.
     bell_pending: bool,
     /// Sanitized, bounded OSC notification events waiting for the native layer.
@@ -378,7 +379,7 @@ pub struct Screen {
     /// Working directory reported via OSC 7 (`file://host/path`). `None` until a
     /// well-formed OSC 7 sets it. Stores the percent-decoded path only; the host
     /// is validated (empty / "localhost" / injected local hostname) then
-    /// dropped. The core performs NO filesystem access — this is advisory string
+    /// dropped. The core performs NO filesystem access - this is advisory string
     /// state for the front end (e.g. open-new-tab-in-same-directory). See
     /// [`parse_osc7_cwd`] for the parse and hostname policy.
     working_directory: Option<String>,
@@ -391,7 +392,7 @@ pub struct Screen {
     /// [`Screen::take_working_directory_changed`] so a front end can poll once
     /// per frame without re-reading an unchanged value.
     working_directory_changed: bool,
-    /// Set whenever an OSC 133 prompt mark is stamped (SH1); cleared by
+    /// Set whenever an OSC 133 prompt mark is stamped; cleared by
     /// [`Screen::take_prompt_marks_changed`] so a front end can poll once per
     /// frame and rebuild any per-command UI only when the marks actually moved.
     prompt_marks_changed: bool,
@@ -401,7 +402,7 @@ pub struct Screen {
     keyboard: KeyboardModes,
     /// G0/G1 charset designations + SO/SI GL selection (ACS line drawing).
     /// Kept per active screen (saved/reset on alternate-screen entry, restored
-    /// on exit — the kitty-flag pattern) so a TUI's graphics designation never
+    /// on exit - the kitty-flag pattern) so a TUI's graphics designation never
     /// leaks into the primary prompt. Saved/restored by DECSC/DECRC; reset by
     /// RIS and DECSTR.
     charsets: CharsetModes,
@@ -415,7 +416,7 @@ pub struct Screen {
     /// OSC 133 click-to-position enable (SH-CLICK). A cooperating shell sets this
     /// per prompt via a `click_events=1` attribute (and clears it with `=0`); a
     /// plain prompt leaves it unchanged. Off at power-on; RIS resets it. Advisory
-    /// state only — core never acts on it; the native pointer layer reads it and,
+    /// state only - core never acts on it; the native pointer layer reads it and,
     /// on a click on the live input region, synthesizes cursor-key presses
     /// (F2). Default-off means the emit path is inert until the app opts in.
     click_events_enabled: bool,
@@ -451,11 +452,11 @@ pub struct Screen {
     /// hard refuse-new-at-ceiling entry cap. See [`super::button`].
     buttons: ButtonTable,
     /// Master gate for the button protocol. Off (the default): both button
-    /// spellings are parsed and consumed — keeping the parser total and the
-    /// no-grid-write invariant exercised — but create no table entry, no span,
+    /// spellings are parsed and consumed - keeping the parser total and the
+    /// no-grid-write invariant exercised - but create no table entry, no span,
     /// and no observable state, so feature-off output is byte-identical. The
-    /// native layer will also gate the future pointer arm on this (both
-    /// chokepoints, so no partial-gate hole).
+    /// native layer also gates the pointer arm on this (both chokepoints, so no
+    /// partial-gate hole).
     buttons_enabled: bool,
     /// Sub-gate: accept the iTerm2 `OSC 1337 ; Button=` spelling. Inert while
     /// `buttons_enabled` is off.
@@ -506,7 +507,7 @@ struct StoredScreen {
     charsets: CharsetModes,
     /// OSC 133 `B` input-start from the primary screen, saved on entering the
     /// alternate screen and restored on leaving it. Alternate-screen apps have
-    /// no prompt input boundary of their own — storing and clearing the primary
+    /// no prompt input boundary of their own - storing and clearing the primary
     /// value on enter prevents the native input-editing layer from reading stale
     /// primary state while an alternate-screen TUI is running.
     active_prompt_input_start: Option<ActivePromptInputStart>,
@@ -603,7 +604,7 @@ impl Screen {
         self.working_directory_changed = true;
     }
 
-    /// Handle an OSC 133 payload (SH1): parse the `;`-split parts after `133`
+    /// Handle an OSC 133 payload: parse the `;`-split parts after `133`
     /// into a [`PromptKind`] and stamp it on the cursor's current *logical*
     /// line.
     ///
@@ -850,7 +851,7 @@ impl Screen {
     }
 
     /// Act on a parsed Tier 2 button signal (`133;P;odytty-button`). Master
-    /// gate enforced here — the OSC chokepoint; the future pointer arm gates
+    /// gate enforced here - the OSC chokepoint; the future pointer arm gates
     /// independently so no partial-gate hole exists.
     fn handle_button_signal(&mut self, signal: ButtonSignal) {
         if !self.buttons_enabled {
@@ -916,7 +917,7 @@ impl Screen {
     /// segment per row, each holding one table reference. Degenerate runs
     /// (empty label) anchor a zero-length span, matching the Tier 1 shape. A
     /// run whose start scrolled out of the visible grid (a label taller than
-    /// the window — pathological) is canceled rather than half-stamped.
+    /// the window - pathological) is canceled rather than half-stamped.
     fn finish_button_run(&mut self) {
         let Some(run) = self.active_button_run.take() else {
             return;
@@ -994,7 +995,7 @@ impl Screen {
     }
 
     /// Surrender the button-span references of a line leaving canonical
-    /// storage by discard (region scrolls, IL/DL, wholesale erase) — the
+    /// storage by discard (region scrolls, IL/DL, wholesale erase) - the
     /// counterpart of the scrollback drain for rows that never reach the ring.
     pub(super) fn release_line_buttons(&mut self, line: &Line) {
         if line.button_spans.is_empty() {
@@ -1009,7 +1010,7 @@ impl Screen {
     /// cell mutation, releasing the table reference of every span the
     /// mutation destroys. Every row-range mutation that moves or overwrites
     /// cells WITHOUT replacing the row wholesale must route through this
-    /// helper — the wholesale paths (EL2, ED, IL/DL, region scrolls) already
+    /// helper - the wholesale paths (EL2, ED, IL/DL, region scrolls) already
     /// release via [`Self::release_line_buttons`], and reflow re-projects.
     /// Without it, a shifted or erased label leaves the button clickable over
     /// the wrong cells.
@@ -1018,15 +1019,15 @@ impl Screen {
     /// - shift (ICH/DCH): a span at or right of the edit point moves with its
     ///   cells; a shift past the right edge clips the label and releases a
     ///   span pushed fully off. A span whose interior the edit point pierces
-    ///   (insert into the label, delete overlapping it) is released — its
+    ///   (insert into the label, delete overlapping it) is released - its
     ///   cells no longer form the label it was anchored to.
     /// - overwrite/erase (ECH, EL 0/1, DECSEL, DECERA, DECSERA, DECFRA, and
     ///   the DECCRA destination): any labeled span overlapping the written
     ///   range is released, including the DECSERA case where protected cells
-    ///   survive — a partially surviving label no longer matches its span. A
+    ///   survive - a partially surviving label no longer matches its span. A
     ///   zero-length point anchor is kept: its chip re-resolves against blank
     ///   cells at render time, so overwritten cells simply stop showing it.
-    /// - copy (DECCRA): spans are NOT copied to the destination — a button is
+    /// - copy (DECCRA): spans are NOT copied to the destination - a button is
     ///   defined by its protocol sequence, and silently duplicating clickable
     ///   regions from a rectangle copy would mint activations the program
     ///   never placed. The destination is treated as a plain overwrite.
@@ -1273,7 +1274,7 @@ impl Screen {
             b'\r' => self.carriage_return(),
             b'\x07' => self.bell_pending = true,
             // SO/SI (LS1/LS0): select G1/G0 into GL for subsequent printed
-            // characters. Pure charset-state switches — no cursor, wrap, or
+            // characters. Pure charset-state switches - no cursor, wrap, or
             // grid effect, so the grid is not marked dirty.
             b'\x0e' => self.charsets.gl_g1 = true,
             b'\x0f' => self.charsets.gl_g1 = false,
@@ -1315,7 +1316,7 @@ impl Screen {
             // progress. Both are bounded advisory sidecars; neither touches
             // the grid or generates a response.
             b"9" => self.handle_osc9(&params[1..]),
-            // OSC 133 = shell-integration semantic prompt marking (SH1). Parse
+            // OSC 133 = shell-integration semantic prompt marking. Parse
             // and stamp an advisory per-row mark; never touch the grid, never
             // reply. See [`Self::handle_osc133`].
             b"133" => self.handle_osc133(&params[1..]),
@@ -1376,8 +1377,8 @@ impl Screen {
             // The case that matters in practice is XTSMGRAPHICS
             // (`CSI ? Pi ; Pa ; Pv S`), the query a client sends to learn the
             // terminal's Sixel geometry and colour-register limits. Sixel
-            // autodetection is a two-step handshake — DA1 first, XTSMGRAPHICS
-            // second — so the moment DA1 advertises Sixel this sequence starts
+            // autodetection is a two-step handshake - DA1 first, XTSMGRAPHICS
+            // second - so the moment DA1 advertises Sixel this sequence starts
             // arriving from chafa, img2sixel, timg and the Neovim image
             // plugins, and the unguarded arm scrolled `Pi` lines off the screen
             // for each one. `CSI > Ps T` (xterm's title-mode reset) is the same
@@ -1405,7 +1406,7 @@ impl Screen {
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             // SGR is `CSI Ps … m` with no private-parameter prefix. `CSI > Ps ; Ps m`
             // is XTMODKEYS (set modifyOtherKeys), `CSI ? Ps m` is XTQMODKEYS
-            // (query), `CSI = Ps m` is another private form — none are SGR.
+            // (query), `CSI = Ps m` is another private form - none are SGR.
             // Without this gate, the `CSI > 4 ; 2 m` apps emit at startup to
             // enable modifyOtherKeys was parsed as SGR 4;2 (underline + dim)
             // and smeared those attributes across all subsequent text.
@@ -1448,7 +1449,7 @@ impl Screen {
 
         // Charset designation: `ESC ( Final` designates G0, `ESC ) Final`
         // designates G1. Only DEC Special Graphics (`0`) is modeled; every
-        // other final — `B` (ASCII) and the national replacement sets alike —
+        // other final - `B` (ASCII) and the national replacement sets alike -
         // designates ASCII as the safe fallback, so an unknown designator can
         // never wedge the charset state or panic (parser totality).
         match intermediates {
@@ -1469,7 +1470,7 @@ impl Screen {
             b'7' => self.save_cursor(),
             b'8' => self.restore_cursor(),
             // IND (ESC D): move down one row; at the bottom margin, scroll the
-            // active region up by one — exactly the LF motion (column
+            // active region up by one - exactly the LF motion (column
             // untouched). Routing through `line_feed` inherits the shared
             // scroll paths' C16 wrapped-flag seams and the full-screen-region
             // scrollback equivalence.
@@ -1840,7 +1841,7 @@ fn param_or(params: &Params, index: usize, default: usize) -> usize {
 /// omitted *or zero* parameter means 1. The parser represents an omitted
 /// parameter as an explicit `0` (e.g. `ESC [ A` parses as a single `0` param),
 /// so the plain [`param_or`] with a default of 1 still yields 0 for these
-/// controls and turns a bare cursor move (CUU/CUD/CUF/CUB) into a no-op — the
+/// controls and turns a bare cursor move (CUU/CUD/CUF/CUB) into a no-op - the
 /// bug behind fish leaving stale completion rows on screen because its `ESC [ A`
 /// failed to return the cursor to the command line before `ESC [ J`. Use this
 /// for movement and count controls (A/B/C/D, S/T, ICH/IL/DL/DCH/ECH, REP) and
@@ -1861,7 +1862,7 @@ fn private_mode_params(params: &Params) -> impl Iterator<Item = u16> + '_ {
 /// This is therefore a straight pass-through: every group is a real numeric
 /// parameter. Historically a value-equality filter dropped any group whose first
 /// value equaled 60–63 (the ASCII codes of `<=>?`), which silently corrupted any
-/// 24-bit color (`38;2;R;G;B` / `48` / `58`) with a channel of 60/61/62/63 —
+/// 24-bit color (`38;2;R;G;B` / `48` / `58`) with a channel of 60/61/62/63 -
 /// fixed by removing that filter, since the marker is tracked structurally.
 fn sgr_params(params: &Params) -> Vec<&[u16]> {
     params.iter().collect()

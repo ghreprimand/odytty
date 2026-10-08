@@ -1805,7 +1805,7 @@ fn off_to_on_reload_raises_new_shells_notice() {
 
     assert_eq!(
         app.open_notice_message_for_test().as_deref(),
-        Some("Shell integration applies to new shells — open a new tab or split to activate."),
+        Some("Shell integration applies to new shells: open a new tab or split to activate."),
         "an OFF->ON toggle with a live shell must surface the new-shells notice"
     );
 }

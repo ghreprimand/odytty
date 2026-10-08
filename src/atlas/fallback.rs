@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Symbol / Nerd-font fallback classification (RV6).
+//! Symbol / Nerd-font fallback classification.
 //!
 //! Prompt frameworks (starship, powerlevel10k, eza, lsd, …) draw their icons
 //! from two places: the Unicode **Private Use Area** (the patched Nerd Font
@@ -13,7 +13,7 @@
 //! [`crate::atlas::GlyphAtlas::ensure_styled`]); a covered codepoint never
 //! reaches this path, so body text is untouched.
 //!
-//! Pure and dependency-free — just range membership — so the whole policy is
+//! Pure and dependency-free - just range membership - so the whole policy is
 //! unit-testable without a font.
 //!
 //! ## The classifier is a *gate to attempt* the fallback
@@ -30,7 +30,7 @@
 //!
 //! ## What the classifier covers
 //!
-//! - The whole **Private Use Area** — `U+E000..=U+F8FF` (classic Nerd Font
+//! - The whole **Private Use Area** - `U+E000..=U+F8FF` (classic Nerd Font
 //!   sets: Powerline, Devicons, Font Awesome, Codicons, Octicons, …) and
 //!   supplementary PUA-A `U+F0000..=U+FFFFD` (Material Design Icons). Defined
 //!   as whole-PUA membership rather than a brittle per-set enumeration (those
@@ -132,7 +132,7 @@ pub const NERD_FONT_RANGES: &[SymbolRange] = &[
 /// this table **is** consulted by the live classifier: each entry is a range
 /// [`is_symbol_codepoint`] will attempt the fallback for. Coverage is then
 /// decided per glyph by the installed fallback face (`font_has_glyph`), so a
-/// block with only partial coverage in a given face is harmless — present
+/// block with only partial coverage in a given face is harmless - present
 /// glyphs resolve, absent ones fall through to the tofu box.
 ///
 /// These ranges are chosen to **not** overlap the geometric-owned blocks (box
@@ -198,7 +198,7 @@ pub const SYMBOL_BLOCKS: &[SymbolRange] = &[
 ///
 /// Returns `false` for ordinary text (Latin, Latin-1, CJK, …), the
 /// geometric-owned ranges (box drawing, block elements, Braille, Legacy
-/// Computing — those are drawn by [`crate::boxdraw`] and never reach here), and
+/// Computing - those are drawn by [`crate::boxdraw`] and never reach here), and
 /// the replacement codepoint `U+10FFFD` (kept a non-symbol so its hollow-box
 /// fallback is preserved). Plane-16 PUA-B is intentionally excluded: Nerd Fonts
 /// do not use it.

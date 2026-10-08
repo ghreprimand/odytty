@@ -2,10 +2,10 @@
 //! Core-owned model of the live editable prompt-input region (B-DESIGN §2).
 //!
 //! The select+Delete feature must never send bytes to the shell that do not
-//! correspond to a real edit of the shell's line-editor buffer — a wrong delete
+//! correspond to a real edit of the shell's line-editor buffer - a wrong delete
 //! is worse than a no-op. That charter requires the input-region geometry to be
 //! computed HERE, in core, where the soft-wrap `wrapped` flags, the cursor, the
-//! OSC 133 `B` input-start mark, and the (future) private edit-region signal all
+//! OSC 133 `B` input-start mark, and the private edit-region signal all
 //! co-reside. The flat [`Snapshot`](crate::core::Snapshot) handed to native has
 //! no per-row wrap flag and no logical-line grouping, so any multi-row
 //! derivation done consumer-side would be guessing.
@@ -38,7 +38,7 @@ pub struct InputRegion {
     /// [`InputCertainty::Exact`] this is authoritative; under
     /// [`InputCertainty::RightEdgeUnknown`] it is today's last-non-blank
     /// heuristic, which may include right-aligned decorations or
-    /// autosuggestions (B-DESIGN §2.4) — callers must not synthesize
+    /// autosuggestions (B-DESIGN §2.4) - callers must not synthesize
     /// destructive edits from it beyond the pre-existing single-row behavior.
     pub end_col: usize,
     /// One entry per inter-row boundary in `[start_row, end_row)`; length is
@@ -49,7 +49,7 @@ pub struct InputRegion {
     pub certainty: InputCertainty,
     /// Authoritative per-row input spans as `(start_col, end_col_exclusive)`,
     /// index 0 = `start_row`. Populated ONLY under [`InputCertainty::Exact`]
-    /// (from the reconciled rune walk, with wrap-filler cells excluded —
+    /// (from the reconciled rune walk, with wrap-filler cells excluded -
     /// B-DESIGN B1); empty otherwise. Consumers flatten these spans into the
     /// single logical horizontal axis for R5 synthesis.
     pub row_spans: Vec<(usize, usize)>,
@@ -73,7 +73,7 @@ pub enum InputCertainty {
     /// classified. Eligible for synthesis.
     Exact,
     /// Rows and joins known but the right edge is a heuristic (last non-blank
-    /// cell) that may include decorations/autosuggestions (ODP-3).
+    /// cell) that may include decorations/autosuggestions.
     RightEdgeUnknown,
     /// Geometry itself is in doubt (cursor off-region, unclassifiable join,
     /// stale mark). Always a no-op.
@@ -107,13 +107,13 @@ pub(in crate::core) enum EditRegionReport {
 
 /// Derive the live input region from stock screen state (B-DESIGN §2.3).
 ///
-/// * `rows` — the visible viewport rows (top to bottom).
-/// * `scrollback_len` — physical scrollback rows above the viewport, i.e. the
+/// * `rows` - the visible viewport rows (top to bottom).
+/// * `scrollback_len` - physical scrollback rows above the viewport, i.e. the
 ///   absolute row of `rows[0]`.
-/// * `columns` — grid width.
-/// * `input_start` — the OSC 133 `B` mark as `(absolute_row, column)`.
-/// * `cursor` — cursor in visible coordinates.
-/// * `signal` — the private edit-region report, when a cooperating shell has
+/// * `columns` - grid width.
+/// * `input_start` - the OSC 133 `B` mark as `(absolute_row, column)`.
+/// * `cursor` - cursor in visible coordinates.
+/// * `signal` - the private edit-region report, when a cooperating shell has
 ///   emitted one this repaint (`None` on the stock path).
 ///
 /// Stock path (no signal): the region extends forward across soft-wrapped rows
@@ -152,12 +152,12 @@ pub(in crate::core) fn derive_input_region(
 
     // TIER-A path (B2, §2.3 step 3): when the shell reported its authoritative
     // buffer geometry this repaint, reconcile it against the grid. Any
-    // inconsistency — the signal predating further typing, a rune walk that
-    // does not land exactly, a cursor that disagrees — falls back to the stock
+    // inconsistency - the signal predating further typing, a rune walk that
+    // does not land exactly, a cursor that disagrees - falls back to the stock
     // heuristic below (RightEdgeUnknown => no-op), never to a guessed edit.
     if let Some(signal) = signal {
         if !signal.newlines.is_empty() {
-            // Hard newlines in the buffer (ODP-2 default): the geometry is
+            // Hard newlines in the buffer: the geometry is
             // real but horizontal motion cannot traverse it => Unknown, no-op.
             return Some(InputRegion {
                 start_row: scrollback_len + start_visible,
@@ -278,10 +278,11 @@ const MAX_AMBIGUOUS_WRAP_FILLERS: usize = 3;
 /// to the heuristic path.
 ///
 /// Wrap-filler ambiguity: a blank last cell on a wrapped row followed by a
-/// wide lead on the next row is indistinguishable from a *typed* space that
-/// happened to land on the last column before a wide glyph. Both readings are
+/// wide lead on the next row may be generated padding or a *typed* space that
+/// happened to land on the last column before a wide glyph, and this walk
+/// does not consult the cell's padding provenance. Both readings are
 /// enumerated; the signal is accepted only when EXACTLY ONE assignment
-/// validates end-to-end — two coherent readings would mean two different edit
+/// validates end-to-end - two coherent readings would mean two different edit
 /// geometries, and a wrong delete is worse than a no-op.
 fn reconcile_signal(
     rows: &[Line],
@@ -893,7 +894,6 @@ mod tests {
     fn two_coherent_filler_readings_fall_back() {
         // Row 0: 17 chars + blank at col 19, wrapped; row 1: wide + 17 chars
         // + blank at col 19, wrapped; row 2: wide + "cc".
-        // skip-first-only and skip-second-only both total 38 runes.
         let mut rows = rows(&[("$ aaaaaaaaaaaaaaaaa", true), ("", true), ("", false)]);
         rows[1].cells[0] = Cell::new('漢', Attrs::default());
         rows[1].cells[1] = Cell::wide_spacer(Attrs::default());
@@ -904,10 +904,9 @@ mod tests {
         rows[2].cells[1] = Cell::wide_spacer(Attrs::default());
         rows[2].cells[2] = Cell::new('c', Attrs::default());
         rows[2].cells[3] = Cell::new('c', Attrs::default());
-        // skip-first: 17 + (1+17+1) + (1+2) = 39? Recomputed in-test below via
-        // the accepted len: skip-first-only = 17 + 19 + 3 = 39,
-        // skip-second-only = 18 + 18 + 3 = 39 — both coherent at cur=len with
-        // the cursor at (2, 4).
+        // skip-first-only = 17 + 19 + 3 = 39 and skip-second-only =
+        // 18 + 18 + 3 = 39 - both coherent at cur=len with the cursor at
+        // (2, 4).
         let region = derive_input_region(
             &rows,
             0,
@@ -925,7 +924,7 @@ mod tests {
     }
 
     /// Companion to [`two_coherent_filler_readings_fall_back`]: the same grid
-    /// with a len that only the skip-BOTH reading satisfies reconciles Exact —
+    /// with a len that only the skip-BOTH reading satisfies reconciles Exact -
     /// proving the enumeration finds filler assignments and the two-reading
     /// rejection above is a genuine ambiguity, not a walk failure.
     #[test]

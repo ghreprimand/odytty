@@ -111,7 +111,7 @@ impl App {
             // BLACK-SCREEN-ON-RESTORE: a Windows restore can surface as
             // `Occluded(false)` without a non-zero `Resized`; recover the paint
             // there. Only the un-occlude direction is handled (see the method
-            // doc) — occlusion is not treated as minimize.
+            // doc) - occlusion is not treated as minimize.
             WindowEvent::Occluded(occluded) => {
                 let _ = self.on_window_occluded(occluded);
             }

@@ -113,7 +113,7 @@ pub struct SessionAttachOptions {
     /// When `true` (`odytty attach --diagnostic <id>`), print a one-line status
     /// snapshot and exit instead of opening a window. When `false` (the default
     /// `odytty attach <id>`), the verb opens a live native window reattached to
-    /// the hosted session — see [`SessionCliCommand::live_attach_id`].
+    /// the hosted session - see [`SessionCliCommand::live_attach_id`].
     pub diagnostic: bool,
 }
 
@@ -476,8 +476,8 @@ pub fn native_attach_options(id: &str, settings: &Settings) -> NativeOptions {
 /// The full `--help` / `-h` usage text.
 ///
 /// Lives in the library (not `main`) so the documented CLI surface is covered by
-/// a test and cannot drift from the real behavior — in particular the
-/// `odytty attach` verb, which now opens a live attached window by default.
+/// a test and cannot drift from the real behavior - in particular the
+/// `odytty attach` verb, which opens a live attached window by default.
 pub fn usage_text() -> String {
     let version = env!("CARGO_PKG_VERSION");
     let mut out = String::new();
@@ -533,9 +533,9 @@ pub fn native_options_for_args(
     settings: &Settings,
 ) -> Result<Option<NativeOptions>, String> {
     let mut options = NativeOptions::from_settings(settings);
-    // WP2 sub-ODP 8b: only a bare `odytty` (no arguments at all) is eligible to
-    // restore the previous workspace shape. Any argument — a flag, `-e`, a
-    // path, `--working-directory` — leaves this `false` and suppresses restore.
+    // Only a bare `odytty` (no arguments at all) is eligible to
+    // restore the previous workspace shape. Any argument - a flag, `-e`, a
+    // path, `--working-directory` - leaves this `false` and suppresses restore.
     options.bare_launch = args.is_empty();
     let mut launch_native = args.is_empty();
     let mut index = 0;
@@ -598,10 +598,7 @@ pub fn native_options_for_args(
                 options.command = Some(command);
                 return Ok(Some(options));
             }
-            // Prefix-form flags. Written as a plain `if let` chain rather than
-            // `if let` match guards (an unstable feature on older toolchains) so
-            // the crate builds on a wider range of Rust versions — important for
-            // the recommended from-source install path.
+            // Prefix-form flags.
             _ => {
                 if let Some(title) = arg.strip_prefix("--title=") {
                     options.title = title.to_owned();
@@ -818,7 +815,7 @@ pub fn show_config_output(settings: &Settings) -> String {
 ///
 /// Reports `disabled` when the fallback is off; otherwise the **chain** the
 /// renderer would install, in order, under the precedence explicit > bundled
-/// (v3, then v2) > host — joined with ` > ` (e.g. `bundled > bundled > host`,
+/// (v3, then v2) > host - joined with ` > ` (e.g. `bundled > bundled > host`,
 /// or `none` when no face resolved). The atlas walks this chain per glyph, so
 /// coverage is the union of all listed faces. This is exactly the diagnostic
 /// that makes "why is my prompt icon tofu / which fonts are in play" answerable
@@ -1169,7 +1166,7 @@ mod tests {
 
     #[test]
     fn bare_launch_is_restore_eligible_only_with_no_arguments() {
-        // WP2 sub-ODP 8b: only a bare `odytty` (empty argv) restores.
+        // Only a bare `odytty` (empty argv) restores.
         let bare = native_options_for_args(&strings(&[]), &Settings::default())
             .expect("parse")
             .expect("bare launch opens the native window");
@@ -1321,10 +1318,10 @@ mod tests {
         );
     }
 
-    // ---- v0.14 Phase A3: CLI --profile launch selection parsing ----
+    // ---- CLI --profile launch selection parsing ----
 
     #[test]
-    fn a3_profile_flag_space_form_sets_profile_name() {
+    fn profile_flag_space_form_sets_profile_name() {
         let options =
             native_options_for_args(&strings(&["--profile", "dev"]), &Settings::default())
                 .expect("parse")
@@ -1333,7 +1330,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_profile_flag_equals_form_sets_profile_name() {
+    fn profile_flag_equals_form_sets_profile_name() {
         let options = native_options_for_args(&strings(&["--profile=dev"]), &Settings::default())
             .expect("parse")
             .expect("native options");
@@ -1341,7 +1338,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_profile_flag_without_value_is_rejected() {
+    fn profile_flag_without_value_is_rejected() {
         let result = native_options_for_args(&strings(&["--profile"]), &Settings::default());
         assert!(
             result.is_err(),
@@ -1350,7 +1347,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_profile_equals_empty_value_is_rejected() {
+    fn profile_equals_empty_value_is_rejected() {
         let result = native_options_for_args(&strings(&["--profile="]), &Settings::default());
         assert!(
             result.is_err(),
@@ -1359,7 +1356,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_default_launch_has_no_profile_and_stays_bare() {
+    fn default_launch_has_no_profile_and_stays_bare() {
         // Startup isolation: a bare launch selects no profile, so nothing on the
         // default path forces a catalog/discovery read.
         let options = native_options_for_args(&strings(&[]), &Settings::default())

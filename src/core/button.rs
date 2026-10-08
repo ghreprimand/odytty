@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Program-defined clickable buttons: OSC parsing, the interned button table,
-//! and the line-anchored span model (Button Protocol phase B1 — pure core).
+//! and the line-anchored span model (Button Protocol phase B1 - pure core).
 //!
 //! Two accepted spellings define buttons:
 //!
@@ -30,11 +30,12 @@
 //! bounded by construction (scrollback depth × [`MAX_BUTTON_SPANS_PER_LINE`])
 //! plus a hard entry ceiling with **refuse-new-at-ceiling** semantics: a flood
 //! of new definitions is refused rather than evicting an old button the user
-//! can still see (the deliberate inversion of the hyperlink table's LRU —
+//! can still see (the deliberate inversion of the hyperlink table's LRU -
 //! a visibly dead button is worse than a refused new one).
 //!
 //! No byte parsed here ever writes the grid, opens anything, or replies to the
-//! host; the click → report path is a later phase and is gated separately.
+//! host; the separately gated click path composes reports from parsed integer
+//! codes.
 
 use std::collections::HashMap;
 use std::num::NonZeroU32;
@@ -47,7 +48,7 @@ use super::types::{Cell, Color, UnderlineStyle};
 pub const MAX_BUTTON_SPANS_PER_LINE: usize = 16;
 
 /// Hard ceiling on distinct interned button entries, mirroring the hyperlink
-/// table's entry ceiling. At the ceiling, **new** definitions are refused —
+/// table's entry ceiling. At the ceiling, **new** definitions are refused -
 /// never an eviction of a live entry some visible line still references.
 pub const MAX_BUTTON_ENTRIES: usize = 8192;
 
@@ -122,7 +123,7 @@ impl ButtonIcon {
 /// Requested button lifetime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ButtonScope {
-    /// Dies (grays out, clicks inert) at the next OSC 133 `A`/`D` boundary —
+    /// Dies (grays out, clicks inert) at the next OSC 133 `A`/`D` boundary -
     /// the same transitions that clear the active edit region. The default:
     /// most buttons are meaningless once their program exits.
     Block,
@@ -167,7 +168,7 @@ pub struct ButtonSpan {
     pub len: usize,
 }
 
-/// A resolved button under a specific visible viewport cell — the pointer
+/// A resolved button under a specific visible viewport cell - the pointer
 /// arm's hit-test result (Button Protocol B3). Carries the table entry's
 /// payload plus the span occurrence's viewport geometry, so a press/release
 /// pair can require the *same span* (same row, same start column), not merely
@@ -232,7 +233,7 @@ pub fn point_chip_len(code: u32) -> usize {
 /// Resolve where a Tier 1 point button's chip sits on its row: one blank gap
 /// column past the row's content end (never left of the definition anchor
 /// `anchor_col`), truncated at the right edge. Returns the row-local
-/// `(start_col, len)` rect, or `None` when the row has no room — a chip that
+/// `(start_col, len)` rect, or `None` when the row has no room - a chip that
 /// cannot be painted is also not clickable.
 ///
 /// This is the single source of chip geometry: the render layer paints the
@@ -260,7 +261,7 @@ pub fn point_chip_rect(
 /// Compose the click report envelope: `CSI ? 1337 ; code ~`.
 ///
 /// This is the ONLY place report bytes are born, and its input is the parsed
-/// integer — type-enforced, so an emitter's raw bytes can never be echoed
+/// integer - type-enforced, so an emitter's raw bytes can never be echoed
 /// back into the PTY. The output alphabet is exactly `ESC [ ? 0-9 ; ~`: no
 /// newline, no CR, no control byte any shell or line editor interprets as
 /// "execute". A hostile emitter chooses *which* number arrives, never *what
@@ -281,12 +282,12 @@ pub(in crate::core) enum ButtonSignal {
         icon: ButtonIcon,
         scope: ButtonScope,
     },
-    /// Tier 2 `;end` — close the open bracketed run.
+    /// Tier 2 `;end` - close the open bracketed run.
     End,
     /// Invalidate every button (Tier 1 empty-code form; Tier 2 bare
     /// `invalidate`).
     InvalidateAll,
-    /// Tier 2 `invalidate;code=N` — invalidate every button with this code.
+    /// Tier 2 `invalidate;code=N` - invalidate every button with this code.
     InvalidateCode(u32),
     /// Recognized-and-consumed with no state: iTerm2 `type=copy` buttons,
     /// `Block=` declarations, and unknown future `Button=type=` variants get
@@ -432,7 +433,7 @@ struct ButtonKey {
 }
 
 /// The interned button table. Structural template: the hyperlink table's
-/// interning discipline, with the eviction bias inverted — at the entry
+/// interning discipline, with the eviction bias inverted - at the entry
 /// ceiling NEW definitions are refused ([`ButtonTable::define`] returns
 /// `None`) instead of evicting a live entry a visible line still references.
 #[derive(Debug, Clone, Default)]
@@ -465,7 +466,7 @@ impl ButtonTable {
             return None;
         }
         // On u32 wrap, advance PAST ids still held by live entries instead of
-        // restarting blindly at 1 — reusing a live id would overwrite that
+        // restarting blindly at 1 - reusing a live id would overwrite that
         // entry and retarget every span referencing it. The entry cap above
         // guarantees a free id exists, so the loop terminates.
         let mut next = self.next_id;
@@ -508,7 +509,7 @@ impl ButtonTable {
 
     /// A span in canonical storage referencing `id` was dropped. Frees the
     /// entry when the last reference goes (its lines have all left the ring or
-    /// been discarded — nothing can render it anymore). Unknown ids are a
+    /// been discarded - nothing can render it anymore). Unknown ids are a
     /// no-op: span-drop paths may trail a table `clear`.
     pub(in crate::core) fn release(&mut self, id: ButtonId) {
         let Some(entry) = self.entries.get_mut(&id) else {
@@ -520,7 +521,7 @@ impl ButtonTable {
         }
     }
 
-    /// Free `id` if nothing references it — the canceled-run path (a Tier 2
+    /// Free `id` if nothing references it - the canceled-run path (a Tier 2
     /// definition whose bracketed run never completed). A referenced entry is
     /// left untouched: `define` interning can hand a run the id of an entry
     /// other spans already reference.
@@ -542,7 +543,7 @@ impl ButtonTable {
         self.invalidate_where(|entry| entry.code == code);
     }
 
-    /// Invalidate every block-scoped entry — the OSC 133 `A`/`D` boundary
+    /// Invalidate every block-scoped entry - the OSC 133 `A`/`D` boundary
     /// hook. Sticky entries are untouched.
     pub(in crate::core) fn invalidate_block_scoped(&mut self) {
         self.invalidate_where(|entry| entry.scope == ButtonScope::Block);
@@ -576,7 +577,7 @@ impl ButtonTable {
     /// storage (the resize path: reflow re-projects spans wholesale, so
     /// incremental accounting is replaced by a rebuild). Entries no line
     /// references anymore are freed. Callers cancel any pending bracketed run
-    /// first — a zero-ref pending definition would be swept here.
+    /// first - a zero-ref pending definition would be swept here.
     pub(in crate::core) fn rebuild_refcounts<I>(&mut self, referenced: I)
     where
         I: IntoIterator<Item = ButtonId>,
@@ -615,7 +616,7 @@ impl ButtonTable {
 
     fn remove(&mut self, id: ButtonId) {
         // O(1) removal: the entry carries its own intern-key fields. Only
-        // remove the key mapping while it still points at THIS id — an
+        // remove the key mapping while it still points at THIS id - an
         // invalidated entry's key may have been re-interned by a newer entry.
         if let Some(entry) = self.entries.remove(&id) {
             let key = ButtonKey {
@@ -634,7 +635,7 @@ impl ButtonTable {
 /// physical rows during a re-wrap. The wrapping loops (`project_line_into`,
 /// `reflow_lines`) call [`SpanReprojector::record`] for every source cell they
 /// place; [`SpanReprojector::project`] then maps each span's flat range to
-/// per-row segments. Only lines that actually carry spans pay for recording —
+/// per-row segments. Only lines that actually carry spans pay for recording -
 /// callers skip construction entirely for the span-free common case.
 #[derive(Debug, Default)]
 pub(in crate::core) struct SpanReprojector {
@@ -753,7 +754,7 @@ mod tests {
             .unwrap();
         assert_eq!(first.get(), 1, "first id is 1");
         // Force the allocator to the wrap point: after u32::MAX the next
-        // candidate is 1, still live — it must be skipped, not overwritten.
+        // candidate is 1, still live - it must be skipped, not overwritten.
         table.next_id = u32::MAX - 1;
         let pre_wrap = table
             .define(8, ButtonIcon::Run, ButtonScope::Block)
@@ -814,7 +815,7 @@ mod tests {
         assert_eq!(line_content_end(&plain("   ")), 0);
         assert_eq!(line_content_end(&[]), 0);
         // A trailing run of colored-background spaces is program output (a
-        // bar, a status segment) — the chip must not claim it.
+        // bar, a status segment) - the chip must not claim it.
         let mut colored = plain("ab   ");
         colored[4].attrs.background = Color::Indexed(1);
         assert_eq!(line_content_end(&colored), 5);
@@ -847,7 +848,7 @@ mod tests {
 
     #[test]
     fn click_report_alphabet_is_csi_safe() {
-        // The written alphabet is ESC [ ? 0-9 ; ~ — never CR/LF or any byte a
+        // The written alphabet is ESC [ ? 0-9 ; ~ - never CR/LF or any byte a
         // line editor executes. Checked across representative codes including
         // the extremes.
         for code in [1u32, 7, 42, 999, 65536, u32::MAX] {
@@ -876,7 +877,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Parser totality — Tier 1
+    // Parser totality - Tier 1
     // ------------------------------------------------------------------
 
     #[test]
@@ -963,7 +964,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Parser totality — Tier 2
+    // Parser totality - Tier 2
     // ------------------------------------------------------------------
 
     #[test]

@@ -52,7 +52,7 @@ impl App {
 
     /// New Tab dispatcher (F6-W5 / ODP-9): when the active workspace is bound to
     /// a host alias this routes New Tab through the remote SSH connect path;
-    /// otherwise it spawns a local shell — byte-identical to the pre-W5 path, so
+    /// otherwise it spawns a local shell - byte-identical to the pre-W5 path, so
     /// an unbound workspace is unaffected. The "New Local Tab" escape hatch
     /// bypasses the binding by calling [`Self::handle_new_local_tab`] directly.
     pub(super) fn handle_new_tab(&mut self) {
@@ -90,7 +90,7 @@ impl App {
     /// Open a New Tab against the active workspace's bound host `alias`,
     /// resolving it against the live host list and routing through the SSH
     /// connect path. A stale binding (alias removed from `hosts.conf`) or a
-    /// connect failure falls back to a local tab and raises a one-line notice —
+    /// connect failure falls back to a local tab and raises a one-line notice -
     /// a bad binding never blocks opening a tab.
     /// Returns the new tab's pane, or `None` when no tab opened.
     pub(super) fn new_tab_for_bound_host(&mut self, alias: &str) -> Option<SessionToken> {
@@ -223,7 +223,7 @@ impl App {
         // F1 cwd inheritance: seed the new tab's shell in the active pane's OSC 7
         // cwd when known, so New Tab opens where you already are. A pane with no
         // tracked cwd (None) spawns in the default directory, unchanged. Works on
-        // Windows too — ConPTY honors the working directory and drive-letter OSC 7
+        // Windows too - ConPTY honors the working directory and drive-letter OSC 7
         // cwds are already normalized.
         // D-1: validate the tracked cwd (stat + home fallback) before it seeds
         // the spawn, so a bogus / non-filesystem OSC 7 cwd can never reach the
@@ -275,7 +275,7 @@ impl App {
     }
 
     /// Attach to a detached, session-host-backed session by id and present it as
-    /// a new live tab in this window — the production "reopen by id, full
+    /// a new live tab in this window - the production "reopen by id, full
     /// scrollback intact" path. The mirror terminal is restored from the host
     /// snapshot inside [`WorkspaceSet::attach_in_new_tab`]; here we apply the window's
     /// presentation policy (theme/cursor/scrollback cap) so the attached tab
@@ -354,7 +354,7 @@ impl App {
 
     /// Route an accepted session from the Attach-Session overlay (Phase 14).
     /// Dedup first: if the session is already open in a tab in this window,
-    /// switch to that tab — no duplicate, no prompt (this kills the reported
+    /// switch to that tab - no duplicate, no prompt (this kills the reported
     /// triple-open bug). Otherwise open the attach-choice dialog so the user
     /// picks New tab vs Replace current.
     pub(in crate::native) fn route_attach_session(&mut self, session_id: String) {
@@ -384,14 +384,14 @@ impl App {
     }
 
     /// Attach `session_id` in a new tab and then close the tab that was active
-    /// when the Attach manager opened — the "Replace current" choice (Phase 14).
+    /// when the Attach manager opened - the "Replace current" choice (Phase 14).
     /// Opening an overlay does not change the active session, so `active_id()`
     /// captured here is the correct replace target. Order: capture old active →
     /// attach new (appends + focuses it) → close the old tab via the existing
     /// whole-tab close path. That path routes each session through
     /// `Session::close`, which cleanly `Detach`es a hosted/attached tab (the host
     /// keeps the PTY, so it stays reattachable) and closes a local PTY tab
-    /// directly — no nested confirm-close dialog, since the user explicitly chose
+    /// directly - no nested confirm-close dialog, since the user explicitly chose
     /// Replace. A stale id (nothing attached) leaves the current tab untouched.
     pub(super) fn attach_session_replacing_current(&mut self, session_id: String) {
         self.finish_divider_drag();
@@ -431,14 +431,14 @@ impl App {
 
     pub(super) fn close_active_tab(&mut self) -> bool {
         self.finish_divider_drag();
-        // "Close Tab" reaps the ENTIRE active tab — every leaf session in its
-        // layout tree — and removes the tab, regardless of pane count. This is
+        // "Close Tab" reaps the ENTIRE active tab - every leaf session in its
+        // layout tree - and removes the tab, regardless of pane count. This is
         // distinct from "Close Pane" (`close_focused_pane`), which collapses a
         // single leaf and deliberately keeps a multi-pane tab alive.
         //
         // Exit keys on the last tab of the LAST workspace, never on the last
-        // pane: closing the sole tab of the sole workspace — even a multi-pane
-        // one — signals app exit. We guard on that case first and return without
+        // pane: closing the sole tab of the sole workspace - even a multi-pane
+        // one - signals app exit. We guard on that case first and return without
         // reaping, preserving the existing shutdown path exactly (the app tears
         // down sessions on exit; reaping here would empty the `WorkspaceSet` and
         // make any `active()` Deref before exit panic). With a single workspace
@@ -457,7 +457,7 @@ impl App {
         // last tab.
         let ws_before = self.sessions.workspace_count();
         let _ = self.sessions.close_active_tab();
-        // ODP-2: pure tab actions no longer flash the workspace rail — only a
+        // ODP-2: pure tab actions no longer flash the workspace rail - only a
         // change to the WORKSPACE list does. Closing the last tab of a non-last
         // workspace closes that workspace, so flash iff the list shrank.
         if self.sessions.workspace_count() < ws_before {
@@ -473,7 +473,7 @@ impl App {
         false
     }
 
-    /// Close the tab that holds `token` — the whole tab, every pane — from a
+    /// Close the tab that holds `token` - the whole tab, every pane - from a
     /// tab-slot right-click (NF-F7-1). Distinct from [`Self::close_active_tab`]:
     /// the right-clicked tab may be a background one, so this resolves its strip
     /// index (within the active workspace) and reaps THAT tab. Exits the app on
@@ -529,7 +529,7 @@ impl App {
         self.on_active_session_changed();
     }
 
-    /// Create a fresh workspace — its own single-pane tab — and switch to it.
+    /// Create a fresh workspace - its own single-pane tab - and switch to it.
     /// Driven by the rail `+` slot, the "New Workspace" context-menu item, and
     /// (later work) the keyboard action. The new session is initialized
     /// exactly like New Tab (theme / cursor / scrollback), and the switch may
@@ -547,7 +547,7 @@ impl App {
         }
     }
 
-    /// Close the ENTIRE workspace at rail index `idx` — every tab, every pane.
+    /// Close the ENTIRE workspace at rail index `idx` - every tab, every pane.
     /// The rail slot `×` / "Close Workspace" menu item. Closing the last
     /// workspace signals app exit WITHOUT emptying the arena first (mirroring the
     /// `close_active_tab` guard, so no `active()` Deref panics during teardown).
@@ -593,7 +593,7 @@ impl App {
     /// (W4-v2). Seeds the picker with every workspace EXCEPT the one that owns
     /// `token`, carrying the token so the accepted destination moves the clicked
     /// tab (not the active one). A no-op when there is no other workspace to move
-    /// to — the picker never opens with an empty list.
+    /// to - the picker never opens with an empty list.
     pub(super) fn open_move_tab_workspace_picker(&mut self, token: SessionToken) {
         let destinations = self.sessions.move_tab_destinations(token);
         if destinations.is_empty() {
@@ -616,7 +616,7 @@ impl App {
     }
 
     /// Move the tab holding `token` into the workspace at `dest_ws` (W4-v2, the
-    /// destination chosen from the picker). A `Tab` value splice — the sessions
+    /// destination chosen from the picker). A `Tab` value splice - the sessions
     /// stay in the arena. Moves WITHOUT following: the active workspace is
     /// unchanged and the rail flashes so the departure is visible, unless moving
     /// the last tab out closes the source workspace, which necessarily shifts
@@ -648,7 +648,7 @@ impl App {
         }
     }
 
-    /// Create a fresh workspace (one single-pane tab) and switch to it — the
+    /// Create a fresh workspace (one single-pane tab) and switch to it - the
     /// "New Workspace" action / palette entry / rail `+` slot (ODP-3/-5). Mirrors
     /// [`Self::handle_new_tab`] one level up: spawn the new workspace's shell,
     /// apply this window's presentation policy to it, then flash the rail so the
@@ -746,7 +746,7 @@ impl App {
         }
         self.flash_rail_autohide();
         // A new workspace can make the auto rail appear (>=2 workspaces), which
-        // changes the content reservation — reflow so the grid matches.
+        // changes the content reservation - reflow so the grid matches.
         self.recompute_grid_for_tab_bar();
         self.on_active_session_changed();
         Some(token)
@@ -757,7 +757,7 @@ impl App {
     /// switch to it. Mirrors [`Self::handle_new_workspace`] but threads the
     /// captured cwd through the cwd-aware `new_workspace_in`, exactly as
     /// Duplicate Tab reuses the cwd-aware local-tab spawn one level down. HONEST
-    /// framing: a fresh shell in the same directory, not a process fork —
+    /// framing: a fresh shell in the same directory, not a process fork -
     /// scrollback and the running program are not copied. A pane with no tracked
     /// cwd (`None`) spawns in the default directory, unchanged. Windows: the cwd
     /// flows through the same spawn path New Tab's cwd inheritance uses, so
@@ -821,12 +821,12 @@ impl App {
         }
         self.flash_rail_autohide();
         // A new workspace can make the auto rail appear (>=2 workspaces), which
-        // changes the content reservation — reflow so the grid matches.
+        // changes the content reservation - reflow so the grid matches.
         self.recompute_grid_for_tab_bar();
         self.on_active_session_changed();
     }
 
-    /// Close the entire active workspace — every tab, every pane (ODP-3). Closing
+    /// Close the entire active workspace - every tab, every pane. Closing
     /// the last remaining workspace exits the app, exactly like closing the last
     /// tab of the last workspace: we guard on that case first and set
     /// `pending_exit` without reaping, so the arena is not emptied before
@@ -849,7 +849,7 @@ impl App {
         self.on_active_session_changed();
     }
 
-    /// Switch to the next workspace in rail order (wrapping) — the "Next
+    /// Switch to the next workspace in rail order (wrapping) - the "Next
     /// Workspace" action / palette entry. A no-op with a single workspace. Flashes
     /// the auto-hidden rail so the workspace change is visible even with the
     /// pointer away from the edge (ODP-2: workspace chords flash the rail).
@@ -877,8 +877,8 @@ impl App {
         }
     }
 
-    /// Switch directly to the workspace at rail index `idx` — the command
-    /// palette's per-workspace "switch to …" rows (ODP-5). A no-op when `idx` is
+    /// Switch directly to the workspace at rail index `idx` - the command
+    /// palette's per-workspace "switch to …" rows. A no-op when `idx` is
     /// the active workspace or out of range.
     pub(super) fn switch_to_workspace(&mut self, idx: usize) {
         self.finish_divider_drag();
@@ -924,7 +924,7 @@ impl App {
             BindableAction::EqualizePanes => {
                 self.sessions.equalize_active();
                 // Equalize changes split ratios, so each pane's cell dimensions
-                // change — reflow before repaint.
+                // change - reflow before repaint.
                 self.reflow_active_panes_and_redraw();
             }
             BindableAction::ZoomPane => {
@@ -1044,7 +1044,7 @@ impl App {
         {
             // Collapsed back to a single pane (the common case: closing one half
             // of a split). `multipane_geometry()` returns `None` once the tab is
-            // single-pane, so the branch above is skipped — without this arm the
+            // single-pane, so the branch above is skipped - without this arm the
             // lone survivor keeps the narrow sub-grid it had as a split pane, and
             // text wrapping + selection stay clipped to the old half-width until
             // the next real window resize.
@@ -1052,7 +1052,7 @@ impl App {
             // Resize the survivor to the full content rect explicitly:
             // `resize_all_panes` over the full content sizes the tab's lone leaf
             // to the full grid (its single-pane arm). We can't lean on
-            // `resize_grid_with_padding` alone here — `self.grid` is only ever the
+            // `resize_grid_with_padding` alone here - `self.grid` is only ever the
             // *window* content grid, so it is already full at close time and that
             // call early-returns a no-op without ever resizing the (narrow)
             // survivor session. We still call it afterward to keep `self.grid`

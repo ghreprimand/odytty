@@ -2,8 +2,8 @@
 //! Tests for the scrollback store and the logical-line projection machinery.
 //!
 //! The crux of correctness is the **same-width roundtrip** property: scrollback
-//! holds physical rows directly, so the logical projection (the foundation C2
-//! switches the source of truth onto) is behavior-identical iff
+//! stores logical lines, so projecting them back at the same width must
+//! reproduce the physical rows that were pushed, i.e.
 //! `project_logical(logical_from_physical(rows), W) == rows`. We prove that
 //! exhaustively over the shapes real terminal operations produce, then add
 //! cross-width projection goldens (wide glyphs, wrapping, open continuation
@@ -50,7 +50,7 @@ fn blank() -> Line {
 }
 
 /// Projecting the logical form back at the *same* width must reproduce the
-/// source physical rows byte-for-byte — the behavior-identity guarantee the C2
+/// source physical rows byte-for-byte - the behavior-identity guarantee the C2
 /// switch relies on.
 fn assert_roundtrip(rows: &[Line]) {
     let logical = logical_from_physical(rows);
@@ -75,7 +75,7 @@ fn roundtrip_plain_lines() {
 #[test]
 fn roundtrip_blank_lines_preserved() {
     // Blank scrollback lines must survive (no trailing-line collapse in the
-    // store — that only happens at the visible bottom during resize).
+    // store - that only happens at the visible bottom during resize).
     assert_roundtrip(&[content("a"), blank(), blank(), content("b")]);
     assert_roundtrip(&[blank(), blank(), blank()]);
 }
@@ -244,7 +244,7 @@ fn push_row_merges_open_runs() {
     assert!(phys[0].wrapped && !phys[1].wrapped && !phys[2].wrapped);
 }
 
-/// Search must keep finding content through reflow at different widths — the
+/// Search must keep finding content through reflow at different widths - the
 /// resize re-wraps history but the searchable text is invariant. Every reported
 /// match must land on a valid absolute cell.
 #[test]
@@ -575,7 +575,7 @@ fn steady_state_front_eviction_stays_bounded_and_ordered() {
     // I-3: once the store is at its line-count cap, sustained one-row output must
     // evict the oldest logical line per push with O(1) work (VecDeque pop_front,
     // no limit-sized memmove). A Vec front-drain shifted the whole retained tail
-    // on every eviction, making a long output run O(n^2) — this exercises an
+    // on every eviction, making a long output run O(n^2) - this exercises an
     // append run far past the cap that would be pathologically slow under that
     // shape and asserts the retained window is content-exact and steady.
     const LIMIT: usize = 10_000;
@@ -652,7 +652,7 @@ fn open_line_after_closed_history_is_bounded_without_a_terminator() {
 // the live grid before reflow and feeds the reflow a COMBINED-buffer cursor row
 // (`cursor_prefix + cursor.row`). When `shell_owns_cursor_on_resize` is true the
 // reflow takes its `None` cursor arm, which (pre-fix) treated that combined row
-// as a visible row and clamped it to the new grid — drifting the cursor down by
+// as a visible row and clamped it to the new grid - drifting the cursor down by
 // `cursor_prefix` and pinning it to the bottom. Every prior shell-owns test fed
 // EMPTY scrollback (`cursor_prefix == 0`) with a bottom-row cursor, where the
 // buggy and correct values coincide, so the drift hid for many commits. These
@@ -663,7 +663,7 @@ fn open_line_after_closed_history_is_bounded_without_a_terminator() {
 /// Basic drift: with pulled scrollback (`cursor_prefix > 0`), a width
 /// change, and a non-bottom cursor, the shell-owns resize must keep the cursor
 /// at its incoming visible row (0). Pre-fix the `None` arm clamps the combined
-/// row (5) to the bottom row (4) — the observed downward drift.
+/// row (5) to the bottom row (4) - the observed downward drift.
 #[test]
 fn shell_owns_resize_with_pulled_scrollback_keeps_incoming_visible_row() {
     // Five short hard-terminated scrollback lines (one physical row each at the
@@ -694,7 +694,7 @@ fn shell_owns_resize_with_pulled_scrollback_keeps_incoming_visible_row() {
     );
 
     // The shell owns placement; the terminal must keep the incoming VISIBLE row
-    // (0), clamped to the new dims — NOT the combined row (5) clamped to the
+    // (0), clamped to the new dims - NOT the combined row (5) clamped to the
     // bottom (4) that the pre-fix `None` arm produced.
     assert_eq!(
         result.cursor,
@@ -707,15 +707,15 @@ fn shell_owns_resize_with_pulled_scrollback_keeps_incoming_visible_row() {
 /// into MORE physical rows, so the post-rewrap `visible_start` (6) diverges from
 /// `cursor_prefix` (1). This is the case that separates the three candidate
 /// fixes, all of which agree when `visible_start == cursor_prefix`:
-///   (a) subtract `visible_start`  -> row 0 (cursor flung to the top) — WRONG
-///   (b) subtract `cursor_prefix`  -> row 1 (incoming visible row)    — CORRECT
+///   (a) subtract `visible_start`  -> row 0 (cursor flung to the top) - WRONG
+///   (b) subtract `cursor_prefix`  -> row 1 (incoming visible row)    - CORRECT
 ///   (c) recompute the visible row -> row 1 (same as b)
 /// Pre-fix the `None` arm subtracts nothing -> row 2. Asserting row 1 makes this
 /// test reject BOTH the pre-fix code AND candidate (a), pinning candidate (b).
 #[test]
 fn shell_owns_resize_shrink_rewrap_above_cursor_pins_cursor_prefix_fix() {
     // One long hard-terminated scrollback line of 100 'x' (5 physical rows at
-    // width 20), which rewraps to 10 rows at the new width 10 — i.e. content
+    // width 20), which rewraps to 10 rows at the new width 10 - i.e. content
     // above the cursor expands, pushing visible_start past cursor_prefix.
     let long: Vec<Line> = {
         let mut rows = Vec::new();
@@ -842,7 +842,7 @@ fn shell_owns_resize_does_not_rewrap_live_input_line() {
 
     // Accumulation signature: drag narrow<->wide repeatedly. Truncate/pad is
     // idempotent at a fixed width (it converges), so after many cycles the grid
-    // at width 6 still equals the single truncate/pad — no compounding drift.
+    // at width 6 still equals the single truncate/pad - no compounding drift.
     let mut grid = original();
     let mut sb2 = Scrollback::from_physical(&[]);
     let mut width = 8usize;
@@ -1074,7 +1074,7 @@ fn scrollback_byte_breakdown_by_depth() {
 /// several physical rows, so it is assembled through the `push_row` merge path
 /// (`Vec::extend`) rather than adopted whole from a grid row. That is the path
 /// where amortized doubling leaves reserved-but-unused capacity behind, so the
-/// two shapes have to be measured separately — a hard-terminated corpus alone
+/// two shapes have to be measured separately - a hard-terminated corpus alone
 /// would report the slack term as negligible and hide it.
 #[cfg(test)]
 fn measure_wrapped_scrollback(
@@ -1104,7 +1104,7 @@ fn measure_wrapped_scrollback(
 // *means*: the grapheme content of every logical line, at every width it can be
 // projected to. This oracle states that as a property rather than as a golden
 // file, so it constrains a new representation without having to be rewritten
-// for it — feed known grapheme sequences in, project them out at many widths,
+// for it - feed known grapheme sequences in, project them out at many widths,
 // and require the reconstruction to be the input.
 //
 // It is deliberately not a byte-level or layout-level assertion. Byte-level
@@ -1226,7 +1226,7 @@ struct CandidateHandleCell {
 }
 
 /// Candidate B was adopted and is now
-/// [`crate::core::stored_cell::StoredCell`] — the cell the **scrollback ring
+/// [`crate::core::stored_cell::StoredCell`] - the cell the **scrollback ring
 /// alone** stores. There is no separate declaration for it here any more: the
 /// measurement is taken against the shipped type, so the figure cannot drift
 /// from the thing it describes.
@@ -1248,7 +1248,7 @@ fn stage_b_candidate_cell_sizes() {
 /// the rejected candidate A would have cost on the same corpora.
 ///
 /// This started as a projection over a ring that still stored `Cell`. Candidate
-/// B has since landed, so the B column is no longer a projection — it is the
+/// B has since landed, so the B column is no longer a projection - it is the
 /// measured ring, read from the store. The A column stays arithmetic because
 /// candidate A was not built; it is labelled as such rather than presented
 /// beside the measured figure as if it were one.
@@ -1440,7 +1440,7 @@ fn windowed_accessors_match_full_projection() {
 }
 
 /// The cached shape must follow a width change and a mutation, not just a cold
-/// build — a stale shape would resolve rows to the wrong logical line, which is
+/// build - a stale shape would resolve rows to the wrong logical line, which is
 /// exactly the failure a memoized index invites.
 #[test]
 fn projection_shape_tracks_width_and_mutation() {
@@ -1547,7 +1547,7 @@ fn physical_range_preserves_prompt_marks_and_hyperlinks_when_cutting_a_wrapped_l
 }
 
 /// Reclaiming capacity on a finalized line must not change any observable
-/// projection output — it is a storage change, not a content change.
+/// projection output - it is a storage change, not a content change.
 #[test]
 fn capacity_reclaim_is_content_neutral() {
     // A soft-wrapped run merged through `push_row` is the path that accrues
@@ -1580,8 +1580,9 @@ fn capacity_reclaim_is_content_neutral() {
 /// The retained projection is gone, so the question is whether reading a
 /// viewport still costs viewport time rather than store time. Times a warm
 /// read (nothing pushed since the last read, the steady state while the user
-/// scrolls or idles) and a cold read (a row pushed first, which invalidates the
-/// cached shape — the steady state while output is arriving).
+/// scrolls or idles) and a cold read (a row pushed first, which updates the
+/// cached shape incrementally - the steady state while output is arriving; the
+/// timing covers the push plus the read).
 #[test]
 #[ignore = "measurement harness"]
 fn snapshot_cost_at_depth() {
@@ -1629,7 +1630,7 @@ fn flat_graphemes(rows: &[Line]) -> Vec<String> {
 ///
 /// The merge appends one row's cells at an offset into the logical line's flat
 /// space, and the mark sidecar is keyed in that same space, so a mistake here
-/// does not lose the mark — it relocates it. Every base character is distinct
+/// does not lose the mark - it relocates it. Every base character is distinct
 /// modulo 26 and every marked position is checked against its own base, so a
 /// shift of any size shows up as a named mismatch rather than as content that
 /// still contains the right number of marks.
@@ -1676,7 +1677,7 @@ fn merged_continuation_rows_keep_marks_on_their_own_base() {
 ///
 /// This is the test that fails if the key is ever narrowed to a `u16`: the
 /// marked cell sits at index 66,000 of a single open logical line, which is
-/// reachable from ordinary output — a long line with no newline in it — not
+/// reachable from ordinary output - a long line with no newline in it - not
 /// from anything adversarial.
 #[test]
 fn mark_survives_past_a_sixteen_bit_column_index() {

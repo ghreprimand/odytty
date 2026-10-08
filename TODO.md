@@ -48,15 +48,15 @@ standalone format-control retention remain unsupported.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 
-## Release preparation
-
-Dependency maintenance includes the standalone fuzz workspace lockfile and its
-locked API compile check before landing.
-
-- [x] Migrate the Homebrew cask quarantine step to `postflight_steps` for
-      Homebrew 7.0 or newer.
-
-- [x] Require matching indexed release notes and prepend their summary and canonical link while preserving download and verification information.
+The `bidi_reorder` setting (off by default; Settings > Rendering and the
+right-click menu) draws right-to-left runs in display order from a
+presentation-only map: cells, cursor position, selection, copy, search, and
+export stay logical. The `font_zero` setting (off by default) selects a body
+face's OpenType `zero` glyph for `0` without changing cell metrics; other
+stylistic sets and raw feature tags are not exposed. Homebrew cask quarantine
+removal uses `postflight_steps` for Homebrew 7.0 or newer. Dependency
+maintenance includes the standalone fuzz workspace lockfile and its locked API
+compile check before landing.
 
 ## v0.16.1: AppImage Update Information (published)
 
@@ -386,6 +386,9 @@ acceptance document. Packaging and publication complete at the release tag.
       (native Hyprland/Wayland and nested KWin), Windows, and macOS, with
       blocking three-OS CI green.
 
+- [x] Require matching indexed release notes and prepend their summary and
+      canonical link while preserving download and verification information.
+
 ### Post-publication checks
 
 - [x] Tag v0.15.0, publish artifacts, and verify checksums, byte-identical
@@ -435,7 +438,7 @@ with Rust 1.97.1; the package checkpoint is complete without repeating MSRV test
       rescan frequency only with correctness and measurement evidence. Neither
       is part of the source-package carryover.
 
-## v0.13.0: Safer Command-Aware Work
+## v0.13.0: Safer Command-Aware Work (published)
 
 - [x] Freeze the pre-implementation surface inventory, architecture decisions,
       security/privacy boundaries, four-leg platform acceptance target, and
@@ -488,7 +491,7 @@ with Rust 1.97.1; the package checkpoint is complete without repeating MSRV test
     - [x] Three committed deterministic parser fuzzers (byte-soup, two-chunk
           split, structure-aware) with an `ODYTTY_FUZZ_ITERS` budget.
   - [x] PA2-r: clean-room rebuild of the parser state core under the
-        originality contract — primary sources only (vt100.net DEC ANSI
+        originality contract - primary sources only (vt100.net DEC ANSI
         diagram, ECMA-48, xterm `ctlseqs`); transition oracle stayed green.
     - [x] Two-layer pipeline: `src/parser/segmenter.rs` owns Ground +
           ALL UTF-8 (bulk validation + `chars()` dispatch + partial-codepoint
@@ -568,7 +571,7 @@ Delivered compatibility work under that policy:
         `osc52_read` opt-in.
   - [x] Dynamic colors: OSC 10/11/12 default color set/query, OSC 4 palette
         set/query, and OSC 104/110/111/112 reset behavior.
-  - [x] SI1: OSC 7 working-directory tracking core half — parse
+  - [x] SI1: OSC 7 working-directory tracking core half - parse
         `file://host/path`, percent-decode the path, accept empty/`localhost`
         hosts (foreign hosts ignored), store advisory cwd string state with a
         `take_working_directory_changed` poll flag, and survive RIS. Malformed
@@ -582,13 +585,13 @@ Delivered compatibility work under that policy:
 - [x] Add mouse reporting modes required by real TUIs.
   - [x] Core: DECSET/DECRST tracking (9/1000/1002/1003) and encoding
         (1005/1006/1015) state plus pure report encoders.
-  - [x] MS1: SGR-pixel mode 1016 core half — DECSET/DECRST 1016 selects the
+  - [x] MS1: SGR-pixel mode 1016 core half - DECSET/DECRST 1016 selects the
         `SgrPixel` encoding on the single-active axis, DECRQM reports it
         set/reset, and a pure `encode_mouse_event_pixel` seam emits
         `CSI < Cb ; Px ; Py M|m` from caller-owned 1-based pixel coordinates
         (core never derives pixels from cells; the native pixel seam is a
         follow-up work).
-  - [x] MS2: SGR-pixel mode 1016 native pixel seam — the native mouse handler
+  - [x] MS2: SGR-pixel mode 1016 native pixel seam - the native mouse handler
         routes true 1-based physical pixel coordinates (floored from the winit
         cursor position, clamped to the grid pixel extent) to the core pixel
         encoder when 1016 is active; all other encodings keep the cell path.
@@ -613,7 +616,7 @@ Delivered compatibility work under that policy:
         RIS/DECSTR inside alt, resize + primary reflow, modal-state persistence).
   - [x] A1: PTY smoke for nano, htop, and git-log-pager alt-screen restore.
   - [x] A1: modes 47/1047/1048 now handled (previously silently ignored).
-  - [x] A2-F2: distinct 47/1047/1049 semantics per xterm ctlseqs — parameterized
+  - [x] A2-F2: distinct 47/1047/1049 semantics per xterm ctlseqs - parameterized
         enter/leave, 1049 dispatches DECSC/DECRC, 47/1047 no cursor save/restore.
   - [x] A2-F3: `cursor_visible` saved/restored in StoredScreen.
   - [x] A2-F4: `current_attrs` saved/restored in StoredScreen.
@@ -622,7 +625,7 @@ Delivered compatibility work under that policy:
       combining marks, and supported emoji clusters render correctly, and
       East Asian Ambiguous width is selectable (`narrow` default, `wide`
       opt-in, including a per-profile override).
-  - [x] Core: wide-cell write/erase coherence — overwrite-half clears the pair,
+  - [x] Core: wide-cell write/erase coherence - overwrite-half clears the pair,
         wide glyph wraps whole at EOL, erase/ICH/DCH/ECH repair pairs.
   - [x] Core and renderer: up to sixteen extension scalars attach to the
         preceding cell's grapheme, render over the base glyph, survive
@@ -651,7 +654,7 @@ not a stretch goal.
         fallback when a style face is absent.
 - [ ] Validate HiDPI scale handling across window sizes and monitor scale
       factors.
-  - [x] H1: scale-agnostic atlas re-raster seam — `GpuState` retains logical
+  - [x] H1: scale-agnostic atlas re-raster seam - `GpuState` retains logical
         `font_size_px` + clamped `scale`; `physical_font_px` folds scale with a
         documented `>= 1.0` clamp; `set_scale`/`set_font_px` rebuild the atlas,
         texture, and bind group and republish `atlas.cell` (reusable for a
@@ -681,7 +684,7 @@ not a stretch goal.
         Shapes, Misc Symbols, Dingbats incl. `❯`, Misc Symbols+Arrows).
         `ODYTTY_SYMBOL_FONT`/`symbol_font`/SYMMAP/settings override; `--show-config`
         reports `symbol_fallback` + `symbol_font_source`.
-  - [x] Universal glyph pack — v2+v3 chain: the single fallback face became an
+  - [x] Universal glyph pack - v2+v3 chain: the single fallback face became an
         ordered chain (`fallback_chain: Vec<Arc<FontVec>>`) that rasterizes each
         glyph from the first face that has it, so coverage is the union. Bundled
         a second symbols face (Nerd Fonts **v2.3.3**) after the v3 face, so PUA
@@ -689,7 +692,7 @@ not a stretch goal.
         `U+F557` / python `U+F81F` tofu). `symbol_font_source` reports the full
         chain joined with ` > `.
   - [x] Grouped font picker: families split into **Bundled Fonts** (Victor Mono,
-        JetBrains Mono — always present) and **System Fonts** (host families),
+        JetBrains Mono - always present) and **System Fonts** (host families),
         with a host copy of a bundled family de-duplicated into the bundled
         group. Headers are non-selectable; navigation/filtering skip them; either
         group resolves with zero config.
@@ -846,14 +849,14 @@ not a stretch goal.
         remains deferred pending evidence from a materially hotter workload.
 - [x] Add visual regression screenshots or pixel-level smoke checks where
       practical.
-  - [x] V1: `tests/pixel_smoke/` — a headless CPU compositor rasterizes the
+  - [x] V1: `tests/pixel_smoke/` - a headless CPU compositor rasterizes the
         real `grid::build_vertices*` geometry (default-path blend) and asserts
         structural invariants: blank-cell purity, glyph ink within bounds,
         inverse fg/bg swap, dim luminance drop, underline/strikethrough rows,
         box-drawing `U+2500` seam continuity, wide-char single-draw, bar-cursor
         stripe. Structural over byte-exact goldens for host-font portability;
         runs in the default suite. Optional hash-golden layer deferred.
-  - [x] V2: graphics-path pixel checks — the CPU compositor composites
+  - [x] V2: graphics-path pixel checks - the CPU compositor composites
         `visible_placements()` in the GPU's bg -> z<0 -> glyphs -> z>=0 order;
         fixtures assert z-order overdraw + equal-z generation order, source
         crop, c/r cell-box fill, X/Y offset, anchor scroll, and a decoded-sixel
@@ -932,7 +935,7 @@ not a stretch goal.
         PageUp/Down, Home/End, and `Ctrl-u/d/b/f` paging are also bound.
   - [x] `v` starts character selection, `V` starts line selection, `o` swaps
         ends; `y` / Enter yanks selected text to clipboard; `Esc`/`q` cancel.
-  - [x] Terminal core state is never modified — copy mode is a presentation
+  - [x] Terminal core state is never modified - copy mode is a presentation
         overlay; the default frame and input routing are byte-identical while
         copy mode is inactive.
 - [x] Add cursor style and blink policy settings.
@@ -1097,9 +1100,9 @@ not a stretch goal.
         gained clear display labels + help text (e.g. `osc52_read` →
         "Allow clipboard read (OSC 52)", `render_quality` → "Renderer profile",
         `crt_scanline_period` → "CRT scanline spacing", `symbol_font` →
-        "Symbol font file"). Labels/help only — no config-key/env renames, so
+        "Symbol font file"). Labels/help only - no config-key/env renames, so
         existing config files keep working; plain/fast render path unchanged.
-- [x] Settings description clarity sweep — rewrote in-panel descriptions for
+- [x] Settings description clarity sweep - rewrote in-panel descriptions for
       `text_gamma`, `visual`, `cursor_style`, and `cursor_blink` to lead with
       what each setting does and the effect of changing it.
   - [x] Clarify `cursor_blink = auto`: on Linux it intentionally resolves to
@@ -1137,7 +1140,7 @@ Design decision: visual capability parity with the strongest GPU terminals is
 a floor; surpassing it is the standing ambition.
 
 - [x] Wide-glyph raster quality: double-width (CJK/wide) atlas slot sizing.
-  - [x] Audit: width-2 glyphs were clipped — a single-cell atlas slot caps
+  - [x] Audit: width-2 glyphs were clipped - a single-cell atlas slot caps
         ink at `cell.width + overflow_margin` (~`cell.width + cell.height/4`),
         losing the rightmost ~27% of a full-em width-2 glyph, and the slot is
         physically too narrow to hold it. R3 bearing-aware quads did not help
@@ -1151,7 +1154,7 @@ a floor; surpassing it is the standing ambition.
         + CJK-gated full-path + pixel_smoke seam-continuity / no-double-draw /
         narrow-neighbour checks. Color emoji (RGBA atlas) remains out of scope.
 - [x] Subpixel anti-aliasing behind a setting (R2 finding C).
-- [x] Image/graphics protocol decision spike (Kitty graphics + Sixel) —
+- [x] Image/graphics protocol decision spike (Kitty graphics + Sixel) -
       sequenced after the owned parser.
 - [x] Shared graphics scene: terminal-owned RGBA image store, bounded
       memory/eviction, cell-anchored placement model, primary/alternate
@@ -1161,7 +1164,7 @@ a floor; surpassing it is the standing ambition.
       alpha-blended RGBA8 textured quads between cell backgrounds and glyphs,
       with lazy image-id uploads, visible-set cache eviction, scrollback-aware
       placement geometry, and headless geometry/cache tests.
-- [x] Kitty direct still-image MVP: `src/core/kitty.rs` — APC `_G`
+- [x] Kitty direct still-image MVP: `src/core/kitty.rs` - APC `_G`
       control parsing, in-tree base64 decoder, direct raw RGB/RGBA
       transmit/display (`a=t`/`a=T`, `f=24`/`f=32`, `t=d`), chunk reassembly
       with caps, image/placement ids, Kitty OK/error responses via the
@@ -1178,7 +1181,7 @@ a floor; surpassing it is the standing ambition.
         and focused integration coverage.
 - [x] Graphics-surface fuzzing: deterministic never-panic + bounded-memory
       harness (`src/core/graphics_fuzz_tests.rs`) over the whole Kitty/Sixel
-      display surface — structured APC `_G` control soup (overflow numerics,
+      display surface - structured APC `_G` control soup (overflow numerics,
       duplicate/unknown keys, truncated base64, `m=` chunk abuse with
       interleaved sequences, malformed terminators), SAFE transport-path fuzz
       (nonexistent/traversal/over-long/NUL paths; self-created shm only),
@@ -1187,10 +1190,10 @@ a floor; surpassing it is the standing ambition.
       coherent. Smoke tier in default `cargo test`; `#[ignore]` deep tier at
       `ODYTTY_FUZZ_ITERS=40000` ran clean (120k+ iters, no defects). Two
       bounded performance observations on `decode_sixel` recorded as follow-ups
-      (eager raster-canvas alloc; O(area) incremental-width re-layout) — both
+      (eager raster-canvas alloc; O(area) incremental-width re-layout) - both
       cap-bounded, not panics.
   - [x] Sixel memory-behavior hardening (follow-up fixes from the graphics-surface fuzzing audit):
-        `raster_attrs` no longer eagerly allocates the declared canvas — it
+        `raster_attrs` no longer eagerly allocates the declared canvas - it
         records + cap-validates the declared size and the buffer fills lazily
         (header-only streams now cost zero, ~144 MB/seq → 0); the pixel buffer
         separates geometric physical capacity (`cap_w` stride / `cap_h` rows)
@@ -1211,7 +1214,7 @@ a floor; surpassing it is the standing ambition.
       placeholders (`U=1`) were out of scope for that increment and have since
       landed - see the entries below.
 - [x] Kitty Unicode placeholders (`U=1`): `U=1` on `a=T`/`a=p` creates a
-      *virtual placement* — a prototype that draws nothing, moves no cursor,
+      *virtual placement* - a prototype that draws nothing, moves no cursor,
       and is addressed by protocol image id. Images then display wherever the
       client prints U+10EEEE placeholder cells, with the image id in the
       foreground color (24-bit or 8-bit palette, optional high byte in a third
@@ -1240,7 +1243,7 @@ a floor; surpassing it is the standing ambition.
       discipline: the payload rides the OSC accumulator, so a single command
       is bounded at 128 KiB (~96 KiB of encoded file bytes) and a command that
       reaches the cap is rejected whole rather than decoded from a truncated
-      prefix — the APC rule, applied to OSC. `size=` is cross-checked against
+      prefix - the APC rule, applied to OSC. `size=` is cross-checked against
       the decoded length. `inline=0` download requests are parsed and dropped:
       no escape sequence writes files. The cursor advances to column 0 below
       the image, matching iTerm2 and OdyTTY's Sixel default.
@@ -1324,8 +1327,8 @@ a floor; surpassing it is the standing ambition.
   - [x] Universal legibility guarantee: the contrast floor now provably
         covers every text color. The glyph path is color-type-agnostic, so
         256-color and truecolor foregrounds already pass through the same single
-        floor as ANSI/default; the one remaining gap — an explicit SGR underline
-        color (SGR 58) painted without the floor — now routes through the same
+        floor as ANSI/default; the one remaining gap - an explicit SGR underline
+        color (SGR 58) painted without the floor - now routes through the same
         `enforce_contrast_rgba` lift. `min_contrast = 1.0` stays exact
         passthrough (byte-identical opt-out pixels, including the new underline
         path). A
@@ -1365,9 +1368,9 @@ a floor; surpassing it is the standing ambition.
 - [x] Window padding (`window_padding` / `ODYTTY_WINDOW_PADDING`, default
       4 logical px): an adjustable inset between terminal content and the window,
       chrome, or split-pane divider boundaries. The padding offsets the full
-      pixel-cell seam in both directions — forward (glyph/cursor/quad/image
+      pixel-cell seam in both directions - forward (glyph/cursor/quad/image
       vertices and the scroll indicator) and inverse (selection hit-test, drag
-      autoscroll, SGR-1016 pixel mouse reports) — so mouse and selection stay
+      autoscroll, SGR-1016 pixel mouse reports) - so mouse and selection stay
       aligned. A pane too narrow after padding keeps a valid one-cell backing
       model but exposes no drawable or input cells until it expands. `0.0`
       restores the historical edge-to-edge layout, byte-identical to the
@@ -1375,7 +1378,7 @@ a floor; surpassing it is the standing ambition.
 - [x] Post-process pipeline:
   - [x] Lazy offscreen render target + passthrough composite wired into the
         native GPU renderer; `post_active()` false = no offscreen allocation and
-        no extra draw pass — direct-to-swapchain path is byte-identical to the
+        no extra draw pass - direct-to-swapchain path is byte-identical to the
         pre-feature renderer. Pixel-smoke guards the seam (direct vs.
         offscreen→passthrough composite asserts byte-equality).
   - [x] Linear HDR intermediate (Rgba16Float) so HDR overshoot (linear values
@@ -1421,7 +1424,7 @@ pixel-identical plain path; the readability floor is the safety net every color
 feature validates against.
 
 - [x] Shell integration on OSC 133 semantic prompt marks.
-  - [x] OSC 133 prompt/command/output boundary marking — the parser arms
+  - [x] OSC 133 prompt/command/output boundary marking - the parser arms
         the sequence and per-row prompt marks are stored with no render change,
         the foundation for command-aware UX.
   - [x] Command-aware UX: bindable jump to previous/next prompt
@@ -1463,9 +1466,9 @@ feature validates against.
         readable, floor-validated starting palette to then refine in the
         builder.
   - [x] Theme capture from live dynamic colors: "Create Theme From Current
-        Colors" snapshots the focused pane's effective color state — OSC 4
+        Colors" snapshots the focused pane's effective color state - OSC 4
         palette overrides and OSC 10/11/12 foreground/background/cursor, with
-        theme-seeded values wherever no override exists — into a builder draft.
+        theme-seeded values wherever no override exists - into a builder draft.
         The roles the protocol cannot express (selection, search, border,
         inactive) are derived from the captured colors with documented
         luminance-based heuristics, all editable before saving. Reachable from
@@ -1475,12 +1478,12 @@ feature validates against.
         OKLCH for protan/deutan/tritan, adaptive on output, in an Accessibility
         settings group. The contrast floor, CVD modes, focus dim, and bell are
         described for users in [`docs/accessibility.md`](docs/accessibility.md).
-  - [x] Readability-scrim primitive for background treatments (core) —
+  - [x] Readability-scrim primitive for background treatments (core) -
         pure math that caps (dark) or lifts (light) the composited background
         luminance so a treatment cannot breach the contrast floor; native
         wiring landed.
   - [x] Background treatments (`background_treatment = gradient / vignette`,
-        off by default): position-based per-cell background darkening —
+        off by default): position-based per-cell background darkening -
         gradient darkens toward the bottom, vignette toward the edges and
         corners. Readability is safe-by-construction: the treatment runs before
         the minimum-contrast floor so the floor re-lifts the foreground over the
@@ -1497,7 +1500,7 @@ feature validates against.
         percent, default 80): the terminal background and chrome bands draw
         translucent so the desktop shows through, while text, cursor, and every
         overlay stay fully opaque. Selection strength remains independent and
-        defaults to fully opaque — the readability boundary. The
+        defaults to fully opaque - the readability boundary. The
         surface alpha mode is chosen explicitly (premultiplied → postmultiplied →
         opaque fallback) and degrades cleanly where the display server offers no
         alpha compositing (X11 with no compositor); the opaque path is
@@ -1550,7 +1553,7 @@ feature validates against.
         file yet, or `ODYTTY_ONBOARDING=1`) a welcome card shows the core
         keyboard shortcuts, read live from the active bindings so rebinds are
         reflected immediately; dismissed with Enter/Esc/Space. First-run memory
-        is the config file's existence — no flag file, no telemetry, no account.
+        is the config file's existence - no flag file, no telemetry, no account.
         `/` in the settings panel filters rows by name, key, description, or
         group; Esc once clears the filter, a second Esc closes the panel.
 
@@ -1629,7 +1632,7 @@ feature validates against.
         shell, and pre-remote snapshots reopen those panes locally.
   - [x] Named layouts: Save All Workspaces as Layout (whole-app capture) and
         Save Workspace as Layout (a single workspace), Open Layout, and Delete
-        Layout — from the command palette and the workspace-rail / content /
+        Layout - from the command palette and the workspace-rail / content /
         empty-tab-strip right-click menus. Saving over an existing name prompts
         replace-or-rename; opening a layout onto a populated window prompts
         Replace / Add / Cancel, while a single pristine default workspace (one
@@ -1686,7 +1689,7 @@ feature validates against.
 - [x] Native window-as-client live wiring: a `SessionSource` enum backs each
       session as `Local { pty }` (byte-identical default) or `Attached { client }`,
       routing resize (`TIOCSWINSZ` vs. a `Resize` frame) and close (kill+reap vs.
-      a clean `Detach` that keeps the host alive). Input is unchanged — an attached
+      a clean `Detach` that keeps the host alive). Input is unchanged - an attached
       session's `writer` is an `AttachInputWriter` boxed into the same `PtyWriter`,
       so the app-side input path is identical. `WorkspaceSet::attach_in_new_tab` /
       `App::attach_session_in_new_tab` present a hosted session as a live tab
@@ -1715,7 +1718,7 @@ feature validates against.
       scrubbable replay overlay (`src/native/replay_overlay.rs`, an
       `OverlayMode::Replay` reusing the overlay framework) scrubs a frozen, fully
       decoupled clone of the ring (←/→ step, PgUp/PgDn ten, Home/End ends, Esc
-      close). Presentation-only — proven by `replay_isolation` tests that the
+      close). Presentation-only - proven by `replay_isolation` tests that the
       live terminal frame is byte-identical whether or not replay is active, plus
       ring-bound eviction, recording-off, scrub-navigation, and overlay-closed-
       inert tests. Opened via the `session-replay` action (`Ctrl+Shift+R` by
@@ -1859,9 +1862,9 @@ stay pinned to the revisions they measured.
       Protocol 1.3.0 additionally records a measured feasibility finding: the
       complete declared calibration search over OdyTTY, Kitty, Ghostty, and
       Alacritty found no common device-pixel cell grid on the measurement
-      host, so the protocol controls the grid per implementation — exact
+      host, so the protocol controls the grid per implementation - exact
       80x24 on identical font bytes, colors, and profiles, with each
-      terminal's own pixel pitch pinned and published — and states the
+      terminal's own pixel pitch pinned and published - and states the
       remaining pitch difference as a limitation instead of asserting a match
       that no declared configuration produces.
 - [ ] The external daily-driver evidence program
@@ -2084,7 +2087,7 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       slice. Splits/panes within a window have since landed too (see Stage 8);
       Unix detachable sessions also landed. Profiles and cross-session
       multiplexing remain deferred.
-- [x] Shell integration beyond basic PTY behavior — landed: OSC 133 semantic
+- [x] Shell integration beyond basic PTY behavior - landed: OSC 133 semantic
       prompt marks and command-aware UX (see Stage 7). Further shell-integration
       surface (click-to-position) is tracked there.
 - [x] Command-palette headless substrate: dependency-free fuzzy scorer, stable
@@ -2125,7 +2128,7 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       shared scorer. Exposed as the `connection-manager` action (`Ctrl+Shift+S`
       by default, rebindable). `↑`/`↓` select, Enter quick-connects
       via the SSH connect action, Esc dismisses; per-host profile fields show in
-      the row. Presentation-only — the overlay never mutates live terminal state
+      the row. Presentation-only - the overlay never mutates live terminal state
       (isolation test proves the live frame is byte-identical when active). With
       the opt-in off it shows OdyTTY-owned hosts only and never references
       `~/.ssh` (proven by test). Tests use synthetic fixtures only.

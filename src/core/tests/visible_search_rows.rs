@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Tests for [`Screen::visible_search_rows`] — the windowed, `wrapped`-carrying
+//! Tests for [`Screen::visible_search_rows`] - the windowed, `wrapped`-carrying
 //! viewport row accessor that feeds the hint / quick-select scanner. Validates
 //! the offset windowing (mirroring `snapshot_with_scrollback`), the soft-wrap
 //! flag, the screen-relative row order, and the `as_search_row` borrow.
@@ -76,7 +76,7 @@ fn carries_the_soft_wrap_flag() {
 
 #[test]
 fn rows_are_top_to_bottom_in_screen_order() {
-    // Row index 0 is the top visible row — the coordinate the renderer paints
+    // Row index 0 is the top visible row - the coordinate the renderer paints
     // hint labels in. Verify the order matches the visible snapshot.
     let mut terminal = Terminal::new(5, 3);
     terminal.advance(b"aa\r\nbb\r\ncc");

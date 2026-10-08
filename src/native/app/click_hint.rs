@@ -2,24 +2,25 @@
 //! UX-A (Phase 11): click-to-open discoverability for interactive paths.
 //!
 //! The hand cursor appears on plain hover over a resolved path, but OPENING
-//! requires a modifier+click — Ctrl on Linux, Cmd on macOS
+//! requires a modifier+click - Ctrl on Linux, Cmd on macOS
 //! (`hyperlink_action_allowed`). A user sees the hand,
-//! left-clicks, gets a text selection, and thinks nothing happened — the cursor
+//! left-clicks, gets a text selection, and thinks nothing happened - the cursor
 //! lies and there is no other signal. This module adds two teaching affordances,
-//! both strictly INSIDE the `interactive_paths` master gate so the default
-//! (feature-off) frame is byte-identical:
+//! each gated by its own setting (`interactive_paths` for paths,
+//! `interactive_urls` for bare URLs) so the default (feature-off) frame is
+//! byte-identical:
 //!
-//! 1. **Armed underline** — when the open modifier is held (Ctrl on Linux, Cmd
+//! 1. **Armed underline** - when the open modifier is held (Ctrl on Linux, Cmd
 //!    on macOS) while hovering a resolved path, the span is underlined (the "now
 //!    it will open" signal). Presentation-only; painted onto the snapshot cells
 //!    like the selection/search highlights.
-//! 2. **Click hint** — a transient bottom-left "Ctrl+click to open" (macOS:
+//! 2. **Click hint** - a transient bottom-left "Ctrl+click to open" (macOS:
 //!    "Cmd+click to open") message that
 //!    fires only after ≥2 plain mis-clicks on a path land within a short window
 //!    (the "I clicked, nothing happened, let me try again" signal). It reuses the
 //!    [`super::open_notice::OpenNotice`] *pattern* (transient `raised_at` clock,
 //!    non-blocking, byte-identical-when-absent painter + cache signature) with a
-//!    SEPARATE field and its own bottom-left paint position — it does NOT overload
+//!    SEPARATE field and its own bottom-left paint position - it does NOT overload
 //!    the full-width top failure banner.
 //!
 //! All feel-constants are named so they are easy to tune during the dev-build
@@ -51,12 +52,12 @@ pub(in crate::native) const CLICK_HINT_COOLDOWN: Duration = Duration::from_milli
 pub(in crate::native) const CLICK_HINT_TEXT: &str = " Ctrl+click to open ";
 
 /// NF17: the honest text for a select+Delete no-op whose cause is unavailable
-/// geometry — NOT missing shell integration. Raised when the input region
+/// geometry - NOT missing shell integration. Raised when the input region
 /// exists (its mark is present) but its certainty can't back a real buffer edit:
 /// a stale/hard-newline `Unknown` region, a multi-row `RightEdgeUnknown` region
 /// (fish/bash/PowerShell mid-edit without an exact edge report), or a
 /// decoration-only span. Telling the user to "enable shell integration" there
-/// is wrong — integration is already active — so this variant says plainly that
+/// is wrong - integration is already active - so this variant says plainly that
 /// the selection can't be edited, without shell-specific jargon. Kept short to
 /// fit the bottom-left chip.
 pub(in crate::native) const SELECTION_GEOMETRY_HINT: &str = "Selection can't be edited here";
@@ -82,7 +83,7 @@ pub(in crate::native) fn click_hint_text(os: super::platform_opener::OpenerOs) -
 
 /// How many times the hint may appear in a single launch before it gives up for
 /// the rest of the session. A teaching affordance should teach a few times and
-/// then stop nagging — once the user has plausibly seen "Ctrl+click to open"
+/// then stop nagging - once the user has plausibly seen "Ctrl+click to open"
 /// this many times, further plain mis-clicks no longer raise it (until the next
 /// launch). Reset per launch because the state is in-memory only.
 pub(in crate::native) const CLICK_HINT_MAX_SHOWS: u32 = 3;
@@ -139,15 +140,15 @@ impl ClickHintState {
     /// recorded and a SECOND click within [`CLICK_HINT_MISCLICK_WINDOW`] raises
     /// the hint, arms the cooldown, and counts toward the cap.
     pub(in crate::native) fn note_misclick(&mut self, now: Instant) -> bool {
-        // Already visible — additional clicks never restack it.
+        // Already visible - additional clicks never restack it.
         if self.shown_at.is_some() {
             return false;
         }
-        // Taught enough this launch — retire the hint so it stops nagging.
+        // Taught enough this launch - retire the hint so it stops nagging.
         if self.times_shown >= CLICK_HINT_MAX_SHOWS {
             return false;
         }
-        // Cooling down after a recent hint — suppress to avoid flicker.
+        // Cooling down after a recent hint - suppress to avoid flicker.
         if let Some(until) = self.cooldown_until
             && now < until
         {
@@ -244,7 +245,7 @@ pub(in crate::native) struct HoverPathCells {
 
 impl App {
     /// The armed-underline span, or `None` unless the platform open modifier is
-    /// held (Ctrl on Linux, Cmd on macOS — same per-OS resolution as the open
+    /// held (Ctrl on Linux, Cmd on macOS - same per-OS resolution as the open
     /// gesture, [`open_modifier_held`]) and a hovered openable target exists: a
     /// resolved interactive path (gated on `interactive_paths`) or a bare URL
     /// (gated on `interactive_urls`). Both the painter and the cache signature
@@ -353,7 +354,7 @@ impl App {
         }
     }
 
-    /// Paint the hint as a short inverse-video chip in the bottom-LEFT of the
+    /// Paint the hint as a short blue-on-white informational chip in the bottom-LEFT of the
     /// grid (distinct from the failure banner's full-width TOP bar). No-op when
     /// the hint is not shown, so the frame is byte-identical on the default path.
     /// Overwrites only the few bottom-left cells the text occupies for the hint's
@@ -388,7 +389,7 @@ impl App {
     }
 }
 
-/// Hint chip attributes: an informational inverse chip, distinct from the
+/// Hint chip attributes: an informational blue chip, distinct from the
 /// failure banner's red. Indexed colors keep it theme-portable (the active
 /// palette supplies the RGB).
 fn hint_attrs() -> Attrs {
@@ -428,7 +429,7 @@ mod tests {
         let start = t0();
         assert!(!state.note_misclick(start));
         // A partner that arrives too late (outside the window) is itself just a
-        // fresh first click — still no hint.
+        // fresh first click - still no hint.
         let late = start + CLICK_HINT_MISCLICK_WINDOW + Duration::from_millis(1);
         assert!(!state.note_misclick(late));
         assert!(!state.is_shown());
@@ -441,7 +442,7 @@ mod tests {
         assert!(!state.note_misclick(start));
         assert!(state.note_misclick(start + Duration::from_millis(100)));
         let raised_at = state.shown_at.expect("shown");
-        // Rapid held clicks while shown are swallowed — no restack, clock unmoved.
+        // Rapid held clicks while shown are swallowed - no restack, clock unmoved.
         assert!(!state.note_misclick(start + Duration::from_millis(150)));
         assert!(!state.note_misclick(start + Duration::from_millis(200)));
         assert_eq!(state.shown_at, Some(raised_at), "raise clock did not move");

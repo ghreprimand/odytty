@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Atlas build, channel layout, fallback, ensure/growth, and rebuild tests. (M5 mechanical split from atlas.rs).
+//! Atlas build, channel layout, fallback, ensure/growth, and rebuild tests..
 
 use super::*;
 
@@ -29,7 +29,7 @@ fn line_height_default_is_byte_identical_to_legacy_build() {
     let _guard = crate::test_lock::render_globals_lock();
     // LINEHEIGHT: build_with_options at the default 1.0 multiplier must produce
     // a cell, dimensions and coverage buffer byte-identical to the historical
-    // build_with_subpixel path — the leading is exactly zero.
+    // build_with_subpixel path - the leading is exactly zero.
     let Some(font) = test_font() else {
         eprintln!("skipping: no system font available");
         return;
@@ -303,7 +303,7 @@ fn rebuild_is_a_full_invalidation() {
 
 /// The atlas bitmap reserves a border (bleed gutter + overflow margin) around
 /// every slot, so the bitmap is wider/taller than a borderless pack and
-/// adjacent inner cells are separated by `2·slot_border` pixels — the guard
+/// adjacent inner cells are separated by `2·slot_border` pixels - the guard
 /// against bleed plus the room for overflow ink.
 #[test]
 fn slots_carry_a_padding_gutter() {

@@ -27,7 +27,7 @@ fn full_screen_scroll_region_still_feeds_scrollback() {
 #[test]
 fn partial_scroll_region_does_not_feed_scrollback() {
     // A PARTIAL region (top margin below the screen top) preserves content above
-    // it, so scrolled-out lines are discarded, not saved — matching xterm.
+    // it, so scrolled-out lines are discarded, not saved - matching xterm.
     let mut terminal = Terminal::new(4, 4);
     // Region rows 2..=4 (1-based): top margin is row 1 (0-based), content above.
     terminal.advance(b"\x1b[2;4r");
@@ -334,7 +334,7 @@ fn reverse_index_below_top_moves_cursor_up() {
 #[test]
 fn index_moves_cursor_down_preserving_column() {
     // NF5: ESC D (IND) mid-screen moves the cursor down one row, column
-    // untouched — previously a silent no-op (missing dispatch_esc arm).
+    // untouched - previously a silent no-op (missing dispatch_esc arm).
     let mut terminal = Terminal::new(8, 3);
     terminal.advance(b"\x1b[1;3H"); // row 0, column 2
     terminal.advance(b"\x1bD");
@@ -373,7 +373,7 @@ fn index_at_screen_bottom_feeds_scrollback() {
 
 #[test]
 fn nel_moves_to_next_row_column_zero() {
-    // NF5: ESC E (NEL) = IND + CR — next row, column 0.
+    // NF5: ESC E (NEL) = IND + CR - next row, column 0.
     let mut terminal = Terminal::new(8, 3);
     terminal.advance(b"abc"); // row 0, cursor at column 3
     terminal.advance(b"\x1bE");
@@ -705,7 +705,7 @@ fn insert_and_delete_lines_outside_region_are_noops() {
 fn invalid_scroll_region_is_a_full_no_op() {
     // DECSTBM with top >= bottom is invalid; xterm ignores it entirely. It
     // must not reset an existing region to the full screen and must not home
-    // the cursor — a malformed sequence cannot be allowed to destroy layout
+    // the cursor - a malformed sequence cannot be allowed to destroy layout
     // state a full-screen app set up deliberately.
     let mut terminal = Terminal::new(4, 4);
     // Valid partial region rows 2..=3 (1-based), then park the cursor away
@@ -737,7 +737,7 @@ fn invalid_scroll_region_is_a_full_no_op() {
 #[test]
 fn degenerate_scroll_region_on_one_row_screen_is_ignored() {
     // On a 1-row screen even `CSI r` (full reset) degenerates to top == bottom
-    // — a region needs two rows, so the sequence is ignored without panicking.
+    // - a region needs two rows, so the sequence is ignored without panicking.
     let mut terminal = Terminal::new(4, 1);
     terminal.advance(b"ab");
     let before = terminal.screen().cursor();

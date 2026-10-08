@@ -187,7 +187,7 @@ fn named_transport_policy_does_not_change_direct_or_chunked_bytes() {
 }
 
 /// C3 regression: real emitters (kitty's own `icat`, timg, term-image) split
-/// large images into MANY `m=1` chunks before the final `m=0` — not just one.
+/// large images into MANY `m=1` chunks before the final `m=0` - not just one.
 /// The old accumulator errored with `malformed-control` on the SECOND `m=1`
 /// chunk (`pending.is_some()` was treated as a protocol violation), so any
 /// image over two chunks was rejected.
@@ -206,7 +206,7 @@ fn kitty_chunked_transmission_accepts_many_intermediate_chunks() {
     t.advance(first.as_bytes());
     assert_eq!(t.take_host_output(), b"\x1b_Gi=9;OK\x1b\\");
 
-    // Two more INTERMEDIATE chunks — the shape the old code rejected.
+    // Two more INTERMEDIATE chunks - the shape the old code rejected.
     for part in [
         &encoded[quarter..2 * quarter],
         &encoded[2 * quarter..3 * quarter],
@@ -232,7 +232,7 @@ fn kitty_chunked_transmission_accepts_many_intermediate_chunks() {
 }
 
 /// C3 budget: every intermediate-chunk append enforces the same
-/// `MAX_PENDING_ENCODED_BYTES` cap the final-chunk merge does — a client
+/// `MAX_PENDING_ENCODED_BYTES` cap the final-chunk merge does - a client
 /// cannot grow the pending accumulation without bound one `m=1` chunk at a
 /// time. Uses the private test seam to avoid feeding ~100 MB of base64
 /// through the parser.
@@ -393,7 +393,7 @@ fn kitty_png_header_rejects_oversized_dimensions_before_frame_decode() {
 
 #[test]
 fn kitty_file_transmission_rejects_invalid_path() {
-    // AAAA base64-decodes to three null bytes — rejected as an invalid path.
+    // AAAA base64-decodes to three null bytes - rejected as an invalid path.
     let mut t = Terminal::new(20, 4);
     t.advance(b"\x1b_Gf=32,a=T,t=f,s=1,v=1;AAAA\x1b\\");
 
@@ -496,7 +496,7 @@ fn kitty_quiet_on_first_chunk_suppresses_error_on_later_chunk() {
 
 #[test]
 fn kitty_quiet_one_still_reports_errors() {
-    // C19 boundary: q=1 suppresses only OK responses — errors still report.
+    // C19 boundary: q=1 suppresses only OK responses - errors still report.
     let mut t = Terminal::new(20, 4);
     t.advance(b"\x1b_Gf=32,a=T,t=d,s=2,v=1,q=1;!!!!\x1b\\");
     let out = String::from_utf8(t.take_host_output()).unwrap();
@@ -1178,7 +1178,7 @@ fn kitty_compressed_png_inflates_then_decodes() {
 
 /// A query (`a=q`) must validate exactly what a transmission would accept. It
 /// decodes on its own path, so it needs its own proof that the path
-/// decompresses — and its own proof that validating stored nothing.
+/// decompresses - and its own proof that validating stored nothing.
 #[test]
 fn kitty_query_validates_a_compressed_payload_without_storing_it() {
     let mut t = Terminal::new(20, 4);
@@ -1332,7 +1332,7 @@ fn kitty_assigned_ids_avoid_client_chosen_ids() {
 
 /// Numbers are explicitly not unique and a numbered transmission always creates
 /// a new image, so two transmissions sharing a number must produce two distinct
-/// images with two distinct ids — and the number must resolve to the newer.
+/// images with two distinct ids - and the number must resolve to the newer.
 #[test]
 fn kitty_repeated_number_creates_a_second_image_and_resolves_newest() {
     let mut t = Terminal::new(20, 4);

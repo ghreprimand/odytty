@@ -10,7 +10,7 @@
 //! The byte sequences match the common DEC/xterm conventions a PTY shell
 //! expects: `\r` for Enter, `0x7f` for Backspace, DEC/xterm cursor-key forms,
 //! control bytes for Ctrl-letter, and xterm modifier encodings for named keys.
-//! Quit/close affordances are intentionally *not* modeled here — those are an
+//! Quit/close affordances are intentionally *not* modeled here - those are an
 //! interactive-front-end concern (e.g. the headless debug mode's Ctrl-Q); the
 //! encoder only ever produces the bytes a real terminal would send.
 
@@ -202,7 +202,7 @@ pub fn encode_key_event(
     }
 
     // xterm modifyOtherKeys: consulted only at kitty flags 0 (non-zero kitty
-    // flags win — apps like fish enable both protocols and expect the kitty
+    // flags win - apps like fish enable both protocols and expect the kitty
     // encoding). No event types: releases were dropped above, repeats encode
     // like presses, matching xterm.
     if modes.kitty_keyboard_flags == 0
@@ -695,7 +695,7 @@ fn encode_tilde_key(code: u8, mods: Modifiers) -> Vec<u8> {
 
 /// xterm modifyOtherKeys encoding: `CSI 27 ; modifier ; codepoint ~`.
 ///
-/// Applies to "ordinary" keys — printable characters plus Enter/Tab/Backspace
+/// Applies to "ordinary" keys - printable characters plus Enter/Tab/Backspace
 /// (Escape stays raw `ESC`: xterm leaves it alone and TUIs depend on that).
 /// Cursor, navigation, and function keys keep their xterm modifier encodings
 /// unconditionally, and Shift-Tab keeps `CSI Z` (kcbt). Returns `None` when
@@ -703,7 +703,7 @@ fn encode_tilde_key(code: u8, mods: Modifiers) -> Vec<u8> {
 ///
 /// Level semantics follow xterm:
 /// - Level 1 encodes only modified keys that would otherwise lose their
-///   modifiers entirely — combinations with a well-known legacy encoding
+///   modifiers entirely - combinations with a well-known legacy encoding
 ///   (Ctrl+letter control bytes, Alt's ESC prefix, unshifted printables,
 ///   modified Enter/Tab/Backspace) stay legacy.
 /// - Level 2 encodes every modified ordinary key, including the well-known
@@ -711,7 +711,7 @@ fn encode_tilde_key(code: u8, mods: Modifiers) -> Vec<u8> {
 ///   consumed producing the glyph; xterm sends the plain character).
 ///
 /// The codepoint is the produced character's (shifted punctuation reports the
-/// shifted codepoint — `Ctrl+Shift+3` is `CSI 27;6;35~`, `#` not `3`), and the
+/// shifted codepoint - `Ctrl+Shift+3` is `CSI 27;6;35~`, `#` not `3`), and the
 /// modifier parameter is the same 1+bitmask the CSI-u forms use.
 fn encode_modify_other_key(key: Key, mods: Modifiers, level: u8) -> Option<Vec<u8>> {
     let has_mods = mods.ctrl || mods.alt || mods.shift;
@@ -1789,7 +1789,7 @@ mod tests {
         assert_eq!(encode_key(Key::Char('a'), Modifiers::NONE, modes), b"a");
         assert_eq!(encode_key(Key::Enter, Modifiers::NONE, modes), b"\r");
         assert_eq!(encode_key(Key::Tab, Modifiers::NONE, modes), b"\t");
-        // Shift alone on a printable is consumed producing the glyph — xterm
+        // Shift alone on a printable is consumed producing the glyph - xterm
         // sends the plain character (the WezTerm/fish fallout zone).
         assert_eq!(encode_key(Key::Char('A'), SHIFT, modes), b"A");
         assert_eq!(encode_key(Key::Char('#'), SHIFT, modes), b"#");

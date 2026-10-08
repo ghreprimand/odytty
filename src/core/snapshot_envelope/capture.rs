@@ -91,7 +91,7 @@ impl SnapshotTerminalState {
     /// is copied out of the terminal; without this coupling a wide session
     /// with deep scrollback encodes a terminal section larger than the
     /// decoder's section budget, and the host serves a snapshot every default
-    /// consumer rejects — leaving the session permanently un-attachable.
+    /// consumer rejects - leaving the session permanently un-attachable.
     /// Returns the number of scrollback rows dropped so the caller can rebase
     /// row-indexed metadata (prompt marks) onto the truncated history.
     ///

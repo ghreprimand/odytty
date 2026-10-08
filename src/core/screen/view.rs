@@ -211,7 +211,7 @@ impl Screen {
             // arrived. A width change rewraps scrollback to a different
             // `physical_len`, so the cached row no longer equals the LIVE
             // `scrollback_len + cursor.row` the consumer gate
-            // (`editable_input_selection_for_context_menu`) compares against —
+            // (`editable_input_selection_for_context_menu`) compares against -
             // which silently disables prompt-aware select+Delete after a
             // side-by-side split until the next prompt re-emits `A`/`B`. The
             // input line is the cursor's logical line while editing, and the
@@ -222,7 +222,7 @@ impl Screen {
             // only re-anchor when the cursor still sits on a prompt-marked
             // logical line (marks travel with their logical line through reflow).
             // If the cursor has moved off the prompt (e.g. output without a `C`),
-            // the anchor is left as-is so the gate still declines — matching
+            // the anchor is left as-is so the gate still declines - matching
             // today's no-resize behavior. The column is preserved: the prompt
             // prefix is unchanged by a rewrap of a single short input line, and
             // `start = selected_start.max(input_column)` keeps bounding the
@@ -528,7 +528,7 @@ impl Screen {
     /// Alternate-screen isolation is preserved for free: entering the alternate
     /// screen moves the primary scrollback into off-screen storage, so an
     /// alternate-screen `Screen` has empty scrollback and every offset clamps to
-    /// the live grid — primary history never leaks into alternate snapshots.
+    /// the live grid - primary history never leaks into alternate snapshots.
     pub fn snapshot_with_scrollback(&self, offset_rows: usize) -> Snapshot {
         let height = self.dimensions.rows;
         let columns = self.dimensions.columns;
@@ -639,8 +639,8 @@ impl Screen {
 
     /// Resolve Unicode-placeholder cells in the viewport into placements.
     ///
-    /// The row walk mirrors [`Self::visible_button_spans`] exactly — same
-    /// `scrollback ++ live` window as [`Self::snapshot_with_scrollback`] — so
+    /// The row walk mirrors [`Self::visible_button_spans`] exactly - same
+    /// `scrollback ++ live` window as [`Self::snapshot_with_scrollback`] - so
     /// the placements it emits line up with the cells the matching snapshot
     /// draws, by construction rather than by coincidence.
     fn collect_placeholder_placements(&self, offset_rows: usize, out: &mut Vec<VisiblePlacement>) {
@@ -671,8 +671,8 @@ impl Screen {
     /// index straight into its flattened cell grid.
     ///
     /// Gate-scoped: when the button protocol is off (the default) this returns
-    /// an empty vector immediately — no row walk, no table lookups, no
-    /// allocation — so the render path does zero extra work and frames stay
+    /// an empty vector immediately - no row walk, no table lookups, no
+    /// allocation - so the render path does zero extra work and frames stay
     /// byte-identical. The button table is empty on that path anyway; the gate
     /// makes the zero-work guarantee explicit rather than incidental.
     pub fn visible_button_spans(&self, offset_rows: usize) -> Vec<SnapshotButton> {
@@ -709,8 +709,8 @@ impl Screen {
     /// removed is skipped (defensive; canonical storage and the table stay in
     /// refcount lockstep, so this should not arise in practice).
     ///
-    /// A Tier 1 point span (`len == 0`) is resolved to its chip rect here —
-    /// the same [`point_chip_rect`] the pointer hit-test uses — so what the
+    /// A Tier 1 point span (`len == 0`) is resolved to its chip rect here -
+    /// the same [`point_chip_rect`] the pointer hit-test uses - so what the
     /// render layer paints and what [`Self::button_at`] resolves are the same
     /// cells by construction. A point chip with no room on its row is dropped.
     pub(super) fn collect_row_buttons(
@@ -807,7 +807,7 @@ impl Screen {
     /// The current working directory reported via OSC 7, or `None` if none has
     /// been reported. The value is the percent-decoded path component of the
     /// last well-formed `file://host/path` URL (the host is validated then
-    /// dropped). Advisory only — the core never touches the filesystem.
+    /// dropped). Advisory only - the core never touches the filesystem.
     pub fn current_working_directory(&self) -> Option<&str> {
         self.working_directory.as_deref()
     }
@@ -827,11 +827,12 @@ impl Screen {
     }
 
     /// The OSC 133 prompt mark anchored to absolute row `row`, or `None` if the
-    /// row carries no mark (SH1). The coordinate convention matches
+    /// row carries no mark. The coordinate convention matches
     /// [`Screen::snapshot_with_scrollback`] and [`super::search`]: row `0` is the
     /// oldest physical scrollback row, counting down through scrollback into the
-    /// live grid. Out-of-range rows return `None`. Advisory state only — nothing
-    /// on the render path consults it; this is the sole reader of `prompt_mark`.
+    /// live grid. Out-of-range rows return `None`. Advisory state only - nothing
+    /// on the render path consults it. [`Screen::prompt_marks`] enumerates the
+    /// same marks.
     pub fn prompt_mark_at(&self, row: usize) -> Option<PromptKind> {
         let columns = self.dimensions.columns;
         let scrollback_len = self.scrollback.physical_len(columns);
@@ -854,11 +855,11 @@ impl Screen {
     /// This is the enumeration counterpart to the point-query
     /// [`Screen::prompt_mark_at`]: a command-aware front end caches this `Vec`
     /// and rebuilds it only when [`Screen::take_prompt_marks_changed`] reports a
-    /// change, rather than scanning every row each frame. Advisory read only —
+    /// change, rather than scanning every row each frame. Advisory read only -
     /// no mutation, no render-path effect, nothing reaches the
-    /// [`super::types::Snapshot`]. When the alternate screen is active the active
-    /// buffer carries no marks (they ride the stored primary), so this returns
-    /// an empty `Vec`, consistent with [`Screen::prompt_mark_at`].
+    /// [`super::types::Snapshot`]. Only the active buffer is enumerated: stored
+    /// primary marks are hidden while the alternate screen is active, consistent
+    /// with [`Screen::prompt_mark_at`].
     pub fn prompt_marks(&self) -> Vec<(usize, PromptKind)> {
         let columns = self.dimensions.columns;
         // Served from the projection's cached shape: a mark rides a logical
@@ -880,9 +881,9 @@ impl Screen {
     /// change.
     ///
     /// The flag is set not only when a new mark is stamped but also whenever an
-    /// operation can clear or reposition existing marks — RIS, erase-display /
+    /// operation can clear or reposition existing marks - RIS, erase-display /
     /// erase-line row replacement, resize/reflow, and alternate-screen
-    /// enter/leave (which swaps the marked primary out and back) — so a consumer
+    /// enter/leave (which swaps the marked primary out and back) - so a consumer
     /// that trusts "rebuild only on change" never sees
     /// [`Screen::prompt_mark_at`] return a different result while this reads
     /// `false`. It is *conservative*: those
@@ -893,7 +894,7 @@ impl Screen {
         std::mem::take(&mut self.prompt_marks_changed)
     }
 
-    /// Whether any prompt mark is held anywhere in the terminal — the active
+    /// Whether any prompt mark is held anywhere in the terminal - the active
     /// screen's live rows or scrollback, *or* the stored primary screen when the
     /// alternate screen is active. Used to keep
     /// [`Self::take_prompt_marks_changed`] honest: the clear/reposition paths
@@ -944,9 +945,9 @@ impl Screen {
 
     /// Master gate for the button protocol (Button Protocol B1). Off (the
     /// default), both button spellings are parsed-and-ignored: no table
-    /// growth, no spans, no observable state — feature-off byte identity.
-    /// Enforced at this OSC chokepoint; the future pointer arm gates
-    /// independently on the same setting so no partial-gate hole exists.
+    /// growth, no spans, no observable state - feature-off byte identity.
+    /// Enforced at this OSC chokepoint; `button_at` independently enforces the
+    /// same gate so no partial-gate hole exists.
     pub fn set_buttons_enabled(&mut self, enabled: bool) {
         self.buttons_enabled = enabled;
     }
@@ -1004,7 +1005,7 @@ impl Screen {
     /// The live editable prompt-input region, derived in core from the OSC 133
     /// `B` mark, the soft-wrap flags, the cursor, and (when a cooperating
     /// shell emits the private edit-region OSC) the authoritative buffer
-    /// geometry. `None` means no editable input is present — callers must
+    /// geometry. `None` means no editable input is present - callers must
     /// no-op rather than guess. See [`crate::core::input_region`] for the model and
     /// the certainty gate.
     pub fn input_region(&self) -> Option<crate::core::input_region::InputRegion> {
@@ -1040,11 +1041,11 @@ impl Screen {
         self.hyperlinks.len()
     }
 
-    /// Resolve the button (if any) under a visible viewport cell — the pointer
+    /// Resolve the button (if any) under a visible viewport cell - the pointer
     /// arm's hit-test (Button Protocol B3).
     ///
     /// The master gate is enforced HERE as well as at the OSC arm, so turning
-    /// `buttons` off kills clickability outright, not just new definitions —
+    /// `buttons` off kills clickability outright, not just new definitions -
     /// spans left in scrollback go inert immediately (the partial-gate hole
     /// class). The gate-off/button-free fast path is two branches, no row walk.
     ///
@@ -1057,7 +1058,7 @@ impl Screen {
     /// Hit box: a labeled span covers `[start_col, start_col + len)`; a Tier 1
     /// point button covers its resolved chip rect ([`point_chip_rect`], the
     /// same geometry the render layer paints), so the click target is exactly
-    /// the pill the user sees — a chip with no room on its row is not
+    /// the pill the user sees - a chip with no room on its row is not
     /// clickable at all. Pure; never panics.
     pub fn button_at(&self, offset_rows: usize, row: usize, column: usize) -> Option<ButtonHit> {
         if !self.buttons_enabled || self.buttons.is_empty() || self.primary_screen.is_some() {
@@ -1150,17 +1151,17 @@ impl Screen {
     }
 
     /// The visible viewport's physical rows at scrollback `offset_rows`, as owned
-    /// [`VisibleRow`]s carrying each row's `wrapped` flag — the windowed input the
+    /// [`VisibleRow`]s carrying each row's `wrapped` flag - the windowed input the
     /// hint / quick-select scanner consumes (it needs the soft-wrap flags the
     /// flat [`Snapshot`] does not carry).
     ///
     /// Mirrors the [`search`](Self::search) row-build but windows to the visible
-    /// viewport only — the same window as
+    /// viewport only - the same window as
     /// [`snapshot_with_scrollback`](Self::snapshot_with_scrollback). Offset `0` is
     /// the live screen (`self.rows`); positive offsets page upward into
     /// scrollback, clamped so callers cannot read past the oldest row. Rows are
     /// emitted top-to-bottom in screen order, so a scanner's row indices are
-    /// viewport-relative (row `0` = the top visible row) — exactly the coordinate
+    /// viewport-relative (row `0` = the top visible row) - exactly the coordinate
     /// the renderer paints hint labels in. Pure; never panics.
     pub fn visible_search_rows(&self, offset_rows: usize) -> Vec<VisibleRow> {
         let height = self.dimensions.rows;

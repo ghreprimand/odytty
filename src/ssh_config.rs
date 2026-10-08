@@ -39,7 +39,7 @@ impl Default for SshConfigReadLimits {
     }
 }
 
-/// A concrete SSH host candidate suitable for a future quick-connect list.
+/// A concrete SSH host candidate suitable for the quick-connect list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SshHostEntry {
     /// Concrete alias from a `Host` pattern. Wildcards and negated patterns are

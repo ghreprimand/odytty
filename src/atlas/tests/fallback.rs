@@ -3,7 +3,7 @@
 //!
 //! The gate-critical guarantee is **default-safe**: with no fallback font
 //! installed, a printable codepoint the primary lacks renders the historical
-//! hollow box and consumes no slot — byte-for-byte the pre-feature path. When a
+//! hollow box and consumes no slot - byte-for-byte the pre-feature path. When a
 //! fallback is installed it is used for printable spacing codepoints the
 //! fallback actually covers.
 
@@ -14,7 +14,7 @@ use std::sync::Arc;
 const NON_SYMBOL_FALLBACK: char = '\u{2200}';
 
 /// A PUA codepoint the bundled/system test font does *not* map (so it exercises
-/// the missing-glyph path), plus one it *does* — discovered at runtime so the
+/// the missing-glyph path), plus one it *does* - discovered at runtime so the
 /// tests are not pinned to a single host font.
 fn pua_absent(font: &FontHandle) -> Option<char> {
     (0xE000u32..=0xF8FF)
@@ -204,7 +204,7 @@ fn pua_missing_glyph_without_fallback_uses_box() {
     let box_uv = atlas.slot_uv(FALLBACK_SLOT);
     let count = atlas.slot_count();
     // No fallback installed: the missing PUA glyph must take the hollow box and
-    // consume no slot — identical to the pre-RV6 renderer.
+    // consume no slot - identical to the pre-RV6 renderer.
     let uv = atlas.ensure(&font, absent).expect("fallback uv");
     assert_eq!(uv, box_uv, "missing PUA glyph must use the hollow box");
     assert_eq!(
@@ -227,7 +227,7 @@ fn fallback_present_but_lacking_glyph_uses_box() {
     };
     // A second instance of the same font as the "fallback" (reload so Arc
     // identity is distinct): it also lacks `absent`, so the fallback must decline
-    // and the hollow box is used — proving the atlas verifies fallback coverage
+    // and the hollow box is used - proving the atlas verifies fallback coverage
     // rather than blindly drawing.
     let Some(fb) = test_font() else {
         eprintln!("skipping: no system font available");

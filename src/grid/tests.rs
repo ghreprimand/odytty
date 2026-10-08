@@ -199,7 +199,7 @@ fn unsupported_printable_emits_fallback_glyph_quad() {
     assert_eq!(verts.len(), 2 * INSTANCES_PER_QUAD);
     let glyph = &verts[INSTANCES_PER_QUAD];
     assert_eq!(glyph.is_glyph, 1.0);
-    // The glyph quad uses the shared fallback UV — identical for any other
+    // The glyph quad uses the shared fallback UV - identical for any other
     // unsupported printable codepoint.
     let fallback_uv = atlas.uv_rect('é').expect("fallback uv");
     assert_eq!(glyph.uv, [fallback_uv[0], fallback_uv[1]]);
@@ -517,7 +517,7 @@ fn underline_color_uses_sgr_58_when_set() {
 
 /// U1 color-type coverage at the default floor: a *truecolor* SGR-58 underline
 /// color is a byte-identical passthrough of its raw resolved color, matching the
-/// indexed case above. Non-mutating — it asserts the new enforce call is a no-op
+/// indexed case above. Non-mutating - it asserts the new enforce call is a no-op
 /// at min_contrast = 1.0 without touching the process-global floor (so it cannot
 /// interleave with the single owned global-mutator test).
 #[test]
@@ -684,8 +684,8 @@ fn dim_attribute_scales_effective_foreground() {
 /// `text::enforce_contrast_rgba`, so a raised minimum-contrast floor actually
 /// lifts low-contrast glyph color at the render path (not just in the text.rs
 /// unit). This test deliberately owns the only grid-side mutation of the
-/// process-global floor — it raises to AAA once, exercises all three cases in
-/// that single window, then restores `1.0` before any assertion can unwind —
+/// process-global floor - it raises to AAA once, exercises all three cases in
+/// that single window, then restores `1.0` before any assertion can unwind -
 /// so the suite gains no second unlocked global mutator (which could
 /// interleave and flake). The three cases:
 /// 1. **Body site** (per-cell glyph): the canonical low-contrast lift.
@@ -693,7 +693,7 @@ fn dim_attribute_scales_effective_foreground() {
 ///    (`enforce_contrast_rgba(bg, block)`), proving the floor is live there
 ///    too, so the two sites agree on honoring the floor.
 /// 3. **Combined dim + focus + floor**: a dim cell rendered unfocused, whose
-///    contrast the two dims have already eroded below the floor — the floor
+///    contrast the two dims have already eroded below the floor - the floor
 ///    still lifts it, confirming it runs last and wins by construction.
 #[test]
 fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
@@ -749,7 +749,7 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
     let uline_raw = foreground_linear(&uline.colors, Color::Rgb(40, 12, 120));
 
     // --- Case 5 inputs (U1): an explicit *256-color* (Indexed) underline color
-    // below the floor on black, proving the lift is color-type-agnostic — the
+    // below the floor on black, proving the lift is color-type-agnostic - the
     // same single enforce path covers indexed and truecolor identically (the
     // headline U1 finding). Index 18 is a dark, chromatic blue (~1.35 contrast
     // on black), comfortably below the AAA floor. ---
@@ -790,7 +790,7 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
         "default floor: 256-color underline color must be byte-identical passthrough"
     );
     // Precondition: the doubly-dimmed pair really is below the AAA floor, so
-    // case 3 proves the floor — not the inputs — does the lifting.
+    // case 3 proves the floor - not the inputs - does the lifting.
     let combo_base_contrast = crate::color::wcag_contrast(
         [combo_unfloored[0], combo_unfloored[1], combo_unfloored[2]],
         [combo_bg[0], combo_bg[1], combo_bg[2]],
@@ -858,7 +858,7 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
     );
 
     // --- Case 4 (U1): the explicit SGR-58 underline color is floored on the
-    // same path as every other foreground ink — lifted to clear the ratio, with
+    // same path as every other foreground ink - lifted to clear the ratio, with
     // hue preserved (enforce_min_contrast moves only OKLab L, holding a/b). ---
     let uline_bg = background_linear(&uline.colors, Color::Rgb(0, 0, 0));
     assert_ne!(
@@ -874,9 +874,9 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
         "underline-color floor not met: {uline_ratio}"
     );
     // Hue AND chroma preserved within eps: enforce_min_contrast moves only OKLab
-    // L, holding a/b — so both the OKLCH hue and chroma (sqrt(a²+b²)) are carried
+    // L, holding a/b - so both the OKLCH hue and chroma (sqrt(a²+b²)) are carried
     // through the lift. Asserting chroma too (not just hue) pins the "lightness
-    // only" guarantee the reviewer expects, distinguishing it from a desaturate.
+    // only" guarantee, distinguishing it from a desaturate.
     let oklch = |c: [f32; 4]| {
         crate::color::oklab_to_oklch(crate::color::linear_to_oklab([c[0], c[1], c[2]]))
     };
@@ -907,7 +907,7 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
     );
 
     // --- Case 5 (U1): the 256-color underline color is lifted on the identical
-    // path — same color-type-agnostic enforce call — clearing the ratio with hue
+    // path - same color-type-agnostic enforce call - clearing the ratio with hue
     // preserved, so indexed and truecolor underline colors behave the same. ---
     let uidx_bg = background_linear(&uidx.colors, Color::Rgb(0, 0, 0));
     assert_ne!(
@@ -1327,11 +1327,11 @@ fn hidden_cursor_emits_nothing_for_any_style() {
 // The per-cell resolve closure runs three perceptual steps in a load-bearing
 // order: SGR dim → ID2 focus dim (fg *and* bg) → RV1 contrast floor. The
 // existing tests cover each step in isolation (dim_attribute_scales…,
-// min_contrast_floor_lifts…); these deepen the *interaction* — combined
+// min_contrast_floor_lifts…); these deepen the *interaction* - combined
 // application, the load-bearing ordering, the two floor sites, and that the
 // dim is the OKLab perceptual path rather than a naive linear halving.
 
-/// Sum of absolute per-channel RGB differences between two resolved colors —
+/// Sum of absolute per-channel RGB differences between two resolved colors -
 /// a small, dependency-free "visibly different" witness for these tests.
 fn rgb_l1(a: [f32; 4], b: [f32; 4]) -> f32 {
     (a[0] - b[0]).abs() + (a[1] - b[1]).abs() + (a[2] - b[2]).abs()
@@ -1341,7 +1341,7 @@ fn rgb_l1(a: [f32; 4], b: [f32; 4]) -> f32 {
 ///
 /// Replays the closure's exact math with the real seam functions
 /// (`text::dim_linear_rgba` for focus dim, `color::enforce_min_contrast` for
-/// the floor) at an explicit ratio — global-free, so it never perturbs (or is
+/// the floor) at an explicit ratio - global-free, so it never perturbs (or is
 /// perturbed by) the process `MIN_CONTRAST`. Proves that the live order
 /// (dim → floor) meets the ratio against the dimmed background, while the
 /// swapped order (floor → dim) drops back **below** the ratio: dimming both
@@ -1374,7 +1374,7 @@ fn resolve_floor_must_run_after_both_dims() {
         "live order (dim→floor) must meet the floor: {live_contrast} < {ratio}"
     );
 
-    // Swapped order: floor first (against the undimmed bg), then focus-dim —
+    // Swapped order: floor first (against the undimmed bg), then focus-dim -
     // the dim erodes the contrast the floor had just established.
     let floored_first = {
         let [r, g, b] =
@@ -1402,7 +1402,7 @@ fn resolve_floor_must_run_after_both_dims() {
 /// Drives the real `build_cell_vertices_with_focus_dim_into` seam at
 /// `focus_dim = 0.0` vs `0.3`. The background quad is the most robust witness:
 /// the closure dims bg but never routes it through the floor, so its resolved
-/// color is independent of the process `MIN_CONTRAST` — this part holds no
+/// color is independent of the process `MIN_CONTRAST` - this part holds no
 /// matter what a concurrent test does to the global. A saturated bg makes the
 /// hue-preservation check meaningful; a high-contrast fg keeps the floor inert
 /// so the fg-recede check is robust too.
@@ -1495,8 +1495,8 @@ fn unfocused_baseline(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
 }
 
 /// The live closure routes SGR-dim through `dim_color`, and at
-/// `DIM_PERCEPTUAL_AMOUNT` that is *equivalent to* — not merely "as bright
-/// as" — the historical naive linear `×0.5` halving.
+/// `DIM_PERCEPTUAL_AMOUNT` that is *equivalent to* - not merely "as bright
+/// as" - the historical naive linear `×0.5` halving.
 ///
 /// This equivalence is exact (within float round-trip error) and is a
 /// mathematical identity, not a tuning coincidence: scaling all three OKLab
@@ -1505,7 +1505,7 @@ fn unfocused_baseline(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
 /// cube root that a uniform scale commutes through. `dim_perceptual(c, a)`
 /// scales `(L, a, b)` by `1 - a`, so it equals `(1 - a)³ · c`; with
 /// `a = 1 - ∛0.5` that factor is exactly `0.5`. (Both paths therefore also
-/// preserve hue — a uniform linear scale already keeps chromaticity — so the
+/// preserve hue - a uniform linear scale already keeps chromaticity - so the
 /// "perceptual" framing buys hue-stability that naive halving already had;
 /// see the report flag.) This test pins the equivalence so a future change to
 /// `dim_perceptual` that silently broke the established SGR-dim output would
@@ -1553,7 +1553,7 @@ fn closure_sgr_dim_equals_naive_half_brightness() {
 // --- ID3/U5 background treatment (gradient / vignette) ----------------------
 
 /// KILL-SHOT (trap 1): the default params are inactive, and `apply_to` is an
-/// exact identity for every cell — so the grid apply block is skipped and the
+/// exact identity for every cell - so the grid apply block is skipped and the
 /// rendered frame is byte-identical to the pre-feature renderer.
 #[test]
 fn bg_treatment_default_is_identity() {
@@ -1718,7 +1718,7 @@ fn cell_region_contains_covers_its_rect_only() {
 
 /// TRANSPARENCY (MENU-OPACITY) core guarantee: with a translucent
 /// `cell_bg_opacity`, cells inside the opaque region draw fully opaque while
-/// cells outside scale by the opacity — and `None` scales every cell (the
+/// cells outside scale by the opacity - and `None` scales every cell (the
 /// byte-identical path). Mirrors the single-pane path where an overlay panel is
 /// painted into the translucent snapshot: the panel stays a readable surface,
 /// the terminal behind it keeps the window opacity.
@@ -1781,7 +1781,7 @@ fn opaque_region_holds_marked_cells_opaque_only() {
         "both edge cells scale identically"
     );
 
-    // `None` scales EVERY cell — byte-identical to the pre-region path — so the
+    // `None` scales EVERY cell - byte-identical to the pre-region path - so the
     // middle cell now matches the edges (nothing is held opaque).
     let mut no_region = Vec::new();
     build_cell_vertices_with_focus_dim_and_origin_into(
@@ -2016,7 +2016,7 @@ fn no_selection_is_byte_identical_for_any_scalar() {
 // SCROLL-CHROME-BOUNCE: the sub-row smooth-scroll offset (folded into
 // `content_origin`'s Y) must move ONLY the terminal content, never the
 // composited chrome (top tab bar / side rail). Before the fix the whole
-// decorated snapshot — chrome rows included — was built through the shifted
+// decorated snapshot - chrome rows included - was built through the shifted
 // origin, so the bar visibly drifted with the scrollback.
 #[cfg(test)]
 mod chrome_pin {
@@ -2083,7 +2083,7 @@ mod chrome_pin {
         };
         let verts = build(&snapshot, &atlas, origin, pin);
 
-        // Chrome row (0) stays at the UN-shifted pad-y — this is the assertion
+        // Chrome row (0) stays at the UN-shifted pad-y - this is the assertion
         // that fails before the fix (chrome would sit at pad + frac).
         assert!(
             (bg_top(&verts, 0, 0) - pad).abs() < 1e-3,
@@ -2188,7 +2188,7 @@ mod chrome_pin {
     fn chrome_gap_shifts_content_and_bar_off_a_left_rail_but_never_the_band() {
         // CHROME-GAP: with a left rail in column 0 plus a one-row top bar, the
         // rail band keeps its flush position; every column at/right of the seam
-        // (the bar AND the content — one uniform column basis) shifts right by
+        // (the bar AND the content - one uniform column basis) shifts right by
         // `gap_x`; content rows additionally shift down by `gap_y`, while the
         // bar row and the full-height rail band do not.
         let Some(atlas) = atlas() else {
@@ -2213,17 +2213,17 @@ mod chrome_pin {
         };
         let verts = build(&snapshot, &atlas, origin, pin);
 
-        // Row 0 col 0: the rail∧bar corner — fully flush.
+        // Row 0 col 0: the rail∧bar corner - fully flush.
         assert_eq!(bg_rect(&verts, 0, 0)[0], pad);
         assert_eq!(bg_rect(&verts, 0, 0)[1], pad);
-        // Row 0 col 1: a bar cell right of the rail — shifted in X only.
+        // Row 0 col 1: a bar cell right of the rail - shifted in X only.
         assert_eq!(bg_rect(&verts, 0, 1)[0], pad + cell_w + gap_x);
         assert_eq!(bg_rect(&verts, 0, 1)[1], pad);
-        // Row 1 col 0: a rail cell below the bar — flush in X, un-gapped in Y
+        // Row 1 col 0: a rail cell below the bar - flush in X, un-gapped in Y
         // (the band is a continuous full-height sidebar).
         assert_eq!(bg_rect(&verts, 1, 0)[0], pad);
         assert_eq!(bg_rect(&verts, 1, 0)[1], pad + cell_h);
-        // Row 1 col 1: a content cell — shifted on both axes.
+        // Row 1 col 1: a content cell - shifted on both axes.
         assert_eq!(bg_rect(&verts, 1, 1)[0], pad + cell_w + gap_x);
         assert_eq!(bg_rect(&verts, 1, 1)[1], pad + cell_h + gap_y);
         // Row 2 col 1: the shift is a constant offset, not cumulative.
@@ -2682,7 +2682,7 @@ mod chrome_pin {
     }
 }
 
-/// PANE-SUBCELL-CLIP: pure vertex-clip math (headless — no GPU). Isolated so a
+/// PANE-SUBCELL-CLIP: pure vertex-clip math (headless - no GPU). Isolated so a
 /// red leg here points unambiguously at the sub-cell pane clip.
 mod pane_subcell_clip {
     use super::*;
@@ -3404,7 +3404,7 @@ fn row_fade_scales_color_glyph_vertex_alpha() {
 /// single-pane callers rebuild the whole buffer from scratch, so the clear is
 /// their contract). The multi-pane render loop captured
 /// `color_start = shared_buf.len()` and built straight into the shared buffer,
-/// assuming append semantics — so the builder's clear wiped earlier panes'
+/// assuming append semantics - so the builder's clear wiped earlier panes'
 /// emoji and left `shared_buf[color_start..]` slicing past the end. A split
 /// where one pane held an emoji and a later pane held none sliced `[6..]` on a
 /// now-empty buffer, panicking with `range start index 6 out of range for
@@ -3466,12 +3466,12 @@ fn multi_pane_color_glyphs_accumulate_across_uneven_emoji_panes() {
     );
     assert!(
         clobbered.is_empty(),
-        "builder clears: pane B (no emoji) wiped pane A's glyphs — \
+        "builder clears: pane B (no emoji) wiped pane A's glyphs: \
          building straight into the shared buffer is unsafe"
     );
 
-    // Fact (2): the correct multi-pane pattern — build each pane into scratch,
-    // clip the scratch, then extend the shared accumulator — preserves pane A
+    // Fact (2): the correct multi-pane pattern - build each pane into scratch,
+    // clip the scratch, then extend the shared accumulator - preserves pane A
     // and never slices past the end when pane B is empty.
     let mut shared = Vec::new();
     let mut scratch = Vec::new();
@@ -3486,7 +3486,7 @@ fn multi_pane_color_glyphs_accumulate_across_uneven_emoji_panes() {
             RowFade::NONE,
         );
         // Clipping the scratch (the fix does this per-pane) must tolerate an
-        // empty buffer — this is the exact call site that aborted before.
+        // empty buffer - this is the exact call site that aborted before.
         clip_quads_vertical(&mut scratch, VClip::NONE);
         shared.extend_from_slice(&scratch);
     }
@@ -3499,8 +3499,8 @@ fn multi_pane_color_glyphs_accumulate_across_uneven_emoji_panes() {
 
 // COLORED-BG-FLOOR: pass 1 composites a cell whose RESOLVED background differs
 // from the theme default at `colored_bg_opacity`; default-background cells keep
-// the plain content alpha. Classification happens at the resolution seam —
-// post-inverse, theme-resolved — so an explicit SGR background that resolves to
+// the plain content alpha. Classification happens at the resolution seam -
+// post-inverse, theme-resolved - so an explicit SGR background that resolves to
 // the exact theme default stays on the default (glassy) path, and an inverse
 // cell (visible backdrop = its resolved foreground) counts as colored.
 fn colored_floor_vertices(
@@ -3540,8 +3540,8 @@ fn colored_bg_floor_lifts_only_resolved_non_default_backgrounds() {
     let mut snapshot = term.snapshot();
     let theme_bg = snapshot.colors.background;
     // col 0: default background. col 1: explicit non-default (red). col 2:
-    // explicit RGB equal to the theme default — resolves to default, so the
-    // floor must NOT engage. col 3: inverse over default colors — the visible
+    // explicit RGB equal to the theme default - resolves to default, so the
+    // floor must NOT engage. col 3: inverse over default colors - the visible
     // backdrop is the resolved foreground, a non-default background.
     snapshot.cells[1].attrs.background = Color::Indexed(1);
     snapshot.cells[2].attrs.background = Color::Rgb(theme_bg.red, theme_bg.green, theme_bg.blue);
@@ -3575,7 +3575,7 @@ fn colored_bg_floor_lifts_only_resolved_non_default_backgrounds() {
     );
 
     // Equal alphas are the exact inert path: byte-identical vertices, colored
-    // cells included — this is the knob-0.0 / opaque-window identity the GPU
+    // cells included - this is the knob-0.0 / opaque-window identity the GPU
     // layer reduces to.
     let inert = colored_floor_vertices(
         &snapshot,
@@ -3775,7 +3775,7 @@ fn text_brightness_lifts_ink_only_and_pins_identity() {
     let lifted = brightness_vertices(&snapshot, &atlas, 1.5, RowFade::NONE);
     let mid = brightness_vertices(&snapshot, &atlas, 1.2, RowFade::NONE);
 
-    // Backgrounds (pass 1: one quad per cell) are byte-identical — the lift
+    // Backgrounds (pass 1: one quad per cell) are byte-identical - the lift
     // touches ink only.
     let bg_verts = 2 * INSTANCES_PER_QUAD;
     assert_eq!(
@@ -3839,7 +3839,7 @@ fn text_brightness_applies_after_the_min_contrast_floor() {
     let both_ink = ink(&both);
     assert!(!floored_ink.is_empty(), "the glyph must emit ink");
     for (f, b) in floored_ink.iter().zip(&both_ink) {
-        // lift(floor(x)) — the floored color is the lift's input, so the lift
+        // lift(floor(x)) - the floored color is the lift's input, so the lift
         // can only push a corrected color FURTHER from the (dark) background,
         // never undo the fix.
         let expected = crate::text::lift_brightness_rgba(*f, 1.5);

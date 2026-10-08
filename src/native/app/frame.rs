@@ -24,7 +24,7 @@ pub(super) enum FrameAction {
     /// Stop presenting after a device loss until full GPU state can be rebuilt.
     DeviceLost,
     /// The frame was transiently skipped (`get_current_texture` returned
-    /// Timeout/Occluded — e.g. the first frame as a Windows DX12 surface
+    /// Timeout/Occluded - e.g. the first frame as a Windows DX12 surface
     /// recovers on restore). Retry the frame after a bounded delay rather than
     /// busy-spinning. Subject to the call-site spin guards, and to the
     /// [`SkipEscalation`] rung that upgrades a *chronic* timeout run to
@@ -64,7 +64,7 @@ impl SkipEpisode {
 /// Consecutive skipped frames before a chronic acquire timeout escalates to a
 /// surface recreate. With the retry ladder ([`MAX_SKIPPED_RETRIES`] fast tries
 /// at [`SKIPPED_FRAME_RETRY`], then the [`SKIPPED_FRAME_SLOW_RETRY`] keep-alive)
-/// this puts the first recreate roughly 24 seconds into a persistent episode —
+/// this puts the first recreate roughly 24 seconds into a persistent episode -
 /// far beyond any transient acquire hiccup, and comfortably before the freeze
 /// watchdog's multi-minute stall records. Chosen so a briefly-unavailable
 /// surface never sees a recreate, while a stranded swapchain (an explicit-sync
@@ -81,7 +81,7 @@ pub(super) const MAX_SKIPPED_FRAME_RECREATES: u32 = 2;
 /// into the existing surface-recreate path. The retry ladder alone can strand a
 /// window forever: when the compositor leaves an in-flight buffer's fence
 /// unsignalled, every `get_current_texture` returns Timeout, the ladder retries
-/// (fast, then the 1s keep-alive), and nothing ever escalates — a live window
+/// (fast, then the 1s keep-alive), and nothing ever escalates - a live window
 /// froze for minutes exactly this way while the watchdog logged the stall. The
 /// recreate machinery already existed for Lost/Outdated surfaces; this routes
 /// persistent Timeout into it, bounded and re-armed on present.
@@ -90,7 +90,7 @@ pub(super) const MAX_SKIPPED_FRAME_RECREATES: u32 = 2;
 /// unavailable, and recreating it on a timer would churn the swapchain of every
 /// covered window (the Windows DXGI occlusion signal in particular). One edge
 /// is accepted: the consecutive-skip counter is shared, so a genuine timeout
-/// right after a long occlusion episode may escalate on its first skip — that
+/// right after a long occlusion episode may escalate on its first skip - that
 /// is bounded by the per-episode budget and self-corrects on present.
 #[derive(Default)]
 pub(super) struct SkipEscalation {
@@ -135,7 +135,7 @@ impl SkipEscalation {
 /// Follow-up after a surface-recreate attempt. Pure (no GPU/winit) so the
 /// failed-recreate wake guarantee is unit-testable: the loop must NEVER leave
 /// a recreate attempt without either an immediate redraw or a scheduled timed
-/// wake — a wake-less exit strands a background window with no incoming events
+/// wake - a wake-less exit strands a background window with no incoming events
 /// (the same freeze class the skip-escalation rung closes).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum RecreateFollowUp {
@@ -223,16 +223,16 @@ pub(super) const SKIPPED_FRAME_RETRY: Duration = Duration::from_millis(16);
 /// Slow keep-alive retry once the fast-retry budget ([`MAX_SKIPPED_RETRIES`]) is
 /// spent. ANTI-FREEZE: without this, a surface that kept returning
 /// Timeout/Occluded past the budget left the loop resting at `Wait` with NO
-/// pending paint — so a long-lived, non-interacted background window (nothing
+/// pending paint - so a long-lived, non-interacted background window (nothing
 /// delivering a `Resized`/`Focused`/input event) latched into a permanent
 /// no-repaint freeze until the user forced a window event. A ~1s cadence is not
 /// a busy-spin (≤1 wake/sec) yet guarantees an idle window self-heals within a
 /// second of the surface actually recovering. Only a minimized (0x0) window
-/// opts out — it has nothing to paint and a restore event always re-arms it.
+/// opts out - it has nothing to paint and a restore event always re-arms it.
 pub(super) const SKIPPED_FRAME_SLOW_RETRY: Duration = Duration::from_millis(1000);
 
 /// Cap on consecutive *fast* `Skipped` retries with no successful present in
-/// between. After this many fast tries the loop stops fast-retrying — but,
+/// between. After this many fast tries the loop stops fast-retrying - but,
 /// unlike before, it does NOT go silent: it falls back to the
 /// [`SKIPPED_FRAME_SLOW_RETRY`] keep-alive (see [`next_skipped_retry_delay`]) so
 /// a persistently-unavailable-then-recovered surface always repaints. The
@@ -257,7 +257,7 @@ pub(super) fn after_frame(outcome: FrameOutcome) -> FrameAction {
 
 /// Whether a [`FrameAction::RetryAfter`] should actually be scheduled, given the
 /// spin guards. Pure (no surface/event-loop), so it is unit-testable. Returns
-/// `false` when the window is minimized (a 0x0 surface — retrying an invisible
+/// `false` when the window is minimized (a 0x0 surface - retrying an invisible
 /// surface only burns wakeups) or once the consecutive-skip budget is exhausted
 /// (fall back to the event-driven `Wait`). This is what keeps the bounded retry
 /// from degrading into a busy-spin on a persistently-unavailable surface.
@@ -274,10 +274,10 @@ pub(super) fn should_schedule_skipped_retry(minimized: bool, consecutive_skipped
 /// The delay before the next skipped-frame retry, or `None` to schedule none.
 /// Pure (no surface/event-loop), so the whole recovery policy is unit-testable
 /// with zero GPU/winit. Three-way:
-/// - `None` — window minimized (0x0): nothing to paint; a restore event re-arms.
-/// - `Some(`[`SKIPPED_FRAME_RETRY`]`)` — under the fast-retry budget: recover
+/// - `None` - window minimized (0x0): nothing to paint; a restore event re-arms.
+/// - `Some(`[`SKIPPED_FRAME_RETRY`]`)` - under the fast-retry budget: recover
 ///   within a frame.
-/// - `Some(`[`SKIPPED_FRAME_SLOW_RETRY`]`)` — budget spent: a slow keep-alive so
+/// - `Some(`[`SKIPPED_FRAME_SLOW_RETRY`]`)` - budget spent: a slow keep-alive so
 ///   an idle background window still self-heals once the surface recovers,
 ///   instead of latching into a permanent freeze. This is the anti-freeze fix:
 ///   the previous policy returned "schedule nothing" here, which under
@@ -319,7 +319,7 @@ impl App {
     /// the FOCUSED pane's flag; single-pane that is the only visible pane, so the
     /// decision is byte-identical to before. Multi-pane: OR the flag across every
     /// visible pane of the active tab, so output streaming into a non-focused
-    /// split pane repaints even while the focused pane is idle — otherwise a
+    /// split pane repaints even while the focused pane is idle - otherwise a
     /// build in the other half of a split freezes until the user types into the
     /// focused pane (NF21-7). Paired with `clear_visible_pane_rebuild_flags` in
     /// the multi-pane rebuild branch, which must clear the same set.
@@ -348,7 +348,7 @@ impl App {
         // request we made that the windowing system never turned into
         // this event means the surface is not being painted (asleep
         // output / occluded / frame-callback throttled), which is not a
-        // stall — see the field docs on `redraws_delivered`.
+        // stall - see the field docs on `redraws_delivered`.
         self.redraws_delivered = self.redraws_delivered.saturating_add(1);
         self.flush_pending_overlay_settings();
         self.sessions.reconcile_scrollback_trims();
@@ -365,7 +365,7 @@ impl App {
             return false;
         }
         // F4-P4: reflow the content grid if auto-sizing (or a max-width
-        // edit) moved the rail band since the last frame — a shell-set
+        // edit) moved the rail band since the last frame - a shell-set
         // title changing the longest tab title has no other trigger. A
         // no-change frame is a single width comparison.
         self.reconcile_rail_auto_width();
@@ -412,7 +412,7 @@ impl App {
                 // Clear EVERY visible pane's flag, not just the focused
                 // one (`self.needs_rebuild`): the widened gate above ORs
                 // the flag across the tab, so leaving a dirtied background
-                // pane's flag set would re-open the gate every frame — a
+                // pane's flag set would re-open the gate every frame - a
                 // rebuild storm (NF21-7).
                 self.sessions.clear_visible_pane_rebuild_flags();
             } else {
@@ -450,12 +450,12 @@ impl App {
                 ) = {
                     // NF21-6: bell + prompt-marks latches are drained
                     // in the about-to-wait maintenance sweep (over the
-                    // whole arena) now, not here — so a background /
+                    // whole arena) now, not here - so a background /
                     // multipane bell is serviced instead of stranding.
                     // This paint only reads scrollback for viewport
                     // anchoring; the fast path is otherwise unchanged.
                     let (scrollback_len, pushed_rows) = {
-                        // P0-3: per-frame paint read — poison-recover.
+                        // P0-3: per-frame paint read - poison-recover.
                         let terminal = crate::native::lock_recover(&self.terminal);
                         (
                             terminal.screen().scrollback_len(),
@@ -574,7 +574,7 @@ impl App {
                     cell,
                     advanced_cursor,
                 );
-                // Blink off-phase hard-hide — skipped while easing is on,
+                // Blink off-phase hard-hide - skipped while easing is on,
                 // where the precomputed alpha carries the fade instead (so
                 // easing does not double-hide).
                 if !cursor_on && (!self.settings.cursor_easing || self.settings.reduced_motion) {
@@ -634,14 +634,14 @@ impl App {
                 // band, drawn over any background treatment; empty on the
                 // off path.
                 self.paint_window_border_quads(&ctx, &mut overlays);
-                // VE4 new-output fade — a per-row FOREGROUND alpha ramp
+                // VE4 new-output fade - a per-row FOREGROUND alpha ramp
                 // applied inside the cell/color-glyph vertex builds (no
                 // veil quads): capture this frame's multipliers here,
                 // where the pre-decoration cursor row is known; handed
                 // to the GPU below with the chrome offsets. `None` on
                 // the off path and every settled frame.
                 let new_row_fade_text = self.new_row_fade_text_multipliers(now, ctx.cursor.row);
-                // BELL visual flash — a full-viewport decaying tint over
+                // BELL visual flash - a full-viewport decaying tint over
                 // everything; empty on the off / urgent-only path.
                 self.paint_bell_flash_quad(&ctx, &mut overlays);
                 let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
@@ -811,7 +811,7 @@ impl App {
                 // the trailing (post-`cell_vertex_count`) vertex segment,
                 // alongside the cursor. The `CursorOnly` fast path
                 // (`update_cursor_and_overlays`) rebuilds ONLY that segment
-                // from the cursor vertices — it truncates to
+                // from the cursor vertices - it truncates to
                 // `cell_vertex_count` and re-appends the cursor WITHOUT the
                 // rail. So once the rail is steady-revealed, the very next
                 // cursor blink (a `CursorOnly` update) drops the rail out
@@ -847,7 +847,7 @@ impl App {
                 // opaque top layer without resealing the whole window.
                 let overlay_opaque_region = self.single_pane_opaque_region_for_frame(win_bg_alpha);
                 // VE4 new-output fade: map the content-row multipliers
-                // captured above into decorated-snapshot coordinates —
+                // captured above into decorated-snapshot coordinates -
                 // chrome band rows above and rail columns beside the
                 // content never fade. `None` (off / settled) keeps the
                 // builders on their exact inert path.
@@ -956,7 +956,7 @@ impl App {
             let mut action = after_frame(outcome);
             // ANTI-FREEZE ESCALATION: a chronic acquire timeout (the
             // retry ladder exhausted many consecutive skips with paint
-            // work still pending — every retry here IS a pending paint)
+            // work still pending - every retry here IS a pending paint)
             // escalates to the surface-recreate path instead of
             // retrying forever. Bounded per episode, exempt while
             // occluded or minimized, re-armed only by a present.
@@ -980,7 +980,7 @@ impl App {
                 );
                 action = FrameAction::RecreateSurfaceThenRedraw;
             }
-            // Recover outdated surfaces by reconfiguring (infallible —
+            // Recover outdated surfaces by reconfiguring (infallible -
             // no error path to strand on) and lost surfaces by
             // recreating them. Both request a redraw below; under
             // `ControlFlow::Wait` there is no automatic next frame.
@@ -992,7 +992,7 @@ impl App {
                         // ANTI-FREEZE: a failed recreate must NOT
                         // dead-end the loop wake-less (a background
                         // window with no incoming events would strand
-                        // until an external event — the same freeze
+                        // until an external event - the same freeze
                         // class the escalation rung closes). Record the
                         // failure; the post-borrow arm schedules a slow
                         // timed retry instead of the immediate redraw.
@@ -1023,7 +1023,7 @@ impl App {
                 self.consecutive_skipped_frames = 0;
                 self.skipped_frame_retry_deadline = None;
                 // ...and re-arms the bounded surface-recreate budget
-                // (the only place it refills — see `SkipEscalation`).
+                // (the only place it refills - see `SkipEscalation`).
                 self.skip_escalation.note_presented();
                 // A successful present closes the stale-callback interval and
                 // re-arms both its age and rate-limit state for future work.
@@ -1032,7 +1032,7 @@ impl App {
             FrameAction::ReconfigureThenRedraw => {
                 self.consecutive_skipped_frames = 0;
                 self.skipped_frame_retry_deadline = None;
-                // Single redraw request — not a loop; the post-reconfigure
+                // Single redraw request - not a loop; the post-reconfigure
                 // render normally succeeds.
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
@@ -1064,11 +1064,11 @@ impl App {
             FrameAction::RetryAfter(delay) => {
                 self.skip_episode.note_skipped(Instant::now());
                 // BLACK-SCREEN-ON-RESTORE: a transiently-skipped frame
-                // (Timeout/Occluded). Schedule ONE bounded timed retry —
+                // (Timeout/Occluded). Schedule ONE bounded timed retry -
                 // folded into the `WaitUntil` wake set. The delay is
                 // chosen by the spin-guard policy: fast (~16ms) while the
                 // consecutive-skip budget lasts, then a slow (~1s)
-                // keep-alive once it is spent — so an idle background
+                // keep-alive once it is spent - so an idle background
                 // window whose surface has recovered self-heals within a
                 // second WITHOUT needing an external event, while never
                 // busy-spinning. A minimized (0x0) window is the only

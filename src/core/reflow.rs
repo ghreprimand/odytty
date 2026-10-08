@@ -6,10 +6,10 @@
 //! is the heaviest core operation and warrants focused tests. Two entry points
 //! drive [`super::screen::Screen::resize`]:
 //!
-//! - [`reflow_lines`] — the general path: rejoin soft-wrapped rows into logical
+//! - [`reflow_lines`] - the general path: rejoin soft-wrapped rows into logical
 //!   lines and re-wrap them to the new width. Used whenever the column count
 //!   changes (and as the correctness oracle for the fast path in tests).
-//! - [`resize_keep_width`] — the width-unchanged fast path: at the same width,
+//! - [`resize_keep_width`] - the width-unchanged fast path: at the same width,
 //!   re-wrapping reproduces identical rows, so it re-windows and re-cursors at
 //!   O(rows) instead of O(cells). Proven byte-identical to [`reflow_lines`] for
 //!   width-unchanged resizes by the differential tests below.
@@ -51,7 +51,7 @@ struct LogicalLine {
     cursor_row_offset: Option<usize>,
     cursor_column: Option<usize>,
     start_row: usize,
-    /// OSC 133 prompt mark (SH1) captured from the first physical row of this
+    /// OSC 133 prompt mark captured from the first physical row of this
     /// logical line; re-stamped onto the first re-wrapped physical row so marks
     /// survive a width-changing resize.
     prompt_mark: Option<PromptKind>,
@@ -85,7 +85,7 @@ pub(in crate::core) struct ReflowOptions {
     /// `ResizePseudoConsole`, so any cursor translation OdyTTY performs only
     /// fights that repaint (flinging the cursor rows away from where PSReadLine
     /// places it). When true, cursor placement is deferred to the shell: the
-    /// content/scrollback rewrap still runs (history recovery — ConPTY does not
+    /// content/scrollback rewrap still runs (history recovery - ConPTY does not
     /// resend scrollback), but `cursor_dest` is forced to `None` so the cursor
     /// is kept at its incoming position clamped to the new dims, then corrected
     /// by the shell's repaint on the next pump tick. Default false: a POSIX PTY
@@ -98,7 +98,7 @@ pub(in crate::core) struct ReflowOptions {
     /// (`cursor_prefix` in `resize_lazy_with_options`). The incoming `cursor.row`
     /// is a COMBINED-buffer row (`combined_cursor_prefix + old_visible_row`), so
     /// subtracting this recovers the incoming VISIBLE row. Only the `None` cursor
-    /// arm (cursor placement deferred — the `shell_owns_cursor_on_resize` path)
+    /// arm (cursor placement deferred - the `shell_owns_cursor_on_resize` path)
     /// reads it; the `Some` arm maps the cursor through its content cell and
     /// already subtracts `visible_start`. Default `0`: direct callers pass a
     /// `cursor.row` that is already visible-relative (empty scrollback), so the
@@ -122,9 +122,9 @@ pub(in crate::core) struct ReflowResult {
 /// Policy (bounded first-prototype reflow):
 /// - Logical lines are formed by joining consecutive rows whose [`Line::wrapped`]
 ///   marker is set; a hard line break (no marker) ends a logical line.
-/// - Trailing plain blanks are trimmed from each logical line before re-wrapping
-///   (but never past the cursor column), so a cleared-but-tall screen does not
-///   bloat into many blank rows on shrink.
+/// - Trailing plain blanks are trimmed from each logical line before re-wrapping,
+///   so a cleared-but-tall screen does not bloat into many blank rows on shrink.
+///   The cursor is mapped separately and clamped into the new grid.
 /// - Layout-padding cells carry no logical scalar and are omitted before
 ///   wrapping at the new width. Interior source spaces are retained.
 /// - Wide glyphs are kept whole: a wide pair never straddles the right edge.
@@ -243,7 +243,7 @@ pub(in crate::core) fn reflow_lines_with_options(
     // the content/cursor, so a partially-filled screen does not inflate the
     // reflowed buffer (which would otherwise scroll content off the top). A line
     // is kept if it holds the cursor or any non-blank cell; interior blank lines
-    // are preserved. (Trailing blank *output* lines collapse here — a bounded,
+    // are preserved. (Trailing blank *output* lines collapse here - a bounded,
     // documented reflow limitation.)
     let plain = Cell::blank();
     while logicals.len() > 1 {
@@ -395,7 +395,7 @@ pub(in crate::core) fn reflow_lines_with_options(
 
             if unit == 2 {
                 // C18: a cursor parked on the wide glyph's CONTINUATION cell
-                // must follow the glyph — map it to the lead's placed position.
+                // must follow the glyph - map it to the lead's placed position.
                 // The `i += 2` below skips the continuation index, so the
                 // `cursor_target == Some(i)` check above can never match it;
                 // without this the cursor was silently dropped and fell back
@@ -461,7 +461,7 @@ pub(in crate::core) fn reflow_lines_with_options(
                 cursor_dest = Some((new_combined.len(), row_cells.len().min(new_cols - 1)));
             } else if produced_any {
                 // The content exactly filled the last (still-wrapped) row, so
-                // the end-of-content cursor sits PAST that row's last column —
+                // the end-of-content cursor sits PAST that row's last column -
                 // i.e. in the pending-wrap state. Record it so the physical
                 // cursor round-trips back to the true end-of-content offset on
                 // the next resize (the model re-derives the logical offset from
@@ -520,10 +520,10 @@ pub(in crate::core) fn reflow_lines_with_options(
             // re-wrapped top for the clear to cover the whole prompt.
             //
             // Honor it ONLY when both hold:
-            //   * `options.repaint_expected` — the shell applied output since
+            //   * `options.repaint_expected` - the shell applied output since
             //     the last resize, so a repaint is in the loop to correct the
             //     anchored (clamped) cursor. When false (back-to-back resizes
-            //     with no intervening output — the Windows split/close case over
+            //     with no intervening output - the Windows split/close case over
             //     ConPTY, which does not repaint on a bare resize), the anchor's
             //     column clamp is never healed and, because the model re-derives
             //     the logical offset from the physical cursor each resize, it
@@ -532,7 +532,7 @@ pub(in crate::core) fn reflow_lines_with_options(
             //     cursor (lossless logical position) and breaks the ratchet. This
             //     changes NO Linux behavior: every interactive Linux resize is
             //     followed by a repaint, so this is true on the next resize there.
-            //   * `row_offset < produced_rows` — the saved physical row still
+            //   * `row_offset < produced_rows` - the saved physical row still
             //     exists; when the line COLLAPSED to fewer rows (a wrapped prompt
             //     widened back to one row on a pane-close) the saved offset is
             //     stale and would drag the cursor backward into the prompt prefix.
@@ -572,7 +572,7 @@ pub(in crate::core) fn reflow_lines_with_options(
     // (ConPTY/conhost): suppress ALL cursor translation and keep the incoming
     // cursor clamped to the new dims (the `None` arm below). The content rewrap
     // above still applied (history recovery); only cursor placement is deferred
-    // to the shell's repaint. Keep the incoming pending-wrap — the shell owns it.
+    // to the shell's repaint. Keep the incoming pending-wrap - the shell owns it.
     if options.shell_owns_cursor_on_resize {
         cursor_dest = None;
         pending_wrap_dest = options.cursor_pending_wrap;
@@ -632,8 +632,8 @@ pub(in crate::core) fn reflow_lines_with_options(
 /// # Why this is equivalent to `reflow_lines`
 ///
 /// When the width is unchanged, re-wrapping a logical line reproduces its exact
-/// source physical rows: soft-wrapped (non-final) rows are full by construction,
-/// so they carry no trailing blanks to trim, and a final row's trailing-blank
+/// source physical rows: soft-wrapped (non-final) rows are full for well-formed
+/// input, so they carry no trailing blanks to trim, and a final row's trailing-blank
 /// trim followed by re-padding to the same width yields the identical row. So
 /// the only observable transforms `reflow_lines` performs are (a) collapsing
 /// trailing blank *logical lines* into nothing, (b) re-anchoring the visible
@@ -663,7 +663,7 @@ pub(in crate::core) fn resize_keep_width(
 ///
 /// When `shell_owns_cursor` is true (the ConPTY backend), the cursor is kept at
 /// its incoming column clamped to the new width instead of being snapped to its
-/// row's trimmed content — mirroring the cursor-deferral the width-changing path
+/// row's trimmed content - mirroring the cursor-deferral the width-changing path
 /// applies, so the shell's absolute repaint owns placement. When false the
 /// behavior is byte-identical to today (the `resize_keep_width` wrapper above),
 /// keeping `reflow_fast_path_tests` parity with `reflow_lines`.
@@ -678,7 +678,7 @@ pub(in crate::core) fn resize_keep_width_with_options(
     let new_rows = dimensions.rows;
     let cursor_abs = scrollback.len() + cursor.row;
 
-    // Combined buffer, oldest first — moved, not cell-copied.
+    // Combined buffer, oldest first - moved, not cell-copied.
     let mut combined: Vec<Line> = Vec::with_capacity(scrollback.len() + rows.len());
     combined.append(scrollback);
     combined.append(rows);
@@ -687,7 +687,7 @@ pub(in crate::core) fn resize_keep_width_with_options(
     // `reflow_lines`: a cursor sitting on (or past) trailing blanks lands at the
     // end of content. An interior soft-wrapped row is full, so its content
     // length is the full width and the column is preserved. When the shell owns
-    // the cursor (ConPTY), skip the snap and keep the incoming column clamped —
+    // the cursor (ConPTY), skip the snap and keep the incoming column clamped -
     // the shell's absolute repaint will place it.
     let plain = Cell::blank();
     let cursor_col = if shell_owns_cursor {
@@ -1032,7 +1032,7 @@ mod tests {
         // model stores the cursor ONLY as physical (row, column) + pending_wrap,
         // with no memory of the logical offset, so each reflow's output cursor
         // becomes the next reflow's input. This harness mirrors `Screen::resize`
-        // EXACTLY — re-feeding BOTH `cursor` and `pending_wrap`, threading
+        // EXACTLY - re-feeding BOTH `cursor` and `pending_wrap`, threading
         // `cursor_pending_wrap` back in, and setting `repaint_expected` true ONLY
         // for the first resize after the (single) prompt print and false for the
         // back-to-back resizes that follow with no intervening output (the
@@ -1040,8 +1040,8 @@ mod tests {
         // `print_char` and clears it at the end of every `resize`).
         //
         // Without the discriminator gate the override clamps the column on each
-        // narrowing and — because the offset is re-derived from the displaced
-        // physical cursor — ratchets it monotonically toward the prompt start
+        // narrowing and - because the offset is re-derived from the displaced
+        // physical cursor - ratchets it monotonically toward the prompt start
         // (col ~1 by the end). With the gate, only the first (non-wrapping)
         // resize honors the override and every subsequent wrapping resize keeps
         // the content-accurate cursor, which round-trips the true offset
@@ -1076,8 +1076,8 @@ mod tests {
 
         // Recipe F: open a split (narrow), then close it (widen back to 80),
         // progressively narrower. The FIRST narrow width (40) does NOT wrap the
-        // 16-col prompt — matching the real case where the first split rarely
-        // wraps a short prompt — so the one override that fires (repaint_expected
+        // 16-col prompt - matching the real case where the first split rarely
+        // wraps a short prompt - so the one override that fires (repaint_expected
         // true, set by the prompt print) is harmless. The later narrow widths
         // (10, 6, 2) DO wrap, but arrive with repaint_expected false.
         for (i, &w) in [40usize, 80, 10, 80, 6, 80, 2, 80].iter().enumerate() {
@@ -1161,7 +1161,7 @@ mod tests {
         // stays at its incoming position clamped to the new dims (the foot model:
         // defer to the shell's absolute repaint). With the flag FALSE the same
         // inputs translate the cursor (today's behavior) to a DIFFERENT position
-        // — proving the flag is load-bearing and the buffer is non-trivial.
+        // - proving the flag is load-bearing and the buffer is non-trivial.
         let old = Dimensions::new(50, 28);
         let new = Dimensions::new(100, 28);
         let cin_row = 2;
@@ -1216,12 +1216,12 @@ mod tests {
     }
 
     #[test]
-    fn shell_owns_cursor_trace_replay_pins_operator_failures() {
-        // The three real divergences captured in the on-device resize-storm
-        // trace, where today's reflow flung the cursor far from where
+    fn shell_owns_cursor_trace_replay_pins_recorded_geometries() {
+        // The three divergences recorded in a resize-storm trace, where a
+        // reflow that translated the cursor flung it far from where
         // PSReadLine's absolute repaint placed it. With
         // `shell_owns_cursor_on_resize` true the cursor must stay at its
-        // incoming position clamped to the new dims — no row/col jump — so the
+        // incoming position clamped to the new dims - no row/col jump - so the
         // shell's repaint owns placement.
         //
         // ((old_cols, old_rows), (in_row, in_col), (new_cols, new_rows),
@@ -1311,7 +1311,7 @@ mod tests {
             "fast path must keep the incoming cursor when the shell owns it"
         );
         // Default path snaps the cursor back to the content end (column 3), so
-        // the two must differ — proving the fast-path branch is load-bearing.
+        // the two must differ - proving the fast-path branch is load-bearing.
         assert_eq!(
             cur_false.column, 3,
             "default fast path snaps to content end"

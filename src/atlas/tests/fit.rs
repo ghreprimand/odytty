@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Symbol/icon glyph fit-to-cell + center behavior (the fastfetch ragged-icon
 //! fix). Symbol-fallback and SYMMAP-override (icon) faces are rasterized at the
-//! body em-size, which does not match OdyTTY's cell aspect — wide icons overflow
+//! body em-size, which does not match OdyTTY's cell aspect - wide icons overflow
 //! and clip and each glyph's distinct bearing puts ink at a different x, so an
 //! icon column reads ragged. The fit pass measures each glyph's natural ink box,
 //! scales it so the ink HEIGHT fills `SYMBOL_CELL_FILL` of the cell (width-capped
@@ -12,7 +12,7 @@ use super::*;
 use std::sync::Arc;
 
 /// The inked symbol-marker fixture (covers U+2731 / U+25CF with real ink). At
-/// 1000 upm its U+2731 outline is ~0.70 em wide/tall — wider than a typical
+/// 1000 upm its U+2731 outline is ~0.70 em wide/tall - wider than a typical
 /// ~0.6 em monospace cell, so without a fit pass it overflows and clips.
 fn marker_inked_font() -> FontHandle {
     FontHandle::try_from_vec(
@@ -48,7 +48,7 @@ fn ink_bbox(atlas: &GlyphAtlas, uv: [f32; 4]) -> Option<(i32, i32, i32, i32)> {
 }
 
 // ---------------------------------------------------------------------------
-// Pure scale helper — deterministic, host-font-independent.
+// Pure scale helper - deterministic, host-font-independent.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -96,7 +96,7 @@ fn fit_scale_degenerate_inputs_stay_positive_and_capped() {
 }
 
 // ---------------------------------------------------------------------------
-// Integration — height-fraction fit + center on a real cell via a SYMMAP
+// Integration - height-fraction fit + center on a real cell via a SYMMAP
 // override icon face.
 // ---------------------------------------------------------------------------
 
@@ -106,7 +106,7 @@ fn override_symbol_glyph_fits_within_cell_and_is_centered() {
         eprintln!("skipping: no system font available");
         return;
     };
-    let symbol = '\u{2731}'; // HEAVY ASTERISK — inked in the fixture (~0.70 em sq)
+    let symbol = '\u{2731}'; // HEAVY ASTERISK - inked in the fixture (~0.70 em sq)
     let cp = symbol as u32;
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     // Force the inked icon fixture for this codepoint regardless of primary
@@ -138,7 +138,7 @@ fn override_symbol_glyph_fits_within_cell_and_is_centered() {
         "ink height {ink_h} should be ~{target_h} (SYMBOL_CELL_FILL * cell)"
     );
 
-    // 2) Fully within the slot drawable region in BOTH axes — no clip. (Width
+    // 2) Fully within the slot drawable region in BOTH axes - no clip. (Width
     //    may exceed one cell into the overflow margin; that is intended.)
     assert!(
         minx >= cx - margin,
@@ -180,7 +180,7 @@ fn override_symbol_glyph_fits_within_cell_and_is_centered() {
 }
 
 // ---------------------------------------------------------------------------
-// Byte-identity guard — the fit machinery never perturbs primary text pixels.
+// Byte-identity guard - the fit machinery never perturbs primary text pixels.
 // ---------------------------------------------------------------------------
 
 #[test]

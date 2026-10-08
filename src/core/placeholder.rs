@@ -5,8 +5,8 @@
 //! The protocol splits image display into two halves. A client first creates a
 //! *virtual placement* (`a=T,U=1` or `a=p,U=1`) that names an image and the
 //! cell grid it should be split across, but places nothing. It then prints
-//! ordinary text — the placeholder character [`PLACEHOLDER_CHAR`] (U+10EEEE)
-//! carrying combining diacritics — into the cells where the image tiles should
+//! ordinary text - the placeholder character [`PLACEHOLDER_CHAR`] (U+10EEEE)
+//! carrying combining diacritics - into the cells where the image tiles should
 //! appear. Because the position lives in the text itself, the image scrolls,
 //! reflows, is overwritten, and is erased exactly as the text is, with no
 //! placement bookkeeping. That is the whole point: applications that know
@@ -48,7 +48,7 @@ pub const PLACEHOLDER_CHAR: char = '\u{10EEEE}';
 /// Id namespace for synthesized placeholder placements. Real placements are
 /// numbered from a counter starting at 1, so reserving the top bit keeps the
 /// two spaces disjoint without coordination. The rest of the id is derived from
-/// the run's viewport position, which makes the id stable frame to frame — the
+/// the run's viewport position, which makes the id stable frame to frame - the
 /// render layer's frame signature compares placement ids, so an unstable id
 /// would force a full rebuild every frame.
 const PLACEHOLDER_ID_NAMESPACE: u64 = 1 << 63;
@@ -358,7 +358,7 @@ static ROWCOLUMN_DIACRITICS: [char; 297] = [
     '\u{1D244}',
 ];
 
-/// Index of `ch` in [`ROWCOLUMN_DIACRITICS`] — the numeric value that diacritic
+/// Index of `ch` in [`ROWCOLUMN_DIACRITICS`] - the numeric value that diacritic
 /// encodes. `None` for any other character, including ordinary combining marks
 /// that happen to sit on a placeholder cell.
 pub(crate) fn diacritic_index(ch: char) -> Option<usize> {
@@ -457,7 +457,7 @@ pub(crate) fn decode_row(cells: &[Cell]) -> Vec<PlaceholderRun> {
 /// The diacritics are read in order as (row, column, image-id high byte); any
 /// of the three may be omitted, in which case the missing values come from the
 /// left neighbour under the spec's rules. Each rule additionally requires the
-/// neighbour to carry the same foreground and underline colors — those colors
+/// neighbour to carry the same foreground and underline colors - those colors
 /// are the id, so a cell whose colors differ names a different image and can
 /// never be a continuation of it.
 fn decode_cell(cell: &Cell, left: Option<PlaceholderCell>) -> Option<PlaceholderCell> {
@@ -494,7 +494,7 @@ fn decode_cell(cell: &Cell, left: Option<PlaceholderCell>) -> Option<Placeholder
         (Some(row), None, None) => match inherit.filter(|prev| prev.tile_row == row) {
             Some(prev) => (row, prev.tile_column.saturating_add(1), prev.id_high),
             // No usable neighbour: this is the start of a row, so the column is
-            // zero. The spec's own shorthand example relies on exactly this —
+            // zero. The spec's own shorthand example relies on exactly this -
             // it gives a row diacritic to the first cell of each line and
             // nothing at all to the rest.
             None => (row, 0, 0),
@@ -526,7 +526,7 @@ fn decode_cell(cell: &Cell, left: Option<PlaceholderCell>) -> Option<Placeholder
 /// Resolve the placeholder runs on one viewport row into visible placements,
 /// appending them to `out`. Runs that name an unknown image, an image with no
 /// virtual placement, or a tile outside the virtual placement's grid resolve to
-/// nothing — a placeholder is inert text until its prototype exists.
+/// nothing - a placeholder is inert text until its prototype exists.
 pub(crate) fn collect_row_placeholders(
     scene: &ImageScene,
     viewport_row: usize,
