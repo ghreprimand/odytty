@@ -1115,7 +1115,7 @@ pub(super) fn draw_border(
 
 /// Display width (in terminal cells) of `text`, matching the per-char width
 /// [`write_text`] uses to lay glyphs out.
-pub(super) fn text_display_width(text: &str) -> usize {
+pub(in crate::native) fn text_display_width(text: &str) -> usize {
     text.chars()
         .filter(|ch| !ch.is_control())
         .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(1).max(1))
@@ -1125,7 +1125,7 @@ pub(super) fn text_display_width(text: &str) -> usize {
 /// Hard character-truncate `text` to at most `max_width` display cells (the
 /// `write_text` clip rule), used as the last-resort fallback when not even one
 /// word of a hint fits.
-pub(super) fn fit_chars(text: &str, max_width: usize) -> String {
+pub(in crate::native) fn fit_chars(text: &str, max_width: usize) -> String {
     let mut out = String::new();
     let mut width = 0usize;
     for ch in text.chars() {

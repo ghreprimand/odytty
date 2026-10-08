@@ -2089,6 +2089,11 @@ desktop.
 
 Further reference:
 
+The profile catalog keeps an explicit mouse-wheel scroll position through
+redraws. Keyboard navigation and filtering resume following the selected row.
+Catalog filters and form text fields ignore control characters. Labels preserve
+exact fits and truncate to the overlay renderer's display-cell width.
+
 - [Named profiles](profiles.md) is the complete guide: the schema, the Profile
   Manager editor (launch, appearance, cursor, effects, layout, switching, and
   platform fields with bounded add/edit/remove rows), defaults, precedence,

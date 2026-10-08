@@ -2136,6 +2136,11 @@ release-authentication boundary. Version 0.16.0 and earlier lack update info.
 
 ### Named Profiles And External Palette Following
 
+The profile catalog keeps an explicit mouse-wheel scroll position through
+redraws. Keyboard navigation and filtering resume following the selected row.
+Catalog filters and form text fields ignore control characters. Labels preserve
+exact fits and truncate to the overlay renderer's display-cell width.
+
 The v0.14.0 named-profile foundation (versioned on-disk schema, local
 catalog, precedence resolver, migration helpers) and settings Profile Manager
 CRUD are documented in `docs/v0.14.0-profiles-foundation.md`. The editor

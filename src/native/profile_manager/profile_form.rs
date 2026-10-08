@@ -168,7 +168,7 @@ impl ProfileManager {
                 });
                 ProfileManagerOutcome::Consumed
             }
-            OverlayInput::Char(ch) => {
+            OverlayInput::Char(ch) if !ch.is_control() => {
                 self.edit_active_buffer(|buf| {
                     buf.push(ch);
                 });

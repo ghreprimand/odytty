@@ -91,6 +91,16 @@ impl App {
         );
     }
 
+    /// Seed the profile overlay without filesystem discovery.
+    #[cfg(test)]
+    pub(in crate::native) fn open_profile_catalog_for_test(
+        &mut self,
+        catalog: crate::profiles::ProfileCatalog,
+    ) {
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_profile_manager(catalog, None);
+    }
+
     /// Test seam (UX4-P1): open the settings overlay through the production
     /// keyboard entry path (so the pointer-state reset is genuinely exercised),
     /// without a window/GPU.

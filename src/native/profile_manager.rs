@@ -227,6 +227,7 @@ pub(super) struct ProfileManagerSignature {
     /// Catalog view offset, for the same reason: the catalog wheel moves the
     /// window without moving the selection.
     catalog_scroll_offset: usize,
+    catalog_scroll_wheel_pinned: bool,
     confirm: Option<String>,
 }
 
@@ -244,6 +245,8 @@ pub(super) struct ProfileManager {
     filtered: Vec<String>,
     selected: usize,
     scroll_offset: Cell<usize>,
+    /// Preserve explicit wheel position until keyboard navigation or filtering.
+    catalog_scroll_wheel_pinned: bool,
     form_scroll_offset: Cell<usize>,
     /// When set, the form view offset is pinned by an explicit wheel scroll and
     /// the render must not auto-scroll the focused row back into view. Cleared by
@@ -319,6 +322,7 @@ impl ProfileManager {
             filtered: Vec::new(),
             selected: 0,
             scroll_offset: Cell::new(0),
+            catalog_scroll_wheel_pinned: false,
             form_scroll_offset: Cell::new(0),
             form_scroll_wheel_pinned: false,
             last_body_height: Cell::new(0),
@@ -439,10 +443,12 @@ impl ProfileManager {
             self.selected.min(total.saturating_sub(1))
         };
         let mut offset = self.scroll_offset.get().min(total.saturating_sub(room));
-        if selected < offset {
-            offset = selected;
-        } else if selected >= offset + room {
-            offset = selected + 1 - room;
+        if !self.catalog_scroll_wheel_pinned {
+            if selected < offset {
+                offset = selected;
+            } else if selected >= offset + room {
+                offset = selected + 1 - room;
+            }
         }
         self.scroll_offset.set(offset);
         (offset > 0, offset + room < total)
@@ -477,6 +483,7 @@ impl ProfileManager {
                 }
                 let next = (self.scroll_offset.get() as isize + delta).clamp(0, total - 1);
                 self.scroll_offset.set(next as usize);
+                self.catalog_scroll_wheel_pinned = true;
             }
             ManagerView::ConfirmDelete { .. } => {}
         }
@@ -602,6 +609,7 @@ impl ProfileManager {
             form,
             form_scroll_offset: self.form_scroll_offset.get(),
             catalog_scroll_offset: self.scroll_offset.get(),
+            catalog_scroll_wheel_pinned: self.catalog_scroll_wheel_pinned,
             confirm: match &self.view {
                 ManagerView::ConfirmDelete { name } => Some(name.clone()),
                 _ => None,
@@ -613,6 +621,7 @@ impl ProfileManager {
         match input {
             OverlayInput::Close => ProfileManagerOutcome::Close,
             OverlayInput::Up => {
+                self.catalog_scroll_wheel_pinned = false;
                 if self.add_row_focused {
                     self.add_row_focused = false;
                 } else if self.selected > 0 {
@@ -621,6 +630,7 @@ impl ProfileManager {
                 ProfileManagerOutcome::Consumed
             }
             OverlayInput::Down => {
+                self.catalog_scroll_wheel_pinned = false;
                 if self.add_row_focused {
                     // stay
                 } else if self.selected + 1 < self.filtered.len() {
@@ -651,7 +661,9 @@ impl ProfileManager {
                 ProfileManagerOutcome::Consumed
             }
             // While filtering, every printable character appends to the filter.
-            OverlayInput::Char(ch) if self.filter_active || !self.query.is_empty() => {
+            OverlayInput::Char(ch)
+                if !ch.is_control() && (self.filter_active || !self.query.is_empty()) =>
+            {
                 self.query.push(ch);
                 self.recompute_filter();
                 ProfileManagerOutcome::Consumed
@@ -730,6 +742,7 @@ impl ProfileManager {
     }
 
     fn recompute_filter(&mut self) {
+        self.catalog_scroll_wheel_pinned = false;
         let names: Vec<String> = self.profiles.keys().cloned().collect();
         if self.query.is_empty() {
             self.filtered = names;
@@ -847,19 +860,12 @@ fn truncate(text: &str, width: usize) -> String {
     if width == 0 {
         return String::new();
     }
-    let mut out = String::new();
-    for (count, ch) in text.chars().enumerate() {
-        if count + 1 >= width {
-            out.push('\u{2026}');
-            break;
-        }
-        out.push(ch);
+    if super::overlay::text_display_width(text) <= width {
+        return text.to_owned();
     }
-    if out.is_empty() {
-        text.chars().take(width).collect()
-    } else {
-        out
-    }
+    let mut out = super::overlay::fit_chars(text, width - 1);
+    out.push('\u{2026}');
+    out
 }
 
 #[cfg(test)]
@@ -1097,5 +1103,74 @@ mod tests {
             ProfileManagerOutcome::Consumed
         ));
         assert_eq!(manager.title(), "Add profile");
+    }
+    #[test]
+    fn profile_ui_catalog_wheel_offset_survives_render_and_keyboard_resumes_follow() {
+        let names: Vec<String> = (0..20).map(|i| format!("p{i:02}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut manager = ProfileManager::new();
+        manager.open(catalog_with(&refs), None);
+        manager.visible_lines(60, 12);
+        let before = manager.render_signature();
+        manager.scroll_lines(3);
+        manager.visible_lines(60, 12);
+        assert_eq!(
+            manager.scroll_offset.get(),
+            3,
+            "render preserves wheel position"
+        );
+        assert_eq!(manager.selected, 0, "wheel does not move selection");
+        assert_ne!(
+            manager.render_signature(),
+            before,
+            "wheel invalidates rendering"
+        );
+        manager.handle_input(OverlayInput::Down);
+        manager.visible_lines(60, 12);
+        assert!(
+            manager.scroll_offset.get() <= manager.selected,
+            "keyboard resumes selection following"
+        );
+    }
+
+    #[test]
+    fn profile_ui_truncate_keeps_exact_fit_and_respects_wide_columns() {
+        assert_eq!(truncate("abcd", 5), "abcd");
+        assert_eq!(truncate("abcde", 5), "abcde");
+        assert_eq!(truncate("abcdef", 5), "abcd\u{2026}");
+        assert_eq!(truncate("\u{754c}\u{754c}", 4), "\u{754c}\u{754c}");
+        assert_eq!(truncate("\u{754c}\u{754c}", 3), "\u{754c}\u{2026}");
+        assert_eq!(truncate("e\u{301}", 2), "e\u{301}");
+        assert_eq!(truncate("anything", 0), "");
+    }
+
+    #[test]
+    fn profile_ui_catalog_filter_ignores_control_characters() {
+        let mut manager = ProfileManager::new();
+        manager.open(catalog_with(&["dev"]), None);
+        manager.handle_input(OverlayInput::Char('/'));
+        for ch in ['\u{1b}', '\n', '\u{7f}'] {
+            manager.handle_input(OverlayInput::Char(ch));
+        }
+        manager.handle_input(OverlayInput::Char('d'));
+        assert_eq!(manager.query, "d");
+        assert_eq!(manager.filtered, vec!["dev"]);
+    }
+
+    #[test]
+    fn profile_ui_form_text_ignores_control_characters() {
+        let mut manager = ProfileManager::new();
+        manager.view = ManagerView::Form(FormMode::Add);
+        for ch in ['\u{1b}', '\n', '\u{7f}'] {
+            manager.handle_input(OverlayInput::Char(ch));
+        }
+        manager.handle_input(OverlayInput::Char('a'));
+        assert_eq!(manager.draft_name, "a");
+    }
+    #[test]
+    fn profile_ui_truncate_wide_cells_stay_within_overlay_width() {
+        assert_eq!(truncate("\u{754c}\u{754c}", 3), "\u{754c}\u{2026}");
+        assert_eq!(truncate("\u{754c}\u{754c}", 4), "\u{754c}\u{754c}");
+        assert_eq!(truncate("e\u{301}", 2), "e\u{301}");
     }
 }

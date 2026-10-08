@@ -168,6 +168,11 @@ A command profile replaces the shell instead:
 
 ## Profile Manager
 
+The profile catalog keeps an explicit mouse-wheel scroll position through
+redraws. Keyboard navigation and filtering resume following the selected row.
+Catalog filters and form text fields ignore control characters. Labels preserve
+exact fits and truncate to the overlay renderer's display-cell width.
+
 Open **Settings -> Profiles -> Open Profile Manager**. The manager is
 presentation-only and loads the local catalog when it opens; it never runs on the
 ordinary launch path. It offers create, edit, duplicate, rename, validate,
