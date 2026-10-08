@@ -8,7 +8,6 @@
 //! or "nothing to do".
 
 use std::io::{self, Write};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use super::*;
 use winit::keyboard::NamedKey;
@@ -45,16 +44,10 @@ fn recording_app(output: &[u8]) -> (App, Recorded, Arc<Mutex<Terminal>>) {
     (app, bytes, terminal)
 }
 
-/// Poison `terminal` by panicking while holding its guard, with the panic
-/// hook silenced so the expected panic prints nothing.
+/// Poison `terminal` by panicking while holding its guard. The shared
+/// helper leaves the process-wide panic hook installed.
 fn poison(terminal: &Arc<Mutex<Terminal>>) {
-    let previous = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let _ = catch_unwind(AssertUnwindSafe(|| {
-        let _guard = terminal.lock().expect("terminal");
-        panic!("poison the terminal model");
-    }));
-    std::panic::set_hook(previous);
+    super::poison_recovery::poison_with(terminal, |_| {});
     assert!(terminal.lock().is_err(), "the model is poisoned");
 }
 

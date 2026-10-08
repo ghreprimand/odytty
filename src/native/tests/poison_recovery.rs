@@ -13,15 +13,17 @@
 use super::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// Run `f` with the panic hook silenced, restoring it afterward. The poison
-/// tests deliberately panic to poison a lock; without this the default hook
-/// prints a scary (but expected) backtrace to the test log.
-fn with_silent_panic_hook<R>(f: impl FnOnce() -> R) -> R {
-    let prev = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let out = f();
-    std::panic::set_hook(prev);
-    out
+/// Poison `m` by panicking while holding its guard, after `before` runs on
+/// the guarded value. The panic hook is a process-wide global shared by
+/// every concurrently running test, so it is left installed rather than
+/// swapped: the expected panic prints one message to the captured test
+/// output, and `catch_unwind` stops the unwind.
+pub(super) fn poison_with<T>(m: &std::sync::Mutex<T>, before: impl FnOnce(&mut T)) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let mut guard = m.lock().expect("first lock");
+        before(&mut guard);
+        panic!("expected test panic: poison the lock");
+    }));
 }
 
 #[test]
@@ -29,13 +31,7 @@ fn lock_recover_yields_usable_guard_after_poison() {
     // The helper's core contract, independent of any GPU/PTY: a poisoned lock is
     // still usable through `lock_recover`, and the protected value is intact.
     let m = std::sync::Mutex::new(7_i32);
-    with_silent_panic_hook(|| {
-        let _ = catch_unwind(AssertUnwindSafe(|| {
-            let mut g = m.lock().expect("first lock");
-            *g = 11;
-            panic!("poison while holding the guard");
-        }));
-    });
+    poison_with(&m, |value| *value = 11);
     // The lock is now poisoned: a plain lock would surface an Err.
     assert!(m.lock().is_err(), "the panic poisoned the mutex");
     // lock_recover hands back the inner guard regardless, and the write the
@@ -85,12 +81,7 @@ fn current_selection_text_survives_poisoned_terminal_lock() {
 
     // Poison the shared terminal lock out-of-band (as a hot-path panic holding
     // the guard would).
-    with_silent_panic_hook(|| {
-        let _ = catch_unwind(AssertUnwindSafe(|| {
-            let _g = handle.lock().expect("poisoning lock");
-            panic!("poison the terminal lock");
-        }));
-    });
+    poison_with(&handle, |_| {});
     assert!(handle.lock().is_err(), "the terminal lock is now poisoned");
 
     // The copy / PRIMARY choke point must RETURN through poison recovery, not
