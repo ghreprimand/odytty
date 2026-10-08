@@ -418,10 +418,11 @@ mod tests {
     #[test]
     fn single_pane_hud_background_draws_opaque() {
         let _guard = crate::test_lock::render_globals_lock();
-        let Ok(font) = crate::text::load_font() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let font = crate::text::FontHandle::try_from_vec(
+            include_bytes!("../../../assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf")
+                .to_vec(),
+        )
+        .expect("required OFL-licensed embedded HUD fixture parses");
         let atlas = crate::text::GlyphAtlas::build(&font, 24.0);
         let dims = Dimensions::new(20, 5);
         let (mut app, _terminal) =
