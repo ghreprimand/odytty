@@ -67,11 +67,19 @@ impl GlyphAtlas {
         self.symbol_map_fonts = fonts;
     }
 
-    /// Bind dynamic growth to the active device's maximum 2D texture height.
+    /// Bind dynamic growth to the byte budget and device texture height.
+    /// Initial device bounds are applied by `build_with_dimension_limit`.
     /// Existing base glyphs stay resident; new glyphs use the fallback once
     /// another complete atlas row would cross `max_dimension`.
     pub fn set_texture_dimension_limit(&mut self, max_dimension: u32) {
-        let rows = max_dimension / slot_h(self.cell);
+        let byte_rows = MAX_ATLAS_BYTES
+            / atlas_byte_len(
+                self.width,
+                slot_h(self.cell),
+                self.subpixel.bytes_per_pixel(),
+            );
+        let rows =
+            (max_dimension.min(MAX_ATLAS_DIMENSION) / slot_h(self.cell)).min(byte_rows as u32);
         let reachable_rows = self.capacity_rows
             + rows.saturating_sub(self.capacity_rows) / ATLAS_GROW_ROWS * ATLAS_GROW_ROWS;
         self.max_slots = reachable_rows

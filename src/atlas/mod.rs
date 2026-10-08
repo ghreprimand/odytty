@@ -113,6 +113,10 @@ const ATLAS_GROW_ROWS: u32 = 4;
 /// cannot grow the atlas without bound. Beyond this, new glyphs use the
 /// fallback box instead of consuming a slot.
 const MAX_ATLAS_SLOTS: u32 = 8192;
+/// Shared CPU/GPU coverage budget, independent of slot count and font metrics.
+const MAX_ATLAS_BYTES: usize = 192 * 1024 * 1024;
+/// Headless construction uses the same conservative texture-axis ceiling.
+const MAX_ATLAS_DIMENSION: u32 = 8192;
 
 /// First dynamic slot: fallback (0) + 95 printable ASCII (1..=95).
 const FIRST_DYNAMIC_SLOT: u32 = LAST_CHAR - FIRST_CHAR + 2;
@@ -120,14 +124,12 @@ const FIRST_DYNAMIC_SLOT: u32 = LAST_CHAR - FIRST_CHAR + 2;
 // The gutter must be at least one pixel for the bleed guard to hold.
 const _: () = assert!(ATLAS_PAD >= 1);
 
-/// Byte length of the atlas backing bitmap for `width × height` pixels at
-/// `bytes_per_pixel`. Each factor is widened to `usize` BEFORE multiplying:
-/// at large HiDPI cells (~288 px physical: the 72 px font cap × 4.0 scale) a
-/// full [`MAX_ATLAS_SLOTS`] subpixel atlas exceeds `u32::MAX` bytes, so a
-/// `u32` multiply overflows - panicking in debug builds and under-allocating
-/// in release (out-of-bounds raster writes into a too-short buffer).
+/// Checked byte length; all allocation callers admit bounded geometry first.
 fn atlas_byte_len(width: u32, height: u32, bytes_per_pixel: u32) -> usize {
-    width as usize * height as usize * bytes_per_pixel as usize
+    (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|len| len.checked_mul(bytes_per_pixel as usize))
+        .expect("admitted atlas byte length fits usize")
 }
 
 /// Shear ratio for synthetic italic: `tan(12deg)`. A sample `dy` pixels above
@@ -804,8 +806,8 @@ pub struct GlyphAtlas {
     capacity_rows: u32,
     /// Next free slot for dynamic insertion; also the current slot count.
     next_slot: u32,
-    /// Effective slot ceiling imposed by the active GPU texture-height limit.
-    /// Headless callers retain [`MAX_ATLAS_SLOTS`].
+    /// Slot ceiling imposed by bitmap bytes, texture height and slot count.
+    /// Headless callers use the same byte and axis bounds.
     max_slots: u32,
     /// Resident non-ASCII `(style, codepoint)` → slot index. A codepoint the
     /// font lacks is cached pointing at [`FALLBACK_SLOT`] so the decision is made

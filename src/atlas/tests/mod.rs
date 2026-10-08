@@ -6,6 +6,7 @@
 use super::*;
 use crate::text::load_font;
 
+mod allocation_bounds;
 mod fallback;
 mod fit;
 mod geometry;

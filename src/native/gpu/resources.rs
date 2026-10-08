@@ -796,13 +796,13 @@ impl GpuState {
         let line_height = options.line_height;
         let box_thickness = options.box_thickness;
         crate::boxdraw::set_box_thickness(box_thickness);
-        let mut atlas = GlyphAtlas::build_with_options(
+        let mut atlas = GlyphAtlas::build_with_dimension_limit(
             fonts.regular_font(),
             physical_px,
             subpixel,
             line_height,
+            device.limits().max_texture_dimension_2d,
         );
-        atlas.set_texture_dimension_limit(device.limits().max_texture_dimension_2d);
         let synthetic_enabled = crate::settings::synthetic_styles_enabled();
         let (synth_bold, synth_italic, synth_bold_italic) =
             masked_synthetic(&fonts, synthetic_enabled);
@@ -1217,13 +1217,13 @@ impl GpuState {
         // BOXTHICK weight is read from the process-global atomic at raster time;
         // re-publish it here so a scale-driven rebuild keeps the active multiplier.
         crate::boxdraw::set_box_thickness(self.box_thickness);
-        let mut atlas = GlyphAtlas::build_with_options(
+        let mut atlas = GlyphAtlas::build_with_dimension_limit(
             self.fonts.regular_font(),
             self.physical_px,
             self.subpixel,
             self.line_height,
+            self.device.limits().max_texture_dimension_2d,
         );
-        atlas.set_texture_dimension_limit(self.device.limits().max_texture_dimension_2d);
         let (synth_bold, synth_italic, synth_bold_italic) =
             masked_synthetic(&self.fonts, self.synthetic_enabled);
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);

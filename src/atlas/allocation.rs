@@ -40,7 +40,7 @@ impl GlyphAtlas {
             return None;
         }
         let lead = self.next_slot;
-        self.grow_to_fit(lead + span - 1);
+        self.grow_to_fit(lead + span - 1)?;
         for i in 0..span {
             // Lead carries the real span; reserved cells are never looked up.
             let s = if i == 0 { span as u8 } else { 1 };
@@ -58,7 +58,7 @@ impl GlyphAtlas {
         if self.next_slot + 1 > self.max_slots {
             return None;
         }
-        self.grow_to_fit(self.next_slot);
+        self.grow_to_fit(self.next_slot)?;
         self.slot_ink.push(GlyphInk::cell(self.cell));
         self.slot_span.push(span);
         self.next_slot += 1;
@@ -68,19 +68,30 @@ impl GlyphAtlas {
     /// Grow `capacity_rows` (in [`ATLAS_GROW_ROWS`] pages) and the backing bitmap
     /// so `slot` is addressable, zero-filling new pixels. Existing slots never
     /// move. No-op when the slot already fits.
-    fn grow_to_fit(&mut self, slot: u32) {
+    fn grow_to_fit(&mut self, slot: u32) -> Option<()> {
         let needed_rows = slot / self.cols + 1;
         if needed_rows > self.capacity_rows {
-            while needed_rows > self.capacity_rows {
-                self.capacity_rows += ATLAS_GROW_ROWS;
+            let rows = self.capacity_rows
+                + needed_rows
+                    .saturating_sub(self.capacity_rows)
+                    .div_ceil(ATLAS_GROW_ROWS)
+                    * ATLAS_GROW_ROWS;
+            let height = rows.checked_mul(slot_h(self.cell))?;
+            let bytes = atlas_byte_len(self.width, height, self.subpixel.bytes_per_pixel());
+            if height > MAX_ATLAS_DIMENSION || bytes > MAX_ATLAS_BYTES {
+                return None;
             }
-            self.height = self.capacity_rows * slot_h(self.cell);
-            self.data.resize(
-                atlas_byte_len(self.width, self.height, self.subpixel.bytes_per_pixel()),
-                0,
-            );
+            // Exact reservation prevents Vec's geometric growth from doubling
+            // the admitted bitmap's capacity beyond the coverage budget.
+            self.data
+                .try_reserve_exact(bytes.saturating_sub(self.data.len()))
+                .ok()?;
+            self.data.resize(bytes, 0);
+            self.capacity_rows = rows;
+            self.height = height;
             self.revision += 1;
             self.dirty = true;
         }
+        Some(())
     }
 }

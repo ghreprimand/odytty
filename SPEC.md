@@ -2591,6 +2591,17 @@ builder, and image layer, consuming core snapshots through a narrow seam.
 
 ### Render Cell-Based Text
 
+Monochrome glyph atlases admit cell geometry before bitmap allocation. Invalid
+or oversized font metrics use an 8 by 16 pixel fallback cell. Very small
+texture limits use a 1 by 1 pixel fallback cell. Physical raster
+sizes are bounded to 512 pixels; admitted cell width is at most 512 pixels
+and height at most 1024 pixels.
+Initial construction and growth share an 8192 pixel texture-axis ceiling and
+192 MiB coverage-bitmap budget, with the active GPU limit applied before native
+construction and rebuilds. Exhausted dynamic residency uses the existing
+missing-glyph path. These bounds apply on Linux Wayland, Linux X11, macOS and
+Windows; terminal text, logical cell ownership and copying are unchanged.
+
 Text is cell-based: each printable base scalar occupies one or two columns
 (`unicode-width` consistent with core), zero-width combining marks attach to
 their base cell, and all coordinate systems are per-cell. The default

@@ -32,43 +32,44 @@ impl GlyphAtlas {
         subpixel: SubpixelMode,
         line_height: f32,
     ) -> Self {
-        let px = px.max(1.0);
-        let scale = PxScale::from(px);
-        let scaled = font.as_scaled(scale);
+        Self::build_with_dimension_limit(font, px, subpixel, line_height, MAX_ATLAS_DIMENSION)
+    }
 
-        // Monospace: every glyph shares the advance of a representative glyph.
-        let advance = scaled.h_advance(font.glyph_id('M'));
-        let ascent = scaled.ascent();
-        let descent = scaled.descent(); // negative (below baseline)
-
-        // Single documented baseline: the font ascent rounded to the nearest
-        // whole pixel. Every glyph - ASCII, accents, box-drawing - is positioned
-        // with its baseline on this one integer row, so mixed glyphs sit on a
-        // common line and horizontal stems land on pixel boundaries for crisp
-        // coverage. The cell height spans this baseline plus the descent so
-        // descenders fit within the cell box.
-        let baseline = ascent.round().max(0.0);
-        let cell_w = advance.ceil().max(1.0) as u32;
-        let cell_h = (ascent - descent).ceil().max(1.0) as u32;
-
-        // LINEHEIGHT leading: extra rows added around the natural cell. At the
-        // default `1.0` the leading is exactly 0, so `cell_h`/`baseline` are
-        // unchanged and the atlas is byte-identical. The leading is split with
-        // the larger half on top (`lead_top`) so the baseline moves down by that
-        // amount; glyphs still rasterize against the same metrics, just lower in
-        // a taller slot, which keeps every glyph's shape pixel-for-pixel.
-        let leading = (((line_height.max(1.0) - 1.0) * cell_h as f32).round() as u32).min(cell_h);
-        let lead_top = leading.div_ceil(2);
-        let cell_h = cell_h + leading;
-        // Shift the baseline down by the top leading so every glyph rasterizes
-        // lower within the taller slot. Kept as `f32` for the rasterizer Pen;
-        // the cell stores the rounded integer row.
-        let baseline = baseline + lead_top as f32;
-        let cell = CellSize {
-            width: cell_w,
-            height: cell_h,
-            baseline: baseline as u32,
+    /// Apply the texture limit before constructing the initial CPU bitmap.
+    /// Devices must support the minimal fallback atlas (112 pixels per axis).
+    pub fn build_with_dimension_limit(
+        font: &FontHandle,
+        px: f32,
+        subpixel: SubpixelMode,
+        line_height: f32,
+        max_dimension: u32,
+    ) -> Self {
+        let max_dimension = max_dimension.min(MAX_ATLAS_DIMENSION);
+        assert!(
+            max_dimension >= 112,
+            "texture limit cannot hold a fallback atlas"
+        );
+        let px = if px.is_finite() {
+            px.clamp(1.0, 512.0)
+        } else {
+            16.0
         };
+        let mut cell = cell_geometry(font, px, line_height);
+        if !initial_geometry_fits(cell, subpixel, max_dimension) {
+            cell = CellSize {
+                width: 8,
+                height: 16,
+                baseline: 13,
+            };
+            if !initial_geometry_fits(cell, subpixel, max_dimension) {
+                cell = CellSize {
+                    width: 1,
+                    height: 1,
+                    baseline: 1,
+                };
+            }
+        }
+        let baseline = cell.baseline as f32;
 
         // Base region: fallback box (slot 0) + printable ASCII (slots 1..=95).
         // Each slot carries a transparent gutter (see `slot_offset`/`slot_uv`).
@@ -116,7 +117,7 @@ impl GlyphAtlas {
             }
         }
 
-        Self {
+        let mut atlas = Self {
             width,
             height,
             data,
@@ -139,6 +140,81 @@ impl GlyphAtlas {
             symbol_map_fonts: Vec::new(),
             runtime_symbol_resolver: None,
             runtime_symbol_cache: HashMap::new(),
-        }
+        };
+        atlas.set_texture_dimension_limit(max_dimension);
+        atlas
     }
+}
+
+/// Measure cell geometry without allocating a bitmap.
+pub(super) fn cell_geometry(font: &FontHandle, px: f32, line_height: f32) -> CellSize {
+    if !px.is_finite() || !(1.0..=512.0).contains(&px) {
+        return fallback_cell();
+    }
+    let scale = PxScale::from(px);
+    let scaled = font.as_scaled(scale);
+
+    // Monospace: every glyph shares the advance of a representative glyph.
+    let advance = scaled.h_advance(font.glyph_id('M'));
+    let ascent = scaled.ascent();
+    let descent = scaled.descent(); // negative (below baseline)
+
+    if !advance.is_finite()
+        || !(0.0..=512.0).contains(&advance)
+        || !ascent.is_finite()
+        || !descent.is_finite()
+        || !(0.0..=512.0).contains(&ascent)
+        || !(-512.0..=0.0).contains(&descent)
+        || !(1.0..=512.0).contains(&(ascent - descent))
+    {
+        return fallback_cell();
+    }
+
+    // Single documented baseline: the font ascent rounded to the nearest
+    // whole pixel. Every glyph - ASCII, accents, box-drawing - is positioned
+    // with its baseline on this one integer row, so mixed glyphs sit on a
+    // common line and horizontal stems land on pixel boundaries for crisp
+    // coverage. The cell height spans this baseline plus the descent so
+    // descenders fit within the cell box.
+    let baseline = ascent.round().max(0.0);
+    let cell_w = advance.ceil().max(1.0) as u32;
+    let cell_h = (ascent - descent).ceil().max(1.0) as u32;
+
+    // LINEHEIGHT leading: extra rows added around the natural cell. At the
+    // default `1.0` the leading is exactly 0, so `cell_h`/`baseline` are
+    // unchanged and the atlas is byte-identical. The leading is split with
+    // the larger half on top (`lead_top`) so the baseline moves down by that
+    // amount; glyphs still rasterize against the same metrics, just lower in
+    // a taller slot, which keeps every glyph's shape pixel-for-pixel.
+    let leading = (((line_height.max(1.0) - 1.0) * cell_h as f32).round() as u32).min(cell_h);
+    let lead_top = leading.div_ceil(2);
+    let cell_h = cell_h + leading;
+    if cell_h > 1024 {
+        return fallback_cell();
+    }
+    // Shift the baseline down by the top leading so every glyph rasterizes
+    // lower within the taller slot. Kept as `f32` for the rasterizer Pen;
+    // the cell stores the rounded integer row.
+    let baseline = baseline + lead_top as f32;
+    CellSize {
+        width: cell_w,
+        height: cell_h,
+        baseline: baseline as u32,
+    }
+}
+
+fn fallback_cell() -> CellSize {
+    CellSize {
+        width: 8,
+        height: 16,
+        baseline: 13,
+    }
+}
+
+pub(super) fn initial_geometry_fits(cell: CellSize, subpixel: SubpixelMode, limit: u32) -> bool {
+    let width = ATLAS_COLS * slot_w(cell);
+    let height = FIRST_DYNAMIC_SLOT.div_ceil(ATLAS_COLS) * slot_h(cell);
+    width <= limit
+        && height <= limit
+        && atlas_byte_len(width, height, subpixel.bytes_per_pixel()) <= MAX_ATLAS_BYTES
 }

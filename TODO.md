@@ -1950,6 +1950,9 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       failures: pending work drains and windows wake before later requests
       return no face. The fontconfig worker is used on Linux; macOS and Windows
       keep their static fallback chains.
+- [x] Monochrome atlas construction admits font metrics before allocation;
+      device dimensions and a 192 MiB bitmap budget also bound dynamic growth
+      on Linux Wayland, Linux X11, macOS and Windows.
 - [x] Monochrome coverage rejects invalid scales and oversized pixel bounds
       before allocation; non-finite contrast and brightness controls preserve
       input colors on every platform.
