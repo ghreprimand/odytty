@@ -1393,7 +1393,9 @@ ordinary window in the same process so keyboard merge has a reachable target.
 The chord's letter is not inserted into that window: the key-up, a following
 press of the same letter, and a one-character IME commit of it are dropped.
 The next press of the letter is ordinary typing. A context-menu New Window
-does not drop a letter.
+does not drop a letter. If the new window's surface cannot be created (for
+example a GPU or window-system error), only that window is discarded: the
+window that asked shows a notice and every open window keeps running.
 Closing one window closes only that window; closing the last window exits
 OdyTTY. With two or more ordinary windows, the command palette and the empty tab-strip
 right-click menu offer **Merge This Window Into...** and **Pull Window Into This

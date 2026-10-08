@@ -192,7 +192,9 @@ pub(in crate::native) struct MultiWindowHost {
     #[cfg(target_os = "linux")]
     wayland_docked_drag: Option<live_tab_drag::wayland::Docked>,
     shared: Arc<WatchdogShared>,
-    last_seen_frames: u64,
+    /// Presented frames per stable window id at the last report to the
+    /// watchdog (see `watchdog_probe::report_present_for_windows`).
+    frame_baseline: Vec<(u64, u64)>,
     factory: SiblingFactory,
     /// Builds a window around moved content (no shell spawn).
     adopt: AdoptFactory,
@@ -303,7 +305,7 @@ impl MultiWindowHost {
             #[cfg(target_os = "linux")]
             wayland_docked_drag: None,
             shared,
-            last_seen_frames: 0,
+            frame_baseline: Vec::new(),
             factory,
             adopt,
             picker: None,
@@ -586,13 +588,26 @@ impl MultiWindowHost {
         self.publish_wayland_tab_regions();
         self.service_broadcast();
         self.sync_peer_attached_sessions();
-        let total_frames: u64 = self.windows.iter().map(App::frames_presented).sum();
-        if total_frames != self.last_seen_frames {
-            self.last_seen_frames = total_frames;
+        let progress: Vec<super::watchdog_probe::WindowProgress> = self
+            .windows
+            .iter()
+            .map(|app| super::watchdog_probe::WindowProgress {
+                id: app.process_window_id().0,
+                frames: app.frames_presented(),
+                owes_frame: app.watchdog_owes_visible_frame(),
+            })
+            .collect();
+        if super::watchdog_probe::report_present_for_windows(&mut self.frame_baseline, &progress) {
             self.shared.note_present();
         }
-        if let Some(primary) = self.windows.iter().find(|app| !app.live_drag_source) {
-            self.shared.store_state(&primary.watchdog_state());
+        // Mirror the stuck window when one is stuck, else the first window
+        // that is not a live-drag source, as before.
+        let subject = super::watchdog_probe::stalled_window(&self.frame_baseline, &progress)
+            .and_then(|idx| self.windows.get(idx))
+            .filter(|app| !app.live_drag_source)
+            .or_else(|| self.windows.iter().find(|app| !app.live_drag_source));
+        if let Some(subject) = subject {
+            self.shared.store_state(&subject.watchdog_state());
         }
     }
 
@@ -719,7 +734,9 @@ impl MultiWindowHost {
 
     /// Drain each window's pending New Window request and spawn the sibling
     /// in-process, creating its surface immediately so it appears without
-    /// waiting for another resume. A failed spawn drops the request.
+    /// waiting for another resume. A failed spawn drops the request; a failed
+    /// surface creation retires only that sibling, with a notice on the
+    /// window that asked.
     fn service_new_windows(&mut self, event_loop: &ActiveEventLoop) {
         // Disjoint field borrows: the shared drain helper takes `&mut windows`
         // while the factory closure borrows `&mut factory` and the event loop.
@@ -729,11 +746,15 @@ impl MultiWindowHost {
         // during creation is routed by window id; if the window is not in the
         // list yet, that event is dropped and the held shell waits out the
         // fallback.
-        crate::native::window_owner::service_new_window_requests_then(
+        let (_, failed) = crate::native::window_owner::service_new_window_requests_then(
             windows,
             factory,
-            |app, _registered| app.on_resumed(event_loop),
+            |app, _registered| app.try_resume_presentation(event_loop),
         );
+        // Initial startup still fails through `App::on_resumed`.
+        if crate::native::window_owner::retire_failed_new_windows(&mut self.windows, failed) {
+            self.sync_sibling_counts();
+        }
     }
 
     /// Hand each window's profile renames/deletes to every other window, so a

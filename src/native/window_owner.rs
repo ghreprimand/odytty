@@ -286,38 +286,79 @@ where
     created
 }
 
+/// A New Window whose surface could not be created: the window that asked
+/// for it, why it failed, and the sibling, already taken back out of the
+/// window list so the caller can release it.
+pub(in crate::native) struct FailedNewWindow<E> {
+    pub(in crate::native) origin: usize,
+    pub(in crate::native) error: E,
+    pub(in crate::native) app: App,
+}
+
+/// Release each failed New Window (surface, then its sessions) and tell the
+/// window that asked for it. A failed New Window is secondary: every window
+/// already open keeps running. Returns whether anything failed.
+pub(in crate::native) fn retire_failed_new_windows<E: std::fmt::Display>(
+    windows: &mut [App],
+    failed: Vec<FailedNewWindow<E>>,
+) -> bool {
+    let any = !failed.is_empty();
+    for failure in failed {
+        let mut app = failure.app;
+        app.release_surface();
+        app.close_all_sessions();
+        tracing::warn!(err = %failure.error, "new window surface creation failed; other windows keep running");
+        if let Some(origin) = windows.get_mut(failure.origin) {
+            origin.raise_new_window_failure_notice(&failure.error);
+        }
+    }
+    any
+}
+
 /// Drain New Window requests, append each new window, then run `resume`.
 ///
 /// `resume` runs only after the window is in `windows`, so a resize delivered
 /// while the surface is created is addressed to a window the host already
 /// tracks. Creating the surface inside `factory`, before the append, drops
-/// that event.
-pub(in crate::native) fn service_new_window_requests_then<F, R>(
+/// that event. A `resume` failure removes only that sibling again and returns
+/// it, so one failed New Window never takes down the windows already open.
+pub(in crate::native) fn service_new_window_requests_then<F, R, E>(
     windows: &mut Vec<App>,
     mut factory: F,
     mut resume: R,
-) -> usize
+) -> (usize, Vec<FailedNewWindow<E>>)
 where
     F: FnMut(NewWindowRequest) -> Option<App>,
-    R: FnMut(&mut App, usize),
+    R: FnMut(&mut App, usize) -> Result<(), E>,
 {
-    let requests: Vec<NewWindowRequest> = windows
+    let requests: Vec<(usize, NewWindowRequest)> = windows
         .iter_mut()
-        .filter_map(App::take_new_window_request)
+        .enumerate()
+        .filter_map(|(origin, app)| {
+            app.take_new_window_request()
+                .map(|request| (origin, request))
+        })
         .collect();
     let mut created = 0;
-    for request in requests {
+    let mut failed = Vec::new();
+    for (origin, request) in requests {
         if let Some(app) = factory(request) {
             windows.push(app);
-            created += 1;
             let registered = windows.len();
-            resume(
+            let resumed = resume(
                 windows.last_mut().expect("the sibling was just appended"),
                 registered,
             );
+            match resumed {
+                Ok(()) => created += 1,
+                Err(error) => {
+                    let app = windows.pop().expect("the sibling was just appended");
+                    failed.push(FailedNewWindow { origin, error, app });
+                }
+            }
         }
     }
-    created
+    (created, failed)
 }
 
 #[cfg(test)]
@@ -496,19 +537,51 @@ mod tests {
         win.request_new_window();
         let mut windows = vec![win];
         let mut resume_index = None;
-        let created = service_new_window_requests_then(
+        let (created, failed) = service_new_window_requests_then(
             &mut windows,
             |_| Some(headless_app_for_test().0),
             |_app, registered| {
                 resume_index = Some(registered);
+                Ok::<(), ()>(())
             },
         );
         assert_eq!(created, 1);
+        assert!(failed.is_empty());
         assert_eq!(
             resume_index,
             Some(2),
             "surface creation runs after the sibling is in the window list"
         );
+    }
+
+    /// A sibling whose surface cannot be created is taken back out of the
+    /// window list and returned with the window that asked for it; the
+    /// windows already open are untouched.
+    #[test]
+    fn a_new_window_whose_surface_fails_is_removed_and_reported() {
+        let (first, _t1) = headless_app_for_test();
+        let (mut second, _t2) = headless_app_for_test();
+        second.request_new_window();
+        let mut windows = vec![first, second];
+        let (created, failed) = service_new_window_requests_then(
+            &mut windows,
+            |_| Some(headless_app_for_test().0),
+            |_app, registered| {
+                assert_eq!(registered, 3, "the sibling was registered first");
+                Err("no surface")
+            },
+        );
+        assert_eq!(created, 0);
+        assert_eq!(windows.len(), 2, "only the failed sibling is removed");
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].origin, 1, "the requesting window is named");
+        assert_eq!(failed[0].error, "no surface");
+        assert!(retire_failed_new_windows(&mut windows, failed));
+        assert_eq!(
+            windows[1].open_notice_message_for_test().as_deref(),
+            Some("Could not open a new window: no surface")
+        );
+        assert!(windows[0].open_notice_message_for_test().is_none());
     }
 
     #[test]

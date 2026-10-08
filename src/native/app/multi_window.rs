@@ -56,6 +56,15 @@ fn release_presentation<G, W>(
 }
 
 impl App {
+    /// Tell the user that a New Window this window asked for could not be
+    /// shown. The other windows keep running; nothing else changes here.
+    pub(in crate::native) fn raise_new_window_failure_notice(
+        &mut self,
+        error: &dyn std::fmt::Display,
+    ) {
+        self.raise_open_notice(format!("Could not open a new window: {error}"));
+    }
+
     /// Release this window's presentation state in driver-safe order.
     ///
     /// `App::window` deliberately stays alive while `GpuState` waits for its

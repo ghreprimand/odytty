@@ -364,7 +364,7 @@ pub(in crate::native::app) fn host_of(windows: Vec<App>) -> MultiWindowHost {
         #[cfg(target_os = "linux")]
         wayland_docked_drag: None,
         shared: WatchdogShared::new(),
-        last_seen_frames: 0,
+        frame_baseline: Vec::new(),
         factory: Box::new(|_| None),
         adopt: Box::new(|set, settings, provisional| {
             App::new_with_sessions_for_transfer(
