@@ -1148,8 +1148,9 @@ The endpoint remains off by default and binds
 after the first presented frame; live requests resolve through the existing
 native window owners. Windows uses an owner-DACL local named pipe,
 rejects remote clients at creation, and verifies client and server process-token
-SIDs before protocol I/O. Windows CI passes; second-account and second-machine
-refusal are owner-DACL guarantees not reproducible on the available hardware.
+SIDs before protocol I/O. Pending Windows control-pipe I/O cancellation is
+terminal to framing and does not retry after shutdown begins. Windows CI passes;
+second-account and second-machine refusal are owner-DACL guarantees not reproducible on the available hardware.
 Native path drops use confirm-first
 shell-aware insertion only when an eligible local Unix launch shell still owns
 the PTY foreground group, is its sole process, and has a matching current

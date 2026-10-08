@@ -1550,6 +1550,8 @@ It can also queue a quick-terminal visibility toggle when `quick_terminal` is
 enabled. The accepted reply means queued, not visible or hidden. It cannot send
 terminal input or read terminal contents. Live disable and clean shutdown cancel
 queued work and remove only the endpoint instance owned by the current process.
+Windows cancels pending named-pipe reads and writes with a terminal I/O error,
+so an incomplete client frame cannot trap shutdown in a framing retry loop.
 
 The Windows CLI accepts only the explicit local OdyTTY pipe form; remote UNC
 pipe names are rejected before opening. Windows CI covers same-user round trips,

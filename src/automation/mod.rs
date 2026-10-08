@@ -13,3 +13,15 @@ pub mod protocol;
 pub mod unix;
 #[cfg(windows)]
 pub mod windows;
+
+/// Cancellation ends a frame rather than triggering std's Interrupted retry.
+#[cfg(any(windows, test))]
+fn cancelled_io_error() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::ConnectionAborted,
+        protocol::ErrorCode::Cancelled,
+    )
+}
+
+#[cfg(test)]
+mod cancellation_tests;

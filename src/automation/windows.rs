@@ -382,10 +382,9 @@ impl PipeIo {
                     .is_some_and(|stopped| stopped.load(Ordering::Acquire))
                 {
                     cancel_and_drain(handle, overlapped);
-                    return Err(io::Error::new(
-                        io::ErrorKind::Interrupted,
-                        ErrorCode::Cancelled,
-                    ));
+                    // Interrupted makes read_exact/write_all retry forever
+                    // while the stop flag remains set. Cancellation is final.
+                    return Err(super::cancelled_io_error());
                 }
                 let remaining = match remaining_millis(self.deadline) {
                     Ok(remaining) => remaining,

@@ -142,6 +142,62 @@ fn truncated_frame_disconnects_without_waking_owner() {
 }
 
 #[test]
+fn dropping_server_with_incomplete_frame_finishes_while_client_stays_open() {
+    let mut harness = start_harness();
+    let mut stalled = connect(&harness.endpoint, IO_TIMEOUT).expect("stalled client");
+    stalled
+        .write_all(&15u32.to_le_bytes())
+        .expect("length only");
+    // A completed successor request proves the listener accepted the first
+    // connection and spawned its framing worker before shutdown starts.
+    let response = request(
+        &harness.endpoint,
+        &Request {
+            version: VERSION,
+            request_id: 21,
+            action: Action::Capabilities,
+        },
+    )
+    .expect("successor round trip");
+    assert_eq!(response.request_id, 21);
+    let server = harness.server.take().expect("live server");
+    let (done_tx, done_rx) = mpsc::sync_channel(1);
+    let shutdown = thread::spawn(move || {
+        drop(server);
+        let _ = done_tx.send(());
+    });
+    let result = done_rx.recv_timeout(IO_TIMEOUT + Duration::from_secs(1));
+    // Release the client even on regression so the old retry loop can observe
+    // its broken pipe. Never block the test on an unfinished shutdown join.
+    drop(stalled);
+    if shutdown.is_finished() {
+        shutdown.join().expect("shutdown thread");
+    }
+    result.expect("server shutdown must finish while the stalled client stays open");
+    assert_eq!(harness.wakes.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn stopped_pending_pipe_read_returns_nonretryable_cancellation() {
+    let mut harness = start_harness();
+    let mut client = connect(&harness.endpoint, IO_TIMEOUT).expect("client");
+    // Client reads use the same overlapped completion path as server reads.
+    // The server has no complete request and therefore cannot send a reply.
+    client.stopped = Some(Arc::new(AtomicBool::new(true)));
+    let mut bytes = [0; 4];
+    let error = client.read(&mut bytes).expect_err("stopped read");
+    assert_eq!(error.kind(), io::ErrorKind::ConnectionAborted);
+    assert_eq!(
+        error
+            .get_ref()
+            .and_then(|cause| cause.downcast_ref::<ErrorCode>()),
+        Some(&ErrorCode::Cancelled),
+    );
+    drop(client);
+    drop(harness.server.take());
+}
+
+#[test]
 fn oversized_frame_is_rejected_without_waking_owner() {
     let harness = start_harness();
     let mut client = connect(&harness.endpoint, IO_TIMEOUT).expect("connect");
