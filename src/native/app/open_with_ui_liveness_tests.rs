@@ -155,19 +155,6 @@ fn desktop_entry_reads_are_bounded_and_mime_sniff_rejects_special_files() {
     assert!(text.len() <= MAX_DESKTOP_FILE_BYTES as usize);
     assert!(super::platform_opener::sniff_mime_path("/dev/null").is_none());
 
-    let fifo = fixture.0.join("mimetype.fifo");
-    let result = unsafe {
-        libc::mkfifo(
-            std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes())
-                .expect("fixture path has no nul")
-                .as_ptr(),
-            0o600,
-        )
-    };
-    assert_eq!(result, 0, "create MIME FIFO fixture");
-    let start = Instant::now();
-    assert!(
-        super::platform_opener::sniff_mime_path(fifo.to_str().expect("synthetic path")).is_none()
-    );
-    assert!(start.elapsed() < Duration::from_secs(1));
+    // Use the same bounded, token-checked child as the focused sniff test.
+    super::platform_opener::fifo::assert_fifo_sniff_returns();
 }
