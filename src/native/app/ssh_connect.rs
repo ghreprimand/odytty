@@ -104,16 +104,24 @@ impl App {
     /// form rather than spawning. Windows: the probe uses `ssh.exe` the same
     /// way; no `ControlPath` is ever added.
     pub(in crate::native) fn run_connection_probe(&mut self, host: &ConnectionHost) {
+        let Some(identity) = self.overlay.connection_form_probe_identity() else {
+            return;
+        };
         let command = match crate::ssh_connect::ssh_probe_command_for_host(host) {
             Ok(command) => command,
             Err(_) => {
-                self.overlay
-                    .set_connection_form_test_result(Err("invalid host for a probe".to_owned()));
+                self.overlay.set_connection_form_test_result(
+                    &identity,
+                    Err("invalid host for a probe".to_owned()),
+                );
                 return;
             }
         };
         let (tx, rx) = std::sync::mpsc::channel();
-        self.connection_probe = Some(rx);
+        self.connection_probe = Some(super::connection_probe::PendingConnectionProbe {
+            identity: identity.clone(),
+            receiver: rx,
+        });
         let proxy = self.sessions.event_proxy();
         let session = self.sessions.active_id();
         if let Err(error) =
@@ -125,8 +133,10 @@ impl App {
             // now-dead receiver (LOW-02).
             tracing::warn!("connection probe spawn failed: {error}");
             self.connection_probe = None;
-            self.overlay
-                .set_connection_form_test_result(Err("couldn't start the probe".to_owned()));
+            self.overlay.set_connection_form_test_result(
+                &identity,
+                Err("couldn't start the probe".to_owned()),
+            );
         }
     }
 
@@ -134,21 +144,32 @@ impl App {
     /// wake a repaint. Idle when no probe is in flight. Called from the
     /// about-to-wait maintenance pass.
     pub(in crate::native) fn poll_connection_probe(&mut self) {
-        let Some(rx) = self.connection_probe.as_ref() else {
+        let Some(probe) = self.connection_probe.as_ref() else {
             return;
         };
-        match rx.try_recv() {
-            Ok(result) => {
-                self.overlay.set_connection_form_test_result(result);
-                self.connection_probe = None;
-                self.needs_rebuild = true;
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        if !self
+            .overlay
+            .connection_form_probe_is_current(&probe.identity)
+        {
+            self.connection_probe = None;
+            return;
+        }
+        let result = match probe.receiver.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                self.connection_probe = None;
+                Err("probe stopped before returning a result".to_owned())
+            }
+        };
+        let identity = probe.identity.clone();
+        self.connection_probe = None;
+        if self
+            .overlay
+            .set_connection_form_test_result(&identity, result)
+        {
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
             }
         }
     }

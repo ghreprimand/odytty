@@ -406,3 +406,6 @@ mod feedback_state_audit_tests;
 
 #[cfg(test)]
 mod connection_browser_tests;
+
+#[cfg(test)]
+mod connection_probe_result_tests;

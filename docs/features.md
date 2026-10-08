@@ -1812,7 +1812,10 @@ preserving every other block, comment, and unknown field byte-for-byte.
 **Test a host.** The form runs a non-interactive background probe and reports
 one of four honest results: reachable with key-based authentication,
 reachable but requiring interactive authentication, host-key mismatch, or
-unreachable. OdyTTY never handles a password, and normal connection still works
+unreachable. Results apply only to the requesting form and unchanged values.
+Editing, retrying, or reopening invalidates an earlier probe. An interrupted
+worker reports an error instead of leaving the form testing.
+OdyTTY never handles a password, and normal connection still works
 for an interactive-auth host.
 
 Connection-launch and probe-start failures are shown in the pane or form rather

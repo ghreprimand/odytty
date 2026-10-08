@@ -1996,7 +1996,9 @@ that closed while the picker was open, including when names are duplicated.
   candidate visible and accepts clicks only on rendered candidate rows. The
   form scrolls to keep the focused control visible in short windows, collapses
   help before controls, and maps clicks only to rendered fields. It offers a **Test connection** probe that
-  reports an honest tri-state result without ever handling a password. A host-row
+  reports an honest tri-state result without ever handling a password. Probe
+  results apply only to the requesting form and unchanged values; interrupted
+  workers show an error instead of leaving the form testing. A host-row
   right-click menu opens the selected host in a new tab or a fresh host-bound
   workspace, binds the current workspace to it, or (for OdyTTY-owned rows) edits
   or removes it.

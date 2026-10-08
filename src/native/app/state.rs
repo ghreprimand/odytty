@@ -541,8 +541,7 @@ pub(in crate::native) struct App {
     /// A background Test Connection probe (ODP-8) in flight from the Add / Edit
     /// connection form. The worker thread sends its tri-state result here and
     /// wakes a redraw; `run_about_to_wait_maintenance` drains it into the form.
-    pub(super) connection_probe:
-        Option<std::sync::mpsc::Receiver<Result<crate::ssh_connect::ProbeClass, String>>>,
+    pub(super) connection_probe: Option<super::connection_probe::PendingConnectionProbe>,
     /// Test-only observation of what a confirmed image paste WOULD upload
     /// (session + PNG byte length), recorded instead of spawning a real `ssh`
     /// worker under `cfg(test)`. Lets the confirm-flow tests prove Enter commits

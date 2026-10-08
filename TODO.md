@@ -2149,7 +2149,8 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
         (`ssh -i`, never a stored secret), with a scrolling key browser that only
         accepts visible candidate rows; focus-follow scrolling keeps Add / Edit
         controls reachable in short windows, with help clipped first; a **Test connection** tri-state probe
-        that carries no password; and a saved-host right-click menu (Open in New
+        that carries no password, rejects stale completions after edits or reopening,
+        and reports interrupted workers; and a saved-host right-click menu (Open in New
         Tab / Open in New Workspace / Bind Current Workspace, plus Edit / Remove
         for OdyTTY-owned rows). A `Protocol` field is reserved (`ssh` only).
 Explicit non-goals: plugin systems, AI features, dashboards, rich nonstandard

@@ -19,6 +19,12 @@ use super::super::pty::UserEvent;
 use super::super::session::SessionToken;
 use crate::ssh_connect::{ProbeClass, SshCommand, classify_probe};
 
+/// Completion channel bound to the requesting form's identity.
+pub(super) struct PendingConnectionProbe {
+    pub(super) identity: std::sync::Arc<()>,
+    pub(super) receiver: std::sync::mpsc::Receiver<Result<ProbeClass, String>>,
+}
+
 /// Hard cap on a probe: `ConnectTimeout` (5s) plus 1s slack, so a wedged `ssh`
 /// can never keep the form spinning.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(6);

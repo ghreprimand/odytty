@@ -808,15 +808,32 @@ impl OverlayUi {
         }
     }
 
-    /// Feed a completed Test Connection probe result back into the open form
-    /// (ODP-8). A no-op unless the connection form is the active mode.
+    /// Identity of the active form's running probe, if any.
+    pub(in crate::native) fn connection_form_probe_identity(&self) -> Option<std::sync::Arc<()>> {
+        (self.mode == OverlayMode::ConnectionForm)
+            .then(|| self.connection_form.probe_identity())
+            .flatten()
+    }
+
+    pub(in crate::native) fn connection_form_probe_is_current(
+        &self,
+        identity: &std::sync::Arc<()>,
+    ) -> bool {
+        self.connection_form_probe_identity()
+            .is_some_and(|current| std::sync::Arc::ptr_eq(&current, identity))
+    }
+
+    /// Admit a completed result only for the same active, unedited request.
     pub(in crate::native) fn set_connection_form_test_result(
         &mut self,
+        identity: &std::sync::Arc<()>,
         result: Result<crate::ssh_connect::ProbeClass, String>,
-    ) {
-        if self.mode == OverlayMode::ConnectionForm {
-            self.connection_form.set_test_result(result);
+    ) -> bool {
+        if !self.connection_form_probe_is_current(identity) {
+            return false;
         }
+        self.connection_form.set_test_result(result);
+        true
     }
 
     pub(super) fn settings_with_theme(&self, theme: Theme) -> Settings {

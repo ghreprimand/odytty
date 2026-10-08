@@ -325,6 +325,9 @@ pub(super) struct ConnectionForm {
     error: Option<String>,
     /// The Test Connection probe state (ODP-8).
     test: TestState,
+    /// Replaced for each request, edit and form reset; retained requests cannot
+    /// match a later form even when all field values are identical.
+    probe_identity: std::sync::Arc<()>,
     /// Saved aliases that would collide on save (Add: all; Edit: all but this
     /// block's own alias). Checked inline so a collision never writes.
     existing_aliases: Vec<String>,
@@ -723,6 +726,7 @@ impl ConnectionForm {
     /// testing, and emit the probe request. The App runs it on a background
     /// thread and feeds the result back through [`Self::set_test_result`].
     fn try_test(&mut self) -> ConnectionFormOutcome {
+        self.invalidate_test();
         match self.validate(false) {
             Ok(host) => {
                 self.test = TestState::Running;
@@ -735,7 +739,11 @@ impl ConnectionForm {
         }
     }
 
-    /// Record the outcome of a background Test Connection probe (ODP-8).
+    pub(super) fn probe_identity(&self) -> Option<std::sync::Arc<()>> {
+        matches!(self.test, TestState::Running).then(|| self.probe_identity.clone())
+    }
+
+    /// Record the outcome admitted for the current background probe.
     pub(super) fn set_test_result(&mut self, result: Result<ProbeClass, String>) {
         self.test = match result {
             Ok(class) => TestState::Done(class),
@@ -746,6 +754,7 @@ impl ConnectionForm {
     /// A form edit invalidates any prior probe result (it no longer describes
     /// the current fields).
     fn invalidate_test(&mut self) {
+        self.probe_identity = std::sync::Arc::new(());
         self.test = TestState::Idle;
     }
 

@@ -363,7 +363,8 @@ fn form_test_button_emits_test_connection_and_stays_open() {
     assert!(overlay.is_open(), "form stays open through a Test");
     assert_eq!(overlay.render_signature().mode, OverlayMode::ConnectionForm);
     // The App feeds the result back; only the form mode consumes it.
-    overlay.set_connection_form_test_result(Ok(crate::ssh_connect::ProbeClass::AuthOk));
+    let identity = overlay.connection_form_probe_identity().unwrap();
+    overlay.set_connection_form_test_result(&identity, Ok(crate::ssh_connect::ProbeClass::AuthOk));
     let lines = overlay.visible_lines(72, 40);
     assert!(lines.iter().any(|l| l.text.contains("Reachable")));
 }
