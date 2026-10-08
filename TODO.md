@@ -2158,3 +2158,6 @@ support beyond the shipped Linux, Windows, and macOS targets.
       software-endpoint throughput on one machine; the real-application matrix,
       unavailable optical workloads, W7, and the external daily-driver program
       remain open evidence.
+
+- [x] Held one-shot binding actions execute once per press; navigation and scrolling repeat.
+- [x] Move to Workspace picker destinations follow immutable workspace identity.

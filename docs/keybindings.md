@@ -54,6 +54,12 @@ Control + Shift + the up arrow.
 
 ## Global shortcuts
 
+Bound navigation and scrolling shortcuts repeat while held. Shortcuts that
+create, close, duplicate, toggle, launch an editor, copy, paste, select, export,
+or clear input act once per press. Settings steppers, active search editing,
+and overlay navigation retain their own repeat handling. Prefix pane commands
+remain one command per prefix transaction.
+
 These work anywhere in the window. All are rebindable except the direct split
 chords (`Ctrl+Shift+E` / `Ctrl+Shift+O`) and the hardcoded
 `Delete` / `Backspace` selection action (see
@@ -473,6 +479,10 @@ pane. The direct `Ctrl+Shift+E` / `Ctrl+Shift+O` split chords are fixed
 conveniences so the first split is always reachable.
 
 ## Workspaces
+
+The Move to Workspace picker captures the destination's creation identity.
+Accept follows that workspace after a rail reorder and ignores a destination
+that closed while the picker was open, including when names are duplicated.
 
 A **workspace** groups a set of tabs; switching workspaces swaps the entire tab
 strip. Five chords are bound by default:

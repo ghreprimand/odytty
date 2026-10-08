@@ -646,9 +646,11 @@ impl App {
                 self.open_move_tab_workspace_picker(token);
             }
             // W4-v2: the picker chose a destination workspace; splice the tab.
-            OverlayOutcome::MoveTabToWorkspacePicked(token, dest_ws) => {
+            OverlayOutcome::MoveTabToWorkspacePicked(token, destination) => {
                 self.flush_pending_overlay_settings();
-                self.move_tab_to_workspace(token, dest_ws);
+                if let Some(dest_ws) = self.sessions.workspace_index_of(destination) {
+                    self.move_tab_to_workspace(token, dest_ws);
+                }
             }
             // LAYOUT-SURFACE: a WorkspaceSlot menu chose Save as Layout; open the
             // name prompt seeded from the CLICKED workspace.

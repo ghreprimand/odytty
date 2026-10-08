@@ -1104,7 +1104,7 @@ impl OverlayUi {
 
     /// Route a key to the "Move to Workspace" destination picker (W4-v2). The
     /// overlay type-filters and selects (Consumed), requests Close, or accepts a
-    /// destination (Move), whose token + chosen workspace index the App splices
+    /// destination (Move), whose token + chosen workspace identity the App splices
     /// -- the overlay never mutates the model itself.
     pub(super) fn handle_workspace_picker_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         match self.workspace_picker.handle_input(input) {

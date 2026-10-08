@@ -142,9 +142,9 @@ prefix and its pane command, a shortcut, or dismissing a held pane) is not
 sent to the pane, and neither are that key's repeats or its release, so a
 program using Kitty event reporting or Windows Win32-input mode never sees a
 release without its press. A key pressed while the pane had input keeps
-sending its release to that pane. Holding the search shortcut, or a
-`toggle-read-only` or `toggle-broadcast` chord, acts once per press, as the
-Settings and theme picker shortcuts already did.
+sending its release to that pane. Bound navigation and scrolling shortcuts repeat while held. Actions that create,
+close, duplicate, toggle, launch, copy, paste, select, export, or clear input
+act once per press. Active search and overlays retain their own repeat handling.
 
 xterm's modifyOtherKeys (`XTMODKEYS`, levels 1 and 2) is supported as a
 compatibility layer for applications that select it by `TERM` — Vim's default
@@ -2106,3 +2106,7 @@ Further reference:
   reference.
 - [Accessibility](accessibility.md) covers minimum contrast, color-vision
   modes, dimming, and the bell.
+
+The Move to Workspace picker follows the chosen workspace's immutable identity
+through rail reorders and ignores destinations that have closed. Duplicate
+workspace names do not change the destination.

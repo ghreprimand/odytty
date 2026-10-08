@@ -61,7 +61,7 @@ pub enum BindableAction {
     /// Open the in-window session-attach overlay.
     SessionAttach,
     NewTab,
-    /// Launch another top-level OdyTTY process.
+    /// Open another top-level OdyTTY window.
     NewWindow,
     NextTab,
     PrevTab,
@@ -163,6 +163,64 @@ impl BindableAction {
         Self::ZoomPane,
         Self::EqualizePanes,
     ];
+
+    /// Whether holding a bound chord repeats its action.
+    pub(crate) const fn allows_repeat(self) -> bool {
+        match self {
+            Self::ScrollPageUp
+            | Self::ScrollPageDown
+            | Self::JumpPromptPrev
+            | Self::JumpPromptNext
+            | Self::JumpFailedCommandPrev
+            | Self::JumpFailedCommandNext
+            | Self::NextTab
+            | Self::PrevTab
+            | Self::NextWorkspace
+            | Self::PrevWorkspace
+            | Self::FocusPaneLeft
+            | Self::FocusPaneRight
+            | Self::FocusPaneUp
+            | Self::FocusPaneDown
+            | Self::FocusPaneNext => true,
+            Self::Search
+            | Self::SettingsPanel
+            | Self::ThemePicker
+            | Self::Copy
+            | Self::Paste
+            | Self::SelectCommandOutput
+            | Self::SelectCommandWithPrompt
+            | Self::CopyCommandOutput
+            | Self::CopyCommandWithPrompt
+            | Self::SearchCommandOutput
+            | Self::ExportCommandOutput
+            | Self::NotifyCommandFinished
+            | Self::CopyMode
+            | Self::Hints
+            | Self::ClearInput
+            | Self::ToggleReadOnly
+            | Self::ToggleBroadcast
+            | Self::StopBroadcast
+            | Self::CommandPalette
+            | Self::ConnectionManager
+            | Self::SessionReplay
+            | Self::ThemeBuilder
+            | Self::SessionAttach
+            | Self::NewTab
+            | Self::NewWindow
+            | Self::CloseTab
+            | Self::DuplicateTab
+            | Self::NewWorkspace
+            | Self::DuplicateWorkspace
+            | Self::CloseWorkspace
+            | Self::RenameWorkspace
+            | Self::WorkspacePicker
+            | Self::SplitColumns
+            | Self::SplitRows
+            | Self::ClosePane
+            | Self::ZoomPane
+            | Self::EqualizePanes => false,
+        }
+    }
 
     pub(super) fn parse(raw: &str) -> Option<Self> {
         match normalize_name(raw).as_str() {

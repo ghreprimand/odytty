@@ -227,6 +227,13 @@ impl App {
                 self.handle_overlay_key(&logical, event_type);
                 return;
             }
+            // One-shot actions consume held repeats before dispatch. Active
+            // overlays retain their own repeat input and navigation behavior.
+            if event_type == KeyEventType::Repeat
+                && action.is_some_and(|action| !action.allows_repeat())
+            {
+                return;
+            }
             if action == Some(BindableAction::CommandPalette) {
                 self.arm_consumed_character(&logical);
                 self.open_command_palette_overlay();
@@ -274,16 +281,6 @@ impl App {
                     self.route_modal_key(modal, &logical);
                     return;
                 }
-            }
-            // Toggles act once per press. A held chord's repeats are consumed
-            // here so read-only and broadcast never flip on every repeat.
-            if event_type == KeyEventType::Repeat
-                && matches!(
-                    action,
-                    Some(BindableAction::ToggleReadOnly | BindableAction::ToggleBroadcast)
-                )
-            {
-                return;
             }
             let latch_before = (
                 self.consumed_chord,

@@ -601,12 +601,14 @@ impl App {
         }
         let entries = destinations
             .into_iter()
-            .map(
-                |(index, name)| crate::native::workspace_picker::WorkspacePickerEntry {
-                    index,
-                    name,
-                },
-            )
+            .filter_map(|(index, name)| {
+                self.sessions.workspace_identity(index).map(|identity| {
+                    crate::native::workspace_picker::WorkspacePickerEntry {
+                        identity: Some(identity),
+                        name,
+                    }
+                })
+            })
             .collect();
         self.reset_pointer_state_for_overlay();
         self.overlay.open_workspace_picker(entries, token);

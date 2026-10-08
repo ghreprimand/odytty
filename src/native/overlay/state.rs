@@ -476,7 +476,7 @@ impl OverlayUi {
     /// workspaces the clicked tab can move to (W4-v2). The App seeds the list
     /// (every workspace EXCEPT the source) and carries the clicked tab's
     /// `token`; accepting a row emits [`OverlayOutcome::MoveTabToWorkspacePicked`]
-    /// with the token + the chosen workspace's original index for the App to
+    /// with the token + the chosen workspace's creation identity for the App to
     /// splice. Presentation/filter-only.
     pub(in crate::native) fn open_workspace_picker(
         &mut self,

@@ -387,3 +387,5 @@ mod audit_ui_liveness;
 mod script_shaping;
 
 mod tab_tear_out;
+
+mod interaction_delta;

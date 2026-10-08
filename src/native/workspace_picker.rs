@@ -7,7 +7,7 @@
 //! * "Move to Workspace…" (W4-v2) — lists the workspaces a tab can move to
 //!   (every workspace EXCEPT the one that owns the clicked tab) and on Enter
 //!   emits [`WorkspacePickerOutcome::Move`] carrying the clicked tab's token
-//!   paired with the chosen workspace's ORIGINAL index for the App to splice.
+//!   paired with the chosen workspace's creation identity for the App to splice.
 //! * "Open Layout ▸" (LAYOUT-SURFACE) — lists the saved layout names and on
 //!   Enter emits [`WorkspacePickerOutcome::OpenLayout`] carrying the chosen
 //!   name; with no saved layouts the picker still opens and shows an
@@ -40,7 +40,7 @@ const MAX_RESULTS: usize = 40;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum WorkspacePickerPurpose {
     /// Move-to-Workspace (W4-v2): accept emits [`WorkspacePickerOutcome::Move`]
-    /// with the carried token + the chosen entry's original workspace index.
+    /// with the carried token + the chosen entry's creation identity.
     #[default]
     MoveTab,
     /// Open-Layout (LAYOUT-SURFACE): accept emits
@@ -48,20 +48,18 @@ pub(super) enum WorkspacePickerPurpose {
     OpenLayout,
 }
 
-/// One move destination: a workspace's ORIGINAL rail index (the
-/// [`super::session::WorkspaceSet::move_tab_to_workspace`] target) paired with
+/// One move destination: a workspace's immutable creation identity paired with
 /// its display name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct WorkspacePickerEntry {
-    pub(super) index: usize,
+    pub(super) identity: Option<SessionToken>,
     pub(super) name: String,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct WorkspacePicker {
-    /// The frozen destination list captured at open time, in rail order. The
-    /// source workspace is already excluded by the seeder (the App), so every
-    /// row here is a valid move target.
+    /// Frozen destinations in rail order, excluding the source workspace.
+    /// Acceptance revalidates each destination against its creation identity.
     entries: Vec<WorkspacePickerEntry>,
     /// The clicked tab whose token the move targets (F7 surface): the tab moves,
     /// not the active tab. Set at open; `None` before the first open (the empty
@@ -82,9 +80,9 @@ pub(super) enum WorkspacePickerOutcome {
     Consumed,
     Close,
     /// The user accepted a destination. Carries the clicked tab's token plus the
-    /// chosen workspace's original index; the App performs the `Tab` value
+    /// chosen workspace's creation identity; the App performs the `Tab` value
     /// splice. This overlay never mutates the model itself.
-    Move(SessionToken, usize),
+    Move(SessionToken, SessionToken),
     /// The user accepted a saved layout (LAYOUT-SURFACE). Carries the chosen
     /// layout name; the App instantiates it (APPEND a new workspace, WP3 8e).
     OpenLayout(String),
@@ -125,15 +123,16 @@ impl WorkspacePicker {
     }
 
     /// Load the saved layout names for the Open-Layout purpose (LAYOUT-SURFACE).
-    /// The entry index is the name's position (unused on accept — Open-Layout
-    /// keys on the name); an empty list is valid and renders the explanatory
-    /// empty line rather than refusing to open, so the picker teaches the feature.
+    /// Layout entries carry no workspace identity; acceptance uses the name.
+    /// An empty list renders explanatory text rather than refusing to open.
     pub(super) fn open_layouts(&mut self, names: Vec<String>) {
         self.purpose = WorkspacePickerPurpose::OpenLayout;
         self.entries = names
             .into_iter()
-            .enumerate()
-            .map(|(index, name)| WorkspacePickerEntry { index, name })
+            .map(|name| WorkspacePickerEntry {
+                identity: None,
+                name,
+            })
             .collect();
         self.token = None;
         self.query.clear();
@@ -233,7 +232,10 @@ impl WorkspacePicker {
             }
             OverlayInput::Activate => match self.purpose {
                 WorkspacePickerPurpose::MoveTab => match (self.token, self.selected_entry()) {
-                    (Some(token), Some(entry)) => WorkspacePickerOutcome::Move(token, entry.index),
+                    (Some(token), Some(entry)) => match entry.identity {
+                        Some(identity) => WorkspacePickerOutcome::Move(token, identity),
+                        None => WorkspacePickerOutcome::Consumed,
+                    },
                     _ => WorkspacePickerOutcome::Consumed,
                 },
                 WorkspacePickerPurpose::OpenLayout => match self.selected_entry() {
@@ -404,7 +406,7 @@ impl WorkspacePicker {
         self.scroll_offset.get().hash(&mut hasher);
         for &entry_index in self.filtered.iter().take(MAX_RESULTS) {
             if let Some(entry) = self.entries.get(entry_index) {
-                entry.index.hash(&mut hasher);
+                entry.identity.hash(&mut hasher);
                 entry.name.hash(&mut hasher);
             }
         }
@@ -431,13 +433,13 @@ mod tests {
 
     fn entry(index: usize, name: &str) -> WorkspacePickerEntry {
         WorkspacePickerEntry {
-            index,
+            identity: Some(SessionToken(index as u64)),
             name: name.to_owned(),
         }
     }
 
     fn dests() -> Vec<WorkspacePickerEntry> {
-        // Original indices 0, 2, 3 — index 1 is the excluded source workspace,
+        // Creation identities 0, 2, 3 exclude the source identity 1.
         // so the picker never sees it (exclusion is the seeder's job).
         vec![entry(0, "main"), entry(2, "prod"), entry(3, "scratch")]
     }
@@ -477,14 +479,14 @@ mod tests {
     }
 
     #[test]
-    fn accept_emits_move_with_token_and_original_index() {
-        // Selecting the 2nd row (prod, original index 2) moves the opened token.
+    fn accept_emits_move_with_tab_and_workspace_identities() {
+        // Selecting the 2nd row (prod, creation identity 2) moves the opened token.
         let mut overlay = open(dests());
         overlay.handle_input(OverlayInput::Down);
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
-            WorkspacePickerOutcome::Move(SessionToken(7), 2),
-            "accept carries the clicked tab's token + the chosen ORIGINAL index"
+            WorkspacePickerOutcome::Move(SessionToken(7), SessionToken(2)),
+            "accept carries the clicked tab's token + the chosen creation identity"
         );
     }
 
@@ -631,7 +633,7 @@ mod tests {
         overlay.handle_input(OverlayInput::Down);
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
-            WorkspacePickerOutcome::Move(SessionToken(7), 2),
+            WorkspacePickerOutcome::Move(SessionToken(7), SessionToken(2)),
         );
     }
 }

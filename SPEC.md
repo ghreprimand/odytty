@@ -1169,6 +1169,12 @@ scope rather than silently inheriting deferred work from a prior release.
 
 ### Input And Interaction
 
+Bound navigation and scrolling shortcuts repeat while held. Shortcuts that
+create, close, duplicate, toggle, launch an editor, copy, paste, select, export,
+or clear input act once per press. Settings steppers, active search editing,
+and overlay navigation retain their own repeat handling. Prefix pane commands
+remain one command per prefix transaction.
+
 - Scrollback search with match navigation and highlights
 
 - Refined selection: double-click word, triple-click line, drag-scroll,
@@ -1266,6 +1272,10 @@ scope rather than silently inheriting deferred work from a prior release.
   as Apple's `pico`/`nano` that lean on IRM for incremental line redraw.
 
 ### Native UI And Workspaces
+
+The Move to Workspace picker captures the destination's creation identity.
+Accept follows that workspace after a rail reorder and ignores a destination
+that closed while the picker was open, including when names are duplicated.
 
 - East Asian Ambiguous width (v0.16.0): `ambiguous_width`
   (`ODYTTY_AMBIGUOUS_WIDTH`, profile `appearance.ambiguous_width`) is

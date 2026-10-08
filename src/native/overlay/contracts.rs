@@ -257,11 +257,11 @@ pub(in crate::native) enum OverlayOutcome {
     /// seeds the picker with every workspace but the source and routes the
     /// accepted destination back as [`Self::MoveTabToWorkspacePicked`].
     ContextMenuMoveToWorkspace(SessionToken),
-    /// Move the tab holding `token` into the workspace at the given rail index,
+    /// Move the tab holding `token` into the workspace with the given identity,
     /// chosen from the "Move to Workspace" picker (W4-v2). The overlay has
     /// already closed itself; the App splices the tab between workspaces without
     /// switching (unless the source workspace empties).
-    MoveTabToWorkspacePicked(SessionToken, usize),
+    MoveTabToWorkspacePicked(SessionToken, SessionToken),
     /// Save the workspace at the given rail index as a named layout, chosen from
     /// a WorkspaceSlot rail menu (LAYOUT-SURFACE). The menu closed itself; the
     /// App opens the "Layout name:" prompt seeded from that workspace.
