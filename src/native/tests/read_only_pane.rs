@@ -248,9 +248,11 @@ fn copy_search_selection_scroll_resize_and_focus_reports_remain_available() {
     assert!(app.search_match_count_for_test() >= 1);
     app.scroll_up_for_test(2);
     assert!(app.viewport_offset_for_test() > 0);
-    let before = app.session_dimensions_for_test(0).expect("dimensions");
+    let before = app
+        .tab_dimensions_at_position_for_test(0)
+        .expect("dimensions");
     assert!(app.resize_grid_with_padding_for_test(cell(8, 16), WindowPadding::ZERO, 400, 160,));
-    assert_ne!(app.session_dimensions_for_test(0), Some(before));
+    assert_ne!(app.tab_dimensions_at_position_for_test(0), Some(before));
 
     app.on_window_focus_changed_for_test(false);
     assert!(

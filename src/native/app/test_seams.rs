@@ -165,6 +165,17 @@ impl App {
         self.poll_profile_auto_switch();
     }
 
+    /// Observe a live pane's launch profile by stable token without moving focus.
+    #[cfg(test)]
+    pub(in crate::native) fn pane_launch_profile_for_test(
+        &self,
+        token: crate::native::session::SessionToken,
+    ) -> Option<Option<String>> {
+        self.sessions
+            .get(token)
+            .map(|session| session.launch_profile.clone())
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn active_launch_profile_for_test(&self) -> Option<String> {
         let active = self.sessions.active_id();
@@ -2068,7 +2079,7 @@ impl App {
     }
 
     /// Test seam (NF21-7): a specific pane's `needs_rebuild` flag by token
-    /// (pane-level, unlike the tab-indexed `session_needs_rebuild_for_test`),
+    /// (pane-level, unlike the tab-indexed `tab_needs_rebuild_at_position_for_test`),
     /// so a split-pane test can assert output marked the producing background
     /// pane dirty.
     #[cfg(test)]
@@ -2600,6 +2611,7 @@ impl App {
         self.sessions.iter().map(|session| session.id).collect()
     }
 
+    /// Count every live pane across all workspaces and split trees.
     #[cfg(test)]
     pub(in crate::native) fn session_count_for_test(&self) -> usize {
         self.sessions.iter().count()
@@ -2656,6 +2668,7 @@ impl App {
         self.sessions.position_of_token(id).unwrap_or(0)
     }
 
+    /// Switch to the focused pane of an active-workspace tab position.
     #[cfg(test)]
     pub(in crate::native) fn switch_to_session_for_test(&mut self, session: usize) -> bool {
         let Some(token) = self.sessions.token_at_position(session) else {
@@ -2804,22 +2817,27 @@ impl App {
         self.sessions.capture_shape()
     }
 
-    /// Test seam (RESTORE-THEME): the dynamic default `(foreground, background)`
-    /// of a session's terminal, in arena order. A live-created session carries
-    /// the theme colors; a session spawned by snapshot restore / layout append
-    /// carries `DynamicColors::default()` until the app seeds it. Lets a test
-    /// assert the seed actually ran.
+    /// Read a live pane's dynamic foreground/background by stable token.
     #[cfg(test)]
-    pub(in crate::native) fn session_dynamic_colors_for_test(
+    pub(in crate::native) fn pane_dynamic_colors_for_test(
         &self,
-        session: usize,
+        token: crate::native::session::SessionToken,
     ) -> Option<(crate::core::RgbColor, crate::core::RgbColor)> {
-        self.sessions.iter().nth(session).and_then(|session| {
+        self.sessions.get(token).and_then(|session| {
             session.terminal.lock().ok().map(|terminal| {
                 let colors = terminal.dynamic_colors();
                 (colors.foreground, colors.background)
             })
         })
+    }
+
+    /// Read colors from the focused pane at an active-workspace tab position.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_dynamic_colors_at_position_for_test(
+        &self,
+        session: usize,
+    ) -> Option<(crate::core::RgbColor, crate::core::RgbColor)> {
+        self.pane_dynamic_colors_for_test(self.sessions.token_at_position(session)?)
     }
 
     /// Test seam (RESTORE-THEME): apply the current app-global presentation state
@@ -3209,16 +3227,20 @@ impl App {
         self.apply_user_event(event)
     }
 
+    /// Resolve an active-workspace tab position to its focused pane.
     #[cfg(test)]
-    pub(in crate::native) fn session_needs_rebuild_for_test(&self, session: usize) -> Option<bool> {
+    pub(in crate::native) fn tab_needs_rebuild_at_position_for_test(
+        &self,
+        session: usize,
+    ) -> Option<bool> {
         self.sessions
-            .iter()
-            .nth(session)
+            .get(self.sessions.token_at_position(session)?)
             .map(|session| session.needs_rebuild)
     }
 
+    /// Resolve an active-workspace tab position to its focused pane.
     #[cfg(test)]
-    pub(in crate::native) fn set_session_needs_rebuild_for_test(
+    pub(in crate::native) fn set_tab_needs_rebuild_at_position_for_test(
         &mut self,
         session: usize,
         needs_rebuild: bool,
@@ -3794,8 +3816,9 @@ impl App {
         self.handle_mouse_input(ElementState::Released, WinitMouseButton::Left);
     }
 
+    /// Resolve an active-workspace tab position to its focused pane.
     #[cfg(test)]
-    pub(in crate::native) fn advance_session_bytes_for_test(
+    pub(in crate::native) fn advance_tab_bytes_at_position_for_test(
         &mut self,
         session: usize,
         bytes: &[u8],
@@ -3810,36 +3833,39 @@ impl App {
         }
     }
 
+    /// Resolve an active-workspace tab position to its focused pane.
     #[cfg(test)]
-    pub(in crate::native) fn session_plain_text_for_test(&self, session: usize) -> Option<String> {
-        self.sessions.iter().nth(session).and_then(|session| {
-            session
-                .terminal
-                .lock()
-                .ok()
-                .map(|terminal| terminal.screen().plain_text())
-        })
+    pub(in crate::native) fn tab_plain_text_at_position_for_test(
+        &self,
+        session: usize,
+    ) -> Option<String> {
+        self.sessions
+            .get(self.sessions.token_at_position(session)?)
+            .and_then(|session| {
+                session
+                    .terminal
+                    .lock()
+                    .ok()
+                    .map(|terminal| terminal.screen().plain_text())
+            })
     }
 
-    /// Test seam (NF21-4): feed `query` to the `session`-th session's terminal
-    /// and return whatever it emits to the host — used to prove a background
-    /// session answers OSC 4/10/11 with the CURRENT theme after a flip.
+    /// Feed a query to the focused pane at an active-workspace tab position.
+    /// Return its host answer, or None when the pane cannot be resolved.
     #[cfg(test)]
-    pub(in crate::native) fn session_osc_answer_for_test(
+    pub(in crate::native) fn tab_osc_answer_at_position_for_test(
         &self,
         session: usize,
         query: &[u8],
-    ) -> Vec<u8> {
+    ) -> Option<Vec<u8>> {
         self.sessions
-            .iter()
-            .nth(session)
+            .get(self.sessions.token_at_position(session)?)
             .and_then(|session| {
                 session.terminal.lock().ok().map(|mut terminal| {
                     terminal.advance(query);
                     terminal.take_host_output()
                 })
             })
-            .unwrap_or_default()
     }
 
     /// Test seam (NF21-5): drive the production OSC 52 clipboard-request drain
@@ -3919,31 +3945,37 @@ impl App {
         }
     }
 
+    /// Resolve an active-workspace tab position to its focused pane.
     #[cfg(test)]
-    pub(in crate::native) fn session_dimensions_for_test(
+    pub(in crate::native) fn tab_dimensions_at_position_for_test(
         &self,
         session: usize,
     ) -> Option<Dimensions> {
-        self.sessions.iter().nth(session).and_then(|session| {
-            session
-                .terminal
-                .lock()
-                .ok()
-                .map(|terminal| terminal.screen().dimensions())
-        })
+        self.sessions
+            .get(self.sessions.token_at_position(session)?)
+            .and_then(|session| {
+                session
+                    .terminal
+                    .lock()
+                    .ok()
+                    .map(|terminal| terminal.screen().dimensions())
+            })
     }
 
+    /// Resolve an active-workspace tab position to its focused local pane.
     #[cfg(all(test, unix))]
-    pub(in crate::native) fn session_pty_dimensions_for_test(
+    pub(in crate::native) fn tab_pty_dimensions_at_position_for_test(
         &self,
         session: usize,
     ) -> Option<Dimensions> {
-        self.sessions.iter().nth(session).and_then(|session| {
-            session
-                .local_pty()
-                .and_then(|pty| pty.lock().ok())
-                .and_then(|pty| pty.dimensions_for_test().ok())
-        })
+        self.sessions
+            .get(self.sessions.token_at_position(session)?)
+            .and_then(|session| {
+                session
+                    .local_pty()
+                    .and_then(|pty| pty.lock().ok())
+                    .and_then(|pty| pty.dimensions_for_test().ok())
+            })
     }
 
     #[cfg(test)]

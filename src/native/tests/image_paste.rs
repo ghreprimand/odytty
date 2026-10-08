@@ -90,7 +90,7 @@ fn image_upload_completion_notifies_and_copies_without_pty_write() {
 
     // (2) A self-explaining notice landed in the originating pane.
     let pane = app
-        .session_plain_text_for_test(0)
+        .tab_plain_text_at_position_for_test(0)
         .expect("session plain text");
     assert!(
         pane.contains("image uploaded"),

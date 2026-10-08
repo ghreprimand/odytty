@@ -102,7 +102,9 @@ macro_rules! app_or_skip {
 fn wait_for_plain_text(app: &App, session: usize, needle: &str, budget: Duration) -> String {
     let deadline = Instant::now() + budget;
     loop {
-        let text = app.session_plain_text_for_test(session).unwrap_or_default();
+        let text = app
+            .tab_plain_text_at_position_for_test(session)
+            .unwrap_or_default();
         if text.contains(needle) || Instant::now() >= deadline {
             return text;
         }
@@ -205,7 +207,7 @@ fn profile_theme_stays_on_session_across_model_state_and_tab_switch() {
         let drac_idx = app.active_workspace_tab_count_for_test() - 1;
 
         let (_, bg) = app
-            .session_dynamic_colors_for_test(drac_idx)
+            .tab_dynamic_colors_at_position_for_test(drac_idx)
             .expect("dracula session colors");
         assert_eq!(
             bg, expected_bg,
@@ -226,7 +228,7 @@ fn profile_theme_stays_on_session_across_model_state_and_tab_switch() {
 
         app.apply_model_state_to_all_sessions_for_test();
         let (_, bg_after) = app
-            .session_dynamic_colors_for_test(drac_idx)
+            .tab_dynamic_colors_at_position_for_test(drac_idx)
             .expect("colors after sweep");
         assert_eq!(
             bg_after, expected_bg,
@@ -253,7 +255,7 @@ fn profile_theme_stays_on_session_across_model_state_and_tab_switch() {
 
         app.switch_to_session_for_test(drac_idx);
         let (_, bg_back) = app
-            .session_dynamic_colors_for_test(drac_idx)
+            .tab_dynamic_colors_at_position_for_test(drac_idx)
             .expect("colors after switch back");
         assert_eq!(
             bg_back, expected_bg,
@@ -297,7 +299,7 @@ fn global_default_profile_theme_applies_on_plain_new_tab() {
             "plain New Tab must bind to the global default profile"
         );
         let (_, bg) = app
-            .session_dynamic_colors_for_test(spot_idx)
+            .tab_dynamic_colors_at_position_for_test(spot_idx)
             .expect("default profile session colors");
         assert_eq!(
             bg, expected_bg,
@@ -569,19 +571,32 @@ fn restore_keeps_launch_profile_on_profile_tabs() {
             ),
             "append must restore; got {report:?}"
         );
-        let stamped: Vec<_> = (0..restored.session_count_for_test())
-            .filter_map(|idx| {
-                restored.switch_to_session_for_test(idx);
-                restored.active_launch_profile_for_test()
+        let focused = restored.active_session_token_for_test();
+        let stamped: Vec<_> = restored
+            .all_session_tokens_for_test()
+            .into_iter()
+            .map(|token| {
+                restored
+                    .pane_launch_profile_for_test(token)
+                    .expect("restored pane exists")
             })
             .collect();
         assert_eq!(
             stamped
                 .iter()
-                .filter(|name| name.as_str() == "alpha")
+                .filter(|name| name.as_deref() == Some("alpha"))
                 .count(),
             2,
             "restored alpha tabs must keep launch_profile; stamped={stamped:?}"
+        );
+        assert!(
+            stamped.iter().any(Option::is_none),
+            "plain restored panes stay unbound"
+        );
+        assert_eq!(
+            restored.active_session_token_for_test(),
+            focused,
+            "observing profiles never changes focus"
         );
     });
     let _ = fs::remove_dir_all(&base);

@@ -50,7 +50,7 @@ fn zero_size_resize_keeps_grid_dimensions() {
         Dimensions::new(80, 24),
         crate::settings::Settings::default(),
     );
-    let before = app.session_dimensions_for_test(0);
+    let before = app.tab_dimensions_at_position_for_test(0);
     assert_eq!(before, Some(Dimensions::new(80, 24)));
     app.apply_grid_resize_for_test(PendingResize {
         cell: cell(8, 16),
@@ -59,7 +59,7 @@ fn zero_size_resize_keeps_grid_dimensions() {
         height_px: 0,
     });
     assert_eq!(
-        app.session_dimensions_for_test(0),
+        app.tab_dimensions_at_position_for_test(0),
         before,
         "a 0x0 resize must leave the grid alone"
     );

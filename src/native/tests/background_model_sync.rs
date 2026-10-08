@@ -81,8 +81,12 @@ fn os_theme_flip_reaches_background_session() {
         Some("plain"),
         Some(winit::window::Theme::Dark),
     );
-    let bg_dark = app.session_osc_answer_for_test(0, OSC11_QUERY);
-    let fg_dark = app.session_osc_answer_for_test(1, OSC11_QUERY);
+    let bg_dark = app
+        .tab_osc_answer_at_position_for_test(0, OSC11_QUERY)
+        .expect("live OSC answer owner");
+    let fg_dark = app
+        .tab_osc_answer_at_position_for_test(1, OSC11_QUERY)
+        .expect("live OSC answer owner");
     assert!(!bg_dark.is_empty(), "OSC 11 must produce a report");
     assert_eq!(
         bg_dark, fg_dark,
@@ -97,7 +101,9 @@ fn os_theme_flip_reaches_background_session() {
         Some("plain"),
         Some(winit::window::Theme::Light),
     );
-    let bg_light = app.session_osc_answer_for_test(0, OSC11_QUERY);
+    let bg_light = app
+        .tab_osc_answer_at_position_for_test(0, OSC11_QUERY)
+        .expect("live OSC answer owner");
     assert_ne!(
         bg_dark, bg_light,
         "the background session's OSC 11 answer tracked the theme flip, not a stale color"
@@ -119,7 +125,7 @@ fn background_osc52_write_is_discarded() {
     app.reset_last_clipboard_write_for_test();
 
     // A background session emits an OSC 52 clipboard write.
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
     assert_eq!(
         app.last_clipboard_write_for_test(),
@@ -155,7 +161,7 @@ fn focused_osc52_write_reaches_clipboard() {
 
     // The focused session's OSC 52 write is applied (positive control that the
     // discard is scoped to non-focused sessions, not a blanket block).
-    app.advance_session_bytes_for_test(1, OSC52_WRITE_HI);
+    app.advance_tab_bytes_at_position_for_test(1, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
     assert_eq!(
         app.last_clipboard_write_for_test().as_deref(),
@@ -180,13 +186,13 @@ fn focused_osc52_write_obeys_window_focus_and_off_policy() {
     app.reset_last_clipboard_write_for_test();
 
     app.on_window_focus_changed_for_test(false);
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.last_clipboard_write_for_test(), None);
 
     app.on_window_focus_changed_for_test(true);
     app.set_osc52_write_policy_for_test(Osc52WritePolicy::Off);
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.last_clipboard_write_for_test(), None);
 }
@@ -201,8 +207,8 @@ fn osc52_ask_coalesces_and_allow_once_does_not_persist() {
     app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
     app.reset_last_clipboard_write_for_test();
 
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_BYE);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_HI);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_BYE);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.last_clipboard_write_for_test(), None);
     assert_eq!(app.osc52_prompt_metadata_for_test(), Some(("Clipboard", 3)));
@@ -211,7 +217,7 @@ fn osc52_ask_coalesces_and_allow_once_does_not_persist() {
     assert_eq!(app.last_clipboard_write_for_test().as_deref(), Some("bye"));
 
     app.reset_last_clipboard_write_for_test();
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.last_clipboard_write_for_test(), None);
     assert_eq!(app.osc52_prompt_metadata_for_test(), Some(("Clipboard", 2)));
@@ -226,18 +232,18 @@ fn osc52_ask_session_decisions_are_ephemeral_and_cancel_on_staleness() {
     let mut app = app_or_skip!();
     app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
 
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
     app.resolve_osc52_prompt_for_test(PromptDecision::AllowSession);
     app.reset_last_clipboard_write_for_test();
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_BYE);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_BYE);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.last_clipboard_write_for_test().as_deref(), Some("bye"));
 
     // A new PTY session has no inherited consent.
     app.new_tab_for_test();
     app.reset_last_clipboard_write_for_test();
-    app.advance_session_bytes_for_test(1, OSC52_WRITE_HI);
+    app.advance_tab_bytes_at_position_for_test(1, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.last_clipboard_write_for_test(), None);
     assert!(app.osc52_prompt_metadata_for_test().is_some());
@@ -248,7 +254,7 @@ fn osc52_ask_session_decisions_are_ephemeral_and_cancel_on_staleness() {
     app.on_window_focus_changed_for_test(true);
 
     // A reload cancels an in-flight request even if the policy remains ask.
-    app.advance_session_bytes_for_test(1, OSC52_WRITE_HI);
+    app.advance_tab_bytes_at_position_for_test(1, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
     assert!(app.osc52_prompt_metadata_for_test().is_some());
     app.reload_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
@@ -263,12 +269,12 @@ fn osc52_ask_session_decisions_are_ephemeral_and_cancel_on_staleness() {
 fn osc52_ask_deny_session_blocks_later_writes() {
     let mut app = app_or_skip!();
     app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
     app.resolve_osc52_prompt_for_test(PromptDecision::DenySession);
 
     app.reset_last_clipboard_write_for_test();
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_BYE);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_BYE);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.last_clipboard_write_for_test(), None);
     assert_eq!(app.osc52_prompt_metadata_for_test(), None);
@@ -285,7 +291,7 @@ fn focused_osc52_primary_write_uses_the_linux_primary_slot() {
     // which would say nothing about which slot the write lands in.
     app.set_osc52_write_policy_for_test(Osc52WritePolicy::On);
     app.reset_last_clipboard_write_for_test();
-    app.advance_session_bytes_for_test(0, OSC52_WRITE_PRIMARY);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_PRIMARY);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.last_clipboard_write_for_test().as_deref(), Some("hi"));
     assert_eq!(app.osc52_prompt_metadata_for_test(), None);
@@ -301,7 +307,7 @@ fn background_osc52_read_never_reaches_clipboard() {
     app.new_tab_for_test(); // tab 1 focused; tab 0 is background.
     app.enable_osc52_read_for_test("private text");
 
-    app.advance_session_bytes_for_test(0, OSC52_READ);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_READ);
     app.drain_clipboard_requests_for_test();
     assert_eq!(
         app.clipboard_read_text_calls_for_test(),
@@ -318,7 +324,7 @@ fn background_osc52_read_never_reaches_clipboard() {
     // clipboard policy after the opt-in gate -- but only once the window itself
     // holds OS focus (C41). Grant that authority, then drive the read.
     app.set_window_focus_for_test(true);
-    app.advance_session_bytes_for_test(1, OSC52_READ);
+    app.advance_tab_bytes_at_position_for_test(1, OSC52_READ);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.clipboard_read_text_calls_for_test(), 1);
 }
@@ -336,7 +342,7 @@ fn active_session_osc52_read_denied_while_window_unfocused() {
     app.enable_osc52_read_for_test("private text");
     app.set_window_focus_for_test(false);
 
-    app.advance_session_bytes_for_test(0, OSC52_READ);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_READ);
     app.drain_clipboard_requests_for_test();
     assert_eq!(
         app.clipboard_read_text_calls_for_test(),
@@ -352,7 +358,7 @@ fn active_session_osc52_read_denied_while_window_unfocused() {
     // Positive control: granting window focus lets the same active-session read
     // reach the clipboard policy.
     app.set_window_focus_for_test(true);
-    app.advance_session_bytes_for_test(0, OSC52_READ);
+    app.advance_tab_bytes_at_position_for_test(0, OSC52_READ);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.clipboard_read_text_calls_for_test(), 1);
 }

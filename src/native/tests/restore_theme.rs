@@ -87,7 +87,7 @@ fn model_state_sweep_seeds_an_unseeded_session_with_the_theme() {
     // Restore/append shape: the freshly-built terminal carries the default
     // palette, NOT the theme — this is precisely the divergence.
     assert_eq!(
-        app.session_dynamic_colors_for_test(0),
+        app.tab_dynamic_colors_at_position_for_test(0),
         Some((DEFAULT_FG, DEFAULT_BG)),
         "an unseeded session starts in the default palette (the bug's source)"
     );
@@ -96,7 +96,7 @@ fn model_state_sweep_seeds_an_unseeded_session_with_the_theme() {
     app.apply_model_state_to_all_sessions_for_test();
 
     assert_eq!(
-        app.session_dynamic_colors_for_test(0),
+        app.tab_dynamic_colors_at_position_for_test(0),
         Some((THEME_FG, THEME_BG)),
         "after the sweep the session renders in the theme, not the default palette"
     );
@@ -112,9 +112,8 @@ fn model_state_sweep_seeds_an_unseeded_session_with_the_theme() {
 /// real winit `EventLoop` cannot be built and the proxy-backed path would return
 /// early and assert nothing. The pre-append state is made NON-pristine (the
 /// initial workspace is renamed) so the append lands BESIDE the live workspace
-/// at arena index 1 rather than REPLACING the pristine one: pristine-consume
-/// reaps the lone pristine workspace's session, which would otherwise leave a
-/// single session at index 0 and make the index-1 assertion meaningless.
+/// rather than replacing the pristine one. The appended pane is identified
+/// by its new stable token instead of a tab position in the original workspace.
 #[test]
 fn appended_layout_session_is_seeded_with_the_theme() {
     let _guard = crate::test_lock::render_globals_lock();
@@ -129,18 +128,22 @@ fn appended_layout_session_is_seeded_with_the_theme() {
 
     // Capture the current shape and append it through the headless append path.
     let snapshot = app.capture_shape_for_test();
+    let original_tokens = app.all_session_tokens_for_test();
     let report = app.append_snapshot_headless_for_test(&snapshot);
     assert!(
         matches!(report, RestoreReport::Restored { .. }),
         "the layout must append beside the live workspace (not skip or replace)"
     );
 
-    // The append landed BESIDE, so the arena now holds a second session at
-    // index 1 — the newly-spawned appended one (arena order is workspace ->
-    // tab -> leaf, so index 1 is deterministic, not HashMap order).
+    let appended_tokens: Vec<_> = app
+        .all_session_tokens_for_test()
+        .into_iter()
+        .filter(|token| !original_tokens.contains(token))
+        .collect();
+    assert_eq!(appended_tokens.len(), 1, "exactly one pane was appended");
     let appended = app
-        .session_dynamic_colors_for_test(1)
-        .expect("the appended session exists at arena index 1");
+        .pane_dynamic_colors_for_test(appended_tokens[0])
+        .expect("the appended pane exists");
     assert_eq!(
         appended,
         (THEME_FG, THEME_BG),

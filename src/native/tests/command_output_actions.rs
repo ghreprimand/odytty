@@ -355,11 +355,15 @@ fn silence_bell_and_process_monitors_are_pane_owned_and_one_shot() {
     assert!(notice);
 
     let (mut bell, terminal) = app_with(b"");
-    let token = bell.active_session_id_for_test();
+    let token = bell.active_session_token_for_test();
     bell.arm_pane_monitor_for_test(crate::native::notifications::PaneMonitorKind::Bell);
     terminal.lock().expect("terminal").advance(b"\x07");
     assert!(bell.drain_bells_for_test().0);
-    assert!(bell.pane_attention_for_test(token).0);
+    assert!(
+        bell.pane_attention_for_test(token)
+            .expect("live attention owner")
+            .0
+    );
 
     let (mut process, _) = app_with(b"");
     process.arm_pane_monitor_for_test(crate::native::notifications::PaneMonitorKind::ProcessFinish);

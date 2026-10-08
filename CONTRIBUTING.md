@@ -289,6 +289,14 @@ Two distinct icon paths, do not conflate them:
 
 ## Test battery
 
+Headless native tests distinguish tab positions from pane identity. Helpers
+named `tab_*_at_position_for_test` resolve the focused pane of a tab in the
+active workspace. `all_session_tokens_for_test` enumerates every split leaf
+across every workspace; pair those tokens with pane observations rather than
+position-based tab switching. A missing pane returns `None`, so attention and
+profile assertions must establish that their owner exists before checking its
+state. These test contracts apply on Linux, macOS and Windows.
+
 Linux CI installs Mesa Vulkan drivers, zsh, and fish, then runs
 `bash scripts/ci-validation.sh`. This required check selects a software Vulkan
 adapter and verifies execution markers for three shader/pipeline tests and

@@ -808,11 +808,15 @@ fn session_output_and_scrollback_stay_independent() {
         return;
     };
 
-    app.advance_session_bytes_for_test(0, b"alpha-session\r\n");
-    app.advance_session_bytes_for_test(1, b"beta-session\r\n");
+    app.advance_tab_bytes_at_position_for_test(0, b"alpha-session\r\n");
+    app.advance_tab_bytes_at_position_for_test(1, b"beta-session\r\n");
 
-    let plain_a = app.session_plain_text_for_test(0).expect("plain text a");
-    let plain_b = app.session_plain_text_for_test(1).expect("plain text b");
+    let plain_a = app
+        .tab_plain_text_at_position_for_test(0)
+        .expect("plain text a");
+    let plain_b = app
+        .tab_plain_text_at_position_for_test(1)
+        .expect("plain text b");
 
     assert!(plain_a.contains("alpha-session"));
     assert!(!plain_a.contains("beta-session"));
@@ -831,12 +835,18 @@ fn resize_updates_both_terminals_and_ptys() {
     assert!(app.resize_grid(cell, 512, 256));
     let expected = Dimensions::new(64, 15);
 
-    assert_eq!(app.session_dimensions_for_test(0), Some(expected));
-    assert_eq!(app.session_dimensions_for_test(1), Some(expected));
+    assert_eq!(app.tab_dimensions_at_position_for_test(0), Some(expected));
+    assert_eq!(app.tab_dimensions_at_position_for_test(1), Some(expected));
     #[cfg(unix)]
     {
-        assert_eq!(app.session_pty_dimensions_for_test(0), Some(expected));
-        assert_eq!(app.session_pty_dimensions_for_test(1), Some(expected));
+        assert_eq!(
+            app.tab_pty_dimensions_at_position_for_test(0),
+            Some(expected)
+        );
+        assert_eq!(
+            app.tab_pty_dimensions_at_position_for_test(1),
+            Some(expected)
+        );
     }
 }
 
@@ -1006,7 +1016,7 @@ fn tab_bar_reservation_reduces_shell_rows_by_one_when_visible() {
     let cell = cell(8, 16);
     assert!(!app.resize_grid(cell, 640, 384));
     assert_eq!(
-        app.session_dimensions_for_test(0),
+        app.tab_dimensions_at_position_for_test(0),
         Some(Dimensions::new(80, 24))
     );
 
@@ -1017,11 +1027,11 @@ fn tab_bar_reservation_reduces_shell_rows_by_one_when_visible() {
     app.push_session_for_test(terminal_b, writer_b, pty_b);
     assert!(app.resize_grid(cell, 640, 384));
     assert_eq!(
-        app.session_dimensions_for_test(0),
+        app.tab_dimensions_at_position_for_test(0),
         Some(Dimensions::new(80, 23))
     );
     assert_eq!(
-        app.session_dimensions_for_test(1),
+        app.tab_dimensions_at_position_for_test(1),
         Some(Dimensions::new(80, 23))
     );
 }
@@ -2157,11 +2167,11 @@ fn tab_bar_height_reservation_reduces_shell_rows_by_the_chosen_count() {
     assert!(app.resize_grid(cell, 640, 384));
     assert_eq!(app.tab_bar_rows_for_test(), 3);
     assert_eq!(
-        app.session_dimensions_for_test(0),
+        app.tab_dimensions_at_position_for_test(0),
         Some(Dimensions::new(80, 21))
     );
     assert_eq!(
-        app.session_dimensions_for_test(1),
+        app.tab_dimensions_at_position_for_test(1),
         Some(Dimensions::new(80, 21))
     );
 }
@@ -3955,7 +3965,7 @@ fn held_exit_reports_numeric_status_and_waits_for_a_non_release_key() {
     assert!(!app.pending_exit_for_test());
     assert_eq!(app.session_count_for_test(), 1);
     assert!(
-        app.session_plain_text_for_test(0)
+        app.tab_plain_text_at_position_for_test(0)
             .expect("held status text")
             .contains("Process exited with status 7. Press any key to close."),
         "the held pane reports the real child status"
@@ -4049,9 +4059,9 @@ fn switching_sessions_restores_per_session_title_viewport_selection_and_search()
         return;
     };
 
-    app.advance_session_bytes_for_test(0, b"\x1b]2;session-alpha\x07");
-    app.advance_session_bytes_for_test(1, b"\x1b]2;session-beta\x07");
-    app.advance_session_bytes_for_test(0, &scrollback_bytes(40));
+    app.advance_tab_bytes_at_position_for_test(0, b"\x1b]2;session-alpha\x07");
+    app.advance_tab_bytes_at_position_for_test(1, b"\x1b]2;session-beta\x07");
+    app.advance_tab_bytes_at_position_for_test(0, &scrollback_bytes(40));
     app.scroll_up_for_test(3);
     app.open_search_for_test();
     app.force_selection_for_test(0, 0, 0, 4);
@@ -4081,8 +4091,8 @@ fn redraw_for_non_active_session_only_marks_that_session_dirty() {
         return;
     };
 
-    app.set_session_needs_rebuild_for_test(0, false);
-    app.set_session_needs_rebuild_for_test(1, false);
+    app.set_tab_needs_rebuild_at_position_for_test(0, false);
+    app.set_tab_needs_rebuild_at_position_for_test(1, false);
 
     let session = app
         .session_token_at_position_for_test(1)
@@ -4091,8 +4101,8 @@ fn redraw_for_non_active_session_only_marks_that_session_dirty() {
 
     assert!(!should_exit);
     assert_eq!(app.active_session_id_for_test(), 0);
-    assert_eq!(app.session_needs_rebuild_for_test(0), Some(false));
-    assert_eq!(app.session_needs_rebuild_for_test(1), Some(true));
+    assert_eq!(app.tab_needs_rebuild_at_position_for_test(0), Some(false));
+    assert_eq!(app.tab_needs_rebuild_at_position_for_test(1), Some(true));
 }
 
 #[test]
@@ -4296,7 +4306,7 @@ fn focused_pane_overlay_paints_focused_pane_search_matches() {
         return;
     };
     // Searchable content in the focused session, then a query that matches it.
-    app.advance_session_bytes_for_test(0, b"needle\r\n");
+    app.advance_tab_bytes_at_position_for_test(0, b"needle\r\n");
     app.drive_search_for_test("needle");
     // Require a real match so the assertion is meaningful (skip if the PTY-backed
     // terminal did not register the write in this environment).
@@ -4357,7 +4367,7 @@ fn per_pane_overlay_gates_the_search_bar_to_the_focused_pane() {
         eprintln!("skipping: no PTY available");
         return;
     };
-    app.advance_session_bytes_for_test(0, b"needle\r\n");
+    app.advance_tab_bytes_at_position_for_test(0, b"needle\r\n");
     app.drive_search_for_test("needle");
     if app.search_match_count_for_test() == 0 {
         eprintln!("skipping: no search match registered");
@@ -7038,7 +7048,7 @@ fn switching_back_to_a_scrolled_up_tab_does_not_strand_the_viewport() {
     let seed: Vec<u8> = (0..200)
         .flat_map(|i| format!("line{i}\r\n").into_bytes())
         .collect();
-    app.advance_session_bytes_for_test(0, &seed);
+    app.advance_tab_bytes_at_position_for_test(0, &seed);
     app.anchor_viewport_for_render_frame_for_test();
     let baseline_scrollback = app.scrollback_len_for_test();
     assert!(baseline_scrollback > 24, "scrollback exceeds the screen");
@@ -7052,7 +7062,7 @@ fn switching_back_to_a_scrolled_up_tab_does_not_strand_the_viewport() {
     let background: Vec<u8> = (0..500)
         .flat_map(|i| format!("bg{i}\r\n").into_bytes())
         .collect();
-    app.advance_session_bytes_for_test(0, &background);
+    app.advance_tab_bytes_at_position_for_test(0, &background);
 
     // Switch back. Activation must reconcile the frozen baseline so the
     // backgrounded growth is treated as already-past, not a fresh jump.
@@ -7094,7 +7104,7 @@ fn switching_back_to_a_live_bottom_tab_stays_live() {
     let seed: Vec<u8> = (0..200)
         .flat_map(|i| format!("line{i}\r\n").into_bytes())
         .collect();
-    app.advance_session_bytes_for_test(0, &seed);
+    app.advance_tab_bytes_at_position_for_test(0, &seed);
     app.anchor_viewport_for_render_frame_for_test();
     assert_eq!(
         app.viewport_offset_for_test(),
@@ -7106,7 +7116,7 @@ fn switching_back_to_a_live_bottom_tab_stays_live() {
     let background: Vec<u8> = (0..500)
         .flat_map(|i| format!("bg{i}\r\n").into_bytes())
         .collect();
-    app.advance_session_bytes_for_test(0, &background);
+    app.advance_tab_bytes_at_position_for_test(0, &background);
     assert!(app.switch_to_session_for_test(0), "switch back");
 
     let offset = app.anchor_viewport_for_render_frame_for_test();
