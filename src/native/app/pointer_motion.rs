@@ -580,11 +580,14 @@ impl App {
         // clamped to that pane's nearest edge cell, so a drag across padding, a
         // divider, another pane, or the chrome keeps extending it. Presses and
         // hover keep the strict drawn-grid mapping.
-        let point = if held_selection && !self.sessions.active_is_single_pane() {
-            self.active_pane_clamped_cell_at(x_px, y_px)
-        } else {
-            self.content_pointer_cell(x_px, y_px, cell, padding)
+        let pointer_cell_at = |app: &Self| {
+            if held_selection && !app.sessions.active_is_single_pane() {
+                app.active_pane_clamped_cell_at(x_px, y_px)
+            } else {
+                app.content_pointer_cell(x_px, y_px, cell, padding)
+            }
         };
+        let point = pointer_cell_at(self);
         // The scroll-thumb drag and selection autoscroll below take
         // content-relative Y: the top bar (and chrome gap) removed once.
         let (_, chrome_dy) = self.tab_chrome_offset_px(cell);
@@ -714,7 +717,21 @@ impl App {
             // otherwise resume a buttonless drag on the next bare `CursorMoved`,
             // and its eventual unmatched release could reach PTY mouse reporting.
             if self.grid_left_held {
-                self.autoscroll_selection_if_needed(y_px, cell, padding);
+                // An autoscroll shows different rows under the pointer. With
+                // reordering on, the logical cell is resolved again against a
+                // map planned for the scrolled viewport, so the endpoint stays
+                // on the cell drawn at the pointer, not the cell of the row
+                // that was there before the scroll.
+                let mut point = point;
+                if self.autoscroll_selection_if_needed(y_px, cell, padding)
+                    && self.bidi_reorder_on()
+                {
+                    self.replan_focused_bidi_map();
+                    if let Some(rescrolled) = pointer_cell_at(self) {
+                        point = rescrolled;
+                        self.pointer_cell = Some(point);
+                    }
+                }
                 self.extend_drag_to(point);
                 self.request_selection_redraw();
             }

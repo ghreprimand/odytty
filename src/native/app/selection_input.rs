@@ -254,12 +254,13 @@ impl App {
         )
     }
 
+    /// Returns whether the viewport moved.
     pub(super) fn autoscroll_selection_if_needed(
         &mut self,
         y_px: f64,
         cell: CellSize,
         padding: WindowPadding,
-    ) {
+    ) -> bool {
         // MOUSE-AUTOSCROLL-VEL: the step magnitude ramps with how far the pointer
         // is dragged past the edge band, up to the configured cap. `legacy` mode
         // returns a cap of 1, which makes the helper yield exactly ±1/0 —
@@ -281,7 +282,7 @@ impl App {
             ),
         };
         if delta == 0 {
-            return;
+            return false;
         }
 
         let now = Instant::now();
@@ -289,10 +290,12 @@ impl App {
             .last_selection_autoscroll
             .is_some_and(|last| now.saturating_duration_since(last) < SELECTION_AUTOSCROLL_INTERVAL)
         {
-            return;
+            return false;
         }
         self.last_selection_autoscroll = Some(now);
+        let before = self.viewport.offset();
         self.scroll_viewport(delta);
+        self.viewport.offset() != before
     }
 
     pub(super) fn finish_selection(&mut self) {

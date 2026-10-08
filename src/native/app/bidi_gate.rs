@@ -89,6 +89,35 @@ impl App {
         self.bidi_pane_maps = maps;
     }
 
+    /// Plan the focused content grid's map again for its current viewport and
+    /// let the pointer map through it until the next frame records the
+    /// presented map. A selection autoscroll moves the viewport between
+    /// frames, so the presented map describes rows no longer under the
+    /// pointer. Overlay rows are reset by the next presented frame.
+    pub(super) fn replan_focused_bidi_map(&mut self) {
+        if !self.bidi_reorder_on() {
+            return;
+        }
+        let map = {
+            let terminal = crate::native::lock_recover(&self.terminal);
+            let offset = self
+                .viewport
+                .offset()
+                .min(terminal.screen().scrollback_len());
+            let snapshot = terminal.snapshot_with_scrollback(offset);
+            plan_content_map(&terminal, &snapshot, offset)
+        };
+        if self.sessions.active_is_single_pane() {
+            self.bidi_frame_map = map;
+            return;
+        }
+        let focused = self.sessions.active_id();
+        self.bidi_pane_maps.retain(|(token, _)| *token != focused);
+        if let Some(map) = map {
+            self.bidi_pane_maps.push((focused, map));
+        }
+    }
+
     /// The content map of the focused content grid: the single-pane frame
     /// map, or the focused pane's map in a split tab.
     fn bidi_focused_map(&self) -> Option<&BidiDisplayMap> {
