@@ -286,28 +286,15 @@ pub(crate) mod test_lock {
 
     static CATALOG_COUNT_LOCK: Mutex<()> = Mutex::new(());
 
-    /// Serialize tests that read the process-global profile catalog-load
-    /// counter against tests that load a catalog.
+    /// Serialize cooperating profile catalog/cache fixtures. The load counter
+    /// is thread-local and needs no guard against unrelated test threads.
+    /// This lock remains for fixtures observing the shared parsed-catalog cache
+    /// and parse counter; it excludes only callers that acquire it, not every
+    /// App path that can load a catalog.
     ///
-    /// `profiles::store::CATALOG_LOAD_COUNT` is one process-wide atomic bumped
-    /// by every `load_catalog_from_dir`. The startup-isolation tests reset it
-    /// and then assert an exact delta (zero loads for a default launch, exactly
-    /// one for an explicit profile selection). `cargo test` runs tests in
-    /// parallel threads inside one process, so a catalog load from an unrelated
-    /// test landing between another test's reset and its assertion corrupts the
-    /// delta (the intermittent 8-thread failure where a `+0`/`+1` expectation
-    /// saw an extra load). This is a SECOND global independent of the env table,
-    /// so it needs its own guard rather than reusing the env lock.
-    ///
-    /// Every test that resets/asserts the counter AND every test that loads a
-    /// catalog (directly via `load_catalog_from_dir` or indirectly via a
-    /// resolver/auto-switch path) holds THIS guard for that window, so the
-    /// counter is stable without depending on `--test-threads=1`. Ordering
-    /// rule to stay deadlock-free: where a test also needs [`test_env_lock`]
-    /// (it redirects the config base AND loads a catalog), acquire the env lock
-    /// FIRST and this lock second; no site acquires them in the other order.
-    /// Poison is recovered with `into_inner` so a panicking test does not wedge
-    /// the suite.
+    /// Where a fixture also changes environment variables, acquire
+    /// [`test_env_lock`] first and this lock second. Poison is recovered so a
+    /// panicking fixture does not wedge the suite.
     pub(crate) fn catalog_count_lock() -> MutexGuard<'static, ()> {
         CATALOG_COUNT_LOCK
             .lock()

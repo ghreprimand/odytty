@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! v0.14 Phase A3 startup-isolation seam: the ordinary default launch must not
 //! read the profile catalog. Drives the real native startup resolver headlessly
-//! and asserts the shared catalog-load counter does not move.
+//! and observes catalog loads only on the resolver's calling test thread.
 
 use crate::native::app::profile_launch::resolve_startup_launch;
 use crate::native::options::NativeOptions;
@@ -10,9 +10,6 @@ use crate::settings::Settings;
 
 #[test]
 fn default_startup_launch_reads_no_profile_catalog() {
-    // Hold the catalog-count guard: this test resets and asserts an exact delta
-    // on the process-global load counter, so it must exclude every concurrent
-    // catalog-loading test sibling (crate::test_lock::catalog_count_lock).
     let _count_guard = crate::test_lock::catalog_count_lock();
     reset_catalog_load_count_for_test();
     let before = catalog_load_count_for_test();
@@ -43,8 +40,6 @@ fn default_startup_launch_reads_no_profile_catalog() {
 
 #[test]
 fn explicit_profile_selection_loads_the_catalog_exactly_once() {
-    // Same counter guard: the +1 delta is only exact while no other catalog
-    // load runs concurrently (crate::test_lock::catalog_count_lock).
     let _count_guard = crate::test_lock::catalog_count_lock();
     reset_catalog_load_count_for_test();
     let before = catalog_load_count_for_test();

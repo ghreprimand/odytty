@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::settings::config_base_dir_from_env;
 use crate::settings::fs_read;
@@ -14,9 +13,12 @@ use super::catalog_cache;
 use super::limits::*;
 use super::schema::{LaunchProfile, ProfileError, profile_file_name, validate_profile_name};
 
-/// Test-only counter of [`load_catalog_from_dir`] calls. Default launch must
-/// leave this at zero; the Profile Manager increments it only when opened.
-static CATALOG_LOAD_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+thread_local! {
+    /// Catalog loads on this test thread, including cache hits. Loads on other
+    /// threads cannot change the startup resolver's exact-count assertions.
+    static CATALOG_LOAD_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// In-memory catalog of locally stored named profiles.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -99,7 +101,8 @@ pub fn profiles_dir_path() -> Option<PathBuf> {
 /// matches the previous load's exactly, that parsed catalog is reused (see
 /// [`super::catalog_cache`]).
 pub fn load_catalog_from_dir(dir: &Path) -> ProfileCatalog {
-    CATALOG_LOAD_COUNT.fetch_add(1, Ordering::Relaxed);
+    #[cfg(test)]
+    CATALOG_LOAD_COUNT.with(|count| count.set(count.get() + 1));
     let listing = match catalog_cache::list_profile_dir(dir) {
         Ok(listing) => listing,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -199,16 +202,18 @@ pub fn export_profile_file(path: &Path, profile: &LaunchProfile) -> Result<(), P
     Ok(())
 }
 
-/// Number of times [`load_catalog_from_dir`] has run in this process. Used by
-/// startup-isolation tests to prove the default launch path never enumerates
-/// profiles.
+/// Number of [`load_catalog_from_dir`] calls on the current test thread.
+/// Startup-isolation tests observe synchronous resolver work; catalog loads
+/// from other threads are deliberately excluded.
+#[cfg(test)]
 pub fn catalog_load_count_for_test() -> usize {
-    CATALOG_LOAD_COUNT.load(Ordering::Relaxed)
+    CATALOG_LOAD_COUNT.with(std::cell::Cell::get)
 }
 
-/// Reset [`catalog_load_count_for_test`] between isolation cases.
+/// Reset [`catalog_load_count_for_test`] on the current test thread.
+#[cfg(test)]
 pub fn reset_catalog_load_count_for_test() {
-    CATALOG_LOAD_COUNT.store(0, Ordering::Relaxed);
+    CATALOG_LOAD_COUNT.with(|count| count.set(0));
 }
 
 pub fn delete_profile_file(path: &Path) -> io::Result<()> {
@@ -260,6 +265,45 @@ mod tests {
     }
 
     #[test]
+    fn catalog_load_count_is_isolated_between_threads() {
+        let _count_guard = crate::test_lock::catalog_count_lock();
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-profile-count-");
+        reset_catalog_load_count_for_test();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let catalog = load_catalog_from_dir(&dir);
+                assert!(catalog.profiles.is_empty());
+                catalog_load_count_for_test()
+            });
+            let worker_count = worker.join().expect("catalog worker");
+            assert_eq!(
+                catalog_load_count_for_test(),
+                0,
+                "another thread's load is excluded"
+            );
+            assert_eq!(worker_count, 1, "the worker observes its own load");
+
+            let catalog = load_catalog_from_dir(&dir);
+            assert!(catalog.profiles.is_empty());
+            assert_eq!(
+                catalog_load_count_for_test(),
+                1,
+                "the caller observes its own load"
+            );
+            scope
+                .spawn(reset_catalog_load_count_for_test)
+                .join()
+                .expect("counter reset worker");
+            assert_eq!(
+                catalog_load_count_for_test(),
+                1,
+                "another thread's reset is excluded"
+            );
+        });
+        fs::remove_dir_all(dir).expect("remove empty fixture directory");
+    }
+
+    #[test]
     fn atomic_write_and_reload_round_trip() {
         let dir = temp_profiles_dir("write");
         fs::create_dir_all(&dir).expect("mkdir");
@@ -275,9 +319,6 @@ mod tests {
 
     #[test]
     fn malformed_file_is_skipped_without_emptying_catalog() {
-        // Loads a catalog, bumping the process-global load counter that the
-        // startup-isolation tests assert on; hold the catalog-count guard so
-        // this load cannot land between a sibling's reset and assertion.
         let _count_guard = crate::test_lock::catalog_count_lock();
         let dir = temp_profiles_dir("malformed");
         fs::create_dir_all(&dir).expect("mkdir");
