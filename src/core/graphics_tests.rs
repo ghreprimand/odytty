@@ -100,3 +100,27 @@ fn ris_clears_graphics_scene() {
     assert!(terminal.visible_graphics(0).is_empty());
     assert_eq!(terminal.graphics().placements().len(), 0);
 }
+
+#[test]
+fn ed2_and_ed3_match_text_and_graphics_history_through_parser_input() {
+    for protocol in [
+        GraphicsProtocol::Kitty,
+        GraphicsProtocol::Sixel,
+        GraphicsProtocol::Iterm2,
+    ] {
+        let mut terminal = Terminal::new(10, 3);
+        place_test_image(&mut terminal, protocol, 0, 0);
+        terminal.advance(b"saved\x1b[3;1H\n");
+        assert_eq!(terminal.screen().scrollback_len(), 1);
+        assert_eq!(terminal.visible_graphics(1).len(), 1);
+        place_test_image(&mut terminal, protocol, 1, 1);
+        terminal.advance(b"\x1b[2J");
+        assert_eq!(terminal.screen().scrollback_len(), 1);
+        assert!(terminal.visible_graphics(0).is_empty());
+        assert_eq!(terminal.visible_graphics(1).len(), 1, "{protocol:?}");
+        terminal.advance(b"\x1b[3J");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+        assert!(terminal.visible_graphics(1).is_empty());
+        assert_eq!(terminal.graphics().store().len(), 2);
+    }
+}

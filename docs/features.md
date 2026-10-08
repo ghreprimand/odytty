@@ -653,6 +653,10 @@ platforms.
 | Sixel | DEC/xterm data language, RGB/HLS color introducers, repeat, raster attributes, transparency, VT340 palette, and DECSDM |
 | iTerm2 inline images | `OSC 1337 ; File=` with `inline`, `size`, `width`, `height` (cell / `px` / `%` / `auto` units), and `preserveAspectRatio`; PNG, JPEG, and WebP containers; cursor advances below the image. Payloads are bounded by the 128 KiB OSC cap (~96 KiB of encoded file bytes) and an over-cap command is rejected whole. `inline=0` downloads are never honored — no escape sequence writes files. |
 
+Erase in display keeps graphics and text history aligned: `ED 2` preserves
+placements wholly in scrollback, while `ED 3` also removes active history
+placements. Both keep stored image data and inactive-screen placements.
+
 Animation is supported: frame transmission (`a=f`), playback control (`a=a`),
 frame composition (`a=c`), and single-frame deletion (`d=f`/`d=F`, requiring
 an image id). Frames share the image store's byte budget, visible placements in

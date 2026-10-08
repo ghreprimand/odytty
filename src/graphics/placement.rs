@@ -865,7 +865,8 @@ impl ImageScene {
             // ED0 erases the cursor row from the cursor on plus every later
             // row; ED1 every earlier row plus the cursor row through the
             // cursor. Rows are compared signed, so a placement wholly in
-            // scrollback history never overlaps the screen.
+            // scrollback history never overlaps the screen. ED2 keeps those
+            // history placements; ED3 also clears the active history.
             let row = cursor_row as isize;
             match mode {
                 0 => {
@@ -876,7 +877,8 @@ impl ImageScene {
                     !(overlaps(placement, 0..row, 0..columns)
                         || overlaps(placement, row..row + 1, 0..cursor_column.saturating_add(1)))
                 }
-                2 | 3 => false,
+                2 => !reaches_screen(placement),
+                3 => false,
                 _ => true,
             }
         });

@@ -424,7 +424,10 @@ encoded-payload cap.
 
 Placement ids,
 z-index, source-rectangle crop, cell-box scaling, and anchor pixel offset are
-all wired through. Unicode placeholder rendering (`U=1`) creates virtual
+all wired through. `ED 2` keeps placements wholly in scrollback while removing
+those reaching the active screen; `ED 3` also removes active history placements.
+Stored image data and inactive-screen placements survive both erase modes.
+Unicode placeholder rendering (`U=1`) creates virtual
 placements resolved from placeholder cells. Animation frames share the decoded
 image quota, only visible placements advance, and a still session schedules no
 animation wake. Animation commands address an image by either `i=` image id or

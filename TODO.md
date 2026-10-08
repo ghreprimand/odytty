@@ -1248,9 +1248,10 @@ a floor; surpassing it is the standing ambition.
       visibility path. Animated containers such as APNG and GIF decode as one
       still frame.
 - [x] Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,
-      c/C, p/P+x=/y=) with uppercase image-data GC, `a=q` validation-only
-      query responses, and DECSET/DECRST 80 sixel cursor policy (anchor at
-      cursor vs cursor-below) with RIS/DECSTR resets; 17 fixtures.
+      c/C, p/P+x=/y=) with uppercase image-data GC; ED2 preserves wholly historical
+      placements and ED3 clears active history without freeing stored image data;
+      `a=q` validation-only query responses, and DECSET/DECRST 80 sixel cursor
+      policy (anchor at cursor vs cursor-below) with RIS/DECSTR reset fixtures.
 - [x] Live cell metrics for graphics: `Terminal::set_cell_metrics()` replaces the
       provisional 8×16 px cell in graphics extent/cursor math; native wires
       metrics at GPU init and on every grid resize; new-placements-only

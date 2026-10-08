@@ -278,3 +278,40 @@ fn delete_at_cursor_removes_placements_covering_the_cursor() {
     assert_eq!(anchor_row(&scene, covering), None);
     assert_eq!(anchor_row(&scene, beside), Some(1));
 }
+
+#[test]
+fn ed2_keeps_wholly_historical_placements_and_ed3_clears_them() {
+    let mut scene = scene();
+    let image = image(&mut scene, None);
+    let history = place(&mut scene, image, 0, 0, (1, 1));
+    let crossing = place(&mut scene, image, 0, 1, (1, 2));
+    scene.scroll_full_up(1, 100);
+    let visible = place(&mut scene, image, 2, 0, (1, 1));
+    scene.erase_display(2, 0, 0, 4, 8);
+    assert_eq!(anchor_row(&scene, history), Some(-1));
+    assert_eq!(anchor_row(&scene, crossing), None, "reaches row zero");
+    assert_eq!(anchor_row(&scene, visible), None);
+    assert!(scene.store().contains(image), "erase retains stored pixels");
+    scene.erase_display(3, 0, 0, 4, 8);
+    assert_eq!(anchor_row(&scene, history), None);
+    assert!(scene.store().contains(image));
+}
+
+#[test]
+fn alternate_ed2_and_ed3_leave_primary_history_placements_intact() {
+    let mut scene = scene();
+    let image = image(&mut scene, None);
+    let primary_history = place(&mut scene, image, 0, 0, (1, 1));
+    scene.scroll_full_up(1, 100);
+    scene.enter_alternate(true);
+    let alternate_history = place(&mut scene, image, 0, 0, (1, 1));
+    scene.scroll_full_up(1, 100);
+    scene.erase_display(2, 0, 0, 4, 8);
+    assert_eq!(anchor_row(&scene, primary_history), Some(-1));
+    assert_eq!(anchor_row(&scene, alternate_history), Some(-1));
+    scene.erase_display(3, 0, 0, 4, 8);
+    assert_eq!(anchor_row(&scene, primary_history), Some(-1));
+    assert_eq!(anchor_row(&scene, alternate_history), None);
+    scene.leave_alternate();
+    assert_eq!(scene.visible_placements(1, 4, 8, 16).len(), 1);
+}

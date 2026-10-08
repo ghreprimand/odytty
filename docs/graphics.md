@@ -158,15 +158,19 @@ rather than approximated: deleting the wrong image is worse than deleting none.
 
 Placements move with the text around them. A full-screen scroll moves every
 placement of the active screen, including those already in scrollback history,
-and drops them once they age past the scrollback limit. A scroll inside a
-margin region moves only placements wholly inside the region and removes one
-when any part leaves it; a placement crossing a margin is removed, and
+and drops them once they age past the scrollback limit. A margin scroll that
+does not feed scrollback moves only placements wholly inside the region and
+removes one when any part leaves it; a placement crossing a margin is removed, and
 placements wholly outside the region, such as a header or footer, stay where
-they are. Erase in display removes placements that overlap the erased cells:
+they are. Top-anchored margin scrolls feeding scrollback move placements anchored
+through the bottom margin into history as whole placements. Erase in display
+removes placements that overlap the erased cells:
 `ED 0` the cursor row from the cursor on plus every later row, `ED 1` every
-earlier row plus the cursor row through the cursor, and `ED 2`/`ED 3` every
-placement of the active screen. A reset (`RIS`) removes the placements of both
-screens, including a saved primary screen, and keeps stored image data.
+earlier row plus the cursor row through the cursor. `ED 2` removes active
+placements reaching the screen or below it and keeps those wholly in scrollback.
+`ED 3` also removes active history placements. Neither mode removes placements
+from the inactive screen or stored image data. A reset (`RIS`) removes placements
+from both screens, including a saved primary screen, and keeps stored image data.
 
 ### Unicode placeholders (`U=1`)
 
