@@ -509,8 +509,8 @@ impl SettingsPanel {
 
         // SETTINGS-COMPACT: the fixed help footer. Pad the scrolling content to
         // its reserved height so the footer pins to the panel bottom, then emit
-        // a divider and the focused row's help — any transient status message
-        // first — wrapping via the shared word-wrapper and truncating longer
+        // a divider and the focused row's help, with an environment override
+        // before status and descriptions, wrapping and truncating longer
         // help gracefully. Every footer row is inert (`RowZone::Footer`).
         if footer_reserve > 0
             && let Some(entry) = self.entries.get(self.selected)
@@ -536,10 +536,20 @@ impl SettingsPanel {
             rows.push(footer_line(format!("  {}", "\u{2500}".repeat(wrap_width))));
             let text_capacity = footer_reserve.saturating_sub(1);
             let mut help: Vec<String> = Vec::new();
+            let override_note = self.environment_override_note(entry);
+            if let Some(note) = override_note.as_deref() {
+                let name = note.split_once(". ").map_or(note, |(name, _)| name);
+                help.extend(wrap_words(name, wrap_width));
+            }
             if let Some(message) = self.message.as_deref() {
                 for wrapped in wrap_words(message, wrap_width) {
                     help.push(format!("! {wrapped}"));
                 }
+            }
+            if let Some(note) = override_note.as_deref()
+                && let Some((_, explanation)) = note.split_once(". ")
+            {
+                help.extend(wrap_words(explanation, wrap_width));
             }
             for wrapped in wrap_words(&setting_detail(entry), wrap_width) {
                 help.push(wrapped);

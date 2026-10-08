@@ -214,6 +214,13 @@ impl OverlayUi {
         self.panel.rebase_onto_external(settings);
     }
 
+    pub(in crate::native) fn set_settings_environment_overrides(
+        &mut self,
+        keys: Vec<&'static str>,
+    ) {
+        self.panel.set_environment_overrides(keys);
+    }
+
     pub(in crate::native) fn open_settings(&mut self) {
         // Defensive no-op for settings steppers; kept with the
         // shared close/switch cleanup path.

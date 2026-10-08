@@ -803,7 +803,8 @@ impl App {
         let prefix_engine = PrefixEngine::from_settings(&settings);
         let autoclose = settings.native_autoclose;
         let themed_ui_roles = settings.themed_ui_roles;
-        let overlay = OverlayUi::new(&settings);
+        let mut overlay = OverlayUi::new(&settings);
+        overlay.set_settings_environment_overrides(settings_reloader.environment_override_keys());
         let last_active_session = sessions.active_id();
         // `mut` is consumed only by the `cfg(not(test))` onboarding block below;
         // test builds compile that out, so silence the unused_mut there.

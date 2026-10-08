@@ -89,6 +89,11 @@ list. Settings from the empty tab strip, a workspace slot, or the empty
 workspace rail opens Layout directly.
 
 Edits apply live, but the config file is not changed until you press `Ctrl+S`.
+A selected row whose startup environment variable is present names that
+variable ahead of its help text. Save still writes the edit, while the
+startup variable wins when the saved file is reloaded. Remove the variable
+for the saved value to take effect on next launch. The notice shows names
+only and is available on Linux Wayland, Linux X11, macOS, and Windows.
 A configuration reload preserves pending edits, open text entry, search, and
 navigation. Pending values stay in the editor even when the same setting
 changes in the file; other settings adopt the reloaded values. Theme-builder

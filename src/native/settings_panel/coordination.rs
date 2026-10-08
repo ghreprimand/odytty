@@ -15,6 +15,7 @@ impl SettingsPanel {
             pending_close_prompt: false,
             path_picker: None,
             edits,
+            environment_overrides: Vec::new(),
             selected: 0,
             scroll: 0,
             editing: None,
@@ -26,6 +27,19 @@ impl SettingsPanel {
         };
         panel.clamp();
         panel
+    }
+
+    pub(in crate::native) fn set_environment_overrides(&mut self, mut keys: Vec<&'static str>) {
+        keys.sort_unstable();
+        keys.dedup();
+        self.environment_overrides = keys;
+    }
+
+    pub(super) fn environment_override_note(&self, entry: &SettingInfo) -> Option<String> {
+        (!entry.env.is_empty() && self.environment_overrides.contains(&entry.env)).then(|| {
+            let save = if entry.reloadable { " Save still writes the config;" } else { "" };
+            format!("Environment override: {}.{save} Remove this variable for the config value to take effect on next launch.", entry.env)
+        })
     }
 
     /// Called by the render path immediately before `visible_lines` so that

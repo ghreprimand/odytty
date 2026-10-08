@@ -94,6 +94,7 @@ pub(super) enum SettingsLevel {
 #[derive(Debug, Clone)]
 pub(super) struct SettingsPanel {
     edits: SettingsEditOverlay,
+    environment_overrides: Vec<&'static str>,
     /// Full setting roster; the base for both the section filter and the search
     /// filter. With no active filters, `entries == all_entries` (identical).
     all_entries: Vec<SettingInfo>,
@@ -137,6 +138,7 @@ pub(super) struct SettingsPanelSignature {
     /// Enter/Esc because `entries` carries the committed value, not the buffer.
     pub(super) editing_buffer: Option<String>,
     pub(super) changed_count: usize,
+    pub(super) environment_overrides: Vec<&'static str>,
     pub(super) message: Option<String>,
     pub(super) entries: Vec<SettingsPanelEntrySignature>,
     pub(super) query: String,
@@ -247,3 +249,6 @@ fn stepped_tab_bar_height(value: &str, direction: isize) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod environment_note_tests;

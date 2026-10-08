@@ -147,6 +147,18 @@ impl SettingsReloader {
         }
     }
 
+    /// Names only, from the same startup snapshot used by reload and Save.
+    pub(crate) fn environment_override_keys(&self) -> Vec<&'static str> {
+        let mut keys: Vec<_> = self.env_values.keys().copied().collect();
+        keys.sort_unstable();
+        keys
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_env_values_for_test(&mut self, values: HashMap<&'static str, OsString>) {
+        self.env_values = values;
+    }
+
     pub fn deadline(&self) -> Option<Instant> {
         self.poller.deadline()
     }

@@ -1380,6 +1380,7 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
         open,
         mode: OverlayMode::Settings,
         panel: SettingsPanelSignature {
+            environment_overrides: Vec::new(),
             selected: 0,
             scroll: 0,
             editing_key: None,

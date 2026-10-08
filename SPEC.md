@@ -491,7 +491,13 @@ design contract, not a claim that the later-release features already ship.
 **In-app writeback.** The settings panel is a presentation-only overlay until
 the user explicitly saves. `Ctrl+S` writes only changed rows back to the
 resolved config file, preserving comments, blank lines, key order, and
-unknown/future keys. Missing changed keys are appended under an OdyTTY settings
+unknown/future keys. The selected Settings row names its startup environment
+variable ahead of the help text when that variable is present. Save still
+writes the edited config value; the startup variable wins when the saved file
+is reloaded. Removing the variable allows the saved value to take effect on
+next launch. Only variable names appear in this notice, never their values.
+This behavior applies on Linux Wayland, Linux X11, macOS, and Windows.
+Missing changed keys are appended under an OdyTTY settings
 section. Saves use a same-directory temporary file followed by rename; OdyTTY
 does not truncate the config file in place. The keybinding editor preserves
 accepted overrides, active chord capture, conflict confirmation, and the

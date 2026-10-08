@@ -20,6 +20,10 @@ roadmap.
 
 ## v0.17.0: International Text (in development)
 
+Settings names startup environment overrides in the selected row's help.
+Saved edits remain in the config file; removing the overriding variable
+allows them to take effect on next launch.
+
 Scrollback front eviction anchors viewed text and search-return positions
 through new output, clamping at the oldest retained row once that text is
 evicted. Search input survives, and retained selection, drag, hint and copy-mode

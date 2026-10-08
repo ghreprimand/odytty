@@ -11,6 +11,7 @@ impl SettingsPanel {
             editing_key: self.editing.as_ref().map(|edit| edit.key),
             editing_buffer: self.editing.as_ref().map(|edit| edit.buffer.clone()),
             changed_count: self.edits.changed_count(),
+            environment_overrides: self.environment_overrides.clone(),
             message: self.message.clone(),
             entries: self
                 .entries

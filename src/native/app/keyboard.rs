@@ -819,6 +819,8 @@ impl App {
         self.overlay
             .set_about_info(crate::native::about::AboutInfo::collect(adapter));
         self.sync_settings_external_palette_status();
+        self.overlay
+            .set_settings_environment_overrides(self.settings_reloader.environment_override_keys());
         self.overlay.toggle_settings();
         self.request_selection_redraw();
     }
@@ -839,6 +841,8 @@ impl App {
         self.overlay
             .set_about_info(crate::native::about::AboutInfo::collect(adapter));
         self.sync_settings_external_palette_status();
+        self.overlay
+            .set_settings_environment_overrides(self.settings_reloader.environment_override_keys());
         self.overlay.open_settings_target(target);
         self.request_selection_redraw();
     }
