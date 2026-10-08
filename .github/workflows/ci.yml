@@ -2,7 +2,9 @@ name: CI
 
 # Build + test on all three supported platforms. The Windows leg is a blocking
 # regression gate alongside Linux and macOS now that the Windows port compiles
-# and its unit tests pass. Runs on pushes to master, on pushes to
+# and its unit tests pass. Runs on pushes to master and ci/** branches.
+# Changes are verified on a short-lived ci/ branch before master is
+# fast-forwarded to that exact commit. Also runs on pushes to
 # release/X.Y.Z patch branches cut from a published tag (so release.yml's
 # exact-commit CI check can pass for a tag that is not on master), and on
 # pull requests. Uses only standard GitHub-hosted runners (ubuntu-latest,
@@ -11,7 +13,7 @@ name: CI
 # artifacts; this is a correctness gate, not a packaging job.
 on:
   push:
-    branches: [master, "release/**"]
+    branches: [master, "ci/**", "release/**"]
   pull_request:
     branches: [master]
 

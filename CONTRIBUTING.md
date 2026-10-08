@@ -385,8 +385,11 @@ Before every commit, run through this gate and stop if anything is unclear:
    or `.wgsl` source file must carry `// SPDX-License-Identifier: GPL-3.0-only`
    as its literal first line, enforced by `source_files_carry_gpl_spdx_header`
    in `tests/license_headers.rs`.
-2. **Run the test suite.** `cargo test --locked`, the full bounded and
-   deterministic battery; every executed assertion must pass. `--locked` keeps a
+2. **Run the test suite.** Run the full bounded battery with
+   `RUST_TEST_THREADS=1 cargo test --locked`, then with
+   `RUST_TEST_THREADS=4 cargo test --locked` to expose shared-state failures at
+   CI parallelism. Run touched test groups five times at `RUST_TEST_THREADS=4`.
+   Every executed assertion must pass. `--locked` keeps a
    dependency bump from silently rewriting `Cargo.lock` and passing locally while
    CI fails. Record unavailable, skipped, and ignored cases separately. If you
    touched the parser, core protocol handlers, or graphics surface, also run the
