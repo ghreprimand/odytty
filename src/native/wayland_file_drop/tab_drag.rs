@@ -44,6 +44,19 @@ pub(super) struct Shared {
 }
 
 impl Shared {
+    pub(super) fn admit_target(
+        &mut self,
+        owner_seat: u32,
+        seat: u32,
+        target: Option<DragTarget>,
+    ) -> bool {
+        if owner_seat != seat {
+            return false;
+        }
+        self.target = target;
+        true
+    }
+
     pub(super) fn note_drop(&mut self) {
         self.drop_target = self.target;
     }
@@ -336,6 +349,31 @@ mod tests {
             }],
             new_slot: None,
         }
+    }
+
+    #[test]
+    fn wayland_tab_target_motion_keeps_the_reserved_seat() {
+        let target = DragTarget {
+            window: 1,
+            generation: 2,
+            point: [4.0, 8.0],
+        };
+        let mut shared = Shared {
+            target: Some(target),
+            ..Shared::default()
+        };
+        let moved = DragTarget {
+            point: [16.0, 32.0],
+            ..target
+        };
+        assert!(!shared.admit_target(4, 5, Some(moved)));
+        assert_eq!(shared.target, Some(target));
+        assert!(!shared.admit_target(4, 5, None));
+        assert_eq!(shared.target, Some(target));
+        assert!(shared.admit_target(4, 4, Some(moved)));
+        assert_eq!(shared.target, Some(moved));
+        assert!(shared.admit_target(4, 4, None));
+        assert_eq!(shared.target, None);
     }
 
     fn captured(bridge: &TabDragBridge) -> WirePress {

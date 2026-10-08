@@ -309,12 +309,12 @@ impl TabProtocol {
         target: Option<DragTarget>,
         proxy: &EventLoopProxy<UserEvent>,
     ) {
-        if self
-            .drag
-            .as_ref()
-            .is_some_and(|drag| drag.press.seat == seat)
-        {
-            self.bridge.lock().target = target;
+        let admitted = self.drag.as_ref().is_some_and(|drag| {
+            self.bridge
+                .lock()
+                .admit_target(drag.press.seat, seat, target)
+        });
+        if admitted {
             self.wake(proxy);
         }
     }

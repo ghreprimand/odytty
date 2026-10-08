@@ -1446,7 +1446,9 @@ A failed replacement restores the source.
 The `xdg-toplevel-drag` transport captures the original seat, left-button serial,
 source surface incarnation, tab token and tab geometry. Missing or ambiguous
 capture retains release-time creation. The attached provisional toplevel cannot
-present its first buffer before the protocol acknowledgement. Compositor drop
+present its first buffer before the protocol acknowledgement. Attachment includes
+its strip origin at the destination display scale, preserving the grabbed tab
+point. Target updates require the initiating seat. Compositor drop
 completion commits once; raw pointer release and expected DnD focus changes do
 not commit or cancel custody. Return to the source strip restores held reorder;
 leaving it during DnD reattaches a fresh provisional window. Window placement

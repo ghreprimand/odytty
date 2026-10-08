@@ -1375,10 +1375,12 @@ scope rather than silently inheriting deferred work from a prior release.
   their selectors are capped at 128 UTF-8 bytes and reject IPC delimiters.
   Wayland with advertised xdg-toplevel-drag uses a seat-owned original button
   serial, source surface incarnation and tab token. The provisional toplevel
-  attaches before its first buffer, and only compositor drag completion commits
-  custody. Raw pointer release and expected DnD focus changes do not commit or
-  cancel it. Returning to the source strip restores reorder; leaving it during
-  DnD reattaches a fresh provisional toplevel. The protocol supplies window
+  attaches before its first buffer, using the destination strip origin and scale
+  to preserve the grabbed tab offset. Target updates belong to the initiating
+  seat, and only compositor drag completion commits custody. Raw pointer release
+  and expected DnD focus changes do not commit or cancel it. Returning to the
+  source strip restores reorder; leaving it during DnD reattaches a fresh
+  provisional toplevel. The protocol supplies window
   placement, without client-side global monitor clamping. A missing or ambiguous
   original press, disabled setting, withdrawn capability or failed creation
   retains release-time fallback or restores the source. One unresolved protocol

@@ -550,12 +550,19 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for Listener {
                 if let Some(offer) = state.core.current_enter_offer(device_id)
                     && state.tab_offers.contains(&offer)
                 {
-                    let mut shared = state.tab_drag.bridge.lock();
-                    if let Some(target) = shared.target.as_mut() {
-                        target.point = [x, y];
+                    if let Some(seat) = state
+                        .devices
+                        .iter()
+                        .find_map(|(seat, known)| (known.id() == device.id()).then_some(*seat))
+                    {
+                        let target = state.tab_drag.bridge.lock().target.map(|target| {
+                            tab_drag::DragTarget {
+                                point: [x, y],
+                                ..target
+                            }
+                        });
+                        state.tab_drag.target(seat, target, &state.proxy);
                     }
-                    drop(shared);
-                    state.tab_drag.wake(&state.proxy);
                     return;
                 }
                 // Re-assert the Copy preference so a compositor that renegotiates

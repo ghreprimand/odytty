@@ -163,13 +163,22 @@ impl MultiWindowHost {
         else {
             return false;
         };
-        let Some(destination) = self
-            .index_of(drag.destination)
-            .and_then(|index| self.windows[index].window.clone())
+        let Some(index) = self.index_of(drag.destination) else {
+            return false;
+        };
+        let app = &self.windows[index];
+        let Some(destination) = app.window.clone() else {
+            return false;
+        };
+        let Some(geometry) = app
+            .resolved_cell()
+            .and_then(|cell| app.top_strip_geom(cell))
         else {
             return false;
         };
-        let Some(offset) = logical_offset(drag.offset) else {
+        let Some(offset) =
+            attachment_offset(drag.offset, geometry.band, destination.scale_factor())
+        else {
             return false;
         };
         let queued = bridge.attach(press, source, destination, offset);
@@ -496,6 +505,15 @@ fn region_for(app: &App) -> Option<DragRegion> {
     })
 }
 
+// The grab is tab-local in logical pixels. Attach uses destination window
+// geometry, so its physical strip origin is divided by the destination scale.
+fn attachment_offset(offset: [f64; 2], band: PxRect, scale: f64) -> Option<[i32; 2]> {
+    if !scale.is_finite() || !(0.25..=8.0).contains(&scale) {
+        return None;
+    }
+    logical_offset([offset[0] + band.x / scale, offset[1] + band.y / scale])
+}
+
 fn logical_offset(offset: [f64; 2]) -> Option<[i32; 2]> {
     offset
         .into_iter()
@@ -636,6 +654,46 @@ mod tests {
         assert!(!host.target_in_source_strip(Some(target), drag.source, drag.strip));
         assert!(host.live_drag.is_some());
         host.cancel_live_tab();
+    }
+
+    #[test]
+    fn wayland_tab_attachment_preserves_destination_padding_and_rail_origin() {
+        let band = PxRect {
+            x: 96.0,
+            y: 12.0,
+            width: 800.0,
+            height: 32.0,
+        };
+        // The grab offset has already been divided by the source scale.
+        // Only the destination strip origin uses the destination scale.
+        assert_eq!(attachment_offset([9.5, 4.25], band, 1.0), Some([106, 16]));
+        assert_eq!(attachment_offset([9.5, 4.25], band, 2.0), Some([58, 10]));
+        assert_eq!(attachment_offset([9.5, 4.25], band, 1.5), Some([74, 12]));
+        let zero = PxRect {
+            x: 0.0,
+            y: 0.0,
+            ..band
+        };
+        assert_eq!(attachment_offset([9.5, 4.25], zero, 2.0), Some([10, 4]));
+    }
+
+    #[test]
+    fn wayland_tab_attachment_rejects_invalid_destination_geometry() {
+        let band = PxRect {
+            x: 96.0,
+            y: 12.0,
+            width: 800.0,
+            height: 32.0,
+        };
+        for scale in [0.0, 0.24, 8.01, f64::NAN, f64::INFINITY] {
+            assert_eq!(attachment_offset([1.0, 2.0], band, scale), None);
+        }
+        for x in [f64::NAN, f64::INFINITY, -100.0, 65536.0] {
+            assert_eq!(
+                attachment_offset([1.0, 2.0], PxRect { x, ..band }, 1.0),
+                None
+            );
+        }
     }
 
     #[test]
