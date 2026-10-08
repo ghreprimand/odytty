@@ -565,21 +565,27 @@ fn temp_transport_rejects_symlink() {
 fn shm_transport_rgba_2x2() {
     let shm = OwnedShmFixture::create(&[0xFF_u8; 16]);
     let name = shm.name();
+    // The transport unlinks only where the platform reports an object number.
+    let provable = super::kitty_transport::shm_identity(shm.fd.as_raw_fd())
+        .is_some_and(|id| super::kitty_transport::shm_identity_proves_object(&id));
 
     let mut t = named_transport_terminal();
     let apc = kitty_shm_apc(name, 32, 2, 2);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1, "shm image placed");
 
-    // Segment should already be unlinked by the transport.
     let c_name = CString::new(name).unwrap();
     let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_RDONLY, 0) };
     if fd >= 0 {
         unsafe {
             libc::close(fd);
         }
-        panic!("shm segment should have been unlinked");
     }
+    assert_eq!(
+        fd >= 0,
+        !provable,
+        "the segment is unlinked exactly where its identity is provable"
+    );
 }
 
 #[test]

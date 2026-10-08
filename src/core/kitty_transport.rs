@@ -15,12 +15,14 @@
 //!    `/etc/shadow` or `~/.ssh/id_rsa`. The final component is never followed:
 //!    Unix opens it with `O_NOFOLLOW`, and Windows opens the reparse point
 //!    itself and rejects a handle carrying the reparse-point attribute. The
-//!    directory is bound to the object that passed the temp-root check: Unix
-//!    opens the directory, requires its canonical path to name that same open
-//!    directory inside an allowed root, and opens the file relative to the
-//!    directory handle. Windows requires the opened file handle's own final
-//!    location to lie inside an allowed root. A directory swapped after the
-//!    check therefore cannot redirect the read.
+//!    directory is bound to the path that passed the temp-root check: Unix
+//!    checks containment on the parent's canonical path, then opens that
+//!    directory by walking each canonical component from `/` with
+//!    `O_NOFOLLOW`, and opens the file relative to the resulting handle. A
+//!    link planted anywhere on the way refuses admission. Windows requires the
+//!    opened file handle's own final location to lie inside an allowed root.
+//!    A directory swapped during or after the check therefore cannot redirect
+//!    the read.
 //!
 //! 3. **Decode bombs**: a 1-byte file claiming to be a 100MP PNG.
 //!    Mitigated by enforcing the ImageStore byte cap on the raw file read
@@ -31,13 +33,18 @@
 //!    size cap, then unlinking only after the read succeeds.
 //!
 //! 5. **Rebound names at deletion**: between the read and the deletion a name
-//!    could be rebound to another object. Deletion targets only the object
+//!    could be rebound to another object. Deletion is aimed at the object
 //!    that was read: Unix compares the name's current object with the open
 //!    descriptor and unlinks relative to the admitted directory, and Windows
-//!    deletes through the open handle itself. A rebound name is retained and
-//!    the transfer fails with `EPERM:object-changed`. For shared memory the
-//!    comparison is only as strong as the identity `fstat` reports; see
-//!    `shm_name_binds_fd` for the macOS limit.
+//!    deletes through the open handle itself. A name found rebound is
+//!    retained and the transfer fails with `EPERM:object-changed`. POSIX has
+//!    no unlink by descriptor, so on Unix a process able to replace entries in
+//!    the admitted directory (or in the shared-memory namespace) can still
+//!    rebind the name between that comparison and the unlink, which then
+//!    removes whatever entry was placed under the name. Shared memory is
+//!    unlinked only where `fstat` reports an object number for it; where it
+//!    does not, owner, mode and size cannot prove identity, so the name is
+//!    retained and the read stands.
 //!
 //! ## Design choices stricter than Kitty proper
 //!
@@ -61,8 +68,8 @@
 //!   macOS reports a shared-memory object's size rounded up to a whole page,
 //!   so that size can exceed both the payload and the read cap. It calls
 //!   `shm_unlink` only after the bytes were read within the size cap and
-//!   while the name still binds the object that was read. Image decoding
-//!   happens later. Rejected objects retain their names.
+//!   while the name provably still binds the object that was read. Image
+//!   decoding happens later. Rejected objects retain their names.
 
 #[cfg(unix)]
 use std::ffi::CString;
@@ -165,7 +172,7 @@ fn inside_allowed_root(canonical_dir: &Path) -> bool {
 /// directory object rather than to a later resolution of its pathname.
 ///
 /// Unix keeps the admitted directory open: the file is opened and later deleted
-/// relative to that handle, and the handle must be the same directory as the
+/// relative to that handle, which was reached by a link-free walk of the
 /// canonical path that passed containment. Windows opens the file by its
 /// canonical path and then verifies the opened handle's own final location, and
 /// deletes through that handle.
@@ -182,38 +189,75 @@ struct AdmittedPath {
 #[cfg(unix)]
 fn admit_path(path: &Path) -> Result<AdmittedPath, TransportError> {
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
     let parent = path.parent().ok_or(TransportError::InvalidPath)?;
     let file_name = path.file_name().ok_or(TransportError::InvalidPath)?;
-    // Open the directory first, then canonicalize and require that the
-    // canonical path still names the opened directory. A swap before the open
-    // shows up in the canonical path; a swap after the open cannot affect the
-    // handle every later operation uses.
-    let dir = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY)
-        .open(parent)
-        .map_err(|e| TransportError::IoError(format!("open parent: {e}")))?;
+    // The canonical parent only names the components to walk. Containment is
+    // checked on that name, and the directory handle is then obtained by
+    // walking exactly those components from `/` without following any link,
+    // so the handle cannot come from a path other than the one admitted.
     let canonical_parent = std::fs::canonicalize(parent)
         .map_err(|e| TransportError::IoError(format!("canonicalize parent: {e}")))?;
+    #[cfg(test)]
+    test_hooks::fire(test_hooks::Stage::DuringAdmission);
     if !inside_allowed_root(&canonical_parent) {
         return Err(TransportError::PathNotAllowed);
     }
-    let held = dir
-        .metadata()
-        .map_err(|e| TransportError::IoError(format!("parent metadata: {e}")))?;
-    let named = std::fs::metadata(&canonical_parent)
-        .map_err(|e| TransportError::IoError(format!("parent metadata: {e}")))?;
-    if (held.dev(), held.ino()) != (named.dev(), named.ino()) {
-        return Err(TransportError::PathNotAllowed);
-    }
+    let dir = open_directory_without_links(&canonical_parent)?;
     let name = CString::new(file_name.as_bytes()).map_err(|_| TransportError::InvalidPath)?;
     Ok(AdmittedPath {
         canonical: canonical_parent.join(file_name),
         dir,
         name,
     })
+}
+
+/// Open the directory named by an absolute canonical path one component at a
+/// time, each relative to the previous handle and with `O_NOFOLLOW`. A link or
+/// non-directory anywhere on the way, including one planted after the
+/// canonical path was computed, refuses admission. Linux opens each step with
+/// `O_PATH`, so search permission suffices as it does for path resolution.
+#[cfg(unix)]
+fn open_directory_without_links(canonical: &Path) -> Result<std::fs::File, TransportError> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Component;
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    const ACCESS: libc::c_int = libc::O_PATH;
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    const ACCESS: libc::c_int = libc::O_RDONLY;
+    const FLAGS: libc::c_int = ACCESS | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+
+    let open_at = |dirfd: libc::c_int, name: &CString| {
+        // SAFETY: `name` is a valid C string and `dirfd` is AT_FDCWD or an
+        // open directory descriptor owned by the caller.
+        let fd = unsafe { libc::openat(dirfd, name.as_ptr(), FLAGS) };
+        if fd < 0 {
+            let e = std::io::Error::last_os_error();
+            return Err(match e.raw_os_error() {
+                Some(libc::ELOOP | libc::ENOTDIR) => TransportError::PathNotAllowed,
+                _ => TransportError::IoError(format!("open directory: {e}")),
+            });
+        }
+        // SAFETY: `fd` is a freshly opened descriptor owned by nothing else.
+        Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    };
+
+    let mut components = canonical.components();
+    if components.next() != Some(Component::RootDir) {
+        return Err(TransportError::PathNotAllowed);
+    }
+    let root = CString::new("/").map_err(|_| TransportError::InvalidPath)?;
+    let mut dir = open_at(libc::AT_FDCWD, &root)?;
+    for component in components {
+        let Component::Normal(step) = component else {
+            return Err(TransportError::PathNotAllowed);
+        };
+        let step = CString::new(step.as_bytes()).map_err(|_| TransportError::InvalidPath)?;
+        dir = open_at(dir.as_raw_fd(), &step)?;
+    }
+    Ok(dir)
 }
 
 #[cfg(windows)]
@@ -276,10 +320,12 @@ fn open_admitted(admitted: &AdmittedPath) -> Result<std::fs::File, TransportErro
     }
 }
 
-/// Delete the name of a file that was read, only while it still names the
-/// object that was read. A name that no longer exists leaves nothing to delete.
-/// A name rebound to another object is retained and reported as
-/// [`TransportError::ObjectChanged`]. A failed unlink stays best-effort.
+/// Delete the name of a file that was read, after checking that it still names
+/// the object that was read (Windows deletes through the handle itself). A name
+/// that no longer exists leaves nothing to delete. A name rebound to another
+/// object is retained and reported as [`TransportError::ObjectChanged`]. A
+/// rebinding between the Unix check and the unlink is not detected. A failed
+/// unlink stays best-effort.
 fn delete_admitted(admitted: &AdmittedPath, file: &std::fs::File) -> Result<(), TransportError> {
     #[cfg(test)]
     test_hooks::fire(test_hooks::Stage::BeforeDelete);
@@ -315,8 +361,9 @@ fn delete_admitted(admitted: &AdmittedPath, file: &std::fs::File) -> Result<(), 
         if (bound.dev(), bound.ino()) != (read_object.dev(), read_object.ino()) {
             return Err(TransportError::ObjectChanged);
         }
-        // POSIX has no unlink-by-descriptor. The remaining window between this
-        // check and the unlink is confined to the admitted directory handle.
+        // POSIX has no unlink-by-descriptor. A process able to replace entries
+        // in the admitted directory can still rebind the name between this
+        // check and the unlink; the unlink stays relative to that directory.
         unsafe {
             libc::unlinkat(admitted.dir.as_raw_fd(), admitted.name.as_ptr(), 0);
         }
@@ -435,7 +482,8 @@ pub(super) fn read_file_transport(
 /// Read and then delete a temp file (t=t). The file is deleted *before*
 /// returning the data, so even if later decode fails the temp file is gone.
 /// A path rejected before a successful regular-file read is never deleted, and
-/// deletion targets only the object that was read.
+/// a name found bound to another object is retained; see `delete_admitted`
+/// for the window Unix cannot close.
 ///
 /// `max_read` is the maximum bytes to read.
 pub(super) fn read_temp_transport(
@@ -463,8 +511,8 @@ pub(super) fn read_temp_transport(
 
 /// Read image data from a POSIX shared memory segment. The segment is opened
 /// read-only and unlinked only after its bytes were read within the size cap,
-/// and only while the name still binds the object that was read. The name
-/// must contain no path separators: it is passed directly to `shm_open`.
+/// and only while the name provably still binds the object that was read; see
+/// [`shm_identity_proves_object`]. The name must contain no path separators: it is passed directly to `shm_open`.
 ///
 /// `max_read` is the maximum bytes to read. `wanted` is the payload length the
 /// command transmitted, when known; see [`shm_read_len`].
@@ -513,8 +561,12 @@ pub(super) fn read_shm_transport(
         #[cfg(test)]
         test_hooks::fire(test_hooks::Stage::BeforeDelete);
         // Only content that was read earns the destructive protocol side
-        // effect, and only while the name still binds the object that was read.
-        if shm_name_binds_fd(&c_name, fd)? {
+        // effect, and only while the name provably still binds the object that
+        // was read. Without an object number nothing proves that, so the name
+        // is retained.
+        if shm_identity(fd).is_some_and(|id| shm_identity_proves_object(&id))
+            && shm_name_binds_fd(&c_name, fd)?
+        {
             unsafe {
                 libc::shm_unlink(c_name.as_ptr());
             }
@@ -535,11 +587,8 @@ pub(super) fn read_shm_transport(
 /// to a different object, or one that cannot be reopened for comparison, is
 /// [`TransportError::ObjectChanged`] and is retained.
 ///
-/// The comparison covers device, object number, owner, mode and size. Linux
-/// reports a device and object number for shared memory. Where a platform
-/// reports zero for both, only owner, mode and size remain, and macOS rounds
-/// the size up to a whole page, so there a replacement object with the same
-/// owner, mode and page count is indistinguishable from the one that was read.
+/// The comparison covers device, object number, owner, mode and size, and the
+/// caller reaches it only when [`shm_identity_proves_object`] holds for `fd`.
 #[cfg(unix)]
 fn shm_name_binds_fd(name: &CString, fd: i32) -> Result<bool, TransportError> {
     let other = unsafe { libc::shm_open(name.as_ptr(), libc::O_RDONLY, 0) };
@@ -551,7 +600,8 @@ fn shm_name_binds_fd(name: &CString, fd: i32) -> Result<bool, TransportError> {
         };
     }
     let read_object = shm_identity(fd);
-    let same = read_object.is_some() && read_object == shm_identity(other);
+    let same = read_object.is_some_and(|id| shm_identity_proves_object(&id))
+        && read_object == shm_identity(other);
     unsafe {
         libc::close(other);
     }
@@ -562,8 +612,22 @@ fn shm_name_binds_fd(name: &CString, fd: i32) -> Result<bool, TransportError> {
     }
 }
 
+/// Device, object number, owner, mode and size of an open shared-memory object.
 #[cfg(unix)]
-fn shm_identity(fd: i32) -> Option<(u64, u64, u32, u32, u64)> {
+pub(super) type ShmIdentity = (u64, u64, u32, u32, u64);
+
+/// Whether an identity can tell its object apart from a replacement. Linux
+/// reports an object number for shared memory. A platform that reports none
+/// leaves only owner, mode and size, which a different object can share (macOS
+/// also rounds that size up to a whole page), so such an identity never
+/// authorizes an unlink.
+#[cfg(unix)]
+pub(super) fn shm_identity_proves_object(identity: &ShmIdentity) -> bool {
+    identity.1 != 0
+}
+
+#[cfg(unix)]
+pub(super) fn shm_identity(fd: i32) -> Option<ShmIdentity> {
     use std::os::fd::FromRawFd;
     use std::os::unix::fs::MetadataExt;
     // SAFETY: the descriptor stays owned by the caller; ManuallyDrop keeps the
@@ -946,6 +1010,10 @@ pub(super) mod test_hooks {
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub(in crate::core) enum Stage {
+        /// Unix: the parent's canonical path was computed; containment and the
+        /// directory walk have not happened yet.
+        #[cfg_attr(not(unix), allow(dead_code))]
+        DuringAdmission,
         /// The directory passed the temp-root check; the file is not open yet.
         AfterAdmission,
         /// The bytes were read; deletion of the name has not happened yet.

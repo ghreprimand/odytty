@@ -345,7 +345,9 @@ attacker-chosen bytes to process execution.
   enforced before any decode attempt, so a small file claiming enormous
   dimensions cannot become a decode bomb. Objects are opened read-only, then
   validated for size and content, and only then unlinked — a rejected object
-  keeps its name rather than being destroyed by a failed read. Paths must be
+  keeps its name rather than being destroyed by a failed read. The unlink also
+  requires the name to still bind the object that was read, proven by its
+  object number; where the platform reports none, the name is retained. Paths must be
   valid UTF-8 with no embedded null bytes.
 - **Failure behavior:** validation failure produces the standard protocol error
   response. Rejected objects are not unlinked.
@@ -379,7 +381,9 @@ the reference implementation.
   Windows the canonicalized system temporary directory (`allowed_temp_dirs`,
   `src/core/kitty_transport.rs`). Containment is verified by canonicalizing the
   *parent* directory and checking the prefix, because the file itself may not
-  exist at validation time. Files are opened with `O_NOFOLLOW` on Unix so the
+  exist at validation time. On Unix the directory is then opened by walking
+  those canonical components from `/` with `O_NOFOLLOW`, so a link planted on
+  the path after the check refuses the transfer. Files are opened with `O_NOFOLLOW` on Unix so the
   kernel rejects symlinks. Windows opens the final component with
   `FILE_FLAG_OPEN_REPARSE_POINT` and rejects an opened handle carrying
   `FILE_ATTRIBUTE_REPARSE_POINT`. Both checks prevent a final-component link

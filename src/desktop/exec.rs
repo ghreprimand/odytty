@@ -14,7 +14,9 @@
 //! into a shell string by OdyTTY.
 //!
 //! One argv element is not enough on its own: an entry such as
-//! `sh -c "eog %f"` would hand the path to a shell as code. Field codes inside
+//! `sh -c "eog %f"` or `sh -c %f` would hand the path to a shell as code.
+//! An entry whose file value lands in a recognized interpreter's code argument
+//! is refused; `code_args` lists the recognized forms. Field codes inside
 //! a quoted argument are undefined by the Desktop Entry specification, and
 //! `%F`/`%U` may only stand alone, so an entry using either form is refused
 //! before any argv is built. The specification also makes an entry with an
@@ -50,6 +52,9 @@ fn file_uri(abs: &str) -> String {
 /// * any field code other than `%%` in a token that contains quoted text,
 ///   such as `sh -c "eog %f"` or `"eog "%f`;
 /// * `%F` or `%U` inside a longer token, such as `--files=%F`;
+/// * the file value landing in a recognized interpreter's code argument,
+///   such as `sh -c %f`, `python3 -c %f`, `perl -e%f`, or an entry without
+///   a field code whose appended path would land there (`sh -c`);
 /// * no program token, or a program token that is empty or carries any field
 ///   code other than `%%` (`Exec=%f`, `Exec=%i %f`, `Exec=viewer%f`): the
 ///   selected file must never become, or replace, the program.
@@ -75,10 +80,13 @@ pub fn exec_to_argv(exec: &str, abs: &str) -> Option<Vec<String>> {
     let program = program_text(tokens.first()?)?;
     let uri = file_uri(abs);
     let mut argv: Vec<String> = Vec::new();
+    // Which argv elements carry the selected file's value.
+    let mut carries_path: Vec<bool> = Vec::new();
     let mut saw_path = false;
 
     for token in &tokens {
         let mut out = String::new();
+        let mut carries = false;
         let mut chars = token.text.chars();
         while let Some(c) = chars.next() {
             if c != '%' {
@@ -90,10 +98,12 @@ pub fn exec_to_argv(exec: &str, abs: &str) -> Option<Vec<String>> {
                 Some('f' | 'F') => {
                     out.push_str(abs);
                     saw_path = true;
+                    carries = true;
                 }
                 Some('u' | 'U') => {
                     out.push_str(&uri);
                     saw_path = true;
+                    carries = true;
                 }
                 // Stripped codes (icon / translated-name / desktop-file path and
                 // the deprecated set): contribute nothing.
@@ -108,13 +118,20 @@ pub fn exec_to_argv(exec: &str, abs: &str) -> Option<Vec<String>> {
             continue;
         }
         argv.push(out);
+        carries_path.push(carries);
     }
 
     if !saw_path {
         argv.push(abs.to_owned());
+        carries_path.push(true);
     }
     // Refuse any mapping that lost or changed the program token.
     if argv.first() != Some(&program) {
+        return None;
+    }
+    // Refuse a mapping that hands the file value to a recognized interpreter
+    // as code rather than as a file operand.
+    if super::code_args::reaches_code_argument(&argv, &carries_path) {
         return None;
     }
     Some(argv)

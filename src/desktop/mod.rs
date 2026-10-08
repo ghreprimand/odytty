@@ -19,6 +19,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+mod code_args;
 mod exec;
 mod macos_apps;
 mod parse;

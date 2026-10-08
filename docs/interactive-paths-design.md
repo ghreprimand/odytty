@@ -472,7 +472,14 @@ or an unterminated double quote makes the entry invalid under the same
 specification, and it is refused the same way. The first token is the program:
 an entry whose program token is missing or empty, or carries any field code
 other than `%%` (`Exec=%f`, `Exec=%i %f`), is refused, so the selected file can
-never become the program.
+never become the program. After expansion, an entry whose file value lands in a
+recognized interpreter's code argument is refused too: the argument after a
+shell's `-c` (`sh -c %f`, `bash -lc %f`, also behind `env` or another wrapper),
+an option-code argument such as `python3 -c`, `perl -e`, `node --eval` or
+`php -r`, the program operand of `awk` or `sed`, `env -S`, and any file value
+after `ssh`. `src/desktop/code_args.rs` lists the recognized interpreters;
+programs outside that list that read an argument as code are not recognized.
+Running the selected file itself (`sh %f`) remains a file operand.
 
 The expanded argv flows into the shared C3 `spawn_detached` (argv-only,
 null stdio) — so a path containing spaces, `;`, `$()`, or backticks is one inert

@@ -156,6 +156,96 @@ fn ancestor_swapped_after_admission_cannot_redirect_the_read() {
     );
 }
 
+/// Swap `link` between a symlink to `/etc` and the real directory parked at
+/// `held`, once per admission interleaving point.
+#[cfg(unix)]
+fn toggle_link(link: &Path, held: &Path) {
+    if std::fs::symlink_metadata(link).is_ok_and(|m| m.file_type().is_symlink()) {
+        std::fs::remove_file(link).expect("remove planted link");
+        std::fs::rename(held, link).expect("restore admitted directory");
+    } else {
+        std::fs::rename(link, held).expect("park admitted directory");
+        std::os::unix::fs::symlink("/etc", link).expect("plant ancestor link");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn ancestor_flipped_during_admission_cannot_redirect_the_read() {
+    let outside = std::fs::read("/etc/passwd").expect("read the outside control file");
+    assert_ne!(outside, ADMITTED);
+
+    let fixture = FixtureDir::new("admit-flip");
+    let held = fixture.child_dir("stage-held");
+    std::fs::write(held.join("passwd"), ADMITTED).expect("seed admitted file");
+    let stage = fixture.0.join("stage");
+    std::os::unix::fs::symlink("/etc", &stage).expect("plant ancestor link");
+    // An adversary flips the ancestor at every admission interleaving point:
+    // a link when the directory is resolved or opened, the real directory when
+    // its containment is judged.
+    let (link, park) = (stage.clone(), held.clone());
+    let _hook = test_hooks::install(move |point| {
+        if point == Stage::DuringAdmission {
+            toggle_link(&link, &park);
+        }
+    });
+
+    let result = transport::read_file_transport(&path_bytes(&stage.join("passwd")), 1 << 20);
+    assert_ne!(
+        result,
+        Ok(outside),
+        "admission must not hand out a directory outside the temp roots"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn ancestor_swapped_during_admission_refuses_the_path() {
+    let fixture = FixtureDir::new("admit-swap");
+    let stage = fixture.child_dir("stage");
+    std::fs::write(stage.join("passwd"), ADMITTED).expect("seed admitted file");
+    let held = fixture.0.join("stage-held");
+    let (link, park) = (stage.clone(), held.clone());
+    let _hook = test_hooks::install(move |point| {
+        if point == Stage::DuringAdmission {
+            toggle_link(&link, &park);
+        }
+    });
+
+    let result = transport::read_file_transport(&path_bytes(&stage.join("passwd")), 1 << 20);
+    assert_eq!(
+        result,
+        Err(TransportError::PathNotAllowed),
+        "a link planted on the admitted path after it was resolved refuses admission"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn temp_name_rebound_with_equal_metadata_keeps_the_new_object() {
+    let fixture = FixtureDir::new("temp-equal");
+    let path = fixture.0.join("tty-graphics-protocol-equal.dat");
+    std::fs::write(&path, ADMITTED).expect("seed fixture file");
+    let moved = fixture.0.join("moved-original.dat");
+    let rebound = path.clone();
+    let replacement = vec![b'u'; ADMITTED.len()];
+    let expected = replacement.clone();
+    let _hook = test_hooks::install(move |point| {
+        if point == Stage::BeforeDelete {
+            std::fs::rename(&rebound, &moved).expect("move the file that was read");
+            std::fs::write(&rebound, &replacement).expect("rebind the name");
+        }
+    });
+
+    let result = transport::read_temp_transport(&path_bytes(&path), 4096);
+    assert_eq!(
+        std::fs::read(&path).ok(),
+        Some(expected),
+        "an equal-size replacement must not be deleted"
+    );
+    assert_eq!(result, Err(TransportError::ObjectChanged));
+}
+
 #[cfg(unix)]
 #[test]
 fn temp_name_rebound_before_deletion_keeps_the_new_object() {
@@ -216,6 +306,7 @@ fn temp_directory_swapped_before_deletion_keeps_the_other_directory_intact() {
 mod shm {
     use super::*;
     use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
     /// An exclusively created shared-memory name, unlinked by the guard.
     pub(super) struct ShmFixture(pub(super) CString);
@@ -230,8 +321,11 @@ mod shm {
                 NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
             );
             let name = CString::new(name).expect("shm name");
-            create_exclusive(&name, data);
-            Self(name)
+            let fd = open_exclusive(&name);
+            // The guard owns the name before any sizing or mapping can fail.
+            let fixture = Self(name);
+            fill(fd, data);
+            fixture
         }
 
         pub(super) fn exists(&self) -> bool {
@@ -242,6 +336,17 @@ mod shm {
             unsafe { libc::close(fd) };
             true
         }
+
+        /// Whether the platform reports an object number for this object, the
+        /// condition under which the transport unlinks a name after a read.
+        pub(super) fn identity_proves_object(&self) -> bool {
+            let fd = unsafe { libc::shm_open(self.0.as_ptr(), libc::O_RDONLY, 0) };
+            assert!(fd >= 0, "reopen the owned fixture");
+            // SAFETY: successful shm_open transfers this descriptor to OwnedFd.
+            let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+            transport::shm_identity(fd.as_raw_fd())
+                .is_some_and(|id| transport::shm_identity_proves_object(&id))
+        }
     }
 
     impl Drop for ShmFixture {
@@ -250,7 +355,9 @@ mod shm {
         }
     }
 
-    pub(super) fn create_exclusive(name: &CString, data: &[u8]) {
+    /// Exclusively create `name`. The returned descriptor closes on every exit;
+    /// the caller's guard owns the name.
+    pub(super) fn open_exclusive(name: &CString) -> OwnedFd {
         let fd = unsafe {
             libc::shm_open(
                 name.as_ptr(),
@@ -259,8 +366,21 @@ mod shm {
             )
         };
         assert!(fd >= 0, "exclusive shm_open for an owned fixture name");
+        // SAFETY: successful shm_open transfers this descriptor to OwnedFd.
+        unsafe { OwnedFd::from_raw_fd(fd) }
+    }
+
+    /// Size an owned object and copy `data` into it through a guarded mapping.
+    pub(super) fn fill(fd: OwnedFd, data: &[u8]) {
+        struct Mapping(*mut libc::c_void, usize);
+        impl Drop for Mapping {
+            fn drop(&mut self) {
+                unsafe { libc::munmap(self.0, self.1) };
+            }
+        }
+
         assert_eq!(
-            unsafe { libc::ftruncate(fd, data.len() as libc::off_t) },
+            unsafe { libc::ftruncate(fd.as_raw_fd(), data.len() as libc::off_t) },
             0,
             "size the owned fixture"
         );
@@ -270,26 +390,55 @@ mod shm {
                 data.len(),
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED,
-                fd,
+                fd.as_raw_fd(),
                 0,
             )
         };
         assert!(addr != libc::MAP_FAILED, "map the owned fixture");
+        let mapping = Mapping(addr, data.len());
         unsafe {
-            std::ptr::copy_nonoverlapping(data.as_ptr(), addr.cast::<u8>(), data.len());
-            libc::munmap(addr, data.len());
-            libc::close(fd);
+            std::ptr::copy_nonoverlapping(data.as_ptr(), mapping.0.cast::<u8>(), data.len());
         }
+    }
+
+    /// Exclusively create `name` holding `data`; the caller's guard owns the name.
+    pub(super) fn create_exclusive(name: &CString, data: &[u8]) {
+        fill(open_exclusive(name), data);
+    }
+
+    #[test]
+    fn an_identity_without_an_object_number_never_authorizes_an_unlink() {
+        // Owner, mode and size alone, as a platform reporting no object number
+        // for shared memory leaves them, are shared by a same-sized replacement.
+        let equal_metadata: transport::ShmIdentity = (0, 0, 1000, 0o100600, 16384);
+        assert!(!transport::shm_identity_proves_object(&equal_metadata));
+        let numbered: transport::ShmIdentity = (23, 4242, 1000, 0o100600, 16384);
+        assert!(transport::shm_identity_proves_object(&numbered));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_reports_an_object_number_for_shared_memory() {
+        let fixture = ShmFixture::new("n", ADMITTED);
+        assert!(
+            fixture.identity_proves_object(),
+            "Linux keeps identity-checked unlinking for t=s"
+        );
     }
 
     #[test]
     fn shm_read_unlinks_the_object_that_was_read() {
         let fixture = ShmFixture::new("r", ADMITTED);
+        let provable = fixture.identity_proves_object();
         assert_eq!(
             transport::read_shm_transport(fixture.0.as_bytes(), 4096, Some(ADMITTED.len())),
             Ok(ADMITTED.to_vec())
         );
-        assert!(!fixture.exists(), "the object that was read is unlinked");
+        assert_eq!(
+            fixture.exists(),
+            !provable,
+            "the object that was read is unlinked exactly where its identity is provable"
+        );
     }
 
     #[test]
@@ -311,10 +460,10 @@ mod shm {
     #[test]
     fn shm_name_rebound_before_unlink_keeps_the_new_object() {
         let fixture = ShmFixture::new("b", ADMITTED);
+        let provable = fixture.identity_proves_object();
         let name = fixture.0.clone();
-        // A size in a different page count keeps the rebinding detectable even
-        // where the platform reports no object number for shared memory and
-        // rounds the reported size up to a whole page (macOS).
+        // A replacement in a different page count, so that size alone would
+        // tell the objects apart.
         let page = usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).unwrap();
         let replacement = vec![b'u'; 2 * page + 1];
         let _hook = test_hooks::install(move |point| {
@@ -330,6 +479,46 @@ mod shm {
             fixture.exists(),
             "unlink must not remove an object other than the one that was read"
         );
-        assert_eq!(result, Err(TransportError::ObjectChanged));
+        if provable {
+            assert_eq!(result, Err(TransportError::ObjectChanged));
+        } else {
+            assert_eq!(
+                result,
+                Ok(ADMITTED.to_vec()),
+                "the name is retained and the read stands"
+            );
+        }
+    }
+
+    #[test]
+    fn shm_name_rebound_with_equal_metadata_keeps_the_new_object() {
+        let fixture = ShmFixture::new("e", ADMITTED);
+        let provable = fixture.identity_proves_object();
+        let name = fixture.0.clone();
+        // Same owner, mode and size as the object that was read: only an
+        // object number can tell the two apart.
+        let replacement = vec![b'u'; ADMITTED.len()];
+        let _hook = test_hooks::install(move |point| {
+            if point == Stage::BeforeDelete {
+                unsafe { libc::shm_unlink(name.as_ptr()) };
+                create_exclusive(&name, &replacement);
+            }
+        });
+
+        let result =
+            transport::read_shm_transport(fixture.0.as_bytes(), 4096, Some(ADMITTED.len()));
+        assert!(
+            fixture.exists(),
+            "an equal-metadata replacement must never be unlinked"
+        );
+        if provable {
+            assert_eq!(result, Err(TransportError::ObjectChanged));
+        } else {
+            assert_eq!(
+                result,
+                Ok(ADMITTED.to_vec()),
+                "the name is retained and the read stands"
+            );
+        }
     }
 }

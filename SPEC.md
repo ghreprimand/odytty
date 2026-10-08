@@ -416,7 +416,8 @@ transports default off and are rejected before host I/O unless
 `kitty_named_transports` enables them. Once enabled, file paths remain limited
 to approved temporary roots, Unix opens no-follow regular-file handles without
 blocking on FIFOs, `t=t` requires its protocol marker before deletion, and
-`t=s` unlinks only after validation succeeds. POSIX shared memory is unsupported
+`t=s` unlinks only after validation succeeds and only where an object number
+proves the name still binds the object read. POSIX shared memory is unsupported
 on Windows. File transports carry the fuller security rationale in
 [`docs/graphics.md`](docs/graphics.md). Chunked transfer (`m=1`/`m=0`) is supported under a 96 MiB
 encoded-payload cap.
@@ -2029,7 +2030,8 @@ scope rather than silently inheriting deferred work from a prior release.
 
   Every open routes through a single argv-only detached-spawn point — never
   `sh -c` — so a filename containing `;`, `$()`, backticks, or spaces is an inert
-  argv element.
+  argv element. A desktop entry that would hand the file to a recognized
+  interpreter as code (such as `sh -c %f` or `python3 -c %f`) is not offered.
 
 - In-app image lightbox: Ctrl+clicking a resolved `png`/`jpg`/`jpeg`/`webp` path
   on Linux/Windows, Cmd+clicking it on macOS, or choosing **Open in OdyTTY** opens

@@ -351,11 +351,12 @@ Kitty's.
 
 On Unix, files are opened with `O_NOFOLLOW`. A symlink inside `/tmp` pointing to
 `/etc/shadow` or any other file is rejected at the kernel open call, before
-any data is read. The directory is bound to the object that passed the
-allowlist check: OdyTTY opens the directory, requires its canonical path to
-name that same open directory inside an allowlisted root, and opens the file
-relative to the directory handle. A directory swapped for a link after the
-check therefore cannot redirect the read.
+any data is read. The directory is bound to the path that passed the
+allowlist check: OdyTTY checks containment on the parent's canonical path, then
+opens that directory by walking each of its components from `/` with
+`O_NOFOLLOW`, and opens the file relative to the resulting handle. A link
+planted anywhere on the path during or after the check refuses the transfer
+with `EPERM:path-not-allowed` instead of redirecting the read.
 
 On Windows, the file is opened as the reparse point itself and a handle that
 carries the reparse-point attribute is rejected, so a final-component link is
@@ -382,9 +383,11 @@ are never deleted. Deletion targets only the file that was read: on Unix the
 name is unlinked relative to the admitted directory handle, and only while it
 still names the object that was read; on Windows the open handle itself is
 marked for deletion. If the name was rebound to another object in between, that
-object is kept and the transfer fails with `EPERM:object-changed`. On Unix a
-short window remains between the identity check and the unlink, because POSIX
-has no unlink by descriptor; it is confined to the admitted directory.
+object is kept and the transfer fails with `EPERM:object-changed`. POSIX has no
+unlink by descriptor, so on Unix a process that can replace entries in the
+admitted directory can still rebind the name between the identity check and the
+unlink; the unlink then removes whatever entry was placed under the name. The
+unlink stays relative to the admitted directory.
 
 ### Identity-checked `shm_unlink` (`t=s`, Unix)
 
@@ -393,12 +396,12 @@ before their names are unlinked. An invalid or unreadable object retains its
 name. Before the unlink, the name is reopened and compared with the object that
 was read (device, object number, owner, mode and size); a name rebound to a
 different object is kept and the transfer fails with `EPERM:object-changed`.
-Linux reports a device and object number for shared memory. On a platform that
-reports neither for shared memory, the comparison rests on owner, mode and
-size; macOS reports that size rounded up to a whole page, so there a
-replacement with the same owner, mode and page count is not told apart from
-the object that was read. The same short window between the check and the
-unlink remains. Windows keeps `t=s` unsupported.
+Linux reports an object number for shared memory. Owner, mode and size alone
+cannot prove identity, because a replacement can share them, so on a platform
+that reports no object number for shared memory the name is never unlinked: the
+read stands and the name is left for its creator to remove. The same
+check-to-unlink window as for `t=t` remains where unlinking happens. Windows
+keeps `t=s` unsupported.
 
 An uncompressed raw RGB or RGBA payload (`f=24`, `f=32`) is read at its exact
 pixel length, with the object's size only as an upper bound. A PNG or
