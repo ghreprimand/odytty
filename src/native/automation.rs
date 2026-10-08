@@ -398,22 +398,83 @@ mod tests {
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn concurrent_fixture_dirs(fail_setup: Option<usize>) -> Result<Vec<FixtureDir>, &'static str> {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut releases = Vec::new();
+        let mut readiness = Vec::new();
+        let mut workers = Vec::new();
+        for index in 0..2 {
+            let (ready_tx, ready_rx) = mpsc::channel();
+            let (release_tx, release_rx) = mpsc::channel();
+            releases.push(release_tx);
+            readiness.push(ready_rx);
+            workers.push(std::thread::spawn(move || {
+                let setup = std::panic::catch_unwind(|| {
+                    let dir = FixtureDir::new("oa-r");
+                    assert_ne!(fail_setup, Some(index), "controlled fixture setup failure");
+                    fs::write(dir.0.join("owned"), b"fixture").expect("marker");
+                    dir
+                });
+                match setup {
+                    Ok(dir) => {
+                        let _ = ready_tx.send(Ok(dir.0.clone()));
+                        // Disconnect is cancellation, including parent unwinding.
+                        match release_rx
+                            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                        {
+                            Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => Ok(dir),
+                            Err(mpsc::RecvTimeoutError::Timeout) => {
+                                Err("fixture release timed out")
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        let _ = ready_tx.send(Err("fixture setup panicked"));
+                        Err("fixture setup panicked")
+                    }
+                }
+            }));
+        }
+        // Detect setup errors before joining either worker. Dropping all senders
+        // releases a ready peer even when the other worker failed or disappeared.
+        let ready = readiness.iter().try_for_each(|receiver| {
+            receiver
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .map_err(|_| "fixture readiness timed out or disconnected")??;
+            Ok::<(), &'static str>(())
+        });
+        drop(releases);
+        let mut dirs = Vec::new();
+        for worker in workers {
+            // Join only a finished worker; readiness alone does not prove exit.
+            while !worker.is_finished() {
+                if Instant::now() >= deadline {
+                    return Err("fixture worker did not finish before deadline");
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            match worker.join().map_err(|_| "fixture worker panicked")? {
+                Ok(dir) => dirs.push(dir),
+                Err(error) => {
+                    if ready.is_ok() {
+                        return Err(error);
+                    }
+                }
+            }
+        }
+        ready?;
+        Ok(dirs)
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn same_prefix_fixture_dirs_keep_independent_ownership_and_cleanup() {
-        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let spawn = || {
-            let barrier = barrier.clone();
-            std::thread::spawn(move || {
-                let dir = FixtureDir::new("oa-r");
-                fs::write(dir.0.join("owned"), b"fixture").expect("marker");
-                barrier.wait();
-                dir
-            })
-        };
-        let left = spawn();
-        let right = spawn();
-        let left = left.join().expect("left fixture");
-        let right = right.join().expect("right fixture");
+        let mut dirs = concurrent_fixture_dirs(None).expect("concurrent fixtures");
+        let right = dirs.pop().expect("right fixture");
+        let left = dirs.pop().expect("left fixture");
         assert_ne!(left.0, right.0);
         let left_path = left.0.clone();
         let right_path = right.0.clone();
@@ -422,6 +483,19 @@ mod tests {
         assert!(right_path.join("owned").exists());
         drop(right);
         assert!(!right_path.exists());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn fixture_setup_failure_releases_and_finishes_both_workers() {
+        for failed in 0..2 {
+            let started = std::time::Instant::now();
+            assert!(matches!(
+                concurrent_fixture_dirs(Some(failed)),
+                Err("fixture setup panicked")
+            ));
+            assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        }
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
