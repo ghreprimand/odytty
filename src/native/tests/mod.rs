@@ -239,6 +239,7 @@ mod overlay_rendered_rows;
 mod overlay_small_window;
 mod palette_targets;
 mod pane_theme_roles;
+mod poison_app_paths;
 mod poison_recovery;
 mod profile_acceptance_e2e;
 mod profile_auto_switch;

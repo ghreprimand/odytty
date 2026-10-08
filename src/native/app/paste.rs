@@ -17,11 +17,7 @@ impl App {
             self.route_broadcast_paste(source, text);
             return;
         }
-        let bracketed = self
-            .terminal
-            .lock()
-            .map(|terminal| terminal.bracketed_paste_enabled())
-            .unwrap_or(false);
+        let bracketed = crate::native::lock_recover(&self.terminal).bracketed_paste_enabled();
         if bracketed || !self.settings.warn_on_risky_paste {
             self.return_to_live();
             self.deliver_paste_text(&text);
@@ -114,11 +110,8 @@ impl App {
         {
             return;
         }
-        let same_mode = self
-            .terminal
-            .lock()
-            .map(|terminal| terminal.bracketed_paste_enabled() == pending.bracketed)
-            .unwrap_or(false);
+        let same_mode = crate::native::lock_recover(&self.terminal).bracketed_paste_enabled()
+            == pending.bracketed;
         if !same_mode {
             return;
         }
@@ -151,11 +144,7 @@ impl App {
     /// asked anyway. Cancel sends nothing to any pane, the focused pane
     /// included. Each receiver encodes the text for its own terminal.
     fn route_broadcast_paste(&mut self, source: PasteSource, text: String) {
-        let bracketed = self
-            .terminal
-            .lock()
-            .map(|terminal| terminal.bracketed_paste_enabled())
-            .unwrap_or(false);
+        let bracketed = crate::native::lock_recover(&self.terminal).bracketed_paste_enabled();
         let assessment = assess(&text);
         let line_break = text.contains(['\n', '\r']);
         let single_pane_would_ask =
@@ -219,11 +208,7 @@ impl App {
     ) {
         self.cancel_pending_text_paste();
         let assessment = assess(&text);
-        let Ok(terminal) = self.terminal.lock() else {
-            return;
-        };
-        let bracketed = terminal.bracketed_paste_enabled();
-        drop(terminal);
+        let bracketed = crate::native::lock_recover(&self.terminal).bracketed_paste_enabled();
         self.pending_text_paste = Some(PendingTextPaste {
             session: self.sessions.active_id(),
             source: PasteSource::ExternalTextDrop,

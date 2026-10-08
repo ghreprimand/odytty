@@ -1132,9 +1132,9 @@ impl App {
         let Some(range) = self.selection.range() else {
             return SelectionDeleteOutcome::FallThrough;
         };
-        let Ok(terminal) = self.terminal.lock() else {
-            return SelectionDeleteOutcome::FallThrough;
-        };
+        // Poison recovery, never a blind fall-through: an unrecoverable read
+        // would send the key's ordinary bytes past a live input selection.
+        let terminal = crate::native::lock_recover(&self.terminal);
         let modes = key_modes_from_core(terminal.keyboard_modes());
         // R1: region geometry is computed in core (B-DESIGN B0/B2). No region
         // means no editable input (mark missing => the caller's separate hint

@@ -1889,6 +1889,15 @@ impl App {
         self.rail_autohide.wake_deadline(now).is_some()
     }
 
+    /// Test seam: the active pane's next cursor-blink wake, `None` when the
+    /// blink is parked.
+    #[cfg(test)]
+    pub(in crate::native) fn active_cursor_blink_deadline_for_test(
+        &self,
+    ) -> Option<std::time::Instant> {
+        self.cursor_blink.deadline()
+    }
+
     /// Test seam (NF20-B): arm the ACTIVE pane's cursor blink (blinking +
     /// focused) at `now`, so its activity-hold deadline enters the wake set — the setup
     /// for the per-session deadline fan-out regression (a pane whose blink is

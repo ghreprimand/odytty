@@ -59,11 +59,7 @@ impl App {
     /// steady shapes keep no deadline, while a blinking focused cursor holds
     /// solid until the activity quiet period expires.
     pub(in crate::native) fn note_cursor_keyboard_activity(&mut self, now: Instant) {
-        let blinking = self
-            .terminal
-            .lock()
-            .map(|terminal| terminal.cursor_blinking())
-            .unwrap_or(false);
+        let blinking = crate::native::lock_recover(&self.terminal).cursor_blinking();
         let focused = self.focused;
         self.cursor_blink.note_activity(now, blinking, focused);
         if blinking && focused {

@@ -496,10 +496,10 @@ pub(super) fn write_paste_text(
     writer: &PtyWriter,
     text: &str,
 ) -> Result<(), PasteError> {
-    let bracketed_paste = terminal
-        .lock()
-        .map(|terminal| terminal.bracketed_paste_enabled())
-        .unwrap_or(false);
+    // The child's mode is read through the shared poison-recovery policy, the
+    // same reading the paste confirmation used, so a poisoned model never
+    // downgrades a bracketed paste to plain bytes.
+    let bracketed_paste = crate::native::lock_recover(terminal).bracketed_paste_enabled();
     // The size check runs on the source text BEFORE encoding, so an oversized
     // clipboard payload is never duplicated just to be refused.
     if bracketed_paste {

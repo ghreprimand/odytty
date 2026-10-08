@@ -832,9 +832,9 @@ impl App {
             // be mutated (`anchor_viewport_for_render` takes `&mut session`)
             // while the terminal snapshot is read under the same lock.
             let terminal_arc = std::sync::Arc::clone(&session.terminal);
-            let Ok(terminal) = terminal_arc.lock() else {
-                continue;
-            };
+            // A poisoned model still renders its pane, like the single-pane
+            // snapshot, rather than leaving a hole in the split.
+            let terminal = crate::native::lock_recover(&terminal_arc);
             let scrollback_len = terminal.screen().scrollback_len();
             // Synchronized output (DEC 2026), per pane: a pane inside a batch
             // re-presents its previous frame while the other panes update.
