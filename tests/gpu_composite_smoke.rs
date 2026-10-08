@@ -177,6 +177,19 @@ fn passthrough_composite_matches_direct_render_bytes() {
 
 #[test]
 fn bloom_preserves_body_text_and_adds_bounded_halo() {
+    assert_bloom_scene(BLOOM_SCENE_SHADER, true);
+}
+
+#[test]
+fn below_threshold_scene_emits_no_bloom() {
+    let scene = BLOOM_SCENE_SHADER.replace(
+        "vec4<f32>(2.0, 2.0, 2.0, 1.0)",
+        "vec4<f32>(0.55, 0.55, 0.55, 1.0)",
+    );
+    assert_bloom_scene(&scene, false);
+}
+
+fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
     let Some((device, queue, hdr_supported)) = gpu_device() else {
         eprintln!("skipping: no GPU adapter available");
         return;
@@ -186,8 +199,8 @@ fn bloom_preserves_body_text_and_adds_bounded_halo() {
         "Rgba16Float must support render attachment + filterable texture binding"
     );
 
-    let direct_scene_pipeline = create_scene_pipeline(&device, FORMAT, BLOOM_SCENE_SHADER);
-    let offscreen_scene_pipeline = create_scene_pipeline(&device, HDR_FORMAT, BLOOM_SCENE_SHADER);
+    let direct_scene_pipeline = create_scene_pipeline(&device, FORMAT, scene);
+    let offscreen_scene_pipeline = create_scene_pipeline(&device, HDR_FORMAT, scene);
     let direct = create_render_texture(&device, "gpu-bloom-smoke-direct", FORMAT, true);
     let offscreen = create_render_texture(&device, "gpu-bloom-smoke-offscreen", HDR_FORMAT, false);
     let bloom_off = create_render_texture(&device, "gpu-bloom-smoke-off", FORMAT, true);
@@ -329,13 +342,27 @@ fn bloom_preserves_body_text_and_adds_bounded_halo() {
         "bloom off path should only add output dither",
     );
 
+    if !has_bright_patch {
+        // Below-threshold pixels must emit no light into the blur texture.
+        // With no bright source anywhere, bloom on/off remain byte-identical.
+        assert_eq!(
+            off_bytes, on_bytes,
+            "below-threshold scene must not emit bloom"
+        );
+        return;
+    }
     for y in 0..4 {
         for x in 0..4 {
             let i = pixel_index(x, y);
-            assert_eq!(
+            // The nearby bright patch reaches this block through the half-res
+            // blur and linear upsampling. Its tiny additive halo can cross an
+            // sRGB quantization boundary, depending on GPU rounding. Permit
+            // one RGB code step; alpha and the no-bright-source control stay exact.
+            assert_bounded_rgb_delta(
                 &off_bytes[i..i + 4],
                 &on_bytes[i..i + 4],
-                "body text below threshold must not bloom at {x},{y}"
+                1,
+                &format!("body text near a bright patch at {x},{y}"),
             );
         }
     }
