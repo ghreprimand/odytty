@@ -1953,7 +1953,8 @@ scope rather than silently inheriting deferred work from a prior release.
 
   Beyond quick-connect, the
   overlay reaches saved hosts several ways: typing a `[user@]host[:port]` that
-  matches no saved host offers an ad-hoc **Connect to: …** row (Enter connects,
+  matches no saved host offers an ad-hoc **Connect to: …** row, including
+  when no connections are saved (Enter connects,
   Shift+Enter connects and appends a `hosts.conf` block); an in-app **Add / Edit
   connection** form writes or edits a single block with a byte-span splice that
   leaves every other block, comment, and unknown field byte-for-byte untouched,

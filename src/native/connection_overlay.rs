@@ -18,7 +18,9 @@ use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use crate::connection_hosts::{ConnectionHost, ConnectionHostSource, parse_adhoc_target};
+use crate::connection_hosts::{
+    AdhocTarget, ConnectionHost, ConnectionHostSource, parse_adhoc_target,
+};
 use crate::fuzzy;
 
 use super::overlay::OverlayInput;
@@ -481,15 +483,20 @@ impl ConnectionOverlay {
         }
     }
 
-    /// The ad-hoc connection host for the current query, or `None` when the
+    /// The ad-hoc destination for the current query, or `None` when the
     /// query matches a saved host (so the normal list is shown) or does not
     /// parse as `[user@]host[:port]`. Only meaningful when the filtered list is
-    /// empty — a query that fuzzy-matches a saved row never offers ad-hoc.
-    fn adhoc_target(&self) -> Option<ConnectionHost> {
+    /// empty. A query that fuzzy-matches a saved row never offers ad-hoc.
+    fn adhoc_destination(&self) -> Option<AdhocTarget> {
         if !self.allows_adhoc() || !self.filtered.is_empty() {
             return None;
         }
-        parse_adhoc_target(&self.query).map(|target| target.to_connection_host())
+        parse_adhoc_target(&self.query)
+    }
+
+    fn adhoc_target(&self) -> Option<ConnectionHost> {
+        self.adhoc_destination()
+            .map(|target| target.to_connection_host())
     }
 
     /// Scroll one row in response to a wheel notch (negative = toward the top).
@@ -552,7 +559,7 @@ impl ConnectionOverlay {
         // filtered list is empty but the query parses; a click there connects
         // (the caller routes Activate, which the empty-selection path resolves
         // to the ad-hoc host). Saving still requires Shift+Enter / Ctrl+S.
-        if body_height > 1
+        if self.visible_results_rows(body_height) > 0
             && row_in_body == 1
             && self.filtered.is_empty()
             && self.adhoc_target().is_some()
@@ -596,53 +603,41 @@ impl ConnectionOverlay {
             bold: true,
         });
         if lines.len() < content_cap {
-            if self.entries.is_empty() && self.profile_rows.is_empty() {
+            if let Some(target) = self.adhoc_destination() {
                 self.scroll_offset.set(0);
                 lines.push(ConnectionOverlayLine {
                     text: truncate_for_width(
-                        "No saved connections — add hosts to hosts.conf or enable ssh_config_hosts.",
+                        &format!("Connect to: {}", target.display()),
                         body_width,
                     ),
-                    focused: false,
+                    focused: !self.add_row_focused,
                     bold: false,
                 });
-            } else if self.filtered.is_empty() {
-                self.scroll_offset.set(0);
-                // When the query is a well-formed `[user@]host[:port]` that
-                // matches no saved host, offer an ad-hoc connect row in place of
-                // "No matches" — with a key hint so both actions are
-                // discoverable. A bind picker (no ad-hoc) shows plain "No
-                // matches".
-                if let Some(target) = self
-                    .allows_adhoc()
-                    .then(|| parse_adhoc_target(&self.query))
-                    .flatten()
-                {
+                if lines.len() < content_cap {
                     lines.push(ConnectionOverlayLine {
                         text: truncate_for_width(
-                            &format!("Connect to: {}", target.display()),
+                            "[Enter] connect · [Shift+Enter] connect + save",
                             body_width,
                         ),
-                        focused: !self.add_row_focused,
-                        bold: false,
-                    });
-                    if lines.len() < content_cap {
-                        lines.push(ConnectionOverlayLine {
-                            text: truncate_for_width(
-                                "[Enter] connect · [Shift+Enter] connect + save",
-                                body_width,
-                            ),
-                            focused: false,
-                            bold: false,
-                        });
-                    }
-                } else {
-                    lines.push(ConnectionOverlayLine {
-                        text: "No matches".to_owned(),
                         focused: false,
                         bold: false,
                     });
                 }
+            } else if self.filtered.is_empty() {
+                self.scroll_offset.set(0);
+                let text = if self.entries.is_empty() && self.profile_rows.is_empty() {
+                    truncate_for_width(
+                        "No saved connections: add hosts to hosts.conf or enable ssh_config_hosts.",
+                        body_width,
+                    )
+                } else {
+                    "No matches".to_owned()
+                };
+                lines.push(ConnectionOverlayLine {
+                    text,
+                    focused: false,
+                    bold: false,
+                });
             } else {
                 let visible_results = self.visible_results_rows(body_height);
                 for (visible_index, filtered_row) in self
@@ -1217,6 +1212,64 @@ mod tests {
             overlay.handle_input(OverlayInput::Activate),
             ConnectionOverlayOutcome::Consumed
         );
+    }
+
+    #[test]
+    fn empty_catalog_adhoc_row_describes_the_click_and_keyboard_target() {
+        for click in [false, true] {
+            let mut overlay = open(Vec::new());
+            type_query(&mut overlay, "deploy@host.example.invalid:2200");
+            let lines = overlay.visible_lines(80, 10);
+            assert_eq!(
+                lines[1].text,
+                "Connect to: deploy@host.example.invalid:2200"
+            );
+            assert!(lines[1].focused);
+            assert!(!overlay.click_row(2, 10), "action hint is inert");
+            if click {
+                assert!(overlay.click_row(1, 10));
+            }
+            let ConnectionOverlayOutcome::Connect(host) =
+                overlay.handle_input(OverlayInput::Activate)
+            else {
+                panic!("visible destination must connect");
+            };
+            assert_eq!(host.alias, "host.example.invalid");
+            assert_eq!(host.user.as_deref(), Some("deploy"));
+            assert_eq!(host.port, Some(2200));
+        }
+    }
+
+    #[test]
+    fn empty_catalog_invalid_queries_and_hints_are_inert() {
+        for query in ["", "bad host"] {
+            let mut overlay = open(Vec::new());
+            type_query(&mut overlay, query);
+            let lines = overlay.visible_lines(80, 10);
+            assert!(lines[1].text.starts_with("No saved connections"));
+            assert!(!lines[1].focused);
+            assert!(!overlay.click_row(1, 10));
+            for input in [
+                OverlayInput::Activate,
+                OverlayInput::ActivateAlt,
+                OverlayInput::Save,
+            ] {
+                assert_eq!(
+                    overlay.handle_input(input),
+                    ConnectionOverlayOutcome::Consumed
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn adhoc_clicks_outside_rendered_content_are_inert() {
+        let mut overlay = open(Vec::new());
+        type_query(&mut overlay, "host.example.invalid");
+        assert!(overlay.visible_lines(80, 1).len() <= 1);
+        assert!(!overlay.click_row(1, 1));
+        assert!(!overlay.click_row(1, 0));
+        assert!(!overlay.click_row(usize::MAX, 10));
     }
 
     #[test]

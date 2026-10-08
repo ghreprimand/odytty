@@ -1738,7 +1738,8 @@ The manager is presentation-only. Selecting a host starts the system `ssh`
 client in a new session.
 
 **Connect without saving.** Type a valid `[user@]host[:port]` that matches no
-saved host. The **Connect to: …** row connects with `Enter`, while
+saved host, including when the saved-host catalog is empty. The displayed
+**Connect to: …** row connects with `Enter` or a click, while
 `Shift+Enter` or `Ctrl+S` connects and atomically appends a matching `Host`
 block to `hosts.conf`.
 

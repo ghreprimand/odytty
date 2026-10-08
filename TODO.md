@@ -2121,7 +2121,8 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       the opt-in off it shows OdyTTY-owned hosts only and never references
       `~/.ssh` (proven by test). Tests use synthetic fixtures only.
   - [x] Connection-manager build-out: ad-hoc **Connect to: …** for an unsaved
-        `[user@]host[:port]` (Enter connects, Shift+Enter connects and appends a
+        `[user@]host[:port]`, including an empty host catalog (Enter connects,
+        Shift+Enter connects and appends a
         `hosts.conf` block); an in-app **Add / Edit** form that writes a single
         block with a byte-span splice (every other block, comment, and unknown
         field left byte-for-byte untouched) and a per-host `IdentityFile`
