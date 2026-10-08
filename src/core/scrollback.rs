@@ -360,8 +360,10 @@ pub(in crate::core) struct Scrollback {
     limit: usize,
     /// Monotonic notice that absolute row zero moved because history was
     /// removed from the front. Native selection/search/copy-mode coordinates
-    /// use that origin and must be invalidated when this changes.
+    /// use that origin and must reconcile when this changes.
     trim_epoch: u64,
+    /// Changes for complete clears or cell-prefix truncation requiring a UI reset.
+    coordinate_reset_epoch: u64,
     /// Monotonic count of physical rows ever pushed into this store. Cheap
     /// (no projection) anchor unit for "how far has the visible grid scrolled
     /// since X" bookkeeping (the open button run); unaffected by trims.
@@ -409,6 +411,7 @@ impl Scrollback {
             cache: RefCell::new(Projection::empty()),
             limit: DEFAULT_SCROLLBACK_LIMIT,
             trim_epoch: 0,
+            coordinate_reset_epoch: 0,
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
             retained_cells: 0,
@@ -431,6 +434,7 @@ impl Scrollback {
             cache: RefCell::new(Projection::empty()),
             limit,
             trim_epoch: 0,
+            coordinate_reset_epoch: 0,
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
             retained_cells: 0,
@@ -452,6 +456,7 @@ impl Scrollback {
             cache: RefCell::new(Projection::empty()),
             limit,
             trim_epoch: 0,
+            coordinate_reset_epoch: 0,
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
             retained_cells,
@@ -485,6 +490,7 @@ impl Scrollback {
             cache: RefCell::new(Projection::empty()),
             limit: 0,
             trim_epoch: 0,
+            coordinate_reset_epoch: 0,
             pushed_rows: 0,
             freed_button_ids: Vec::new(),
             retained_cells,
@@ -503,6 +509,10 @@ impl Scrollback {
 
     pub(in crate::core) fn trim_epoch(&self) -> u64 {
         self.trim_epoch
+    }
+
+    pub(in crate::core) fn coordinate_reset_epoch(&self) -> u64 {
+        self.coordinate_reset_epoch
     }
 
     #[cfg(test)]
@@ -882,6 +892,7 @@ impl Scrollback {
             && last.cells.len() > MAX_LOGICAL_LINE_CELLS
         {
             let drop = last.cells.len() - (MAX_LOGICAL_LINE_CELLS - SLACK);
+            self.coordinate_reset_epoch = self.coordinate_reset_epoch.wrapping_add(1);
             last.cells.drain(0..drop);
             self.retained_cells -= drop;
             // The mark sidecar is keyed by flat index, so a front-drain of the
@@ -958,6 +969,7 @@ impl Scrollback {
     pub(in crate::core) fn clear(&mut self) {
         if !self.lines.is_empty() {
             self.trim_epoch = self.trim_epoch.wrapping_add(1);
+            self.coordinate_reset_epoch = self.coordinate_reset_epoch.wrapping_add(1);
         }
         for line in &self.lines {
             self.freed_button_ids

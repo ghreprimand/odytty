@@ -28,7 +28,8 @@ fn capped_history() -> WorkspaceSet {
         .expect("terminal")
         .screen()
         .pushed_row_count();
-    set.active_mut().anchor_viewport_for_render(len, pushes);
+    set.active_mut()
+        .anchor_viewport_for_render(len, pushes, false);
     set.active_mut().viewport.scroll_up(2, len);
     set
 }
@@ -73,7 +74,8 @@ fn numbered_capped_history() -> WorkspaceSet {
         .expect("terminal")
         .screen()
         .pushed_row_count();
-    set.active_mut().anchor_viewport_for_render(16, pushes);
+    set.active_mut()
+        .anchor_viewport_for_render(16, pushes, false);
     set.active_mut().viewport.scroll_up(5, 16);
     set.active_mut().search_restore_viewport = Some(5);
     set
@@ -107,7 +109,8 @@ fn trim_output_keeps_scrolled_viewport_at_history_cap() {
         .screen()
         .pushed_row_count();
     assert_eq!(
-        set.active_mut().anchor_viewport_for_render(16, pushes),
+        set.active_mut()
+            .anchor_viewport_for_render(16, pushes, false),
         8,
         "render after trim must not count the same pushes twice"
     );
@@ -230,7 +233,7 @@ fn trim_output_preserves_scoped_search_restriction() {
 }
 
 #[test]
-fn trim_output_reconciles_background_panes_and_keeps_stale_modals_closed() {
+fn trim_output_reconciles_background_panes_and_rebases_retained_copy_caret() {
     let mut set = capped_history();
     let first = set.active_focused_token();
     set.active_mut().copy_mode = Some(crate::native::copy_mode::CopyModeState::new(
@@ -246,7 +249,7 @@ fn trim_output_reconciles_background_panes_and_keeps_stale_modals_closed() {
     set.reconcile_scrollback_trims();
     let pane = set.get(first).expect("background pane");
     assert_eq!(pane.viewport.offset(), 3);
-    assert!(pane.copy_mode.is_none());
+    assert_eq!(pane.copy_mode.expect("retained copy caret").cursor().row, 0);
     assert!(set.active().viewport.is_live());
 }
 
@@ -286,7 +289,11 @@ fn trim_output_render_before_trim_does_not_count_pushes_twice() {
         terminal.advance(b"new 1\r\nnew 2\r\nnew 3\r\n");
         terminal.screen().pushed_row_count()
     };
-    assert_eq!(set.active_mut().anchor_viewport_for_render(16, pushes), 8);
+    assert_eq!(
+        set.active_mut()
+            .anchor_viewport_for_render(16, pushes, false),
+        8
+    );
     set.reconcile_scrollback_trims();
     assert_eq!(set.active().viewport.offset(), 8);
     assert_eq!(set.active().search_restore_viewport, Some(8));

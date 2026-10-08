@@ -9,7 +9,7 @@
 //! function in this module talks to a backend, mutates the tree's lifecycle, or
 //! renders.
 
-use super::presentation::CursorComparison;
+use super::presentation::{CursorComparison, ScrollbackCoordinateBaseline};
 use super::transport::{RemoteReconnect, RemoteUpload, SessionSource};
 use crate::core::{LinkId, Snapshot, Terminal};
 #[cfg(test)]
@@ -210,6 +210,7 @@ pub(in crate::native) struct Session {
     /// state. A mismatch means row zero moved and stale selections cannot be
     /// trusted to name the same bytes.
     pub(in crate::native) last_scrollback_trim_epoch: u64,
+    pub(in crate::native) scrollback_coordinate_baseline: ScrollbackCoordinateBaseline,
     pub(in crate::native) cursor_blink: CursorBlinkState,
     pub(in crate::native) cursor_anim_alpha: f32,
     pub(in crate::native) cursor_ease_deadline: Option<Instant>,

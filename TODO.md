@@ -22,8 +22,11 @@ roadmap.
 
 Scrollback front eviction anchors viewed text and search-return positions
 through new output, clamping at the oldest retained row once that text is
-evicted. Search input survives; stale absolute coordinates clear without
-resetting live-row fades. Reflow keeps its full reset.
+evicted. Search input survives, and retained selection, drag, hint and copy-mode
+coordinates shift by the removed rows. Lost anchors clear, while explicit clears, partial
+oversized-line truncation and reflow retain their full reset. Alternate-screen
+frames preserve the primary output baseline and search-return position.
+Live-row fades are unchanged by eviction.
 
 Shell startup corrections retain existing Bash DEBUG hooks, forward zsh
 startup files and restore the authored `ZDOTDIR`, and preserve fish vendor

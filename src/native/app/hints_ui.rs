@@ -56,6 +56,23 @@ pub(in crate::native) struct HintsUi {
 }
 
 impl HintsUi {
+    /// Shift retained matches without relabeling them or changing the typed prefix.
+    pub(in crate::native) fn rebase_front_rows(&mut self, removed: usize) -> bool {
+        self.labeled.retain_mut(|(_, found)| {
+            let (Some(start), Some(end)) = (
+                found.start.row.checked_sub(removed),
+                found.end.row.checked_sub(removed),
+            ) else {
+                return false;
+            };
+            found.start.row = start;
+            found.end.row = end;
+            true
+        });
+        self.epoch = self.epoch.wrapping_add(1);
+        self.candidates().next().is_some()
+    }
+
     /// Whether this modal is actively capturing keys. Entry with zero matches
     /// never constructs a `HintsUi`, so a live `HintsUi` always has ≥1 label and
     /// `is_selecting()` is `true` (D-HNF-4) - no dead modal can swallow keys.
@@ -93,6 +110,7 @@ impl App {
     /// when another modal already owns input (defensive; the key ladder already
     /// guards this above the dispatch).
     pub(super) fn activate_hints(&mut self) -> bool {
+        self.sessions.reconcile_scrollback_trims();
         // Defensive mutual-exclusion (trap #5). The key ladder routes overlay /
         // search / active modals BEFORE the BindableAction match, so this is
         // unreachable while another modal owns input; the guard makes the unit

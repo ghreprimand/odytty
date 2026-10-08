@@ -463,8 +463,8 @@ impl App {
     /// Test seam (H4): the text the Ctrl+Shift+C copy shortcut would place on
     /// the clipboard, exercising the SAME reconcile-then-read discipline
     /// `handle_copy_shortcut` uses. A scrollback trim that landed since the last
-    /// redraw is reconciled first, so a now-stale selection yields `None` rather
-    /// than resolving to different, more recent rows.
+    /// redraw is reconciled first. Surviving coordinates retain their text;
+    /// lost anchors yield None instead of resolving to more recent rows.
     #[cfg(test)]
     pub(in crate::native) fn copy_shortcut_text_for_test(&mut self) -> Option<String> {
         self.sessions.reconcile_scrollback_trims();
@@ -2210,14 +2210,15 @@ impl App {
     /// regression can drive the production anchor without a window.
     #[cfg(test)]
     pub(in crate::native) fn anchor_viewport_for_render_frame_for_test(&mut self) -> usize {
-        let (scrollback_len, pushed_rows) = {
+        let (scrollback_len, pushed_rows, alternate) = {
             let terminal = crate::native::lock_recover(&self.terminal);
             (
                 terminal.screen().scrollback_len(),
                 terminal.screen().pushed_row_count(),
+                terminal.on_alternate_screen(),
             )
         };
-        self.anchor_viewport_for_render(scrollback_len, pushed_rows)
+        self.anchor_viewport_for_render(scrollback_len, pushed_rows, alternate)
     }
 
     /// Test seam: the active session's scrollback-growth baseline

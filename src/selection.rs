@@ -145,6 +145,27 @@ pub struct AbsoluteSelectionState {
 }
 
 impl AbsoluteSelectionState {
+    /// Shift both endpoints after whole-row front eviction. Clear a range
+    /// whose anchor or focus was removed, without changing the drag direction.
+    pub(crate) fn rebase_front_rows(&mut self, removed: usize) -> bool {
+        let rebase = |point: AbsoluteCellPoint| {
+            point
+                .row
+                .checked_sub(removed)
+                .map(|row| AbsoluteCellPoint { row, ..point })
+        };
+        let (Some(anchor), Some(focus)) = (self.anchor, self.focus) else {
+            return true;
+        };
+        let (Some(anchor), Some(focus)) = (rebase(anchor), rebase(focus)) else {
+            self.clear();
+            return false;
+        };
+        self.anchor = Some(anchor);
+        self.focus = Some(focus);
+        true
+    }
+
     pub fn begin(&mut self, point: AbsoluteCellPoint) {
         self.anchor = Some(point);
         self.focus = Some(point);
@@ -1525,5 +1546,39 @@ mod tests {
         apply_selection_highlight(&mut none, off, true, 2, 10, dims, None);
         apply_selection_highlight(&mut none, off, false, 2, 10, dims, None);
         assert!(none.cells.iter().all(|cell| !cell.attrs.inverse()));
+    }
+}
+
+#[cfg(test)]
+mod front_rebase_tests {
+    use super::*;
+
+    #[test]
+    fn rebasing_keeps_the_anchor_direction_and_degenerate_drag_start() {
+        let mut state = AbsoluteSelectionState::default();
+        state.begin(AbsoluteCellPoint { row: 6, column: 3 });
+        state.update(AbsoluteCellPoint { row: 4, column: 1 });
+        assert!(state.rebase_front_rows(2));
+        state.update(AbsoluteCellPoint { row: 2, column: 0 });
+        assert_eq!(
+            state.range().expect("reversed drag").end,
+            AbsoluteCellPoint { row: 4, column: 3 }
+        );
+        state.begin(AbsoluteCellPoint { row: 3, column: 2 });
+        assert!(state.rebase_front_rows(1));
+        state.update(AbsoluteCellPoint { row: 2, column: 5 });
+        assert_eq!(
+            state.range().expect("begun drag").start,
+            AbsoluteCellPoint { row: 2, column: 2 }
+        );
+    }
+
+    #[test]
+    fn a_removed_endpoint_clears_the_entire_range() {
+        let mut state = AbsoluteSelectionState::default();
+        state.begin(AbsoluteCellPoint { row: 0, column: 1 });
+        state.update(AbsoluteCellPoint { row: 4, column: 5 });
+        assert!(!state.rebase_front_rows(1));
+        assert_eq!(state.range(), None);
     }
 }

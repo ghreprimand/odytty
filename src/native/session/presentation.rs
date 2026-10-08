@@ -16,6 +16,35 @@ use crate::native::layout::{
 };
 use crate::selection::PointerDrag;
 
+/// Primary history coordinates last reconciled into selection and modal state.
+#[derive(Clone, Copy)]
+pub(in crate::native) struct ScrollbackCoordinateBaseline {
+    dimensions: crate::core::Dimensions,
+    len: usize,
+    pushes: u64,
+    reset_epoch: u64,
+}
+
+impl ScrollbackCoordinateBaseline {
+    pub(in crate::native) fn read(screen: &crate::core::Screen) -> Self {
+        let (len, pushes, reset_epoch) = screen.primary_scrollback_metrics();
+        Self {
+            dimensions: screen.dimensions(),
+            len,
+            pushes,
+            reset_epoch,
+        }
+    }
+
+    fn removed_since(self, previous: Self) -> Option<usize> {
+        if self.dimensions != previous.dimensions || self.reset_epoch != previous.reset_epoch {
+            return None;
+        }
+        let added = usize::try_from(self.pushes.checked_sub(previous.pushes)?).ok()?;
+        previous.len.checked_add(added)?.checked_sub(self.len)
+    }
+}
+
 /// Cursor-motion comparison metadata: the undecorated content snapshot's
 /// cursor and dimensions. See `last_cursor_comparison_snapshot`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -166,7 +195,11 @@ impl Session {
         &mut self,
         scrollback_len: usize,
         pushed_rows: u64,
+        on_alternate_screen: bool,
     ) -> usize {
+        if on_alternate_screen {
+            return 0;
+        }
         let added = usize::try_from(pushed_rows.saturating_sub(self.last_scrollback_pushes))
             .unwrap_or(usize::MAX);
         self.viewport.anchor_after_growth(added, scrollback_len);
@@ -252,15 +285,53 @@ impl Session {
         self.search_restore_viewport = None;
     }
 
-    /// Front eviction moves the absolute row origin without replacing the
-    /// visible grid. Anchor retained text before dropping stale coordinates.
-    fn reconcile_scrollback_trim(&mut self, scrollback_len: usize, pushed_rows: u64) {
-        self.anchor_viewport_for_render(scrollback_len, pushed_rows);
-        self.clear_absolute_coordinate_state();
+    /// Rebase retained row coordinates after front eviction. A changed grid
+    /// or an in-line cell trim keeps the conservative full-reset fallback.
+    fn reconcile_scrollback_trim(&mut self, current: ScrollbackCoordinateBaseline) {
+        self.anchor_viewport_for_render(current.len, current.pushes, false);
+        if let Some(removed) = current.removed_since(self.scrollback_coordinate_baseline) {
+            let selection_kept = self.selection.rebase_front_rows(removed);
+            let unit_kept = self.drag_anchor_unit.map(|mut range| {
+                range.start.row = range.start.row.checked_sub(removed)?;
+                range.end.row = range.end.row.checked_sub(removed)?;
+                Some(range)
+            });
+            let unit_lost = matches!(unit_kept, Some(None));
+            self.drag_anchor_unit = unit_kept.flatten();
+            if !selection_kept || unit_lost {
+                self.selection.clear();
+                self.selection_block = false;
+                if self.pointer_drag.is_selecting() {
+                    self.pointer_drag = PointerDrag::None;
+                }
+                self.last_selection_autoscroll = None;
+            }
+            if let Some(copy) = &mut self.copy_mode
+                && !copy.rebase_front_rows(removed)
+            {
+                self.copy_mode = None;
+            }
+            if let Some(hints) = &mut self.hints
+                && !hints.rebase_front_rows(removed)
+            {
+                self.hints = None;
+            }
+            // Viewport-relative hover and protocol-button hits must be resolved afresh.
+            self.hovered_hyperlink = None;
+            self.hovered_path = None;
+            self.hovered_path_cells = None;
+            self.hovered_url = None;
+            self.hovered_url_cells = None;
+            self.hover_path_probe_key = None;
+            self.hover_content_revision = None;
+            self.pressed_button = None;
+        } else {
+            self.clear_absolute_coordinate_state();
+        }
         self.search.invalidate_for_trim();
-        self.viewport.clamp(scrollback_len);
+        self.viewport.clamp(current.len);
         if let Some(offset) = &mut self.search_restore_viewport {
-            *offset = (*offset).min(scrollback_len);
+            *offset = (*offset).min(current.len);
         }
         self.needs_rebuild = true;
     }
@@ -383,26 +454,25 @@ impl WorkspaceSet {
         }
     }
 
-    /// Clear stale absolute-coordinate state after scrollback front eviction.
-    /// The terminal pump mutates the model asynchronously, so the app calls
-    /// this at the start of each redraw before clipboard requests or painting.
+    /// Reconcile front eviction before painting or using absolute text coordinates.
+    /// Defer while the alternate screen is active, preserving primary-buffer state.
     pub(in crate::native) fn reconcile_scrollback_trims(&mut self) {
         for session in self.sessions.values_mut() {
-            let trim = {
+            let current = {
                 let terminal = crate::native::lock_recover(&session.terminal);
-                let epoch = terminal.scrollback_trim_epoch();
-                (epoch != session.last_scrollback_trim_epoch).then(|| {
-                    (
-                        epoch,
-                        terminal.screen().scrollback_len(),
-                        terminal.screen().pushed_row_count(),
-                    )
-                })
+                if terminal.on_alternate_screen() {
+                    continue;
+                }
+                (
+                    terminal.scrollback_trim_epoch(),
+                    ScrollbackCoordinateBaseline::read(terminal.screen()),
+                )
             };
-            if let Some((epoch, scrollback_len, pushed_rows)) = trim {
-                session.reconcile_scrollback_trim(scrollback_len, pushed_rows);
-                session.last_scrollback_trim_epoch = epoch;
+            if current.0 != session.last_scrollback_trim_epoch {
+                session.reconcile_scrollback_trim(current.1);
+                session.last_scrollback_trim_epoch = current.0;
             }
+            session.scrollback_coordinate_baseline = current.1;
         }
     }
 
@@ -448,8 +518,12 @@ impl WorkspaceSet {
         for token in tab.layout.leaves() {
             if let Some(session) = self.sessions.get_mut(&token) {
                 let terminal = crate::native::lock_recover(&session.terminal);
-                session.last_scrollback_len = terminal.screen().scrollback_len();
-                session.last_scrollback_pushes = terminal.screen().pushed_row_count();
+                if terminal.on_alternate_screen() {
+                    continue;
+                }
+                let (len, pushes, _) = terminal.screen().primary_scrollback_metrics();
+                session.last_scrollback_len = len;
+                session.last_scrollback_pushes = pushes;
             }
         }
     }
@@ -922,5 +996,47 @@ impl WorkspaceSet {
             .get(ws_idx)
             .and_then(|workspace| workspace.tabs.get(tab_idx))
             .is_some_and(|tab| tab.activity)
+    }
+}
+
+#[cfg(test)]
+mod coordinate_reset_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn a_non_row_trim_notice_uses_the_full_coordinate_reset() {
+        let dims = crate::core::Dimensions::new(20, 8);
+        let terminal = Arc::new(Mutex::new(crate::core::Terminal::new(
+            dims.columns,
+            dims.rows,
+        )));
+        let mut session = Session::new_headless(
+            SessionToken(0),
+            terminal.clone(),
+            crate::native::test_support::headless_writer(),
+            Arc::new(super::super::transport::HeadlessSession::new(dims)),
+        );
+        session
+            .selection
+            .begin(crate::selection::AbsoluteCellPoint { row: 2, column: 0 });
+        session
+            .selection
+            .update(crate::selection::AbsoluteCellPoint { row: 3, column: 4 });
+        session.pointer_drag = PointerDrag::Select {
+            granularity: crate::selection::SelectGranularity::Char,
+            block: false,
+        };
+        session.copy_mode = Some(crate::native::copy_mode::CopyModeState::new(
+            crate::selection::AbsoluteCellPoint { row: 4, column: 0 },
+        ));
+        let mut current =
+            ScrollbackCoordinateBaseline::read(terminal.lock().expect("terminal").screen());
+        // Inject only the producer notice; the core bounds test exercises its real source.
+        current.reset_epoch = current.reset_epoch.wrapping_add(1);
+        session.reconcile_scrollback_trim(current);
+        assert_eq!(session.selection.range(), None);
+        assert_eq!(session.pointer_drag, PointerDrag::None);
+        assert_eq!(session.copy_mode, None);
     }
 }

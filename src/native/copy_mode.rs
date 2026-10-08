@@ -1,43 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! COPYMODE — vim-key keyboard scrollback selection (pure-core state machine).
+//! Keyboard copy-mode caret, selection, and vim motions.
 //!
-//! This module is the headless heart of COPYMODE (Phase 5): a keyboard-driven
-//! selection cursor that navigates the scrollback buffer with vim motions and
-//! derives a selectable range. It is **pure logic** — no GPU, no winit, no
-//! clipboard, no key routing — so it is fully unit-testable without a frame.
-//!
-//! ## Ownership boundary
-//!
-//! COPYMODE reuses the mouse-selection SSOT [`crate::selection`] **read-only**:
-//! it produces an [`AbsoluteSelectionRange`] from its own cursor/anchor state
-//! and re-uses the shared absolute-coordinate helpers
-//! ([`normalize_absolute_range`], [`viewport_top_absolute_row`]) and the
-//! word-character predicate ([`is_selection_word_char`]). It defines its own
-//! state here and **edits nothing** in `selection.rs`. The host (a later wiring
-//! stage) is the only thing that turns a derived range into a painted
-//! selection (`AbsoluteSelectionState::set_range`) or a clipboard write.
-//!
-//! ## Coordinate space
-//!
-//! The cursor and anchor are stored in **absolute** coordinates (the same space
-//! the mouse selection uses) so they stay pinned to *content* — not to screen
-//! rows — while scrollback grows under an open copy-mode session. Conversion to
-//! the visible viewport happens only when reading grid characters (word / blank
-//! scans), via the viewport metrics carried in [`CopyModeContext`].
-//!
-//! ## Scope (v1 core)
-//!
-//! This module is **core only**: the model + motions + range derivation, wired to
-//! nothing. Activation (a bindable action, key routing, mutual exclusion with
-//! search/overlay), the cursor render, and the yank-to-clipboard hand-off are a
-//! separate later native change. Numeric motion counts (`3w`) and `Ctrl-v`
-//! block selection are deferred (the latter shares one implementation with the
-//! mouse MOUSE-RECT item); a clean [`SelectKind::Block`] seam is left for it.
-//!
-//! The public surface here is **wired to nothing yet** (core-only);
-//! the later activation + key-routing layer is its first consumer.
-//! Until then these items are unreferenced from non-test code, so the module
-//! opts out of `dead_code` — the allow becomes a no-op once wiring lands.
+//! Cursor and anchor use absolute physical-row coordinates shared with mouse
+//! selection. Whole-row eviction rebases surviving points; losing an anchor
+//! clears the selection, while losing the caret ends the mode. The native host
+//! routes keys, paints the derived range, follows the caret, and copies text.
+//! This state machine has no GPU, window, clipboard, or key-routing side effects.
+
 #![allow(dead_code)]
 
 use crate::core::Snapshot;
@@ -271,6 +240,24 @@ pub struct CopyModeState {
 }
 
 impl CopyModeState {
+    /// Keep a surviving caret after whole-row front eviction. A lost anchor
+    /// ends its selection; a lost caret ends copy mode.
+    pub(in crate::native) fn rebase_front_rows(&mut self, removed: usize) -> bool {
+        let Some(row) = self.cursor.row.checked_sub(removed) else {
+            return false;
+        };
+        self.cursor.row = row;
+        if let Some(anchor) = &mut self.anchor {
+            if let Some(row) = anchor.row.checked_sub(removed) {
+                anchor.row = row;
+            } else {
+                self.anchor = None;
+                self.mode = SelectKind::Normal;
+            }
+        }
+        true
+    }
+
     /// Enter copy mode with the caret at `cursor` (absolute coords; the host
     /// typically seeds it at the live cursor or viewport bottom). No selection
     /// is anchored yet — the caret is free to navigate first.

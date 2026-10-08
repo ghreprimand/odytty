@@ -997,10 +997,23 @@ the bottom. The saved search-return offset follows the same anchor, while an
 open search retains its query and options. Search matches are discarded and refreshed
 against the new row origin. A command-scoped search keeps its revision guard
 and cannot widen after eviction.
-Stale selection, hover spans, button presses, hints and copy-mode coordinates
-are cleared. Eviction does not reset visible-row fade state. Grid reflow keeps
-its existing full layout reset. The same bookkeeping applies on Linux Wayland,
-Linux X11, macOS and Windows, and to background panes.
+Whole-row front eviction shifts surviving selection endpoints, drag anchors,
+hint matches and copy-mode coordinates to the new origin. Lost selection
+endpoints cancel that selection; a lost copy anchor clears its selection while
+retaining a surviving caret. Hint labels and the typed prefix stay stable for
+retained matches. Lost carets and hints with no surviving prefix candidates
+close their modes. Hover and
+button hits are resolved afresh. A grid change, complete clears, partial oversized-line cell
+truncation or an unprovable row delta keeps the full coordinate-reset fallback.
+Copy extraction refuses a range if another eviction occurred after reconciliation.
+
+Alternate-screen frames preserve the primary push baseline and saved
+search-return offset; returning to the primary screen does not count its
+lifetime output again. Eviction does not reset visible-row fade state. Grid
+reflow keeps its full layout reset. Front-eviction bookkeeping applies to
+background panes too; below the cap, tab activation retains the existing offset
+relative to the current bottom. These rules apply on Linux Wayland, Linux X11,
+macOS and Windows, without changing PTY or ConPTY input transport.
 
 ### IME Composition
 

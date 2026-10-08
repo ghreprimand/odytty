@@ -25,6 +25,19 @@ impl Screen {
         self.scrollback.pushed_row_count()
     }
 
+    /// Primary-buffer history metrics remain stable while the alternate screen runs.
+    pub(crate) fn primary_scrollback_metrics(&self) -> (usize, u64, u64) {
+        let history = self
+            .primary_screen
+            .as_ref()
+            .map_or(&self.scrollback, |primary| &primary.scrollback);
+        (
+            history.physical_len(self.dimensions.columns),
+            history.pushed_row_count(),
+            history.coordinate_reset_epoch(),
+        )
+    }
+
     pub fn scrollback_len(&self) -> usize {
         self.scrollback.physical_len(self.dimensions.columns)
     }

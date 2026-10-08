@@ -211,3 +211,33 @@ fn windowed_rows_match_the_full_projection_across_wide_glyph_wraps() {
         }
     }
 }
+
+#[test]
+fn cell_truncation_and_full_clear_request_a_coordinate_reset() {
+    let mut sb = Scrollback::with_limit(1);
+    let original = sb.coordinate_reset_epoch();
+    sb.push_row(closed('a'));
+    sb.push_row(closed('b'));
+    assert_eq!(
+        sb.coordinate_reset_epoch(),
+        original,
+        "whole lines allow row rebasing"
+    );
+    sb.push_row(Line::wrapped(vec![
+        Cell::new('x', Attrs::default());
+        super::scrollback::MAX_LOGICAL_LINE_CELLS
+            + 3
+    ]));
+    assert_ne!(
+        sb.coordinate_reset_epoch(),
+        original,
+        "cell-prefix removal requires a reset"
+    );
+    let truncated = sb.coordinate_reset_epoch();
+    sb.clear();
+    assert_ne!(
+        sb.coordinate_reset_epoch(),
+        truncated,
+        "a complete clear retains its reset"
+    );
+}

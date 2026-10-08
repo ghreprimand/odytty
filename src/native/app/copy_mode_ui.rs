@@ -1,33 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! COPYMODE: vim-key keyboard scrollback selection ("copy") mode.
+//! Native copy-mode input, overlays, and clipboard extraction.
 //!
-//! This is the native wiring around the banked pure-core [`crate::native::copy_mode`]
-//! model. All feature logic lives in this file; the foundation pre-wired every
-//! seam (dispatch arm, modal gate, key route, pointer capture, render hook,
-//! signature consumer) so the integration touches `app/mod.rs` for exactly ONE line:
-//! the `copy_mode: Option<CopyModeState>` field + its `None` initializer.
-//!
-//! COPYMODE rides the overlay-registry + modal-input foundation:
-//!
-//! - **`ActiveModal` input gate (YES, and pointer-owning).** While active the
-//!   modal captures EVERY key beneath the overlay/search guards
-//!   ([`App::copy_mode_key`] is the routed handler), so nothing leaks to the
-//!   PTY; [`App::copy_mode_active`] feeds both the modal gate and the pointer
-//!   capture predicate, so it must reflect the live field truthfully.
-//! - **`OverlayCompositeSignature.copy_mode` fragment (YES).** A
-//!   [`OverlayFragment::CopyMode`] keyed on the caret + anchor cells invalidates
-//!   the render cache while the selection/caret moves, and is `Inert` while
-//!   inactive so the default frame bytes are byte-identical.
-//! - **cell-mutation lane (YES).** The selection band + caret are painted onto a
-//!   snapshot copy ([`App::paint_copy_mode_cells`], a sibling of
-//!   `paint_selection_cells`), never the terminal core - copy mode is purely a
-//!   presentation overlay.
-//!
-//! Off-path contract: when `self.copy_mode` is `None` (the default),
-//! `copy_mode_active()` is `false`, `paint_copy_mode_cells` mutates zero cells,
-//! and `copy_mode_overlay_signature()` is `Inert` - so `active_modal()` is
-//! `None` and the frame bytes + input routing are byte-identical to before
-//! COPYMODE landed.
+//! Each pane owns its caret and anchor. App routing enforces modal exclusion,
+//! follows the caret, paints snapshot copies, and uses the caret/anchor signature
+//! to invalidate cached overlays. Yanks share absolute text extraction with
+//! mouse copy and refuse coordinates made stale by another history eviction.
 
 use crate::core::Snapshot;
 use crate::native::copy_mode::{CopyModeContext, CopyModeKey, CopyModeResponse, CopyModeState};
@@ -45,6 +22,7 @@ impl App {
     /// it on screen - so entry is deterministic regardless of the current scroll
     /// position.
     pub(super) fn enter_copy_mode(&mut self) -> bool {
+        self.sessions.reconcile_scrollback_trims();
         // Defensive mutual-exclusion (mirrors `activate_hints`). The key ladder
         // routes overlay / search / active modals BEFORE the BindableAction
         // match, so this is unreachable while another modal owns input; the
@@ -143,9 +121,9 @@ impl App {
                 // `None` for a degenerate (single-cell) selection, so nothing is
                 // copied in that case.
                 // H4: reconcile any pending scrollback trim (the scrollback-epoch
-                // check) before reading; a trim since the last redraw clears the
-                // stale copy-mode state so the yank cannot resolve to different,
-                // more recent rows. Mirrors the command-output copy generation
+                // check) before reading; surviving coordinates shift to the new
+                // origin and evicted anchors are dropped, so a yank cannot read
+                // different, more recent rows. Mirrors the command-output copy generation
                 // guard.
                 self.sessions.reconcile_scrollback_trims();
                 if let Some(range) = self.copy_mode.as_ref().and_then(CopyModeState::range)
@@ -220,6 +198,10 @@ impl App {
         // Poison-recover rather than abort across the AppKit/Rust FFI on this
         // copy / PRIMARY-selection choke point; byte-identical when healthy.
         let terminal = crate::native::lock_recover(&self.terminal);
+        // Refuse a stale range if the pump evicted again after reconciliation.
+        if terminal.scrollback_trim_epoch() != self.last_scrollback_trim_epoch {
+            return None;
+        }
         let dimensions = terminal.screen().dimensions();
         let rows = dimensions.rows;
         let cols = dimensions.columns;

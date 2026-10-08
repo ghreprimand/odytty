@@ -204,6 +204,7 @@ impl App {
     /// first, then an in-progress local selection drag, then TUI mouse
     /// reporting, then local selection / hyperlink-open / middle-click paste.
     pub(super) fn handle_mouse_input(&mut self, state: ElementState, button: WinitMouseButton) {
+        self.sessions.reconcile_scrollback_trims();
         if button == WinitMouseButton::Left {
             self.pointer_left_held = state == ElementState::Pressed;
         }
@@ -937,6 +938,7 @@ impl App {
     /// first, then TUI reporting, then local scrollback movement at the
     /// configured per-notch multiplier.
     pub(super) fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {
+        self.sessions.reconcile_scrollback_trims();
         // UX4-P1: an open overlay captures the wheel to scroll its list,
         // before TUI reporting or scrollback movement.
         if self.overlay.is_open() {
@@ -1326,8 +1328,8 @@ impl App {
     pub(super) fn write_primary_selection(&mut self) {
         // H4: the PTY pump can trim scrollback on its own thread between redraws,
         // shifting every absolute row address. Reconcile any pending trim (the
-        // scrollback-epoch check) before reading the selection, so a stale
-        // selection is cleared rather than resolving to different, more recent
+        // scrollback-epoch check) before reading the selection, so surviving
+        // anchors shift to the new origin and lost anchors cannot read later
         // rows -- the same generation discipline the command-output copy path
         // already applies.
         self.sessions.reconcile_scrollback_trims();

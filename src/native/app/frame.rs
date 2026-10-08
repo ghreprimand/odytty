@@ -453,12 +453,13 @@ impl App {
                     // multipane bell is serviced instead of stranding.
                     // This paint only reads scrollback for viewport
                     // anchoring; the fast path is otherwise unchanged.
-                    let (scrollback_len, pushed_rows) = {
+                    let (scrollback_len, pushed_rows, alternate) = {
                         // P0-3: per-frame paint read - poison-recover.
                         let terminal = crate::native::lock_recover(&self.terminal);
                         (
                             terminal.screen().scrollback_len(),
                             terminal.screen().pushed_row_count(),
+                            terminal.on_alternate_screen(),
                         )
                     };
                     self.update_bell_flash(now);
@@ -472,7 +473,8 @@ impl App {
                     self.update_click_hint(now);
                     // Share the physical push baseline with split rendering
                     // and trim reconciliation, including capped history.
-                    let offset = self.anchor_viewport_for_render(scrollback_len, pushed_rows);
+                    let offset =
+                        self.anchor_viewport_for_render(scrollback_len, pushed_rows, alternate);
                     // SCROLL-GLIDE: advance the forward-chase follower
                     // one frame toward the just-anchored offset and
                     // snapshot at its floored row (the sub-row remainder

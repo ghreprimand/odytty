@@ -461,9 +461,14 @@ impl Session {
             .unwrap_or_else(|| "odytty".to_owned());
         let last_scrollback_trim_epoch =
             crate::native::lock_recover(&terminal).scrollback_trim_epoch();
-        let last_scrollback_pushes = crate::native::lock_recover(&terminal)
-            .screen()
-            .pushed_row_count();
+        let (last_scrollback_pushes, scrollback_coordinate_baseline) = {
+            let terminal = crate::native::lock_recover(&terminal);
+            let (_, pushes, _) = terminal.screen().primary_scrollback_metrics();
+            (
+                pushes,
+                super::presentation::ScrollbackCoordinateBaseline::read(terminal.screen()),
+            )
+        };
         Self {
             id,
             terminal,
@@ -521,6 +526,7 @@ impl Session {
             last_scrollback_len: 0,
             last_scrollback_pushes,
             last_scrollback_trim_epoch,
+            scrollback_coordinate_baseline,
             cursor_blink: CursorBlinkState::new(crate::native::app::CURSOR_BLINK_INTERVAL),
             cursor_anim_alpha: 1.0,
             cursor_ease_deadline: None,

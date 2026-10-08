@@ -1301,9 +1301,15 @@ At the scrollback limit, new output keeps the viewed text in place until it
 is evicted, then pins the view at the oldest retained row. An open search query
 survives and its saved return position follows the same anchor. If history
 shrinks, the offset is clamped. Matches refresh for the surviving text; a command-scoped
-search remains restricted to its original revision. Selection, hover targets,
-hints and copy mode clear when eviction invalidates their row coordinates.
-Resizing still resets the layout-dependent state.
+search remains restricted to its original revision. Mouse selections and held
+drags, hint matches and copy-mode carets follow surviving text across whole-row
+eviction. Lost endpoints clear a selection; surviving hint labels keep their
+names, and a copy-mode caret can stay active after its selection anchor is lost.
+An evicted caret or a hint prefix with no surviving candidates closes its mode. Hover and button hits
+refresh. Explicit clears, resizing and partial oversized-line cell truncation retain the full
+coordinate reset. Alternate-screen frames preserve the primary history baseline
+and saved search-return offset, so scrolling immediately after a TUI exits does
+not jump to the oldest row. These rules apply on all four display platforms.
 
 ### Summon A Quick Terminal
 

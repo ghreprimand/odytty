@@ -415,3 +415,6 @@ mod connection_browser_tests;
 
 #[cfg(test)]
 mod connection_probe_result_tests;
+
+#[cfg(test)]
+mod scroll_coordinate_tests;
