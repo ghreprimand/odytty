@@ -76,3 +76,33 @@ fn binding_the_active_workspace_repaints_the_floating_rail() {
         "the bound marker changes the floating rail's content"
     );
 }
+
+#[test]
+fn pressing_and_dragging_a_floating_rail_slot_repaints_the_floating_rail() {
+    let (mut app, _background) = revealed_rail_app();
+    // Settle hover over the first slot first, so the press is the only change.
+    app.pointer_move_for_test(12.0, 24.0);
+    let hovered = app.rail_overlay_content_hash_for_test();
+    app.mouse_left_press_for_test();
+    assert_eq!(
+        app.rail_ws_drag_for_test(),
+        Some((false, 0)),
+        "the press lands on the floating rail's first slot"
+    );
+    assert_ne!(
+        app.rail_overlay_content_hash_for_test(),
+        hovered,
+        "the pressed slot fill changes the floating rail's content"
+    );
+    let pressed = app.rail_overlay_content_hash_for_test();
+    app.pointer_move_for_test(12.0, 60.0);
+    assert_eq!(
+        app.rail_ws_drag_for_test().map(|(armed, _)| armed),
+        Some(true)
+    );
+    assert_ne!(
+        app.rail_overlay_content_hash_for_test(),
+        pressed,
+        "the armed preview changes the floating rail's content"
+    );
+}

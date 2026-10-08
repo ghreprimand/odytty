@@ -127,6 +127,34 @@ fn armed_underline_absent_over_unresolved_span() {
     assert_eq!(app.armed_underline_cells_for_test(), None);
 }
 
+/// A filename with a decomposed accent after a wide glyph resolves with its
+/// mark intact, and the armed span covers exactly its cells: the wide glyph's
+/// tail adds no text and the accented owner is one cell.
+#[test]
+fn hovered_path_keeps_retained_marks_and_maps_back_to_its_cells() {
+    let content = "\u{4e00} /proj/cafe\u{301}.txt";
+    let Some(mut app) = build_app(content.as_bytes()) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_interactive_paths_for_test(true);
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/cafe\u{301}.txt", FsKind::File)]));
+    hold_open_modifier(&mut app, true);
+    // Column 15 is the `x` of `.txt`.
+    app.pointer_move_for_test(f64::from(CELL_W) * 15.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(
+        app.hovered_path_for_test()
+            .map(|resolved| resolved.abs.clone()),
+        Some("/proj/cafe\u{301}.txt".to_owned()),
+        "the decomposed filename resolves unchanged"
+    );
+    assert_eq!(
+        app.armed_underline_cells_for_test(),
+        Some((0, 3, 17)),
+        "the span covers columns 3..17: six for /proj/, four for cafe with its mark, four for .txt"
+    );
+}
+
 // ── Mis-click hint ─────────────────────────────────────────────────────────
 
 #[test]

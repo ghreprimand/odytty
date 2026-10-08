@@ -360,6 +360,76 @@ fn missing_profile_cwd_opens_tab_with_warning_not_hard_failure() {
     let _ = fs::remove_dir_all(&base);
 }
 
+/// The workspace routes apply the same missing-directory fallback as New Tab:
+/// an explicit profile, the global default profile, and a missing directory
+/// each open a workspace with a bounded notice instead of a spawn failure.
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn missing_profile_cwd_opens_workspace_with_warning_not_hard_failure() {
+    let base = temp_config_base("ws-cwd-miss");
+    with_config_base(&base, || {
+        let missing = base.join("no-such-workdir-odytty");
+        write_cwd_profile("badcwd", &missing.to_string_lossy());
+        for default_route in [false, true] {
+            let mut app = app_or_skip!();
+            let before = app.workspace_count_for_test();
+            if default_route {
+                app.set_global_default_launch_profile_for_test("badcwd");
+                app.dispatch_workspace_action_for_test(
+                    crate::settings::BindableAction::NewWorkspace,
+                );
+            } else {
+                app.new_workspace_with_profile_for_test("badcwd");
+            }
+            assert_eq!(
+                app.workspace_count_for_test(),
+                before + 1,
+                "default route {default_route}: missing cwd must still open a workspace"
+            );
+            let notice = app.open_notice_message_for_test().unwrap_or_default();
+            assert!(
+                notice.contains("working directory does not exist"),
+                "default route {default_route}: bounded fallback notice; got {notice:?}"
+            );
+        }
+    });
+    let _ = fs::remove_dir_all(&base);
+}
+
+/// A workspace opened with a themed profile carries the authored theme as
+/// session state, exactly as a profile tab does.
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn profile_workspace_records_the_authored_theme() {
+    let base = temp_config_base("ws-theme");
+    with_config_base(&base, || {
+        write_theme_profile("drac", "dracula");
+        let expected = Theme::from_name("dracula").expect("dracula builtin");
+        let mut app = app_or_skip!();
+        app.new_workspace_with_profile_for_test("drac");
+        assert_eq!(
+            app.active_profile_theme_for_test()
+                .map(|theme| theme.background),
+            Some(expected.background),
+            "the new workspace's pane carries the authored theme"
+        );
+        assert_eq!(app.chrome_theme_for_test().background, expected.background);
+        app.apply_model_state_to_all_sessions_for_test();
+        assert_eq!(
+            app.chrome_theme_for_test().background,
+            expected.background,
+            "a later model sweep keeps the profile theme"
+        );
+    });
+    let _ = fs::remove_dir_all(&base);
+}
+
 // ---- (e) deleting the global default clears the setting ---------------------
 
 #[cfg_attr(

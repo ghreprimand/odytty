@@ -93,11 +93,13 @@ fn chip_visual(button: &SnapshotButton, hovered: Option<(usize, usize)>) -> Chip
     }
 }
 
-/// Whether a cell is blank enough for the chip to claim as a pill cap: a space
-/// glyph on the default background with no hyperlink. Program output - any
-/// glyph, any colored cell, any linked cell - is never overdrawn by chrome.
+/// Whether a cell is blank enough for the chip to claim as a pill cap. This is
+/// the same rule core uses to place point chips
+/// ([`crate::core::cell_is_chip_blank`]): a plain space on the default
+/// background with no marks, hyperlink, underline, strikethrough or inverse,
+/// and not a wide glyph's tail. Program output is never overdrawn by chrome.
 fn cap_claimable(cell: &Cell) -> bool {
-    cell.ch == ' ' && cell.attrs.background == Color::Default && cell.attrs.hyperlink.is_none()
+    crate::core::cell_is_chip_blank(cell)
 }
 
 /// A pill-cap cell: the cap glyph in the chip's fill color over the default
@@ -334,6 +336,25 @@ mod tests {
         );
         assert_eq!(snap.cells[7].ch, CAP_RIGHT, "right cap after the run");
         assert_eq!(snap.cells[7].attrs.foreground, live.background);
+    }
+
+    #[test]
+    fn pill_caps_never_cover_a_marked_inverse_or_wide_tail_neighbor() {
+        // Left neighbor: a space carrying U+0301. Right neighbor: an inverse
+        // space. Neither is blank, so neither takes a cap.
+        let mut snap = snapshot_with_text(20, 3, " \u{301}Retry\x1b[7m \x1b[0m");
+        assert_eq!(snap.cells[0].combining(), &['\u{301}']);
+        paint_button_cells(&mut snap, &[btn(0, 1, 5, ButtonState::Live)], None);
+        assert_eq!(snap.cells[0].ch, ' ', "the marked space keeps its glyph");
+        assert_eq!(snap.cells[0].combining(), &['\u{301}'], "and its mark");
+        assert_eq!(snap.cells[6].ch, ' ', "the inverse space is not capped");
+        assert!(snap.cells[6].attrs.inverse());
+        // A wide glyph's tail directly before the run is not a blank cell.
+        let mut wide = snapshot_with_text(20, 3, "\u{4e00}Retry");
+        assert!(wide.cells[1].wide_continuation);
+        paint_button_cells(&mut wide, &[btn(0, 2, 5, ButtonState::Live)], None);
+        assert_eq!(wide.cells[0].ch, '\u{4e00}', "the wide lead is untouched");
+        assert!(wide.cells[1].wide_continuation, "its tail is not capped");
     }
 
     #[test]

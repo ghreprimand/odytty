@@ -98,8 +98,10 @@ pub use bidi::{
 };
 pub use button::{
     ButtonEntry, ButtonHit, ButtonIcon, ButtonId, ButtonScope, ButtonSpan, ButtonState,
-    MAX_BUTTON_ENTRIES, MAX_BUTTON_SPANS_PER_LINE, click_report_bytes,
+    MAX_BUTTON_ENTRIES, MAX_BUTTON_SPANS_PER_LINE, cell_is_chip_blank, click_report_bytes,
 };
+// Only the width tests outside this module read it directly now.
+#[cfg(test)]
 pub(crate) use char_width::char_display_width;
 pub(crate) use emoji_width::has_two_cell_footprint as emoji_owner_is_two_cells;
 pub use encoding::{encode_focus_event, encode_mouse_event, encode_mouse_event_pixel};

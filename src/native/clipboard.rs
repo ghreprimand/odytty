@@ -132,25 +132,8 @@ impl ClipboardSelectionIo for NativeClipboard {
                 }
             };
 
-            match clipboard.get_text() {
-                Ok(text) => Some(text),
-                // An empty clipboard reports `ContentNotAvailable`, which is
-                // routine on Wayland: `get_text` runs on real paste, middle-click
-                // primary paste, AND (historically) every context-menu open. Do
-                // NOT clear the cached handle for it -- dropping the handle forces
-                // a fresh compositor connection on the next read -- and log it at
-                // debug so an empty clipboard never spams WARN. Only a genuine
-                // backend error invalidates the handle and warrants a warning.
-                Err(arboard::Error::ContentNotAvailable) => {
-                    tracing::debug!("clipboard empty on paste read");
-                    None
-                }
-                Err(err) => {
-                    tracing::warn!("clipboard paste failed: {err}");
-                    self.slot.clear();
-                    None
-                }
-            }
+            let result = clipboard.get_text();
+            settle_text_read(&mut self.slot, result, "clipboard")
         }
     }
 
@@ -210,18 +193,11 @@ impl ClipboardSelectionIo for NativeClipboard {
                 }
             };
 
-            match clipboard
+            let result = clipboard
                 .get()
                 .clipboard(LinuxClipboardKind::Primary)
-                .text()
-            {
-                Ok(text) => Some(text),
-                Err(err) => {
-                    tracing::warn!("primary selection paste failed: {err}");
-                    self.slot.clear();
-                    None
-                }
-            }
+                .text();
+            settle_text_read(&mut self.slot, result, "primary selection")
         }
     }
 
@@ -339,6 +315,31 @@ impl NativeClipboard {
 
     pub(super) fn write_primary_text(&mut self, text: &str) -> Option<()> {
         self.write_primary_selection_text(text)
+    }
+}
+
+/// Settle one text read from the clipboard or the PRIMARY selection. An empty
+/// selection reports `ContentNotAvailable`, which is routine (middle-click on
+/// an empty PRIMARY, paste from an empty clipboard), so it keeps the cached
+/// handle and logs at debug: dropping the handle forces a fresh compositor
+/// connection on the next read. Only a genuine backend error invalidates the
+/// handle and warrants a warning. Both read paths share this rule.
+fn settle_text_read<T>(
+    slot: &mut ClipboardSlot<T>,
+    result: Result<String, arboard::Error>,
+    source: &str,
+) -> Option<String> {
+    match result {
+        Ok(text) => Some(text),
+        Err(arboard::Error::ContentNotAvailable) => {
+            tracing::debug!("{source} empty on paste read");
+            None
+        }
+        Err(err) => {
+            tracing::warn!("{source} paste failed: {err}");
+            slot.clear();
+            None
+        }
     }
 }
 
@@ -603,6 +604,42 @@ fn normalize_plain_paste(text: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An empty PRIMARY or clipboard read keeps the retained handle; only a
+    /// backend error drops it. Both production read paths go through
+    /// `settle_text_read`, which is the part a unit test can reach.
+    #[test]
+    fn empty_text_reads_keep_the_clipboard_handle_and_errors_drop_it() {
+        let mut slot = ClipboardSlot::<u8>::new();
+        slot.get_or_try_init(|| Ok::<u8, ()>(1)).unwrap();
+        for source in ["clipboard", "primary selection"] {
+            assert_eq!(
+                settle_text_read(&mut slot, Err(arboard::Error::ContentNotAvailable), source),
+                None
+            );
+            assert!(
+                slot.is_retaining_handle(),
+                "{source}: empty keeps the handle"
+            );
+        }
+        assert_eq!(
+            settle_text_read(&mut slot, Ok("text".to_owned()), "primary selection"),
+            Some("text".to_owned())
+        );
+        assert!(slot.is_retaining_handle());
+        assert_eq!(
+            settle_text_read(
+                &mut slot,
+                Err(arboard::Error::ClipboardOccupied),
+                "primary selection"
+            ),
+            None
+        );
+        assert!(
+            !slot.is_retaining_handle(),
+            "a backend error drops the handle"
+        );
+    }
 
     /// Twin of `input::sanitize_paste`: deleting a match can reassemble a fresh
     /// end marker from the surrounding bytes.

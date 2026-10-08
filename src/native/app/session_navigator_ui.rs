@@ -250,7 +250,7 @@ impl App {
             self.open_session_navigator_overlay();
             return;
         };
-        let effective = super::profile_launch::resolve_for_new_local_tab(
+        let mut effective = super::profile_launch::resolve_for_new_local_tab(
             &self.settings,
             None,
             item.cwd.clone().map(std::path::PathBuf::from),
@@ -261,23 +261,29 @@ impl App {
                 Some(token) => self.restore_navigator_title(token, item.title),
                 None => self.navigator_recently_closed.push_back(item),
             },
-            ClosedNavigatorKind::Workspace => match self
-                .sessions
-                .new_workspace_from_effective(self.grid, &effective)
-            {
-                Ok(token) => {
-                    self.finish_new_workspace_with_effective(token, &effective);
-                    if let Some(workspace) = self.sessions.workspaces.last_mut() {
-                        workspace.name = item.title;
+            ClosedNavigatorKind::Workspace => {
+                // A tab launch applies this inside its own spawn path.
+                super::profile_launch::apply_missing_cwd_fallback(&mut effective);
+                match self
+                    .sessions
+                    .new_workspace_from_effective(self.grid, &effective)
+                {
+                    Ok(token) => {
+                        self.finish_new_workspace_with_effective(token, &effective);
+                        if let Some(workspace) = self.sessions.workspaces.last_mut() {
+                            workspace.name = item.title;
+                        }
+                    }
+                    Err(error) => {
+                        if self.open_notice.is_none() {
+                            self.raise_open_notice(format!(
+                                "Could not reopen the workspace: {error}"
+                            ));
+                        }
+                        self.navigator_recently_closed.push_back(item);
                     }
                 }
-                Err(error) => {
-                    if self.open_notice.is_none() {
-                        self.raise_open_notice(format!("Could not reopen the workspace: {error}"));
-                    }
-                    self.navigator_recently_closed.push_back(item);
-                }
-            },
+            }
         }
         self.open_session_navigator_overlay();
     }

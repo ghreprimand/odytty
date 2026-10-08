@@ -480,8 +480,9 @@ impl App {
     /// `default()` (not revealed) is a frame-to-frame constant, so the pinned /
     /// no-autohide path keeps its byte-identical cache behavior; when revealed,
     /// the visibility + geometry + a hash of the rail's visual state (active
-    /// index, workspace count, hover, names, and the progress, activity and
-    /// bound badges) make a reveal / hide / switch / rename / badge / hover /
+    /// index, workspace count, hover, names, the progress, activity and bound
+    /// badges, and a workspace drag's pressed slot, preview and drop target)
+    /// make a reveal / hide / switch / rename / badge / hover / drag /
     /// auto-width change reclassify to a Full rebuild.
     pub(super) fn rail_overlay_render_signature(&self, cell: CellSize) -> RailOverlaySignature {
         use std::hash::{Hash, Hasher};
@@ -514,6 +515,12 @@ impl App {
         // Hover state changes the highlighted slot, so a hover move while
         // revealed must repaint.
         format!("{:?}", self.tab_rail.hover).hash(&mut hasher);
+        // A workspace drag paints the pressed slot and, once armed, the
+        // reordered preview and the insertion indicator. Those read only the
+        // origin slot, the armed flag and the drop index.
+        self.rail_ws_drag
+            .map(|drag| (drag.origin_idx, drag.armed, drag.drop_idx))
+            .hash(&mut hasher);
         RailOverlaySignature {
             visible: true,
             cols,

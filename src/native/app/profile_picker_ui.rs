@@ -26,7 +26,7 @@ impl App {
     pub(super) fn handle_new_workspace_with_profile(&mut self, profile_name: &str) {
         self.finish_divider_drag();
         let cwd = self.validated_spawn_cwd();
-        let effective = super::profile_launch::resolve_for_new_local_tab(
+        let mut effective = super::profile_launch::resolve_for_new_local_tab(
             &self.settings,
             Some(profile_name),
             cwd,
@@ -39,6 +39,9 @@ impl App {
             }
             return;
         }
+        // As for a profile tab: a starting directory that no longer exists
+        // falls back to home with a notice instead of failing the spawn.
+        super::profile_launch::apply_missing_cwd_fallback(&mut effective);
         match self
             .sessions
             .new_workspace_with_effective(self.grid, profile_name, &effective)
@@ -95,7 +98,15 @@ impl App {
         let scrollback_limit = effective.settings.scrollback_limit();
         let button_gates = self.button_gates();
         let cell = self.gpu.as_ref().map(GpuState::cell);
+        // The profile's authored theme is session state, exactly as for a
+        // profile tab, so the chrome presents it and a later model sweep keeps
+        // it. A profile without a theme leaves no stamp.
+        let profile_authored_theme = effective
+            .profile_theme
+            .as_ref()
+            .map(|_| effective.settings.theme);
         if let Some(session) = self.sessions.get_mut(token) {
+            session.profile_theme = profile_authored_theme;
             Self::initialize_session_with(
                 session,
                 session_theme,
@@ -114,6 +125,11 @@ impl App {
         self.on_active_session_changed();
         for warning in &effective.warnings {
             tracing::warn!(warning = %warning, "profile launch notice");
+        }
+        if let Some(warning) = effective.warnings.first()
+            && self.open_notice.is_none()
+        {
+            self.raise_open_notice(warning.clone());
         }
     }
 }

@@ -1007,7 +1007,9 @@ F:L:C`, `vim +call cursor(L,C) F`, `nano +L,C F`) - or an **argv template** with
 
 `myeditor --line {line} {file}`). The spec is always whitespace-tokenized into
 argv and **never** evaluated by a shell; a `$EDITOR` carrying args (`code
---wait`) is split into argv too. Both the toggle and the editor knob live in the
+--wait`) is split into argv too. Placeholders are replaced in one pass over the
+template, so a filename containing text such as `{line}` reaches the editor
+unchanged. Both the toggle and the editor knob live in the
 Settings panel's Input section.
 
 **Troubleshooting interactive paths.** If modifier+click does nothing, confirm

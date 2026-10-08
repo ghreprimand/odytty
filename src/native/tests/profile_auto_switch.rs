@@ -223,3 +223,123 @@ fn repeated_identical_cwd_reports_parse_the_catalog_once() {
 
     let _ = fs::remove_dir_all(home);
 }
+
+/// A switch applied in one pane does not count as "recently applied" in a
+/// different pane that reports the same host and directory.
+#[test]
+fn a_switch_in_one_pane_does_not_suppress_another_pane_at_the_same_directory() {
+    let home = temp_config_home("two-panes");
+    let profiles_dir = fixture_profiles_dir(&home);
+    write_switch_profile(
+        &profiles_dir,
+        "work",
+        ProfileSwitchRules {
+            match_hosts: Vec::new(),
+            match_directories: vec!["/work/project".to_owned()],
+            preserved: Default::default(),
+        },
+    );
+
+    with_home(&home, || {
+        let mut app = app_with_auto_switch();
+        app.advance_primary_terminal_for_test(&osc7_local("/work/project/src"));
+        app.poll_profile_auto_switch_for_test();
+        assert_eq!(
+            app.active_launch_profile_for_test().as_deref(),
+            Some("work")
+        );
+
+        let dims = Dimensions::new(80, 24);
+        let second = std::sync::Arc::new(std::sync::Mutex::new(crate::core::Terminal::new(
+            dims.columns,
+            dims.rows,
+        )));
+        second
+            .lock()
+            .expect("terminal")
+            .advance(&osc7_local("/work/project/src"));
+        let writer = crate::native::test_support::headless_writer();
+        app.seed_headless_split_pane_for_test(true, second, writer, dims);
+        assert_eq!(
+            app.active_launch_profile_for_test(),
+            None,
+            "the new pane starts plain"
+        );
+        app.poll_profile_auto_switch_for_test();
+        assert_eq!(
+            app.active_launch_profile_for_test().as_deref(),
+            Some("work"),
+            "the second pane at the same directory switches too"
+        );
+    });
+
+    let _ = fs::remove_dir_all(home);
+}
+
+/// Switching records the new profile's authored theme and presents it, and
+/// switching on to a profile without a theme clears the previous stamp.
+#[test]
+fn a_switch_stamps_the_authored_theme_and_a_plain_profile_clears_it() {
+    let home = temp_config_home("theme");
+    let profiles_dir = fixture_profiles_dir(&home);
+    let mut themed = LaunchProfile::new("themed").expect("profile");
+    themed.switch = ProfileSwitchRules {
+        match_hosts: Vec::new(),
+        match_directories: vec!["/work/themed".to_owned()],
+        preserved: Default::default(),
+    };
+    themed.appearance.theme = Some("dracula".to_owned());
+    write_profile_file(&profiles_dir.join("themed.profile.json"), &themed).expect("write profile");
+    write_switch_profile(
+        &profiles_dir,
+        "plain",
+        ProfileSwitchRules {
+            match_hosts: Vec::new(),
+            match_directories: vec!["/work/plain".to_owned()],
+            preserved: Default::default(),
+        },
+    );
+    let dracula = crate::theme::Theme::from_name("dracula").expect("dracula builtin");
+
+    with_home(&home, || {
+        let mut app = app_with_auto_switch();
+        app.advance_primary_terminal_for_test(&osc7_local("/work/themed"));
+        app.poll_profile_auto_switch_for_test();
+        assert_eq!(
+            app.active_launch_profile_for_test().as_deref(),
+            Some("themed")
+        );
+        assert_eq!(
+            app.active_profile_theme_for_test()
+                .map(|theme| theme.background),
+            Some(dracula.background),
+            "the switched pane carries the authored theme"
+        );
+        assert_eq!(
+            app.chrome_theme_for_test().background,
+            dracula.background,
+            "the chrome presents it at once"
+        );
+        app.apply_model_state_to_all_sessions_for_test();
+        assert_eq!(
+            app.chrome_theme_for_test().background,
+            dracula.background,
+            "a later model sweep keeps it"
+        );
+
+        app.advance_primary_terminal_for_test(&osc7_local("/work/plain"));
+        app.poll_profile_auto_switch_for_test();
+        assert_eq!(
+            app.active_launch_profile_for_test().as_deref(),
+            Some("plain")
+        );
+        assert_eq!(
+            app.active_profile_theme_for_test(),
+            None,
+            "a profile without a theme clears the previous stamp"
+        );
+        assert_ne!(app.chrome_theme_for_test().background, dracula.background);
+    });
+
+    let _ = fs::remove_dir_all(home);
+}

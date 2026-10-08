@@ -175,6 +175,34 @@ pub(crate) fn file_uri(abs: &str, os: OpenerOs) -> String {
     crate::paths::file_uri::file_uri(abs, uri_os)
 }
 
+/// Expand `{file}`, `{line}` and `{col}` in one template token in a single
+/// left-to-right pass over the template text. Inserted values are data and are
+/// never scanned again, so a filename that itself contains `{line}` or `{col}`
+/// reaches the editor unchanged.
+fn expand_editor_token(token: &str, abs: &str, line: &str, col: &str) -> String {
+    let mut out = String::with_capacity(token.len().saturating_add(abs.len()));
+    let mut rest = token;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let tail = &rest[open..];
+        let replacement = [("{file}", abs), ("{line}", line), ("{col}", col)]
+            .into_iter()
+            .find(|(placeholder, _)| tail.starts_with(placeholder));
+        match replacement {
+            Some((placeholder, value)) => {
+                out.push_str(value);
+                rest = &tail[placeholder.len()..];
+            }
+            None => {
+                out.push('{');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The argv vector to open `abs` at `line`(`:col`) with the given editor `spec`
 /// (design §4 editor matrix). Pure; never spawns.
 ///
@@ -207,12 +235,7 @@ pub(crate) fn editor_argv(
         let line_str = line.to_string();
         return spec
             .split_whitespace()
-            .map(|token| {
-                token
-                    .replace("{file}", abs)
-                    .replace("{line}", &line_str)
-                    .replace("{col}", &col_str)
-            })
+            .map(|token| expand_editor_token(token, abs, &line_str, &col_str))
             .collect();
     }
 
@@ -586,6 +609,30 @@ mod dispatch_tests {
         assert_eq!(
             editor_argv_lin("ed +{line}:{col} {file}", "/p/f.rs", 5, None),
             vec!["ed".to_owned(), "+5:".to_owned(), "/p/f.rs".to_owned()]
+        );
+    }
+
+    #[test]
+    fn template_substitutes_once_and_never_rescans_the_filename() {
+        // A filename that itself contains placeholder-like text is data: the
+        // later `{line}` and `{col}` substitutions must not rewrite it.
+        assert_eq!(
+            editor_argv_lin(
+                "ed +{line}:{col} {file}",
+                "/p/{line}{col}{file}.rs",
+                7,
+                Some(3)
+            ),
+            vec![
+                "ed".to_owned(),
+                "+7:3".to_owned(),
+                "/p/{line}{col}{file}.rs".to_owned()
+            ]
+        );
+        // A lone or unknown brace in the template passes through unchanged.
+        assert_eq!(
+            editor_argv_lin("ed {x} {file}{", "/p/f.rs", 1, None),
+            vec!["ed".to_owned(), "{x}".to_owned(), "/p/f.rs{".to_owned()]
         );
     }
 

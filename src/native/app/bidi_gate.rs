@@ -406,6 +406,13 @@ impl App {
             .map(|(_, map)| map)
     }
 
+    /// Test seam: the window pixel position the IME candidate window anchors
+    /// at, with the injected cell metrics and window padding.
+    pub(in crate::native) fn ime_cursor_area_origin_for_test(&self) -> Option<[f32; 2]> {
+        let cell = self.resolved_cell()?;
+        Some(self.ime_cursor_area_origin_px(cell, self.window_pad_px()))
+    }
+
     /// Test seam: the screen column the IME candidate window anchors at.
     pub(in crate::native) fn ime_anchor_column_for_test(
         &self,

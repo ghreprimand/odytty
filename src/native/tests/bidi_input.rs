@@ -264,3 +264,40 @@ fn ime_candidate_window_anchors_at_the_cursor_cell_drawn_on_screen() {
     let cursor = crate::core::Position { row: 0, column: 1 };
     assert_eq!(app.ime_anchor_column_for_test(cursor), 1, "Latin stays put");
 }
+
+/// In a split the candidate window anchors at the focused pane's own cursor
+/// cell, not at the same pane-local cell measured from the window corner. The
+/// focused pane is the right pane of a column split and the lower pane of a
+/// row split, each with window padding.
+#[test]
+fn ime_candidate_window_anchors_inside_the_focused_split_pane() {
+    for columns in [true, false] {
+        let dims = Dimensions::new(COLUMNS, ROWS);
+        let (mut app, _first) =
+            headless_app_with(NativeOptions::default(), dims, Settings::default());
+        let second = Arc::new(Mutex::new(Terminal::new(COLUMNS, ROWS)));
+        second.lock().expect("terminal").advance(b"abc\r\nde");
+        let writer = crate::native::test_support::headless_writer();
+        app.seed_headless_split_pane_for_test(columns, second, writer, dims);
+        app.set_test_cell_for_test(CELL);
+        app.set_test_surface_for_test(
+            (COLUMNS * 2) as u32 * CELL.width + 12,
+            (ROWS * 2) as u32 * CELL.height + 12,
+            crate::native::WindowPadding::from_logical(6.0, 1.0),
+        );
+        let (_, origin) = app.focused_pane_grid_for_test().expect("split geometry");
+        assert!(
+            origin[0] > 6.0 || origin[1] > 6.0,
+            "the focused pane is not at the window corner"
+        );
+        let expected = [
+            origin[0] + 2.0 * CELL.width as f32,
+            origin[1] + CELL.height as f32,
+        ];
+        assert_eq!(
+            app.ime_cursor_area_origin_for_test(),
+            Some(expected),
+            "split columns={columns}: cursor (row 1, column 2) of the focused pane"
+        );
+    }
+}

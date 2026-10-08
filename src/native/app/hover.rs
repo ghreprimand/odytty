@@ -27,6 +27,66 @@ impl ButtonGates {
     }
 }
 
+/// One hovered row as path-scanner text plus the map back to its cells. Each
+/// owner cell contributes its base character and every retained scalar, so a
+/// decomposed accent or script cluster in a filename reaches the scanner
+/// intact. Wide-glyph tails and layout padding contribute nothing: they are
+/// not text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct HoveredRow {
+    pub(super) text: String,
+    /// `(byte offset in text, first column, columns)` for each owner, in order.
+    owners: Vec<(usize, usize, usize)>,
+}
+
+impl HoveredRow {
+    pub(super) fn from_cells(cells: &[crate::core::Cell]) -> Self {
+        let mut text = String::new();
+        let mut owners = Vec::new();
+        for (column, cell) in cells.iter().enumerate() {
+            if cell.wide_continuation || cell.layout_padding {
+                continue;
+            }
+            let width = if cells
+                .get(column + 1)
+                .is_some_and(|next| next.wide_continuation)
+            {
+                2
+            } else {
+                1
+            };
+            owners.push((text.len(), column, width));
+            text.extend(crate::selection::cell_grapheme_chars(cell));
+        }
+        Self { text, owners }
+    }
+
+    /// The byte offset of the owner drawn at `column`, including a wide
+    /// glyph's tail column. `None` for padding or a column past the row.
+    pub(super) fn byte_at_column(&self, column: usize) -> Option<usize> {
+        self.owners
+            .iter()
+            .find(|(_, first, width)| (*first..first + width).contains(&column))
+            .map(|(byte, _, _)| *byte)
+    }
+
+    /// The cell range `[start, end)` covering the owners whose text overlaps
+    /// the byte range `[start, end)`.
+    pub(super) fn cell_span(&self, start: usize, end: usize) -> Option<(usize, usize)> {
+        let first = self
+            .owners
+            .iter()
+            .rposition(|(byte, _, _)| *byte <= start)?;
+        let last = self.owners.iter().rposition(|(byte, _, _)| *byte < end)?;
+        if last < first {
+            return None;
+        }
+        let (_, start_column, _) = self.owners[first];
+        let (_, last_column, last_width) = self.owners[last];
+        Some((start_column, last_column + last_width))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum InteractivePathOpenKind {
     InlineImage,
@@ -178,10 +238,10 @@ impl App {
         let row = self
             .pointer_cell
             .and_then(|point| self.hovered_row_text_and_cwd(point).map(|row| (point, row)));
-        let probe_key = row.as_ref().map(|(cell, (line, _, cwd))| {
+        let probe_key = row.as_ref().map(|(cell, (line, cwd))| {
             use std::hash::{Hash, Hasher};
             let mut digest = std::collections::hash_map::DefaultHasher::new();
-            line.hash(&mut digest);
+            line.text.hash(&mut digest);
             cwd.hash(&mut digest);
             (
                 *cell,
@@ -194,9 +254,9 @@ impl App {
             return;
         }
         self.hover_path_probe_key = probe_key;
-        let (resolved, cells) = match row.and_then(|(point, (line, column, cwd))| {
-            self.resolve_path_in_row(point, &line, column, cwd.as_deref())
-        }) {
+        let (resolved, cells) = match row
+            .and_then(|(point, (line, cwd))| self.resolve_path_in_row(point, &line, cwd.as_deref()))
+        {
             Some((resolved, cells)) => (Some(resolved), Some(cells)),
             None => (None, None),
         };
@@ -312,28 +372,25 @@ impl App {
     /// As [`Self::resolved_hovered_path`], but also returns the visible-cell span
     /// (UX-A): the row and column range the detected path occupies, so the
     /// open-modifier armed underline can decorate exactly those cells. The span's
-    /// byte offsets are mapped to column indices by counting chars (correct for
-    /// any multi-byte content earlier in the row, though paths are ASCII/narrow).
+    /// byte offsets map back to the cells that own them through
+    /// [`HoveredRow`], so marks, wide glyphs and script clusters earlier in the
+    /// row never shift the span.
     pub(super) fn resolved_hovered_path_with_cells(
         &self,
     ) -> Option<(crate::paths::Resolved, super::click_hint::HoverPathCells)> {
         let point = self.pointer_cell?;
-        let (line, column, cwd) = self.hovered_row_text_and_cwd(point)?;
-        self.resolve_path_in_row(point, &line, column, cwd.as_deref())
+        let (line, cwd) = self.hovered_row_text_and_cwd(point)?;
+        self.resolve_path_in_row(point, &line, cwd.as_deref())
     }
 
-    /// Resolve the path span at `column` of the already-read row `line`.
+    /// Resolve the path span under `point` in the already-read row `line`.
     fn resolve_path_in_row(
         &self,
         point: CellPoint,
-        line: &str,
-        column: usize,
+        line: &HoveredRow,
         cwd: Option<&str>,
     ) -> Option<(crate::paths::Resolved, super::click_hint::HoverPathCells)> {
-        // Map the pointer's cell column to a byte offset in the row string. Paths
-        // are ASCII/narrow, so one char per cell column keeps the column and char
-        // indices aligned.
-        let target = line.char_indices().nth(column).map(|(byte, _)| byte)?;
+        let target = line.byte_at_column(point.column)?;
         let options = crate::paths::DetectionOptions {
             barewords: self.settings.interactive_paths_barewords,
         };
@@ -345,22 +402,14 @@ impl App {
         // over `notes.txt`) while prose runs that name no real file stay inert.
         // The single hovered token is always among the candidates, so a spaceless
         // filename resolves byte-identically to the previous single-span path.
-        for span in crate::paths::detect_path_candidates_at(line, target, options) {
+        for span in crate::paths::detect_path_candidates_at(&line.text, target, options) {
             let Some(resolved) = self.classify_hovered_path(&span, cwd, self.home_dir.as_deref())
             else {
                 continue;
             };
-            // Panic-free byte→column mapping: count chars whose byte offset is
-            // below the span boundary (never indexes a String slice at a raw
-            // byte).
-            let start = line
-                .char_indices()
-                .filter(|(byte, _)| *byte < span.start)
-                .count();
-            let end = line
-                .char_indices()
-                .filter(|(byte, _)| *byte < span.end)
-                .count();
+            let Some((start, end)) = line.cell_span(span.start, span.end) else {
+                continue;
+            };
             let cells = super::click_hint::HoverPathCells {
                 row: point.row,
                 start,
@@ -404,12 +453,8 @@ impl App {
     /// Single-lock fetch of the row text under `point` plus the pane's OSC 7
     /// working directory. Mirrors [`Self::visible_cell_hyperlink`]'s one-lock
     /// structure: the row string and the cwd both come from the same `terminal`
-    /// lock. The row is built one char per cell column so a column index maps to
-    /// a char index.
-    fn hovered_row_text_and_cwd(
-        &self,
-        point: CellPoint,
-    ) -> Option<(String, usize, Option<String>)> {
+    /// lock. The row keeps every cell's retained scalars (see [`HoveredRow`]).
+    fn hovered_row_text_and_cwd(&self, point: CellPoint) -> Option<(HoveredRow, Option<String>)> {
         if point.row >= self.grid.rows || point.column >= self.grid.columns {
             return None;
         }
@@ -421,9 +466,9 @@ impl App {
         }
         let start = point.row * cols;
         let row = snapshot.cells.get(start..start + cols)?;
-        let line: String = row.iter().map(|cell| cell.ch).collect();
+        let line = HoveredRow::from_cells(row);
         let cwd = terminal.current_working_directory().map(str::to_owned);
-        Some((line, point.column, cwd))
+        Some((line, cwd))
     }
 
     /// Stat-gate a candidate span through the production probe. Split on

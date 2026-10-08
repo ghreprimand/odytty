@@ -185,23 +185,34 @@ impl App {
             return;
         };
         let cell = gpu.cell();
-        let pad = gpu.window_padding().as_f32();
-        // CHROME-GAP sweep: the candidate window anchors at the CONTENT cursor
-        // cell, so the tab-chrome offset (band cells plus the chrome-facing
-        // padding gap) shifts it exactly like every other content-registered
-        // coordinate. Both components are 0 with no chrome shown, keeping the
-        // plain path byte-identical.
-        let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
-        let cursor = crate::native::lock_recover(&self.terminal)
-            .snapshot()
-            .cursor;
-        let column = self.ime_anchor_column(cursor);
-        let x = pad + chrome_dx as f32 + column as f32 * cell.width as f32;
-        let y = pad + chrome_dy as f32 + cursor.row as f32 * cell.height as f32;
+        let [x, y] = self.ime_cursor_area_origin_px(cell, gpu.window_padding().as_f32());
         window.set_ime_cursor_area(
             PhysicalPosition::new(x, y),
             PhysicalSize::new(cell.width, cell.height),
         );
+    }
+
+    /// Window pixel position of the cursor cell the candidate window anchors
+    /// at. In a split, zoomed, stacked or floating tab this is the focused
+    /// pane's drawn grid origin (which already includes padding and tab
+    /// chrome) plus the pane-local cursor cell. A single-pane tab uses the
+    /// window padding plus the tab-chrome offset (band cells plus the
+    /// chrome-facing padding gap), both 0 with no chrome shown.
+    pub(super) fn ime_cursor_area_origin_px(&self, cell: CellSize, pad: f32) -> [f32; 2] {
+        let cursor = crate::native::lock_recover(&self.terminal)
+            .snapshot()
+            .cursor;
+        let column = self.ime_anchor_column(cursor);
+        let origin = if let Some((_, origin, _)) = self.focused_pane_grid() {
+            origin
+        } else {
+            let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
+            [pad + chrome_dx as f32, pad + chrome_dy as f32]
+        };
+        [
+            origin[0] + column as f32 * cell.width as f32,
+            origin[1] + cursor.row as f32 * cell.height as f32,
+        ]
     }
 
     /// The screen column the candidate window anchors at: the column the
@@ -229,6 +240,12 @@ impl App {
     /// Paint the pre-edit string inline starting at the cursor cell, underlined
     /// so it reads as provisional. Clamped to the cursor row; no-op when no
     /// composition is in progress.
+    ///
+    /// The text is laid out by a scratch one-row terminal with the pane's
+    /// ambiguous-width setting, so the preview owns cells exactly as the
+    /// committed text will: a decomposed accent or emoji sequence is one owner
+    /// with its marks retained, a wide owner carries a real wide tail, and an
+    /// owner that does not fit before the right edge is left out whole.
     pub(in crate::native) fn paint_ime_preedit_cells(
         &self,
         snapshot: &mut Snapshot,
@@ -239,27 +256,82 @@ impl App {
         }
         let columns = snapshot.dimensions.columns;
         let row = snapshot.cursor.row;
-        if columns == 0 || row >= snapshot.dimensions.rows {
+        let start = snapshot.cursor.column;
+        if columns == 0 || row >= snapshot.dimensions.rows || start >= columns {
             return;
         }
         let mut attrs = Attrs::default();
         attrs.underline_style = UnderlineStyle::Straight;
-        let mut x = snapshot.cursor.column;
-        for ch in self.ime_preedit.chars() {
-            if ch.is_control() {
-                continue;
-            }
-            let width = crate::core::char_display_width(ch, ambiguous_wide).max(1);
-            if x + width > columns {
-                break;
-            }
-            snapshot.cells[row * columns + x] = Cell::new(ch, attrs);
-            if width == 2 && x + 1 < columns {
-                snapshot.cells[row * columns + x + 1] = Cell::new(' ', attrs);
-            }
-            x += width;
+        let projected = project_preedit_cells(&self.ime_preedit, columns - start, ambiguous_wide);
+        if projected.is_empty() {
+            return;
+        }
+        let base = row * columns;
+        let end = start + projected.len();
+        // Covering one half of a wide glyph already on screen would leave the
+        // other half drawing across the pre-edit: blank the uncovered half.
+        if snapshot.cells[base + start].wide_continuation && start > 0 {
+            let lead = &mut snapshot.cells[base + start - 1];
+            *lead = Cell::new(' ', lead.attrs);
+        }
+        if end < columns && snapshot.cells[base + end].wide_continuation {
+            let tail = &mut snapshot.cells[base + end];
+            *tail = Cell::new(' ', tail.attrs);
+        }
+        for (offset, mut cell) in projected.into_iter().enumerate() {
+            cell.attrs = attrs;
+            snapshot.cells[base + start + offset] = cell;
         }
     }
+}
+
+/// Upper bound on pre-edit scalars laid out per frame. A composition is a few
+/// characters; the cap only keeps a pathological input-method string from
+/// costing more than one row's worth of work.
+const PREEDIT_MAX_SCALARS: usize = 4096;
+
+/// Lay `text` out the way the terminal will once it is committed, in at most
+/// `columns` cells, and return the cells of the whole owners that fit.
+/// Control characters are dropped, so nothing in the text acts as a sequence.
+fn project_preedit_cells(text: &str, columns: usize, ambiguous_wide: bool) -> Vec<Cell> {
+    if columns == 0 {
+        return Vec::new();
+    }
+    let printable: String = text
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .take(PREEDIT_MAX_SCALARS)
+        .collect();
+    // Two spare columns let the last owner that crosses `columns` land whole
+    // on the scratch row, so the cut below is always at an owner boundary.
+    let width = columns + 2;
+    let mut scratch = crate::core::Terminal::new(width, 2);
+    scratch.set_ambiguous_wide(ambiguous_wide);
+    scratch.advance(printable.as_bytes());
+    let snapshot = scratch.snapshot();
+    let written = if snapshot.cursor.row == 0 {
+        snapshot.cursor.column
+    } else {
+        width
+    };
+    let row = &snapshot.cells[..width];
+    let mut end = 0;
+    while end < written.min(width) {
+        let cell = row[end];
+        if cell.layout_padding {
+            break;
+        }
+        let owner = if end + 1 < width && row[end + 1].wide_continuation {
+            2
+        } else {
+            1
+        };
+        if end + owner > columns {
+            break;
+        }
+        end += owner;
+    }
+    row[..end].to_vec()
 }
 
 #[cfg(test)]
@@ -346,6 +418,82 @@ mod tests {
         assert!(app.ime_preedit.is_empty());
         assert_eq!(pty_bytes(&written), b"ab");
         assert_eq!(app.ime_overlay_signature(), OverlayFragment::Inert);
+    }
+
+    /// The pre-edit preview owns cells exactly as the committed text will:
+    /// each case is painted at the cursor and compared, cell by cell (glyph,
+    /// retained marks, wide tail), with a terminal that received the text.
+    #[test]
+    fn preedit_preview_matches_the_committed_layout() {
+        let (mut app, _written) = build_app();
+        for text in [
+            "e\u{301}x",
+            "\u{1f469}\u{200d}\u{1f4bb}x",
+            "\u{915}\u{94d}\u{937}x",
+            "\u{e01}\u{e33}x",
+            "\u{2764}\u{fe0f}x",
+            "\u{4e00}x",
+        ] {
+            app.handle_ime(Ime::Preedit(text.to_owned(), None));
+            let mut snapshot = Terminal::new(COLS, ROWS).snapshot();
+            app.paint_ime_preedit_cells(&mut snapshot, false);
+            let mut committed = Terminal::new(COLS, ROWS);
+            committed.advance(text.as_bytes());
+            let committed = committed.snapshot();
+            for column in 0..6 {
+                let (painted, expected) = (snapshot.cells[column], committed.cells[column]);
+                assert_eq!(painted.ch, expected.ch, "{text:?} column {column}");
+                assert_eq!(painted.combining(), expected.combining(), "{text:?} marks");
+                assert_eq!(
+                    painted.wide_continuation, expected.wide_continuation,
+                    "{text:?} wide tail at {column}"
+                );
+            }
+        }
+    }
+
+    /// At the right edge a wide owner that does not fit is left out whole, and
+    /// a pre-edit that starts on, or ends before, half of an existing wide
+    /// glyph blanks the other half instead of leaving it drawing across.
+    #[test]
+    fn preedit_preview_keeps_owners_whole_at_edges() {
+        let (mut app, _written) = build_app();
+        app.handle_ime(Ime::Preedit("a\u{4e00}".to_owned(), None));
+        let mut terminal = Terminal::new(COLS, ROWS);
+        terminal.advance(format!("\x1b[1;{}H", COLS - 1).as_bytes());
+        let mut snapshot = terminal.snapshot();
+        app.paint_ime_preedit_cells(&mut snapshot, false);
+        assert_eq!(snapshot.cells[COLS - 2].ch, 'a');
+        assert_eq!(
+            snapshot.cells[COLS - 1].ch,
+            ' ',
+            "the wide owner is left out"
+        );
+        assert!(!snapshot.cells[COLS - 1].wide_continuation);
+
+        // Existing wide glyphs at columns 0-1 and 3-4; the cursor sits on the
+        // first glyph's tail, and the two-cell pre-edit stops before the second.
+        app.handle_ime(Ime::Preedit("ab".to_owned(), None));
+        let mut terminal = Terminal::new(COLS, ROWS);
+        terminal.advance("\u{4e00}-\u{4e8c}\x1b[1;2H".as_bytes());
+        let mut snapshot = terminal.snapshot();
+        assert!(snapshot.cells[1].wide_continuation);
+        app.paint_ime_preedit_cells(&mut snapshot, false);
+        assert_eq!(snapshot.cells[0].ch, ' ', "the uncovered lead is blanked");
+        assert_eq!(snapshot.cells[1].ch, 'a');
+        assert_eq!(snapshot.cells[2].ch, 'b');
+        assert_eq!(snapshot.cells[3].ch, '\u{4e8c}', "an untouched owner stays");
+        assert!(snapshot.cells[4].wide_continuation);
+
+        // A one-cell pre-edit on the second glyph's lead blanks its tail.
+        app.handle_ime(Ime::Preedit("a".to_owned(), None));
+        let mut terminal = Terminal::new(COLS, ROWS);
+        terminal.advance("\u{4e00}-\u{4e8c}\x1b[1;4H".as_bytes());
+        let mut snapshot = terminal.snapshot();
+        app.paint_ime_preedit_cells(&mut snapshot, false);
+        assert_eq!(snapshot.cells[3].ch, 'a');
+        assert_eq!(snapshot.cells[4].ch, ' ', "the uncovered tail is blanked");
+        assert!(!snapshot.cells[4].wide_continuation);
     }
 
     #[test]

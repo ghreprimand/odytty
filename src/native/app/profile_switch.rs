@@ -51,7 +51,10 @@ impl App {
             .filter(|profile| profile.applies_on_current_platform())
             .map(|profile| (profile.name.as_str(), &profile.switch))
             .collect();
-        let context = profile_switch_context_key(host, cwd_path);
+        // The context names the pane: a profile applied in one pane must not
+        // count as recently applied in another pane at the same host and
+        // directory.
+        let context = (focused, profile_switch_context_key(host, cwd_path));
         if self.profile_switch_context.as_ref() != Some(&context) {
             self.profile_switch_context = Some(context);
             self.profile_switch_recent = None;
@@ -98,8 +101,16 @@ impl App {
                     iterm_compat: effective.settings.buttons_iterm_compat,
                     sticky: effective.settings.buttons_sticky,
                 };
+                // Switching records the new profile's authored theme, or clears
+                // the previous profile's stamp when the new one sets none, so
+                // the chrome and later model sweeps follow the switch.
+                let profile_authored_theme = effective
+                    .profile_theme
+                    .as_ref()
+                    .map(|_| effective.settings.theme);
                 if let Some(session) = self.sessions.get_mut(focused) {
                     session.launch_profile = Some(profile_name.clone());
+                    session.profile_theme = profile_authored_theme;
                     let cell = self.gpu.as_ref().map(crate::native::gpu::GpuState::cell);
                     Self::initialize_session_with(
                         session,
@@ -115,6 +126,7 @@ impl App {
                     );
                 }
                 self.profile_switch_recent = Some(profile_name.clone());
+                self.present_active_session_chrome();
                 self.show_transient_hud(profile_switch_hud_message(&profile_name, &reason));
                 self.needs_rebuild = true;
                 if let Some(window) = self.window.as_ref() {
@@ -128,10 +140,11 @@ impl App {
     }
 }
 
-fn profile_switch_context_key(
-    host: Option<&str>,
-    cwd: Option<&Path>,
-) -> (Option<String>, Option<String>) {
+/// The lowercased host and the working directory an auto-switch decision was
+/// made for.
+pub(super) type ProfileSwitchContext = (Option<String>, Option<String>);
+
+fn profile_switch_context_key(host: Option<&str>, cwd: Option<&Path>) -> ProfileSwitchContext {
     (
         host.map(str::to_ascii_lowercase),
         cwd.map(|path| path.to_string_lossy().into_owned()),

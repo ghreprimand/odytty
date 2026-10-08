@@ -664,6 +664,13 @@ impl App {
         self.handle_new_tab_with_profile(profile_name);
     }
 
+    /// Test seam: open a New Workspace with an explicit named profile through
+    /// the real launch path (resolver + real PTY spawn).
+    #[cfg(test)]
+    pub(in crate::native) fn new_workspace_with_profile_for_test(&mut self, profile_name: &str) {
+        self.handle_new_workspace_with_profile(profile_name);
+    }
+
     /// Test seam (v0.14 profiles): write raw bytes to the active session's PTY
     /// (the child's stdin) so a spawned shell can be driven from a test.
     #[cfg(test)]

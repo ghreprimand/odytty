@@ -266,19 +266,34 @@ impl App {
         if columns == 0 || snapshot.dimensions.rows == 0 {
             return;
         }
-        if let Some(cell) = snapshot.cells.get_mut(columns - 1) {
-            cell.ch = ch;
-            cell.attrs.foreground = Color::Rgb(
+        let last = columns - 1;
+        // The badge replaces the whole cell, so none of the terminal cell's
+        // marks, wide-tail flag, padding or display attributes leak into it.
+        // Covering the spacer half of a wide glyph would leave its lead drawing
+        // across the badge, so the lead is blanked, as the read-only label does.
+        if last > 0
+            && snapshot
+                .cells
+                .get(last)
+                .is_some_and(|cell| cell.wide_continuation)
+            && let Some(lead) = snapshot.cells.get_mut(last - 1)
+        {
+            *lead = Cell::new(' ', lead.attrs);
+        }
+        if let Some(cell) = snapshot.cells.get_mut(last) {
+            let mut attrs = Attrs::default();
+            attrs.foreground = Color::Rgb(
                 self.effective_theme.background.0,
                 self.effective_theme.background.1,
                 self.effective_theme.background.2,
             );
-            cell.attrs.background = Color::Rgb(
+            attrs.background = Color::Rgb(
                 self.effective_theme.foreground.0,
                 self.effective_theme.foreground.1,
                 self.effective_theme.foreground.2,
             );
-            cell.attrs.set_bold(true);
+            attrs.set_bold(true);
+            *cell = Cell::new(ch, attrs);
         }
     }
 

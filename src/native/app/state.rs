@@ -383,9 +383,11 @@ pub(in crate::native) struct App {
     /// Last named profile applied by auto-switch, used to bound ping-pong when
     /// multiple rules match the same host/directory context.
     pub(super) profile_switch_recent: Option<String>,
-    /// Last host/cwd context used for auto-switch evaluation. Clears recency
-    /// only when this context changes so repeated cwd events cannot flap.
-    pub(super) profile_switch_context: Option<(Option<String>, Option<String>)>,
+    /// Last pane and host/cwd context used for auto-switch evaluation. Clears
+    /// recency only when this context changes so repeated cwd events cannot
+    /// flap, and a switch in one pane never suppresses another pane's.
+    pub(super) profile_switch_context:
+        Option<(SessionToken, super::profile_switch::ProfileSwitchContext)>,
     /// Active IME pre-edit (composition) string as delivered by `winit`'s
     /// `Ime::Preedit`. Empty when no composition is in progress. Rendered inline
     /// at the terminal cursor; never sent to the PTY until the IME commits.

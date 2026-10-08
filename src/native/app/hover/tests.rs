@@ -47,3 +47,21 @@ fn image_open_kind_uses_external_for_non_images() {
         InteractivePathOpenKind::External
     );
 }
+
+#[test]
+fn hovered_row_text_skips_wide_tails_and_layout_padding() {
+    // A wide glyph that does not fit at the edge wraps and leaves padding.
+    let mut terminal = crate::core::Terminal::new(5, 2);
+    terminal.advance("a\u{4e00}d\u{4e8c}".as_bytes());
+    let snapshot = terminal.snapshot();
+    let row = HoveredRow::from_cells(&snapshot.cells[..5]);
+    assert!(snapshot.cells[4].layout_padding, "fixture leaves padding");
+    assert_eq!(row.text, "a\u{4e00}d");
+    assert_eq!(row.byte_at_column(2), Some(1), "the tail maps to its owner");
+    assert_eq!(row.byte_at_column(4), None, "padding is not text");
+    assert_eq!(
+        row.cell_span(1, 4),
+        Some((1, 3)),
+        "the wide owner spans two cells"
+    );
+}

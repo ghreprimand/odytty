@@ -198,8 +198,9 @@ pub struct ButtonHit {
 /// visible decoration (underline of any style, strikethrough, inverse), and
 /// not the spacer of a wide glyph. Anything else, including glyphs, colored or
 /// decorated runs, marked spaces, linked cells and wide-glyph tails, is program
-/// output the chip must never overdraw or claim for clicks.
-fn cell_is_chip_blank(cell: &Cell) -> bool {
+/// output the chip must never overdraw or claim for clicks. The renderer's
+/// pill caps use the same rule, so a cap never covers program output either.
+pub fn cell_is_chip_blank(cell: &Cell) -> bool {
     cell.ch == ' '
         && !cell.wide_continuation
         && cell.combining().is_empty()

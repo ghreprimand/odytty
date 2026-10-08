@@ -664,7 +664,7 @@ impl App {
     pub(super) fn handle_new_workspace(&mut self) {
         self.finish_divider_drag();
         let cwd = self.validated_spawn_cwd();
-        if let Some(effective) =
+        if let Some(mut effective) =
             super::profile_launch::resolve_default_launch_for_new_tab(&self.settings, None, cwd)
         {
             if let Some(alias) = effective.connection.clone() {
@@ -692,6 +692,7 @@ impl App {
                 }
                 return;
             }
+            super::profile_launch::apply_missing_cwd_fallback(&mut effective);
             match self
                 .sessions
                 .new_workspace_from_effective(self.grid, &effective)

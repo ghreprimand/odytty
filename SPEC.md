@@ -1020,12 +1020,16 @@ macOS and Windows, without changing PTY or ConPTY input transport.
 IME input is enabled at window creation (`Window::set_ime_allowed(true)`) so
 `winit` delivers the four `Ime` events. `src/native/app/ime.rs` routes them:
 `Enabled`/`Disabled` clear any stale pre-edit; `Preedit(text, _)` stores the
-in-progress composition and positions the IME candidate area at the cursor;
+in-progress composition and positions the IME candidate area at the cursor
+cell drawn on screen (in a split, the focused pane's cursor cell);
 `Commit(text)` writes the finalized UTF-8 to the active PTY exactly like typed
 `Character` input and clears the pre-edit. The pre-edit is rendered inline at the
 cursor cell with a straight underline (an `ImePreedit` overlay fragment forces a
 full repaint per composition keystroke); it is never sent to the shell until
-commit. This makes CJK input methods and compose-key/dead-key accents work.
+commit. The preview lays the text out with the terminal's own cluster and width
+rules, so combining marks, emoji sequences and script clusters occupy the same
+cells they will after commit, and an owner that does not fit before the right
+edge is left out whole. This makes CJK input methods and compose-key/dead-key accents work.
 
 With no composition in progress the pre-edit is empty and the render path is
 unchanged.
@@ -2213,9 +2217,13 @@ workspace-scoped override naming it is cleared or rewritten to match. The
 adjacent chevron beside `+` and the context-menu "with Profile" rows open a
 lazily loaded searchable chooser. A launched profile applies its bounded
 environment overrides even with no shell or command, falls back to home with a
-notice when its starting directory is missing rather than failing the tab, and
-carries its selected theme as per-session state that survives global theme
-sweeps and drives the window chrome while the pane is active.
+notice when its starting directory is missing rather than failing the tab or
+workspace, and carries its selected theme as per-session state that survives
+global theme sweeps and drives the window chrome while the pane is active. This
+holds for New Tab, New Workspace, and an auto-switch: switching to a profile
+with no theme clears the previous profile's theme. Auto-switch recency is kept
+per pane, so a switch in one pane never suppresses another pane at the same
+host and directory.
 External palette following (opt-in complete local palette file, content-hash
 reload, last-known-good retention) is documented in
 `docs/v0.14.0-external-palette.md`.
